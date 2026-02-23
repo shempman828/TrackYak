@@ -1,4 +1,4 @@
-# track_editing.py
+# track_edit.py
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QShortcut
 from PySide6.QtWidgets import (
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QMenu,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QTableWidget,
@@ -46,6 +47,11 @@ class TrackEditDialog(QDialog):
         # Initialize field storage dictionaries BEFORE creating tabs
         self.field_widgets = {}
         self.readonly_labels = {}  # Store readonly labels for data loading
+
+        # FIX: Pre-initialize searchers/loaders to None so __getattr__ does not
+        # enter infinite recursion if Qt queries attributes before __init__ completes.
+        self.searchers = None
+        self.loaders = None
 
         self.setWindowTitle(f"Edit Track: {track.track_name}")
         self.setMinimumWidth(800)
@@ -116,7 +122,6 @@ class TrackEditDialog(QDialog):
             if field_config.category == category_name
         }
 
-        # Remove the local declaration - use the instance variables instead
         for field_name, field_config in category_fields.items():
             label_text = field_config.friendly
             if field_config.tooltip:
@@ -126,9 +131,14 @@ class TrackEditDialog(QDialog):
                 label = QLabel(label_text)
 
             if not field_config.editable:
-                # Create simple QLabel for readonly fields (not clickable)
+                # Create simple QLabel for readonly fields (not interactable)
                 value_widget = QLabel()
                 value_widget.setWordWrap(True)
+                # Make readonly fields visually distinct
+                value_widget.setStyleSheet("color: #555; font-style: italic;")
+                # Prevent the label from accepting focus or clicks
+                value_widget.setFocusPolicy(Qt.NoFocus)
+                value_widget.setTextInteractionFlags(Qt.NoTextInteraction)
 
                 self.readonly_labels[field_name] = value_widget
                 layout.addRow(label, value_widget)
@@ -206,12 +216,22 @@ class TrackEditDialog(QDialog):
         """Create identification information tab with Wikipedia search."""
         tab = self._create_tab_from_fields("Identification", "Identification")
 
+        # FIX: Guard against track_wikipedia_link not being in field_widgets
+        # (e.g. if it's non-editable or missing from TRACK_FIELDS)
+        if "track_wikipedia_link" not in self.field_widgets:
+            logger.warning(
+                "track_wikipedia_link not found in field_widgets; "
+                "skipping Wikipedia search button enhancement."
+            )
+            return tab
+
         # Add Wikipedia search button to the identification tab
         wikipedia_layout = QHBoxLayout()
         wikipedia_label = QLabel("Wikipedia Link:")
-        wikipedia_label.setToolTip(TRACK_FIELDS["track_wikipedia_link"].tooltip)
+        tooltip = getattr(TRACK_FIELDS.get("track_wikipedia_link"), "tooltip", "")
+        if tooltip:
+            wikipedia_label.setToolTip(tooltip)
 
-        # The track_wikipedia_link_edit should already be created by _create_tab_from_fields
         self.track_wikipedia_link_edit = self.field_widgets["track_wikipedia_link"]
 
         self.wikipedia_search_btn = QPushButton("Search Wikipedia")
@@ -224,7 +244,6 @@ class TrackEditDialog(QDialog):
         for i in range(form_layout.rowCount()):
             item = form_layout.itemAt(i, QFormLayout.LabelRole)
             if item and item.widget() and "Wikipedia" in item.widget().text():
-                # Remove the existing row
                 field_item = form_layout.itemAt(i, QFormLayout.FieldRole)
                 if field_item:
                     form_layout.removeRow(i)
@@ -240,7 +259,6 @@ class TrackEditDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        # Search and add section
         search_layout = QHBoxLayout()
 
         self.artist_search_edit = QLineEdit()
@@ -252,7 +270,6 @@ class TrackEditDialog(QDialog):
         )
         search_layout.addWidget(self.artist_search_edit)
 
-        # Add search results dropdown
         self.artist_search_combo = QComboBox()
         self.artist_search_combo.setVisible(False)
         self.artist_search_combo.currentIndexChanged.connect(
@@ -272,7 +289,6 @@ class TrackEditDialog(QDialog):
 
         layout.addLayout(search_layout)
 
-        # Current roles table
         self.artist_roles_table = QTableWidget(0, 3)
         self.artist_roles_table.setHorizontalHeaderLabels(["Artist", "Role", "Actions"])
         self.artist_roles_table.horizontalHeader().setSectionResizeMode(
@@ -287,7 +303,6 @@ class TrackEditDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        # Search and add section
         search_layout = QHBoxLayout()
 
         self.genre_search_edit = QLineEdit()
@@ -297,7 +312,6 @@ class TrackEditDialog(QDialog):
         )
         search_layout.addWidget(self.genre_search_edit)
 
-        # Add search results dropdown
         self.genre_search_combo = QComboBox()
         self.genre_search_combo.setVisible(False)
         self.genre_search_combo.currentIndexChanged.connect(
@@ -312,7 +326,6 @@ class TrackEditDialog(QDialog):
 
         layout.addLayout(search_layout)
 
-        # Current genres list
         self.genres_list = QListWidget()
         layout.addWidget(self.genres_list)
 
@@ -323,7 +336,6 @@ class TrackEditDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        # Search and add section
         search_layout = QHBoxLayout()
 
         self.place_search_edit = QLineEdit()
@@ -333,7 +345,6 @@ class TrackEditDialog(QDialog):
         )
         search_layout.addWidget(self.place_search_edit)
 
-        # Add search results dropdown
         self.place_search_combo = QComboBox()
         self.place_search_combo.setVisible(False)
         self.place_search_combo.currentIndexChanged.connect(
@@ -352,7 +363,6 @@ class TrackEditDialog(QDialog):
 
         layout.addLayout(search_layout)
 
-        # Current places table
         self.place_associations_table = QTableWidget(0, 3)
         self.place_associations_table.setHorizontalHeaderLabels(
             ["Place", "Type", "Actions"]
@@ -369,7 +379,6 @@ class TrackEditDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        # Search and add section
         search_layout = QHBoxLayout()
 
         self.mood_search_edit = QLineEdit()
@@ -379,7 +388,6 @@ class TrackEditDialog(QDialog):
         )
         search_layout.addWidget(self.mood_search_edit)
 
-        # Add search results dropdown
         self.mood_search_combo = QComboBox()
         self.mood_search_combo.setVisible(False)
         self.mood_search_combo.currentIndexChanged.connect(
@@ -394,7 +402,6 @@ class TrackEditDialog(QDialog):
 
         layout.addLayout(search_layout)
 
-        # Current moods list
         self.moods_list = QListWidget()
         layout.addWidget(self.moods_list)
 
@@ -405,7 +412,6 @@ class TrackEditDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        # Search and add section
         search_layout = QHBoxLayout()
 
         self.award_search_edit = QLineEdit()
@@ -415,7 +421,6 @@ class TrackEditDialog(QDialog):
         )
         search_layout.addWidget(self.award_search_edit)
 
-        # Add search results dropdown
         self.award_search_combo = QComboBox()
         self.award_search_combo.setVisible(False)
         self.award_search_combo.currentIndexChanged.connect(
@@ -439,7 +444,6 @@ class TrackEditDialog(QDialog):
 
         layout.addLayout(search_layout)
 
-        # Current awards table
         self.awards_table = QTableWidget(0, 4)
         self.awards_table.setHorizontalHeaderLabels(
             ["Award", "Category", "Year", "Actions"]
@@ -448,49 +452,6 @@ class TrackEditDialog(QDialog):
         layout.addWidget(self.awards_table)
 
         self.tabs.addTab(tab, "Awards")
-
-    def _load_track_data(self):
-        """Load current track data into all fields."""
-        # Load editable fields
-        for field_name, widget in self.field_widgets.items():
-            if hasattr(self.track, field_name):
-                value = getattr(self.track, field_name)
-                if value is not None:
-                    if isinstance(widget, QCheckBox):
-                        widget.setChecked(bool(value))
-                    elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-                        widget.setValue(value)
-                    elif isinstance(widget, QTextEdit):
-                        widget.setPlainText(str(value))
-                    elif isinstance(widget, QLineEdit):
-                        widget.setText(str(value))
-                else:
-                    # Handle None values by clearing the widget
-                    if isinstance(widget, QCheckBox):
-                        widget.setChecked(False)
-                    elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-                        widget.setValue(0)
-                    elif isinstance(widget, QTextEdit):
-                        widget.setPlainText("")
-                    elif isinstance(widget, QLineEdit):
-                        widget.setText("")
-
-        # Load readonly fields
-        for field_name, label_widget in self.readonly_labels.items():
-            if hasattr(self.track, field_name):
-                value = getattr(self.track, field_name)
-                field_config = TRACK_FIELDS.get(field_name)
-                self._update_readonly_label(
-                    field_name, field_config, label_widget, value
-                )
-
-        # Load relationship data
-        self.loaders._load_artist_roles()
-        self.loaders._load_genres()
-        self.loaders._load_place_associations()
-        self.loaders._load_moods()
-        self.loaders._load_awards()
-        self.loaders._load_samples()
 
     def _create_samples_tab(self):
         """Create samples management tab with search functionality."""
@@ -503,7 +464,6 @@ class TrackEditDialog(QDialog):
         samples_label.setStyleSheet("font-weight: bold;")
         samples_section.addWidget(samples_label)
 
-        # Search and add samples
         search_samples_layout = QHBoxLayout()
 
         self.sample_search_edit = QLineEdit()
@@ -515,7 +475,6 @@ class TrackEditDialog(QDialog):
         )
         search_samples_layout.addWidget(self.sample_search_edit)
 
-        # Add search results dropdown
         self.sample_search_combo = QComboBox()
         self.sample_search_combo.setVisible(False)
         self.sample_search_combo.currentIndexChanged.connect(
@@ -530,33 +489,28 @@ class TrackEditDialog(QDialog):
 
         samples_section.addLayout(search_samples_layout)
 
-        # Current samples used list
         self.samples_used_list = QListWidget()
         self.samples_used_list.itemDoubleClicked.connect(self._open_sampled_track)
         samples_section.addWidget(self.samples_used_list)
 
         layout.addLayout(samples_section)
 
-        # Separator
         separator = QFrame()
         separator.setFrameShape(QFrame.HLine)
         separator.setFrameShadow(QFrame.Sunken)
         layout.addWidget(separator)
 
-        # Tracks that sample this track
         sampled_by_section = QVBoxLayout()
         sampled_by_label = QLabel("Sampled By (Tracks that sample this track):")
         sampled_by_label.setStyleSheet("font-weight: bold;")
         sampled_by_section.addWidget(sampled_by_label)
 
-        # This section is read-only - shows tracks that sample the current track
         self.sampled_by_list = QListWidget()
         self.sampled_by_list.itemDoubleClicked.connect(self._open_sampling_track)
         sampled_by_section.addWidget(self.sampled_by_list)
 
         layout.addLayout(sampled_by_section)
 
-        # Add help text
         help_label = QLabel("Double-click on any track to open its edit dialog.")
         help_label.setStyleSheet("font-style: italic; color: #666;")
         layout.addWidget(help_label)
@@ -573,8 +527,6 @@ class TrackEditDialog(QDialog):
             track_id = item.data(Qt.UserRole)
             track = self.controller.get.get_entity_object("Track", track_id=track_id)
             if track:
-                from track_edit import TrackEditDialog
-
                 dialog = TrackEditDialog(track, self.controller, self)
                 dialog.exec()
 
@@ -584,8 +536,6 @@ class TrackEditDialog(QDialog):
             track_id = item.data(Qt.UserRole)
             track = self.controller.get.get_entity_object("Track", track_id=track_id)
             if track:
-                from track_edit import TrackEditDialog
-
                 dialog = TrackEditDialog(track, self.controller, self)
                 dialog.exec()
 
@@ -612,7 +562,14 @@ class TrackEditDialog(QDialog):
             for field_name in self.modified_fields:
                 if field_name in self.field_widgets:
                     widget = self.field_widgets[field_name]
-                    field_config = TRACK_FIELDS[field_name]
+                    field_config = TRACK_FIELDS.get(field_name)
+
+                    # FIX: Guard against missing field config
+                    if field_config is None:
+                        logger.warning(
+                            f"Field '{field_name}' in modified_fields but not in TRACK_FIELDS; skipping."
+                        )
+                        continue
 
                     if isinstance(widget, QCheckBox):
                         new_value = widget.isChecked()
@@ -623,12 +580,14 @@ class TrackEditDialog(QDialog):
                     elif isinstance(widget, QLineEdit):
                         new_value = widget.text()
                     else:
+                        logger.warning(
+                            f"Unrecognised widget type for field '{field_name}': {type(widget)}; skipping."
+                        )
                         continue
 
                     old_value = getattr(self.track, field_name, None)
 
                     if self._has_meaningful_change(old_value, new_value):
-                        # Convert to proper type
                         if field_config.type == int:  # noqa: E721
                             try:
                                 new_value = (
@@ -663,10 +622,7 @@ class TrackEditDialog(QDialog):
             self.accept()
 
         except Exception as e:
-            logger.error(f"Error saving track: {e}")
-            # Show error message to user
-            from PySide6.QtWidgets import QMessageBox
-
+            logger.error(f"Error saving track: {e}", exc_info=True)
             QMessageBox.critical(self, "Save Error", f"Failed to save track: {str(e)}")
 
     def _setup_samples_context_menu(self):
@@ -682,25 +638,18 @@ class TrackEditDialog(QDialog):
         if item:
             menu = QMenu(self)
             remove_action = menu.addAction("Remove Sample")
-
             action = menu.exec(self.samples_used_list.mapToGlobal(position))
             if action == remove_action:
                 row = self.samples_used_list.row(item)
                 self.searchers._remove_sample(row)
 
-    # Delegate search handlers
-    def __getattr__(self, name):
-        """Delegate unknown methods to search handlers."""
-        if hasattr(self.searchers, name):
-            return getattr(self.searchers, name)
-        elif hasattr(self.loaders, name):
-            return getattr(self.loaders, name)
-        raise AttributeError(
-            f"'{self.__class__.__name__}' object has no attribute '{name}'"
-        )
-
     def _update_readonly_label(self, field_name, field_config, label_widget, value):
         """Update a readonly label with new value and appropriate formatting."""
+        # FIX: Guard against None field_config to prevent AttributeError CTD
+        if field_config is None:
+            label_widget.setText(str(value) if value is not None else "—")
+            return
+
         if value is None or value == "":
             display_text = "—"  # Use em dash for empty values
         else:
@@ -712,11 +661,54 @@ class TrackEditDialog(QDialog):
                 display_text = str(value)
 
         label_widget.setText(display_text)
-        if len(display_text) > 50 and not field_config.longtext:
+        longtext = getattr(field_config, "longtext", False)
+        if len(display_text) > 50 and not longtext:
             label_widget.setToolTip(display_text)
             label_widget.setText(display_text[:47] + "...")
         else:
             label_widget.setToolTip("")
+
+    def _load_track_data(self):
+        """Load current track data into all fields."""
+        # Load editable fields
+        for field_name, widget in self.field_widgets.items():
+            if hasattr(self.track, field_name):
+                value = getattr(self.track, field_name)
+                if value is not None:
+                    if isinstance(widget, QCheckBox):
+                        widget.setChecked(bool(value))
+                    elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                        widget.setValue(value)
+                    elif isinstance(widget, QTextEdit):
+                        widget.setPlainText(str(value))
+                    elif isinstance(widget, QLineEdit):
+                        widget.setText(str(value))
+                else:
+                    if isinstance(widget, QCheckBox):
+                        widget.setChecked(False)
+                    elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                        widget.setValue(0)
+                    elif isinstance(widget, QTextEdit):
+                        widget.setPlainText("")
+                    elif isinstance(widget, QLineEdit):
+                        widget.setText("")
+
+        # Load readonly fields
+        for field_name, label_widget in self.readonly_labels.items():
+            if hasattr(self.track, field_name):
+                value = getattr(self.track, field_name)
+                field_config = TRACK_FIELDS.get(field_name)  # may be None — handled
+                self._update_readonly_label(
+                    field_name, field_config, label_widget, value
+                )
+
+        # Load relationship data
+        self.loaders._load_artist_roles()
+        self.loaders._load_genres()
+        self.loaders._load_place_associations()
+        self.loaders._load_moods()
+        self.loaders._load_awards()
+        self.loaders._load_samples()
 
     def _setup_tab_shortcuts(self):
         """Set up keyboard shortcuts for tab navigation."""

@@ -293,6 +293,7 @@ class AlbumDetailView(QWidget):
                 "Select Album Cover",
                 "",
                 "Image Files (*.png *.jpg *.jpeg *.bmp *.gif)",
+                options=QFileDialog.Option.DontUseNativeDialog,  # Add this
             )
 
             if file_path:

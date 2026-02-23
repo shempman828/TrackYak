@@ -4,8 +4,6 @@ Program name: TrackYak
 """
 
 import os
-
-os.environ["QT_QPA_PLATFORM"] = "xcb"
 import random
 import sys
 import traceback
@@ -27,6 +25,15 @@ try:
 except ImportError as ie:
     logger.error(f"Missing required module: {ie}")
     sys.exit(1)
+# Detect session type and configure backends accordingly
+session = os.environ.get("XDG_SESSION_TYPE", "").lower()
+
+if session == "wayland":
+    os.environ["QT_QPA_PLATFORM"] = "wayland"
+    os.environ["QT_QPA_PLATFORMTHEME"] = "xdgdesktopportal"
+else:
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
+    os.environ["GDK_BACKEND"] = "x11"
 
 
 def handle_first_run(config):
