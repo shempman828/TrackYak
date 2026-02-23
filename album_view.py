@@ -2,9 +2,11 @@
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -13,6 +15,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSlider,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -23,139 +26,364 @@ from album_flowlayout import FlowLayout
 from base_album_widget import AlbumWidget
 from logger_config import logger
 
+# ---------------------------------------------------------------------------
+# Helper dialog: New Album
+# ---------------------------------------------------------------------------
+
+
+class NewAlbumDialog(QDialog):
+    """Simple dialog to create a new blank album."""
+
+    def __init__(self, controller, parent=None):
+        super().__init__(parent)
+        self.controller = controller
+        self.setWindowTitle("New Album")
+        self.setMinimumWidth(400)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("Required")
+        form.addRow("Album Name:", self.name_edit)
+
+        self.year_spin = QSpinBox()
+        self.year_spin.setRange(0, 9999)
+        self.year_spin.setValue(0)
+        self.year_spin.setSpecialValueText("Unknown")
+        form.addRow("Release Year:", self.year_spin)
+
+        self.artist_edit = QLineEdit()
+        self.artist_edit.setPlaceholderText("Optional – leave blank to add later")
+        form.addRow("Artist:", self.artist_edit)
+
+        self.compilation_check = QCheckBox()
+        form.addRow("Compilation:", self.compilation_check)
+
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _on_accept(self):
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(self, "Required", "Album name cannot be empty.")
+            return
+        self.accept()
+
+    # ── Public accessors ──────────────────────────────────────────────────
+
+    @property
+    def album_name(self) -> str:
+        return self.name_edit.text().strip()
+
+    @property
+    def release_year(self):
+        v = self.year_spin.value()
+        return v if v > 0 else None
+
+    @property
+    def artist_name(self) -> str:
+        return self.artist_edit.text().strip()
+
+    @property
+    def is_compilation(self) -> int:
+        return 1 if self.compilation_check.isChecked() else 0
+
+
+# ---------------------------------------------------------------------------
+# Main view
+# ---------------------------------------------------------------------------
+
 
 class AlbumView(QWidget):
     """Enhanced album view with responsive grid layout, interactive controls,
-    search functionality, and lazy loading.
+    search/filter functionality, and lazy loading.
     """
 
-    def __init__(self, controller):
-        """
-        Initialize the album view.
+    # Sort option label → (criteria_key, descending)
+    _SORT_OPTIONS: list[tuple[str, str, bool]] = [
+        ("Title (A–Z)", "title", False),
+        ("Title (Z–A)", "title", True),
+        ("Artist (A–Z)", "artist", False),
+        ("Artist (Z–A)", "artist", True),
+        ("Year (Newest First)", "year", True),
+        ("Year (Oldest First)", "year", False),
+        ("Track Count (Most First)", "track_count", True),
+        ("Track Count (Fewest First)", "track_count", False),
+        ("Date Added (Newest First)", "date_added", True),
+        ("Date Added (Oldest First)", "date_added", False),
+        ("Most Played", "play_count", True),
+        ("Least Played", "play_count", False),
+        ("Highest Rated", "rating", True),
+        ("Lowest Rated", "rating", False),
+        ("Duration (Longest First)", "length", True),
+        ("Duration (Shortest First)", "length", False),
+    ]
 
-        Args:
-            controller: Controller to interact with music database/logic.
-        """
+    def __init__(self, controller):
         super().__init__()
         self.controller = controller
-        self.current_size = 200  # Default album art size
+        self.current_size = 200
 
-        # For lazy loading and searching:
-        self.all_albums = []
-        self.filtered_albums = []
-        self.display_count = 20  # Number of albums to display initially
-        self.load_chunk = 20  # Number of albums to add on each lazy load
+        self.all_albums: list = []
+        self.filtered_albums: list = []
+        self.display_count = 20
+        self.load_chunk = 20
 
-        # Sorting
-        self.sort_order = Qt.AscendingOrder
-        self.sort_criteria = "title"  # Default sort by title
+        # Sorting state – defaults to "Title (A–Z)"
+        self._sort_criteria = "title"
+        self._sort_descending = False
 
-        self.init_ui()
+        self._init_ui()
         self.load_albums()
 
-    def init_ui(self):
-        """Initialize UI components and layout hierarchy."""
+    # =========================================================================
+    # UI Construction
+    # =========================================================================
+
+    def _init_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(10)
+        main_layout.setSpacing(8)
 
-        # Top control panel: search bar, size slider, and refresh button
-        control_layout = QHBoxLayout()
+        main_layout.addLayout(self._build_top_controls())
+        main_layout.addLayout(self._build_filter_bar())
+        main_layout.addWidget(self._build_scroll_area())
 
-        # Search bar for filtering albums
+    def _build_top_controls(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+
+        # Search
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("Search albums...")
-        self.search_bar.textChanged.connect(self.filter_albums)
-        control_layout.addWidget(self.search_bar)
+        self.search_bar.setPlaceholderText("Search albums, artists, year…")
+        self.search_bar.setClearButtonEnabled(True)
+        self.search_bar.textChanged.connect(self._on_search_changed)
+        row.addWidget(self.search_bar, stretch=3)
 
-        # Size control slider
+        # Sort combo
+        row.addWidget(QLabel("Sort:"))
+        self.sort_combo = QComboBox()
+        for label, _, _ in self._SORT_OPTIONS:
+            self.sort_combo.addItem(label)
+        self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
+        row.addWidget(self.sort_combo, stretch=2)
+
+        # Cover size slider
+        row.addWidget(QLabel("Size:"))
         self.size_slider = QSlider(Qt.Horizontal)
         self.size_slider.setRange(100, 400)
         self.size_slider.setValue(self.current_size)
-        self.size_slider.valueChanged.connect(self.resize_art)
-        control_layout.addWidget(QLabel("Cover Size:"))
-        control_layout.addWidget(self.size_slider)
+        self.size_slider.setMaximumWidth(120)
+        self.size_slider.valueChanged.connect(self._resize_art)
+        row.addWidget(self.size_slider)
 
-        # Sorting controls
-        control_layout.addWidget(QLabel("Sort by:"))
+        # Refresh
+        refresh_btn = QPushButton("↻ Refresh")
+        refresh_btn.setToolTip("Reload albums from library")
+        refresh_btn.clicked.connect(self.load_albums)
+        row.addWidget(refresh_btn)
 
-        self.sort_combo = QComboBox()
-        self.sort_combo.addItems(
-            [
-                "Title (A-Z)",
-                "Title (Z-A)",
-                "Artist (A-Z)",
-                "Artist (Z-A)",
-                "Year (Newest First)",
-                "Year (Oldest First)",
-                "Date Added (Newest First)",
-                "Date Added (Oldest First)",
-                "Track Count",
-                "Most Played",
-            ]
-        )
-        self.sort_combo.currentTextChanged.connect(self.apply_sorting)
-        control_layout.addWidget(self.sort_combo)
+        return row
 
-        # Refresh albums button
-        self.refresh_button = QPushButton("Refresh Albums")
-        self.refresh_button.clicked.connect(self.load_albums)
-        control_layout.addWidget(self.refresh_button)
+    def _build_filter_bar(self) -> QHBoxLayout:
+        """Secondary row with advanced filter chips."""
+        row = QHBoxLayout()
+        row.setSpacing(12)
 
-        # Delete empty albums button
-        self.delete_empty_button = QPushButton("Delete Empty Albums")
-        self.delete_empty_button.clicked.connect(self.delete_empty_albums)
-        control_layout.addWidget(self.delete_empty_button)
+        # Year range
+        row.addWidget(QLabel("Year:"))
+        self.year_from = QSpinBox()
+        self.year_from.setRange(0, 9999)
+        self.year_from.setValue(0)
+        self.year_from.setSpecialValueText("Any")
+        self.year_from.setFixedWidth(70)
+        self.year_from.valueChanged.connect(self._apply_filters)
+        row.addWidget(self.year_from)
+        row.addWidget(QLabel("–"))
+        self.year_to = QSpinBox()
+        self.year_to.setRange(0, 9999)
+        self.year_to.setValue(0)
+        self.year_to.setSpecialValueText("Any")
+        self.year_to.setFixedWidth(70)
+        self.year_to.valueChanged.connect(self._apply_filters)
+        row.addWidget(self.year_to)
 
-        main_layout.addLayout(control_layout)
+        # Min track count
+        row.addWidget(QLabel("Min tracks:"))
+        self.min_tracks = QSpinBox()
+        self.min_tracks.setRange(0, 9999)
+        self.min_tracks.setValue(0)
+        self.min_tracks.setSpecialValueText("Any")
+        self.min_tracks.setFixedWidth(65)
+        self.min_tracks.valueChanged.connect(self._apply_filters)
+        row.addWidget(self.min_tracks)
 
-        # Scrollable album grid with lazy loading
+        # Compilation filter
+        self.compilation_combo = QComboBox()
+        self.compilation_combo.addItems(["All", "Compilations Only", "No Compilations"])
+        self.compilation_combo.currentIndexChanged.connect(self._apply_filters)
+        row.addWidget(self.compilation_combo)
+
+        # Stats label
+        self.stats_label = QLabel()
+        self.stats_label.setStyleSheet("color: gray; font-size: 11px;")
+        row.addWidget(self.stats_label)
+
+        row.addStretch()
+
+        # Clear filters
+        clear_btn = QPushButton("Clear Filters")
+        clear_btn.setFlat(True)
+        clear_btn.setToolTip("Reset all filters")
+        clear_btn.clicked.connect(self._clear_filters)
+        row.addWidget(clear_btn)
+
+        return row
+
+    def _build_scroll_area(self) -> QScrollArea:
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_content = QWidget()
         self.grid_layout = FlowLayout(self.scroll_content)
         self.scroll_content.setLayout(self.grid_layout)
         self.scroll_area.setWidget(self.scroll_content)
-        main_layout.addWidget(self.scroll_area)
 
-        # Connect the scroll bar to check for lazy loading
         self.scroll_area.verticalScrollBar().valueChanged.connect(
-            self.check_scroll_position
+            self._check_scroll_position
         )
-
-        # Enable context menu for the scroll area
         self.scroll_area.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.scroll_area.customContextMenuRequested.connect(self.show_context_menu)
+        self.scroll_area.customContextMenuRequested.connect(self._show_context_menu)
 
-    def show_context_menu(self, position):
-        """Show context menu with album management options."""
-        context_menu = QMenu(self)
+        return self.scroll_area
 
-        # Add delete empty albums action
-        delete_empty_action = context_menu.addAction("Delete Empty Albums")
-        delete_empty_action.triggered.connect(self.delete_empty_albums)
+    # =========================================================================
+    # Context Menu
+    # =========================================================================
 
-        # Show context menu at cursor position
-        context_menu.exec_(self.scroll_area.mapToGlobal(position))
+    def _show_context_menu(self, position):
+        menu = QMenu(self)
 
-    def delete_empty_albums(self):
+        new_action = menu.addAction("➕ New Album…")
+        new_action.triggered.connect(self._create_new_album)
+
+        menu.addSeparator()
+
+        # Delete album only shown when right-clicking directly over a widget
+        global_pos = self.scroll_area.mapToGlobal(position)
+        widget_at = self.scroll_content.childAt(
+            self.scroll_content.mapFromGlobal(global_pos)
+        )
+        target_album_widget = self._find_album_widget_ancestor(widget_at)
+
+        if target_album_widget is not None:
+            album = target_album_widget.album
+            delete_action = menu.addAction(
+                f"🗑 Delete {getattr(album, 'album_name', 'Album')}"
+            )
+            delete_action.triggered.connect(lambda: self._delete_album(album))
+            menu.addSeparator()
+
+        del_empty_action = menu.addAction("🧹 Delete Empty Albums…")
+        del_empty_action.triggered.connect(self._delete_empty_albums)
+
+        menu.exec_(self.scroll_area.mapToGlobal(position))
+
+    @staticmethod
+    def _find_album_widget_ancestor(widget) -> "AlbumWidget | None":
+        """Walk up the widget hierarchy to find an AlbumWidget."""
+        while widget is not None:
+            if isinstance(widget, AlbumWidget):
+                return widget
+            widget = widget.parent()
+        return None
+
+    # =========================================================================
+    # Album CRUD
+    # =========================================================================
+
+    def _create_new_album(self):
+        """Open dialog to create a new album."""
+        dlg = NewAlbumDialog(self.controller, self)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+
+        try:
+            kwargs = {
+                "album_name": dlg.album_name,
+                "is_compilation": dlg.is_compilation,
+            }
+            if dlg.release_year is not None:
+                kwargs["release_year"] = dlg.release_year
+
+            new_album = self.controller.add.add_entity("Album", **kwargs)
+
+            # Optionally link an artist
+            if dlg.artist_name:
+                artist = self.controller.get.get_entity_object(
+                    "Artist", artist_name=dlg.artist_name
+                )
+                if not artist:
+                    artist = self.controller.add.add_entity(
+                        "Artist", artist_name=dlg.artist_name
+                    )
+                self.controller.add.add_entity(
+                    "AlbumRoleAssociation",
+                    album_id=new_album.album_id,
+                    artist_id=artist.artist_id,
+                    role_id=1,
+                )
+
+            logger.info(f"Created new album: {new_album.album_name}")
+            self.load_albums()
+
+            # Open the detail view immediately so the user can fill it in
+            self._show_album_details(new_album)
+
+        except Exception as e:
+            logger.exception("Failed to create album")
+            QMessageBox.critical(self, "Error", f"Could not create album:\n{e}")
+
+    def _delete_album(self, album):
+        """Confirm and delete a single album."""
+        name = getattr(album, "album_name", "this album")
+        track_count = self._get_track_count(album)
+
+        msg = f'Delete "{name}"?'
+        if track_count:
+            msg += (
+                f"\n\nThis album has {track_count} track(s). "
+                "Tracks will be disassociated but not removed from your library."
+            )
+        msg += "\n\nThis action cannot be undone."
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            msg,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        try:
+            self.controller.delete.delete_entity("Album", album.album_id)
+            logger.info(f"Deleted album: {name} (id={album.album_id})")
+            self.load_albums()
+        except Exception as e:
+            logger.exception("Failed to delete album")
+            QMessageBox.critical(self, "Error", f"Could not delete album:\n{e}")
+
+    def _delete_empty_albums(self):
         """Find and delete all empty albums after user confirmation."""
         try:
-            # Get all albums from controller
             all_albums = self.controller.get.get_all_entities("Album")
-
-            # Find empty albums (albums with no tracks)
-            empty_albums = []
-            for album in all_albums:
-                # Check if album has no tracks
-                tracks = getattr(album, "tracks", None)
-                track_count = getattr(album, "track_count", 0)
-
-                # Consider album empty if tracks is None/empty or track_count is 0
-                if not tracks and track_count == 0:
-                    empty_albums.append(album)
-                elif hasattr(tracks, "__len__") and len(tracks) == 0:
-                    empty_albums.append(album)
+            empty_albums = [a for a in all_albums if self._get_track_count(a) == 0]
 
             if not empty_albums:
                 QMessageBox.information(
@@ -163,313 +391,368 @@ class AlbumView(QWidget):
                 )
                 return
 
-            # Show confirmation dialog with list of albums to be deleted
             confirm_dialog = DeleteEmptyAlbumsDialog(empty_albums, self)
-            result = confirm_dialog.exec_()
+            if confirm_dialog.exec_() != QDialog.Accepted:
+                return
 
-            if result == QDialog.Accepted:
-                # Delete the empty albums
-                deleted_count = 0
-                for album in empty_albums:
-                    try:
-                        album_id = getattr(album, "album_id", None)
-                        if album_id:
-                            self.controller.delete.delete_entity("Album", album_id)
-                            deleted_count += 1
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to delete album {album.album_name}: {e}"
-                        )
+            deleted = 0
+            for album in empty_albums:
+                try:
+                    self.controller.delete.delete_entity("Album", album.album_id)
+                    deleted += 1
+                except Exception as e:
+                    logger.warning(f"Failed to delete album {album.album_name}: {e}")
 
-                # Show result and refresh the view
-                QMessageBox.information(
-                    self,
-                    "Deletion Complete",
-                    f"Successfully deleted {deleted_count} empty album(s).",
-                )
-                self.load_albums()  # Refresh the album view
+            QMessageBox.information(self, "Done", f"Deleted {deleted} empty album(s).")
+            self.load_albums()
 
         except Exception as e:
             logger.exception("Failed to delete empty albums")
-            QMessageBox.critical(
-                self, "Error", f"Failed to delete empty albums: {str(e)}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to delete empty albums:\n{e}")
+
+    # =========================================================================
+    # Loading & Filtering
+    # =========================================================================
 
     def load_albums(self):
-        """Load all albums from the music controller and refresh the grid."""
+        """Load all albums from the controller and refresh the grid."""
         try:
-            # Load all albums and reset filtering and lazy loading count.
-            self.all_albums = self.controller.get.get_all_entities("Album")
-            self.apply_sorting()  # Apply current sorting
-            self.display_count = self.load_chunk
-            self.refresh_album_widgets()
-
-            # Check if we need to load more albums immediately
-            QTimer.singleShot(100, self.check_viewport_fill)
+            self.all_albums = self.controller.get.get_all_entities("Album") or []
+            self._apply_filters()
+            QTimer.singleShot(100, self._check_viewport_fill)
         except Exception as e:
             logger.exception("Failed to load albums")
-            QMessageBox.critical(self, "Error", f"Failed to load albums: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to load albums:\n{e}")
 
-    def check_viewport_fill(self):
-        """Check if viewport is not filled and load more albums if needed."""
-        scroll_bar = self.scroll_area.verticalScrollBar()
-        # If no scrollbar is needed (content fits), but we have more albums to show
-        if scroll_bar.maximum() == 0 and self.display_count < len(self.filtered_albums):
-            self.append_more_album_widgets()
-            # Recursively check until viewport is filled or no more albums
-            QTimer.singleShot(100, self.check_viewport_fill)
+    def _on_search_changed(self, text: str):
+        # Debounce: only filter after typing pauses
+        if not hasattr(self, "_search_timer"):
+            self._search_timer = QTimer(singleShot=True)
+            self._search_timer.timeout.connect(self._apply_filters)
+        self._search_timer.start(180)
 
-    def apply_sorting(self, sort_text=None):
-        """Apply sorting based on the selected criteria."""
-        if sort_text:
-            # Parse sort criteria from combo box text
-            if sort_text.startswith("Title (A-Z)"):
-                self.sort_criteria = "title"
-                self.sort_order = Qt.AscendingOrder
-            elif sort_text.startswith("Title (Z-A)"):
-                self.sort_criteria = "title"
-                self.sort_order = Qt.DescendingOrder
-            elif sort_text.startswith("Artist (A-Z)"):
-                self.sort_criteria = "artist"
-                self.sort_order = Qt.AscendingOrder
-            elif sort_text.startswith("Artist (Z-A)"):
-                self.sort_criteria = "artist"
-                self.sort_order = Qt.DescendingOrder
-            elif sort_text.startswith("Year (Newest First)"):
-                self.sort_criteria = "year"
-                self.sort_order = Qt.DescendingOrder
-            elif sort_text.startswith("Year (Oldest First)"):
-                self.sort_criteria = "year"
-                self.sort_order = Qt.AscendingOrder
-            elif sort_text.startswith("Most Played"):
-                self.sort_criteria = "total_plays"
-                self.sort_order = Qt.DescendingOrder
+    def _apply_filters(self):
+        """Apply all active filters (search text, year range, track count, compilation)."""
+        text = self.search_bar.text().strip().lower()
+        year_from = self.year_from.value()
+        year_to = self.year_to.value()
+        min_tracks = self.min_tracks.value()
+        compilation_mode = self.compilation_combo.currentText()
 
-        # Sort the albums
-        self.all_albums.sort(
-            key=self.get_sort_key, reverse=(self.sort_order == Qt.DescendingOrder)
-        )
+        results = []
+        for album in self.all_albums:
+            # ── Text search ──────────────────────────────────────────────
+            if text:
+                title = getattr(album, "album_name", "").lower()
+                year_str = str(getattr(album, "release_year", "")).lower()
+                artist_names = self._get_artist_names(album)
+                genre_names = self._get_genre_names(album)
 
-        # Re-apply filtering if needed and refresh display
-        current_filter = self.search_bar.text()
-        if current_filter:
-            self.filter_albums(current_filter)
+                if not (
+                    text in title
+                    or text in year_str
+                    or any(text in a for a in artist_names)
+                    or any(text in g for g in genre_names)
+                ):
+                    continue
+
+            # ── Year range ───────────────────────────────────────────────
+            album_year = getattr(album, "release_year", None)
+            if album_year:
+                try:
+                    yr = int(album_year)
+                    if year_from > 0 and yr < year_from:
+                        continue
+                    if year_to > 0 and yr > year_to:
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            else:
+                # If we have a strict year filter and album has no year, skip it
+                if year_from > 0 or year_to > 0:
+                    continue
+
+            # ── Min track count ──────────────────────────────────────────
+            if min_tracks > 0 and self._get_track_count(album) < min_tracks:
+                continue
+
+            # ── Compilation filter ───────────────────────────────────────
+            is_comp = bool(getattr(album, "is_compilation", False))
+            if compilation_mode == "Compilations Only" and not is_comp:
+                continue
+            if compilation_mode == "No Compilations" and is_comp:
+                continue
+
+            results.append(album)
+
+        self.filtered_albums = results
+        self._sort_filtered()
+        self._update_stats()
+
+        self.display_count = self.load_chunk
+        self._refresh_album_widgets()
+        QTimer.singleShot(100, self._check_viewport_fill)
+
+    def _clear_filters(self):
+        self.search_bar.clear()
+        self.year_from.setValue(0)
+        self.year_to.setValue(0)
+        self.min_tracks.setValue(0)
+        self.compilation_combo.setCurrentIndex(0)
+        # _apply_filters called via signal chain above
+
+    def _update_stats(self):
+        total = len(self.all_albums)
+        showing = len(self.filtered_albums)
+        if showing == total:
+            self.stats_label.setText(f"{total} album{'s' if total != 1 else ''}")
         else:
-            self.filtered_albums = self.all_albums.copy()
-            self.refresh_album_widgets()
+            self.stats_label.setText(f"{showing} of {total} albums")
 
-        # Additional forced update after a short delay to ensure layout completion
-        from PySide6.QtCore import QTimer
+    # =========================================================================
+    # Sorting
+    # =========================================================================
 
-        QTimer.singleShot(50, self.force_layout_update)
+    def _on_sort_changed(self, index: int):
+        _, criteria, descending = self._SORT_OPTIONS[index]
+        self._sort_criteria = criteria
+        self._sort_descending = descending
+        self._sort_filtered()
+        self._refresh_album_widgets()
 
-    def force_layout_update(self):
-        """Force a complete layout update to fix overlapping issues."""
-        self.scroll_content.update()
-        self.grid_layout.update()
-        self.scroll_area.viewport().update()
-        # Force resize event to trigger layout recalculation
-        self.scroll_content.resize(
-            self.scroll_content.size().width() + 1, self.scroll_content.size().height()
-        )
-        self.scroll_content.resize(
-            self.scroll_content.size().width() - 1, self.scroll_content.size().height()
-        )
-
-    def get_sort_key(self, album):
-        """Get the appropriate sort key for an album based on current criteria."""
+    def _sort_filtered(self):
         try:
-            if self.sort_criteria == "title":
+            self.filtered_albums.sort(
+                key=self._sort_key,
+                reverse=self._sort_descending,
+            )
+        except Exception as e:
+            logger.warning(f"Sorting failed: {e}")
+
+    def _sort_key(self, album):
+        try:
+            c = self._sort_criteria
+
+            if c == "title":
                 return getattr(album, "album_name", "").lower()
 
-            elif self.sort_criteria == "artist":
-                # Get primary artist name for sorting
-                artists = getattr(album, "album_artists", []) or getattr(
-                    album, "artists", []
+            elif c == "artist":
+                artists = (
+                    getattr(album, "album_artists", None)
+                    or getattr(album, "artists", None)
+                    or []
                 )
                 if artists:
-                    # Use first artist for sorting
-                    first_artist = artists[0]
-                    if hasattr(first_artist, "artist_name"):
-                        return first_artist.artist_name.lower()
-                    elif isinstance(first_artist, str):
-                        return first_artist.lower()
-                    elif isinstance(first_artist, dict):
+                    first = artists[0]
+                    if hasattr(first, "artist_name"):
+                        return first.artist_name.lower()
+                    if isinstance(first, str):
+                        return first.lower()
+                    if isinstance(first, dict):
                         return (
-                            first_artist.get("artist_name", "").lower()
-                            or first_artist.get("name", "").lower()
-                        )
+                            first.get("artist_name") or first.get("name") or ""
+                        ).lower()
                 return ""
 
-            elif self.sort_criteria == "year":
-                year = getattr(album, "release_year", 0)
-                return year if isinstance(year, int) else 0
+            elif c == "year":
+                y = getattr(album, "release_year", None)
+                try:
+                    return int(y) if y else 0
+                except (TypeError, ValueError):
+                    return 0
 
-            elif self.sort_criteria == "track_count":
-                return getattr(album, "track_count", 0)
+            elif c == "track_count":
+                return self._get_track_count(album)
 
-            elif self.sort_criteria == "play_count":
-                return getattr(album, "total_plays", 0) or getattr(
-                    album, "total_plays", 0
+            elif c == "date_added":
+                ts = getattr(album, "date_added", None) or getattr(
+                    album, "created_at", None
+                )
+                return str(ts) if ts else ""
+
+            elif c == "play_count":
+                return getattr(album, "total_plays", 0) or 0
+
+            elif c == "rating":
+                return (
+                    getattr(album, "average_rating", 0)
+                    or getattr(album, "user_rating", 0)
+                    or 0
                 )
 
-            elif self.sort_criteria == "rating":
-                return getattr(album, "average_rating", 0) or getattr(
-                    album, "user_rating", 0
-                )
+            elif c == "length":
+                return getattr(album, "total_duration", 0) or 0
 
-            elif self.sort_criteria == "length":
-                return getattr(album, "total_duration", 0) or getattr(
-                    album, "duration", 0
-                )
-
-            # Default fallback
             return getattr(album, "album_name", "").lower()
 
-        except Exception as e:
-            logger.warning(f"Error getting sort key for album: {e}")
+        except Exception:
             return ""
 
-    def clear_layout(self, layout):
-        """Completely clear all widgets from a layout."""
+    # =========================================================================
+    # Widget Grid
+    # =========================================================================
+
+    def _refresh_album_widgets(self):
+        """Rebuild the grid from scratch up to display_count."""
+        self._clear_layout(self.grid_layout)
+        for album in self.filtered_albums[: self.display_count]:
+            self._add_album_widget(album)
+        self.scroll_content.updateGeometry()
+        self.grid_layout.update()
+
+    def _append_more_album_widgets(self):
+        prev = self.display_count
+        self.display_count = min(
+            self.display_count + self.load_chunk, len(self.filtered_albums)
+        )
+        for album in self.filtered_albums[prev : self.display_count]:
+            self._add_album_widget(album)
+        self.grid_layout.update()
+
+    def _add_album_widget(self, album):
+        widget = AlbumWidget(album, self.current_size)
+        widget.clicked.connect(self._on_album_clicked)
+        self.grid_layout.addWidget(widget)
+
+    def _check_scroll_position(self, value: int):
+        bar = self.scroll_area.verticalScrollBar()
+        if value >= bar.maximum() - 50 and self.display_count < len(
+            self.filtered_albums
+        ):
+            self._append_more_album_widgets()
+
+    def _check_viewport_fill(self):
+        bar = self.scroll_area.verticalScrollBar()
+        if bar.maximum() == 0 and self.display_count < len(self.filtered_albums):
+            self._append_more_album_widgets()
+            QTimer.singleShot(100, self._check_viewport_fill)
+
+    def _resize_art(self, size: int):
+        self.current_size = size
+        for i in range(self.grid_layout.count()):
+            widget = self.grid_layout.itemAt(i).widget()
+            if widget is not None:
+                widget.update_size(size)
+        self.grid_layout.update()
+
+    # =========================================================================
+    # Album Detail
+    # =========================================================================
+
+    def _on_album_clicked(self, album):
+        self._show_album_details(album)
+
+    def _show_album_details(self, album):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Album: {album.album_name}")
+        dialog.setMinimumSize(800, 600)
+
+        layout = QVBoxLayout(dialog)
+        detail_view = AlbumDetailView(album, self.controller, editable=True)
+        layout.addWidget(detail_view)
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.Close)
+        btn_box.rejected.connect(dialog.reject)
+        layout.addWidget(btn_box)
+
+        dialog.finished.connect(lambda _: self.load_albums())
+        dialog.exec_()
+
+    # =========================================================================
+    # Helpers
+    # =========================================================================
+
+    @staticmethod
+    def _get_track_count(album) -> int:
+        tracks = getattr(album, "tracks", None)
+        if tracks is not None:
+            try:
+                return len(tracks)
+            except TypeError:
+                pass
+        count = getattr(album, "track_count", None)
+        if count is not None:
+            try:
+                return int(count)
+            except (TypeError, ValueError):
+                pass
+        return 0
+
+    @staticmethod
+    def _get_artist_names(album) -> list[str]:
+        names = []
+        for attr in ("album_artists", "artists"):
+            artists = getattr(album, attr, None) or []
+            for a in artists:
+                if hasattr(a, "artist_name"):
+                    names.append(a.artist_name.lower())
+                elif isinstance(a, str):
+                    names.append(a.lower())
+                elif isinstance(a, dict):
+                    n = a.get("artist_name") or a.get("name") or ""
+                    names.append(n.lower())
+        return names
+
+    @staticmethod
+    def _get_genre_names(album) -> list[str]:
+        names = []
+        genres = getattr(album, "genres", None) or []
+        for g in genres:
+            if hasattr(g, "genre_name"):
+                names.append(g.genre_name.lower())
+            elif isinstance(g, str):
+                names.append(g.lower())
+        return names
+
+    @staticmethod
+    def _clear_layout(layout):
         while layout.count():
             item = layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
-            else:
-                self.clear_layout(item.layout())
+            elif item.layout():
+                AlbumView._clear_layout(item.layout())
 
-    def on_album_clicked(self, album):
-        """Open detail view when album is single-clicked."""
-        self.show_album_details(album)
+    # =========================================================================
+    # Back-compat aliases (keep old callers working)
+    # =========================================================================
+
+    def init_ui(self):
+        self._init_ui()
+
+    def load_albums_legacy(self):
+        self.load_albums()
+
+    def filter_albums(self, text: str):
+        self.search_bar.setText(text)
+
+    def resize_art(self, size: int):
+        self._resize_art(size)
 
     def show_album_details(self, album):
-        """Show the album detail view in a dialog."""
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Album Details: {album.album_name}")
-        dialog.setMinimumSize(800, 600)
+        self._show_album_details(album)
 
-        layout = QVBoxLayout(dialog)
-        detail_view = AlbumDetailView(
-            album, self.controller, editable=True
-        )  # Add editable=True
-        layout.addWidget(detail_view)
+    def apply_sorting(self, sort_text=None):
+        """Legacy entry point kept for external callers."""
+        if sort_text:
+            for i, (label, _, _) in enumerate(self._SORT_OPTIONS):
+                if sort_text.startswith(label.split(" (")[0]):
+                    self.sort_combo.setCurrentIndex(i)
+                    return
+        self._on_sort_changed(self.sort_combo.currentIndex())
 
-        # Add close button
-        button_box = QDialogButtonBox(QDialogButtonBox.Close)
-        button_box.rejected.connect(dialog.reject)
-        layout.addWidget(button_box)
+    def show_context_menu(self, position):
+        self._show_context_menu(position)
 
-        dialog.exec_()
-
-    def filter_albums(self, text):
-        """
-        Filter the album list based on the search text.
-        The filtering considers album title, release year, and artist names.
-        """
-        text = text.lower().strip()
-        if not text:
-            self.filtered_albums = self.all_albums.copy()
-        else:
-            filtered = []
-            for album in self.all_albums:  # Search through ALL albums
-                title = getattr(album, "album_name", "").lower()
-                release_year = str(getattr(album, "release_year", "")).lower()
-
-                # Get artist names for this album
-                artist_names = []
-                artists = getattr(album, "artists", []) or []
-
-                for a in artists:
-                    name = None
-                    if hasattr(a, "artist_name"):
-                        name = getattr(a, "artist_name")
-                    else:
-                        try:
-                            if isinstance(a, dict):
-                                name = a.get("artist_name") or a.get("name")
-                            elif isinstance(a, str):
-                                name = a
-                            else:
-                                name = str(a)
-                        except Exception:
-                            name = None
-
-                    if name:
-                        artist_names.append(name.lower())
-
-                # Check if search text matches any field
-                if (
-                    text in title
-                    or text in release_year
-                    or any(text in artist for artist in artist_names)
-                ):
-                    filtered.append(album)
-
-            self.filtered_albums = filtered
-
-        # Reset lazy loading and refresh widgets
-        self.display_count = self.load_chunk
-        self.refresh_album_widgets()
-
-        # Check if we need to load more albums to fill the viewport
-        QTimer.singleShot(100, self.check_viewport_fill)
-
-    def resize_art(self, size):
-        """Resize all album art widgets when the slider value changes."""
-        self.current_size = size
-        for i in range(self.grid_layout.count()):
-            if widget := self.grid_layout.itemAt(i).widget():
-                widget.update_size(size)
-        self.grid_layout.update()  # Trigger layout update
-
-    def refresh_album_widgets(self):
-        """Clear the current grid and populate with filtered albums up to display_count."""
-        # Clear existing widgets from the grid more thoroughly
-        self.clear_layout(self.grid_layout)
-
-        # Update displayed_albums to reflect what's actually shown
-        self.displayed_albums = self.filtered_albums[: self.display_count]
-
-        # Add album widgets up to the current display count
-        for album in self.displayed_albums:
-            widget = AlbumWidget(album, self.current_size)
-            widget.clicked.connect(self.on_album_clicked)
-            self.grid_layout.addWidget(widget)
-
-        # Force a complete layout update
-        self.scroll_content.updateGeometry()
-        self.grid_layout.update()
-        self.scroll_area.viewport().update()
-
-    def append_more_album_widgets(self):
-        """
-        Append more album widgets if available when user scrolls near the bottom.
-        This function adds a chunk of new albums to the grid.
-        """
-        previous_count = self.display_count
-        self.display_count = min(
-            self.display_count + self.load_chunk, len(self.filtered_albums)
-        )
-
-        # Add only the new albums
-        for album in self.filtered_albums[previous_count : self.display_count]:
-            widget = AlbumWidget(album, self.current_size)
-            widget.clicked.connect(self.on_album_clicked)
-            self.grid_layout.addWidget(widget)
-
-        # Update displayed_albums
-        self.displayed_albums = self.filtered_albums[: self.display_count]
-
-        # Trigger a layout update
-        self.grid_layout.update()
+    def delete_empty_albums(self):
+        self._delete_empty_albums()
 
     def check_scroll_position(self, value):
-        """
-        Check if the user has scrolled near the bottom and trigger lazy loading.
-        """
-        scroll_bar = self.scroll_area.verticalScrollBar()
-        if value >= scroll_bar.maximum() - 50:
-            if self.display_count < len(self.filtered_albums):
-                self.append_more_album_widgets()
+        self._check_scroll_position(value)
+
+    def check_viewport_fill(self):
+        self._check_viewport_fill()
+
+    def refresh_album_widgets(self):
+        self._refresh_album_widgets()
