@@ -1,16 +1,34 @@
 """
-NowPlayingView module.
+NowPlayingView module — Cinematic redesign.
+
+A full-bleed, immersive "now playing" experience:
+  - Album art dominates the left half as a large, softly-shadowed card
+  - A blurred, colour-extracted backdrop bleeds behind everything
+  - Track title / artist / album in refined, layered typography
+  - Pill-shaped metadata chips (BPM, Key, Duration, Bitrate…)
+  - Scrollable lyrics panel with fade-in/out at the edges
+  - Smooth cross-fade when the track changes via QPropertyAnimation
 """
 
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter, QPixmap
+from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, Qt
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QRadialGradient,
+)
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -19,325 +37,531 @@ from PySide6.QtWidgets import (
 from asset_paths import asset
 from logger_config import logger
 
+# ──────────────────────────────────────────────────────────────────────────────
+#  Helper widgets
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class _BlurredBackdrop(QWidget):
+    """
+    Paints a heavily blurred + darkened version of the album art
+    as a full-bleed background.  Opacity is animated on track change.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._pixmap: QPixmap | None = None
+        self._opacity: float = 0.0
+
+    # Qt property so QPropertyAnimation can drive it
+    def _get_opacity(self) -> float:
+        return self._opacity
+
+    def _set_opacity(self, v: float):
+        self._opacity = v
+        self.update()
+
+    backdropOpacity = Property(float, _get_opacity, _set_opacity)
+
+    def set_pixmap(self, pixmap: QPixmap | None):
+        self._pixmap = pixmap
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        w, h = self.width(), self.height()
+
+        # Deep background
+        painter.fillRect(0, 0, w, h, QColor("#080a0f"))
+
+        if self._pixmap and not self._pixmap.isNull() and self._opacity > 0:
+            # Scale to fill
+            scaled = self._pixmap.scaled(
+                w, h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+            )
+            x = (w - scaled.width()) // 2
+            y = (h - scaled.height()) // 2
+
+            painter.setOpacity(self._opacity * 0.38)
+            painter.drawPixmap(x, y, scaled)
+            painter.setOpacity(1.0)
+
+        # Gradient vignette — darkens edges and bottom
+        grad = QLinearGradient(0, 0, 0, h)
+        grad.setColorAt(0.0, QColor(8, 10, 15, 200))
+        grad.setColorAt(0.45, QColor(8, 10, 15, 80))
+        grad.setColorAt(1.0, QColor(8, 10, 15, 240))
+        painter.fillRect(0, 0, w, h, grad)
+
+        painter.end()
+
+
+class _ArtCard(QLabel):
+    """Rounded album-art card with a drop shadow painted underneath."""
+
+    RADIUS = 18
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._art: QPixmap | None = None
+        self.setAlignment(Qt.AlignCenter)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+    def set_art(self, pixmap: QPixmap | None):
+        self._art = pixmap
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+
+        w, h = self.width(), self.height()
+        r = self.RADIUS
+
+        if self._art and not self._art.isNull():
+            side = min(w, h) - 24  # 12px margin each side
+            x = (w - side) // 2
+            y = (h - side) // 2
+
+            # Soft shadow (painted as a filled rounded rect offset below)
+            shadow_path = QPainterPath()
+            shadow_path.addRoundedRect(x + 4, y + 8, side, side, r, r)
+            painter.fillPath(shadow_path, QColor(0, 0, 0, 120))
+
+            # Clip art to rounded rect
+            clip = QPainterPath()
+            clip.addRoundedRect(x, y, side, side, r, r)
+            painter.setClipPath(clip)
+
+            scaled = self._art.scaled(
+                side, side, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+            )
+            sx = (side - scaled.width()) // 2
+            sy = (side - scaled.height()) // 2
+            painter.drawPixmap(x + sx, y + sy, scaled)
+
+            # Thin border
+            painter.setClipping(False)
+            pen = QPen(QColor(255, 255, 255, 28))
+            pen.setWidth(1)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(x, y, side, side, r, r)
+        else:
+            # Placeholder
+            side = min(w, h) - 24
+            x = (w - side) // 2
+            y = (h - side) // 2
+            clip = QPainterPath()
+            clip.addRoundedRect(x, y, side, side, r, r)
+            painter.setClipPath(clip)
+            grad = QRadialGradient(w / 2, h / 2, side * 0.6)
+            grad.setColorAt(0, QColor("#1a1d2e"))
+            grad.setColorAt(1, QColor("#0d0f18"))
+            painter.fillRect(x, y, side, side, grad)
+            painter.setClipping(False)
+            painter.setPen(QColor(133, 153, 234, 60))
+            painter.setFont(QFont("Segoe UI Symbol", int(side * 0.25)))
+            painter.drawText(x, y, side, side, Qt.AlignCenter, "♪")
+
+        painter.end()
+
+
+class _Chip(QFrame):
+    """A small pill-shaped metadata chip: icon + value label."""
+
+    def __init__(self, icon_text: str, value: str = "—", parent=None):
+        super().__init__(parent)
+        self.setObjectName("MetadataChip")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(
+            """
+            QFrame#MetadataChip {
+                background: rgba(133, 153, 234, 0.12);
+                border: 1px solid rgba(133, 153, 234, 0.28);
+                border-radius: 10px;
+            }
+            """
+        )
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(8, 4, 10, 4)
+        lay.setSpacing(5)
+
+        self._icon_lbl = QLabel(icon_text)
+        self._icon_lbl.setStyleSheet(
+            "color: #8599ea; font-size: 11px; background: transparent; border: none;"
+        )
+        self._icon_lbl.setAlignment(Qt.AlignCenter)
+
+        self._val_lbl = QLabel(value)
+        self._val_lbl.setStyleSheet(
+            "color: #c8d0f4; font-size: 11px; font-weight: 600; background: transparent; border: none;"
+        )
+
+        lay.addWidget(self._icon_lbl)
+        lay.addWidget(self._val_lbl)
+
+    def set_value(self, value: str):
+        self._val_lbl.setText(value)
+
+    def set_visible_if(self, condition: bool):
+        self.setVisible(condition)
+
+
+class _FadedScrollArea(QScrollArea):
+    """Scroll area that paints top/bottom fade gradients over the content."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWidgetResizable(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setStyleSheet("background: transparent;")
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        p = QPainter(self.viewport())
+        h = self.viewport().height()
+        w = self.viewport().width()
+        fade = 32
+
+        top = QLinearGradient(0, 0, 0, fade)
+        top.setColorAt(0, QColor(8, 10, 15, 200))
+        top.setColorAt(1, QColor(8, 10, 15, 0))
+        p.fillRect(0, 0, w, fade, top)
+
+        bot = QLinearGradient(0, h - fade, 0, h)
+        bot.setColorAt(0, QColor(8, 10, 15, 0))
+        bot.setColorAt(1, QColor(8, 10, 15, 200))
+        p.fillRect(0, h - fade, w, fade, bot)
+        p.end()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Main view
+# ──────────────────────────────────────────────────────────────────────────────
+
 
 class NowPlayingView(QWidget):
-    """View to display current track info with controls."""
+    """Cinematic now-playing view with blurred backdrop and rich metadata."""
+
+    # ── fonts ──────────────────────────────────────────────────────────────
+    _TITLE_FONT = QFont("Georgia", 28, QFont.Bold)
+    _ARTIST_FONT = QFont("Cambria", 16, QFont.Normal)
+    _ALBUM_FONT = QFont("Cambria", 13, QFont.Normal)
+    _LYRICS_FONT = QFont("Cambria", 12, QFont.Normal)
+    _LABEL_FONT = QFont("Cambria", 11, QFont.Normal)
 
     def __init__(self, controller, track=None):
-        """takes in controller for sql functions and a track object"""
         super().__init__()
         self.controller = controller
         self.track = track
         self.default_art_path = asset("default_album.svg")
-        self.initUI()
-
-    def initUI(self):
-        """Initialize UI components."""
-
-        # Main layout with proper sizing
-        self.main_layout = QHBoxLayout()
-        self.main_layout.setContentsMargins(20, 20, 20, 20)  # Reduced margins
-        self.main_layout.setSpacing(20)
-        self.setMinimumSize(800, 500)  # Reduced minimum size
-
-        # Set size policy to allow shrinking
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        # Left Column - Album Art (now smaller)
-        left_column = QVBoxLayout()
-        left_column.setAlignment(Qt.AlignTop)
-
-        # Smaller album art container
-        self.album_art_container = QFrame()
-
-        self.album_art_container.setFixedSize(300, 300)  # Smaller container
-
-        album_art_layout = QVBoxLayout(self.album_art_container)
-        album_art_layout.setAlignment(Qt.AlignCenter)
-
-        self.album_art_label = QLabel()
-        self.album_art_label.setFixedSize(260, 260)  # Smaller album art
-        self.album_art_label.setAlignment(Qt.AlignCenter)
-        album_art_layout.addWidget(self.album_art_label)
-        left_column.addWidget(self.album_art_container)
-
-        # Right Column - Track Info
-        right_column = QVBoxLayout()
-        right_column.setSpacing(15)
-
-        # Allow right column to shrink
-        right_column.setAlignment(Qt.AlignTop)
-
-        # Track Title (smaller font)
-        self.title_label = QLabel("No Track Playing")
-        self.title_label.setWordWrap(True)
-        self.title_label.setAlignment(Qt.AlignCenter)
-        self.title_label.setMinimumHeight(60)  # Smaller height
-        self.title_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        right_column.addWidget(self.title_label)
-
-        # Album/Artist Info (smaller)
-        self.details_label = QLabel()
-        self.details_label.setWordWrap(True)
-        self.details_label.setAlignment(Qt.AlignCenter)
-        self.details_label.setMinimumHeight(50)  # Smaller height
-        self.details_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        right_column.addWidget(self.details_label)
-
-        # Collapsible sections container
-        sections_container = QVBoxLayout()
-        sections_container.setSpacing(8)
-
-        # Allow sections container to expand but not too much
-        sections_container.setAlignment(Qt.AlignTop)
-
-        # Metadata Section
-        self.metadata_frame = QFrame()
-        self.metadata_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        metadata_layout = QVBoxLayout(self.metadata_frame)
-        metadata_layout.setContentsMargins(12, 8, 12, 8)
-
-        self.metadata_header = QLabel("Track Details ▼")
-        self.metadata_header.mousePressEvent = self.toggle_metadata
-        self.metadata_header.setCursor(Qt.PointingHandCursor)
-        metadata_layout.addWidget(self.metadata_header)
-
-        self.metadata_content = QLabel()
-        self.metadata_content.setWordWrap(True)
-        self.metadata_content.setAlignment(Qt.AlignTop)
-        self.metadata_content.setVisible(False)
-        self.metadata_content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        metadata_layout.addWidget(self.metadata_content)
-
-        sections_container.addWidget(self.metadata_frame)
-
-        # Lyrics Section
-        self.lyrics_frame = QFrame()
-        self.lyrics_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        lyrics_layout = QVBoxLayout(self.lyrics_frame)
-        lyrics_layout.setContentsMargins(12, 8, 12, 8)
-
-        self.lyrics_header = QLabel("Lyrics ▼")
-        self.lyrics_header.mousePressEvent = self.toggle_lyrics
-        self.lyrics_header.setCursor(Qt.PointingHandCursor)
-        lyrics_layout.addWidget(self.lyrics_header)
-
-        self.lyrics_content = QLabel()
-        self.lyrics_content.setWordWrap(True)
-        self.lyrics_content.setAlignment(Qt.AlignTop)
-        self.lyrics_content.setVisible(False)
-        # Limit lyrics height and make it scrollable if needed
-        self.lyrics_content.setMaximumHeight(150)
-        self.lyrics_content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
-        lyrics_layout.addWidget(self.lyrics_content)
-
-        sections_container.addWidget(self.lyrics_frame)
-
-        right_column.addLayout(sections_container)
-
-        # Combine main layout with stretch factors
-        self.main_layout.addLayout(left_column)
-        self.main_layout.addLayout(right_column)
-
-        # Set stretch factors - right column gets more space
-        self.main_layout.setStretchFactor(left_column, 1)
-        self.main_layout.setStretchFactor(right_column, 2)
-
-        self.setLayout(self.main_layout)
-
-        # Update UI if track exists
+        self._current_pixmap: QPixmap | None = None
+        self._fade_anim: QPropertyAnimation | None = None
+        self._initUI()
         if self.track:
             self.updateUI(self.track)
         else:
             self.clearUI()
 
-    def updateUI(self, track):
-        """Update all components with track data."""
-        try:
-            logger.info(
-                f"NowPlayingView.updateUI called with track: {getattr(track, 'track_name', 'Unknown')}"
-            )
+    # ── build UI ───────────────────────────────────────────────────────────
 
+    def _initUI(self):
+        self.setMinimumSize(760, 480)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setStyleSheet("background: transparent;")
+
+        # ── backdrop (parent-level, behind everything) ──
+        self._backdrop = _BlurredBackdrop(self)
+        self._backdrop.lower()
+
+        # ── root horizontal layout ──
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── LEFT — album art column ──────────────────────────────────────
+        left_widget = QWidget()
+        left_widget.setStyleSheet("background: transparent;")
+        left_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        left_widget.setMinimumWidth(260)
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(32, 36, 16, 36)
+        left_layout.setSpacing(0)
+        left_layout.setAlignment(Qt.AlignCenter)
+
+        self._art_card = _ArtCard()
+        self._art_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        left_layout.addWidget(self._art_card)
+
+        # ── RIGHT — info column ──────────────────────────────────────────
+        right_widget = QWidget()
+        right_widget.setStyleSheet("background: transparent;")
+        right_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(16, 40, 40, 32)
+        right_layout.setSpacing(0)
+        right_layout.setAlignment(Qt.AlignTop)
+
+        # Track title
+        self._title_lbl = QLabel("No Track Playing")
+        self._title_lbl.setFont(self._TITLE_FONT)
+        self._title_lbl.setStyleSheet(
+            "color: #e8ecff; background: transparent; border: none;"
+        )
+        self._title_lbl.setWordWrap(True)
+        self._title_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        right_layout.addWidget(self._title_lbl)
+        right_layout.addSpacing(6)
+
+        # Artist
+        self._artist_lbl = QLabel("—")
+        self._artist_lbl.setFont(self._ARTIST_FONT)
+        self._artist_lbl.setStyleSheet(
+            "color: #8599ea; background: transparent; border: none;"
+        )
+        self._artist_lbl.setWordWrap(True)
+        right_layout.addWidget(self._artist_lbl)
+        right_layout.addSpacing(2)
+
+        # Album
+        self._album_lbl = QLabel("—")
+        self._album_lbl.setFont(self._ALBUM_FONT)
+        self._album_lbl.setStyleSheet(
+            "color: #6a7299; background: transparent; border: none;"
+        )
+        self._album_lbl.setWordWrap(True)
+        right_layout.addWidget(self._album_lbl)
+        right_layout.addSpacing(20)
+
+        # ── Metadata chip row ──
+        chip_widget = QWidget()
+        chip_widget.setStyleSheet("background: transparent;")
+        chip_row = QHBoxLayout(chip_widget)
+        chip_row.setContentsMargins(0, 0, 0, 0)
+        chip_row.setSpacing(8)
+        chip_row.setAlignment(Qt.AlignLeft)
+
+        self._chip_duration = _Chip("⏱", "—")
+        self._chip_bpm = _Chip("♩", "—")
+        self._chip_key = _Chip("𝄞", "—")
+        self._chip_bitrate = _Chip("≋", "—")
+        self._chip_track_no = _Chip("#", "—")
+
+        for chip in (
+            self._chip_duration,
+            self._chip_bpm,
+            self._chip_key,
+            self._chip_bitrate,
+            self._chip_track_no,
+        ):
+            chip_row.addWidget(chip)
+
+        chip_row.addStretch()
+        right_layout.addWidget(chip_widget)
+        right_layout.addSpacing(20)
+
+        # ── Lyrics section ──────────────────────────────────────────────
+        lyrics_header_row = QHBoxLayout()
+        lyrics_header_row.setContentsMargins(0, 0, 0, 4)
+
+        self._lyrics_section_lbl = QLabel("LYRICS")
+        self._lyrics_section_lbl.setFont(QFont("Cambria", 10, QFont.Bold))
+        self._lyrics_section_lbl.setStyleSheet(
+            "color: rgba(133,153,234,0.55); letter-spacing: 2px; background: transparent; border: none;"
+        )
+        lyrics_header_row.addWidget(self._lyrics_section_lbl)
+        lyrics_header_row.addStretch()
+
+        right_layout.addLayout(lyrics_header_row)
+
+        # Thin divider
+        divider = QFrame()
+        divider.setFrameShape(QFrame.HLine)
+        divider.setStyleSheet(
+            "border: none; border-top: 1px solid rgba(133,153,234,0.18); background: transparent;"
+        )
+        divider.setFixedHeight(1)
+        right_layout.addWidget(divider)
+        right_layout.addSpacing(10)
+
+        # Scrollable lyrics
+        self._lyrics_area = _FadedScrollArea()
+        self._lyrics_area.setStyleSheet("background: transparent; border: none;")
+        self._lyrics_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        self._lyrics_lbl = QLabel()
+        self._lyrics_lbl.setFont(self._LYRICS_FONT)
+        self._lyrics_lbl.setStyleSheet(
+            "color: rgba(200, 208, 244, 0.75); line-height: 1.7em; background: transparent; border: none;"
+        )
+        self._lyrics_lbl.setWordWrap(True)
+        self._lyrics_lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self._lyrics_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self._lyrics_lbl.setContentsMargins(0, 8, 0, 24)
+        self._lyrics_area.setWidget(self._lyrics_lbl)
+
+        right_layout.addWidget(self._lyrics_area)
+
+        # ── assemble root ──
+        root.addWidget(left_widget, 42)
+        root.addWidget(right_widget, 58)
+
+    # ── resize: keep backdrop full size ───────────────────────────────────
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._backdrop.setGeometry(0, 0, self.width(), self.height())
+
+    # ── public API ────────────────────────────────────────────────────────
+
+    def updateUI(self, track):
+        """Populate all widgets from a track ORM object."""
+        try:
             if not track:
-                logger.warning("No track provided to updateUI")
                 self.clearUI()
                 return
 
-            # Basic Info
-            title = getattr(track, "track_name", "Unknown Title")
-            logger.info(f"Setting title: {title}")
-            self.title_label.setText(title)
+            logger.info(f"NowPlayingView.updateUI: {getattr(track, 'track_name', '?')}")
 
-            # Build details text safely
-            details = []
+            # ── title
+            title = getattr(track, "track_name", None) or "Unknown Title"
+            self._title_lbl.setText(title)
 
-            if hasattr(track, "album") and track.album:
-                album_name = getattr(track.album, "album_name", None)
-                if album_name:
-                    details.append(f"🎵 {album_name}")
+            # ── artist
+            artists = getattr(track, "artists", None) or []
+            artist_name = ""
+            if artists:
+                artist_name = getattr(artists[0], "artist_name", "") or ""
+            self._artist_lbl.setText(artist_name or "—")
 
-            if hasattr(track, "artists") and track.artists:
-                if len(track.artists) > 0:
-                    artist_name = getattr(track.artists[0], "artist_name", None)
-                    if artist_name:
-                        details.append(f"🎤 {artist_name}")
+            # ── album
+            album = getattr(track, "album", None)
+            album_name = ""
+            if album:
+                album_name = getattr(album, "album_name", "") or ""
+            self._album_lbl.setText(album_name or "—")
 
-            details_text = (
-                " • ".join(details) if details else "No album/artist information"
-            )
-            self.details_label.setText(details_text)
+            # ── chips
+            self._update_chips(track)
 
-            # Lyrics
+            # ── lyrics
             lyrics = getattr(track, "lyrics", None)
-            lyrics_text = lyrics if lyrics else "🎵 Lyrics not available 🎵"
-            self.lyrics_content.setText(lyrics_text)
+            if lyrics and lyrics.strip():
+                self._lyrics_lbl.setText(lyrics)
+                self._lyrics_section_lbl.setVisible(True)
+                self._lyrics_area.setVisible(True)
+            else:
+                self._lyrics_lbl.setText("No lyrics available.")
+                self._lyrics_section_lbl.setVisible(True)
+                self._lyrics_area.setVisible(True)
 
-            # Show/hide lyrics section based on content
-            has_lyrics = bool(
-                lyrics
-                and lyrics.strip()
-                and lyrics not in ["Lyrics not available", "🎵 Lyrics not available 🎵"]
-            )
-            self.lyrics_frame.setVisible(has_lyrics)
-
-            # Detailed Metadata
-            metadata_lines = self._build_detailed_metadata(track)
-            self.metadata_content.setText("\n".join(metadata_lines))
-
-            # Show metadata section only if we have data
-            has_metadata = len(metadata_lines) > 1
-            self.metadata_frame.setVisible(has_metadata)
-
-            # Album Art
-            art_path = None
-            if hasattr(track, "album") and track.album:
-                art_path_str = getattr(track.album, "front_cover_path", "")
-                if art_path_str:
-                    art_path = Path(art_path_str)
+            # ── album art
+            art_path: Path | None = None
+            if album:
+                art_str = getattr(album, "front_cover_path", "") or ""
+                if art_str:
+                    art_path = Path(art_str)
 
             if art_path and art_path.exists():
-                logger.info(f"Loading album art from: {art_path}")
-                pixmap = QPixmap(str(art_path))
-                # Create rounded pixmap
-                rounded_pixmap = self.create_rounded_pixmap(pixmap, 350)
-                self.album_art_label.setPixmap(rounded_pixmap)
+                self._load_art(QPixmap(str(art_path)))
+            elif self.default_art_path and Path(self.default_art_path).exists():
+                self._load_art(QPixmap(self.default_art_path))
             else:
-                logger.warning("Album art not found, using default")
-                if self.default_art_path and Path(self.default_art_path).exists():
-                    pixmap = QPixmap(self.default_art_path)
-                    rounded_pixmap = self.create_rounded_pixmap(pixmap, 350)
-                    self.album_art_label.setPixmap(rounded_pixmap)
-                else:
-                    self.album_art_label.setText("🎵\nNo Album Art")
-
-            logger.info("UI update completed successfully")
+                self._load_art(None)
 
         except Exception as e:
-            logger.error(f"UI update failed: {e}")
-
-            logger.error(traceback.format_exc())
+            logger.error(
+                f"NowPlayingView.updateUI failed: {e}\n{traceback.format_exc()}"
+            )
             self.clearUI()
 
-    def create_rounded_pixmap(self, pixmap, size):
-        """Create a rounded pixmap for album art."""
-        # Use the provided size instead of hardcoded 350
-        scaled_pixmap = pixmap.scaled(
-            size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
-
-        # Create transparent pixmap for the result
-        result = QPixmap(size, size)
-        result.fill(Qt.transparent)
-
-        painter = QPainter(result)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        # Create rounded clip path
-        from PySide6.QtGui import QPainterPath
-
-        path = QPainterPath()
-        path.addRoundedRect(0, 0, size, size, 12, 12)  # Smaller border radius
-        painter.setClipPath(path)
-
-        # Center the pixmap
-        x = (size - scaled_pixmap.width()) // 2
-        y = (size - scaled_pixmap.height()) // 2
-        painter.drawPixmap(x, y, scaled_pixmap)
-
-        painter.end()
-        return result
-
-    def _build_detailed_metadata(self, track):
-        """Build detailed metadata string from track object."""
-        metadata = []
-
-        # Basic track info
-        if hasattr(track, "duration") and track.duration:
-            minutes = track.duration // 60
-            seconds = track.duration % 60
-            metadata.append(f"⏱️ Duration: {int(minutes)}:{int(seconds):02d}")
-
-        if hasattr(track, "track_number") and track.track_number:
-            metadata.append(f"🔢 Track: {track.track_number}")
-
-        # Audio technical info
-        if hasattr(track, "bit_rate") and track.bit_rate:
-            metadata.append(f"📊 Bit Rate: {track.bit_rate} kbps")
-
-        if hasattr(track, "sample_rate") and track.sample_rate:
-            metadata.append(f"🎚️  Sample Rate: {track.sample_rate} Hz")
-
-        # Music analysis
-        if hasattr(track, "bpm") and track.bpm:
-            metadata.append(f"💓 BPM: {track.bpm}")
-
-        if hasattr(track, "key") and track.key:
-            mode = getattr(track, "mode", "")
-            key_text = f"🎹 Key: {track.key} {mode}" if mode else f"🎹 Key: {track.key}"
-            metadata.append(key_text)
-
-        # Additional metadata
-        if hasattr(track, "play_count") and track.play_count:
-            metadata.append(f"📈 Play Count: {track.play_count}")
-
-        if hasattr(track, "user_rating") and track.user_rating:
-            stars = "⭐" * int(track.user_rating)
-            metadata.append(f"⭐ Rating: {stars}")
-
-        return metadata if metadata else ["No detailed metadata available"]
-
-    def toggle_lyrics(self, event):
-        """Toggle lyrics section visibility."""
-        is_visible = not self.lyrics_content.isVisible()
-        self.lyrics_content.setVisible(is_visible)
-        self.lyrics_header.setText("Lyrics ▲" if is_visible else "Lyrics ▼")
-
-    def toggle_metadata(self, event):
-        """Toggle metadata section visibility."""
-        is_visible = not self.metadata_content.isVisible()
-        self.metadata_content.setVisible(is_visible)
-        self.metadata_header.setText(
-            "Track Details ▲" if is_visible else "Track Details ▼"
-        )
-
     def clearUI(self):
-        """Reset UI to default state."""
-        self.title_label.setText("No Track Playing")
-        self.details_label.setText("Select a track to begin")
-        self.lyrics_content.clear()
-        self.metadata_content.clear()
-
-        # Collapse both sections
-        self.lyrics_content.setVisible(False)
-        self.lyrics_header.setText("Lyrics ▼")
-        self.metadata_content.setVisible(False)
-        self.metadata_header.setText("Track Details ▼")
-
-        # Load default art if available
+        """Reset to the empty / idle state."""
+        self._title_lbl.setText("No Track Playing")
+        self._artist_lbl.setText("—")
+        self._album_lbl.setText("—")
+        self._lyrics_lbl.setText("")
+        for chip in (
+            self._chip_duration,
+            self._chip_bpm,
+            self._chip_key,
+            self._chip_bitrate,
+            self._chip_track_no,
+        ):
+            chip.set_value("—")
+            chip.setVisible(False)
         if self.default_art_path and Path(self.default_art_path).exists():
-            pixmap = QPixmap(self.default_art_path)
-            rounded_pixmap = self.create_rounded_pixmap(pixmap, 350)
-            self.album_art_label.setPixmap(rounded_pixmap)
+            self._load_art(QPixmap(self.default_art_path))
         else:
-            self.album_art_label.clear()
-            self.album_art_label.setText("🎵\nNo Album Art")
+            self._load_art(None)
+
+    # ── internal helpers ──────────────────────────────────────────────────
+
+    def _update_chips(self, track):
+        """Fill metadata chips; hide any that have no data."""
+        # Duration
+        dur = getattr(track, "duration", None)
+        if dur:
+            mins, secs = int(dur) // 60, int(dur) % 60
+            self._chip_duration.set_value(f"{mins}:{secs:02d}")
+            self._chip_duration.setVisible(True)
+        else:
+            self._chip_duration.setVisible(False)
+
+        # BPM
+        bpm = getattr(track, "bpm", None)
+        if bpm:
+            self._chip_bpm.set_value(f"{float(bpm):.0f} BPM")
+            self._chip_bpm.setVisible(True)
+        else:
+            self._chip_bpm.setVisible(False)
+
+        # Key
+        key = getattr(track, "key", None)
+        if key:
+            mode = getattr(track, "mode", "") or ""
+            self._chip_key.set_value(f"{key} {mode}".strip())
+            self._chip_key.setVisible(True)
+        else:
+            self._chip_key.setVisible(False)
+
+        # Bitrate
+        bitrate = getattr(track, "bit_rate", None)
+        if bitrate:
+            self._chip_bitrate.set_value(f"{int(bitrate)} kbps")
+            self._chip_bitrate.setVisible(True)
+        else:
+            self._chip_bitrate.setVisible(False)
+
+        # Track number
+        track_no = getattr(track, "track_number", None)
+        if track_no:
+            self._chip_track_no.set_value(f"Track {track_no}")
+            self._chip_track_no.setVisible(True)
+        else:
+            self._chip_track_no.setVisible(False)
+
+    def _load_art(self, pixmap: QPixmap | None):
+        """Update album art and animate the backdrop into view."""
+        self._current_pixmap = pixmap
+        self._art_card.set_art(pixmap)
+
+        # Animate backdrop opacity 0 → 1
+        if self._fade_anim:
+            self._fade_anim.stop()
+
+        self._backdrop.set_pixmap(pixmap)
+        self._backdrop._opacity = 0.0
+
+        self._fade_anim = QPropertyAnimation(self._backdrop, b"backdropOpacity")
+        self._fade_anim.setDuration(600)
+        self._fade_anim.setStartValue(0.0)
+        self._fade_anim.setEndValue(1.0)
+        self._fade_anim.setEasingCurve(QEasingCurve.InOutCubic)
+        self._fade_anim.start()

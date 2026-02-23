@@ -185,7 +185,6 @@ class GUI(QMainWindow, MenuBar):
                         t.track_file_path
                     ):
                         self.now_playing.updateUI(t)
-                        self.now_playing.check_visibility()
                         logger.info(f"Found track by filename: {filename}")
                         return
                 self.now_playing.clearUI()
