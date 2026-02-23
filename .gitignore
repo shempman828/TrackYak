@@ -1,0 +1,10 @@
+__pycache__/
+.venv/
+.vscode/
+.VSCodeCounter/
+config/
+images/
+logs/
+playlists/
+publisher_logos/
+.txt
