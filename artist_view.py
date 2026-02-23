@@ -23,11 +23,13 @@ from thefuzz import fuzz
 
 from artist_detail import ArtistDetailTab
 from artist_detail_wiki import WikipediaImportDialog
+from artist_edit import ArtistEditor
 from artist_fuzzy_match import FuzzyMatchDialog
 from artist_group_dialog import AddGroupDialog, AddMemberDialog
 from award_new import AddAwardDialog
 from base_split_dialog import SplitDBDialog
 from influences_dialog import AddInfluenceDialog
+from logger_config import logger
 from wikipedia_seach import search_wikipedia
 
 
@@ -148,6 +150,9 @@ class ArtistView(QWidget):
 
             split_action = menu.addAction("🔀 Split Artist")
             split_action.triggered.connect(lambda: self._split_artist(artist))
+
+            edit_action = menu.addAction("Edit Artist")
+            edit_action.triggered.connect(lambda: self._edit_artist(artist))
 
             menu.addSeparator()
 
@@ -282,9 +287,7 @@ class ArtistView(QWidget):
         if artist is None:
             selected = self.artist_list.currentItem()
             if not selected:
-                QMessageBox.warning(
-                    self, "Select Artist", "Please select an artist first."
-                )
+                logger.warning(self, "Select Artist", "Please select an artist first.")
                 return
             artist_id = selected.data(Qt.UserRole)
             artist = self.controller.get.get_entity_object(
@@ -296,6 +299,22 @@ class ArtistView(QWidget):
 
         dialog = SplitDBDialog(self.controller.split, "Artist", artist, self)
         if dialog.exec_() == QDialog.Accepted:
+            self.load_artists()
+
+    def _edit_artist(self, artist=None):
+        if artist is None:
+            selected = self.arist_list.currentItem()
+            if not selected:
+                logger.error("No Artist Selected")
+                return
+            artist_id = selected.data(Qt.UserRole)
+            artist = self.controller.get.get_entity_object(
+                "Artist", artist_id=artist_id
+            )
+            if not artist:
+                logger.warning(f"Artist with id{artist_id} not found")
+        dialog = ArtistEditor(self.controller, artist, self)
+        if dialog.exec_() == QDialog.accepted:
             self.load_artists()
 
     def find_fuzzy_matches(self):
