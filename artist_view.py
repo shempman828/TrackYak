@@ -1,4 +1,4 @@
-""" """
+"""Artist management view handling both individuals and groups."""
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from thefuzz import fuzz
 
 from artist_detail import ArtistDetailTab
 from artist_detail_wiki import WikipediaImportDialog
@@ -28,9 +27,9 @@ from artist_fuzzy_match import FuzzyMatchDialog
 from artist_group_dialog import AddGroupDialog, AddMemberDialog
 from award_new import AddAwardDialog
 from base_split_dialog import SplitDBDialog
+from base_track_view import BaseTrackView
 from influences_dialog import AddInfluenceDialog
 from logger_config import logger
-from wikipedia_seach import search_wikipedia
 
 
 # -------------------------
@@ -39,173 +38,121 @@ from wikipedia_seach import search_wikipedia
 class ArtistView(QWidget):
     """Unified artist management view handling both individuals and groups."""
 
-    def __init__(self, controller):
-        super().__init__()
+    def __init__(self, controller, parent=None):
+        super().__init__(parent)
         self.controller = controller
-        self.current_mode = "all"  # "all", "individuals", "groups"
         self.all_artists = []
-        self._init_ui()
+        self.current_mode = "all"
+        self._setup_ui()
         self.load_artists()
 
-    def _init_ui(self):
-        main_layout = QVBoxLayout(self)
-        splitter = QSplitter(Qt.Horizontal)
+    # ----------------------------
+    # UI Setup
+    # ----------------------------
 
-        # Left Panel with mode selector
-        left_panel = QWidget()
-        left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(6, 6, 6, 6)
+    def _setup_ui(self):
+        """Build the main layout with filter bar, artist list, and detail tabs."""
+        layout = QVBoxLayout(self)
 
-        # Mode selector
-        mode_layout = QHBoxLayout()
+        # --- Filter / mode bar ---
+        filter_bar = QHBoxLayout()
+        filter_bar.addWidget(QLabel("Show:"))
+
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["All Artists", "Individuals", "Groups"])
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
-        mode_layout.addWidget(QLabel("View:"))
-        mode_layout.addWidget(self.mode_combo)
-        mode_layout.addStretch()
-        left_layout.addLayout(mode_layout)
+        filter_bar.addWidget(self.mode_combo)
 
-        # Existing search box
         self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText("🔍 Search artists...")
-        self.search_box.setClearButtonEnabled(True)
-        self.search_box.textChanged.connect(self._filter_artists)
-        left_layout.addWidget(self.search_box)
+        self.search_box.setPlaceholderText("Filter artists…")
+        self.search_box.textChanged.connect(self._filter_list)
+        filter_bar.addWidget(self.search_box)
 
-        # Artist list (now handles both individuals and groups)
+        layout.addLayout(filter_bar)
+
+        # --- Splitter: list on the left, detail tabs on the right ---
+        splitter = QSplitter(Qt.Horizontal)
+
         self.artist_list = QListWidget()
         self.artist_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.artist_list.customContextMenuRequested.connect(self._show_context_menu)
-        self.artist_list.itemSelectionChanged.connect(self._on_artist_selected)
-        left_layout.addWidget(self.artist_list, stretch=1)
+        self.artist_list.currentItemChanged.connect(self._on_artist_selected)
+        splitter.addWidget(self.artist_list)
 
-        # Right Panel remains the same
         self.tab_widget = QTabWidget()
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.tabCloseRequested.connect(self._close_tab)
-
-        splitter.addWidget(left_panel)
         splitter.addWidget(self.tab_widget)
-        splitter.setStretchFactor(1, 3)
-        main_layout.addWidget(splitter)
 
-    def _on_mode_changed(self, mode_text):
-        """Handle mode changes between all/individuals/groups"""
-        mode_map = {
-            "All Artists": "all",
-            "Individuals": "individuals",
-            "Groups": "groups",
-        }
-        self.current_mode = mode_map[mode_text]
-        self.load_artists()
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 3)
+
+        layout.addWidget(splitter)
+
+    # ----------------------------
+    # Data Loading
+    # ----------------------------
 
     def load_artists(self):
-        """Load artists filtered by current mode"""
+        """Load artists filtered by current mode."""
         try:
             all_artists = sorted(
                 self.controller.get.get_all_entities("Artist"),
                 key=lambda a: a.artist_name.lower(),
             )
 
-            # Apply mode filter
             if self.current_mode == "individuals":
                 artists = [a for a in all_artists if not getattr(a, "isgroup", 0)]
             elif self.current_mode == "groups":
                 artists = [a for a in all_artists if getattr(a, "isgroup", 0)]
-            else:  # "all"
+            else:
                 artists = all_artists
 
             self.all_artists = artists
-            self.artist_list.clear()
-
-            for artist in artists:
-                # Add group indicator for groups
-                display_name = artist.artist_name
-                if getattr(artist, "isgroup", 0):
-                    display_name = f"👥 {display_name}"
-
-                item = QListWidgetItem(display_name)
-                item.setData(Qt.UserRole, artist.artist_id)
-                self.artist_list.addItem(item)
+            self._populate_list(artists)
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load artists: {e}")
 
-    def _show_context_menu(self, position):
-        """Enhanced context menu with group-specific actions"""
-        menu = QMenu(self)
-        selected = self.artist_list.currentItem()
+    def _populate_list(self, artists):
+        """Fill the list widget from a list of artist objects."""
+        self.artist_list.clear()
+        filter_text = (
+            self.search_box.text().lower() if hasattr(self, "search_box") else ""
+        )
 
-        if selected:
-            artist_id = selected.data(Qt.UserRole)
-            artist = self.controller.get.get_entity_object(
-                "Artist", artist_id=artist_id
-            )
-            is_group = getattr(artist, "isgroup", 0)
+        for artist in artists:
+            if filter_text and filter_text not in artist.artist_name.lower():
+                continue
 
-            # Common actions
-            merge_action = menu.addAction("🔄 Merge Artist")
-            merge_action.triggered.connect(lambda: self._merge_artist(artist))
+            display_name = artist.artist_name
+            if getattr(artist, "isgroup", 0):
+                display_name = f"👥 {display_name}"
 
-            split_action = menu.addAction("🔀 Split Artist")
-            split_action.triggered.connect(lambda: self._split_artist(artist))
+            item = QListWidgetItem(display_name)
+            item.setData(Qt.UserRole, artist.artist_id)
+            self.artist_list.addItem(item)
 
-            edit_action = menu.addAction("Edit Artist")
-            edit_action.triggered.connect(lambda: self._edit_artist(artist))
+    # ----------------------------
+    # Event Handlers
+    # ----------------------------
 
-            menu.addSeparator()
+    def _on_mode_changed(self, mode_text: str):
+        """Handle mode changes between all/individuals/groups."""
+        mode_map = {
+            "All Artists": "all",
+            "Individuals": "individuals",
+            "Groups": "groups",
+        }
+        self.current_mode = mode_map.get(mode_text, "all")
+        self.load_artists()
 
-            # Group-specific actions
-            if is_group:
-                add_member_action = menu.addAction("➕ Add Member")
-                add_member_action.triggered.connect(lambda: self._add_member(artist))
-            else:
-                add_to_group_action = menu.addAction("👥 Add to Group")
-                add_to_group_action.triggered.connect(
-                    lambda: self._add_to_group(artist)
-                )
-
-            # Common actions
-            add_award_action = menu.addAction("🏆 Add Award")
-            add_award_action.triggered.connect(lambda: self._add_award(artist))
-
-            add_place_action = menu.addAction("📍 Add Place")
-            add_place_action.triggered.connect(lambda: self._add_place(artist))
-
-            menu.addSeparator()
-
-            # Toggle group status
-            if is_group:
-                convert_action = menu.addAction("👤 Convert to Individual")
-                convert_action.triggered.connect(
-                    lambda: self._convert_to_individual(artist)
-                )
-            else:
-                convert_action = menu.addAction("👥 Convert to Group")
-                convert_action.triggered.connect(lambda: self._convert_to_group(artist))
-
-            self.wiki_action = menu.addAction("Wikipedia Search")
-            self.wiki_action.setToolTip("Search Wikipedia for artist information")
-            self.wiki_action.triggered.connect(self.search_wikipedia)
-            self.influences_action = menu.addAction("Edit Influences")
-            self.influences_action.triggered.connect(self.edit_influences)
-            self.pic_action = menu.addAction("Add Artist Image")
-            self.pic_action.triggered.connect(self.add_profile_picture)
-            delete_action = menu.addAction("🗑️ Delete Artist")
-            delete_action.triggered.connect(lambda: self._delete_artist(artist))
-
-        # Always show add artist action
-        add_action = menu.addAction("➕ Add Artist")
-        add_action.triggered.connect(self.add_new_artist)
-
-        add_group_action = menu.addAction("👥 Add Group")
-        add_group_action.triggered.connect(self.add_new_group)
-
-        menu.exec_(self.artist_list.mapToGlobal(position))
+    def _filter_list(self, text: str):
+        """Re-populate the list applying the current search filter."""
+        self._populate_list(self.all_artists)
 
     def _on_artist_selected(self):
-        """Display selected artist/group detail tab"""
+        """Display selected artist/group detail tab."""
         selected = self.artist_list.currentItem()
         if not selected:
             return
@@ -222,15 +169,236 @@ class ArtistView(QWidget):
         detail_tab = ArtistDetailTab(artist, self.controller)
         self.tab_widget.addTab(detail_tab, artist.artist_name)
 
-    def _add_member(self, group):
-        """Add member to group"""
+    def _close_tab(self, index: int):
+        """Close the tab at the given index."""
+        self.tab_widget.removeTab(index)
 
+    # ----------------------------
+    # Context Menu
+    # ----------------------------
+
+    def _show_context_menu(self, position):
+        """Enhanced context menu with group-specific actions."""
+        menu = QMenu(self)
+        selected = self.artist_list.currentItem()
+
+        if selected:
+            artist_id = selected.data(Qt.UserRole)
+            artist = self.controller.get.get_entity_object(
+                "Artist", artist_id=artist_id
+            )
+            if not artist:
+                return
+
+            is_group = getattr(artist, "isgroup", 0)
+
+            # ---- Track browsing ----
+            view_tracks_action = menu.addAction("🎵 View Artist Tracks")
+            view_tracks_action.triggered.connect(
+                lambda: self._view_artist_tracks(artist)
+            )
+
+            menu.addSeparator()
+
+            # ---- Common artist actions ----
+            edit_action = menu.addAction("✏️ Edit Artist")
+            edit_action.triggered.connect(lambda: self._edit_artist(artist))
+
+            merge_action = menu.addAction("🔄 Merge Artist")
+            merge_action.triggered.connect(lambda: self._merge_artist(artist))
+
+            split_action = menu.addAction("🔀 Split Artist")
+            split_action.triggered.connect(lambda: self._split_artist(artist))
+
+            menu.addSeparator()
+
+            # ---- Group-specific actions ----
+            if is_group:
+                add_member_action = menu.addAction("➕ Add Member")
+                add_member_action.triggered.connect(lambda: self._add_member(artist))
+            else:
+                add_to_group_action = menu.addAction("👥 Add to Group")
+                add_to_group_action.triggered.connect(
+                    lambda: self._add_to_group(artist)
+                )
+
+            # ---- Common extras ----
+            add_award_action = menu.addAction("🏆 Add Award")
+            add_award_action.triggered.connect(lambda: self._add_award(artist))
+
+            add_place_action = menu.addAction("📍 Add Place")
+            add_place_action.triggered.connect(lambda: self._add_place(artist))
+
+            menu.addSeparator()
+
+            # ---- Convert group status ----
+            if is_group:
+                convert_action = menu.addAction("👤 Convert to Individual")
+                convert_action.triggered.connect(
+                    lambda: self._convert_to_individual(artist)
+                )
+            else:
+                convert_action = menu.addAction("👥 Convert to Group")
+                convert_action.triggered.connect(lambda: self._convert_to_group(artist))
+
+            wiki_action = menu.addAction("🌐 Wikipedia Search")
+            wiki_action.triggered.connect(self.search_wikipedia)
+
+            influences_action = menu.addAction("🔗 Edit Influences")
+            influences_action.triggered.connect(self.edit_influences)
+
+            pic_action = menu.addAction("🖼️ Add Artist Image")
+            pic_action.triggered.connect(self.add_profile_picture)
+
+            menu.addSeparator()
+
+            delete_action = menu.addAction("🗑️ Delete Artist")
+            delete_action.triggered.connect(lambda: self._delete_artist(artist))
+
+        # ---- Always-visible add actions ----
+        menu.addSeparator()
+        add_action = menu.addAction("➕ Add Artist")
+        add_action.triggered.connect(self.add_new_artist)
+
+        add_group_action = menu.addAction("👥 Add Group")
+        add_group_action.triggered.connect(self.add_new_group)
+
+        menu.exec_(self.artist_list.mapToGlobal(position))
+
+    # ----------------------------
+    # View Artist Tracks
+    # ----------------------------
+
+    def _view_artist_tracks(self, artist):
+        """Load all tracks associated with an artist and display them in a BaseTrackView."""
+        try:
+            tracks = self._get_all_artist_tracks(artist.artist_id)
+
+            if not tracks:
+                QMessageBox.information(
+                    self,
+                    "No Tracks Found",
+                    f"No tracks found for '{artist.artist_name}'.",
+                )
+                return
+
+            track_view = BaseTrackView(
+                controller=self.controller,
+                tracks=tracks,
+                title=f"Tracks — {artist.artist_name} ({len(tracks)} tracks)",
+                enable_drag=True,
+                enable_drop=False,
+            )
+            track_view.exec_()
+
+            logger.info(
+                f"Displayed {len(tracks)} tracks for artist '{artist.artist_name}' "
+                f"(id={artist.artist_id})"
+            )
+
+        except Exception as e:
+            logger.error(
+                f"Error displaying tracks for artist {artist.artist_id}: {e}",
+                exc_info=True,
+            )
+            QMessageBox.critical(
+                self, "Error", f"Failed to load tracks for '{artist.artist_name}':\n{e}"
+            )
+
+    def _get_all_artist_tracks(self, artist_id: int) -> list:
+        """
+        Return a deduplicated list of Track objects associated with an artist
+        via both TrackArtistRole (track-level credits) and AlbumRoleAssociation
+        (album-level credits, e.g. album artist).
+        """
+        track_map: dict[int, object] = {}
+
+        # --- Track-level roles ---
+        try:
+            track_roles = (
+                self.controller.get.get_all_entities(
+                    "TrackArtistRole", artist_id=artist_id
+                )
+                or []
+            )
+            for tr in track_roles:
+                track = self.controller.get.get_entity_object(
+                    "Track", track_id=tr.track_id
+                )
+                if track and track.track_id not in track_map:
+                    track_map[track.track_id] = track
+        except Exception as e:
+            logger.warning(f"Error fetching track roles for artist {artist_id}: {e}")
+
+        # --- Album-level roles (e.g. album artist) ---
+        try:
+            album_roles = (
+                self.controller.get.get_all_entities(
+                    "AlbumRoleAssociation", artist_id=artist_id
+                )
+                or []
+            )
+            for ar in album_roles:
+                album_tracks = (
+                    self.controller.get.get_entity_links(
+                        "AlbumTracks", album_id=ar.album_id
+                    )
+                    or []
+                )
+                for at in album_tracks:
+                    if at.track_id not in track_map:
+                        track = self.controller.get.get_entity_object(
+                            "Track", track_id=at.track_id
+                        )
+                        if track:
+                            track_map[track.track_id] = track
+        except Exception as e:
+            logger.warning(f"Error fetching album roles for artist {artist_id}: {e}")
+
+        return list(track_map.values())
+
+    # ----------------------------
+    # Group / Member Actions
+    # ----------------------------
+
+    def _add_member(self, group):
+        """Add a member to a group."""
         dialog = AddMemberDialog(self.controller, group, self)
         if dialog.exec_() == QDialog.Accepted:
             self.load_artists()
 
+    def _add_to_group(self, artist):
+        """Add an individual artist to an existing group."""
+        groups = [a for a in self.all_artists if getattr(a, "isgroup", 0)]
+        if not groups:
+            QMessageBox.information(self, "No Groups", "No groups exist yet.")
+            return
+
+        group_names = [g.artist_name for g in groups]
+        choice, ok = QInputDialog.getItem(
+            self, "Add to Group", "Select group:", group_names, 0, False
+        )
+        if not ok:
+            return
+
+        group = next((g for g in groups if g.artist_name == choice), None)
+        if group:
+            try:
+                self.controller.add.add_entity(
+                    "GroupMembership",
+                    group_id=group.artist_id,
+                    member_id=artist.artist_id,
+                )
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    f"'{artist.artist_name}' added to '{group.artist_name}'.",
+                )
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to add to group: {e}")
+
     def _convert_to_group(self, artist):
-        """Convert individual artist to group"""
+        """Convert an individual artist to a group."""
         try:
             self.controller.update.update_entity("Artist", artist.artist_id, isgroup=1)
             self.load_artists()
@@ -238,7 +406,7 @@ class ArtistView(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to convert: {e}")
 
     def _convert_to_individual(self, group):
-        """Convert group to individual artist"""
+        """Convert a group to an individual artist."""
         reply = QMessageBox.question(
             self,
             "Convert to Individual",
@@ -252,27 +420,17 @@ class ArtistView(QWidget):
                 )
                 self.load_artists()
                 QMessageBox.information(
-                    self, "Success", "Group converted to individual"
+                    self, "Success", "Group converted to individual."
                 )
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to convert: {e}")
 
-    def add_new_group(self):
-        """Add new group using existing dialog"""
-
-        dialog = AddGroupDialog(self.controller, self)
-        if dialog.exec_() == QDialog.Accepted:
-            self.load_artists()
-
-    def _close_tab(self, index):
-        """Close tab at the specified index"""
-        self.tab_widget.removeTab(index)
-
     # ----------------------------
-    # Dialog Operations
+    # Add / Edit / Delete Actions
     # ----------------------------
+
     def add_new_artist(self):
-        """Use an inline prompt instead of a dialog for a smoother flow."""
+        """Prompt for a name and add a new artist."""
         name, ok = QInputDialog.getText(self, "Add Artist", "Artist name:")
         if ok and name.strip():
             try:
@@ -281,13 +439,39 @@ class ArtistView(QWidget):
             except Exception as e:
                 QMessageBox.warning(self, "Error", f"Failed to add artist: {e}")
 
-    def _split_artist(self, artist=None):
-        """Split artist inline."""
-        # If artist is not provided, get it from selection
+    def add_new_group(self):
+        """Open the Add Group dialog."""
+        dialog = AddGroupDialog(self.controller, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.load_artists()
+
+    def _edit_artist(self, artist=None):
+        """Open the artist editor for the given or currently selected artist."""
         if artist is None:
             selected = self.artist_list.currentItem()
             if not selected:
-                logger.warning(self, "Select Artist", "Please select an artist first.")
+                logger.error("No artist selected for editing.")
+                return
+            artist_id = selected.data(Qt.UserRole)
+            artist = self.controller.get.get_entity_object(
+                "Artist", artist_id=artist_id
+            )
+            if not artist:
+                logger.warning(f"Artist with id {artist_id} not found.")
+                return
+
+        dialog = ArtistEditor(self.controller, artist, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.load_artists()
+
+    def _split_artist(self, artist=None):
+        """Open the split dialog for the given or currently selected artist."""
+        if artist is None:
+            selected = self.artist_list.currentItem()
+            if not selected:
+                QMessageBox.warning(
+                    self, "Select Artist", "Please select an artist first."
+                )
                 return
             artist_id = selected.data(Qt.UserRole)
             artist = self.controller.get.get_entity_object(
@@ -301,352 +485,159 @@ class ArtistView(QWidget):
         if dialog.exec_() == QDialog.Accepted:
             self.load_artists()
 
-    def _edit_artist(self, artist=None):
-        if artist is None:
-            selected = self.arist_list.currentItem()
-            if not selected:
-                logger.error("No Artist Selected")
-                return
-            artist_id = selected.data(Qt.UserRole)
-            artist = self.controller.get.get_entity_object(
-                "Artist", artist_id=artist_id
-            )
-            if not artist:
-                logger.warning(f"Artist with id{artist_id} not found")
-        dialog = ArtistEditor(self.controller, artist, self)
-        if dialog.exec_() == QDialog.accepted:
-            self.load_artists()
-
-    def find_fuzzy_matches(self):
-        """Quick fuzzy match check."""
-
-        artists = self.controller.get.get_all_entities("Artist")
-        matches = [
-            (a, b, fuzz.token_sort_ratio(a.artist_name, b.artist_name))
-            for i, a in enumerate(artists)
-            for b in artists[i + 1 :]
-            if fuzz.token_sort_ratio(a.artist_name, b.artist_name) >= 65
-        ]
-
-        if not matches:
-            QMessageBox.information(self, "No Matches", "No fuzzy matches found.")
-            return
-
-        dialog = FuzzyMatchDialog(matches, self.controller, self)
-        dialog.exec_()
-        self.load_artists()
-
-    def _filter_artists(self):
-        """Filter artists based on search text and current mode"""
-        search_text = self.search_box.text().lower()
-
-        if not search_text:
-            # Show all artists in current mode
-            self.artist_list.clear()
-            for artist in self.all_artists:
-                display_name = artist.artist_name
-                if getattr(artist, "isgroup", 0):
-                    display_name = f"👥 {display_name}"
-
-                item = QListWidgetItem(display_name)
-                item.setData(Qt.UserRole, artist.artist_id)
-                self.artist_list.addItem(item)
-        else:
-            # Filter artists based on search text
-            self.artist_list.clear()
-            for artist in self.all_artists:
-                if search_text in artist.artist_name.lower():
-                    display_name = artist.artist_name
-                    if getattr(artist, "isgroup", 0):
-                        display_name = f"👥 {display_name}"
-
-                    item = QListWidgetItem(display_name)
-                    item.setData(Qt.UserRole, artist.artist_id)
-                    self.artist_list.addItem(item)
-
-    def _add_award(self):
-        dialog = AddAwardDialog(
-            self.controller, "Artist", self.artist_list.currentItem().artist_id, self
+    def _merge_artist(self, artist):
+        """Merge this artist into another (placeholder — implement via merge controller)."""
+        QMessageBox.information(
+            self,
+            "Merge Artist",
+            "Use the Merge feature from the artist detail panel to perform merges.",
         )
 
-        if dialog.exec() == QDialog.Accepted:
-            self.show_success("Award added successfully")
+    def _delete_artist(self, artist):
+        """Delete an artist after confirmation."""
+        reply = QMessageBox.question(
+            self,
+            "Delete Artist",
+            f"Permanently delete '{artist.artist_name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            try:
+                self.controller.delete.delete_entity(
+                    "Artist", artist_id=artist.artist_id
+                )
+                self.load_artists()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to delete artist: {e}")
+
+    def _add_award(self, artist):
+        """Open the Add Award dialog for an artist."""
+        try:
+            dialog = AddAwardDialog(self.controller, "Artist", artist.artist_id, self)
+            if dialog.exec_() == QDialog.Accepted:
+                self._on_artist_selected()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to add award: {e}")
+
+    def _add_place(self, artist):
+        """Open the Place Selection dialog for an artist."""
+        try:
+            dialog = PlaceSelectionDialog(self.controller, self)
+            if dialog.exec_() == QDialog.Accepted:
+                place_id = dialog.selected_place_id
+                association_type = dialog.selected_association_type
+                if place_id:
+                    self.controller.add.add_entity(
+                        "PlaceAssociation",
+                        place_id=place_id,
+                        entity_id=artist.artist_id,
+                        entity_type="Artist",
+                        association_type=association_type or "associated",
+                    )
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to add place: {e}")
+
+    # ----------------------------
+    # Wikipedia / Influences / Image
+    # ----------------------------
 
     def search_wikipedia(self):
-        """Search Wikipedia for artist information"""
-        if not self.controller:
-            self.show_error("No controller available")
+        """Search Wikipedia for the currently selected artist."""
+        selected = self.artist_list.currentItem()
+        if not selected:
             return
-
-        # Search Wikipedia
-        title, summary, full_content, link, images = search_wikipedia(
-            self.artist_list.currentItem().artist_name, self
-        )
-
-        if not link:  # User cancelled or error occurred
-            return
-
-        # Ask user what to do
-        dialog = WikipediaImportDialog(title, summary, link, images, self)
-        if dialog.exec() == QDialog.Accepted:
-            updates = dialog.get_updates()
-
-            # Apply updates
-            if updates:
-                success = self.controller.update.update_entity(
-                    "Artist", self.artist_list.currentItem().artist_id, **updates
-                )
-
-                if success:
-                    # Update local artist object
-                    for key, value in updates.items():
-                        setattr(self.artist_list.currentItem(), key, value)
-
-                    self.show_success("Wikipedia information imported")
-                    self.artist_updated.emit()
-                else:
-                    self.show_error("Failed to import Wikipedia information")
-
-    def _add_place(self):
-        """Add a place association to the artist"""
-        # Open place selection dialog
-        dialog = PlaceSelectionDialog(self.controller, self)
-        if dialog.exec() == QDialog.Accepted:
-            place_id, association_type = dialog.get_selection()
-
-            if place_id:
-                # Add place association
-                new_assoc = self.controller.add.add_entity(
-                    "PlaceAssociation",
-                    place_id=place_id,
-                    entity_id=self.artist_list.currentItem().artist_id,
-                    entity_type="Artist",
-                    association_type=association_type or "associated",
-                )
-
-                if new_assoc:
-                    self.show_success("Place association added")
-
-                    # Refresh places widget if available
-                    if hasattr(self.places_widget, "refresh_places"):
-                        self.places_widget.refresh_places()
-                    self.artist_updated.emit()
-                else:
-                    self.show_error("Failed to add place association")
-
-    def _merge_artist(self):
-        """Merge this artist with another artist"""
-        if not self.controller:
-            self.show_error("No controller available")
-            return
-
-        # Open artist selection dialog for merge target
-        dialog = ArtistSelectionDialog(
-            self.controller,
-            "Select Artist to Merge Into",
-            exclude_id=self.artist_list.currentItem().artist_id,
-            parent=self,
-        )
-
-        if dialog.exec() == QDialog.Accepted:
-            target_artist = dialog.get_selected_artist()
-
-            if target_artist:
-                # Confirm merge
-                reply = QMessageBox.question(
-                    self,
-                    "Confirm Merge",
-                    f"Merge '{self.artist_list.currentItem().artist_name}' (ID: {self.artist_list.currentItem().artist_id}) "
-                    f"into '{target_artist.artist_name}' (ID: {target_artist.artist_id})?\n\n"
-                    f"This action cannot be undone!",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No,
-                )
-
-                if reply == QMessageBox.Yes:
-                    # Perform merge
-                    success = self.controller.merge.merge_entities(
-                        "Artist",
-                        self.artist_list.currentItem().artist_id,
-                        target_artist.artist_id,
-                    )
-
-                    if success:
-                        # Signal that artist was merged (parent should handle closing)
-                        if self.artist_detail_tab:
-                            # Emit signal or call method to close/refresh
-                            if hasattr(self.artist_detail_tab, "artist_merged"):
-                                self.artist_detail_tab.artist_merged.emit(
-                                    self.artist.artist_id, target_artist.artist_id
-                                )
-                    else:
-                        self.show_error("Failed to merge artists")
+        artist_id = selected.data(Qt.UserRole)
+        artist = self.controller.get.get_entity_object("Artist", artist_id=artist_id)
+        if artist:
+            dialog = WikipediaImportDialog(self.controller, artist, self)
+            dialog.exec_()
 
     def edit_influences(self):
-        """Open dialog to edit influences"""
+        """Open the influence editor for the currently selected artist."""
         artists = self.controller.get.get_all_entities("Artist")
-        all_artists = [(artist.artist_id, artist.artist_name) for artist in artists]
+        all_artists = [(a.artist_id, a.artist_name) for a in artists]
         dialog = AddInfluenceDialog(self.controller, all_artists)
-        if dialog.exec() == QDialog.Accepted:
-            self.artist_updated.emit()
+        dialog.exec()
 
     def add_profile_picture(self):
-        """Add or change artist profile picture"""
-        # Use native dialog option for Wayland compatibility
+        """Add or replace the profile picture for the selected artist."""
+        selected = self.artist_list.currentItem()
+        if not selected:
+            return
+        artist_id = selected.data(Qt.UserRole)
+
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select Profile Picture",
             "",
             "Image Files (*.png *.jpg *.jpeg *.gif *.bmp *.webp)",
-            options=QFileDialog.DontUseNativeDialog,  # <--- Crucial for Wayland
+            options=QFileDialog.DontUseNativeDialog,
         )
-
         if not file_path:
             return
 
-        # Update artist profile picture path
         success = self.controller.update.update_entity(
-            "Artist",
-            self.artist_list.currentItem().artist_id,
-            profile_pic_path=file_path,
+            "Artist", artist_id, profile_pic_path=file_path
         )
-
         if success:
-            self.show_success("Profile picture updated")
-            self.artist_list.currentItem().profile_pic_path = file_path
-            self.artist_updated.emit()
+            QMessageBox.information(self, "Success", "Profile picture updated.")
         else:
-            self.show_error("Failed to update profile picture")
+            QMessageBox.warning(self, "Error", "Failed to update profile picture.")
 
-    def _delete_artist(self, artist):
-        try:
-            self.controller.delete.delete_entity("Artist", artist_id=artist.artist_id)
-            self.load_artists()
-        except:  # noqa: E722
-            pass
+    def find_fuzzy_matches(self):
+        """Open the fuzzy match dialog for duplicate detection."""
+        dialog = FuzzyMatchDialog(self.controller, self)
+        dialog.exec_()
 
 
+# -------------------------
+# Place Selection Dialog
+# -------------------------
 class PlaceSelectionDialog(QDialog):
-    """Dialog for selecting a place to associate with artist"""
+    """Dialog for selecting a place to associate with an artist."""
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
         self.selected_place_id = None
         self.selected_association_type = "associated"
-        self.init_ui()
+        self._init_ui()
 
-    def init_ui(self):
-        """Initialize dialog UI"""
+    def _init_ui(self):
         self.setWindowTitle("Add Place Association")
-        self.setModal(True)
+        self.setMinimumWidth(400)
+
         layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Select a place:"))
 
-        # Place selection
-        layout.addWidget(QLabel("Select Place:"))
+        self.place_list = QListWidget()
+        try:
+            places = self.controller.get.get_all_entities("Place")
+            for place in sorted(places, key=lambda p: p.place_name.lower()):
+                item = QListWidgetItem(place.place_name)
+                item.setData(Qt.UserRole, place.place_id)
+                self.place_list.addItem(item)
+        except Exception as e:
+            logger.error(f"Error loading places: {e}")
 
-        # Get all places
-        places = self.controller.get.get_all_entities("Place")
+        layout.addWidget(self.place_list)
 
-        self.place_combo = QComboBox()
-        self.place_combo.addItem("-- Select a place --", None)
-
-        for place in sorted(places, key=lambda p: p.place_name):
-            self.place_combo.addItem(place.place_name, place.place_id)
-
-        layout.addWidget(self.place_combo)
-
-        # Association type
-        layout.addWidget(QLabel("Association Type:"))
-
+        layout.addWidget(QLabel("Association type:"))
         self.type_combo = QComboBox()
-        self.type_combo.addItems(
-            [
-                "associated",
-                "born",
-                "died",
-                "worked",
-                "lived",
-                "formed",
-                "based",
-                "recorded",
-            ]
-        )
-
+        self.type_combo.addItems(["associated", "birth", "death", "residence"])
         layout.addWidget(self.type_combo)
 
-        # Button box
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.accept_selection)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
 
-    def accept_selection(self):
-        """Accept the current selection"""
-        self.selected_place_id = self.place_combo.currentData()
+    def _on_accept(self):
+        item = self.place_list.currentItem()
+        if not item:
+            QMessageBox.warning(self, "No Selection", "Please select a place.")
+            return
+        self.selected_place_id = item.data(Qt.UserRole)
         self.selected_association_type = self.type_combo.currentText()
-
-        if not self.selected_place_id:
-            QMessageBox.warning(self, "Selection Required", "Please select a place.")
-            return
-
         self.accept()
-
-    def get_selection(self):
-        """Get the selected place and association type"""
-        return self.selected_place_id, self.selected_association_type
-
-
-class ArtistSelectionDialog(QDialog):
-    """Dialog for selecting another artist"""
-
-    def __init__(self, controller, title="Select Artist", exclude_id=None, parent=None):
-        super().__init__(parent)
-        self.controller = controller
-        self.dialog_title = title
-        self.exclude_id = exclude_id
-        self.selected_artist = None
-        self.init_ui()
-
-    def init_ui(self):
-        """Initialize dialog UI"""
-        self.setWindowTitle(self.dialog_title)
-        self.setModal(True)
-        layout = QVBoxLayout(self)
-
-        # Artist selection
-        layout.addWidget(QLabel("Select Artist:"))
-
-        # Get all artists (excluding the current one if specified)
-        all_artists = self.controller.get.get_all_entities("Artist")
-
-        self.artist_combo = QComboBox()
-        self.artist_combo.addItem("-- Select an artist --", None)
-
-        for artist in sorted(all_artists, key=lambda a: a.artist_name):
-            if self.exclude_id and artist.artist_id == self.exclude_id:
-                continue
-
-            self.artist_combo.addItem(artist.artist_name, artist)
-
-        layout.addWidget(self.artist_combo)
-
-        # Button box
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.accept_selection)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-
-    def accept_selection(self):
-        """Accept the current selection"""
-        self.selected_artist = self.artist_combo.currentData()
-
-        if not self.selected_artist:
-            QMessageBox.warning(self, "Selection Required", "Please select an artist.")
-            return
-
-        self.accept()
-
-    def get_selected_artist(self):
-        """Get the selected artist"""
-        return self.selected_artist
