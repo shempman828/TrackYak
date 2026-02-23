@@ -8,5 +8,5 @@ images/
 logs/
 playlists/
 publisher_logos/
-.txt
-.db
+*.txt
+*.db
