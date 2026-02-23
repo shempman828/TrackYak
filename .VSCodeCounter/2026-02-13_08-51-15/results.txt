@@ -1,0 +1,207 @@
+Date : 2026-02-13 08:51:15
+Directory : /home/babs/PycharmProjects/MusicLibrary
+Total : 174 files,  34792 codes, 5645 comments, 8159 blanks, all 48596 lines
+
+Languages
++------------------+------------+------------+------------+------------+------------+
+| language         | files      | code       | comment    | blank      | total      |
++------------------+------------+------------+------------+------------+------------+
+| Python           |        139 |     33,357 |      5,554 |      7,949 |     46,860 |
+| HTML             |          2 |        821 |          1 |         25 |        847 |
+| XML              |         29 |        429 |         90 |        131 |        650 |
+| pip requirements |          1 |         59 |          0 |          1 |         60 |
+| Ini              |          1 |         47 |          0 |         11 |         58 |
+| Markdown         |          1 |         45 |          0 |         42 |         87 |
+| JSON             |          1 |         34 |          0 |          0 |         34 |
++------------------+------------+------------+------------+------------+------------+
+
+Directories
++-------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                          | files      | code       | comment    | blank      | total      |
++-------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                             |        174 |     34,792 |      5,645 |      8,159 |     48,596 |
+| . (Files)                                                                     |        143 |     34,282 |      5,555 |      8,017 |     47,854 |
+| assets                                                                        |         29 |        429 |         90 |        131 |        650 |
+| config                                                                        |          2 |         81 |          0 |         11 |         92 |
++-------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++-------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+
+| filename                                                                      | language         | code       | comment    | blank      | total      |
++-------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+
+| /home/babs/PycharmProjects/MusicLibrary/album_components.py                   | Python           |         74 |          5 |         16 |         95 |
+| /home/babs/PycharmProjects/MusicLibrary/album_delete_dialog.py                | Python           |         58 |         10 |         16 |         84 |
+| /home/babs/PycharmProjects/MusicLibrary/album_detail.py                       | Python           |        280 |         48 |         69 |        397 |
+| /home/babs/PycharmProjects/MusicLibrary/album_editing_relationship_helpers.py | Python           |        333 |         31 |         50 |        414 |
+| /home/babs/PycharmProjects/MusicLibrary/album_flowlayout.py                   | Python           |         74 |         34 |         22 |        130 |
+| /home/babs/PycharmProjects/MusicLibrary/album_tab.py                          | Python           |        312 |         31 |         77 |        420 |
+| /home/babs/PycharmProjects/MusicLibrary/album_view.py                         | Python           |        324 |         78 |         74 |        476 |
+| /home/babs/PycharmProjects/MusicLibrary/analysis_dialog.py                    | Python           |        382 |         74 |        103 |        559 |
+| /home/babs/PycharmProjects/MusicLibrary/analysis_utility.py                   | Python           |        719 |        153 |        186 |      1,058 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_date_format.py                 | Python           |         81 |         68 |         24 |        173 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_detail.py                      | Python           |        190 |         42 |         37 |        269 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_detail_alias.py                | Python           |         51 |         11 |         19 |         81 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_detail_awards.py               | Python           |        207 |         58 |         59 |        324 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_detail_bio.py                  | Python           |         75 |         10 |         19 |        104 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_detail_container.py            | Python           |         96 |         14 |         31 |        141 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_detail_credits.py              | Python           |        211 |         50 |         60 |        321 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_detail_dates.py                | Python           |         27 |          4 |         11 |         42 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_detail_header.py               | Python           |        198 |         23 |         34 |        255 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_detail_influences.py           | Python           |         94 |         22 |         28 |        144 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_detail_member.py               | Python           |        139 |         25 |         36 |        200 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_detail_places.py               | Python           |        292 |         77 |         80 |        449 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_detail_wiki.py                 | Python           |         91 |         21 |         31 |        143 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_fuzzy_match.py                 | Python           |        111 |         11 |         22 |        144 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_group_dialog.py                | Python           |        165 |         19 |         45 |        229 |
+| /home/babs/PycharmProjects/MusicLibrary/artist_view.py                        | Python           |        452 |         70 |        112 |        634 |
+| /home/babs/PycharmProjects/MusicLibrary/asset_paths.py                        | Python           |         44 |         14 |         24 |         82 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/audio_analysis.svg             | XML              |         17 |          4 |          6 |         27 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/audio_settings.svg             | XML              |         22 |          5 |          6 |         33 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/cancel.svg                     | XML              |          5 |          2 |          3 |         10 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/checkmark.svg                  | XML              |          3 |          0 |          2 |          5 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/default_album.svg              | XML              |         13 |          3 |          8 |         24 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/default_artist.svg             | XML              |          6 |          4 |          6 |         16 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/default_logo.svg               | XML              |         16 |          1 |          5 |         22 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/display_settings.svg           | XML              |         18 |          5 |          4 |         27 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/equalizer.svg                  | XML              |         18 |          6 |          7 |         31 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/exit.svg                       | XML              |          4 |          2 |          5 |         11 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/forward_button.svg             | XML              |         14 |          1 |          1 |         16 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/full_screen.svg                | XML              |          6 |          4 |          5 |         15 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/import.svg                     | XML              |         14 |          3 |          5 |         22 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/manage_library.svg             | XML              |         18 |          3 |          5 |         26 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/minus.svg                      | XML              |          3 |          1 |          2 |          6 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/next_button.svg                | XML              |         25 |          4 |          6 |         35 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/pause_button.svg               | XML              |         24 |          4 |          5 |         33 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/play_button.svg                | XML              |         23 |          5 |          6 |         34 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/plus.svg                       | XML              |          4 |          1 |          2 |          7 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/previous_button.svg            | XML              |         25 |          4 |          6 |         35 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/repeat_all.svg                 | XML              |         15 |          2 |          3 |         20 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/repeat_none.svg                | XML              |         16 |          3 |          4 |         23 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/repeat_one.svg                 | XML              |         21 |          3 |          4 |         28 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/rewind_button.svg              | XML              |         14 |          1 |          1 |         16 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/show_queue.svg                 | XML              |         13 |          2 |          3 |         18 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/shuffle_button.svg             | XML              |         16 |          3 |          4 |         23 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/statistics.svg                 | XML              |         16 |          4 |          7 |         27 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/stop_button.svg                | XML              |         29 |          7 |          6 |         42 |
+| /home/babs/PycharmProjects/MusicLibrary/assets/toggle_navigation.svg          | XML              |         11 |          3 |          4 |         18 |
+| /home/babs/PycharmProjects/MusicLibrary/award_detail.py                       | Python           |        338 |         41 |         77 |        456 |
+| /home/babs/PycharmProjects/MusicLibrary/award_new.py                          | Python           |        163 |         35 |         33 |        231 |
+| /home/babs/PycharmProjects/MusicLibrary/award_relationship_dialog.py          | Python           |        189 |         34 |         69 |        292 |
+| /home/babs/PycharmProjects/MusicLibrary/award_view.py                         | Python           |        350 |         63 |         96 |        509 |
+| /home/babs/PycharmProjects/MusicLibrary/base_album_edit.py                    | Python           |        696 |         90 |        186 |        972 |
+| /home/babs/PycharmProjects/MusicLibrary/base_album_widget.py                  | Python           |        160 |         17 |         45 |        222 |
+| /home/babs/PycharmProjects/MusicLibrary/base_merge_dialog.py                  | Python           |        477 |         84 |        126 |        687 |
+| /home/babs/PycharmProjects/MusicLibrary/base_split_dialog.py                  | Python           |        190 |         29 |         42 |        261 |
+| /home/babs/PycharmProjects/MusicLibrary/base_track_playlist_dialog.py         | Python           |         39 |          6 |         16 |         61 |
+| /home/babs/PycharmProjects/MusicLibrary/base_track_view.py                    | Python           |        386 |         85 |         97 |        568 |
+| /home/babs/PycharmProjects/MusicLibrary/config/config.ini                     | Ini              |         47 |          0 |         11 |         58 |
+| /home/babs/PycharmProjects/MusicLibrary/config/import_paths.json              | JSON             |         34 |          0 |          0 |         34 |
+| /home/babs/PycharmProjects/MusicLibrary/config_dialog.py                      | Python           |        216 |         37 |         75 |        328 |
+| /home/babs/PycharmProjects/MusicLibrary/config_setup.py                       | Python           |        335 |        107 |        101 |        543 |
+| /home/babs/PycharmProjects/MusicLibrary/dates_calendar.py                     | Python           |        237 |         36 |         45 |        318 |
+| /home/babs/PycharmProjects/MusicLibrary/dates_timeline.py                     | Python           |         89 |         12 |         26 |        127 |
+| /home/babs/PycharmProjects/MusicLibrary/dates_view.py                         | Python           |        372 |         61 |         84 |        517 |
+| /home/babs/PycharmProjects/MusicLibrary/db_defaults.py                        | Python           |        111 |          6 |         14 |        131 |
+| /home/babs/PycharmProjects/MusicLibrary/db_helpers.py                         | Python           |        587 |         98 |        133 |        818 |
+| /home/babs/PycharmProjects/MusicLibrary/db_mapping_albums.py                  | Python           |        179 |          0 |          5 |        184 |
+| /home/babs/PycharmProjects/MusicLibrary/db_mapping_artists.py                 | Python           |        127 |          0 |          5 |        132 |
+| /home/babs/PycharmProjects/MusicLibrary/db_mapping_tracks.py                  | Python           |        618 |          0 |          5 |        623 |
+| /home/babs/PycharmProjects/MusicLibrary/db_tables.py                          | Python           |        971 |         54 |        174 |      1,199 |
+| /home/babs/PycharmProjects/MusicLibrary/disc_edit.py                          | Python           |         40 |          7 |         12 |         59 |
+| /home/babs/PycharmProjects/MusicLibrary/disc_sorting.py                       | Python           |        118 |         32 |         29 |        179 |
+| /home/babs/PycharmProjects/MusicLibrary/disc_view.py                          | Python           |        162 |         39 |         49 |        250 |
+| /home/babs/PycharmProjects/MusicLibrary/display_dialog.py                     | Python           |         71 |         25 |         31 |        127 |
+| /home/babs/PycharmProjects/MusicLibrary/display_settings.py                   | Python           |         85 |         52 |         36 |        173 |
+| /home/babs/PycharmProjects/MusicLibrary/equalizer_dialog.py                   | Python           |        212 |         43 |         62 |        317 |
+| /home/babs/PycharmProjects/MusicLibrary/equalizer_utility.py                  | Python           |        263 |         37 |         49 |        349 |
+| /home/babs/PycharmProjects/MusicLibrary/file_manager.py                       | Python           |        226 |         32 |         69 |        327 |
+| /home/babs/PycharmProjects/MusicLibrary/file_manager_dialog.py                | Python           |        373 |         33 |         75 |        481 |
+| /home/babs/PycharmProjects/MusicLibrary/file_organizer_preview_dialog.py      | Python           |        101 |         17 |         27 |        145 |
+| /home/babs/PycharmProjects/MusicLibrary/genre_edit.py                         | Python           |        110 |         17 |         29 |        156 |
+| /home/babs/PycharmProjects/MusicLibrary/genre_tracks.py                       | Python           |        122 |         24 |         34 |        180 |
+| /home/babs/PycharmProjects/MusicLibrary/genre_view.py                         | Python           |        436 |         70 |        101 |        607 |
+| /home/babs/PycharmProjects/MusicLibrary/gui.py                                | Python           |        419 |         88 |         99 |        606 |
+| /home/babs/PycharmProjects/MusicLibrary/help_guide.html                       | HTML             |        676 |          0 |          2 |        678 |
+| /home/babs/PycharmProjects/MusicLibrary/image_searcher.py                     | Python           |        508 |        113 |        145 |        766 |
+| /home/babs/PycharmProjects/MusicLibrary/import_dialog.py                      | Python           |        238 |         34 |         37 |        309 |
+| /home/babs/PycharmProjects/MusicLibrary/influence_artist_node.py              | Python           |         89 |         25 |         32 |        146 |
+| /home/babs/PycharmProjects/MusicLibrary/influence_graph.py                    | Python           |        647 |        155 |        165 |        967 |
+| /home/babs/PycharmProjects/MusicLibrary/influences_cache.py                   | Python           |         42 |          5 |          7 |         54 |
+| /home/babs/PycharmProjects/MusicLibrary/influences_dialog.py                  | Python           |        243 |         38 |         60 |        341 |
+| /home/babs/PycharmProjects/MusicLibrary/influences_view.py                    | Python           |        152 |         32 |         47 |        231 |
+| /home/babs/PycharmProjects/MusicLibrary/library_import.py                     | Python           |        468 |        118 |         99 |        685 |
+| /home/babs/PycharmProjects/MusicLibrary/library_import_album.py               | Python           |        232 |         40 |         56 |        328 |
+| /home/babs/PycharmProjects/MusicLibrary/license.md                            | Markdown         |         45 |          0 |         42 |         87 |
+| /home/babs/PycharmProjects/MusicLibrary/list_imports.py                       | Python           |         20 |          1 |          5 |         26 |
+| /home/babs/PycharmProjects/MusicLibrary/logger_config.py                      | Python           |         43 |         10 |         14 |         67 |
+| /home/babs/PycharmProjects/MusicLibrary/lyrics_search.py                      | Python           |         70 |         49 |         25 |        144 |
+| /home/babs/PycharmProjects/MusicLibrary/menu_bar.py                           | Python           |        194 |         54 |         55 |        303 |
+| /home/babs/PycharmProjects/MusicLibrary/metadata_artwork.py                   | Python           |        244 |         49 |         75 |        368 |
+| /home/babs/PycharmProjects/MusicLibrary/metadata_id3_writer.py                | Python           |         55 |         11 |         25 |         91 |
+| /home/babs/PycharmProjects/MusicLibrary/metadata_mapping.py                   | Python           |        373 |          5 |         12 |        390 |
+| /home/babs/PycharmProjects/MusicLibrary/metadata_properties.py                | Python           |        240 |         37 |         82 |        359 |
+| /home/babs/PycharmProjects/MusicLibrary/metadata_text.py                      | Python           |        373 |         67 |         65 |        505 |
+| /home/babs/PycharmProjects/MusicLibrary/metadata_writer.py                    | Python           |        739 |        100 |        150 |        989 |
+| /home/babs/PycharmProjects/MusicLibrary/metadata_writer_dialog.py             | Python           |        304 |         51 |         90 |        445 |
+| /home/babs/PycharmProjects/MusicLibrary/metadata_writer_vorbis.py             | Python           |         28 |         10 |         14 |         52 |
+| /home/babs/PycharmProjects/MusicLibrary/metdata_controller.py                 | Python           |        392 |         58 |        115 |        565 |
+| /home/babs/PycharmProjects/MusicLibrary/mood_dialog.py                        | Python           |        296 |         56 |         73 |        425 |
+| /home/babs/PycharmProjects/MusicLibrary/moods_view.py                         | Python           |        439 |         74 |        107 |        620 |
+| /home/babs/PycharmProjects/MusicLibrary/music_controller.py                   | Python           |         51 |         13 |         22 |         86 |
+| /home/babs/PycharmProjects/MusicLibrary/navigation_dock.py                    | Python           |        178 |         41 |         52 |        271 |
+| /home/babs/PycharmProjects/MusicLibrary/nowplaying_view.py                    | Python           |        226 |         46 |         72 |        344 |
+| /home/babs/PycharmProjects/MusicLibrary/place_assoc_details.py                | Python           |        230 |         38 |         52 |        320 |
+| /home/babs/PycharmProjects/MusicLibrary/place_detail.py                       | Python           |        144 |         13 |         23 |        180 |
+| /home/babs/PycharmProjects/MusicLibrary/place_edit.py                         | Python           |        178 |         19 |         29 |        226 |
+| /home/babs/PycharmProjects/MusicLibrary/place_html.py                         | Python           |         43 |          5 |         12 |         60 |
+| /home/babs/PycharmProjects/MusicLibrary/place_list.py                         | Python           |        224 |         29 |         52 |        305 |
+| /home/babs/PycharmProjects/MusicLibrary/place_map.py                          | Python           |        371 |         38 |         56 |        465 |
+| /home/babs/PycharmProjects/MusicLibrary/place_map_filter.py                   | Python           |         79 |         16 |         25 |        120 |
+| /home/babs/PycharmProjects/MusicLibrary/place_map_template.html               | HTML             |        145 |          1 |         23 |        169 |
+| /home/babs/PycharmProjects/MusicLibrary/place_search_dialog.py                | Python           |         51 |          7 |         12 |         70 |
+| /home/babs/PycharmProjects/MusicLibrary/place_view.py                         | Python           |         52 |          7 |         17 |         76 |
+| /home/babs/PycharmProjects/MusicLibrary/player_dock.py                        | Python           |        528 |         89 |        120 |        737 |
+| /home/babs/PycharmProjects/MusicLibrary/player_mini.py                        | Python           |        419 |         89 |        112 |        620 |
+| /home/babs/PycharmProjects/MusicLibrary/player_mini_manage.py                 | Python           |         31 |         10 |         14 |         55 |
+| /home/babs/PycharmProjects/MusicLibrary/player_settings.py                    | Python           |        218 |         49 |         70 |        337 |
+| /home/babs/PycharmProjects/MusicLibrary/player_util.py                        | Python           |        710 |        132 |        182 |      1,024 |
+| /home/babs/PycharmProjects/MusicLibrary/playlist_edit.py                      | Python           |         78 |         15 |         19 |        112 |
+| /home/babs/PycharmProjects/MusicLibrary/playlist_export.py                    | Python           |         84 |         15 |         18 |        117 |
+| /home/babs/PycharmProjects/MusicLibrary/playlist_new.py                       | Python           |         24 |          2 |          8 |         34 |
+| /home/babs/PycharmProjects/MusicLibrary/playlist_smart_builder.py             | Python           |        131 |         77 |         41 |        249 |
+| /home/babs/PycharmProjects/MusicLibrary/playlist_smart_criteria_widget.py     | Python           |        261 |         39 |         51 |        351 |
+| /home/babs/PycharmProjects/MusicLibrary/playlist_smart_new.py                 | Python           |         63 |         16 |         25 |        104 |
+| /home/babs/PycharmProjects/MusicLibrary/playlist_tracks_window.py             | Python           |        196 |         33 |         54 |        283 |
+| /home/babs/PycharmProjects/MusicLibrary/playlist_view.py                      | Python           |        290 |         48 |         73 |        411 |
+| /home/babs/PycharmProjects/MusicLibrary/publisher_association_dialog.py       | Python           |         67 |          7 |         17 |         91 |
+| /home/babs/PycharmProjects/MusicLibrary/publisher_detail.py                   | Python           |        355 |         66 |        108 |        529 |
+| /home/babs/PycharmProjects/MusicLibrary/publisher_merge_dialog.py             | Python           |         58 |         11 |         15 |         84 |
+| /home/babs/PycharmProjects/MusicLibrary/publisher_tree.py                     | Python           |        161 |         25 |         43 |        229 |
+| /home/babs/PycharmProjects/MusicLibrary/publisher_view.py                     | Python           |        157 |         24 |         42 |        223 |
+| /home/babs/PycharmProjects/MusicLibrary/queue_dock.py                         | Python           |        231 |         41 |         61 |        333 |
+| /home/babs/PycharmProjects/MusicLibrary/queue_utility.py                      | Python           |        137 |         37 |         38 |        212 |
+| /home/babs/PycharmProjects/MusicLibrary/rating_widget.py                      | Python           |        123 |         13 |         32 |        168 |
+| /home/babs/PycharmProjects/MusicLibrary/requirements.txt                      | pip requirements |         59 |          0 |          1 |         60 |
+| /home/babs/PycharmProjects/MusicLibrary/role_detail_tab.py                    | Python           |        187 |         23 |         41 |        251 |
+| /home/babs/PycharmProjects/MusicLibrary/role_edit_dialog.py                   | Python           |         59 |          2 |         13 |         74 |
+| /home/babs/PycharmProjects/MusicLibrary/role_parent_dialog.py                 | Python           |         70 |         15 |         22 |        107 |
+| /home/babs/PycharmProjects/MusicLibrary/role_view.py                          | Python           |        413 |         63 |        110 |        586 |
+| /home/babs/PycharmProjects/MusicLibrary/run.py                                | Python           |        114 |         28 |         36 |        178 |
+| /home/babs/PycharmProjects/MusicLibrary/splash_screen.py                      | Python           |        143 |         21 |         35 |        199 |
+| /home/babs/PycharmProjects/MusicLibrary/startup_dialog.py                     | Python           |        137 |         17 |         39 |        193 |
+| /home/babs/PycharmProjects/MusicLibrary/statistics_dialog.py                  | Python           |        483 |         61 |        123 |        667 |
+| /home/babs/PycharmProjects/MusicLibrary/statistics_utility.py                 | Python           |        608 |         63 |         94 |        765 |
+| /home/babs/PycharmProjects/MusicLibrary/status_utility.py                     | Python           |         57 |          7 |         19 |         83 |
+| /home/babs/PycharmProjects/MusicLibrary/status_widget.py                      | Python           |         71 |         17 |         19 |        107 |
+| /home/babs/PycharmProjects/MusicLibrary/sync_utility.py                       | Python           |        208 |         32 |         61 |        301 |
+| /home/babs/PycharmProjects/MusicLibrary/sync_view.py                          | Python           |        265 |         35 |         71 |        371 |
+| /home/babs/PycharmProjects/MusicLibrary/track_columns.py                      | Python           |        133 |         22 |         34 |        189 |
+| /home/babs/PycharmProjects/MusicLibrary/track_edit.py                         | Python           |        540 |         73 |        124 |        737 |
+| /home/babs/PycharmProjects/MusicLibrary/track_editing_loaders.py              | Python           |        520 |         59 |        104 |        683 |
+| /home/babs/PycharmProjects/MusicLibrary/track_editing_multiple.py             | Python           |        364 |         49 |         83 |        496 |
+| /home/babs/PycharmProjects/MusicLibrary/track_editing_searchers.py            | Python           |        738 |         69 |        108 |        915 |
+| /home/babs/PycharmProjects/MusicLibrary/track_view.py                         | Python           |        662 |        124 |        160 |        946 |
+| /home/babs/PycharmProjects/MusicLibrary/wikipedia_image_dialog.py             | Python           |         99 |         10 |         23 |        132 |
+| /home/babs/PycharmProjects/MusicLibrary/wikipedia_seach.py                    | Python           |        260 |         48 |         67 |        375 |
+| Total                                                                         |                  |     34,792 |      5,645 |      8,159 |     48,596 |
++-------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+

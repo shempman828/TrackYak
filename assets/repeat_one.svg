@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Volume/Waveform icon with a thin, legible number 1 in the center -->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 64 64"
+     width="800"
+     height="800"
+     fill="none"
+     stroke="#d685ea"
+     stroke-width="3"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+
+  <!-- Base polylines -->
+  <polyline points="56,48 8,48 8,24"/>
+  <polyline points="8,16 56,16 56,40"/>
+  <polyline points="49,33 56,40 63,33"/>
+  <polyline points="15,31 8,24 1,31"/>
+
+  <!-- Centered number 1 -->
+  <text x="32" y="38" fill="#d685ea"
+        font-family="Helvetica, Arial, sans-serif"
+        font-size="20"
+        font-weight="normal"
+        text-anchor="middle"
+        dominant-baseline="middle">1</text>
+</svg>
+

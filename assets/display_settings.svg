@@ -1,0 +1,26 @@
+<svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="48"
+    height="48"
+    viewBox="0 0 48 48"
+    fill="none"
+>
+  <!-- Monitor -->
+  <rect x="6" y="8" width="36" height="24" rx="2" stroke="#EA8599" stroke-width="3"/>
+
+  <!-- Stand -->
+  <rect x="20" y="34" width="8" height="4" fill="#EA8599"/>
+  <rect x="18" y="38" width="12" height="2" fill="#EA8599"/>
+
+  <!-- Gear inside monitor -->
+  <g transform="translate(24,20)">
+    <circle r="5" stroke="#EA8599" stroke-width="2" fill="none"/>
+    <!-- Teeth -->
+    <path d="M5 0 L6 2 L5 4 L4 4 L3 6 L1 6 L0 5 L-1 6 L-3 6 L-4 4 L-5 4 L-6 2 L-5 0 L-6 -2 L-5 -4 L-4 -4 L-3 -6 L-1 -6 L0 -5 L1 -6 L3 -6 L4 -4 L5 -4 L6 -2 Z" 
+          stroke="#EA8599" stroke-width="1" fill="none"/>
+    <!-- Inner spokes -->
+    <line x1="0" y1="-5" x2="0" y2="5" stroke="#EA8599" stroke-width="1.5"/>
+    <line x1="-5" y1="0" x2="5" y2="0" stroke="#EA8599" stroke-width="1.5"/>
+  </g>
+</svg>
+

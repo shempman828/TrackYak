@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Volume/Waveform icon crossed out to indicate "repeat none" -->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 64 64"
+     width="800"
+     height="800"
+     fill="none"
+     stroke="#d685ea"
+     stroke-width="3"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+
+  <!-- Base polylines -->
+  <polyline points="56,48 8,48 8,24"/>
+  <polyline points="8,16 56,16 56,40"/>
+  <polyline points="49,33 56,40 63,33"/>
+  <polyline points="15,31 8,24 1,31"/>
+
+  <!-- Diagonal strike-through (repeat none) -->
+  <line x1="6" y1="58" x2="58" y2="6"/>
+</svg>
+  

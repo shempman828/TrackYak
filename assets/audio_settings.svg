@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Manage Audio Settings – Enlarged speaker with integrated gear and waves -->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 64 64"
+     width="800"
+     height="800"
+     role="img"
+     aria-label="Manage audio settings icon, color #EAD685"
+     fill="none"
+     stroke="#EAD685"
+     stroke-width="3"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+
+  <!-- Enlarged speaker body (wider & taller) -->
+  <polygon points="6,18 28,18 44,10 44,54 28,42 6,42" />
+
+  <!-- Gear inside speaker cone -->
+  <g transform="translate(28,32)" aria-hidden="true">
+    <circle cx="0" cy="0" r="4" />
+    <!-- Gear teeth -->
+    <path d="M0,-7v2 M0,5v2 M7,0h-2 M-5,0h-2
+             M4.24,4.24l-1.4-1.4 M-4.24,4.24l1.4-1.4
+             M4.24,-4.24l-1.4,1.4 M-4.24,-4.24l1.4,1.4"/>
+  </g>
+
+  <!-- Sound waves -->
+  <path d="M46 26 C50 30, 50 34, 46 38" />
+  <path d="M52 22 C58 28, 58 36, 52 42" />
+
+</svg>
+

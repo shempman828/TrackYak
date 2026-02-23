@@ -1,0 +1,6 @@
+import soundfile as sf
+
+y, sr = sf.read(
+    "/home/babs/Downloads/Gudang - Nostalgi Gaius/Gudang - Nostalgi Gaius - 01 Don't tell me why.flac"
+)
+print(y.shape, sr)

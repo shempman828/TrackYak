@@ -1,0 +1,17 @@
+<svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="48"
+    height="48"
+    viewBox="0 0 48 48"
+    fill="none"
+>
+  <!-- Queue lines -->
+  <rect x="10" y="10" width="28" height="4" rx="1" fill="#EA8599"/>
+  <rect x="10" y="18" width="28" height="4" rx="1" fill="#EA8599"/>
+  <rect x="10" y="26" width="28" height="4" rx="1" fill="#EA8599"/>
+  <rect x="10" y="34" width="20" height="4" rx="1" fill="#EA8599"/>
+  
+  <!-- Play indicator (arrow) for current queue item -->
+  <polygon points="32,34 40,38 32,42" fill="#EA8599"/>
+</svg>
+

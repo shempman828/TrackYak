@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Import Directory Icon – unified color (#99ea85), modern line style -->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 64 64"
+     width="800"
+     height="800"
+     fill="none"
+     stroke="#99ea85"
+     stroke-width="3"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+
+  <!-- Folder outline -->
+  <path d="M8 20h16l4 6h28a4 4 0 0 1 4 4v22a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V24a4 4 0 0 1 4-4z"/>
+
+  <!-- Import arrow -->
+  <path d="M32 16v22"/>
+  <polyline points="24 30 32 38 40 30"/>
+
+</svg>
+

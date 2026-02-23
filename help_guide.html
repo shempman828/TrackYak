@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+	<title></title>
+	<meta name="generator" content="LibreOffice 24.2.7.2 (Linux)"/>
+	<meta name="created" content="2026-01-29T10:51:48.124035359"/>
+	<meta name="changed" content="2026-01-29T11:33:24.601334060"/>
+	<style type="text/css">
+		@page { size: 8.27in 11.69in; margin: 0.79in }
+		p { line-height: 115%; margin-bottom: 0.1in; background: transparent }
+		h1 { color: #8599ea; margin-bottom: 0.08in; background: transparent; page-break-after: avoid }
+		h1.western { font-family: "Liberation Serif", serif; font-size: 24pt; font-weight: bold }
+		h1.cjk { font-family: "Noto Serif CJK SC"; font-size: 24pt; font-weight: bold }
+		h1.ctl { font-family: "Noto Sans Devanagari"; font-size: 24pt; font-weight: bold }
+		h2 { color: #ea8599; margin-top: 0.14in; margin-bottom: 0.08in; background: transparent; page-break-after: avoid }
+		h2.western { font-family: "Liberation Serif", serif; font-size: 18pt; font-weight: bold }
+		h2.cjk { font-family: "Noto Serif CJK SC"; font-size: 18pt; font-weight: bold }
+		h2.ctl { font-family: "Noto Sans Devanagari"; font-size: 18pt; font-weight: bold }
+		h3 { color: #99ea85; margin-top: 0.1in; margin-bottom: 0.08in; background: transparent; page-break-after: avoid }
+		h3.western { font-family: "Liberation Serif", serif; font-size: 14pt; font-weight: bold }
+		h3.cjk { font-family: "Noto Serif CJK SC"; font-size: 14pt; font-weight: bold }
+		h3.ctl { font-family: "Noto Sans Devanagari"; font-size: 14pt; font-weight: bold }
+		a:link { color: #000080; text-decoration: underline }
+		a:visited { color: #800000; text-decoration: underline }
+		strong { font-weight: bold }
+		em { font-style: italic }
+	</style>
+</head>
+<body lang="en-US" link="#000080" vlink="#800000" bgcolor="#0b0c10" dir="ltr"><p align="center" style="line-height: 100%; margin-top: 0.17in; margin-bottom: 0.08in; page-break-after: avoid">
+<font color="#8599ea"><font face="Liberation Sans, sans-serif"><font size="6" style="font-size: 28pt"><b>TrackYak</b></font></font></font></p>
+<p align="center" style="line-height: 100%; margin-top: 0.04in; margin-bottom: 0.08in; page-break-after: avoid">
+<font color="#99ea85"><font face="Liberation Sans, sans-serif"><font size="5" style="font-size: 18pt">User
+Guide	</font></font></font></p>
+<h1 class="western">Track View</h1>
+<p>The Track View is your main interface for browsing, managing, and
+interacting with your music library. It displays all tracks in a
+searchable, sortable table with various customization options.</p>
+<h2 class="western">Key Features</h2>
+<h3 class="western">1. <strong>Table Display</strong></h3>
+<ul>
+	<li><p>Shows all tracks from your music library</p></li>
+	<li><p>Sortable by clicking column headers</p></li>
+</ul>
+<h3 class="western">2. <strong>Column Management</strong></h3>
+<ul>
+	<li><p>Columns are grouped by category (General, Technical, etc.)</p></li>
+	<li><p>Click &quot;Toggle Columns&quot; button to show/hide specific
+	columns</p>
+	<ul>
+		<li><p>Columns in &quot;Technical&quot; category are hidden by
+		default</p></li>
+	</ul>
+</ul>
+<h3 class="western">3. <strong>Search Functionality</strong></h3>
+<ul>
+	<li><p>Type in the search bar to filter tracks</p></li>
+	<li><p>Searches across ALL columns (artist name, album, title, etc.)</p></li>
+	<li><p>Case-insensitive searching</p></li>
+	<li><p>Real-time filtering as you type</p></li>
+</ul>
+<h3 class="western">4. <strong>Track Selection &amp; Actions</strong></h3>
+<ul>
+	<li><p><strong>Single Click</strong>: Select a track</p></li>
+	<li><p><strong>Ctrl+Click / Shift+Click</strong>: Select multiple
+	tracks</p></li>
+	<li><p><strong>Double Click</strong>: Play the selected track
+	immediately</p></li>
+	<li><p><strong>Delete Key</strong>: Delete selected track(s) from
+	database or disk</p></li>
+</ul>
+<h2 class="western">Drag &amp; Drop Support</h2>
+<ul>
+	<li><p>Select multiple tracks and drag them to playlist areas</p></li>
+	<li><p>Visual feedback shows number of tracks being dragged</p></li>
+</ul>
+<h2 class="western">Track Editing</h2>
+<h3 class="western">Single Track Edit:Influence Graph View User Guide</h3>
+<h2 class="western">Overview</h2>
+<p>The Influence Graph View is an interactive visualization tool that
+displays relationships between artists using a force-directed graph
+layout. It helps users understand influence networks, identify key
+influencers, and explore connections within the artistic community.</p>
+<h2 class="western">Key Features</h2>
+<h3 class="western">1. <strong>Graph Visualization</strong></h3>
+<ul>
+	<li><p><strong>Force-Directed Layout</strong>: Nodes automatically
+	arrange themselves based on:</p>
+	<ul>
+		<li><p>Repulsion between nodes (keeps them separated)</p></li>
+		<li><p>Attraction along edges (pulls connected nodes together)</p></li>
+		<li><p>Community clustering (groups related artists)</p></li>
+	</ul>
+	<li><p><strong>Directional Arrows</strong>: Shows influence
+	direction (influencer → influenced)</p></li>
+	<li><p><strong>Node Sizing</strong>: Larger nodes represent more
+	influential artists</p></li>
+	<li><p><strong>Color Coding</strong>: Nodes are grouped by detected
+	communities (Louvain algorithm)</p></li>
+</ul>
+<h3 class="western">2. <strong>Navigation Controls</strong></h3>
+<ul>
+	<li><p><strong>Zoom</strong>: Use mouse wheel to zoom in/out</p></li>
+	<li><p><strong>Pan</strong>: Click and drag to move around the
+	canvas</p></li>
+	<li><p><strong>Infinite Canvas</strong>: No boundaries - explore
+	freely</p></li>
+	<li><p><strong>Auto-Settle</strong>: Graph automatically stabilizes
+	when movement stops</p></li>
+</ul>
+<h3 class="western">3. <strong>Interactive Elements</strong></h3>
+<ul>
+	<li><p><strong>Artist Nodes</strong>: Click to select (functionality
+	may be implemented elsewhere)</p></li>
+	<li><p><strong>Hover Effects</strong>: Visual feedback on nodes and
+	edges</p></li>
+	<li><p><strong>Dynamic Updates</strong>: Graph updates in real-time
+	when adding/removing relationships</p></li>
+</ul>
+<h2 class="western">Interface Components</h2>
+<h3 class="western">Main Controls (Top Section)</h3>
+<ul>
+	<li><p><strong>Refresh Graph Button</strong>: Recalculates and
+	redraws the entire graph</p></li>
+	<li><p><strong>Add Influence Button</strong>: Opens dialog to create
+	new influence relationships</p></li>
+	<li><p><strong>Remove Influence Button</strong>: Opens dialog to
+	delete existing relationships</p></li>
+</ul>
+<h3 class="western">Graph Display Area</h3>
+<ul>
+	<li><p><strong>Nodes</strong>: Represent individual artists</p></li>
+	<li><p><strong>Edges</strong>: Represent influence relationships</p></li>
+	<li><p><strong>Arrows</strong>: Indicate direction of influence
+	(placed at midpoint of edges)</p></li>
+</ul>
+<h2 class="western">How to Use</h2>
+<h3 class="western">1. <strong>Viewing the Graph</strong></h3>
+<ul>
+	<li><p>The graph automatically loads when you open the view</p></li>
+	<li><p>Artists with more influence connections appear larger</p></li>
+	<li><p>Closely connected artists form visible clusters</p></li>
+	<li><p>Use pan and zoom to explore different areas</p></li>
+</ul>
+<h3 class="western">2. <strong>Adding New Influences</strong></h3>
+<ol>
+	<li><p>Click <strong>&quot;Add Influence&quot;</strong> button</p></li>
+	<li><p>Select or create artists in the dialog</p></li>
+	<li><p>Specify who influenced whom</p></li>
+	<li><p>The graph updates incrementally without full refresh</p></li>
+</ol>
+<h3 class="western">3. <strong>Removing Influences</strong></h3>
+<ol>
+	<li><p>Click <strong>&quot;Remove Influence&quot;</strong> button</p></li>
+	<li><p>Select a relationship from the list</p></li>
+	<li><p>Confirm removal</p></li>
+	<li><p>Graph refreshes to show updated relationships</p></li>
+</ol>
+<h3 class="western">4. <strong>Understanding the Layout</strong></h3>
+<ul>
+	<li><p><strong>Tight Clusters</strong>: Artists with strong mutual
+	connections</p></li>
+	<li><p><strong>Central Nodes</strong>: Highly connected/influential
+	artists</p></li>
+	<li><p><strong>Peripheral Nodes</strong>: Less connected artists</p></li>
+	<li><p><strong>Long Edges</strong>: Less direct/strong influence
+	relationships</p></li>
+</ul>
+<h2 class="western">Interpretation Guide</h2>
+<h3 class="western">Node Size</h3>
+<ul>
+	<li><p><strong>Large Nodes</strong>: Artists who influenced many
+	others (high descendant count)</p></li>
+	<li><p><strong>Small Nodes</strong>: Artists with fewer direct
+	influences</p></li>
+</ul>
+<h3 class="western">Node Positioning</h3>
+<ul>
+	<li><p><strong>Center of Clusters</strong>: Key influencers within
+	communities</p></li>
+	<li><p><strong>Between Clusters</strong>: Artists bridging different
+	communities</p></li>
+	<li><p><strong>Isolated Nodes</strong>: Artists with unique or
+	limited connections</p></li>
+</ul>
+<h3 class="western">Edge Meaning</h3>
+<ul>
+	<li><p><strong>Thick/Short Edges</strong>: Strong/direct influence
+	relationships</p></li>
+	<li><p><strong>Thin/Long Edges</strong>: Weaker/indirect
+	relationships</p></li>
+	<li><p><strong>Arrow Position</strong>: Always at midpoint, not
+	necessarily near target</p></li>
+</ul>
+<h3 class="western">Community Colors</h3>
+<ul>
+	<li><p>Same color indicates artists in the same detected community</p></li>
+	<li><p>Different colors represent distinct artistic circles or
+	movements</p></li>
+</ul>
+<h2 class="western">Tips for Best Experience</h2>
+<ol>
+	<li><p><strong>Let Graph Settle</strong>: Allow a few seconds for
+	the force layout to stabilize</p></li>
+	<li><p><strong>Zoom for Detail</strong>: Zoom in to see artist names
+	clearly</p></li>
+	<li><p><strong>Pan to Explore</strong>: The canvas is infinite -
+	don't hesitate to move around</p></li>
+	<li><p><strong>Refresh After Major Changes</strong>: Use refresh if
+	the layout becomes unclear</p></li>
+	<li><p><strong>Check Logs</strong>: Technical details and warnings
+	appear in the application logs</p></li>
+</ol>
+<h2 class="western">Technical Notes</h2>
+<h3 class="western">Data Requirements</h3>
+<ul>
+	<li><p>Requires at least one influence relationship to display</p></li>
+	<li><p>Only shows artists involved in influence relationships</p></li>
+	<li><p>Automatically excludes isolated artists (no connections)</p></li>
+</ul>
+<h3 class="western">Performance</h3>
+<ul>
+	<li><p>Optimized for up to hundreds of nodes</p></li>
+	<li><p>Force layout stops automatically when stable</p></li>
+	<li><p>Incremental updates minimize computation for small changes</p></li>
+</ul>
+<h3 class="western">Algorithms Used</h3>
+<ul>
+	<li><p><strong>ForceAtlas2-inspired layout</strong>: For node
+	positioning</p></li>
+	<li><p><strong>Louvain Community Detection</strong>: For grouping
+	similar artists</p></li>
+	<li><p><strong>PageRank Decay</strong>: For influence scoring</p></li>
+	<li><p><strong>Descendant Counting</strong>: For node sizing</p></li>
+</ul>
+<h2 class="western">Troubleshooting</h2>
+<h3 class="western">Common Issues</h3>
+<ol>
+	<li><p><strong>No Graph Displayed</strong></p>
+	<ul>
+		<li><p>Check if influence relationships exist in database</p></li>
+		<li><p>Verify database connection</p></li>
+		<li><p>Click &quot;Refresh Graph&quot;</p></li>
+	</ul>
+	<li><p><strong>Graph Not Stabilizing</strong></p>
+	<ul>
+		<li><p>Wait a few more seconds</p></li>
+		<li><p>Click &quot;Refresh Graph&quot; to restart layout</p></li>
+		<li><p>Check console for errors</p></li>
+	</ul>
+	<li><p><strong>Names Not Visible</strong></p>
+	<ul>
+		<li><p>Zoom in closer</p></li>
+		<li><p>Check if artist names are in database</p></li>
+	</ul>
+	<li><p><strong>Missing Relationships</strong></p>
+	<ul>
+		<li><p>Verify relationships were saved to database</p></li>
+		<li><p>Use &quot;Refresh Graph&quot; to reload all data</p></li>
+	</ul>
+</ol>
+<h3 class="western">Error Messages</h3>
+<ul>
+	<li><p><strong>&quot;No artists with influence relationships found&quot;</strong>:
+	Add some relationships first</p></li>
+	<li><p><strong>&quot;Failed to display global graph&quot;</strong>:
+	Check logs for detailed error</p></li>
+	<li><p><strong>&quot;Partial Error&quot;</strong>: Some but not all
+	updates applied; refresh to sync</p></li>
+</ul>
+<h2 class="western">Advanced Features</h2>
+<h3 class="western">Community Detection</h3>
+<ul>
+	<li><p>Automatically groups artists based on connection patterns</p></li>
+	<li><p>Useful for identifying artistic movements or schools</p></li>
+</ul>
+<h3 class="western">Influence Scoring</h3>
+<ul>
+	<li><p>Combines direct descendant count with PageRank algorithm</p></li>
+	<li><p>Accounts for both quantity and quality of influence</p></li>
+</ul>
+<h3 class="western">Dynamic Updates</h3>
+<ul>
+	<li><p>New artists added incrementally</p></li>
+	<li><p>Edge updates without full recomputation</p></li>
+	<li><p>Mass recalibration for force layout</p></li>
+</ul>
+<h2 class="western">Best Practices for Data Entry</h2>
+<ol>
+	<li><p><strong>Complete Relationships</strong>: Enter both sides of
+	influence when known</p></li>
+	<li><p><strong>Verify Names</strong>: Ensure artist names are
+	consistent</p></li>
+	<li><p><strong>Start Small</strong>: Begin with key relationships,
+	then expand</p></li>
+	<li><p><strong>Regular Maintenance</strong>: Remove outdated or
+	incorrect relationships</p></li>
+</ol>
+<h2 class="western">Support</h2>
+<p>For persistent issues:</p>
+<ol>
+	<li><p>Check the application logs</p></li>
+	<li><p>Verify database integrity</p></li>
+	<li><p>Contact system administrator</p></li>
+	<li><p>Report bugs with specific reproduction steps</p></li>
+</ol>
+<hr/>
+
+<p><em>Note: This guide assumes standard installation and
+configuration. Some features may vary based on specific
+implementation.</em></p>
+<p><br/>
+<br/>
+
+</p>
+<ul>
+	<li><p>Edit all editable track fields</p></li>
+	<li><p>Modify artist roles, genres, and place associations</p></li>
+	<li><p>Save changes to update the database</p></li>
+</ul>
+<h3 class="western">Multi-Track Edit:</h3>
+<ul>
+	<li><p>Edit common fields across multiple tracks simultaneously</p></li>
+	<li><p>Only fields marked as &quot;multiple-editable&quot; are
+	available</p></li>
+	<li><p>Useful for batch updates (e.g., changing genre for multiple
+	tracks)</p></li>
+</ul>
+<h2 class="western">Delete Functionality</h2>
+<p>Press <strong>Delete key</strong> or use context menu to delete
+tracks:</p>
+<h3 class="western">Two Delete Options:</h3>
+<ol>
+	<li><p><strong>Delete from database only</strong>: Keeps audio files
+	on disk</p></li>
+	<li><p><strong>Delete from disk and database</strong>: Permanently
+	removes files</p></li>
+</ol>
+<h3 class="western">Safety Features:</h3>
+<ul>
+	<li><p>Confirmation dialog before any deletion</p></li>
+	<li><p>Additional warning for permanent file deletion</p></li>
+</ul>
+<h2 class="western">Keyboard Shortcuts</h2>
+<ul>
+	<li><p><strong>Delete</strong>: Delete selected track(s)</p></li>
+	<li><p><strong>Double-click</strong>: Play selected track</p></li>
+	<li><p><strong>Arrow Keys</strong>: Navigate between tracks</p></li>
+	<li><p><strong>Ctrl+A</strong>: Select all tracks (when table has
+	focus)</p></li>
+</ul>
+<h1 class="western">Places View</h1>
+<h2 class="western">Overview</h2>
+<p>The Places Manager is a dual-view interface for managing
+geographic locations linked to your music library. It allows you to
+visualize places on an interactive map and organize them in a
+hierarchical list view.</p>
+<h2 class="western">Key Features</h2>
+<h3 class="western">1. <strong>Dual View Interface</strong></h3>
+<ul>
+	<li><p><strong>Map View</strong>: Interactive map with color-coded
+	markers based on place types</p></li>
+	<li><p><strong>List View</strong>: Hierarchical tree view for
+	organizing places with parent-child relationships</p></li>
+</ul>
+<h3 class="western">2. <strong>Place Types</strong></h3>
+<p>Places are categorized by type with automatic color coding:</p>
+<ul>
+	<li><p><strong>Country</strong> (Green), <strong>State</strong>
+	(Orange), <strong>County</strong> (Yellow), <strong>City</strong>
+	(Blue)</p></li>
+	<li><p><strong>District</strong> (Purple), <strong>Building</strong>
+	(Gray), <strong>Room</strong> (Teal)</p></li>
+	<li><p><strong>Point of Interest</strong> (Red)</p></li>
+	<li><p>Custom types receive automatically generated colors</p></li>
+</ul>
+<h2 class="western">Getting Started</h2>
+<h3 class="western">Accessing the Places Manager</h3>
+<ol>
+	<li><p>Navigate to the Places section in your application</p></li>
+	<li><p>The Places Manager window will open with the Map View by
+	default</p></li>
+</ol>
+<h3 class="western">Switching Between Views</h3>
+<ul>
+	<li><p>Click <strong>&quot;Map View&quot;</strong> to see places on
+	an interactive map</p></li>
+	<li><p>Click <strong>&quot;List View&quot;</strong> to see places in
+	a hierarchical list</p></li>
+	<li><p>The active view button will be disabled (grayed out)</p></li>
+</ul>
+<h2 class="western">Using Map View</h2>
+<h3 class="western">1. <strong>Viewing Places on the Map</strong></h3>
+<ul>
+	<li><p>Places with valid coordinates appear as colored markers</p></li>
+	<li><p>Click any marker to see place details</p></li>
+	<li><p>The map automatically zooms to show all visible places</p></li>
+</ul>
+<h3 class="western">2. <strong>Filtering by Place Type</strong></h3>
+<ol>
+	<li><p>Click <strong>&quot;Show Filters&quot;</strong> to reveal the
+	filter panel</p></li>
+	<li><p>Use the multi-select dropdown to choose which place types to
+	display</p></li>
+	<li><p>Selected types will immediately appear on the map</p></li>
+	<li><p>Click <strong>&quot;Hide Filters&quot;</strong> to collapse
+	the panel</p></li>
+	<li><p>Use <strong>&quot;Refresh Types&quot;</strong> to update the
+	type list from the database</p></li>
+</ol>
+<h3 class="western">3. <strong>Interacting with Map Markers</strong></h3>
+<ul>
+	<li><p><strong>Hover over marker</strong>: Shows place name as
+	tooltip</p></li>
+	<li><p><strong>Click marker</strong>: Opens detailed popup with:</p>
+	<ul>
+		<li><p>Place name and type</p></li>
+		<li><p>Coordinates</p></li>
+		<li><p>Description (truncated if long)</p></li>
+		<li><p><strong>&quot;View Associations&quot;</strong> button</p></li>
+	</ul>
+</ul>
+<h3 class="western">4. <strong>Viewing Associations from Map</strong></h3>
+<ol>
+	<li><p>Click any map marker</p></li>
+	<li><p>In the popup, click <strong>&quot;View Associations&quot;</strong></p></li>
+	<li><p>A dialog will show all music tracks and other entities linked
+	to that place</p></li>
+</ol>
+<h2 class="western">Using List View</h2>
+<h3 class="western">1. <strong>Understanding the Hierarchy</strong></h3>
+<ul>
+	<li><p>Places are displayed in parent-child relationships</p></li>
+	<li><p>Drag and drop items to change parent-child relationships</p></li>
+	<li><p>Children are indented under their parents</p></li>
+	<li><p>Each entry shows:</p>
+	<ul>
+		<li><p>Place name and type</p></li>
+		<li><p>Number of associations (linked entities)</p></li>
+		<li><p>Color coding for association status</p></li>
+	</ul>
+</ul>
+<h3 class="western">2. <strong>Adding a New Place</strong></h3>
+<ol>
+	<li><p>Click <strong>&quot;Add Place&quot;</strong> button</p></li>
+	<li><p>Fill in the place details in the edit dialog</p></li>
+	<li><p>Click <strong>&quot;Save&quot;</strong> - the place will
+	appear in both views</p></li>
+</ol>
+<h3 class="western">3. <strong>Organizing Places</strong></h3>
+<ul>
+	<li><p><strong>Drag and Drop</strong>: Click and drag any place to:</p>
+	<ul>
+		<li><p>Make it a child of another place (drop onto parent)</p></li>
+		<li><p>Move it to root level (drop onto empty area)</p></li>
+		<li><p>Reorder siblings</p></li>
+	</ul>
+	<li><p>Changes are automatically saved to the database</p></li>
+</ul>
+<h3 class="western">4. <strong>Context Menu Actions</strong></h3>
+<p>Right-click any place in the list to access:</p>
+<ul>
+	<li><p><strong>View Tracks</strong>: See all music tracks associated
+	with this place</p></li>
+	<li><p><strong>Edit</strong>: Modify place details (name, type,
+	coordinates, description)</p></li>
+	<li><p><strong>Merge</strong>: Combine this place with another
+	(duplicate removal)</p></li>
+	<li><p><strong>Split</strong>: Create separate places from this one</p></li>
+	<li><p><strong>Delete</strong>: Remove the place (requires
+	confirmation)</p></li>
+</ul>
+<h3 class="western">5. <strong>Viewing Details</strong></h3>
+<ul>
+	<li><p><strong>Hover over any place</strong>: See detailed tooltip
+	with full information</p></li>
+	<li><p><strong>Double-click or use context menu</strong>: Open
+	detailed view dialog</p></li>
+</ul>
+<h2 class="western">Working with Associations</h2>
+<h3 class="western">What are Associations?</h3>
+<p>Associations link places to entities in your music library, such
+as:</p>
+<ul>
+	<li><p>Tracks</p></li>
+	<li><p>Albums</p></li>
+	<li><p>Artists</p></li>
+	<li><p>Playlists</p></li>
+</ul>
+<h3 class="western">Viewing Associations</h3>
+<p>You can view associations from:</p>
+<ol>
+	<li><p><strong>Map View</strong>: Click any marker → &quot;View
+	Associations&quot;</p></li>
+	<li><p><strong>List View</strong>: Right-click any place → &quot;View
+	Tracks&quot;</p></li>
+	<li><p>Both methods open the same Association Details dialog</p></li>
+</ol>
+<h3 class="western">Association Information Displayed</h3>
+<ul>
+	<li><p>Total number of associated entities</p></li>
+	<li><p>Breakdown by entity type</p></li>
+	<li><p>List of specific tracks/albums/artists</p></li>
+	<li><p>Options to navigate to associated items</p></li>
+</ul>
+<h2 class="western">Advanced Features</h2>
+<h3 class="western">1. <strong>Dynamic Type Management</strong></h3>
+<ul>
+	<li><p>New place types are automatically detected</p></li>
+	<li><p>Custom types receive consistent, visually distinct colors</p></li>
+	<li><p>Type filter updates dynamically as you add new place types</p></li>
+</ul>
+<h3 class="western">2. <strong>Persistent Filtering</strong></h3>
+<ul>
+	<li><p>Map type filters are remembered during your session</p></li>
+	<li><p>Filters apply to both marker display and list view counts</p></li>
+	<li><p>Empty filter shows all places</p></li>
+</ul>
+<h3 class="western">3. <strong>Real-time Updates</strong></h3>
+<ul>
+	<li><p>Changes in one view immediately reflect in the other</p></li>
+	<li><p>Adding/editing/deleting places updates both views</p></li>
+	<li><p>Parent-child relationship changes update the hierarchy</p></li>
+</ul>
+<h3 class="western">4. <strong>Error Handling</strong></h3>
+<ul>
+	<li><p>Invalid coordinates show fallback message</p></li>
+	<li><p>Network issues show offline map state</p></li>
+	<li><p>Database errors provide clear feedback</p></li>
+	<li><p>Failed operations can be retried</p></li>
+</ul>
+<h1 class="western">Influence View</h1>
+<h2 class="western">Overview</h2>
+<p>The Influence Graph View is an interactive  tool that displays
+relationships between artists using a force-directed graph layout. It
+helps users understand influence networks, identify key influencers,
+and explore connections within the artistic community.</p>
+<h2 class="western">Key Features</h2>
+<h3 class="western">1. <strong>Graph Visualization</strong></h3>
+<ul>
+	<li><p><strong>Force-Directed Layout</strong>: Nodes automatically
+	arrange themselves based on:</p>
+	<ul>
+		<li><p>Repulsion between nodes (keeps them separated)</p></li>
+		<li><p>Attraction along edges (pulls connected nodes together)</p></li>
+		<li><p>Community clustering (groups related artists)</p></li>
+	</ul>
+	<li><p><strong>Directional Arrows</strong>: Shows influence
+	direction (influencer → influenced)</p></li>
+	<li><p><strong>Node Sizing</strong>: Larger nodes represent more
+	influential artists</p></li>
+	<li><p><strong>Color Coding</strong>: Nodes are grouped by detected
+	communities (Louvain algorithm)</p></li>
+</ul>
+<h3 class="western">2. <strong>Navigation Controls</strong></h3>
+<ul>
+	<li><p><strong>Zoom</strong>: Use mouse wheel to zoom in/out</p></li>
+	<li><p><strong>Pan</strong>: Click and drag to move around the
+	canvas</p></li>
+	<li><p><strong>Infinite Canvas</strong>: No boundaries - explore
+	freely</p></li>
+	<li><p><strong>Auto-Settle</strong>: Graph automatically stabilizes
+	when movement stops</p></li>
+</ul>
+<h2 class="western">Interface Components</h2>
+<h3 class="western">Main Controls (Top Section)</h3>
+<ul>
+	<li><p><strong>Refresh Graph Button</strong>: Recalculates and
+	redraws the entire graph</p></li>
+	<li><p><strong>Add Influence Button</strong>: Opens dialog to create
+	new influence relationships</p></li>
+	<li><p><strong>Remove Influence Button</strong>: Opens dialog to
+	delete existing relationships</p></li>
+</ul>
+<h3 class="western">Graph Display Area</h3>
+<ul>
+	<li><p><strong>Nodes</strong>: Represent individual artists</p></li>
+	<li><p><strong>Edges</strong>: Represent influence relationships</p></li>
+	<li><p><strong>Arrows</strong>: Indicate direction of influence
+	(placed at midpoint of edges)</p></li>
+</ul>
+<h2 class="western">How to Use</h2>
+<h3 class="western">1. <strong>Viewing the Graph</strong></h3>
+<ul>
+	<li><p>The graph automatically loads when you open the view</p></li>
+	<li><p>Artists with more influence connections appear larger</p></li>
+	<li><p>Closely connected artists form visible clusters</p></li>
+	<li><p>Use pan and zoom to explore different areas</p></li>
+</ul>
+<h3 class="western">2. <strong>Adding New Influences</strong></h3>
+<ol>
+	<li><p>Click <strong>&quot;Add Influence&quot;</strong> button</p></li>
+	<li><p>Select or create artists in the dialog</p></li>
+	<li><p>Specify who influenced whom</p></li>
+	<li><p>The graph updates incrementally</p></li>
+</ol>
+<h3 class="western">3. <strong>Removing Influences</strong></h3>
+<ol>
+	<li><p>Click <strong>&quot;Remove Influence&quot;</strong> button</p></li>
+	<li><p>Select a relationship from the list</p></li>
+	<li><p>Confirm removal</p></li>
+	<li><p>Graph refreshes to show updated relationships</p></li>
+</ol>
+<h3 class="western">4. <strong>Understanding the Layout</strong></h3>
+<ul>
+	<li><p><strong>Tight Clusters</strong>: Artists with strong mutual
+	connections</p></li>
+	<li><p><strong>Central Nodes</strong>: Highly connected/influential
+	artists</p></li>
+	<li><p><strong>Peripheral Nodes</strong>: Less connected artists</p></li>
+	<li><p><strong>Long Edges</strong>: Less direct/strong influence
+	relationships</p></li>
+</ul>
+<h2 class="western">Interpretation Guide</h2>
+<h3 class="western">Node Size</h3>
+<ul>
+	<li><p><strong>Large Nodes</strong>: Artists who influenced many
+	others (high descendant count)</p></li>
+	<li><p><strong>Small Nodes</strong>: Artists with fewer direct
+	influences</p></li>
+</ul>
+<h3 class="western">Node Positioning</h3>
+<ul>
+	<li><p><strong>Center of Clusters</strong>: Key influencers within
+	communities</p></li>
+	<li><p><strong>Between Clusters</strong>: Artists bridging different
+	communities</p></li>
+	<li><p><strong>Isolated Nodes</strong>: Artists with unique or
+	limited connections</p></li>
+</ul>
+<h2 class="western">Tips for Best Experience</h2>
+<ol>
+	<li><p><strong>Let Graph Settle</strong>: Allow a few seconds for
+	the force layout to stabilize</p></li>
+	<li><p><strong>Zoom for Detail</strong>: Zoom in to see artist names
+	clearly</p></li>
+	<li><p><strong>Pan to Explore</strong>: The canvas is infinite -
+	don't hesitate to move around</p></li>
+	<li><p><strong>Refresh After Major Changes</strong>: Use refresh if
+	the layout becomes unclear</p></li>
+</ol>
+<h2 class="western">Technical Notes</h2>
+<h3 class="western">Data Requirements</h3>
+<ul>
+	<li><p>Requires at least one influence relationship to display</p></li>
+	<li><p>Only shows artists involved in influence relationships</p></li>
+</ul>
+<h3 class="western">Algorithms Used</h3>
+<ul>
+	<li><p><strong>ForceAtlas2-inspired layout</strong>: For node
+	positioning</p></li>
+	<li><p><strong>Louvain Community Detection</strong>: For grouping
+	similar artists</p></li>
+	<li><p><strong>PageRank Decay</strong>: For influence scoring</p></li>
+	<li><p><strong>Descendant Counting</strong>: For node sizing</p></li>
+</ul>
+<h2 class="western">Advanced Features</h2>
+<h3 class="western">Community Detection</h3>
+<ul>
+	<li><p>Automatically groups artists based on connection patterns</p></li>
+	<li><p>Useful for identifying artistic movements or schools</p></li>
+</ul>
+<h3 class="western">Influence Scoring</h3>
+<ul>
+	<li><p>Combines direct descendant count with PageRank algorithm</p></li>
+	<li><p>Accounts for both quantity and quality of influence</p></li>
+</ul>
+<h3 class="western">Dynamic Updates</h3>
+<ul>
+	<li><p>New artists added incrementally</p></li>
+	<li><p>Edge updates without full recomputation</p></li>
+	<li><p>Mass recalibration for force layout</p></li>
+</ul>
+<div title="footer"><p align="center" style="line-height: 100%; margin-top: 0.2in; margin-bottom: 0in">
+	Page <span style="background: #c0c0c0"><sdfield type=PAGE subtype=RANDOM format=PAGE>1</sdfield></span></p>
+</div>
+</body>
+</html>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none">
+  <!-- Top-left -->
+  <path d="M14 8 L8 8 L8 14" stroke="#EA8599" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- Top-right -->
+  <path d="M34 8 L40 8 L40 14" stroke="#EA8599" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- Bottom-left -->
+  <path d="M14 40 L8 40 L8 34" stroke="#EA8599" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- Bottom-right -->
+  <path d="M34 40 L40 40 L40 34" stroke="#EA8599" stroke-width="3" stroke-linecap="round"/>
+</svg>
+

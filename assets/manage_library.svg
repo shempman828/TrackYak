@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Manage Library Icon – unified color (#99ea85), clean and consistent -->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 64 64"
+     width="800"
+     height="800"
+     fill="none"
+     stroke="#99ea85"
+     stroke-width="3"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+
+  <!-- Folder outline -->
+  <path d="M8 20h16l4 6h28a4 4 0 0 1 4 4v22a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V24a4 4 0 0 1 4-4z"/>
+
+  <!-- Small gear symbol (management) -->
+  <g transform="translate(42, 38)">
+    <circle cx="0" cy="0" r="4"/>
+    <path d="M0 -7v2 M0 5v2 M7 0h-2 M-5 0h-2 
+             M4.95 4.95l-1.4-1.4 M-4.95 4.95l1.4-1.4 
+             M4.95 -4.95l-1.4 1.4 M-4.95 -4.95l1.4 1.4"/>
+  </g>
+
+</svg>
+
