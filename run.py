@@ -23,7 +23,7 @@ from splash_screen import StartupSplash
 from startup_dialog import StartupDialog
 
 try:
-    from gui import GUI
+    from main_window import GUI
 except ImportError as ie:
     logger.error(f"Missing required module: {ie}")
     sys.exit(1)
