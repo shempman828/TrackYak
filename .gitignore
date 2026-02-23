@@ -2,6 +2,7 @@ __pycache__/
 .venv/
 .vscode/
 .VSCodeCounter/
+.idea/
 config/
 images/
 logs/
