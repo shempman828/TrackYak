@@ -1,129 +1,187 @@
+"""Flow layout for the album grid view.
+
+Arranges child widgets in left-to-right rows that wrap onto the next line
+when the available width is exhausted, similar to CSS flexbox wrap.
+"""
+
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
-from PySide6.QtWidgets import (
-    QLayout,
-)
+from PySide6.QtWidgets import QLayout
 
 
 class FlowLayout(QLayout):
-    """
-    Custom flow layout that arranges child widgets in a wrapping layout.
-    It calculates its preferred size by overriding sizeHint and minimumSize.
+    """Custom wrapping flow layout.
+
+    Items are placed left-to-right; when a new item would exceed the available
+    width the row wraps.  Both horizontal and vertical spacing are configurable
+    independently either at construction time or via the property setters.
     """
 
-    def __init__(self, parent=None, margin=0, spacing=20):
+    def __init__(
+        self,
+        parent=None,
+        margin: int = 0,
+        spacing: int = 20,
+        h_spacing: int | None = None,
+        v_spacing: int | None = None,
+    ):
         """
-        Initialize the FlowLayout.
-
         Args:
-            parent: Parent widget.
-            margin: Layout margin.
-            spacing: Spacing between items (both horizontal and vertical).
+            parent:     Parent widget.
+            margin:     Uniform content margin applied to all four sides.
+            spacing:    Default spacing used for both axes when the axis-specific
+                        value is not supplied.
+            h_spacing:  Horizontal gap between items (overrides *spacing*).
+            v_spacing:  Vertical gap between rows (overrides *spacing*).
         """
         super().__init__(parent)
         self.setContentsMargins(margin, margin, margin, margin)
-        self._h_space = spacing
-        self._v_space = spacing
-        self.item_list = []
+        self._h_space: int = h_spacing if h_spacing is not None else spacing
+        self._v_space: int = v_spacing if v_spacing is not None else spacing
+        self._item_list: list = []
 
-    def addItem(self, item):
-        """Add an item to the layout."""
-        self.item_list.append(item)
+    # ------------------------------------------------------------------
+    # QLayout required interface
+    # ------------------------------------------------------------------
+
+    def addItem(self, item) -> None:
+        self._item_list.append(item)
         self.invalidate()
 
-    def count(self):
-        """Return the number of items in the layout."""
-        return len(self.item_list)
+    def count(self) -> int:
+        return len(self._item_list)
 
-    def itemAt(self, index):
-        """Return the item at the given index."""
-        if 0 <= index < len(self.item_list):
-            return self.item_list[index]
+    def itemAt(self, index: int):
+        if 0 <= index < len(self._item_list):
+            return self._item_list[index]
         return None
 
-    def takeAt(self, index):
-        """Remove and return the item at the given index."""
-        if 0 <= index < len(self.item_list):
-            item = self.item_list.pop(index)
-            self.invalidate()  # Mark layout as needing recalculation
+    def takeAt(self, index: int):
+        if 0 <= index < len(self._item_list):
+            item = self._item_list.pop(index)
+            self.invalidate()
             return item
         return None
 
-    def expandingDirections(self):
-        """Return the expanding directions."""
+    def expandingDirections(self) -> Qt.Orientations:
+        # Does not expand in either direction on its own
         return Qt.Orientations(Qt.Orientation(0))
 
-    def hasHeightForWidth(self):
-        """Indicate that the layout's height depends on its width."""
+    def hasHeightForWidth(self) -> bool:
         return True
 
-    def heightForWidth(self, width):
-        """Calculate height based on the given width."""
+    def heightForWidth(self, width: int) -> int:
         return self._do_layout(QRect(0, 0, width, 0), test_only=True)
 
-    def setGeometry(self, rect):
-        """Set the geometry of the layout and arrange items."""
+    def setGeometry(self, rect: QRect) -> None:
         super().setGeometry(rect)
         self._do_layout(rect, test_only=False)
 
-    def sizeHint(self):
-        """Return the preferred size of the layout."""
+    def sizeHint(self) -> QSize:
         return self.minimumSize()
 
-    def minimumSize(self):
-        """Return the minimum size needed by the layout."""
+    def minimumSize(self) -> QSize:
+        """Minimum size is large enough to hold the widest / tallest single item."""
         size = QSize()
-        for item in self.item_list:
+        for item in self._item_list:
             size = size.expandedTo(item.minimumSize())
-        margins = self.contentsMargins()
-        size += QSize(
-            margins.left() + margins.right(), margins.top() + margins.bottom()
-        )
-        return size
+        m = self.contentsMargins()
+        return size + QSize(m.left() + m.right(), m.top() + m.bottom())
 
-    def _do_layout(self, rect, test_only):
-        """
-        Arrange items within the given rectangle.
+    # ------------------------------------------------------------------
+    # Spacing properties
+    # ------------------------------------------------------------------
+
+    @property
+    def h_spacing(self) -> int:
+        return self._h_space
+
+    @h_spacing.setter
+    def h_spacing(self, value: int) -> None:
+        if value != self._h_space:
+            self._h_space = value
+            self.invalidate()
+
+    @property
+    def v_spacing(self) -> int:
+        return self._v_space
+
+    @v_spacing.setter
+    def v_spacing(self, value: int) -> None:
+        if value != self._v_space:
+            self._v_space = value
+            self.invalidate()
+
+    def set_spacing(self, h: int, v: int | None = None) -> None:
+        """Set horizontal and (optionally) vertical spacing in one call."""
+        self._h_space = h
+        self._v_space = v if v is not None else h
+        self.invalidate()
+
+    # ------------------------------------------------------------------
+    # Core layout algorithm
+    # ------------------------------------------------------------------
+
+    def _do_layout(self, rect: QRect, *, test_only: bool) -> int:
+        """Arrange (or measure) items within *rect*.
 
         Args:
-            rect: The rectangle available for layout.
-            test_only: If True, only calculate the required height without setting positions.
+            rect:      Available rectangle.  Only ``rect.width()`` is used
+                       when *test_only* is True.
+            test_only: When True, positions are not applied — only the total
+                       required height is calculated and returned.
 
         Returns:
-            The total height required by the layout.
+            Total height required to lay out all visible items.
         """
-        x = rect.x()
-        y = rect.y()
-        line_height = 0
-        margins = self.contentsMargins()
-        rect.width() - margins.left() - margins.right()
+        m = self.contentsMargins()
+        left = rect.x() + m.left()
+        top = rect.y() + m.top()
+        right = rect.x() + rect.width() - m.right()
 
-        for item in self.item_list:
+        x = left
+        y = top
+        row_height = 0
+
+        for item in self._item_list:
             widget = item.widget()
-            if widget is None or not widget.isVisible():
+            if widget is not None and not widget.isVisible():
                 continue
 
-            space_x = self._h_space
-            space_y = self._v_space
-            item_width = item.sizeHint().width()
+            hint = item.sizeHint()
+            item_w = hint.width()
+            item_h = hint.height()
 
-            # If the widget does not fit in the current row, move to the next row.
-            if x + item_width > rect.right() - margins.right() and line_height > 0:
-                x = rect.x() + margins.left()
-                y += line_height + space_y
-                line_height = 0
+            # Wrap to a new row when the item would overflow — but only if
+            # something has already been placed on the current row.
+            if x + item_w > right and row_height > 0:
+                x = left
+                y += row_height + self._v_space
+                row_height = 0
 
             if not test_only:
-                item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
+                item.setGeometry(QRect(QPoint(x, y), hint))
 
-            x += item_width + space_x
-            line_height = max(line_height, item.sizeHint().height())
+            x += item_w + self._h_space
+            if item_h > row_height:
+                row_height = item_h
 
-        total_height = y + line_height - rect.y() + margins.bottom()
-        return total_height
+        total_height = (y + row_height - rect.y()) + m.bottom()
+        # Ensure we never report zero height (avoids scroll-area collapsing)
+        return max(total_height, m.top() + m.bottom())
 
-    def update(self):
-        """Force a complete layout update."""
+    # ------------------------------------------------------------------
+    # Convenience / back-compat
+    # ------------------------------------------------------------------
+
+    def update(self) -> None:  # noqa: A003
+        """Invalidate cached geometry and request a re-layout."""
         self.invalidate()
-        if self.parentWidget():
-            self.parentWidget().updateGeometry()
-        super().update()
+        parent = self.parentWidget()
+        if parent is not None:
+            parent.updateGeometry()
+            parent.update()
+
+    # Keep old attribute name readable for any code that pokes at internals
+    @property
+    def item_list(self) -> list:
+        return self._item_list
