@@ -351,10 +351,20 @@ class MusicPlayer(QObject):
         self.play_count_recorded = False
 
         try:
-            # Stop any existing playback
+            # --- Resume from pause: don't rebuild the stream, just flip the flag ---
+            if self.paused and self.audio_stream is not None:
+                self.paused = False
+                self.playing = True
+                self.state_changed.emit("playing")
+                self.position_timer.start()
+                logger.info("Playback resumed")
+                return
+
+            # --- Fresh start: tear down any existing stream and build a new one ---
             if self.audio_stream is not None:
                 self.audio_stream.stop()
                 self.audio_stream.close()
+                self.audio_stream = None
 
             # Get device configuration
             device_config = self._get_audio_device_info()
@@ -366,8 +376,8 @@ class MusicPlayer(QObject):
                 dtype=self.audio_data.dtype,
                 device=device_config["device"],
                 latency=device_config.get("latency", "high"),
-                blocksize=1024,  # Good balance for most systems
-                callback=self._audio_callback if not self.paused else None,
+                blocksize=1024,
+                callback=self._audio_callback,
             )
 
             # Start playback

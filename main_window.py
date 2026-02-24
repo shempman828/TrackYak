@@ -253,10 +253,11 @@ class GUI(QMainWindow, MenuBar):
 
         # Check if window should be maximized
         if app_config.is_window_maximized():
-            # do not showMaximized immediately; show when UI ready
-            self.showMaximized()
+            QTimer.singleShot(
+                0, lambda: self.setWindowState(self.windowState() | Qt.WindowMaximized)
+            )
 
-        # Ensure window is within screen bounds (especially important for Wayland)
+        # Ensure window is within screen bounds
         QTimer.singleShot(100, self.ensure_window_in_screen)
 
         # Apply theme and show ready message
