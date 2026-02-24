@@ -363,13 +363,13 @@ class MetadataWriter:
         in the output block (e.g. GENRE=Rock / GENRE=Blues as separate entries).
         """
         from metadata_mapping import (
-            VORBIS_TRACK_MAPPINGS,
             VORBIS_ALBUM_MAPPINGS,
             VORBIS_DISC_MAPPINGS,
             VORBIS_GENRE_MAPPINGS,
             VORBIS_MOOD_MAPPINGS,
-            VORBIS_PUBLISHER_MAPPINGS,
             VORBIS_PLACE_MAPPINGS,
+            VORBIS_PUBLISHER_MAPPINGS,
+            VORBIS_TRACK_MAPPINGS,
         )
 
         comments = {}
