@@ -7,18 +7,22 @@ from PySide6.QtCore import (
     QSortFilterProxyModel,
     Qt,
 )
-from PySide6.QtGui import QDrag, QPainter, QPixmap, QStandardItem, QStandardItemModel
+from PySide6.QtGui import (
+    QAction,
+    QDrag,
+    QPainter,
+    QPixmap,
+    QStandardItem,
+    QStandardItemModel,
+)
 from PySide6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
     QHBoxLayout,
     QHeaderView,
-    QLabel,
     QLineEdit,
     QMenu,
     QMessageBox,
     QPushButton,
-    QRadioButton,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -94,6 +98,10 @@ class TrackView(QWidget):
         # Load tracks on startup
         self.load_tracks_on_startup()
 
+    # ──────────────────────────────────────────────────────────────────────
+    #  Columns
+    # ──────────────────────────────────────────────────────────────────────
+
     def _initialize_columns(self):
         """Initialize columns dictionary using TrackField configuration."""
         self.columns = {}
@@ -101,78 +109,131 @@ class TrackView(QWidget):
             if field_config.friendly:
                 self.columns[field_name] = field_config.friendly
 
+    def _setup_table(self):
+        """Set up the table with columns for all metadata fields."""
+        self.columns = {}
+        for field_name, field_config in self.track_fields.items():
+            if field_config.friendly:
+                self.columns[field_name] = field_config.friendly
+
+        self.model.setColumnCount(len(self.columns))
+        self.model.setHorizontalHeaderLabels(self.columns.values())
+
+        self.table.setSortingEnabled(True)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.setSelectionBehavior(QTableView.SelectRows)
+        self.table.setSelectionMode(QTableView.ExtendedSelection)
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QTableView.NoEditTriggers)
+
+        # Drag support
+        self.table.setDragEnabled(True)
+        self.table.setDragDropMode(QTableView.DragOnly)
+        self.table.setDefaultDropAction(Qt.CopyAction)
+        self.table.startDrag = self.startDrag
+
+        self._set_initial_column_visibility()
+
+    def _set_initial_column_visibility(self):
+        """Hide technical / low-interest columns by default."""
+        hidden_by_default = {
+            "file_size",
+            "bit_rate",
+            "sample_rate",
+            "track_id",
+            "track_file_path",
+        }
+        for i, (field_name, _) in enumerate(self.columns.items()):
+            field_config = self.track_fields.get(field_name)
+            if field_config and field_config.category == "Technical":
+                self.table.setColumnHidden(i, True)
+            elif field_name in hidden_by_default:
+                self.table.setColumnHidden(i, True)
+
+    # ──────────────────────────────────────────────────────────────────────
+    #  Data loading
+    # ──────────────────────────────────────────────────────────────────────
+
     def load_tracks_on_startup(self):
-        """Load tracks from database when the view is initialized."""
+        """Load tracks from database."""
         try:
             tracks = self.controller.get.get_all_entities("Track")
-            self.load_data(tracks or [])  # always refresh the view, even if empty
+            self.load_data(tracks or [])
             if tracks:
                 logger.info("Successfully loaded tracks on startup.")
             else:
                 logger.warning("No tracks found in the database — empty list shown.")
         except Exception as e:
             logger.error(f"Error loading tracks on startup: {e}")
-            self.load_data([])  # clear stale data on error
+            self.load_data([])
 
-    def _setup_table(self):
-        """Set up the table with columns for all metadata fields using TrackField configuration."""
-        # Initialize columns dictionary from TrackField configuration
-        self.columns = {}
-        for field_name, field_config in self.track_fields.items():
-            if field_config.friendly:
-                self.columns[field_name] = field_config.friendly
+    def load_data(self, tracks):
+        """Populate the table with track metadata."""
+        self.model.setRowCount(0)
+        column_keys = list(self.columns.keys())
 
-        # Set up the model with columns
-        self.model.setColumnCount(len(self.columns))
-        self.model.setHorizontalHeaderLabels(self.columns.values())
+        for track in tracks:
+            row_items = []
+            for field_name in column_keys:
+                field_config = self.track_fields.get(field_name)
+                value = getattr(track, field_name, None)
 
-        # Enable sorting
-        self.table.setSortingEnabled(True)
+                # Special computed fields
+                if field_name == "artist_name":
+                    value = self._get_artist_name(track)
 
-        # Configure header behavior
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+                display_value = self._format_value(value, field_name, field_config)
+                item = QStandardItem(display_value)
+                item.setEditable(False)
 
-        # Set selection behavior
-        self.table.setSelectionBehavior(QTableView.SelectRows)
-        self.table.setSelectionMode(QTableView.SingleSelection)
-        self.table.setAlternatingRowColors(True)
+                # Store raw value for sorting
+                if isinstance(value, (int, float)):
+                    item.setData(value, Qt.UserRole)
+                else:
+                    item.setData(display_value, Qt.UserRole)
 
-        # Hide vertical headers
-        self.table.verticalHeader().setVisible(False)
+                row_items.append(item)
 
-        # Make table read-only
-        self.table.setEditTriggers(QTableView.NoEditTriggers)
+            self.model.appendRow(row_items)
 
-        # Enable drag operations
-        self.table.setDragEnabled(True)
-        self.table.setDragDropMode(QTableView.DragOnly)
-        self.table.setDefaultDropAction(Qt.CopyAction)
-        self.table.setSelectionMode(QTableView.ExtendedSelection)
+    def _get_artist_name(self, track) -> str:
+        """Resolve the primary artist name for a track."""
+        if hasattr(track, "primary_artist_names"):
+            return track.primary_artist_names
+        if track.artist_roles:
+            artist = track.artist_roles[0].artist
+            return artist.artist_name if artist else "Unknown Artist"
+        return "Unknown Artist"
 
-        # Set custom drag handler
-        self.table.startDrag = self.startDrag
+    def _format_value(self, value, db_field: str, field_config) -> str:
+        """Format a field value for display."""
+        if value is None:
+            return ""
+        if db_field == "duration" and isinstance(value, int):
+            try:
+                return f"{value // 60}:{value % 60:02d}"
+            except (TypeError, ValueError):
+                return "0:00"
+        if db_field == "sample_rate" and isinstance(value, int):
+            return f"{value / 1000:,.1f} kHz"
+        if db_field == "file_size" and isinstance(value, int):
+            return f"{value / (1024 * 1024):.2f} MB"
+        return str(value)
 
-        # Set initial column visibility based on TrackField configuration
-        self._set_initial_column_visibility()
+    # ──────────────────────────────────────────────────────────────────────
+    #  Search / filter
+    # ──────────────────────────────────────────────────────────────────────
 
-    def _set_initial_column_visibility(self):
-        """Set initial column visibility based on TrackField configuration."""
-        for i, (field_name, _) in enumerate(self.columns.items()):
-            field_config = self.track_fields.get(field_name)
-            if field_config:
-                # You can add logic here to hide certain columns by default
-                # For example, hide technical fields by default:
-                if field_config.category == "Technical":
-                    self.table.setColumnHidden(i, True)
-                # Or hide fields that are not commonly needed:
-                elif field_name in [
-                    "file_size",
-                    "bit_rate",
-                    "sample_rate",
-                    "track_id",
-                    "track_file_path",
-                ]:
-                    self.table.setColumnHidden(i, True)
+    def filter_tracks(self, text: str):
+        """Filter the track table by search text."""
+        self.proxy_model.setFilterRegularExpression(
+            QRegularExpression(text, QRegularExpression.CaseInsensitiveOption)
+        )
+
+    # ──────────────────────────────────────────────────────────────────────
+    #  Context menu
+    # ──────────────────────────────────────────────────────────────────────
 
     def show_context_menu(self, pos):
         """Show context menu for track operations."""
@@ -180,134 +241,138 @@ class TrackView(QWidget):
         if not selected:
             return
 
-        # Create the context menu
-        menu = QMenu(self)
-
-        # Add Edit Track option (single or multiple)
-        if len(selected) == 1:
-            edit_action = menu.addAction("Edit Track")
-            edit_action.triggered.connect(self.edit_selected_track)
-        elif len(selected) > 1:
-            edit_action = menu.addAction(f"Edit {len(selected)} Tracks")
-            edit_action.triggered.connect(self.edit_selected_track)
-
-        menu.addSeparator()
-
-        # Add to playlist submenu
-        add_to_playlist_menu = menu.addMenu("Add to Playlist")
-
-        # Add to mood submenu (NEW)
-        add_to_mood_menu = menu.addMenu("Add to Mood")
-
-        # Get all selected track IDs once for reuse
+        # Resolve track IDs from model
         track_ids = []
         for index in selected:
             source_index = self.proxy_model.mapToSource(index)
-            track_id_item = self.model.item(
-                source_index.row(),
-                list(self.columns.keys()).index("track_id"),
-            )
-            if track_id_item:
-                track_ids.append(track_id_item.text())
+            col = list(self.columns.keys()).index("track_id")
+            item = self.model.item(source_index.row(), col)
+            if item:
+                track_ids.append(item.text())
 
-        # Load playlists for playlist submenu
+        menu = QMenu(self)
+        count = len(selected)
+
+        # ── Edit ──────────────────────────────────────────────────────────
+        edit_label = "Edit Track" if count == 1 else f"Edit {count} Tracks"
+        menu.addAction(edit_label, self.edit_selected_track)
+        menu.addSeparator()
+
+        # ── Queue ─────────────────────────────────────────────────────────
+        add_queue_action = QAction("Add to Queue", menu)
+        add_queue_action.triggered.connect(self.add_selected_to_queue)
+        menu.addAction(add_queue_action)
+
+        add_queue_next_action = QAction("Add to Queue (Next)", menu)
+        add_queue_next_action.triggered.connect(
+            lambda: self.add_selected_to_queue(insert_next=True)
+        )
+        menu.addAction(add_queue_next_action)
+        menu.addSeparator()
+
+        # ── Playlist submenu ──────────────────────────────────────────────
+        add_to_playlist_menu = menu.addMenu("Add to Playlist")
+        self._populate_playlist_submenu(add_to_playlist_menu, track_ids)
+
+        # ── Mood submenu ──────────────────────────────────────────────────
+        add_to_mood_menu = menu.addMenu("Add to Mood")
+        self._populate_mood_submenu(add_to_mood_menu, track_ids)
+
+        menu.exec_(self.table.viewport().mapToGlobal(pos))
+
+    def _populate_playlist_submenu(self, submenu: QMenu, track_ids: list):
+        """Fill the Add to Playlist submenu."""
         try:
             playlists = self.controller.get.get_all_entities("Playlist")
             if not playlists:
-                add_to_playlist_menu.addAction("No playlists available").setEnabled(
-                    False
-                )
-            else:
-                # Add each playlist as an action
-                for playlist in playlists:
-                    action = add_to_playlist_menu.addAction(playlist.playlist_name)
-                    # Store playlist ID and all selected track IDs
-                    action.setData((playlist.playlist_id, track_ids))
-                    action.triggered.connect(self.add_to_playlist)
+                submenu.addAction("No playlists available").setEnabled(False)
+                return
+            for playlist in playlists:
+                action = submenu.addAction(playlist.playlist_name)
+                action.setData((playlist.playlist_id, track_ids))
+                action.triggered.connect(self.add_to_playlist)
         except Exception as e:
-            logger.error(f"Error loading playlists for context menu: {str(e)}")
-            add_to_playlist_menu.addAction("Error loading playlists").setEnabled(False)
+            logger.error(f"Error loading playlists for context menu: {e}")
+            submenu.addAction("Error loading playlists").setEnabled(False)
 
-        # Load moods for mood submenu (NEW)
+    def _populate_mood_submenu(self, submenu: QMenu, track_ids: list):
+        """Fill the Add to Mood submenu."""
         try:
             moods = self.controller.get.get_all_entities("Mood")
             if not moods:
-                add_to_mood_menu.addAction("No moods available").setEnabled(False)
-            else:
-                # Add each mood as an action
-                for mood in moods:
-                    action = add_to_mood_menu.addAction(mood.mood_name)
-                    # Store mood ID and all selected track IDs
-                    action.setData((mood.mood_id, track_ids))
-                    action.triggered.connect(self.add_to_mood)
+                submenu.addAction("No moods available").setEnabled(False)
+                return
+            for mood in moods:
+                action = submenu.addAction(mood.mood_name)
+                action.setData((mood.mood_id, track_ids))
+                action.triggered.connect(self.add_to_mood)
         except Exception as e:
-            logger.error(f"Error loading moods for context menu: {str(e)}")
-            add_to_mood_menu.addAction("Error loading moods").setEnabled(False)
+            logger.error(f"Error loading moods for context menu: {e}")
+            submenu.addAction("Error loading moods").setEnabled(False)
 
-        # Show the menu at the cursor position
-        menu.exec_(self.table.viewport().mapToGlobal(pos))
+    # ──────────────────────────────────────────────────────────────────────
+    #  Queue
+    # ──────────────────────────────────────────────────────────────────────
 
-    def add_to_mood(self):
-        """Handle adding multiple tracks to a mood from the context menu."""
-        action = self.sender()
-        if not action:
+    def _get_queue_manager(self):
+        """Return the queue manager from the controller, or None."""
+        if hasattr(self.controller, "queue_manager"):
+            return self.controller.queue_manager
+        if hasattr(self.controller, "mediaplayer") and hasattr(
+            self.controller.mediaplayer, "queue_manager"
+        ):
+            return self.controller.mediaplayer.queue_manager
+        logger.warning("Queue manager not found in controller")
+        return None
+
+    def _get_selected_track_objects(self):
+        """Return a list of track objects for the currently selected rows."""
+        selected = self.table.selectionModel().selectedRows()
+        tracks = []
+        col_keys = list(self.columns.keys())
+        track_id_col = col_keys.index("track_id")
+
+        for index in selected:
+            source_index = self.proxy_model.mapToSource(index)
+            item = self.model.item(source_index.row(), track_id_col)
+            if not item:
+                continue
+            try:
+                track = self.controller.get.get_entity_object(
+                    "Track", track_id=int(item.text())
+                )
+                if track:
+                    tracks.append(track)
+            except Exception as e:
+                logger.error(f"Error fetching track object for queue: {e}")
+
+        return tracks
+
+    def add_selected_to_queue(self, insert_next: bool = False):
+        """Add currently selected tracks to the playback queue."""
+        queue_manager = self._get_queue_manager()
+        if not queue_manager:
             return
 
-        mood_id, track_ids = action.data()
-        success_count = 0
-        error_messages = []
+        tracks = self._get_selected_track_objects()
+        if not tracks:
+            return
 
-        try:
-            for track_id in track_ids:
-                # Check if the track is already associated with this mood
-                existing_associations = self.controller.get.get_entity_links(
-                    "MoodTrackAssociation", mood_id=mood_id, track_id=track_id
-                )
+        if insert_next and hasattr(queue_manager, "insert_tracks_next"):
+            queue_manager.insert_tracks_next(tracks)
+        else:
+            queue_manager.add_tracks_to_queue(tracks)
 
-                if not existing_associations:
-                    # Add the track to mood
-                    if self.controller.add.add_entity_link(
-                        "MoodTrackAssociation",
-                        mood_id=mood_id,
-                        track_id=track_id,
-                    ):
-                        success_count += 1
-                    else:
-                        error_messages.append(f"Failed to add track {track_id} to mood")
-                else:
-                    # Track already in mood
-                    error_messages.append(f"Track {track_id} is already in this mood")
+        logger.info(
+            f"Added {len(tracks)} track(s) to queue (insert_next={insert_next})"
+        )
 
-            # Show results based on success
-            if success_count == len(track_ids):
-                QMessageBox.information(
-                    self,
-                    "Success",
-                    f"All {success_count} tracks added to mood successfully!",
-                )
-            elif success_count > 0:
-                QMessageBox.warning(
-                    self,
-                    "Partial Success",
-                    f"{success_count} of {len(track_ids)} tracks added.\n"
-                    f"Some tracks might already be in this mood:\n"
-                    f"\n".join(error_messages[-3:]),  # Show last 3 errors
-                )
-            else:
-                QMessageBox.warning(
-                    self,
-                    "No tracks added",
-                    "No tracks were added. All selected tracks are already in this mood.",
-                )
-
-        except Exception as e:
-            logger.error(f"Error adding tracks to mood: {str(e)}")
-            QMessageBox.critical(
-                self, "Error", f"Failed to add tracks to mood:\n{str(e)}"
-            )
+    # ──────────────────────────────────────────────────────────────────────
+    #  Playlist / mood actions
+    # ──────────────────────────────────────────────────────────────────────
 
     def add_to_playlist(self):
-        """Handle adding multiple tracks to a playlist from the context menu."""
+        """Handle adding selected tracks to a playlist from the context menu."""
         action = self.sender()
         if not action:
             return
@@ -316,503 +381,194 @@ class TrackView(QWidget):
         success_count = 0
 
         try:
-            # Get the current maximum position in the playlist
             existing_tracks = self.controller.get.get_entity_links(
                 "PlaylistTracks", playlist_id=playlist_id
             )
-            next_position = max([t.position for t in existing_tracks], default=0) + 1
+            next_position = max((t.position for t in existing_tracks), default=0) + 1
 
             for track_id in track_ids:
                 if self.controller.add.add_entity_link(
                     "PlaylistTracks",
                     playlist_id=playlist_id,
                     track_id=track_id,
-                    position=next_position,  # Add the position parameter
+                    position=next_position,
                 ):
                     success_count += 1
-                    next_position += 1  # Increment for next track
+                    next_position += 1
 
-            if success_count == len(track_ids):
-                QMessageBox.information(
-                    self,
-                    "Success",
-                    f"All {success_count} tracks added to playlist successfully!",
-                )
-            elif success_count > 0:
-                QMessageBox.warning(
-                    self,
-                    "Partial Success",
-                    f"{success_count} of {len(track_ids)} tracks added (some might already be in the playlist).",
-                )
-            else:
-                QMessageBox.warning(
-                    self,
-                    "Warning",
-                    "No tracks were added (they might already be in the playlist).",
-                )
+            self._show_batch_result(
+                success_count,
+                len(track_ids),
+                "playlist",
+                already_present_possible=False,
+            )
         except Exception as e:
-            logger.error(f"Error adding tracks to playlist: {str(e)}")
+            logger.error(f"Error adding tracks to playlist: {e}")
             QMessageBox.critical(
-                self, "Error", f"Failed to add tracks to playlist:\n{str(e)}"
+                self, "Error", f"Failed to add tracks to playlist:\n{e}"
             )
 
-    def load_data(self, tracks):
-        """Populate the table with track metadata using TrackField configuration."""
-        self.model.setRowCount(0)  # Clear existing rows
+    def add_to_mood(self):
+        """Handle adding selected tracks to a mood from the context menu."""
+        action = self.sender()
+        if not action:
+            return
 
-        for track in tracks:
-            row = []
-            for db_field, display_name in self.columns.items():
-                field_config = self.track_fields.get(db_field)
-                value = self._get_formatted_field_value(track, db_field, field_config)
-                item = QStandardItem(str(value))
+        mood_id, track_ids = action.data()
+        success_count = 0
+        skipped = 0
 
-                # Set sorting data based on field type
-                if field_config and field_config.type in (int, float):
-                    # Store raw numeric value for proper sorting
-                    raw_value = getattr(track, db_field, None)
-                    if raw_value is not None:
-                        item.setData(raw_value, Qt.UserRole)
+        try:
+            for track_id in track_ids:
+                existing = self.controller.get.get_entity_links(
+                    "MoodTrackAssociation", mood_id=mood_id, track_id=track_id
+                )
+                if not existing:
+                    if self.controller.add.add_entity_link(
+                        "MoodTrackAssociation",
+                        mood_id=mood_id,
+                        track_id=track_id,
+                    ):
+                        success_count += 1
+                else:
+                    skipped += 1
 
-                row.append(item)
-            self.model.appendRow(row)
+            self._show_batch_result(
+                success_count,
+                len(track_ids),
+                "mood",
+                already_present_possible=skipped > 0,
+            )
+        except Exception as e:
+            logger.error(f"Error adding tracks to mood: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to add tracks to mood:\n{e}")
 
-        logger.info(f"Loaded {len(tracks)} tracks into the table.")
-
-    def _get_formatted_field_value(self, track, db_field, field_config):
-        """Get formatted value for a track field using TrackField configuration."""
-        # Handle special relationship fields first
-        if db_field == "album_name":
-            return track.album.album_name if track.album else "Unknown Album"
-        elif db_field == "primary_artist_name":
-            return self._get_artist_name(track)
-
-        # Get the raw value from the track object
-        raw_value = getattr(track, db_field, "")
-
-        # Apply formatting based on field type and configuration
-        return self._format_value(raw_value, db_field, field_config)
-
-    def filter_tracks(self, text):
-        """Filter tracks based on search text."""
-        regex = QRegularExpression(text, QRegularExpression.CaseInsensitiveOption)
-        self.proxy_model.setFilterRegularExpression(regex)
-        logger.debug(f"Filter applied: {text}")
-
-    def _get_artist_name(self, track):
-        """Extract artist name from track."""
-        if hasattr(track, "primary_artist_names"):
-            return track.primary_artist_names
-        elif track.artist_roles:
-            return (
-                track.artist_roles[0].artist.artist_name
-                if track.artist_roles[0].artist
-                else "Unknown Artist"
+    def _show_batch_result(
+        self,
+        success: int,
+        total: int,
+        destination: str,
+        already_present_possible: bool = False,
+    ):
+        """Display a consistent result dialog for batch add operations."""
+        if success == total:
+            QMessageBox.information(
+                self,
+                "Success",
+                f"All {success} track(s) added to {destination} successfully!",
+            )
+        elif success > 0:
+            note = " (some may already be present)" if already_present_possible else ""
+            QMessageBox.warning(
+                self,
+                "Partial Success",
+                f"{success} of {total} track(s) added to {destination}{note}.",
             )
         else:
-            return "Unknown Artist"
+            msg = (
+                "No tracks were added — all selected tracks may already be in this "
+                f"{destination}."
+                if already_present_possible
+                else f"No tracks were added to {destination}."
+            )
+            QMessageBox.warning(self, "Nothing Added", msg)
 
-    def _format_value(self, value, db_field, field_config):
-        """Format field value based on TrackField configuration and field name."""
-        if value is None:
-            return ""
-
-        # Field-specific formatting
-        if db_field == "duration" and isinstance(value, int):
-            try:
-                minutes = value // 60
-                seconds = value % 60
-                return f"{minutes}:{seconds:02d}"
-            except (TypeError, ValueError):
-                return "0:00"
-        elif db_field == "sample_rate" and isinstance(value, int):
-            return f"{value / 1000:,.1f} kHz"
-        elif db_field == "file_size" and isinstance(value, int):
-            return f"{value / (1024 * 1024):.2f} MB"
-
-        # Default formatting based on type
-        if field_config and field_config.type in (int, float):
-            return str(value)
-
-        return str(value)
+    # ──────────────────────────────────────────────────────────────────────
+    #  Playback
+    # ──────────────────────────────────────────────────────────────────────
 
     def on_double_clicked(self, index):
-        """Handle double-click events on table rows."""
+        """Play the double-clicked track."""
         source_index = self.proxy_model.mapToSource(index)
         row = source_index.row()
         logger.debug(f"Double-clicked: row={row}, isValid={source_index.isValid()}")
 
         try:
-            # Get the column index for file path
-            file_path_index = list(self.columns.keys()).index("track_file_path")
-            file_path = self.model.item(row, file_path_index).text()
-
+            file_path_col = list(self.columns.keys()).index("track_file_path")
+            file_path = self.model.item(row, file_path_col).text()
             logger.info(f"Attempting to play track: {file_path}")
 
-            # Convert to Path object before passing to load_track
             track_path = Path(file_path)
-
             if file_path and self.controller.mediaplayer.load_track(track_path):
                 self.player.play()
             else:
                 logger.warning(f"Failed to load track: {file_path}")
         except Exception as e:
-            logger.error(f"Error playing track: {str(e)}")
+            logger.error(f"Error playing track: {e}")
+
+    # ──────────────────────────────────────────────────────────────────────
+    #  Track editing
+    # ──────────────────────────────────────────────────────────────────────
 
     def edit_selected_track(self):
-        """Open edit dialog for selected track(s) using TrackField configuration."""
+        """Open edit dialog for selected track(s)."""
         selected = self.table.selectionModel().selectedRows()
         if not selected:
             return
 
-        try:
-            tracks = self._get_selected_tracks(selected)
-            if not tracks:
-                return
-
-            logger.debug(
-                f"Editing {len(tracks)} tracks: {[t.track_id for t in tracks]}"
-            )
-
-            # Filter fields based on multi-edit capability
-            if len(tracks) > 1:
-                editable_fields = {
-                    name: config
-                    for name, config in self.track_fields.items()
-                    if config.editable and config.multiple
-                }
-            else:
-                editable_fields = {
-                    name: config
-                    for name, config in self.track_fields.items()
-                    if config.editable
-                }
-
-            logger.debug(f"Editable fields: {list(editable_fields.keys())}")
-
-            if len(tracks) == 1:
-                # Add validation for the track object
-                if not tracks[0] or not hasattr(tracks[0], "track_id"):
-                    logger.error("Invalid track object selected")
-                    QMessageBox.warning(self, "Error", "Invalid track selected")
-                    return
-
-                dialog = TrackEditDialog(tracks[0], self.controller, self)
-            else:
-                dialog = MultiTrackEditDialog(tracks, self.controller, self)
-
-            if dialog.exec_() == QDialog.Accepted:
-                self.load_tracks_on_startup()
-                logger.info(f"Successfully updated {len(tracks)} tracks")
-
-        except Exception as e:
-            logger.error(
-                f"Error editing track(s): {str(e)}", exc_info=True
-            )  # Add exc_info for full traceback
-            QMessageBox.critical(self, "Error", f"Failed to edit tracks:\n{str(e)}")
-
-    def _update_artist_roles(self, track_id, artist_roles):
-        """Update artist roles for a track."""
-        # First remove existing roles
-        self.controller.delete.delete_entity("TrackArtistRole", track_id=track_id)
-
-        # Add new roles
-        for role_data in artist_roles:
-            self.controller.add.add_entity(
-                "TrackArtistRole",
-                track_id=track_id,
-                artist_id=role_data["artist_id"],
-                role_id=role_data["role_id"],
-            )
-
-    def _update_genres(self, track_id, genre_ids):
-        """Update genres for a track."""
-        # First remove existing genres
-        self.controller.delete.delete_entity("TrackGenre", track_id=track_id)
-
-        # Add new genres
-        for genre_id in genre_ids:
-            self.controller.add.add_entity_link(
-                "TrackGenre", track_id=track_id, genre_id=genre_id
-            )
-
-    def _update_place_associations(self, track_id, place_associations):
-        """Update place associations for a track."""
-        # First remove existing associations
-        self.controller.delete.delete_entity(
-            "PlaceAssociation", entity_id=track_id, entity_type="Track"
-        )
-
-        # Add new associations
-        for assoc_data in place_associations:
-            self.controller.add.add_entity_link(
-                "PlaceAssociation",
-                entity_id=track_id,
-                entity_type="Track",
-                place_id=assoc_data["place_id"],
-                association_type=assoc_data["association_type"],
-            )
-
-    def keyPressEvent(self, event):
-        """Handle key press events for delete functionality."""
-        if event.key() == Qt.Key_Delete:
-            self.delete_selected_tracks()
-        else:
-            super().keyPressEvent(event)
-
-    def delete_selected_tracks(self):
-        """Delete selected tracks with option to delete from database or disk."""
-        selected = self.table.selectionModel().selectedRows()
-        if not selected:
-            return
-
-        # Get selected track IDs and file paths
-        track_data = []
-        for index in selected:
-            source_index = self.proxy_model.mapToSource(index)
-            track_id_item = self.model.item(
-                source_index.row(), list(self.columns.keys()).index("track_id")
-            )
-            file_path_item = self.model.item(
-                source_index.row(), list(self.columns.keys()).index("track_file_path")
-            )
-
-            if track_id_item and file_path_item:
-                track_data.append(
-                    {
-                        "track_id": track_id_item.text(),
-                        "file_path": file_path_item.text(),
-                    }
-                )
-
-        if not track_data:
-            return
-
-        # Create delete dialog
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Delete Tracks")
-        dialog.setMinimumWidth(400)
-        layout = QVBoxLayout(dialog)
-
-        # Warning label
-        warning_label = QLabel(f"You are about to delete {len(track_data)} track(s).")
-        layout.addWidget(warning_label)
-
-        # Options
-        options_layout = QVBoxLayout()
-        options_group = QWidget()
-        options_group.setLayout(options_layout)
-        layout.addWidget(options_group)
-
-        # Radio buttons for delete options
-        self.db_radio = QRadioButton("Delete from database only (keep files)")
-        self.file_radio = QRadioButton("Delete from disk and database")
-        self.db_radio.setChecked(True)  # Default option
-
-        options_layout.addWidget(self.db_radio)
-        options_layout.addWidget(self.file_radio)
-
-        # Additional warning for file deletion
-        file_warning = QLabel("Warning: File deletion cannot be undone!")
-        file_warning.setVisible(False)
-        layout.addWidget(file_warning)
-
-        # Connect radio buttons to show/hide file warning
-        def toggle_file_warning():
-            file_warning.setVisible(self.file_radio.isChecked())
-
-        self.db_radio.toggled.connect(toggle_file_warning)
-        self.file_radio.toggled.connect(toggle_file_warning)
-
-        # Dialog buttons
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(dialog.accept)
-        button_box.rejected.connect(dialog.reject)
-        layout.addWidget(button_box)
-
-        # Show dialog and process result
-        if dialog.exec_() == QDialog.Accepted:
-            delete_from_disk = self.file_radio.isChecked()
-
-            if delete_from_disk:
-                # Show confirmation dialog for file deletion
-                confirm_msg = QMessageBox(self)
-                confirm_msg.setWindowTitle("Confirm File Deletion")
-                confirm_msg.setIcon(QMessageBox.Warning)
-                confirm_msg.setText(
-                    f"You are about to permanently delete {len(track_data)} file(s) from disk.\nThis action cannot be undone!"
-                )
-                confirm_msg.setInformativeText("Are you sure you want to continue?")
-                confirm_msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-                confirm_msg.setDefaultButton(QMessageBox.No)
-
-                if confirm_msg.exec_() != QMessageBox.Yes:
-                    return  # User canceled file deletion
-
-            # Perform deletion
-            self._perform_deletion(track_data, delete_from_disk)
-
-    def startDrag(self, supported_actions):
-        """Handle drag operation start with multiple tracks."""
-        selected = self.table.selectionModel().selectedRows()
-        if not selected:
-            return
-
-        # Get all selected track IDs
+        track_id_col = list(self.columns.keys()).index("track_id")
         track_ids = []
         for index in selected:
             source_index = self.proxy_model.mapToSource(index)
-            track_id_item = self.model.item(
-                source_index.row(), list(self.columns.keys()).index("track_id")
-            )
-            if track_id_item:
-                track_ids.append(track_id_item.text())
+            item = self.model.item(source_index.row(), track_id_col)
+            if item:
+                try:
+                    track_ids.append(int(item.text()))
+                except ValueError:
+                    pass
 
         if not track_ids:
             return
 
-        # Create MIME data with comma-separated track IDs
-        mime_data = QMimeData()
-        track_ids_str = ",".join(track_ids)
-        mime_data.setData(
-            "application/x-track-id", QByteArray(track_ids_str.encode("utf-8"))
-        )
-
-        # Also set text/plain for compatibility
-        mime_data.setText(f"Add {len(track_ids)} tracks to playlist")
-
-        # Create drag object
-        drag = QDrag(self.table)
-        drag.setMimeData(mime_data)
-
-        # Visual feedback
-        pixmap = QPixmap(150, 30)
-        pixmap.fill(Qt.darkGray)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(Qt.white)
-        painter.drawText(10, 20, f"Add {len(track_ids)} tracks")
-        painter.end()
-        drag.setPixmap(pixmap)
-        drag.setHotSpot(pixmap.rect().center())
-
-        # Start drag
-        result = drag.exec_(Qt.CopyAction)
-        logger.debug(f"Drag operation completed with result: {result}")
-
-    def _perform_deletion(self, track_data, delete_from_disk):
-        """Perform the actual deletion of tracks using the robust deletion methods."""
-        success_count = 0
-        error_messages = []
-
-        for track in track_data:
+        if len(track_ids) == 1:
             try:
-                track_id = int(track["track_id"])
-
-                if delete_from_disk:
-                    # Use the comprehensive delete method that handles both file and database
-                    success = self.controller.delete.delete_file(
-                        file_path=track["file_path"],
-                        entity_type="Track",
-                        entity_id=track_id,  # Fixed: use track_id from the current track
-                    )
-                else:
-                    # Delete from database only
-                    success = self.controller.delete.delete_entity(
-                        "Track", entity_id=track_id
-                    )
-
-                if success:
-                    success_count += 1
-                else:
-                    error_messages.append(f"Failed to delete track {track_id}")
-
+                track = self.controller.get.get_entity_object(
+                    "Track", track_id=track_ids[0]
+                )
+                if track:
+                    dialog = TrackEditDialog(self.controller, track, self)
+                    if dialog.exec_() == QDialog.Accepted:
+                        self.load_tracks_on_startup()
             except Exception as e:
-                error_messages.append(
-                    f"Error deleting track {track['track_id']}: {str(e)}"
-                )
-
-        # Show results
-        if success_count == len(track_data):
-            if delete_from_disk:
-                QMessageBox.information(
-                    self,
-                    "Success",
-                    f"Successfully deleted {success_count} track(s) from disk and database.",
-                )
-            else:
-                QMessageBox.information(
-                    self,
-                    "Success",
-                    f"Successfully deleted {success_count} track(s) from database.",
-                )
-
-            # Refresh the table
-            self.load_tracks_on_startup()
-
+                logger.error(f"Error opening track edit dialog: {e}")
         else:
-            error_text = (
-                f"Deleted {success_count} of {len(track_data)} track(s).\n\nErrors:\n"
-                + "\n".join(error_messages)
-            )
-            QMessageBox.warning(self, "Partial Success", error_text)
+            try:
+                tracks = [
+                    self.controller.get.get_entity_object("Track", track_id=tid)
+                    for tid in track_ids
+                ]
+                tracks = [t for t in tracks if t]
+                if tracks:
+                    dialog = MultiTrackEditDialog(self.controller, tracks, self)
+                    if dialog.exec_() == QDialog.Accepted:
+                        self.load_tracks_on_startup()
+            except Exception as e:
+                logger.error(f"Error opening multi-track edit dialog: {e}")
 
-            # Refresh even on partial success to update the view
-            if success_count > 0:
-                self.load_tracks_on_startup()
-
-    def _get_selected_tracks(self, selected_indices):
-        """Get track objects for selected indices."""
-        tracks = []
-        for index in selected_indices:
-            source_index = self.proxy_model.mapToSource(index)
-            row = source_index.row()
-
-            # Find track_id column dynamically
-            track_id_index = list(self.columns.keys()).index("track_id")
-            track_id_item = self.model.item(row, track_id_index)
-
-            if not track_id_item:
-                continue
-
-            track_id = track_id_item.text()
-            track = self.controller.get.get_entity_object("Track", track_id=track_id)
-            if track:
-                tracks.append(track)
-
-        return tracks
+    # ──────────────────────────────────────────────────────────────────────
+    #  Column management
+    # ──────────────────────────────────────────────────────────────────────
 
     def show_column_menu(self):
-        """Display a categorized menu for showing/hiding table columns using TrackField."""
+        """Show a checkable popup menu to toggle column visibility."""
         menu = QMenu(self)
+        categories: dict[str, list] = {}
 
-        # Group columns by category
-        categories = {}
         for i, (field_name, display_name) in enumerate(self.columns.items()):
             field_config = self.track_fields.get(field_name)
             category = field_config.category if field_config else "General"
+            categories.setdefault(category, []).append(
+                (i, field_name, display_name, field_config)
+            )
 
-            if category not in categories:
-                categories[category] = []
-            categories[category].append((i, field_name, display_name, field_config))
-
-        # Create submenus for each category
-        for category_name, columns in categories.items():
-            if len(categories) > 1:  # Only use submenus if we have multiple categories
-                category_menu = menu.addMenu(category_name)
-            else:
-                category_menu = menu
-
-            for i, field_name, display_name, field_config in columns:
-                action = category_menu.addAction(display_name)
+        for category_name, cols in categories.items():
+            parent_menu = menu.addMenu(category_name) if len(categories) > 1 else menu
+            for i, field_name, display_name, field_config in cols:
+                action = parent_menu.addAction(display_name)
                 action.setCheckable(True)
                 action.setChecked(not self.table.isColumnHidden(i))
-
-                # Add tooltip if available
                 if field_config and field_config.tooltip:
                     action.setToolTip(field_config.tooltip)
-
-                # Connect to save function
                 action.triggered.connect(
                     lambda checked, col=i: self._toggle_column_visibility(
                         col, not checked
@@ -825,121 +581,109 @@ class TrackView(QWidget):
             )
         )
 
-    def _toggle_column_visibility(self, column_index, visible):
-        """Toggle column visibility and save state."""
-        self.table.setColumnHidden(column_index, not visible)
+    def _toggle_column_visibility(self, column_index: int, hide: bool):
+        """Toggle a column's visibility and persist state."""
+        self.table.setColumnHidden(column_index, hide)
         self.save_column_state()
 
+    def show_column_customization(self):
+        """Show the column order/visibility customization dialog."""
+        dialog = ColumnCustomizationDialog(self, self)
+        dialog.exec_()
+
     def save_column_state(self):
-        """Save current column visibility, order, and widths to config."""
+        """Persist column visibility, order, and widths to config."""
         try:
             visible_columns = []
             column_order = []
             column_widths = []
 
-            # Get current visible columns and their order
             for i in range(self.model.columnCount()):
                 field_name = list(self.columns.keys())[i]
                 if not self.table.isColumnHidden(i):
                     visible_columns.append(field_name)
-
-                # Track order by original field names
                 column_order.append(field_name)
                 column_widths.append(self.table.columnWidth(i))
-
-            # Save to config
 
             app_config.set_track_view_visible_columns(visible_columns)
             app_config.set_track_view_column_order(column_order)
             app_config.set_track_view_column_widths(column_widths)
             app_config.save()
-
             logger.info("Track view column state saved")
-
         except Exception as e:
             logger.error(f"Error saving column state: {e}")
 
     def load_column_state(self):
-        """Load column visibility, order, and widths from config."""
+        """Restore column visibility, order, and widths from config."""
         try:
-            from config_setup import app_config
-
-            # Get saved settings
             visible_columns = app_config.get_track_view_visible_columns()
-            column_order = app_config.get_track_view_column_order()
             column_widths = app_config.get_track_view_column_widths()
+            column_keys = list(self.columns.keys())
 
-            # If no saved order, use default column order
-            if not column_order:
-                column_order = list(self.columns.keys())
-
-            # Reorder columns based on saved order
-            self._reorder_columns(column_order)
-
-            # Set column visibility
             if visible_columns:
-                for i, field_name in enumerate(self.columns.keys()):
+                for i, field_name in enumerate(column_keys):
                     self.table.setColumnHidden(i, field_name not in visible_columns)
 
-            # Restore column widths if available
-            if column_widths and len(column_widths) == len(self.columns):
+            if column_widths and len(column_widths) == len(column_keys):
                 for i, width in enumerate(column_widths):
-                    if width > 0:  # Only set if width was saved
+                    if width > 0:
                         self.table.setColumnWidth(i, width)
-
         except Exception as e:
             logger.error(f"Error loading column state: {e}")
 
-    def _reorder_columns(self, new_order):
-        """Reorder table columns based on provided order."""
-        try:
-            # Create a mapping of current positions
-            current_order = list(self.columns.keys())
-
-            # Calculate the new column positions
-            new_positions = [
-                current_order.index(col) for col in new_order if col in current_order
-            ]
-
-            # Reorder the columns in the table
-            for new_display_index, old_logical_index in enumerate(new_positions):
-                current_visual_index = self.table.horizontalHeader().visualIndex(
-                    old_logical_index
-                )
-                if current_visual_index != new_display_index:
-                    self.table.horizontalHeader().moveSection(
-                        current_visual_index, new_display_index
-                    )
-
-        except Exception as e:
-            logger.error(f"Error reordering columns: {e}")
-
-    def get_current_column_state(self):
-        """Get current column state including order and visibility."""
-        state = {
-            "visible": [],
-            "order": [],
-            "widths": [],
-            "positions": {},  # field_name -> visual_index
-        }
+    def get_column_state(self) -> dict:
+        """Return a snapshot of current column visibility, order, and widths."""
+        state = {"visible": [], "order": [], "widths": [], "positions": {}}
 
         for i in range(self.model.columnCount()):
             field_name = list(self.columns.keys())[i]
             visual_index = self.table.horizontalHeader().visualIndex(i)
-
             state["order"].append(field_name)
             state["widths"].append(self.table.columnWidth(i))
             state["positions"][field_name] = visual_index
-
             if not self.table.isColumnHidden(i):
                 state["visible"].append(field_name)
 
-        # Sort order by visual position
         state["order"] = sorted(state["order"], key=lambda x: state["positions"][x])
-
         return state
 
-    def show_column_customization(self):
-        """Show column customization dialog."""
-        dialog = ColumnCustomizationDialog(self, self)
-        dialog.exec_()
+    # ──────────────────────────────────────────────────────────────────────
+    #  Drag support
+    # ──────────────────────────────────────────────────────────────────────
+
+    def startDrag(self, supported_actions):
+        """Build a drag payload containing selected track file paths."""
+        selected = self.table.selectionModel().selectedRows()
+        if not selected:
+            return
+
+        try:
+            file_path_col = list(self.columns.keys()).index("track_file_path")
+        except ValueError:
+            return
+
+        paths = []
+        for index in selected:
+            source_index = self.proxy_model.mapToSource(index)
+            item = self.model.item(source_index.row(), file_path_col)
+            if item and item.text():
+                paths.append(item.text())
+
+        if not paths:
+            return
+
+        mime = QMimeData()
+        mime.setData("application/x-track-paths", QByteArray("\n".join(paths).encode()))
+
+        drag = QDrag(self.table)
+        drag.setMimeData(mime)
+
+        # Build a simple drag pixmap showing the count
+        pixmap = QPixmap(200, 30)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, f"{len(paths)} track(s)")
+        painter.end()
+        drag.setPixmap(pixmap)
+
+        drag.exec_(supported_actions)
