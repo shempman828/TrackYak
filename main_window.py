@@ -317,6 +317,7 @@ class GUI(QMainWindow, MenuBar):
         # Add to main window
         self.addDockWidget(Qt.BottomDockWidgetArea, self.player_dock)
         self.player_dock.show()
+        self.mediaplayer.track_changed.connect(self._ensure_player_dock_visible)
         self.player_dock.raise_()
 
         logger.info("Player dock created")
@@ -596,3 +597,14 @@ class GUI(QMainWindow, MenuBar):
 
         self.controller.close_session()
         super().closeEvent(event)
+
+    def _ensure_player_dock_visible(self):
+        """Re-assert player dock visibility after track changes.
+
+        XWayland can lose the dock surface during layout recalculations
+        triggered by track change signals, especially when the queue dock
+        is closed and the bottom dock area resizes.
+        """
+        if hasattr(self, "player_dock") and not self.player_dock.isVisible():
+            self.player_dock.show()
+            self.player_dock.raise_()
