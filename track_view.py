@@ -594,16 +594,27 @@ class TrackView(QWidget):
     def save_column_state(self):
         """Persist column visibility, order, and widths to config."""
         try:
+            header = self.table.horizontalHeader()
+            column_keys = list(self.columns.keys())
+
+            # Build a list sorted by current visual position
+            columns_by_visual_order = sorted(
+                range(self.model.columnCount()),
+                key=lambda logical: header.visualIndex(logical),
+            )
+
             visible_columns = []
             column_order = []
-            column_widths = []
+            column_widths_map = {}
 
-            for i in range(self.model.columnCount()):
-                field_name = list(self.columns.keys())[i]
-                if not self.table.isColumnHidden(i):
-                    visible_columns.append(field_name)
+            for logical_index in columns_by_visual_order:
+                field_name = column_keys[logical_index]
                 column_order.append(field_name)
-                column_widths.append(self.table.columnWidth(i))
+                column_widths_map[field_name] = self.table.columnWidth(logical_index)
+                if not self.table.isColumnHidden(logical_index):
+                    visible_columns.append(field_name)
+
+            column_widths = [column_widths_map[f] for f in column_order]
 
             app_config.set_track_view_visible_columns(visible_columns)
             app_config.set_track_view_column_order(column_order)
@@ -617,8 +628,12 @@ class TrackView(QWidget):
         """Restore column visibility, order, and widths from config."""
         try:
             visible_columns = app_config.get_track_view_visible_columns()
+            column_order = app_config.get_track_view_column_order()  # ADD
             column_widths = app_config.get_track_view_column_widths()
             column_keys = list(self.columns.keys())
+
+            if column_order:  # ADD
+                self._reorder_columns(column_order)  # ADD
 
             if visible_columns:
                 for i, field_name in enumerate(column_keys):
@@ -646,6 +661,19 @@ class TrackView(QWidget):
 
         state["order"] = sorted(state["order"], key=lambda x: state["positions"][x])
         return state
+
+    def _reorder_columns(self, ordered_field_names: list):
+        """Move columns into the visual order specified by ordered_field_names."""
+        header = self.table.horizontalHeader()
+        column_keys = list(self.columns.keys())
+
+        for desired_visual_index, field_name in enumerate(ordered_field_names):
+            if field_name not in column_keys:
+                continue
+            logical_index = column_keys.index(field_name)
+            current_visual_index = header.visualIndex(logical_index)
+            if current_visual_index != desired_visual_index:
+                header.moveSection(current_visual_index, desired_visual_index)
 
     # ──────────────────────────────────────────────────────────────────────
     #  Drag support

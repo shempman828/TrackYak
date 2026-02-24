@@ -73,7 +73,7 @@ class ColumnCustomizationDialog(QDialog):
     def load_current_state(self):
         """Load current column state into the list."""
         self.column_list.clear()
-        state = self.track_view.get_current_column_state()
+        state = self.track_view.get_column_state()
 
         # Get all available columns
         all_columns = list(self.track_view.columns.keys())
