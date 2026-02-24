@@ -1,7 +1,9 @@
 """Module for managing music library files and directories with enhanced UX"""
 
+import json
 import os
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -55,6 +57,7 @@ class FileOrganizer(QThread):
 
             # Emit analysis complete for preview dialog
             self.analysis_complete.emit(auto_ops, confirm_ops)
+
             logger.info("FileOrganizer: Waiting for user approval...")
 
             # Wait for user approval
@@ -103,12 +106,17 @@ class FileOrganizer(QThread):
         """Called when user cancels in the preview dialog"""
         logger.info("FileOrganizer: User cancelled organization")
         self._waiting_for_approval = False
-        self._approval_received = False
+        self._cancel = True
 
     def _analyze_organization(self, tracks) -> Tuple[List[Dict], List[Dict]]:
-        """Analyze organization needs and categorize operations"""
-        auto_ops = []  # <90% similarity = obvious moves
-        confirm_ops = []  # ≥90% similarity = needs confirmation
+        """Analyze organization needs and categorize operations.
+
+        Similarity thresholds:
+          < 0.9  → paths are clearly different → auto-approve (safe, obvious move)
+          ≥ 0.9  → paths are nearly identical  → require confirmation (subtle rename/move)
+        """
+        auto_ops = []  # Low similarity  = clearly different folder  = auto-approve
+        confirm_ops = []  # High similarity = subtle path difference    = needs confirmation
         total = len(tracks)
 
         for idx, track in enumerate(tracks):
@@ -139,9 +147,11 @@ class FileOrganizer(QThread):
             }
 
             if similarity < 0.9:
-                auto_ops.append(operation)  # Very different = auto-approve
+                # Paths are clearly different — safe to auto-approve
+                auto_ops.append(operation)
             else:
-                confirm_ops.append(operation)  # Very similar = needs confirmation
+                # Paths are nearly identical — subtle change, ask user to confirm
+                confirm_ops.append(operation)
 
         return auto_ops, confirm_ops
 
@@ -234,40 +244,119 @@ class FileOrganizer(QThread):
         return files_moved
 
     def _cleanup_empty_directories(self):
-        """Remove empty directories from root"""
+        """Remove empty directories under root.
+
+        Uses a fresh stat-based check at removal time rather than relying on
+        the dirnames list from os.walk, which can become stale as siblings are
+        removed during the same traversal.
+        """
         self.progress_updated.emit(95, "Cleaning up empty directories...")
 
-        empty_dirs = []
+        # Collect candidate dirs bottom-up (topdown=False) so children are
+        # evaluated before their parents.
+        candidate_dirs = []
         for dirpath, dirnames, filenames in os.walk(self.root, topdown=False):
             current_dir = Path(dirpath)
-            if current_dir != self.root and not any(dirnames + filenames):
-                empty_dirs.append(current_dir)
+            if current_dir != self.root:
+                candidate_dirs.append(current_dir)
 
-        for idx, empty_dir in enumerate(empty_dirs):
+        for idx, empty_dir in enumerate(candidate_dirs):
             if self._cancel:
                 break
 
             self.cleanup_progress.emit(
-                int((idx + 1) / len(empty_dirs) * 100), f"Removing: {empty_dir.name}"
+                int((idx + 1) / len(candidate_dirs) * 100),
+                f"Removing: {empty_dir.name}",
             )
 
             try:
+                # Re-check at removal time: rmdir() raises OSError if non-empty,
+                # so this is inherently safe — it will never remove a dir that
+                # still has contents.
                 empty_dir.rmdir()
                 logger.info(f"Removed empty directory: {empty_dir}")
+            except OSError:
+                # Directory is non-empty or already gone — skip silently.
+                pass
             except Exception as e:
                 logger.warning(f"Could not remove directory {empty_dir}: {e}")
 
-    def _move_track_file(self, track, target_path: Path) -> bool:
-        """Move track file and update database - returns success"""
-        try:
-            source_path = Path(track.track_file_path)
+    # ------------------------------------------------------------------
+    # Move log
+    # ------------------------------------------------------------------
 
-            # Check if source file exists
+    def _move_log_path(self) -> Path:
+        """Path to the move log file in the library root."""
+        return self.root / ".organize_log.json"
+
+    def _append_to_move_log(self, entry: Dict) -> None:
+        """Append a single move record to the persistent move log.
+
+        The log is a JSON array of objects:
+          {
+            "timestamp": "2026-02-23T14:05:00",
+            "track_id": 42,
+            "track_name": "Song Title",
+            "from": "/old/path/song.mp3",
+            "to": "/new/path/song.mp3",
+            "status": "success" | "db_update_failed" | "failed"
+          }
+        """
+        log_path = self._move_log_path()
+        try:
+            if log_path.exists():
+                with open(log_path, "r", encoding="utf-8") as f:
+                    records = json.load(f)
+            else:
+                records = []
+        except Exception:
+            records = []  # Corrupt log — start fresh rather than crash
+
+        records.append(entry)
+
+        try:
+            with open(log_path, "w", encoding="utf-8") as f:
+                json.dump(records, f, indent=2, default=str)
+        except Exception as e:
+            # Log failure is non-fatal — warn and continue
+            logger.warning(f"FileOrganizer: Could not write move log: {e}")
+
+    # ------------------------------------------------------------------
+    # Core move
+    # ------------------------------------------------------------------
+
+    def _move_track_file(self, track, target_path: Path) -> bool:
+        """Move a track file to target_path and update the database.
+
+        Safety guarantees:
+          1. Source existence is verified before any action.
+          2. shutil.move is used for cross-device safety.
+          3. Destination existence is verified BEFORE updating the DB —
+             the DB is only changed once the file is confirmed present.
+          4. Every outcome (success, partial failure, full failure) is
+             written to the move log so nothing is silently lost.
+
+        Returns True on full success (file moved + DB updated).
+        """
+        source_path = Path(track.track_file_path)
+        log_base = {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "track_id": track.track_id,
+            "track_name": track.track_name or "Unknown",
+            "from": str(source_path),
+            "to": str(target_path),
+        }
+
+        try:
+            # --- Pre-flight checks ---
             if not source_path.exists():
                 logger.error(f"Source file does not exist: {source_path}")
+                self._append_to_move_log(
+                    {**log_base, "status": "failed", "reason": "source not found"}
+                )
                 return False
 
-            # Handle duplicate filenames
+            # --- Handle duplicate filenames at destination ---
             counter = 1
             original_target = target_path
             while target_path.exists():
@@ -277,35 +366,72 @@ class FileOrganizer(QThread):
                 )
                 counter += 1
 
-            # Create target directory if needed
+            # Update log entry with the final (possibly de-duped) target path
+            log_base["to"] = str(target_path)
+
+            # --- Create destination directory ---
             target_path.parent.mkdir(parents=True, exist_ok=True)
 
             logger.info(f"Attempting to move: {source_path} -> {target_path}")
-
-            # Use shutil.move() instead of Path.rename() for cross-device moves
             shutil.move(str(source_path), str(target_path))
-            logger.info(f"File move successful: {source_path} -> {target_path}")
 
-            # Update database using controller's update method
-            self.controller.update.update_entity(
-                "Track", track.track_id, track_file_path=str(target_path)
+            # --- Verify destination before touching DB ---
+            if not target_path.exists():
+                logger.error(
+                    f"Move appeared to succeed but destination not found: {target_path}"
+                )
+                self._append_to_move_log(
+                    {
+                        **log_base,
+                        "status": "failed",
+                        "reason": "destination missing after move — DB NOT updated",
+                    }
+                )
+                return False
+
+            logger.info(f"File move verified: {source_path} -> {target_path}")
+
+            # --- Update database only after file is confirmed present ---
+            try:
+                self.controller.update.update_entity(
+                    "Track", track.track_id, track_file_path=str(target_path)
+                )
+                logger.info(f"Database updated for track_id: {track.track_id}")
+                self._append_to_move_log({**log_base, "status": "success"})
+                return True
+
+            except Exception as db_err:
+                # File has moved but DB update failed — log precisely so the
+                # user can manually reconcile; do NOT attempt to move the file back.
+                logger.error(
+                    f"DB update failed for track_id {track.track_id} after successful "
+                    f"move to {target_path}: {db_err}"
+                )
+                self._append_to_move_log(
+                    {
+                        **log_base,
+                        "status": "db_update_failed",
+                        "reason": str(db_err),
+                        "action_required": (
+                            f"File is at '{target_path}'. "
+                            f"DB still points to '{source_path}'. Manual fix needed."
+                        ),
+                    }
+                )
+                return False
+
+        except Exception as e:
+            logger.error(f"Failed to move file {track.track_file_path}: {e}")
+            import traceback
+
+            logger.error(f"Move error details: {traceback.format_exc()}")
+            self._append_to_move_log(
+                {
+                    **log_base,
+                    "status": "failed",
+                    "reason": str(e),
+                }
             )
-            logger.info(f"Database updated for track_id: {track.track_id}")
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to move file {track.track_file_path}: {e}")
-            import traceback
-
-            logger.error(f"Move error details: {traceback.format_exc()}")
-            return False
-
-        except Exception as e:
-            logger.error(f"Failed to move file {track.track_file_path}: {e}")
-            import traceback
-
-            logger.error(f"Move error details: {traceback.format_exc()}")
             return False
 
     def _sanitize_filename(self, name):
