@@ -464,6 +464,15 @@ class Track(Base):
         borrowed_albums = [link.album for link in self.virtual_appearances]
         return albums + borrowed_albums
 
+    @property
+    def duration_formatted(self):
+        """Return duration in MM:SS format."""
+        if self.duration is None:
+            return "Unknown"
+        minutes = int(self.duration) // 60
+        seconds = int(self.duration) % 60
+        return f"{minutes}:{seconds:02d}"
+
 
 class AlbumVirtualTrack(Base):
     """This table allows albums to borrow tracks from other albums"""
