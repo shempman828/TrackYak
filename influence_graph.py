@@ -23,6 +23,8 @@ class InfluenceGraphView(QGraphicsView):
     Retains directional arrows visually but uses undirected physics forces.
     """
 
+    ARROW_ZOOM_THRESHOLD = 0.35
+
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
@@ -42,6 +44,7 @@ class InfluenceGraphView(QGraphicsView):
         self.velocities = {}  # node_id -> QPointF
         self.node_mass = {}  # node_id -> mass for FA2 repulsion
         self.community_id = {}  # node_id -> Louvain community
+        self._node_radii = {}  # node_id -> (half_w, half_h) cached each render tick
 
         # Rendering items
         self.edge_lines = {}  # (source_id, target_id) -> QGraphicsLineItem
@@ -85,6 +88,7 @@ class InfluenceGraphView(QGraphicsView):
             self.scale(self.zoom_factor, self.zoom_factor)
         else:
             self.scale(1 / self.zoom_factor, 1 / self.zoom_factor)
+        self._sync_arrow_visibility()
 
     def zoom_in(self):
         self.scale(self.zoom_factor, self.zoom_factor)
@@ -339,60 +343,54 @@ class InfluenceGraphView(QGraphicsView):
         if not self.layout_running or not self.positions:
             return
 
-        # --- USER TUNING ---
-        # High repulsion to keep nodes readable
-        REPULSION_CONST = 25000.0
-
-        # Strong friction (low number) to stop the "spinning/orbiting"
-        # Damping of 0.3 means we lose 70% of velocity every frame
-        DAMPING = 0.6
-
-        # Max speed limit to prevent jitter/vibration
-        MAX_SPEED = 30.0
-
-        # --- NEW: COMMUNITY FACTOR ---
-        # Multiplier for repulsion between different communities.
-        # 3.0 means nodes from different groups hate each other 3x more.
+        # ── Tuning ───────────────────────────────────────────────────────────
+        # Repulsion is now purely for macro-scale cluster separation.
+        # Micro-level overlap is handled by _resolve_collisions instead.
+        REPULSION_CONST = 80000.0  # stronger global spread
+        DAMPING = 0.55
+        MAX_SPEED = 50.0  # raised — collisions handle the hard stops
         COMMUNITY_REPULSION_FACTOR = 4.0
+        SPRING_REST = 60.0  # slightly longer natural edge length
+        # ─────────────────────────────────────────────────────────────────────
 
         forces = {nid: QPointF(0, 0) for nid in self.positions}
         node_ids = list(self.positions.keys())
 
-        # 1. Repulsion (Community Aware)
+        # ── 1. Repulsion (macro-scale, size-aware cutoff) ────────────────────
         for i in range(len(node_ids)):
             id1 = node_ids[i]
             p1 = self.positions[id1]
-            # Get community ID, default to 0 if missing
             c1 = self.community_id.get(id1, 0)
+            hw1, hh1 = self._node_radii.get(id1, (30.0, 15.0))
 
             for j in range(i + 1, len(node_ids)):
                 id2 = node_ids[j]
                 p2 = self.positions[id2]
                 c2 = self.community_id.get(id2, 0)
+                hw2, hh2 = self._node_radii.get(id2, (30.0, 15.0))
 
                 dx = p1.x() - p2.x()
                 dy = p1.y() - p2.y()
 
                 dist_sq = dx * dx + dy * dy
-                if dist_sq < 100:
-                    dist_sq = 100  # Clamp minimum distance
+                if dist_sq < 1.0:
+                    dist_sq = 1.0
+                    dx, dy = float(i - j), 1.0  # reproducible nudge direction
 
-                # Base Force
+                dist = math.sqrt(dist_sq)
+
                 force_mag = REPULSION_CONST / dist_sq
 
-                # --- KEY CHANGE: Community Separation ---
-                # If they are in different communities, boost the repulsion force
                 if c1 != c2:
                     force_mag *= COMMUNITY_REPULSION_FACTOR
 
-                dist = math.sqrt(dist_sq)
                 fx = force_mag * (dx / dist)
                 fy = force_mag * (dy / dist)
 
                 forces[id1] += QPointF(fx, fy)
                 forces[id2] -= QPointF(fx, fy)
 
-        # 2. Attraction (Standard Springs)
+        # ── 2. Attraction (springs along edges) ──────────────────────────────
         for source_id, target_id in self.edges:
             if source_id in self.positions and target_id in self.positions:
                 p1 = self.positions[source_id]
@@ -402,31 +400,23 @@ class InfluenceGraphView(QGraphicsView):
                 dy = p2.y() - p1.y()
                 dist = math.sqrt(dx * dx + dy * dy)
 
-                # Only pull if further than 50px (Natural Spring Length)
-                if dist > 50:
-                    force = self.attraction_force * (dist - 50)
+                if dist > SPRING_REST:
+                    force = self.attraction_force * (dist - SPRING_REST)
                     fx = force * (dx / dist)
                     fy = force * (dy / dist)
-
                     forces[source_id] += QPointF(fx, fy)
                     forces[target_id] -= QPointF(fx, fy)
 
-        # 3. Gravity (REMOVED for infinite plane)
-        # Gravity is now 0, so this section does nothing
-
-        # 4. Integration
+        # ── 3. Integration ────────────────────────────────────────────────────
         total_movement = 0
         for nid, force in forces.items():
             v = self.velocities.get(nid, QPointF(0, 0))
-
             v = (v + force) * DAMPING
 
             speed = math.hypot(v.x(), v.y())
             if speed > MAX_SPEED:
-                scale = MAX_SPEED / speed
-                v *= scale
+                v *= MAX_SPEED / speed
 
-            # Aggressive sleep threshold for faster "settling"
             if speed < 0.1:
                 v = QPointF(0, 0)
 
@@ -434,11 +424,12 @@ class InfluenceGraphView(QGraphicsView):
             self.positions[nid] += v
             total_movement += speed
 
+        # ── 4. Hard collision resolution (bypasses velocity system) ──────────
+        self._resolve_collisions()
+
         self.update_node_positions()
         self.update_edge_positions()
 
-        # Since DAMPING is low (0.3), movement drops fast.
-        # We lower the threshold to ensure it actually looks stopped.
         if total_movement < 0.5:
             self.stop_force_layout()
             logger.info("Graph settled.")
@@ -497,7 +488,7 @@ class InfluenceGraphView(QGraphicsView):
                 self.nodes.pop(nid, None)
                 self.velocities.pop(nid, None)
                 self.positions.pop(nid, None)
-
+            self._rebuild_node_radii()
             # Update/create edge lines with arrows and remove obsolete ones
             existing_edge_keys = set(self.edge_lines.keys())
             desired_edge_keys = set(self.edges)
@@ -558,46 +549,99 @@ class InfluenceGraphView(QGraphicsView):
         except Exception as e:
             logger.error(f"Error rendering graph: {e}")
 
+    def _rebuild_node_radii(self):
+        """Cache each node's half-dimensions for the physics loop."""
+        self._node_radii = {}
+        for node_id, node_item in self.nodes.items():
+            r = node_item.rect()
+            self._node_radii[node_id] = (abs(r.width()) / 2.0, abs(r.height()) / 2.0)
+
     def create_arrow_line(self, start_pos, end_pos, source_id, target_id):
-        """Create a line with arrowhead in the MIDDLE of the line"""
+        """
+        Create a directed edge from start_pos to end_pos.
+
+        Visual design for large graphs (hundreds-to-thousands of nodes):
+        - Arrow placed near the TARGET node boundary, not the midpoint,
+        so direction is unambiguous even in dense clusters.
+        - Edge opacity is proportional to the source node's influence score
+        (high-influence edges are prominent; weak ones fade to 25%).
+        - Arrow inherits the same opacity so it never conflicts with the line.
+        """
         try:
-            # Create the main line
-            line = QGraphicsLineItem(
-                start_pos.x(), start_pos.y(), end_pos.x(), end_pos.y()
-            )
-
-            # Style the line
-            pen = QPen(QColor(100, 100, 100, 180), 1.5)
-            pen.setCapStyle(Qt.RoundCap)
-            line.setPen(pen)
-
-            # Calculate middle position for arrow
             dx = end_pos.x() - start_pos.x()
             dy = end_pos.y() - start_pos.y()
             length = math.sqrt(dx * dx + dy * dy)
 
-            if length < 10:
+            if length < 1:
+                # Coincident nodes — return invisible placeholder
+                line = QGraphicsLineItem(
+                    start_pos.x(), start_pos.y(), end_pos.x(), end_pos.y()
+                )
+                line.setPen(QPen(QColor(100, 100, 100, 0), 0))
                 return line, None
 
-            # Always place arrow in the middle
-            arrow_x = start_pos.x() + dx * 0.5
-            arrow_y = start_pos.y() + dy * 0.5
+            # --- Influence-based opacity ---
+            # Source node drives visibility: important influencers get opaque edges.
+            src_score = self.influence_scores.get(source_id, 0)
+            max_score = (
+                max(self.influence_scores.values()) if self.influence_scores else 1
+            )
+            # Normalise to [0,1], then map to [MIN_ALPHA, MAX_ALPHA]
+            MIN_ALPHA, MAX_ALPHA = 45, 210
+            t = (src_score / max_score) ** 0.5  # sqrt eases the curve for large ranges
+            edge_alpha = int(MIN_ALPHA + t * (MAX_ALPHA - MIN_ALPHA))
 
-            # Create arrowhead
-            arrow_size = 6
+            # --- Line ---
+            line = QGraphicsLineItem(
+                start_pos.x(), start_pos.y(), end_pos.x(), end_pos.y()
+            )
+            pen = QPen(QColor(160, 160, 175, edge_alpha), 1.2)
+            pen.setCapStyle(Qt.RoundCap)
+            line.setPen(pen)
+
+            # --- Arrow placement: offset from target boundary ---
+            # Estimate how far to pull back along the edge so the tip lands
+            # just outside (or at) the target node's rectangular boundary.
+            if target_id in self.nodes:
+                t_rect = self.nodes[target_id].rect()
+                half_w = abs(t_rect.width()) / 2
+                half_h = abs(t_rect.height()) / 2
+            else:
+                half_w = 30
+                half_h = 15
+
+            # Distance from node centre to its boundary along this edge direction
+            ux, uy = dx / length, dy / length
+            if abs(ux) > 1e-6:
+                t_w = half_w / abs(ux)
+            else:
+                t_w = float("inf")
+            if abs(uy) > 1e-6:
+                t_h = half_h / abs(uy)
+            else:
+                t_h = float("inf")
+            boundary_offset = min(t_w, t_h) + 4  # 4px gap so tip clears the border
+
+            # Clamp so the arrow doesn't jump behind the source node
+            boundary_offset = min(boundary_offset, length * 0.45)
+
+            arrow_x = end_pos.x() - ux * boundary_offset
+            arrow_y = end_pos.y() - uy * boundary_offset
+
+            # --- Arrowhead ---
+            arrow_size = 7
             arrow_polygon = QPolygonF(
                 [
                     QPointF(0, 0),
-                    QPointF(-arrow_size * 1.5, -arrow_size),
-                    QPointF(-arrow_size * 1.5, arrow_size),
+                    QPointF(-arrow_size * 1.6, -arrow_size * 0.6),
+                    QPointF(-arrow_size * 1.6, arrow_size * 0.6),
                 ]
             )
 
             arrow = QGraphicsPolygonItem(arrow_polygon)
-            arrow.setBrush(QBrush(QColor(153, 234, 133, 220)))
+            arrow_color = QColor(153, 234, 133, edge_alpha)
+            arrow.setBrush(QBrush(arrow_color))
             arrow.setPen(QPen(Qt.NoPen))
-
-            # Position and rotate arrow
             arrow.setPos(arrow_x, arrow_y)
             arrow_angle = math.degrees(math.atan2(dy, dx))
             arrow.setRotation(arrow_angle)
@@ -606,15 +650,74 @@ class InfluenceGraphView(QGraphicsView):
 
         except Exception as e:
             logger.error(f"Error creating arrow line: {e}")
-            # Fallback
             line = QGraphicsLineItem(
                 start_pos.x(), start_pos.y(), end_pos.x(), end_pos.y()
             )
             line.setPen(QPen(QColor(100, 100, 100, 150), 1))
             return line, None
 
-    def update_arrow_position(self, arrow_item, start_pos, end_pos):
-        """Update arrow position to always stay in middle"""
+    def _resolve_collisions(self):
+        """
+        Directly separate any overlapping nodes by pushing each half the overlap
+        distance apart. This runs AFTER force integration so it cannot be
+        throttled by MAX_SPEED or damping.
+
+        Uses axis-aligned bounding box (AABB) overlap — cheap and correct for
+        rectangular nodes.  GAP adds breathing room so nodes settle with space
+        between them rather than just touching.
+        """
+        GAP = 18  # minimum clear space between node edges (px)
+        ITERATIONS = 3  # multiple passes per tick converges faster for clusters
+
+        node_ids = list(self.positions.keys())
+
+        for _ in range(ITERATIONS):
+            for i in range(len(node_ids)):
+                id1 = node_ids[i]
+                p1 = self.positions[id1]
+                hw1, hh1 = self._node_radii.get(id1, (30.0, 15.0))
+
+                for j in range(i + 1, len(node_ids)):
+                    id2 = node_ids[j]
+                    p2 = self.positions[id2]
+                    hw2, hh2 = self._node_radii.get(id2, (30.0, 15.0))
+
+                    # AABB overlap test
+                    overlap_x = (hw1 + hw2 + GAP) - abs(p1.x() - p2.x())
+                    overlap_y = (hh1 + hh2 + GAP) - abs(p1.y() - p2.y())
+
+                    # Only colliding if BOTH axes overlap
+                    if overlap_x <= 0 or overlap_y <= 0:
+                        continue
+
+                    # Separate along the axis of least overlap (minimal movement)
+                    if overlap_x < overlap_y:
+                        # Push apart horizontally
+                        push = overlap_x / 2.0
+                        if p1.x() >= p2.x():
+                            self.positions[id1] = QPointF(p1.x() + push, p1.y())
+                            self.positions[id2] = QPointF(p2.x() - push, p2.y())
+                        else:
+                            self.positions[id1] = QPointF(p1.x() - push, p1.y())
+                            self.positions[id2] = QPointF(p2.x() + push, p2.y())
+                    else:
+                        # Push apart vertically
+                        push = overlap_y / 2.0
+                        if p1.y() >= p2.y():
+                            self.positions[id1] = QPointF(p1.x(), p1.y() + push)
+                            self.positions[id2] = QPointF(p2.x(), p2.y() - push)
+                        else:
+                            self.positions[id1] = QPointF(p1.x(), p1.y() - push)
+                            self.positions[id2] = QPointF(p2.x(), p2.y() + push)
+
+                    # Re-read p1 since it may have been updated this iteration
+                    p1 = self.positions[id1]
+
+    def update_arrow_position(self, arrow_item, start_pos, end_pos, target_id=None):
+        """
+        Update arrowhead to stay near the target node boundary.
+        Mirrors the placement logic in create_arrow_line.
+        """
         try:
             dx = end_pos.x() - start_pos.x()
             dy = end_pos.y() - start_pos.y()
@@ -624,14 +727,40 @@ class InfluenceGraphView(QGraphicsView):
                 arrow_item.setVisible(False)
                 return
 
-            # Always position in middle
-            arrow_x = start_pos.x() + dx * 0.5
-            arrow_y = start_pos.y() + dy * 0.5
+            ux, uy = dx / length, dy / length
+
+            if target_id and target_id in self.nodes:
+                t_rect = self.nodes[target_id].rect()
+                half_w = abs(t_rect.width()) / 2
+                half_h = abs(t_rect.height()) / 2
+            else:
+                half_w = 30
+                half_h = 15
+
+            if abs(ux) > 1e-6:
+                t_w = half_w / abs(ux)
+            else:
+                t_w = float("inf")
+            if abs(uy) > 1e-6:
+                t_h = half_h / abs(uy)
+            else:
+                t_h = float("inf")
+            boundary_offset = min(t_w, t_h) + 4
+            boundary_offset = min(boundary_offset, length * 0.45)
+
+            arrow_x = end_pos.x() - ux * boundary_offset
+            arrow_y = end_pos.y() - uy * boundary_offset
 
             arrow_item.setPos(arrow_x, arrow_y)
             arrow_angle = math.degrees(math.atan2(dy, dx))
             arrow_item.setRotation(arrow_angle)
-            arrow_item.setVisible(True)
+
+            # Respect zoom-based visibility (set by _sync_arrow_visibility)
+            # Only make it visible if it was previously hidden due to length,
+            # not due to zoom — zoom visibility is managed separately.
+            if not arrow_item.isVisible():
+                zoom = self.transform().m11()
+                arrow_item.setVisible(zoom >= self.ARROW_ZOOM_THRESHOLD)
 
         except Exception as e:
             logger.error(f"Error updating arrow position: {e}")
@@ -646,7 +775,7 @@ class InfluenceGraphView(QGraphicsView):
                     logger.debug(f"Failed to setPos for node {node_id}")
 
     def update_edge_positions(self):
-        """Update the positions of existing edge lines and arrows"""
+        """Update the positions of existing edge lines and arrows."""
         for (source_id, target_id), (line_item, arrow_item) in self.edge_lines.items():
             if source_id in self.positions and target_id in self.positions:
                 sp = self.positions[source_id]
@@ -654,9 +783,17 @@ class InfluenceGraphView(QGraphicsView):
                 try:
                     line_item.setLine(sp.x(), sp.y(), tp.x(), tp.y())
                     if arrow_item:
-                        self.update_arrow_position(arrow_item, sp, tp)
+                        self.update_arrow_position(arrow_item, sp, tp, target_id)
                 except Exception:
                     logger.debug(f"Failed to update edge line {source_id}->{target_id}")
+
+    def _sync_arrow_visibility(self):
+        """Show/hide arrowheads based on current zoom level to reduce clutter at scale."""
+        zoom = self.transform().m11()
+        visible = zoom >= self.ARROW_ZOOM_THRESHOLD
+        for _, (_, arrow_item) in self.edge_lines.items():
+            if arrow_item:
+                arrow_item.setVisible(visible)
 
     # -----------------------
     # Utilities
