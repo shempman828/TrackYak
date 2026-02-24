@@ -113,24 +113,52 @@ ID3_DATE_MAPPINGS = {
 
 
 VORBIS_TRACK_MAPPINGS = {
+    # Core identification
     "TITLE": {"field": "track_name", "type": str, "entity": "Track"},
     "TRACKNUMBER": {"field": "track_number", "type": int, "entity": "Track"},
-    "COPYRIGHT": {"field": "track_copyright", "type": str, "entity": "Track"},
     "ISRC": {"field": "isrc", "type": str, "entity": "Track"},
+    "MUSICBRAINZ_TRACKID": {"field": "MBID", "type": str, "entity": "Track"},
+    "MUSICBRAINZ_RELEASETRACKID": {"field": "MBID", "type": str, "entity": "Track"},
+    # Alternate title forms (multilingual / stylized)
+    "TITLESORT": {"field": "track_name_transcribed", "type": str, "entity": "Track"},
+    "TITLE_ORIGINAL": {"field": "track_name_original", "type": str, "entity": "Track"},
+    "TITLE_TRANSLATION": {
+        "field": "track_name_translated",
+        "type": str,
+        "entity": "Track",
+    },
+    "TITLE_OFFICIAL": {"field": "track_name_official", "type": str, "entity": "Track"},
+    "TITLE_STYLIZED": {"field": "track_name_stylized", "type": str, "entity": "Track"},
+    # Audio characteristics
+    "BPM": {"field": "bpm", "type": float, "entity": "Track"},
+    "KEY": {"field": "key", "type": str, "entity": "Track"},
+    "MODE": {"field": "mode", "type": str, "entity": "Track"},
+    "TIMESIGNATURE": {
+        "field": "primary_time_signature",
+        "type": str,
+        "entity": "Track",
+    },
     "REPLAYGAIN_TRACK_GAIN": {"field": "track_gain", "type": float, "entity": "Track"},
     "REPLAYGAIN_TRACK_PEAK": {"field": "track_peak", "type": float, "entity": "Track"},
-    "MUSICBRAINZ_TRACKID": {"field": "MBID", "type": str, "entity": "Track"},
-    "BPM": {"field": "bpm", "type": float, "entity": "Track"},
+    # Legal / identification
+    "COPYRIGHT": {"field": "track_copyright", "type": str, "entity": "Track"},
+    "BARCODE": {"field": "track_barcode", "type": str, "entity": "Track"},
+    # User data
     "COMMENT": {"field": "comment", "type": str, "entity": "Track"},
-    "KEY": {"field": "key", "type": str, "entity": "Track"},
     "LYRICS": {"field": "lyrics", "type": str, "entity": "Track"},
-    "MOVEMENTNAME": {"field": "movement_name", "type": str, "entity": "Track"},
-    "MOVEMENTNUMBER": {"field": "movement_number", "type": int, "entity": "Track"},
-    "MUSICBRAINZ_RELEASETRACKID": {"field": "MBID", "type": str, "entity": "Track"},
-    "WORK": {"field": "work_name", "type": str, "entity": "Track"},
+    "DESCRIPTION": {"field": "track_description", "type": str, "entity": "Track"},
     "PLAYCOUNT": {"field": "play_count", "type": int, "entity": "Track"},
+    "RATING": {"field": "user_rating", "type": float, "entity": "Track"},
+    # Content flags
     "EXPLICIT": {"field": "is_explicit", "type": int, "entity": "Track"},
     "INSTRUMENTAL": {"field": "is_instrumental", "type": int, "entity": "Track"},
+    "SIDE": {"field": "side", "type": str, "entity": "Track"},
+    "QUALITY": {"field": "track_quality", "type": str, "entity": "Track"},
+    # Classical
+    "WORK": {"field": "work_name", "type": str, "entity": "Track"},
+    "WORKTYPE": {"field": "work_type", "type": str, "entity": "Track"},
+    "MOVEMENTNAME": {"field": "movement_name", "type": str, "entity": "Track"},
+    "MOVEMENTNUMBER": {"field": "movement_number", "type": int, "entity": "Track"},
     "CLASSICALPREFIX": {
         "field": "classical_catalog_prefix",
         "type": str,
@@ -142,34 +170,55 @@ VORBIS_TRACK_MAPPINGS = {
         "entity": "Track",
     },
     "CLASSICALTEMPO": {"field": "classical_tempo", "type": str, "entity": "Track"},
-    "MODE": {"field": "mode", "type": str, "entity": "Track"},
-    "QUALITY": {"field": "track_quality", "type": str, "entity": "Track"},
-    "SIDE": {"field": "side", "type": str, "entity": "Track"},
     "CLASSICAL": {"field": "is_classical", "type": int, "entity": "Track"},
-    "BARCODE": {"field": "track_barcode", "type": str, "entity": "Track"},
+    # Spectral / advanced analysis (custom tags — readable by any tagger)
     "DANCEABILITY": {"field": "danceability", "type": float, "entity": "Track"},
     "VALENCE": {"field": "valence", "type": float, "entity": "Track"},
     "ENERGY": {"field": "energy", "type": float, "entity": "Track"},
     "ACOUSTICNESS": {"field": "acousticness", "type": float, "entity": "Track"},
+    "LIVENESS": {"field": "liveness", "type": float, "entity": "Track"},
     "KEYCONFIDENCE": {"field": "key_confidence", "type": float, "entity": "Track"},
     "TEMPOCONFIDENCE": {"field": "tempo_confidence", "type": float, "entity": "Track"},
+    "DYNAMICRANGE": {"field": "dynamic_range", "type": float, "entity": "Track"},
+    "STEREOWIDTH": {"field": "stereo_width", "type": float, "entity": "Track"},
+    "FIDELITYSCORE": {"field": "fidelity_score", "type": float, "entity": "Track"},
+    "SPECTRALCENTROID": {
+        "field": "spectral_centroid",
+        "type": float,
+        "entity": "Track",
+    },
 }
 VORBIS_ALBUM_MAPPINGS = {
+    # Core
     "ALBUM": {"field": "album_name", "type": str, "entity": "Album"},
-    "REPLAYGAIN_ALBUM_GAIN": {"field": "album_gain", "type": float, "entity": "Album"},
-    "REPLAYGAIN_ALBUM_PEAK": {"field": "album_peak", "type": float, "entity": "Album"},
-    "CATALOGNUMBER": {"field": "catalog_number", "type": str, "entity": "Album"},
-    "LANGUAGE": {"field": "album_language", "type": str, "entity": "Album"},
+    "ALBUMSORT": {
+        "field": "album_name",
+        "type": str,
+        "entity": "Album",
+    },  # read-only alias
+    "SUBTITLE": {"field": "album_subtitle", "type": str, "entity": "Album"},
     "MUSICBRAINZ_ALBUMID": {"field": "MBID", "type": str, "entity": "Album"},
+    # Release metadata
     "RELEASETYPE": {"field": "release_type", "type": str, "entity": "Album"},
     "STATUS": {"field": "status", "type": str, "entity": "Album"},
+    "CATALOGNUMBER": {"field": "catalog_number", "type": str, "entity": "Album"},
+    "LANGUAGE": {"field": "album_language", "type": str, "entity": "Album"},
+    # Flags
+    "COMPILATION": {"field": "is_compilation", "type": int, "entity": "Album"},
+    "LIVE": {"field": "is_live", "type": int, "entity": "Album"},
+    # Replay gain
+    "REPLAYGAIN_ALBUM_GAIN": {"field": "album_gain", "type": float, "entity": "Album"},
+    "REPLAYGAIN_ALBUM_PEAK": {"field": "album_peak", "type": float, "entity": "Album"},
+    # Stats / misc
     "SALES": {"field": "estimated_sales", "type": int, "entity": "Album"},
 }
 
 
 VORBIS_DISC_MAPPINGS = {
-    "DISCSUBTITLE": {"field": "disc_name", "type": str, "entity": "Disc"},
-    "DISCTITLE": {"field": "disc_name", "type": str, "entity": "Disc"},
+    "DISCNUMBER": {"field": "disc_number", "type": int, "entity": "Disc"},
+    "DISCTITLE": {"field": "disc_title", "type": str, "entity": "Disc"},
+    "DISCSUBTITLE": {"field": "disc_title", "type": str, "entity": "Disc"},
+    "MEDIA": {"field": "media_type", "type": str, "entity": "Disc"},
 }
 VORBIS_MOOD_MAPPINGS = {
     "MOOD": {"field": "mood_name", "type": str, "entity": "Mood"},
@@ -361,29 +410,35 @@ VORBIS_DATE_MAPPINGS = {
         "type": "year",
         "entity": "Album",
     },
-    "TIME": {
-        "target": "album",
-        "fields": ["release_year"],
-        "type": "year",
-        "entity": "Album",
+    "RECORDINGDATE": {
+        "target": "track",
+        "fields": ["recorded_year", "recorded_month", "recorded_day"],
+        "type": "date",
+        "format": "auto",
+        "entity": "Track",
+    },
+    "COMPOSEDDATE": {
+        "target": "track",
+        "fields": ["composed_year", "composed_month", "composed_day"],
+        "type": "date",
+        "format": "auto",
+        "entity": "Track",
     },
 }
+
 VORBIS_SPECIAL_MAPPINGS = {
+    # PERFORMER = "Artist Name (Role)" — MusicBrainz Picard convention
     "PERFORMER": {
         "artist_field": "artist_name",
         "patterns": [
-            # MusicBrainz format: "Artist (Role)"
-            r"^(?P<artist>.+?)\s*\((?P<role>.+)\)$",
-            # Alternative format: "Role: Artist"
-            r"^(?P<role>.+?):\s*(?P<artist>.+)$",
-            # Some use " - " as separator: "Artist - Role"
-            r"^(?P<artist>.+?)\s*-\s*(?P<role>.+)$",
-            # Just the artist name (fallback)
-            r"^(?P<artist>.+)$",
+            r"^(?P<artist>.+?)\s*\((?P<role>.+)\)$",  # "Artist (Role)"
+            r"^(?P<role>.+?):\s*(?P<artist>.+)$",  # "Role: Artist"
+            r"^(?P<artist>.+?)\s*-\s*(?P<role>.+)$",  # "Artist - Role"
+            r"^(?P<artist>.+)$",  # fallback: just artist
         ],
-        "default_role": "Performer",  # For fallback case
+        "default_role": "Performer",
         "entity": "Artist",
         "type": "special",
-        "priority": "high",  # Give this special processing high priority
-    }
+        "priority": "high",
+    },
 }

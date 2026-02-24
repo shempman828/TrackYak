@@ -27,32 +27,32 @@ from status_utility import StatusManager
 
 
 class MetadataScannerWorker(QThread):
-    """Worker thread for scanning which files need metadata updates."""
+    """Worker thread that collects tracks eligible for a metadata write.
+
+    Emits finished with {track_id: bool} where True = has a valid file
+    and should be written.  The dialog then passes all True IDs straight
+    to the write worker — no diff comparison, always write if data exists.
+    """
 
     progress = Signal(int, int)  # current, total
-    finished = Signal(dict)  # scan results: {track_id: needs_update}
+    finished = Signal(dict)  # {track_id: bool}  True = eligible
     log_message = Signal(str)
 
-    def __init__(self, metadata_writer: MetadataWriter, parent=None):
+    def __init__(self, metadata_writer, parent=None):
         super().__init__(parent)
         self.metadata_writer = metadata_writer
         self._is_cancelled = False
 
     def cancel(self):
-        """Cancel the operation."""
         self._is_cancelled = True
 
     def run(self):
-        """Scan all tracks to see which need metadata updates."""
         try:
-            # Get all tracks
             tracks = self.metadata_writer.controller.get.get_all_entities("Track")
             total = len(tracks)
             results = {}
 
-            self.log_message.emit(
-                f"Scanning {total} tracks for metadata differences..."
-            )
+            self.log_message.emit(f"Scanning {total} tracks for writable files...")
 
             for i, track in enumerate(tracks):
                 if self._is_cancelled:
@@ -61,21 +61,12 @@ class MetadataScannerWorker(QThread):
                 self.progress.emit(i + 1, total)
 
                 try:
-                    # Check if track has a file path
-                    if not track.track_file_path:
-                        results[track.track_id] = False
-                        continue
+                    eligible = bool(
+                        track.track_file_path and os.path.exists(track.track_file_path)
+                    )
+                    results[track.track_id] = eligible
 
-                    # Check if file exists
-                    if not os.path.exists(track.track_file_path):
-                        results[track.track_id] = False
-                        continue
-
-                    # For now, we'll mark all tracks as needing updates
-                    # since we don't have a comparison function
-                    results[track.track_id] = True
-
-                    if i % 50 == 0 or i == total - 1:
+                    if i % 100 == 0 or i == total - 1:
                         self.log_message.emit(f"Scanned {i + 1}/{total} tracks...")
 
                 except Exception as e:
@@ -84,6 +75,10 @@ class MetadataScannerWorker(QThread):
                     )
                     results[track.track_id] = False
 
+            eligible_count = sum(1 for v in results.values() if v)
+            self.log_message.emit(
+                f"Scan complete: {eligible_count}/{total} tracks have writable files."
+            )
             self.finished.emit(results)
 
         except Exception as e:
@@ -284,42 +279,37 @@ class MetadataWriteDialog(QDialog):
         self.progress_bar.setValue(current)
         self.progress_label.setText(f"Scanning: {current}/{total} tracks")
 
-    def on_scan_finished(self, results: Dict[int, tuple]):
-        """Handle completion of library scan."""
+    def on_scan_finished(self, results):
+        """Handle completion of library scan.
+
+        results is {track_id: bool} — True means the file exists and should
+        be written.  No tuple unpacking needed.
+        """
         self.scan_results = results
 
-        # Count tracks needing updates
-        needs_update_ids = [
-            track_id for track_id, (needs_update, _) in results.items() if needs_update
-        ]
-        needs_update_count = len(needs_update_ids)
+        eligible_ids = [tid for tid, ok in results.items() if ok]
+        eligible_count = len(eligible_ids)
         total_count = len(results)
 
-        # Update status manager
-        if needs_update_count > 0:
+        if eligible_count > 0:
             self.status_manager.end_task(
-                f"Found {needs_update_count} files needing updates", 5000
+                f"Found {eligible_count} files to update", 5000
             )
+            self.update_btn.setEnabled(True)
+            self.update_status(f"Ready to write metadata for {eligible_count} files")
+            self.tracks_to_update = eligible_ids
         else:
-            self.status_manager.end_task("All files are up to date", 5000)
+            self.status_manager.end_task("No writable files found", 5000)
+            self.update_btn.setEnabled(False)
+            self.update_status("No tracks with valid file paths found")
+            self.tracks_to_update = []
 
-        # Update UI
         self.scan_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         self.progress_group.setVisible(False)
 
-        if needs_update_count > 0:
-            self.update_btn.setEnabled(True)
-            self.update_status(f"Found {needs_update_count} files needing updates")
-
-            # Store track IDs that need updates
-            self.tracks_to_update = needs_update_ids
-        else:
-            self.update_btn.setEnabled(False)
-            self.update_status("All files are already up to date")
-
         self.log_message(
-            f"=== Scan complete: {needs_update_count}/{total_count} files need updates ==="
+            f"=== Scan complete: {eligible_count}/{total_count} files eligible for update ==="
         )
 
     def start_update(self):

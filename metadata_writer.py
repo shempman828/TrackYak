@@ -19,15 +19,6 @@ from metadata_mapping import (
     ID3_PUBLISHER_MAPPINGS,
     ID3_SPECIAL_MAPPINGS,
     ID3_TRACK_MAPPINGS,
-    VORBIS_ALBUM_MAPPINGS,
-    VORBIS_DATE_MAPPINGS,
-    VORBIS_DISC_MAPPINGS,
-    VORBIS_GENRE_MAPPINGS,
-    VORBIS_MOOD_MAPPINGS,
-    VORBIS_PLACE_MAPPINGS,
-    VORBIS_PUBLISHER_MAPPINGS,
-    VORBIS_SPECIAL_MAPPINGS,
-    VORBIS_TRACK_MAPPINGS,
 )
 from metadata_writer_vorbis import VorbisCommentWriter
 from status_utility import StatusManager
@@ -365,8 +356,22 @@ class MetadataWriter:
 
         return frames
 
-    def build_vorbis_comments_from_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Build Vorbis comments from database data with complete role handling."""
+    def build_vorbis_comments_from_data(self, data):
+        """Build Vorbis comments from database data.
+
+        Returns Dict[str, str | List[str]].  Lists produce repeated tag keys
+        in the output block (e.g. GENRE=Rock / GENRE=Blues as separate entries).
+        """
+        from metadata_mapping import (
+            VORBIS_TRACK_MAPPINGS,
+            VORBIS_ALBUM_MAPPINGS,
+            VORBIS_DISC_MAPPINGS,
+            VORBIS_GENRE_MAPPINGS,
+            VORBIS_MOOD_MAPPINGS,
+            VORBIS_PUBLISHER_MAPPINGS,
+            VORBIS_PLACE_MAPPINGS,
+        )
+
         comments = {}
         track = data["track"]
         album = data["album"]
@@ -378,145 +383,216 @@ class MetadataWriter:
         publishers = data["publishers"]
         places = data["places"]
 
-        # Track mappings
+        def _set(tag, value):
+            """Set a single-value tag, skipping None / empty."""
+            if value is None or value == "":
+                return
+            comments[tag] = str(value)
+
+        def _set_list(tag, values):
+            """Set a multi-value tag as a list (will become repeated entries)."""
+            clean = [str(v) for v in values if v is not None and str(v).strip()]
+            if clean:
+                comments[tag] = clean
+
+        def _build_date(entity, year_field, month_field=None, day_field=None):
+            """Build ISO-8601 date string from separate year/month/day DB columns."""
+            year = getattr(entity, year_field, None)
+            if not year:
+                return None
+            parts = [str(year).zfill(4)]
+            if month_field:
+                month = getattr(entity, month_field, None)
+                if month:
+                    parts.append(str(month).zfill(2))
+                    if day_field:
+                        day = getattr(entity, day_field, None)
+                        if day:
+                            parts.append(str(day).zfill(2))
+            return "-".join(parts)
+
+        # ----------------------------------------------------------------
+        # Track scalar fields (from VORBIS_TRACK_MAPPINGS)
+        # Skip fields we handle specially below.
+        # ----------------------------------------------------------------
+        SKIP_TRACK_FIELDS = {"user_rating"}  # handled separately with scaling
+
         for tag_name, mapping in VORBIS_TRACK_MAPPINGS.items():
             field_name = mapping["field"]
+            if field_name in SKIP_TRACK_FIELDS:
+                continue
             field_value = getattr(track, field_name, None)
             if field_value is not None and field_value != "":
-                comments[tag_name] = str(field_value)
+                _set(tag_name, field_value)
 
-        # Album mappings
-        for tag_name, mapping in VORBIS_ALBUM_MAPPINGS.items():
-            if album:
+        # RATING: store as 0–100 integer (widely supported scale)
+        if track.user_rating is not None:
+            # DB stores 0–10; tag convention is 0–100
+            scaled = int(round(float(track.user_rating) * 10))
+            _set("RATING", scaled)
+
+        # ----------------------------------------------------------------
+        # Album scalar fields
+        # ----------------------------------------------------------------
+        if album:
+            for tag_name, mapping in VORBIS_ALBUM_MAPPINGS.items():
                 field_name = mapping["field"]
                 field_value = getattr(album, field_name, None)
                 if field_value is not None and field_value != "":
-                    comments[tag_name] = str(field_value)
+                    _set(tag_name, field_value)
 
-        # Artist mappings with proper role handling
-        role_to_field_map = {
+        # ----------------------------------------------------------------
+        # Disc fields + computed TRACKTOTAL / DISCTOTAL
+        # ----------------------------------------------------------------
+        if disc:
+            for tag_name, mapping in VORBIS_DISC_MAPPINGS.items():
+                field_name = mapping["field"]
+                field_value = getattr(disc, field_name, None)
+                if field_value is not None and field_value != "":
+                    _set(tag_name, field_value)
+
+            # TRACKTOTAL: count of tracks on this disc
+            try:
+                sibling_tracks = self.controller.get.get_all_entities(
+                    "Track", disc_id=disc.disc_id
+                )
+                if sibling_tracks:
+                    _set("TRACKTOTAL", len(sibling_tracks))
+                    _set("TOTALTRACKS", len(sibling_tracks))  # legacy alias
+            except Exception:
+                pass
+
+        # DISCTOTAL: count of discs on the album
+        if album:
+            try:
+                sibling_discs = self.controller.get.get_all_entities(
+                    "Disc", album_id=album.album_id
+                )
+                if sibling_discs and len(sibling_discs) > 1:
+                    _set("DISCTOTAL", len(sibling_discs))
+                    _set("TOTALDISCS", len(sibling_discs))  # legacy alias
+            except Exception:
+                pass
+
+        # ----------------------------------------------------------------
+        # Date tags — built from separate year/month/day columns
+        # ----------------------------------------------------------------
+        # Album release date
+        if album:
+            release_date = _build_date(
+                album, "release_year", "release_month", "release_day"
+            )
+            if release_date:
+                _set("DATE", release_date)
+                _set("YEAR", str(album.release_year))
+
+        # Track recording date
+        recording_date = _build_date(
+            track, "recorded_year", "recorded_month", "recorded_day"
+        )
+        if recording_date:
+            _set("RECORDINGDATE", recording_date)
+            _set("RECORDEDDATE", recording_date)  # alias used by some taggers
+
+        # Track composed date
+        composed_date = _build_date(
+            track, "composed_year", "composed_month", "composed_day"
+        )
+        if composed_date:
+            _set("COMPOSEDDATE", composed_date)
+
+        # Remaster year
+        if track.remaster_year:
+            _set("REMASTERDATE", str(track.remaster_year))
+
+        # First performed (classical)
+        if track.first_performed_year:
+            _set("FIRSTPERFORMED", str(track.first_performed_year))
+
+        # ----------------------------------------------------------------
+        # Artists — Picard-style role handling
+        # ----------------------------------------------------------------
+        # Map from our role names → Vorbis tag names
+        # Roles not in this map fall back to PERFORMER with role annotation
+        ROLE_TO_TAG = {
             "Primary Artist": "ARTIST",
-            "Conductor": ["PERFORMER", "CONDUCTOR"],
             "Album Artist": "ALBUMARTIST",
             "Composer": "COMPOSER",
             "Lyricist": "LYRICIST",
-            "Arranger": ["ARRANGER", "ARRANGEMENT"],
+            "Arranger": "ARRANGER",
+            "Original Lyricist": "ORIGINALLYRICIST",
             "Original Performer": "ORIGINALPERFORMER",
+            "Conductor": "CONDUCTOR",
             "Engineer": "ENGINEER",
             "Mixer": "MIXER",
             "Producer": "PRODUCER",
             "Remixer": "REMIXER",
             "Writer": "WRITER",
-            "Vocalist": ["VOCALS", "VOCALIST"],
-            "Narrator": ["SPOKEN", "NARRATOR"],
             "Orchestra": "ORCHESTRA",
             "Choir": "CHOIR",
             "DJ": "DJ",
             "Mastering Engineer": "MASTERING",
         }
 
-        # Group artists by field
-        artists_by_field = {}
-        for artist_data in artists_with_roles + album_artists_with_roles:
+        # Accumulate per-tag lists so we can emit repeated entries
+        artists_by_tag = {}
+
+        def _add_artist(tag, name):
+            if not name:
+                return
+            artists_by_tag.setdefault(tag, [])
+            if name not in artists_by_tag[tag]:
+                artists_by_tag[tag].append(name)
+
+        all_artist_data = artists_with_roles + album_artists_with_roles
+        for artist_data in all_artist_data:
             role_name = artist_data["role"].role_name
             artist_name = artist_data["artist"].artist_name
             if not artist_name:
                 continue
 
-            fields = role_to_field_map.get(role_name, [])
-            if isinstance(fields, str):
-                fields = [fields]
+            direct_tag = ROLE_TO_TAG.get(role_name)
+            if direct_tag:
+                _add_artist(direct_tag, artist_name)
+            else:
+                # Non-standard role: write as PERFORMER=Artist (Role)
+                # This is exactly what MusicBrainz Picard does
+                performer_value = f"{artist_name} ({role_name})"
+                _add_artist("PERFORMER", performer_value)
 
-            for field in fields:
-                if field not in artists_by_field:
-                    artists_by_field[field] = []
-                artists_by_field[field].append(artist_name)
+        # Additionally, Conductor/Performer always also get a PERFORMER entry
+        ALSO_PERFORMER = {"Conductor", "Performer"}
+        for artist_data in all_artist_data:
+            role_name = artist_data["role"].role_name
+            artist_name = artist_data["artist"].artist_name
+            if not artist_name:
+                continue
+            if role_name in ALSO_PERFORMER:
+                performer_value = f"{artist_name} ({role_name})"
+                _add_artist("PERFORMER", performer_value)
 
-        # Create comments for each artist field
-        for field, artist_names in artists_by_field.items():
-            if artist_names:
-                comments[field] = " / ".join(artist_names)
+        for tag, names in artists_by_tag.items():
+            _set_list(tag, names)
 
-        # Genre mappings
-        for tag_name, mapping in VORBIS_GENRE_MAPPINGS.items():
-            if genres:
-                genre_names = [genre.genre_name for genre in genres if genre.genre_name]
-                if genre_names:
-                    comments[tag_name] = " / ".join(genre_names)
+        # ----------------------------------------------------------------
+        # Multi-value fields — genres, moods, publishers, places
+        # ----------------------------------------------------------------
+        if genres:
+            genre_names = [g.genre_name for g in genres if g.genre_name]
+            _set_list("GENRE", genre_names)
 
-        # Mood mappings
-        for tag_name, mapping in VORBIS_MOOD_MAPPINGS.items():
-            if moods:
-                mood_names = [mood.mood_name for mood in moods if mood.mood_name]
-                if mood_names:
-                    comments[tag_name] = " / ".join(mood_names)
+        if moods:
+            mood_names = [m.mood_name for m in moods if m.mood_name]
+            _set_list("MOOD", mood_names)
 
-        # Publisher mappings
-        for tag_name, mapping in VORBIS_PUBLISHER_MAPPINGS.items():
-            if publishers:
-                comments[tag_name] = " / ".join(publishers)
+        if publishers:
+            # publishers is already a list of strings from get_track_data
+            _set_list("LABEL", publishers)
+            _set_list("ORGANIZATION", publishers)
 
-        # Disc mappings
-        for tag_name, mapping in VORBIS_DISC_MAPPINGS.items():
-            if disc:
-                field_name = mapping["field"]
-                field_value = getattr(disc, field_name, None)
-                if field_value is not None:
-                    comments[tag_name] = str(field_value)
-
-        # Place mappings
-        for tag_name, mapping in VORBIS_PLACE_MAPPINGS.items():
-            if places:
-                place_names = [place.place_name for place in places if place.place_name]
-                if place_names:
-                    comments[tag_name] = " / ".join(place_names)
-
-        # Date mappings with proper formatting
-        for tag_name, mapping in VORBIS_DATE_MAPPINGS.items():
-            entity_type = mapping.get("target")
-            entity = track if entity_type == "track" else album
-
-            if entity:
-                fields = mapping.get("fields", [])
-                date_parts = []
-                for field in fields:
-                    field_value = getattr(entity, field, None)
-                    if field_value:
-                        if "year" in field:
-                            date_parts.append(str(field_value).zfill(4))
-                        else:
-                            date_parts.append(str(field_value).zfill(2))
-
-                if date_parts:
-                    if mapping["type"] == "date":
-                        if len(date_parts) == 3:  # Full date
-                            comments[tag_name] = (
-                                f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}"
-                            )
-                        elif len(date_parts) == 2:  # Year-month
-                            comments[tag_name] = f"{date_parts[0]}-{date_parts[1]}"
-                        else:  # Year only
-                            comments[tag_name] = date_parts[0]
-                    elif mapping["type"] == "year":
-                        comments[tag_name] = date_parts[0]
-
-        # Handle special mappings (PERFORMER with instrument pattern)
-        for tag_name, mapping in VORBIS_SPECIAL_MAPPINGS.items():
-            if mapping["type"] == "special":
-                performer_data = []
-                for artist_data in artists_with_roles:
-                    role_name = artist_data["role"].role_name
-                    artist_name = artist_data["artist"].artist_name
-                    if (
-                        role_name
-                        and artist_name
-                        and role_name not in ["Primary Artist", "Album Artist"]
-                    ):
-                        # Format as "Artist (Role)" for MusicBrainz compatibility
-                        performer_data.append(f"{artist_name} ({role_name})")
-
-                if performer_data:
-                    comments[tag_name] = " / ".join(performer_data)
+        if places:
+            place_names = [p.place_name for p in places if p.place_name]
+            _set_list("LOCATION", place_names)
 
         return comments
 
