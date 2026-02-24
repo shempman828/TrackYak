@@ -36,14 +36,17 @@ class TimelineView(QWidget):
         # Create splitter for top (calendar) and bottom (timeline)
         splitter = QSplitter()
         splitter.setOrientation(Qt.Orientation.Vertical)
-        splitter.setHandleWidth(2)
+        splitter.setHandleWidth(3)
         splitter.setStyleSheet("""
             QSplitter::handle {
-                background-color: #4a90e2;
+                background-color: #8599ea;
                 margin: 2px;
             }
             QSplitter::handle:vertical {
-                height: 4px;
+                height: 3px;
+            }
+            QSplitter::handle:hover {
+                background-color: #EAD685;
             }
         """)
 
@@ -52,17 +55,17 @@ class TimelineView(QWidget):
             year=2024,  # Default year, will be updated
             events_data=[],
         )
-        self.calendar_widget.setMinimumHeight(500)
+        self.calendar_widget.setMinimumHeight(400)
 
         # Initialize timeline widget
         self.timeline_widget = TimelineWidget()
-        self.timeline_widget.setMinimumHeight(150)
+        self.timeline_widget.setMinimumHeight(90)
 
         splitter.addWidget(self.calendar_widget)
         splitter.addWidget(self.timeline_widget)
 
-        # Set initial sizes (70% calendar, 30% timeline)
-        splitter.setSizes([560, 240])
+        # Set initial sizes (calendar gets most space, timeline is compact)
+        splitter.setSizes([640, 120])
 
         layout.addWidget(splitter)
 

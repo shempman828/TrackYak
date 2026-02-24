@@ -1,3 +1,19 @@
+"""
+dates_calendar.py
+
+A modern calendar widget that is fully compatible with dark_mode.qss.
+All inline styles use the theme palette so empty cells never look stark or broken.
+
+Palette reference (dark_mode.qss):
+  Base bg:    #0b0c10
+  Slightly lighter bg: #11121a / #1a1b26
+  Accent:     #8599ea
+  Gold:       #EAD685
+  Pink:       #EA8599
+  Green:      #99EA85
+  Text:       #b8c0f0
+"""
+
 from datetime import date
 
 from PySide6.QtCore import Qt
@@ -9,309 +25,374 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+# ── Palette constants (mirror dark_mode.qss) ─────────────────────────────────
+_BG_BASE = "#0b0c10"
+_BG_SLIGHT = "#11121a"
+_BG_CARD = "#14151e"  # day cell background
+_BG_EMPTY = "#0e0f15"  # empty / outside-month cell (subtle, not stark)
+_ACCENT = "#8599ea"
+_ACCENT_DIM = "rgba(133,153,234,0.18)"
+_ACCENT_BORDER = "rgba(133,153,234,0.45)"
+_GOLD = "#EAD685"
+_PINK = "#EA8599"
+_GREEN = "#99EA85"
+_TEXT = "#b8c0f0"
+_TEXT_DIM = "#555e7a"
+_TEXT_DARK = "#0b0c10"
+_BORDER_SUBTLE = "#1e1f2b"
+
 
 class CalendarDayWidget(QFrame):
-    """Widget for a single day in the calendar"""
+    """
+    Represents a single day cell in the calendar grid.
+    Styled entirely within the dark_mode.qss palette.
+    """
 
-    def __init__(self, day_number, events, is_current_month=True):
+    def __init__(self, day_number: int, events: list, is_current_month: bool = True):
         super().__init__()
         self.day_number = day_number
         self.events = events
         self.is_current_month = is_current_month
-        self.init_ui()
+        self._init_ui()
 
-    def init_ui(self):
-        self.setFrameStyle(QFrame.Box)
-        self.setLineWidth(1)
+    def _init_ui(self):
+        self.setFrameStyle(QFrame.NoFrame)
 
         layout = QVBoxLayout()
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setContentsMargins(5, 4, 5, 4)
         layout.setSpacing(2)
 
-        # Day number header
-        day_label = QLabel(str(self.day_number) if self.day_number > 0 else "")
-        day_font = QFont()
-        day_font.setBold(True)
-        day_label.setFont(day_font)
-        day_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-
-        # Style based on whether date has events or not
+        # ── Cell styling ─────────────────────────────────────────────────────
         if not self.is_current_month:
-            self.setStyleSheet("""
-                CalendarDayWidget {
-                    background-color: #f0f0f0;
-                    color: #888888;
-                }
+            # Empty / filler cell — very subtle, not stark black
+            self.setStyleSheet(f"""
+                CalendarDayWidget {{
+                    background-color: {_BG_EMPTY};
+                    border: 1px solid {_BORDER_SUBTLE};
+                    border-radius: 4px;
+                }}
             """)
         elif self.events:
-            self.setStyleSheet("""
-                CalendarDayWidget {
-                    background-color: #e8f4f8;
-                    border: 2px solid #4a90e2;
-                }
+            # Day with events — gently highlighted with accent
+            self.setStyleSheet(f"""
+                CalendarDayWidget {{
+                    background-color: {_ACCENT_DIM};
+                    border: 1px solid {_ACCENT_BORDER};
+                    border-radius: 4px;
+                }}
+                CalendarDayWidget:hover {{
+                    background-color: rgba(133,153,234,0.28);
+                    border: 1px solid {_ACCENT};
+                }}
             """)
         else:
-            self.setStyleSheet("""
-                CalendarDayWidget {
-                    background-color: #f8f8f8;
-                }
+            # Normal day — slightly elevated from base
+            self.setStyleSheet(f"""
+                CalendarDayWidget {{
+                    background-color: {_BG_CARD};
+                    border: 1px solid {_BORDER_SUBTLE};
+                    border-radius: 4px;
+                }}
+                CalendarDayWidget:hover {{
+                    background-color: {_BG_SLIGHT};
+                    border: 1px solid rgba(133,153,234,0.3);
+                }}
             """)
 
-        layout.addWidget(day_label)
+        # ── Day number label ─────────────────────────────────────────────────
+        if self.day_number > 0:
+            day_label = QLabel(str(self.day_number))
+            font = QFont("Cambria", 9)
+            font.setBold(True)
+            day_label.setFont(font)
+            day_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
-        # Add events
-        if self.events:
-            for event in self.events[:3]:  # Show max 3 events per day
-                event_text = f"{event['entity']}: {event['entity_name']}"
-                event_label = QLabel(event_text)
-                event_label.setWordWrap(True)
-                event_label.setStyleSheet("font-size: 9px; color: #333333;")
+            if not self.is_current_month:
+                day_label.setStyleSheet(f"color: {_TEXT_DIM}; background: transparent;")
+            elif self.events:
+                day_label.setStyleSheet(f"color: {_GOLD}; background: transparent;")
+            else:
+                day_label.setStyleSheet(f"color: {_TEXT}; background: transparent;")
 
-                # Tooltip with full details
+            layout.addWidget(day_label)
+
+        # ── Event chips ───────────────────────────────────────────────────────
+        if self.events and self.is_current_month:
+            for event in self.events[:3]:
+                chip = QLabel(f"· {event['entity_name']}")
+                chip.setWordWrap(False)
+                chip.setMaximumWidth(120)
+
+                # Colour-code by entity type
+                entity = event.get("entity", "").lower()
+                if "album" in entity:
+                    chip_color = _ACCENT
+                elif "artist" in entity:
+                    chip_color = _PINK
+                elif "track" in entity:
+                    chip_color = _GREEN
+                else:
+                    chip_color = _GOLD
+
+                chip.setStyleSheet(f"""
+                    QLabel {{
+                        font-size: 8px;
+                        color: {chip_color};
+                        background: transparent;
+                        padding: 0px;
+                    }}
+                """)
+
+                # Full tooltip
                 tooltip = (
                     f"{event['entity_name']} ({event['entity']})\n"
-                    f"Date: {event['month']}/{event['day']}/{event['year']}\n"
-                    f"Description: {event['description']}"
+                    f"Date: {event.get('month', '?')}/{event.get('day', '?')}/{event.get('year', '?')}\n"
+                    f"Description: {event.get('description', '—')}"
                 )
-                event_label.setToolTip(tooltip)
+                chip.setToolTip(tooltip)
+                layout.addWidget(chip)
 
-                layout.addWidget(event_label)
-
-            # Show "..." if there are more than 3 events
             if len(self.events) > 3:
-                more_label = QLabel("...")
-                more_label.setStyleSheet("font-size: 9px; color: #666666;")
-                layout.addWidget(more_label)
+                more = QLabel(f"+{len(self.events) - 3} more")
+                more.setStyleSheet(
+                    f"font-size: 8px; color: {_TEXT_DIM}; background: transparent;"
+                )
+                layout.addWidget(more)
 
+        layout.addStretch()
         self.setLayout(layout)
-        self.setMinimumHeight(100)
-        self.setMaximumHeight(120)
+        self.setMinimumHeight(90)
+        self.setMaximumHeight(115)
 
 
 class CalendarWidget(QWidget):
-    """Main calendar widget that can be embedded in other applications"""
+    """
+    A full monthly calendar view.
+    Accepts a year and a list of event dicts; refreshes automatically when either changes.
+    """
 
-    def __init__(self, year, events_data=None, parent=None):
+    def __init__(self, year: int, events_data: list = None, parent=None):
         super().__init__(parent)
         self.year = year
         self.events_data = events_data or []
-        self.current_month = 1  # January by default
+        self.current_month = 1
 
-        # Organize events by date for quick lookup
         self.events_by_date = self._organize_events_by_date()
-
-        self.init_ui()
+        self._init_ui()
         self.update_calendar()
 
-    def _organize_events_by_date(self):
-        """Organize events by (month, day) for quick lookup"""
-        organized = {}
-        for event in self.events_data:
-            key = (event["month"], event["day"])
-            if key not in organized:
-                organized[key] = []
-            organized[key].append(event)
-        return organized
+    # ── Public API ─────────────────────────────────────────────────────────────
 
-    def init_ui(self):
-        main_layout = QVBoxLayout()
-        main_layout.setSpacing(10)
-
-        # Month navigation header
-        header_layout = QHBoxLayout()
-
-        # Previous month button
-        self.prev_button = QPushButton("◀ Previous")
-        self.prev_button.clicked.connect(self.previous_month)
-        header_layout.addWidget(self.prev_button)
-
-        # Month dropdown
-        self.month_combo = QComboBox()
-        months = [
-            "January",
-            "February",
-            "March",
-            "April",
-            "May",
-            "June",
-            "July",
-            "August",
-            "September",
-            "October",
-            "November",
-            "December",
-        ]
-        self.month_combo.addItems(months)
-        self.month_combo.currentIndexChanged.connect(self.month_changed)
-        header_layout.addWidget(self.month_combo)
-
-        # Next month button
-        self.next_button = QPushButton("Next ▶")
-        self.next_button.clicked.connect(self.next_month)
-        header_layout.addWidget(self.next_button)
-
-        # Year display
-        year_label = QLabel(f"Year: {self.year}")
-        year_font = QFont()
-        year_font.setPointSize(12)
-        year_font.setBold(True)
-        year_label.setFont(year_font)
-        header_layout.addWidget(year_label)
-        header_layout.addStretch()
-
-        main_layout.addLayout(header_layout)
-
-        # Weekday headers
-        weekdays = [
-            "Monday",
-            "Tuesday",
-            "Wednesday",
-            "Thursday",
-            "Friday",
-            "Saturday",
-            "Sunday",
-        ]
-        weekday_layout = QGridLayout()
-        for i, day in enumerate(weekdays):
-            day_label = QLabel(day[:3])  # Short form
-            day_label.setAlignment(Qt.AlignCenter)
-            day_label.setStyleSheet("""
-                QLabel {
-                    background-color: #4a90e2;
-                    color: white;
-                    padding: 5px;
-                    font-weight: bold;
-                    border: 1px solid #3a7bc8;
-                }
-            """)
-            weekday_layout.addWidget(day_label, 0, i)
-        main_layout.addLayout(weekday_layout)
-
-        # Calendar grid
-        self.calendar_grid = QGridLayout()
-        self.calendar_grid.setSpacing(1)
-        main_layout.addLayout(self.calendar_grid)
-
-        # Summary label
-        self.summary_label = QLabel("")
-        self.summary_label.setAlignment(Qt.AlignCenter)
-        self.summary_label.setStyleSheet(
-            "font-size: 11px; color: #666666; margin-top: 10px;"
-        )
-        main_layout.addWidget(self.summary_label)
-
-        self.setLayout(main_layout)
-
-    def month_changed(self, index):
-        """Handle month selection from dropdown"""
-        self.current_month = index + 1
-        self.update_calendar()
-
-    def previous_month(self):
-        """Navigate to previous month"""
-        if self.current_month > 1:
-            self.current_month -= 1
-            self.month_combo.setCurrentIndex(self.current_month - 1)
-            self.update_calendar()
-
-    def next_month(self):
-        """Navigate to next month"""
-        if self.current_month < 12:
-            self.current_month += 1
-            self.month_combo.setCurrentIndex(self.current_month - 1)
-            self.update_calendar()
-
-    def get_days_in_month(self, year, month):
-        """Get number of days in a month, accounting for leap years"""
-        if month == 2:
-            # February: check for leap year
-            if year % 400 == 0:
-                return 29
-            elif year % 100 == 0:
-                return 28
-            elif year % 4 == 0:
-                return 29
-            else:
-                return 28
-        elif month in [4, 6, 9, 11]:
-            return 30
-        else:
-            return 31
-
-    def get_first_weekday(self, year, month):
-        """Get the weekday of the first day of the month (0=Monday, 6=Sunday)"""
-        d = date(year, month, 1)
-        return d.weekday()  # Monday = 0, Sunday = 6
-
-    def update_calendar(self):
-        """Update the calendar display for the current month"""
-        # Clear existing calendar widgets - FIXED: Proper widget cleanup
-        while self.calendar_grid.count():
-            item = self.calendar_grid.takeAt(0)
-            if item.widget():
-                widget = item.widget()
-                widget.setParent(None)
-                widget.deleteLater()
-            elif item.layout():
-                # Handle nested layouts if any
-                while item.layout().count():
-                    nested_item = item.layout().takeAt(0)
-                    if nested_item.widget():
-                        nested_item.widget().deleteLater()
-
-        # Calculate calendar parameters
-        days_in_month = self.get_days_in_month(self.year, self.current_month)
-        first_weekday = self.get_first_weekday(self.year, self.current_month)
-
-        # Fill in the days before the first day of the month
-        day_counter = 1
-        for row in range(6):  # Maximum 6 weeks needed
-            for col in range(7):  # 7 days per week
-                if row == 0 and col < first_weekday:
-                    # Empty cell before the first day
-                    day_widget = CalendarDayWidget(0, [], is_current_month=False)
-                elif day_counter <= days_in_month:
-                    # Get events for this day
-                    day_events = self.events_by_date.get(
-                        (self.current_month, day_counter), []
-                    )
-                    day_widget = CalendarDayWidget(day_counter, day_events)
-                    day_counter += 1
-                else:
-                    # Empty cell after the last day
-                    day_widget = CalendarDayWidget(0, [], is_current_month=False)
-
-                self.calendar_grid.addWidget(day_widget, row + 1, col)
-
-        # Update summary
-        events_this_month = sum(
-            1 for event in self.events_data if event["month"] == self.current_month
-        )
-        month_name = self.month_combo.currentText()
-        self.summary_label.setText(
-            f"{month_name} {self.year}: {events_this_month} event(s) this month"
-        )
-
-    def set_events(self, events_data):
-        """Update the events data and refresh the calendar"""
+    def set_events(self, events_data: list):
+        """Replace events and redraw."""
         self.events_data = events_data
         self.events_by_date = self._organize_events_by_date()
         self.update_calendar()
 
-    def set_year(self, year):
-        """Change the year and refresh the calendar"""
+    def set_year(self, year: int):
+        """Change the year and redraw."""
         self.year = year
-        # Update events_by_date to reflect the new year
+        self._year_label.setText(str(year))
         self.events_by_date = self._organize_events_by_date()
         self.update_calendar()
 
-    def go_to_month(self, month):
-        """Navigate to a specific month (1-12)"""
+    def go_to_month(self, month: int):
+        """Navigate to a specific month (1–12) without rebuilding everything."""
         if 1 <= month <= 12:
             self.current_month = month
+            self.month_combo.blockSignals(True)
             self.month_combo.setCurrentIndex(month - 1)
+            self.month_combo.blockSignals(False)
             self.update_calendar()
+
+    # ── Internal helpers ────────────────────────────────────────────────────────
+
+    def _organize_events_by_date(self) -> dict:
+        organized = {}
+        for event in self.events_data:
+            key = (event.get("month"), event.get("day"))
+            if None not in key:
+                organized.setdefault(key, []).append(event)
+        return organized
+
+    def _days_in_month(self, year: int, month: int) -> int:
+        if month == 2:
+            leap = (year % 400 == 0) or (year % 4 == 0 and year % 100 != 0)
+            return 29 if leap else 28
+        return 30 if month in (4, 6, 9, 11) else 31
+
+    def _first_weekday(self, year: int, month: int) -> int:
+        """0 = Monday … 6 = Sunday"""
+        return date(year, month, 1).weekday()
+
+    # ── UI construction ─────────────────────────────────────────────────────────
+
+    def _init_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(6)
+
+        # ── Header row ──────────────────────────────────────────────────────
+        header = QHBoxLayout()
+        header.setSpacing(6)
+
+        self.prev_button = QPushButton("◀")
+        self.prev_button.setFixedWidth(34)
+        self.prev_button.setToolTip("Previous month")
+        self.prev_button.clicked.connect(self.previous_month)
+
+        self.month_combo = QComboBox()
+        self.month_combo.addItems(
+            [
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+            ]
+        )
+        self.month_combo.setCurrentIndex(self.current_month - 1)
+        self.month_combo.currentIndexChanged.connect(self._on_month_changed)
+
+        self.next_button = QPushButton("▶")
+        self.next_button.setFixedWidth(34)
+        self.next_button.setToolTip("Next month")
+        self.next_button.clicked.connect(self.next_month)
+
+        # Year badge (read-only display — year is driven by the timeline)
+        self._year_label = QLabel(str(self.year))
+        year_font = QFont("Cambria", 13)
+        year_font.setBold(True)
+        self._year_label.setFont(year_font)
+        self._year_label.setStyleSheet(
+            f"color: {_GOLD}; background: transparent; padding: 0 8px;"
+        )
+        self._year_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+
+        self.summary_label = QLabel("")
+        self.summary_label.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
+        self.summary_label.setStyleSheet(
+            f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;"
+        )
+
+        header.addWidget(self.prev_button)
+        header.addWidget(self.month_combo, 2)
+        header.addWidget(self.next_button)
+        header.addSpacing(8)
+        header.addWidget(self._year_label)
+        header.addStretch()
+        header.addWidget(self.summary_label)
+        root.addLayout(header)
+
+        # ── Weekday name row ─────────────────────────────────────────────────
+        weekday_row = QGridLayout()
+        weekday_row.setSpacing(1)
+        weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        for col, name in enumerate(weekdays):
+            lbl = QLabel(name)
+            lbl.setAlignment(Qt.AlignCenter)
+            is_weekend = col >= 5
+            color = _PINK if is_weekend else _ACCENT
+            lbl.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {_BG_SLIGHT};
+                    color: {color};
+                    padding: 4px 2px;
+                    font-weight: bold;
+                    font-size: 10px;
+                    border-bottom: 2px solid {color};
+                    border-radius: 3px;
+                }}
+            """)
+            weekday_row.addWidget(lbl, 0, col)
+        root.addLayout(weekday_row)
+
+        # ── Calendar grid (inside a scroll area for very dense months) ───────
+        self.calendar_grid = QGridLayout()
+        self.calendar_grid.setSpacing(2)
+
+        grid_container = QWidget()
+        grid_container.setLayout(self.calendar_grid)
+        grid_container.setStyleSheet(f"background: {_BG_BASE};")
+
+        scroll = QScrollArea()
+        scroll.setWidget(grid_container)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        root.addWidget(scroll, 1)
+
+        self.setLayout(root)
+
+    # ── Calendar rendering ──────────────────────────────────────────────────────
+
+    def update_calendar(self):
+        """Rebuild the day-cell grid for the current month/year."""
+        # Remove old cells
+        while self.calendar_grid.count():
+            item = self.calendar_grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        days_in_month = self._days_in_month(self.year, self.current_month)
+        first_weekday = self._first_weekday(self.year, self.current_month)
+
+        day_counter = 1
+        for row in range(6):
+            for col in range(7):
+                if row == 0 and col < first_weekday:
+                    cell = CalendarDayWidget(0, [], is_current_month=False)
+                elif day_counter <= days_in_month:
+                    day_events = self.events_by_date.get(
+                        (self.current_month, day_counter), []
+                    )
+                    cell = CalendarDayWidget(
+                        day_counter, day_events, is_current_month=True
+                    )
+                    day_counter += 1
+                else:
+                    cell = CalendarDayWidget(0, [], is_current_month=False)
+
+                self.calendar_grid.addWidget(cell, row, col)
+
+            # Stop adding rows once all days are placed and rest would be empty
+            if day_counter > days_in_month and row >= 3:
+                break
+
+        # Summary
+        events_this_month = sum(
+            1 for e in self.events_data if e.get("month") == self.current_month
+        )
+        month_name = self.month_combo.currentText()
+        if events_this_month:
+            self.summary_label.setText(
+                f"{month_name} {self.year} — {events_this_month} event{'s' if events_this_month != 1 else ''}"
+            )
+        else:
+            self.summary_label.setText(f"{month_name} {self.year} — no events")
+
+    # ── Navigation ──────────────────────────────────────────────────────────────
+
+    def _on_month_changed(self, index: int):
+        self.current_month = index + 1
+        self.update_calendar()
+
+    def previous_month(self):
+        if self.current_month > 1:
+            self.go_to_month(self.current_month - 1)
+
+    def next_month(self):
+        if self.current_month < 12:
+            self.go_to_month(self.current_month + 1)
