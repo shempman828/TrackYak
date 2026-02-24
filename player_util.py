@@ -202,12 +202,18 @@ class MusicPlayer(QObject):
     def _get_audio_device_info(self):
         """Get optimal device settings for current mode with better buffer settings."""
         try:
-            # If no device is selected, use the default output device
             if not self.current_device:
-                default_device = self.sd.default.device[1]
-                if default_device is not None:
-                    self.current_device = default_device
-                    logger.info(f"Using default audio device: {default_device}")
+                try:
+                    default_info = self.sd.default.device
+                    if default_info is not None:
+                        default_device = default_info[1]  # output device index
+                        if default_device is not None and default_device >= 0:
+                            self.current_device = default_device
+                            logger.info(f"Using default audio device: {default_device}")
+                except Exception as e:
+                    logger.warning(
+                        f"Could not determine default device: {e}, will let sounddevice choose"
+                    )
 
             if self.exclusive_mode and self.current_device:
                 device_info = self.sd.query_devices(self.current_device)
@@ -326,6 +332,11 @@ class MusicPlayer(QObject):
 
     def play(self):
         """Start audiophile-grade playback."""
+        # Guard: ensure audio backend is initialized
+        if self.sd is None:
+            if not self._initialize_audio_backend():
+                self.error_occurred.emit("Audio backend not available. Cannot play.")
+                return
         # Check if we need to load a track from the queue first
         if self.current_file is None:
             track = self.queue_manager.get_current_track()

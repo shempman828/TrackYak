@@ -33,13 +33,13 @@ class QueueManager(QObject):
 
     def add_track_to_queue(self, track: Track):
         self.queue.append(track)
-        self._track_ids.append(track.id)
+        self._track_ids.append(track.track_id)
         self._save_queue_to_config()
         self.queue_changed.emit()
 
     def add_tracks_to_queue(self, tracks: List[Track]):
         self.queue.extend(tracks)
-        self._track_ids.extend([track.id for track in tracks])
+        self._track_ids.extend([track.track_id for track in tracks])
         self._save_queue_to_config()
         self.queue_changed.emit()
 
@@ -48,7 +48,7 @@ class QueueManager(QObject):
         insert_index = 1 if len(self.queue) >= 2 else len(self.queue)
         for i, track in enumerate(tracks):
             self.queue.insert(insert_index + i, track)
-            self._track_ids.insert(insert_index + i, track.id)
+            self._track_ids.insert(insert_index + i, track.track_id)
         self._save_queue_to_config()
         self.queue_changed.emit()
 
@@ -181,7 +181,9 @@ class QueueManager(QObject):
 
             # Fetch tracks from database
             for track_id in track_ids:
-                track = db_session.query(Track).filter(Track.id == track_id).first()
+                track = (
+                    db_session.query(Track).filter(track.track_id == track_id).first()
+                )
                 if track:
                     self.queue.append(track)
                     self._track_ids.append(track_id)
