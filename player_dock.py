@@ -238,15 +238,7 @@ class PlayerUI(QWidget):
         dock.setWidget(self)
 
         # Enable ALL features for maximum flexibility
-        dock.setFeatures(
-            QDockWidget.DockWidgetMovable
-            | QDockWidget.DockWidgetFloatable
-            | QDockWidget.DockWidgetClosable
-            | QDockWidget.DockWidgetVerticalTitleBar
-        )
-
-        # Keep a minimal title bar for dragging
-        dock.setTitleBarWidget(QWidget())  # Empty but functional
+        dock.setFeatures(QDockWidget.DockWidgetMovable)
 
         # Connect track change signal
         self.player.track_changed.connect(self._update_track_display)
@@ -514,9 +506,11 @@ class PlayerUI(QWidget):
                 dock = self.parent().parent() if self.parent() else None
                 if isinstance(dock, QDockWidget):
                     dock.setMinimumHeight(height)
-                    dock.setMaximumHeight(height + 20)
                     dock.setMinimumWidth(width)
                     self.setMinimumHeight(ideal_size.height())
+                dock.setStyleSheet(
+                    "QDockWidget::title { height: 0px; padding: 0px; border: none; }"
+                )
         except Exception as e:
             logger.error(f"Error adjusting player dock size: {e}")
 

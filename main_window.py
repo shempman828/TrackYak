@@ -212,6 +212,9 @@ class GUI(QMainWindow, MenuBar):
             | QDockWidget.DockWidgetFloatable
             | QDockWidget.DockWidgetClosable
         )
+        self.player_dock.setStyleSheet(
+            "QDockWidget::title { height: 0px; padding: 0px; border: none; }"
+        )
         self.queue_dock.setAllowedAreas(Qt.RightDockWidgetArea | Qt.LeftDockWidgetArea)
         self.queue_dock.setMinimumWidth(300)
         self.queue_dock.setMaximumWidth(500)
@@ -308,16 +311,7 @@ class GUI(QMainWindow, MenuBar):
         self.player_dock = QDockWidget("Player", self)
         self.player_dock.setObjectName("PlayerDock")
         self.player_dock.setWidget(self.player_ui)
-
-        # Enable ALL features including floating
-        self.player_dock.setFeatures(
-            QDockWidget.DockWidgetMovable
-            | QDockWidget.DockWidgetFloatable
-            | QDockWidget.DockWidgetClosable
-        )
-
-        # Set a small title bar
-        self.player_dock.setTitleBarWidget(QWidget())
+        self.player_dock.setFeatures(QDockWidget.DockWidgetMovable)
 
         # Add to main window
         self.addDockWidget(Qt.BottomDockWidgetArea, self.player_dock)
@@ -337,7 +331,6 @@ class GUI(QMainWindow, MenuBar):
                 dock = self.parent().parent() if self.parent() else None
                 if isinstance(dock, QDockWidget):
                     dock.setMinimumHeight(height)
-                    dock.setMaximumHeight(height + 10)  # Small buffer
                     dock.setMinimumWidth(width)
                     self.setMinimumHeight(max(50, ideal_size.height()))
 
