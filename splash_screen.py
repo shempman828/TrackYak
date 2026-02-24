@@ -42,8 +42,10 @@ class StartupSplash(QWidget):
         self.min_duration_ms = min_duration_ms
         self.finish_requested = False
 
-        # Center splash
-        self._center_on_screen()
+        # Center splash using full pixmap size so position never shifts
+        # during the scale animation. The window stays fixed; only the
+        # painted content grows.
+        self._set_initial_position()
 
         # Animations
         self._setup_animations()
@@ -88,16 +90,25 @@ class StartupSplash(QWidget):
 
     def set_scale(self, value: float) -> None:
         self._scale = value
-        self.update()  # Triggers paintEvent
-        self._center_on_screen()
+        self.update()  # Triggers paintEvent only — window position does not move
 
     scale = Property(float, get_scale, set_scale)
+
+    # --- Opacity property (required for fade animations) ---
+    def get_opacity(self) -> float:
+        return self._opacity
+
+    def set_opacity(self, value: float) -> None:
+        self._opacity = value
+        self.setWindowOpacity(value)
+
+    opacity = Property(float, get_opacity, set_opacity)
 
     # --- Core Behavior ---
     def finish(self, widget: Optional[QWidget] = None) -> None:
         """Request splash finish respecting minimum duration."""
         if not hasattr(self, "_min_duration_elapsed"):
-            # safety if timer hasn't fired
+            # Safety fallback if the timer hasn't fired yet
             self.finish_requested = True
             return
 
@@ -118,14 +129,24 @@ class StartupSplash(QWidget):
         self.update()
 
     # --- Helpers ---
-    def _center_on_screen(self) -> None:
+    def _set_initial_position(self) -> None:
+        """Position the window once using the full pixmap size.
+
+        Uses the optical center: slightly above true center (40% down instead
+        of 50%) which feels more balanced to the human eye.
+        """
         screen_geom = QApplication.primaryScreen().availableGeometry()
-        w, h = (
-            int(self.pixmap.width() * self._scale),
-            int(self.pixmap.height() * self._scale),
-        )
+        w = self.pixmap.width()
+        h = self.pixmap.height()
+
         x = (screen_geom.width() - w) // 2 + screen_geom.x()
-        y = (screen_geom.height() - h) // 2 + screen_geom.y()
+
+        # Optical center: place the vertical midpoint of the window at 40%
+        # of the screen height instead of 50%. This makes it feel centered
+        # without sitting too low.
+        optical_center_y = int(screen_geom.height() * 0.40)
+        y = optical_center_y - h // 2 + screen_geom.y()
+
         self.setGeometry(x, y, w, h)
 
     def _load_splash_image(self) -> QPixmap:
@@ -147,20 +168,30 @@ class StartupSplash(QWidget):
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing)
-        # Draw scaled pixmap
-        scaled_size = self.pixmap.size() * self._scale
+
+        # The window is always full-size. We draw the content scaled and
+        # centered within it so the animation looks like it's growing in place.
+        full_w = self.pixmap.width()
+        full_h = self.pixmap.height()
+        scaled_w = int(full_w * self._scale)
+        scaled_h = int(full_h * self._scale)
+
+        # Offset so the scaled content stays centered inside the window
+        offset_x = (full_w - scaled_w) // 2
+        offset_y = (full_h - scaled_h) // 2
+
         painter.drawPixmap(
-            QRect(0, 0, int(scaled_size.width()), int(scaled_size.height())),
+            QRect(offset_x, offset_y, scaled_w, scaled_h),
             self.pixmap,
         )
 
         # Draw status area
         if self._message:
             status_rect = QRect(
-                0,
-                int(scaled_size.height() * 2 / 3),
-                int(scaled_size.width()),
-                int(scaled_size.height() / 3),
+                offset_x,
+                offset_y + int(scaled_h * 2 / 3),
+                scaled_w,
+                int(scaled_h / 3),
             )
             painter.fillRect(status_rect, QColor(43, 43, 43, 220))
 
@@ -181,11 +212,13 @@ class StartupSplash(QWidget):
 
             # Progress bar
             if self._progress is not None:
-                bar_rect = status_rect.adjusted(
-                    int(status_rect.width() * 0.1),
-                    -30,
-                    -int(status_rect.width() * 0.1),
-                    -10,
+                bar_height = 12
+                bar_margin_sides = int(status_rect.width() * 0.1)
+                bar_rect = QRect(
+                    status_rect.left() + bar_margin_sides,
+                    status_rect.bottom() - bar_height - 10,
+                    status_rect.width() - bar_margin_sides * 2,
+                    bar_height,
                 )
                 painter.fillRect(bar_rect, QColor(85, 85, 85))
                 if self._progress > 0:
