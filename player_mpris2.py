@@ -9,19 +9,6 @@ MPRIS2 is the standard Linux protocol for media player control. When you
 press a media key on Wayland, the desktop sends a D-Bus message to whatever
 app has registered under org.mpris.MediaPlayer2 — not a keypress event.
 Qt's ApplicationShortcut cannot intercept this, so we register here instead.
-
-Requirements:
-    pip install dbus-python
-    # OR on Ubuntu/Debian:
-    sudo apt install python3-dbus
-
-Usage (in run.py or main_window.py after the player is created):
-    from mpris2_integration import MPRIS2Player
-    mpris = MPRIS2Player(controller.mediaplayer)
-    mpris.start()
-
-    # On app close:
-    mpris.stop()
 """
 
 import threading
@@ -38,9 +25,16 @@ try:
 except ImportError:
     DBUS_AVAILABLE = False
     logger.warning(
-        "dbus-python or PyGObject not installed. Media keys will not work on Wayland. "
-        "Install with: pip install dbus-python  or  sudo apt install python3-dbus"
+        "dbus-python or PyGObject not installed — media keys will not work on Wayland.\n"
+        "Fix with:  sudo apt install python3-dbus python3-gi"
     )
+
+try:
+    from PySide6.QtCore import QMetaObject, Qt
+
+    QT_AVAILABLE = True
+except ImportError:
+    QT_AVAILABLE = False
 
 
 MPRIS2_OBJECT_PATH = "/org/mpris/MediaPlayer2"
@@ -50,21 +44,31 @@ DBUS_PROPS_IFACE = "org.freedesktop.DBus.Properties"
 BUS_NAME = "org.mpris.MediaPlayer2.trackyak"
 
 
+def _invoke_on_main_thread(obj, method_name):
+    """
+    Safely call a no-argument method on a QObject from any thread.
+
+    Uses Qt.QueuedConnection so the call is posted to Qt's event queue
+    and executed on the main thread on the next event loop iteration.
+    This is the correct way to trigger Qt/QObject methods from a non-Qt thread.
+    """
+    QMetaObject.invokeMethod(obj, method_name, Qt.ConnectionType.QueuedConnection)
+
+
 class MPRIS2Player:
     """
-    Thin wrapper that spins up a GLib main loop in a background thread and
-    registers the MPRIS2 D-Bus service. All media key presses from the
-    desktop are forwarded to the MusicPlayer instance you pass in.
+    Spins up a GLib main loop on a background daemon thread and registers
+    this app as an MPRIS2 media player on D-Bus.
 
-    The GLib loop runs on its own thread so it never blocks Qt's event loop.
+    Media key presses from the desktop are forwarded to the MusicPlayer
+    instance via Qt's queued connection mechanism so they always run on
+    the correct (main) thread.
     """
 
     def __init__(self, music_player):
         """
         Args:
-            music_player: Your MusicPlayer instance from player_util.py.
-                          Needs: toggle_play_pause(), play_next(),
-                                 play_previous(), stop()
+            music_player: Your MusicPlayer instance (player_util.MusicPlayer).
         """
         self._player = music_player
         self._thread = None
@@ -72,147 +76,120 @@ class MPRIS2Player:
         self._service = None
 
     def start(self):
-        """Start the MPRIS2 service in a background thread."""
+        """Start the MPRIS2 D-Bus service on a background thread."""
         if not DBUS_AVAILABLE:
             logger.warning("MPRIS2 not started — dbus-python unavailable.")
+            return
+        if not QT_AVAILABLE:
+            logger.warning("MPRIS2 not started — PySide6 unavailable.")
             return
 
         self._thread = threading.Thread(
             target=self._run_dbus_loop,
             name="MPRIS2-DBus",
-            daemon=True,  # Dies automatically when the main app exits
+            daemon=True,  # Killed automatically when the Qt app exits
         )
         self._thread.start()
         logger.info("MPRIS2 media key integration started.")
 
     def stop(self):
-        """Cleanly stop the GLib loop. Call this in your closeEvent."""
+        """Cleanly stop the GLib loop. Call this in closeEvent."""
         if self._loop and self._loop.is_running():
             self._loop.quit()
         logger.info("MPRIS2 media key integration stopped.")
 
     def _run_dbus_loop(self):
-        """Entry point for the background thread."""
+        """Background thread entry point."""
         try:
-            # Tell dbus-python to use the GLib main loop for signals
             dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-
             session_bus = dbus.SessionBus()
-
-            # Claim the bus name so GNOME/KDE can find us
-            dbus.service.BusName(BUS_NAME, bus=session_bus)
-
-            # Create the D-Bus service object
+            _bus_name = dbus.service.BusName(BUS_NAME, bus=session_bus)
             self._service = _MPRIS2DBusService(session_bus, self._player)
 
-            # Run the GLib event loop (blocks this thread only)
+            logger.debug(f"MPRIS2: registered on D-Bus as '{BUS_NAME}'")
+
             self._loop = GLib.MainLoop()
-            self._loop.run()
+            self._loop.run()  # Blocks this thread only
 
         except Exception as e:
-            logger.error(f"MPRIS2 D-Bus loop error: {e}")
+            logger.error(f"MPRIS2 D-Bus loop failed: {e}")
 
 
 class _MPRIS2DBusService(dbus.service.Object):
     """
-    The actual D-Bus object that implements the MPRIS2 spec.
+    The D-Bus object that implements the MPRIS2 spec.
 
-    Only the methods and properties that desktop environments actually
-    call for media key routing are implemented. The full MPRIS2 spec has
-    many more optional properties (metadata, shuffle, etc.) which you can
-    add later if you want desktop widgets to show track info.
+    Every player method uses _invoke_on_main_thread() to hand off work to
+    Qt's main thread. This is non-negotiable: MusicPlayer uses QTimers,
+    Qt signals, and sounddevice streams — all must run on the main thread.
     """
 
     def __init__(self, bus, music_player):
         super().__init__(bus, MPRIS2_OBJECT_PATH)
         self._player = music_player
 
-    # ── org.mpris.MediaPlayer2 (root interface) ───────────────────────────────
-    # These are required by the spec but not used for media keys.
+    # ── org.mpris.MediaPlayer2 (root interface — required by spec) ────────────
 
     @dbus.service.method(MPRIS2_IFACE)
     def Raise(self):
-        """Bring the app window to the front. Optional — we ignore it."""
-        pass
+        pass  # Optional: could raise the main window
 
     @dbus.service.method(MPRIS2_IFACE)
     def Quit(self):
-        """Quit the application. Optional — we ignore it."""
-        pass
+        pass  # Optional: we don't allow D-Bus to quit the app
 
-    # ── org.mpris.MediaPlayer2.Player (the part media keys talk to) ──────────
+    # ── org.mpris.MediaPlayer2.Player ─────────────────────────────────────────
 
     @dbus.service.method(MPRIS2_PLAYER_IFACE)
     def PlayPause(self):
-        """Called when the Play/Pause media key is pressed."""
-        logger.debug("MPRIS2: PlayPause received")
-        try:
-            self._player.toggle_play_pause()
-        except Exception as e:
-            logger.error(f"MPRIS2 PlayPause error: {e}")
+        logger.debug("MPRIS2 → PlayPause")
+        _invoke_on_main_thread(self._player, "toggle_play_pause")
 
     @dbus.service.method(MPRIS2_PLAYER_IFACE)
     def Play(self):
-        """Called when a Play-only signal is sent."""
-        logger.debug("MPRIS2: Play received")
-        try:
-            self._player.play()
-        except Exception as e:
-            logger.error(f"MPRIS2 Play error: {e}")
+        logger.debug("MPRIS2 → Play")
+        _invoke_on_main_thread(self._player, "play")
 
     @dbus.service.method(MPRIS2_PLAYER_IFACE)
     def Pause(self):
-        """Called when a Pause-only signal is sent."""
-        logger.debug("MPRIS2: Pause received")
-        try:
-            self._player.pause()
-        except Exception as e:
-            logger.error(f"MPRIS2 Pause error: {e}")
+        logger.debug("MPRIS2 → Pause")
+        _invoke_on_main_thread(self._player, "pause")
 
     @dbus.service.method(MPRIS2_PLAYER_IFACE)
     def Stop(self):
-        """Called when the Stop media key is pressed."""
-        logger.debug("MPRIS2: Stop received")
-        try:
-            self._player.stop()
-        except Exception as e:
-            logger.error(f"MPRIS2 Stop error: {e}")
+        logger.debug("MPRIS2 → Stop")
+        _invoke_on_main_thread(self._player, "stop")
 
     @dbus.service.method(MPRIS2_PLAYER_IFACE)
     def Next(self):
-        """Called when the Next Track media key is pressed."""
-        logger.debug("MPRIS2: Next received")
-        try:
-            self._player.play_next()
-        except Exception as e:
-            logger.error(f"MPRIS2 Next error: {e}")
+        logger.debug("MPRIS2 → Next")
+        _invoke_on_main_thread(self._player, "play_next")
 
     @dbus.service.method(MPRIS2_PLAYER_IFACE)
     def Previous(self):
-        """Called when the Previous Track media key is pressed."""
-        logger.debug("MPRIS2: Previous received")
-        try:
-            self._player.play_previous()
-        except Exception as e:
-            logger.error(f"MPRIS2 Previous error: {e}")
+        logger.debug("MPRIS2 → Previous")
+        _invoke_on_main_thread(self._player, "play_previous")
 
     @dbus.service.method(MPRIS2_PLAYER_IFACE, in_signature="x")
     def Seek(self, offset_microseconds):
-        """Called when a seek action is sent (less common on keyboards)."""
-        logger.debug(f"MPRIS2: Seek {offset_microseconds}µs")
+        logger.debug(f"MPRIS2 → Seek {offset_microseconds}µs")
+        # Seek needs an argument so we can't use invokeMethod directly.
+        # QTimer.singleShot(0, callable) is safe to call from any thread —
+        # it posts the callable to the main thread's event queue.
         try:
-            offset_ms = offset_microseconds // 1000
-            current_ms = self._player.position
-            self._player.seek(max(0, current_ms + offset_ms))
+            from PySide6.QtCore import QTimer
+
+            offset_ms = int(offset_microseconds) // 1000
+            target_ms = max(0, self._player.position + offset_ms)
+            QTimer.singleShot(0, lambda: self._player.seek(target_ms))
         except Exception as e:
             logger.error(f"MPRIS2 Seek error: {e}")
 
     # ── org.freedesktop.DBus.Properties ──────────────────────────────────────
-    # The desktop queries these to know what the player supports.
 
     @dbus.service.method(DBUS_PROPS_IFACE, in_signature="ss", out_signature="v")
     def Get(self, interface, prop):
-        return self._get_props(interface).get(prop, "")
+        return self._get_props(interface).get(prop, dbus.String(""))
 
     @dbus.service.method(DBUS_PROPS_IFACE, in_signature="s", out_signature="a{sv}")
     def GetAll(self, interface):
@@ -220,10 +197,10 @@ class _MPRIS2DBusService(dbus.service.Object):
 
     @dbus.service.method(DBUS_PROPS_IFACE, in_signature="ssv")
     def Set(self, interface, prop, value):
-        pass  # We don't support setting props from D-Bus
+        pass
 
     def _get_props(self, interface):
-        """Return properties for the requested interface."""
+        """Return the properties the desktop queries to know what we support."""
         if interface == MPRIS2_IFACE:
             return {
                 "CanQuit": dbus.Boolean(False),
@@ -235,14 +212,23 @@ class _MPRIS2DBusService(dbus.service.Object):
                 "SupportedMimeTypes": dbus.Array([], signature="s"),
             }
         if interface == MPRIS2_PLAYER_IFACE:
+            try:
+                volume = self._player.volume_level / 100.0
+                position_us = self._player.position * 1000  # ms → µs
+                status = self._playback_status()
+            except Exception:
+                volume = 0.75
+                position_us = 0
+                status = "Stopped"
+
             return {
-                "PlaybackStatus": dbus.String(self._get_playback_status()),
+                "PlaybackStatus": dbus.String(status),
                 "LoopStatus": dbus.String("None"),
                 "Rate": dbus.Double(1.0),
                 "Shuffle": dbus.Boolean(False),
                 "Metadata": dbus.Dictionary({}, signature="sv"),
-                "Volume": dbus.Double(self._player.volume_level / 100.0),
-                "Position": dbus.Int64(self._player.position * 1000),  # µs
+                "Volume": dbus.Double(volume),
+                "Position": dbus.Int64(position_us),
                 "MinimumRate": dbus.Double(1.0),
                 "MaximumRate": dbus.Double(1.0),
                 "CanGoNext": dbus.Boolean(True),
@@ -254,10 +240,6 @@ class _MPRIS2DBusService(dbus.service.Object):
             }
         return {}
 
-    def _get_playback_status(self):
-        """Map internal player state to MPRIS2 playback status string."""
-        try:
-            state = self._player.state  # "playing", "paused", or "stopped"
-            return {"playing": "Playing", "paused": "Paused"}.get(state, "Stopped")
-        except Exception:
-            return "Stopped"
+    def _playback_status(self):
+        state = self._player.state  # "playing" | "paused" | "stopped"
+        return {"playing": "Playing", "paused": "Paused"}.get(state, "Stopped")
