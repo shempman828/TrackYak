@@ -127,7 +127,7 @@ class AlbumDetailView(QWidget):
         # Change cover button (editable mode only)
         if self.editable:
             change_btn = QPushButton("Change Cover")
-            change_btn.clicked.connect(self.change_cover_image)
+            change_btn.clicked.connect(self.change_front_cover_path)
             layout.addWidget(change_btn)
 
         return cover_widget
@@ -263,9 +263,9 @@ class AlbumDetailView(QWidget):
     def load_album_cover(self):
         """Load and display the album cover image"""
         try:
-            if hasattr(self.album, "cover_image") and self.album.cover_image:
+            if hasattr(self.album, "front_cover_path") and self.album.front_cover_path:
                 pixmap = QPixmap()
-                if pixmap.loadFromData(self.album.cover_image):
+                if pixmap.loadFromData(self.album.front_cover_path):
                     scaled_pixmap = pixmap.scaled(
                         200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation
                     )
@@ -285,7 +285,7 @@ class AlbumDetailView(QWidget):
                 "border: 1px solid #ccc; background: #f0f0f0; color: #ff0000;"
             )
 
-    def change_cover_image(self):
+    def change_front_cover_path(self):
         """Change the album cover image"""
         try:
             file_path, _ = QFileDialog.getOpenFileName(
@@ -301,7 +301,7 @@ class AlbumDetailView(QWidget):
                     image_data = f.read()
 
                 # Update the album object
-                self.album.cover_image = image_data
+                self.album.front_cover_path = image_data
 
                 # Update the display
                 self.load_album_cover()

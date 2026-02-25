@@ -40,6 +40,10 @@ class NewAlbumDialog(QDialog):
         self.setWindowTitle("New Album")
         self.setMinimumWidth(400)
         self._build_ui()
+        self._resize_timer = QTimer()
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(150)
+        self._resize_timer.timeout.connect(self._do_resize_art)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -594,7 +598,10 @@ class AlbumView(QWidget):
 
     def _refresh_album_widgets(self):
         """Rebuild the grid from scratch up to display_count."""
+        self.scroll_content.setUpdatesEnabled(False)
         self._clear_layout(self.grid_layout)
+        self.grid_layout.invalidate()
+        self.scroll_content.setUpdatesEnabled(True)
         for album in self.filtered_albums[: self.display_count]:
             self._add_album_widget(album)
         self.scroll_content.updateGeometry()
@@ -629,10 +636,13 @@ class AlbumView(QWidget):
 
     def _resize_art(self, size: int):
         self.current_size = size
+        self._resize_timer.start()  # restart timer on each tick
+
+    def _do_resize_art(self):
         for i in range(self.grid_layout.count()):
             widget = self.grid_layout.itemAt(i).widget()
             if widget is not None:
-                widget.update_size(size)
+                widget.update_size(self.current_size)
         self.grid_layout.update()
 
     # =========================================================================

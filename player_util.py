@@ -20,6 +20,7 @@ from typing import Optional
 import numpy as np
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from asset_paths import config
 from config_setup import app_config
 from equalizer_utility import EqualizerUtility
 from logger_config import logger
@@ -104,6 +105,7 @@ class MusicPlayer(QObject):
         self.controller = controller
         self.equalizer = EqualizerUtility(self)
         self.queue_manager = QueueManager()
+        self.queue_manager.load_queue_from_config(config)
 
         # ── Audio backend (lazy-imported so the app can start without them) ──
         self.sd = None

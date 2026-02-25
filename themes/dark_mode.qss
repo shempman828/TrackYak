@@ -145,7 +145,6 @@ QHeaderView::section {
     font-weight: bold;
     font-size: 0.85em;
     letter-spacing: 0.06em;
-    text-transform: uppercase;
     min-height: 28px;
 }
 

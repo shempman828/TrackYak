@@ -182,7 +182,7 @@ class QueueManager(QObject):
             # Fetch tracks from database
             for track_id in track_ids:
                 track = (
-                    db_session.query(Track).filter(track.track_id == track_id).first()
+                    db_session.query(Track).filter(Track.track_id == track_id).first()
                 )
                 if track:
                     self.queue.append(track)
