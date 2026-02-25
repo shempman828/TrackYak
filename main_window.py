@@ -594,7 +594,7 @@ class GUI(QMainWindow, MenuBar):
 
         # Save config
         app_config.save()
-
+        self.mediaplayer.cleanup()
         self.controller.close_session()
         super().closeEvent(event)
 

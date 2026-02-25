@@ -189,45 +189,74 @@ class PlayerUI(QWidget):
         self.repeat_button.setToolTip(self.repeat_labels[self.repeat_mode])
 
     def setup_keyboard_shortcuts(self):
-        """Set up common keyboard shortcuts for media control."""
-        # Play/Pause toggle
-        self.space_shortcut = QShortcut(QKeySequence("Space"), self)
-        self.space_shortcut.activated.connect(
-            self.controller.mediaplayer.toggle_play_pause
+        """
+        Set up keyboard shortcuts for media control.
+
+        Two layers of shortcuts are registered:
+          1. Standard keyboard combos (Ctrl/Shift + arrow keys, Space)
+             — work when the app window is focused.
+          2. System media keys (⏮ ⏯ ⏭ 🔇 🔊 on dedicated media keyboards
+             and all Apple keyboards) — registered with ApplicationShortcut
+             so they work even when a different widget inside the app has focus.
+        """
+        player = self.controller.mediaplayer
+
+        def _shortcut(key, slot, app_wide=False):
+            """Helper: create a shortcut, store it, and connect it."""
+            sc = QShortcut(QKeySequence(key), self)
+            if app_wide:
+                sc.setContext(Qt.ApplicationShortcut)
+            sc.activated.connect(slot)
+            return sc
+
+        # ── Standard keyboard shortcuts ───────────────────────────────────────
+        self.space_shortcut = _shortcut("Space", player.toggle_play_pause)
+        self.stop_shortcut = _shortcut("Ctrl+.", player.stop)
+        self.next_shortcut = _shortcut("Ctrl+Right", player.play_next)
+        self.prev_shortcut = _shortcut("Ctrl+Left", player.play_previous)
+        self.vol_up_shortcut = _shortcut("Ctrl+Up", player.increase_volume)
+        self.vol_down_shortcut = _shortcut("Ctrl+Down", player.decrease_volume)
+        self.seek_forward_shortcut = _shortcut("Shift+Right", player.seek_forward)
+        self.seek_backward_shortcut = _shortcut("Shift+Left", player.seek_backward)
+
+        # ── System media keys (application-wide) ─────────────────────────────
+        self.media_play_shortcut = _shortcut(
+            Qt.Key_MediaPlay, player.toggle_play_pause, app_wide=True
+        )
+        self.media_stop_shortcut = _shortcut(
+            Qt.Key_MediaStop, player.stop, app_wide=True
+        )
+        self.media_next_shortcut = _shortcut(
+            Qt.Key_MediaNext, player.play_next, app_wide=True
+        )
+        self.media_prev_shortcut = _shortcut(
+            Qt.Key_MediaPrevious, player.play_previous, app_wide=True
+        )
+        self.media_vol_up_shortcut = _shortcut(
+            Qt.Key_VolumeUp, player.increase_volume, app_wide=True
+        )
+        self.media_vol_down_shortcut = _shortcut(
+            Qt.Key_VolumeDown, player.decrease_volume, app_wide=True
+        )
+        self.media_mute_shortcut = _shortcut(
+            Qt.Key_VolumeMute, self._toggle_mute, app_wide=True
         )
 
-        # Stop
-        self.stop_shortcut = QShortcut(QKeySequence("Ctrl+."), self)
-        self.stop_shortcut.activated.connect(self.controller.mediaplayer.stop)
+    def _toggle_mute(self):
+        """Toggle mute: set volume to 0 or restore previous level."""
+        player = self.controller.mediaplayer
+        if not hasattr(self, "_pre_mute_volume"):
+            self._pre_mute_volume = None
 
-        # Next/Previous track
-        self.next_shortcut = QShortcut(QKeySequence("Ctrl+Right"), self)
-        self.next_shortcut.activated.connect(self.controller.mediaplayer.play_next)
-
-        self.prev_shortcut = QShortcut(QKeySequence("Ctrl+Left"), self)
-        self.prev_shortcut.activated.connect(self.controller.mediaplayer.play_previous)
-
-        # Volume control - connect to MusicPlayer methods
-        self.vol_up_shortcut = QShortcut(QKeySequence("Ctrl+Up"), self)
-        self.vol_up_shortcut.activated.connect(
-            self.controller.mediaplayer.increase_volume
-        )
-
-        self.vol_down_shortcut = QShortcut(QKeySequence("Ctrl+Down"), self)
-        self.vol_down_shortcut.activated.connect(
-            self.controller.mediaplayer.decrease_volume
-        )
-
-        # Seek with Shift+Left/Right - connect to MusicPlayer methods
-        self.seek_forward_shortcut = QShortcut(QKeySequence("Shift+Right"), self)
-        self.seek_forward_shortcut.activated.connect(
-            self.controller.mediaplayer.seek_forward
-        )
-
-        self.seek_backward_shortcut = QShortcut(QKeySequence("Shift+Left"), self)
-        self.seek_backward_shortcut.activated.connect(
-            self.controller.mediaplayer.seek_backward
-        )
+        if player.volume_level > 0:
+            # Mute: remember current volume, set to 0
+            self._pre_mute_volume = player.volume_level
+            player.set_volume(0)
+        else:
+            # Unmute: restore saved volume (default to 75 if nothing saved)
+            restore = self._pre_mute_volume if self._pre_mute_volume else 75
+            player.set_volume(restore)
+            self._pre_mute_volume = None
 
     def create_dock_widget(self, parent_window=None):
         """Create and configure the dock widget for this player with mini-player support."""
