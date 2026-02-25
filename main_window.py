@@ -596,6 +596,8 @@ class GUI(QMainWindow, MenuBar):
         app_config.save()
         self.mediaplayer.cleanup()
         self.controller.close_session()
+        if hasattr(self, "_mpris"):
+            self._mpris.stop()
         super().closeEvent(event)
 
     def _ensure_player_dock_visible(self):

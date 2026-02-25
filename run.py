@@ -17,6 +17,7 @@ from db_tables import MusicDatabase
 from display_settings import DisplaySettings
 from logger_config import logger
 from music_controller import MusicController
+from player_mpris2 import MPRIS2Player
 from splash_screen import StartupSplash
 from startup_dialog import StartupDialog
 
@@ -119,6 +120,12 @@ def initialize_application(splash, app):
     show_status("Almost ready…", delay=0.4)
     logger.info("Main window initialized")
     splash.finish(window)
+
+    mpris = MPRIS2Player(controller.mediaplayer)
+    mpris.start()
+    window._mpris = (
+        mpris  # Keep it alive — attach to window so it doesn't get garbage collected
+    )
 
     return window, display_settings
 
