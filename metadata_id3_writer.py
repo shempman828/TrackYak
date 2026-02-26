@@ -72,6 +72,46 @@ class ID3TagWriter:
 
         return frame_header + frame_data
 
+    def create_txxx_frame(self, description: str, value: str) -> bytes:
+        """Create a TXXX (user-defined text) frame for custom tag fields.
+
+        TXXX frames are how ID3 stores custom tags that have no official frame
+        ID. The description acts as the key (e.g. "PLAYLIST") and the value
+        holds the content (e.g. "My Favourites ; Workout Mix").
+
+        Multiple playlists are joined with " ; " so they fit in one frame,
+        since ID3 only allows one TXXX frame per description.
+
+        Args:
+            description: The frame description / key, e.g. "PLAYLIST".
+            value:       The tag value. Use " ; " to separate multiple values.
+
+        Returns:
+            Raw bytes for the complete TXXX frame, or b"" if either arg is empty.
+        """
+        if not value or not description:
+            return b""
+
+        # Encode as UTF-16BE (encoding byte 0x01)
+        encoded_description = description.encode("utf-16be")
+        encoded_value = value.encode("utf-16be")
+
+        # UTF-16 null terminator (2 bytes) separates description from value
+        null_terminator = b"\x00\x00"
+
+        frame_data = (
+            struct.pack(">B", 0x01)  # encoding: UTF-16
+            + encoded_description
+            + null_terminator
+            + encoded_value
+        )
+
+        # Frame header: "TXXX" (4 bytes) + size (3 bytes) + flags (2 bytes)
+        frame_size = len(frame_data)
+        frame_header = b"TXXX" + struct.pack(">I", frame_size)[1:] + b"\x00\x00"
+
+        return frame_header + frame_data
+
     def sync_safe_int(self, value: int) -> bytes:
         """Convert integer to sync-safe format (7 bits per byte)."""
         return struct.pack(">I", value)[1:]  # Simple sync-safe for ID3v2.3/2.4

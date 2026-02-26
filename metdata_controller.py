@@ -429,13 +429,61 @@ class ExtractMetadata:
                 break
 
             frame_content = frame_data[pos + 10 : pos + 10 + frame_size]
-            value = self._decode_id3_text(frame_content)
 
-            # FIX: Collect all values for the same frame ID
-            if frame_id not in raw_tags:
-                raw_tags[frame_id] = []
+            # ── NEW: handle TXXX frames specially ──────────────────────
+            if frame_id == "TXXX":
+                # TXXX structure: encoding(1) + description(variable) + \x00[\x00] + value
+                # We need to extract the description to build the storage key.
+                try:
+                    encoding = frame_content[0] if frame_content else 0
+                    rest = frame_content[1:]  # everything after the encoding byte
 
-            raw_tags[frame_id].append(value)
+                    if encoding in (0x01, 0x02):
+                        # UTF-16: null terminator is \x00\x00
+                        sep = rest.find(b"\x00\x00")
+                        if sep == -1:
+                            sep = len(rest)
+                        raw_desc = rest[:sep]
+                        raw_val = rest[sep + 2 :]  # skip the 2-byte null terminator
+                        description = raw_desc.decode(
+                            "utf-16be", errors="ignore"
+                        ).strip("\x00")
+                        value = raw_val.decode("utf-16be", errors="ignore").strip(
+                            "\x00"
+                        )
+                    else:
+                        # ISO-8859-1 or UTF-8: null terminator is \x00
+                        sep = rest.find(b"\x00")
+                        if sep == -1:
+                            sep = len(rest)
+                        description = (
+                            rest[:sep].decode("latin-1", errors="ignore").strip()
+                        )
+                        value = (
+                            rest[sep + 1 :]
+                            .decode(
+                                "utf-8" if encoding == 0x03 else "latin-1",
+                                errors="ignore",
+                            )
+                            .strip("\x00")
+                        )
+
+                    # Store under "TXXX:description" so TXXX:PLAYLIST is preserved
+                    storage_key = f"TXXX:{description}" if description else "TXXX"
+                    if storage_key not in raw_tags:
+                        raw_tags[storage_key] = []
+                    raw_tags[storage_key].append(value)
+
+                except Exception as e:
+                    logger.debug(f"Error parsing TXXX frame: {e}")
+            # ── END new TXXX handling ───────────────────────────────────
+            else:
+                value = self._decode_id3_text(frame_content)
+
+                if frame_id not in raw_tags:
+                    raw_tags[frame_id] = []
+
+                raw_tags[frame_id].append(value)
 
             pos += 10 + frame_size
 

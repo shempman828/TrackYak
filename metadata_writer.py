@@ -353,7 +353,19 @@ class MetadataWriter:
                     frames.append(
                         self.id3_writer.create_text_frame(tag_id, special_text)
                     )
-
+        # ----------------------------------------------------------------
+        # Playlist tags — written as TXXX:PLAYLIST
+        # Multiple playlists are joined with " ; " in a single TXXX frame
+        # because ID3 only allows one TXXX frame per description name.
+        # ----------------------------------------------------------------
+        track_id = data["track"].track_id
+        playlist_names = self._get_playlist_names_for_track(track_id)
+        if playlist_names:
+            joined = " ; ".join(playlist_names)
+            frames.append(self.id3_writer.create_txxx_frame("PLAYLIST", joined))
+            logger.debug(
+                f"Writing ID3 TXXX:PLAYLIST for track {track_id}: {playlist_names}"
+            )
         return frames
 
     def build_vorbis_comments_from_data(self, data):
@@ -593,7 +605,18 @@ class MetadataWriter:
         if places:
             place_names = [p.place_name for p in places if p.place_name]
             _set_list("LOCATION", place_names)
-
+        # ----------------------------------------------------------------
+        # Playlist tags — written as repeated PLAYLIST= entries.
+        # Vorbis natively supports multiple entries with the same key,
+        # so each playlist gets its own clean tag line.
+        # ----------------------------------------------------------------
+        track_id = data["track"].track_id
+        playlist_names = self._get_playlist_names_for_track(track_id)
+        if playlist_names:
+            _set_list("PLAYLIST", playlist_names)
+            logger.debug(
+                f"Writing Vorbis PLAYLIST tags for track {track_id}: {playlist_names}"
+            )
         return comments
 
     def read_existing_id3_tags(self, file_path: str) -> Dict[str, Any]:
@@ -1062,3 +1085,39 @@ class MetadataWriter:
         logger.debug(f"Batch write completed: {success_count}/{total} successful")
 
         return results
+
+    def _get_playlist_names_for_track(self, track_id: int) -> list:
+        """Return a sorted list of playlist names this track belongs to.
+
+        Excludes smart playlists — those are generated dynamically and
+        don't need to be stored in file tags.
+
+        Args:
+            track_id: The database ID of the track.
+
+        Returns:
+            A list of playlist name strings, e.g. ["My Favourites", "Workout Mix"].
+            Returns an empty list if the track is in no playlists or on error.
+        """
+        try:
+            # Get all PlaylistTracks rows for this track
+            playlist_track_rows = self.controller.get.get_all_entities(
+                "PlaylistTracks", track_id=track_id
+            )
+            if not playlist_track_rows:
+                return []
+
+            names = []
+            for pt in playlist_track_rows:
+                playlist = self.controller.get.get_entity_object(
+                    "Playlist", playlist_id=pt.playlist_id
+                )
+                # Skip smart playlists — they regenerate themselves
+                if playlist and playlist.playlist_name and not playlist.is_smart:
+                    names.append(playlist.playlist_name)
+
+            return sorted(set(names))  # Deduplicate and sort for consistency
+
+        except Exception as e:
+            logger.debug(f"Error fetching playlist names for track {track_id}: {e}")
+            return []

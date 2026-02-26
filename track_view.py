@@ -21,8 +21,6 @@ from pathlib import Path
 from PySide6.QtCore import (
     QByteArray,
     QMimeData,
-    QRegularExpression,
-    QSortFilterProxyModel,
     Qt,
 )
 from PySide6.QtGui import (
@@ -74,6 +72,7 @@ class TrackView(QWidget):
         self.controller = controller
         self.player = music_player
         self.track_fields = TRACK_FIELDS
+        self._filtered_tracks = []
 
         # Full track list from the DB (lightweight ORM objects, not audio data)
         self._all_tracks: list = []
@@ -155,13 +154,7 @@ class TrackView(QWidget):
         self.table.customContextMenuRequested.connect(self.show_context_menu)
 
         self.model = QStandardItemModel()
-        self.proxy_model = QSortFilterProxyModel(self)
-        self.proxy_model.setSourceModel(self.model)
-        self.proxy_model.setFilterCaseSensitivity(Qt.CaseInsensitive)
-        self.proxy_model.setFilterRegularExpression(QRegularExpression())
-        self.proxy_model.setFilterKeyColumn(-1)
-        self.proxy_model.setSortRole(Qt.UserRole)
-        self.table.setModel(self.proxy_model)
+        self.table.setModel(self.model)
 
         self._setup_table()
         self.load_column_state()
@@ -278,15 +271,13 @@ class TrackView(QWidget):
         self._update_status()
 
     def _on_scroll(self, value: int):
-        """Load the next batch when the user scrolls near the bottom."""
-        if self._filter_active:
-            return  # The proxy model filters a full set — no lazy needed
-
         scrollbar = self.table.verticalScrollBar()
-        # Load more when we're within 10 % of the bottom
         if scrollbar.maximum() > 0 and value >= scrollbar.maximum() * 0.90:
-            if self._loaded_count < len(self._all_tracks):
-                self._append_next_batch(self._all_tracks)
+            # Determine which list to pull the next batch from
+            source = self._filtered_tracks if self._filter_active else self._all_tracks
+
+            if self._loaded_count < len(source):
+                self._append_next_batch(source)
 
     def _update_status(self):
         total = len(self._all_tracks)
@@ -303,26 +294,34 @@ class TrackView(QWidget):
 
     def _on_search_changed(self, text: str):
         """
-        When a search is active we load ALL tracks into the model so the proxy
-        can filter across them.  When the search is cleared we go back to lazy mode.
+        Filters the Python list first, then pushes only the matches to the model.
+        This avoids overloading Qt with 200,000 items.
         """
-        if text.strip():
-            # Ensure all tracks are in the model for complete filtering
-            if self._loaded_count < len(self._all_tracks):
-                self._fill_model_completely()
-            self._filter_active = True
-        else:
+        search_text = text.strip().lower()
+
+        if not search_text:
+            # Reset to normal lazy loading mode
             self._filter_active = False
+            self._filtered_tracks = []
+            self.load_tracks_on_startup()  # Or a lightweight reset
+            return
 
-        self.proxy_model.setFilterRegularExpression(
-            QRegularExpression(text, QRegularExpression.CaseInsensitiveOption)
-        )
+        self._filter_active = True
+
+        # 1. Filter the Python list (extremely fast)
+        # We check common fields like Title and Artist
+        self._filtered_tracks = [
+            t
+            for t in self._all_tracks
+            if search_text in (getattr(t, "track_title", "") or "").lower()
+            or search_text in (self._get_artist_name(t) or "").lower()
+        ]
+
+        # 2. Reset the model and load ONLY the first batch of results
+        self.model.setRowCount(0)
+        self._loaded_count = 0
+        self._append_next_batch(self._filtered_tracks)
         self._update_status()
-
-    def _fill_model_completely(self):
-        """Push every track into the model (needed for search to work correctly)."""
-        while self._loaded_count < len(self._all_tracks):
-            self._append_next_batch(self._all_tracks)
 
     def filter_tracks(self, text: str):
         """Public alias kept for compatibility with external callers."""
