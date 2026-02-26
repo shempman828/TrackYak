@@ -2,7 +2,7 @@ from typing import Optional
 
 import lyriq
 
-from logger_config import logger
+from src.logger_config import logger
 
 
 class LyricSearch:

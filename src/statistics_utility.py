@@ -2,7 +2,7 @@ from datetime import datetime
 
 from sqlalchemy import case, func
 
-from db_tables import (
+from src.db_tables import (
     Album,
     Artist,
     Genre,
@@ -12,7 +12,7 @@ from db_tables import (
     TrackArtistRole,
     TrackGenre,
 )
-from logger_config import logger
+from src.logger_config import logger
 
 
 class MusicStatistics:

@@ -18,12 +18,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from asset_paths import icon
-from base_album_widget import ScrollableAlbumFlow
-from base_track_view import BaseTrackView
-from logger_config import logger
-from publisher_association_dialog import PublisherAssociationDialog
-from wikipedia_seach import search_wikipedia
+from src.base_album_widget import ScrollableAlbumFlow
+from src.publisher_association_dialog import PublisherAssociationDialog
+from src.asset_paths import icon
+from src.base_track_view import BaseTrackView
+from src.logger_config import logger
+from src.wikipedia_seach import search_wikipedia
 
 
 class PublisherDetailTab(QWidget):
@@ -355,7 +355,7 @@ class PublisherDetailTab(QWidget):
             sanitized_name = re.sub(r'[<>:"/\\|?*]', "_", publisher.publisher_name)
             filename = f"{publisher.publisher_id}_{sanitized_name}{extension}"
 
-            from asset_paths import PUBLISHER_LOGOS_DIR
+            from src.asset_paths import PUBLISHER_LOGOS_DIR
 
             logo_path = PUBLISHER_LOGOS_DIR / filename
             PUBLISHER_LOGOS_DIR.mkdir(parents=True, exist_ok=True)
@@ -406,7 +406,7 @@ class PublisherDetailTab(QWidget):
 
     def _select_wikipedia_image(self, images):
         """Open dialog to select a Wikipedia image."""
-        from wikipedia_seach import select_wikipedia_image
+        from src.wikipedia_seach import select_wikipedia_image
 
         return select_wikipedia_image(images, parent=self)
 

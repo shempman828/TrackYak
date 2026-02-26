@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from analysis_utility import AudioAnalysis, AudioAnalysisWorker
-from status_utility import StatusManager
+from src.analysis_utility import AudioAnalysis, AudioAnalysisWorker
+from src.status_utility import StatusManager
 
 
 class AudioAnalysisDialog(QDialog):

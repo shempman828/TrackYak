@@ -12,8 +12,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from base_track_view import BaseTrackView
-from logger_config import logger
+from src.base_track_view import BaseTrackView
+from src.logger_config import logger
 
 
 class PlaylistTracksWindow(QMainWindow):

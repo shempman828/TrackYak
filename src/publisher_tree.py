@@ -2,7 +2,7 @@ from PySide6.QtCore import QMimeData, Qt
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import QHeaderView, QMessageBox, QTreeWidget, QTreeWidgetItem
 
-from logger_config import logger
+from src.logger_config import logger
 
 
 class PublisherTreeWidget(QTreeWidget):

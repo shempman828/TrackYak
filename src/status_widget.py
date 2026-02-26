@@ -3,9 +3,8 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QPushButton, QWidget
 
-from asset_paths import icon
-
-from logger_config import logger
+from src.asset_paths import icon
+from src.logger_config import logger
 
 
 class StatusBarWidget(QWidget):

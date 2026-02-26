@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from equalizer_utility import EqualizerUtility
+from src.equalizer_utility import EqualizerUtility
 
 
 class EqualizerDialog(QDialog):

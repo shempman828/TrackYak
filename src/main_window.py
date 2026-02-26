@@ -17,35 +17,34 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from asset_paths import icon, theme
-from config_setup import app_config
-from import_dialog import ImportDialog
-from file_manager_dialog import FileManager
-from logger_config import logger
-from menu_bar import MenuBar
-from navigation_dock import NavigationDock
-from nowplaying_view import NowPlayingView
-from player_dock import PlayerUI
-from queue_dock import QueueDockWidget
-from status_utility import StatusManager
-from status_widget import StatusBarWidget
-
 # ── Views are imported here for type-checking but NOT instantiated until
 #    the user navigates to them.  Adding a new view only requires adding
 #    one entry to _VIEW_FACTORIES inside _create_views(). ─────────────────
-from album_view import AlbumView
-from artist_view import ArtistView
-from award_view import AwardView
-from dates_view import TimelineView
-from genre_view import GenreView
-from influences_view import InfluencesView
-from moods_view import MoodView
-from place_view import PlaceView
-from playlist_view import PlaylistView
-from publisher_view import PublisherView
-from role_view import RoleView
-from sync_view import SyncView
-from track_view import TrackView
+from src.album_view import AlbumView
+from src.artist_view import ArtistView
+from src.asset_paths import icon, theme
+from src.award_view import AwardView
+from src.config_setup import app_config
+from src.dates_view import TimelineView
+from src.file_manager_dialog import FileManager
+from src.genre_view import GenreView
+from src.import_dialog import ImportDialog
+from src.influences_view import InfluencesView
+from src.menu_bar import MenuBar
+from src.moods_view import MoodView
+from src.navigation_dock import NavigationDock
+from src.nowplaying_view import NowPlayingView
+from src.place_view import PlaceView
+from src.player_dock import PlayerUI
+from src.playlist_view import PlaylistView
+from src.publisher_view import PublisherView
+from src.queue_dock import QueueDockWidget
+from src.role_view import RoleView
+from src.logger_config import logger
+from src.status_utility import StatusManager
+from src.status_widget import StatusBarWidget
+from src.sync_view import SyncView
+from src.track_view import TrackView
 
 
 class GUI(QMainWindow, MenuBar):

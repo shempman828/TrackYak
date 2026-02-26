@@ -2,8 +2,8 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QListWidgetItem, QPushButton, QTableWidgetItem
 
-from logger_config import logger
-from wikipedia_seach import search_wikipedia
+from src.logger_config import logger
+from src.wikipedia_seach import search_wikipedia
 
 
 class DataLoaders:

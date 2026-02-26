@@ -6,7 +6,7 @@ import numpy as np
 from pydub import AudioSegment
 from scipy import signal
 
-from logger_config import logger
+from src.logger_config import logger
 
 warnings.filterwarnings("ignore")
 

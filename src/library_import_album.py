@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional
 
-from asset_paths import ALBUM_ART_DIR
-from logger_config import logger
+from src.asset_paths import ALBUM_ART_DIR
+from src.logger_config import logger
 
 
 class AlbumImporter:

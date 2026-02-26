@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from display_settings import DisplaySettings
+from src.display_settings import DisplaySettings
 
 
 class DisplaySettingsDialog(QDialog):

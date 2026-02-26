@@ -9,8 +9,8 @@ from typing import Dict, List, Tuple
 
 from PySide6.QtCore import QThread, Signal
 
-from asset_paths import config
-from logger_config import logger
+from src.asset_paths import config
+from src.logger_config import logger
 
 CONFIG_FILE = config("import_paths.json")
 SUPPORTED_FORMATS = {".mp3", ".flac", ".wav", ".aac", ".ogg", ".m4a"}

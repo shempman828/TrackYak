@@ -9,7 +9,7 @@ from PySide6.QtGui import QIcon
 if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys._MEIPASS)  # temporary folder when frozen
 else:
-    BASE_DIR = Path(__file__).resolve().parent
+    BASE_DIR = Path(__file__).resolve().parents[1]
 
 # --- Core Directories --------------------------------------------------------
 

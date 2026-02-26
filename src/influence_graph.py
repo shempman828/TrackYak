@@ -13,8 +13,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from influence_artist_node import ArtistNode
-from logger_config import logger
+from src.influence_artist_node import ArtistNode
+from src.logger_config import logger
 
 
 class InfluenceGraphView(QGraphicsView):

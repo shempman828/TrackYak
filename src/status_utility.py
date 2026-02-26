@@ -1,7 +1,7 @@
 # status_manager.py
 from PySide6.QtCore import QMutex, QMutexLocker, QObject, QTimer, Signal
 
-from logger_config import logger
+from src.logger_config import logger
 
 
 class _StatusManager(QObject):

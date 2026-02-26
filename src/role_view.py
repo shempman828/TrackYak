@@ -17,9 +17,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from logger_config import logger
-from role_detail_tab import RoleDetailTab
-from role_edit_dialog import RoleEditDialog
+from src.logger_config import logger
+from src.role_detail_tab import RoleDetailTab
+from src.role_edit_dialog import RoleEditDialog
 
 
 class RoleView(QWidget):

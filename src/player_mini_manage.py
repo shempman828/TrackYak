@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import QAction
 
-from player_mini import MiniPlayerWindow
+from src.player_mini import MiniPlayerWindow
 
 
 class MiniPlayerManager:

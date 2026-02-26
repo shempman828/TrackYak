@@ -8,9 +8,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from artist_detail_alias import AliasesCarousel
-from artist_detail_dates import DateDisplayWidget
-from logger_config import logger
+from src.artist_detail_alias import AliasesCarousel
+from src.artist_detail_dates import DateDisplayWidget
+from src.logger_config import logger
 
 
 class PlacesWidget(QWidget):

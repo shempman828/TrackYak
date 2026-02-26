@@ -12,10 +12,10 @@ from typing import Optional
 import numpy as np
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from config_setup import app_config
-from equalizer_utility import EqualizerUtility
-from logger_config import logger
-from queue_utility import QueueManager
+from src.config_setup import app_config
+from src.equalizer_utility import EqualizerUtility
+from src.queue_utility import QueueManager
+from src.logger_config import logger
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Constants
@@ -392,8 +392,18 @@ class MusicPlayer(QObject):
             return False
 
         # Stop current playback cleanly
-        self.stop()
-        logger.debug(f"stop completed at {time.time()}")
+        if self._is_advancing and self.audio_stream is not None:
+            self.playing = False
+            self.paused = False
+            self._position_timer.stop()
+            self._has_reached_threshold = False
+            self._play_count_recorded = False
+            self.state_changed.emit("stopped")
+            self._close_stream_async()  # Non-blocking — safe during callback-driven transition
+            logger.debug(f"async stream close initiated at {time.time()}")
+        else:
+            self.stop()
+            logger.debug(f"stop completed at {time.time()}")
 
         logger.info(f"Opening: {file_path}")
 
@@ -680,6 +690,25 @@ class MusicPlayer(QObject):
                 pass
             finally:
                 self.audio_stream = None
+
+    def _close_stream_async(self):
+        """Close the current audio stream on a background thread.
+
+        Used during natural track-end transitions to avoid blocking the main
+        thread while sounddevice waits for the callback to finish.
+        """
+        stream_to_close = self.audio_stream
+        self.audio_stream = None  # Main thread no longer owns it
+        if stream_to_close is not None:
+
+            def _do_close():
+                try:
+                    stream_to_close.stop()
+                    stream_to_close.close()
+                except Exception:
+                    pass
+
+            threading.Thread(target=_do_close, daemon=True, name="StreamClose").start()
 
     def _restart_playback_if_active(self):
         if self.current_file and (self.playing or self.paused):

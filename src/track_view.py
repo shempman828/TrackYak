@@ -41,12 +41,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from config_setup import app_config
-from db_mapping_tracks import TRACK_FIELDS
-from logger_config import logger
-from track_columns import ColumnCustomizationDialog
-from track_edit import TrackEditDialog
-from track_editing_multiple import MultiTrackEditDialog
+from src.config_setup import app_config
+from src.db_mapping_tracks import TRACK_FIELDS
+from src.logger_config import logger
+from src.track_columns import ColumnCustomizationDialog
+from src.track_edit import TrackEditDialog
+from src.track_editing_multiple import MultiTrackEditDialog
 
 # How many rows to load into the Qt model in each batch.
 LAZY_BATCH_SIZE = 200

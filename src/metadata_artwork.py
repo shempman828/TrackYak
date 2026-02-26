@@ -3,7 +3,7 @@ import struct
 
 from PIL import Image
 
-from logger_config import logger
+from src.logger_config import logger
 
 
 class ArtworkExtractor:

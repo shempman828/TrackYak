@@ -18,8 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from logger_config import logger
-from wikipedia_image_dialog import WikipediaImageDialog
+from src.logger_config import logger
+from src.wikipedia_image_dialog import WikipediaImageDialog
 
 # Configure Wikipedia library
 wikipedia.set_lang("en")  # Set default language to English

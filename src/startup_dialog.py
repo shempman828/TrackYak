@@ -15,8 +15,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from asset_paths import icon
-from config_setup import Config
+from src.asset_paths import icon
+from src.config_setup import Config
 
 
 class StartupDialog(QDialog):

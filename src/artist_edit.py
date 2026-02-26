@@ -3,25 +3,6 @@ artist_edit_dialog.py
 
 A comprehensive artist editing dialog covering all fields and relationships
 from the Artist ORM model in db_tables.py:
-
-  Artist fields:
-    artist_name, isgroup, artist_type, gender, begin_year/month/day,
-    end_year/month/day, biography, MBID, wikipedia_link, website_link,
-    profile_pic_path, is_fixed
-
-  Relationships:
-    aliases        (ArtistAlias)      → Aliases tab  (uses ArtistAliasDialog)
-    places         (Place)            → Places & Awards tab
-    awards         (Award)            → Places & Awards tab
-    influencer_relations / influenced_relations (ArtistInfluence) → Influences tab
-    group_memberships / member_memberships (GroupMembership)      → Members tab
-    album_roles    (AlbumRoleAssociation)                         → Discography tab (read-only)
-    track_roles    (TrackArtistRole)                              → Discography tab (read-only)
-
-Usage:
-    dialog = ArtistEditor(controller, artist)
-    if dialog.exec() == QDialog.Accepted:
-        pass  # changes already saved
 """
 
 import logging
@@ -53,7 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from artist_alias_dialog import ArtistAliasDialog
+from src.artist_alias_dialog import ArtistAliasDialog
 
 logger = logging.getLogger(__name__)
 

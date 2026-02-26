@@ -34,8 +34,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from asset_paths import asset
-from logger_config import logger
+from src.asset_paths import asset
+from src.logger_config import logger
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Helper widgets

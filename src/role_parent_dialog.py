@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from logger_config import logger
+from src.logger_config import logger
 
 
 def get_valid_parent_roles(controller, role):

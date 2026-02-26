@@ -9,10 +9,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from influence_graph import InfluenceGraphView
-
-from influences_dialog import RemoveInfluenceDialog
-from logger_config import logger
+from src.influence_graph import InfluenceGraphView
+from src.influences_dialog import RemoveInfluenceDialog
+from src.logger_config import logger
 
 
 class InfluencesView(QWidget):

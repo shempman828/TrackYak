@@ -20,16 +20,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from artist_detail import ArtistDetailTab
-from artist_detail_wiki import WikipediaImportDialog
-from artist_edit import ArtistEditor
-from artist_fuzzy_match import FuzzyMatchDialog
-from artist_group_dialog import AddGroupDialog, AddMemberDialog
-from award_new import AddAwardDialog
-from base_split_dialog import SplitDBDialog
-from base_track_view import BaseTrackView
-from influences_dialog import AddInfluenceDialog
-from logger_config import logger
+from src.artist_detail import ArtistDetailTab
+from src.artist_detail_wiki import WikipediaImportDialog
+from src.artist_edit import ArtistEditor
+from src.artist_fuzzy_match import FuzzyMatchDialog
+from src.artist_group_dialog import AddGroupDialog, AddMemberDialog
+from src.award_new import AddAwardDialog
+from src.base_split_dialog import SplitDBDialog
+from src.base_track_view import BaseTrackView
+from src.influences_dialog import AddInfluenceDialog
+from src.logger_config import logger
 
 
 # -------------------------

@@ -7,12 +7,12 @@ from typing import Any, Dict
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
 
-from config_setup import Config
-from db_helpers import AddToDB, DeleteDB, GetFromDB, MergeDB, SplitDB, UpdateDB
-from db_tables import Base
-from library_import import TrackImporter
-from player_util import MusicPlayer
-from statistics_utility import MusicStatistics
+from src.config_setup import Config
+from src.library_import import TrackImporter
+from src.player_util import MusicPlayer
+from src.db_helpers import AddToDB, DeleteDB, GetFromDB, MergeDB, SplitDB, UpdateDB
+from src.db_tables import Base
+from src.statistics_utility import MusicStatistics
 
 
 class ThreadedDBProxy:

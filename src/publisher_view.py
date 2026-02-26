@@ -10,11 +10,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from base_split_dialog import SplitDBDialog
-from logger_config import logger
-from publisher_detail import PublisherDetailTab
-from publisher_merge_dialog import PublisherMergeDialog
-from publisher_tree import PublisherTreeWidget
+from src.base_split_dialog import SplitDBDialog
+from src.publisher_detail import PublisherDetailTab
+from src.publisher_merge_dialog import PublisherMergeDialog
+from src.publisher_tree import PublisherTreeWidget
+from src.logger_config import logger
 
 
 class PublisherView(QWidget):

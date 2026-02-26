@@ -3,10 +3,10 @@ import struct
 from datetime import datetime
 from typing import Any, Dict, List
 
-from logger_config import logger
-from metadata_artwork import ArtworkExtractor
-from metadata_properties import AudioPropertiesExtractor
-from metadata_text import TextMetadataExtractor
+from src.metadata_artwork import ArtworkExtractor
+from src.metadata_properties import AudioPropertiesExtractor
+from src.metadata_text import TextMetadataExtractor
+from src.logger_config import logger
 
 
 class ExtractMetadata:

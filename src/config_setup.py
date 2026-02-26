@@ -6,8 +6,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QPoint, QSize
 
-from asset_paths import config
-from logger_config import logger
+from src.asset_paths import config
+from src.logger_config import logger
 
 config_dir = config("config.ini")
 

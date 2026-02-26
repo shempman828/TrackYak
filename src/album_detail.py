@@ -14,12 +14,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from album_components import AlbumUIComponents
-from album_editing_relationship_helpers import RelationshipHelpers
-from album_tab import AlbumTabBuilder
-from db_mapping_albums import ALBUM_FIELDS
-from disc_view import DiscManagementView
-from logger_config import logger
+from src.album_components import AlbumUIComponents
+from src.album_editing_relationship_helpers import RelationshipHelpers
+from src.album_tab import AlbumTabBuilder
+from src.db_mapping_albums import ALBUM_FIELDS
+from src.disc_view import DiscManagementView
+from src.logger_config import logger
 
 
 class AlbumDetailView(QWidget):

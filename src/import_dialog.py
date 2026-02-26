@@ -18,11 +18,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from asset_paths import config, icon
-from config_setup import app_config
-from library_import import ImportWorker
-from logger_config import logger
-from status_utility import StatusManager
+from src.config_setup import app_config
+from src.library_import import ImportWorker
+from src.asset_paths import config, icon
+from src.logger_config import logger
+from src.status_utility import StatusManager
 
 CONFIG_FILE = config("import_paths.json")
 SUPPORTED_FORMATS = {".mp3", ".flac", ".wav", ".aac", ".ogg", ".m4a"}

@@ -11,9 +11,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from disc_edit import DiscEditDialog
-from disc_sorting import TrackSortingDisplay
-from logger_config import logger
+from src.disc_edit import DiscEditDialog
+from src.disc_sorting import TrackSortingDisplay
+from src.logger_config import logger
 
 
 class DiscManagementView(QWidget):

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
 )
 
-from playlist_smart_criteria_widget import CriteriaWidget
+from src.playlist_smart_criteria_widget import CriteriaWidget
 
 
 class SmartPlaylistCreateDialog(QDialog):

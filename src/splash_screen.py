@@ -12,8 +12,8 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 
-from asset_paths import ASSETS_DIR
-from logger_config import logger
+from src.asset_paths import ASSETS_DIR
+from src.logger_config import logger
 
 
 class StartupSplash(QWidget):

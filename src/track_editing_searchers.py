@@ -1,7 +1,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox
 
-from logger_config import logger
+from src.logger_config import logger
 
 
 class SearchHandlers:

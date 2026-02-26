@@ -1,9 +1,9 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
-from dates_calendar import CalendarWidget
-from dates_timeline import TimelineWidget
-from logger_config import logger
+from src.dates_calendar import CalendarWidget
+from src.dates_timeline import TimelineWidget
+from src.logger_config import logger
 
 
 class TimelineView(QWidget):

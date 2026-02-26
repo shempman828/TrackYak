@@ -16,13 +16,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from asset_paths import icon
-from config_setup import app_config
-from file_manager import FileOrganizer
-from file_organizer_preview_dialog import OrganizationPreviewDialog
-from import_dialog import ImportDialog
-from logger_config import logger
-from metadata_writer_dialog import show_metadata_write_dialog
+from src.asset_paths import icon
+from src.config_setup import app_config
+from src.file_manager import FileOrganizer
+from src.file_organizer_preview_dialog import OrganizationPreviewDialog
+from src.import_dialog import ImportDialog
+from src.metadata_writer_dialog import show_metadata_write_dialog
+from src.logger_config import logger
 
 # --- Long HTML texts extracted for clarity ---
 _DIR_EXPLANATION = (

@@ -20,11 +20,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from album_delete_dialog import DeleteEmptyAlbumsDialog
-from album_detail import AlbumDetailView
-from album_flowlayout import FlowLayout
-from base_album_widget import AlbumWidget
-from logger_config import logger
+from src.album_delete_dialog import DeleteEmptyAlbumsDialog
+from src.album_detail import AlbumDetailView
+from src.album_flowlayout import FlowLayout
+from src.base_album_widget import AlbumWidget
+from src.logger_config import logger
 
 # ---------------------------------------------------------------------------
 # Helper dialog: New Album

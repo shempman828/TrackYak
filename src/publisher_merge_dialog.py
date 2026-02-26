@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import QMessageBox
 
-from base_merge_dialog import MergeDBDialog
-from logger_config import logger
+from src.base_merge_dialog import MergeDBDialog
+from src.logger_config import logger
 
 
 class PublisherMergeDialog(MergeDBDialog):

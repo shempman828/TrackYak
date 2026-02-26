@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.orm import object_mapper
 
-from db_helpers import SplitDB
+from src.db_helpers import SplitDB
 
 
 class SplitDBDialog(QDialog):

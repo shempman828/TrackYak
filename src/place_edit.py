@@ -11,9 +11,9 @@ from PySide6.QtWidgets import (
     QPushButton,
 )
 
-from logger_config import logger
-from place_search_dialog import SearchResultsDialog
-from wikipedia_seach import search_wikipedia
+from src.place_search_dialog import SearchResultsDialog
+from src.logger_config import logger
+from src.wikipedia_seach import search_wikipedia
 
 
 class PlaceEditDialog(QDialog):

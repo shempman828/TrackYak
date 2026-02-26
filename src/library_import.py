@@ -10,9 +10,9 @@ from typing import Any, Dict, List
 import psutil
 from PySide6.QtCore import QThread, Signal
 
-import metdata_controller
-from library_import_album import AlbumImporter
-from logger_config import logger
+import src.metdata_controller
+from src.library_import_album import AlbumImporter
+from src.logger_config import logger
 
 
 class TrackImporter:
@@ -47,7 +47,7 @@ class TrackImporter:
             logger.info(f"Processing track: {file_path}")
 
             # Extract metadata using metadata_controller
-            metadata_extractor = metdata_controller.ExtractMetadata()
+            metadata_extractor = src.metdata_controller.ExtractMetadata()
             metadata = metadata_extractor.extract_metadata(file_path)
             if not metadata:
                 logger.error(f"Failed to extract metadata for: {file_path}")

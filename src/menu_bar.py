@@ -4,16 +4,16 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from analysis_dialog import AudioAnalysisDialog
-from asset_paths import icon
-from config_setup import app_config
-from display_dialog import DisplaySettingsDialog
-from equalizer_dialog import EqualizerDialog
-from file_manager_dialog import FileManager
-from import_dialog import ImportDialog
-from player_mini import MiniPlayerWindow
-from player_settings import show_audio_settings_dialog
-from statistics_dialog import MusicStatsDialog
+from src.analysis_dialog import AudioAnalysisDialog
+from src.asset_paths import icon
+from src.config_setup import app_config
+from src.display_dialog import DisplaySettingsDialog
+from src.equalizer_dialog import EqualizerDialog
+from src.file_manager_dialog import FileManager
+from src.import_dialog import ImportDialog
+from src.player_mini import MiniPlayerWindow
+from src.player_settings import show_audio_settings_dialog
+from src.statistics_dialog import MusicStatsDialog
 
 
 class MenuBar:

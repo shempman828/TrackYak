@@ -20,10 +20,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from db_mapping_tracks import TRACK_FIELDS
-from logger_config import logger
-from track_editing_loaders import DataLoaders
-from track_editing_searchers import SearchHandlers
+from src.db_mapping_tracks import TRACK_FIELDS
+from src.logger_config import logger
+from src.track_editing_loaders import DataLoaders
+from src.track_editing_searchers import SearchHandlers
 
 
 class MultiTrackEditDialog(QDialog):

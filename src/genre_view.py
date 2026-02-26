@@ -1,8 +1,8 @@
 from collections import defaultdict
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal, QMimeData
-from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap, QDrag
+from PySide6.QtCore import QMimeData, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QDrag, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -19,11 +19,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from base_merge_dialog import MergeDBDialog
-from base_split_dialog import SplitDBDialog
-from genre_edit import GenreEditDialog
-from genre_tracks import GenreTracksWindow
-from logger_config import logger
+from src.base_merge_dialog import MergeDBDialog
+from src.base_split_dialog import SplitDBDialog
+from src.genre_edit import GenreEditDialog
+from src.genre_tracks import GenreTracksWindow
+from src.logger_config import logger
 
 
 class GenreView(QWidget):

@@ -3,15 +3,15 @@ from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
-from artist_detail_awards import AwardsWidget
-from artist_detail_bio import BioWidget
-from artist_detail_container import SectionContainer
-from artist_detail_credits import CreditsWidget
-from artist_detail_header import HeaderWidget, PlacesWidget
-from artist_detail_influences import InfluencesWidget
-from artist_detail_member import MembershipWidget
-from base_album_widget import ScrollableAlbumFlow
-from logger_config import logger
+from src.artist_detail_awards import AwardsWidget
+from src.artist_detail_bio import BioWidget
+from src.artist_detail_container import SectionContainer
+from src.artist_detail_credits import CreditsWidget
+from src.artist_detail_header import HeaderWidget, PlacesWidget
+from src.artist_detail_influences import InfluencesWidget
+from src.artist_detail_member import MembershipWidget
+from src.base_album_widget import ScrollableAlbumFlow
+from src.logger_config import logger
 
 SECTION_DEFS = [
     # Header section

@@ -90,7 +90,7 @@ class WikipediaImportDialog(QDialog):
 
     def select_image(self):
         """Open image selection dialog"""
-        from wikipedia_seach import select_wikipedia_image
+        from src.wikipedia_seach import select_wikipedia_image
 
         selected_url = select_wikipedia_image(self.images, self)
         if selected_url:
@@ -113,7 +113,7 @@ class WikipediaImportDialog(QDialog):
         # Import image if selected
         if self.selected_image_url:
             # Download and save image locally
-            from wikipedia_seach import download_wikipedia_image
+            from src.wikipedia_seach import download_wikipedia_image
 
             image_bytes = download_wikipedia_image(self.selected_image_url)
 

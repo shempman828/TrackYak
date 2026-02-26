@@ -14,9 +14,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from base_track_playlist_dialog import PlaylistSelectionDialog
-from db_mapping_tracks import TRACK_FIELDS
-from logger_config import logger
+from src.base_track_playlist_dialog import PlaylistSelectionDialog
+from src.db_mapping_tracks import TRACK_FIELDS
+from src.logger_config import logger
 
 
 class BaseTrackView(QDialog):

@@ -22,8 +22,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from metadata_writer import MetadataWriter, WriteMode
-from status_utility import StatusManager
+from src.metadata_writer import MetadataWriter, WriteMode
+from src.status_utility import StatusManager
 
 
 class MetadataScannerWorker(QThread):

@@ -13,9 +13,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from logger_config import logger
-from track_edit import TrackEditDialog
-from track_editing_multiple import MultiTrackEditDialog
+from src.logger_config import logger
+from src.track_edit import TrackEditDialog
+from src.track_editing_multiple import MultiTrackEditDialog
 
 
 class QueueDockWidget(QWidget):

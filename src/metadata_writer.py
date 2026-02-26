@@ -8,9 +8,8 @@ import struct
 from enum import Enum
 from typing import Any, Dict, List, Tuple
 
-from logger_config import logger
-from metadata_id3_writer import ID3TagWriter
-from metadata_mapping import (
+from src.metadata_id3_writer import ID3TagWriter
+from src.metadata_mapping import (
     ID3_ALBUM_MAPPINGS,
     ID3_DATE_MAPPINGS,
     ID3_DISC_MAPPINGS,
@@ -20,8 +19,9 @@ from metadata_mapping import (
     ID3_SPECIAL_MAPPINGS,
     ID3_TRACK_MAPPINGS,
 )
-from metadata_writer_vorbis import VorbisCommentWriter
-from status_utility import StatusManager
+from src.metadata_writer_vorbis import VorbisCommentWriter
+from src.logger_config import logger
+from src.status_utility import StatusManager
 
 
 class WriteMode(Enum):

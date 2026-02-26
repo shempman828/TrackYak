@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
 )
 
-from logger_config import logger
+from src.logger_config import logger
 
 
 class RelationshipHelpers:

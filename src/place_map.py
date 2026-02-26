@@ -15,9 +15,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from logger_config import logger
-from place_assoc_details import AssociationDetailsDialog
-from place_map_filter import MultiSelectWidget
+from src.place_assoc_details import AssociationDetailsDialog
+from src.place_map_filter import MultiSelectWidget
+from src.logger_config import logger
 
 
 class MapView(QWidget):

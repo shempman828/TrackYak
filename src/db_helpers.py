@@ -5,11 +5,11 @@ from sqlalchemy import create_engine, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import scoped_session, sessionmaker
 
-import db_tables
-from logger_config import logger
+import src.db_tables
+from src.logger_config import logger
 
-# Iterate over everything in db_tables
-for name, obj in inspect.getmembers(db_tables):
+# Iterate over everything in src.db_tables
+for name, obj in inspect.getmembers(src.db_tables):
     # Only import classes (filter by type)
     if inspect.isclass(obj):
         globals()[name] = obj
@@ -174,7 +174,7 @@ class GetFromDB(BaseDBHelper):
             for album_id, album_name in candidate_albums:
                 # Get all album artists (role_id=1) for this album
                 # Use direct table reference to avoid relationship issues
-                from db_tables import AlbumRoleAssociation
+                from src.db_tables import AlbumRoleAssociation
 
                 artist_stmt = select(AlbumRoleAssociation.artist_id).where(
                     AlbumRoleAssociation.album_id == album_id,
@@ -493,7 +493,7 @@ class SplitDB(BaseDBHelper):
         """Split one publisher into N publishers, matching to existing when possible."""
         logger.debug(f"Splitting publisher {publisher_id} into publishers: {new_names}")
 
-        original_publisher = self.session.get(db_tables.Publisher, publisher_id)
+        original_publisher = self.session.get(src.db_tables.Publisher, publisher_id)
         if not original_publisher:
             logger.error(f"Publisher with ID {publisher_id} not found")
             return False
@@ -505,8 +505,8 @@ class SplitDB(BaseDBHelper):
             for name in new_names:
                 # Check if publisher with this name already exists
                 existing_publisher = self.session.scalar(
-                    select(db_tables.Publisher).where(
-                        db_tables.Publisher.publisher_name == name
+                    select(src.db_tables.Publisher).where(
+                        src.db_tables.Publisher.publisher_name == name
                     )
                 )
 
@@ -518,7 +518,7 @@ class SplitDB(BaseDBHelper):
                     new_publishers.append(existing_publisher)
                 else:
                     # Create new publisher
-                    new_pub = db_tables.Publisher(
+                    new_pub = src.db_tables.Publisher(
                         publisher_name=name,
                         description=original_publisher.description,
                         logo_path=original_publisher.logo_path,
@@ -551,7 +551,7 @@ class SplitDB(BaseDBHelper):
                 for album_id in album_ids:
                     if album_id not in existing_album_ids:
                         # Create association only if it doesn't already exist
-                        new_assoc = db_tables.AlbumPublisher(
+                        new_assoc = src.db_tables.AlbumPublisher(
                             album_id=album_id, publisher_id=new_pub.publisher_id
                         )
                         self.session.add(new_assoc)
@@ -578,7 +578,7 @@ class SplitDB(BaseDBHelper):
         """Split one artist into N artists, duplicating relationships."""
         logger.debug(f"Splitting artist {artist_id} into {len(new_names)} artists")
 
-        original_artist = self.session.get(db_tables.Artist, artist_id)
+        original_artist = self.session.get(src.db_tables.Artist, artist_id)
         if not original_artist:
             logger.error(f"Artist with ID {artist_id} not found")
             return False
@@ -588,7 +588,7 @@ class SplitDB(BaseDBHelper):
 
             # Create new artists
             for name in new_names:
-                new_artist = db_tables.Artist(
+                new_artist = src.db_tables.Artist(
                     artist_name=name,
                 )
                 self.session.add(new_artist)
@@ -599,7 +599,7 @@ class SplitDB(BaseDBHelper):
             # Duplicate track artist roles
             for track_role in original_artist.track_roles:
                 for new_artist in new_artists:
-                    new_role = db_tables.TrackArtistRole(
+                    new_role = src.db_tables.TrackArtistRole(
                         track_id=track_role.track_id,
                         artist_id=new_artist.artist_id,
                         role_id=track_role.role_id,
@@ -609,7 +609,7 @@ class SplitDB(BaseDBHelper):
             # Duplicate album roles
             for album_role in original_artist.album_roles:
                 for new_artist in new_artists:
-                    new_album_role = db_tables.AlbumRoleAssociation(
+                    new_album_role = src.db_tables.AlbumRoleAssociation(
                         album_id=album_role.album_id,
                         artist_id=new_artist.artist_id,
                         role_id=album_role.role_id,
@@ -634,7 +634,7 @@ class SplitDB(BaseDBHelper):
         """Split one genre into N genres, duplicating relationships."""
         logger.debug(f"Splitting genre {genre_id} into {len(new_names)} genres")
 
-        original_genre = self.session.get(db_tables.Genre, genre_id)
+        original_genre = self.session.get(src.db_tables.Genre, genre_id)
         if not original_genre:
             logger.error(f"Genre with ID {genre_id} not found")
             return False
@@ -644,7 +644,7 @@ class SplitDB(BaseDBHelper):
 
             # Create new genres
             for name in new_names:
-                new_genre = db_tables.Genre(
+                new_genre = src.db_tables.Genre(
                     genre_name=name,
                     description=original_genre.description,
                     parent_id=original_genre.parent_id,
@@ -658,7 +658,7 @@ class SplitDB(BaseDBHelper):
             for track_genre in original_genre.tracks:
                 for new_genre in new_genres:
                     # Use the association table directly
-                    assoc = db_tables.TrackGenre(
+                    assoc = src.db_tables.TrackGenre(
                         track_id=track_genre.track_id, genre_id=new_genre.genre_id
                     )
                     self.session.add(assoc)
@@ -687,7 +687,7 @@ class SplitDB(BaseDBHelper):
         """Split one mood into N moods, duplicating relationships."""
         logger.debug(f"Splitting mood {mood_id} into {len(new_names)} moods")
 
-        original_mood = self.session.get(db_tables.Mood, mood_id)
+        original_mood = self.session.get(src.db_tables.Mood, mood_id)
         if not original_mood:
             logger.error(f"Mood with ID {mood_id} not found")
             return False
@@ -697,7 +697,7 @@ class SplitDB(BaseDBHelper):
 
             # Create new moods
             for name in new_names:
-                new_mood = db_tables.Mood(
+                new_mood = src.db_tables.Mood(
                     mood_name=name,
                     mood_description=original_mood.mood_description,
                     parent_id=original_mood.parent_id,
@@ -710,7 +710,7 @@ class SplitDB(BaseDBHelper):
             # Duplicate mood-track associations
             for mood_track in original_mood.mood_tracks:
                 for new_mood in new_moods:
-                    new_assoc = db_tables.MoodTrackAssociation(
+                    new_assoc = src.db_tables.MoodTrackAssociation(
                         mood_id=new_mood.mood_id, track_id=mood_track.track_id
                     )
                     self.session.add(new_assoc)
@@ -733,7 +733,7 @@ class SplitDB(BaseDBHelper):
         """Split one role into N roles, duplicating relationships."""
         logger.debug(f"Splitting role {role_id} into {len(new_names)} roles")
 
-        original_role = self.session.get(db_tables.Role, role_id)
+        original_role = self.session.get(src.db_tables.Role, role_id)
         if not original_role:
             logger.error(f"Role with ID {role_id} not found")
             return False
@@ -743,7 +743,7 @@ class SplitDB(BaseDBHelper):
 
             # Create new roles
             for name in new_names:
-                new_role = db_tables.Role(
+                new_role = src.db_tables.Role(
                     role_name=name,
                     role_description=original_role.role_description,
                     role_type=original_role.role_type,
@@ -758,7 +758,7 @@ class SplitDB(BaseDBHelper):
             # Duplicate track artist roles
             for track_role in original_role.track_roles:
                 for new_role in new_roles:
-                    new_track_role = db_tables.TrackArtistRole(
+                    new_track_role = src.db_tables.TrackArtistRole(
                         track_id=track_role.track_id,
                         artist_id=track_role.artist_id,
                         role_id=new_role.role_id,
@@ -768,7 +768,7 @@ class SplitDB(BaseDBHelper):
             # Duplicate album role associations
             for album_role in original_role.album_roles:
                 for new_role in new_roles:
-                    new_album_role = db_tables.AlbumRoleAssociation(
+                    new_album_role = src.db_tables.AlbumRoleAssociation(
                         album_id=album_role.album_id,
                         artist_id=album_role.artist_id,
                         role_id=new_role.role_id,

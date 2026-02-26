@@ -1,6 +1,6 @@
 import struct
 
-from logger_config import logger
+from src.logger_config import logger
 
 
 class AudioPropertiesExtractor:

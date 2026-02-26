@@ -1,13 +1,7 @@
-from PySide6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
-from base_track_view import BaseTrackView
-from logger_config import logger
+from src.base_track_view import BaseTrackView
+from src.logger_config import logger
 
 
 class GenreTracksWindow(QDialog):

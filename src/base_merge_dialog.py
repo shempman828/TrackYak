@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from logger_config import logger
+from src.logger_config import logger
 
 
 class MergeDBDialog(QDialog):

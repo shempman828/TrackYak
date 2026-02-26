@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from config_setup import Config
+from src.config_setup import Config
 
 
 class ConfigDialog(QDialog):

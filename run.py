@@ -11,18 +11,18 @@ import traceback
 from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
-from config_setup import Config
-from db_defaults import Defaults
-from db_tables import MusicDatabase
-from display_settings import DisplaySettings
-from logger_config import logger
+from src.config_setup import Config
+from src.db_defaults import Defaults
+from src.db_tables import MusicDatabase
+from src.display_settings import DisplaySettings
+from src.logger_config import logger
 from src.music_controller import MusicController
-from player_mpris2 import MPRIS2Player
-from splash_screen import StartupSplash
-from startup_dialog import StartupDialog
+from src.player_mpris2 import MPRIS2Player
+from src.splash_screen import StartupSplash
+from src.startup_dialog import StartupDialog
 
 try:
-    from main_window import GUI
+    from src.main_window import GUI
 except ImportError as ie:
     logger.error(f"Missing required module: {ie}")
     sys.exit(1)

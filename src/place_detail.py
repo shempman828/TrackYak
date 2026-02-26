@@ -9,8 +9,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from logger_config import logger
-from place_edit import PlaceEditDialog
+from src.place_edit import PlaceEditDialog
+from src.logger_config import logger
 
 
 class PlaceDetailView(QDialog):

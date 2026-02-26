@@ -17,9 +17,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from award_relationship_dialog import AwardRelationshipDialog
-from logger_config import logger
-from wikipedia_seach import search_wikipedia
+from src.award_relationship_dialog import AwardRelationshipDialog
+from src.logger_config import logger
+from src.wikipedia_seach import search_wikipedia
 
 
 class AwardDetailTab(QWidget):

@@ -14,8 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from logger_config import logger
-from mood_dialog import MoodDialog
+from src.mood_dialog import MoodDialog
+from src.logger_config import logger
 
 
 class MoodView(QWidget):

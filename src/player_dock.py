@@ -14,11 +14,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from asset_paths import icon
-from config_setup import app_config
-from logger_config import logger
-from rating_widget import RatingStarsWidget
-from track_edit import TrackEditDialog
+from src.config_setup import app_config
+from src.rating_widget import RatingStarsWidget
+from src.asset_paths import icon
+from src.logger_config import logger
+from src.track_edit import TrackEditDialog
 
 
 class PlayerUI(QWidget):

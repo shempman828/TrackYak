@@ -1,19 +1,17 @@
-from PySide6.QtCore import (
-    Qt,
-)
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
-    QListWidget,
-    QListWidgetItem,
 )
 
-from logger_config import logger
+from src.logger_config import logger
 
 
 class ColumnCustomizationDialog(QDialog):

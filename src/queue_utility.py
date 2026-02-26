@@ -3,8 +3,8 @@ from typing import List, Optional
 
 from PySide6.QtCore import QObject, Signal  # Add these
 
-from db_tables import Track
-from logger_config import logger
+from src.db_tables import Track
+from src.logger_config import logger
 
 
 class QueueManager(QObject):

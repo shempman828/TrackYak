@@ -14,8 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from db_mapping_albums import ALBUM_FIELDS
-from logger_config import logger
+from src.db_mapping_albums import ALBUM_FIELDS
+from src.logger_config import logger
 
 
 class AlbumTabBuilder:

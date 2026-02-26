@@ -13,11 +13,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from logger_config import logger
-from place_assoc_details import AssociationDetailsDialog
-from place_detail import PlaceDetailView
-from place_edit import PlaceEditDialog
-from place_html import HtmlDelegate
+from src.place_assoc_details import AssociationDetailsDialog
+from src.place_detail import PlaceDetailView
+from src.place_edit import PlaceEditDialog
+from src.place_html import HtmlDelegate
+from src.logger_config import logger
 
 
 class ListView(QWidget):

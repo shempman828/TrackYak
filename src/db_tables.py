@@ -24,7 +24,7 @@ from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import backref, declarative_base, relationship, sessionmaker
 
-from logger_config import logger
+from src.logger_config import logger
 
 Base = declarative_base()
 

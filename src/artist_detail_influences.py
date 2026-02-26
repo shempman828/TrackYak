@@ -8,8 +8,8 @@ from typing import Any, List
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
 
-from db_tables import Artist
-from logger_config import logger
+from src.db_tables import Artist
+from src.logger_config import logger
 
 
 class InfluencesWidget(QWidget):

@@ -1,5 +1,5 @@
-from db_tables import Place, Role
-from logger_config import logger
+from src.db_tables import Place, Role
+from src.logger_config import logger
 
 
 class Defaults:

@@ -8,8 +8,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from place_list import ListView
-from place_map import MapView
+from src.place_list import ListView
+from src.place_map import MapView
 
 
 class PlaceView(QWidget):

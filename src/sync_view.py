@@ -26,10 +26,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from db_helpers import Session
-from logger_config import logger
-from status_utility import StatusManager
-from sync_utility import (
+from src.db_helpers import Session
+from src.logger_config import logger
+from src.status_utility import StatusManager
+from src.sync_utility import (
     MtpDevice,
     MtpManager,
     SyncManager,

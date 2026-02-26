@@ -3,31 +3,32 @@ Image Search Tool
 A plug-and-play solution for image search with reliable open-source methods.
 """
 
-import requests
-import time
-import random
 import io
+import random
+import time
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
-from typing import List, Dict, Optional, Tuple
-from PIL import Image
-from logger_config import logger
 
+import requests
+from PIL import Image
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QDialog,
-    QVBoxLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
+    QProgressBar,
+    QProgressDialog,
     QPushButton,
     QScrollArea,
+    QVBoxLayout,
     QWidget,
-    QGridLayout,
-    QMessageBox,
-    QProgressDialog,
-    QProgressBar,
 )
-from PySide6.QtGui import QPixmap
-from PySide6.QtCore import Qt, QThread, Signal
+
+from src.logger_config import logger
 
 
 class ImageSearch:

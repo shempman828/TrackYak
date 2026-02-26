@@ -21,8 +21,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from award_detail import AwardDetailTab
-from logger_config import logger
+from src.award_detail import AwardDetailTab
+from src.logger_config import logger
 
 
 class AwardView(QWidget):

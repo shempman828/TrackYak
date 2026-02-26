@@ -12,9 +12,9 @@ from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QThread, Signal
 
-from db_helpers import GetFromDB
-from logger_config import logger
-from status_utility import StatusManager
+from src.db_helpers import GetFromDB
+from src.logger_config import logger
+from src.status_utility import StatusManager
 
 # ---------------------------------------------------------------------------
 # MTP back-end availability checks
@@ -522,7 +522,7 @@ class SyncProfileStore:
 
     def __init__(self, profiles_path: Optional[str] = None):
         if profiles_path is None:
-            from asset_paths import config as asset_config
+            from src.asset_paths import config as asset_config
 
             profiles_path = str(
                 Path(asset_config("config.ini")).parent / "sync_profiles.json"

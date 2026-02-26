@@ -1,7 +1,8 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from logger_config import logger
+
+from src.logger_config import logger
 
 
 class GraphCache:

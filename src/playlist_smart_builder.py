@@ -5,10 +5,11 @@ Builds smart playlists by evaluating criteria and adding matching tracks.
 """
 
 import datetime
-from typing import List, Dict, Any, Set
+from typing import Any, Dict, List, Set
+
 from sqlalchemy.exc import SQLAlchemyError
 
-from logger_config import logger
+from src.logger_config import logger
 
 
 class SmartPlaylistBuilder:

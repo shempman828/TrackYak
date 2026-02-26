@@ -14,8 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from asset_paths import icon
-from logger_config import logger
+from src.asset_paths import icon
+from src.logger_config import logger
 
 
 class MiniPlayerWindow(QWidget):

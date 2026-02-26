@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from logger_config import logger
+from src.logger_config import logger
 
 
 class AudioSettingsDialog(QDialog):
