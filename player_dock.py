@@ -1,9 +1,8 @@
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QIcon, QKeySequence, QShortcut
+from PySide6.QtGui import QIcon, QKeySequence, QShortcut, QAction
 from PySide6.QtWidgets import (
-    QAction,
     QDockWidget,
     QHBoxLayout,
     QLabel,
