@@ -171,6 +171,7 @@ class MusicPlayer(QObject):
 
     def play(self):
         """Start or resume playback."""
+        logger.debug(f"play() ENTER at {time.time():.3f}")
         if self.sd is None:
             if not self._initialize_audio_backend():
                 self.error_occurred.emit("Audio backend not available.")
@@ -226,6 +227,7 @@ class MusicPlayer(QObject):
             self.state_changed.emit("playing")
             self._position_timer.start()
             logger.info(f"Playback started: {self.current_file.name}")
+            logger.debug(f"play() EXIT at {time.time():.3f}")
 
         except Exception as exc:
             msg = f"Playback error: {exc}"
@@ -836,9 +838,6 @@ class MusicPlayer(QObject):
         # Add a small guard to prevent updates during track transition
         if self._is_advancing:
             return
-        logger.debug(
-            f"_update_position tick at {time.time():.3f}, frame={self._current_frame}, is_advancing={self._is_advancing}"
-        )
         self._position = int(self._current_frame / self.current_sample_rate * 1000)
         self.position_changed.emit(self._position)
 

@@ -273,9 +273,6 @@ class PlayerUI(QWidget):
         # Enable ALL features for maximum flexibility
         dock.setFeatures(QDockWidget.DockWidgetMovable)
 
-        # Connect track change signal
-        self.player.track_changed.connect(self._update_track_display)
-
         return dock
 
     def _update_track_display(self, file_path: Path):
