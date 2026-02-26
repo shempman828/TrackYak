@@ -473,6 +473,11 @@ class Track(Base):
         seconds = int(self.duration) % 60
         return f"{minutes}:{seconds:02d}"
 
+    @property
+    def album_MBID(self):
+        """Return the MusicBrainz ID of the album, if available."""
+        return self.album.MBID if self.album and self.album.MBID else None
+
 
 class AlbumVirtualTrack(Base):
     """This table allows albums to borrow tracks from other albums"""
