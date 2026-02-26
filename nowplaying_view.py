@@ -66,6 +66,7 @@ class _BlurredBackdrop(QWidget):
 
     def set_pixmap(self, pixmap: QPixmap | None):
         self._pixmap = pixmap
+        self._scaled_cache: QPixmap | None = None  # Invalidate cache on new image
         self.update()
 
     def paintEvent(self, event):
@@ -73,28 +74,31 @@ class _BlurredBackdrop(QWidget):
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
         w, h = self.width(), self.height()
 
-        # Deep background
         painter.fillRect(0, 0, w, h, QColor("#080a0f"))
 
         if self._pixmap and not self._pixmap.isNull() and self._opacity > 0:
-            # Scale to fill
-            scaled = self._pixmap.scaled(
-                w, h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
-            )
-            x = (w - scaled.width()) // 2
-            y = (h - scaled.height()) // 2
+            # Only re-scale if the widget size changed or cache is empty
+            if (
+                not hasattr(self, "_scaled_cache")
+                or self._scaled_cache is None
+                or self._scaled_cache.width() != w
+                or self._scaled_cache.height() != h
+            ):
+                self._scaled_cache = self._pixmap.scaled(
+                    w, h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+                )
 
+            x = (w - self._scaled_cache.width()) // 2
+            y = (h - self._scaled_cache.height()) // 2
             painter.setOpacity(self._opacity * 0.38)
-            painter.drawPixmap(x, y, scaled)
+            painter.drawPixmap(x, y, self._scaled_cache)
             painter.setOpacity(1.0)
 
-        # Gradient vignette — darkens edges and bottom
         grad = QLinearGradient(0, 0, 0, h)
         grad.setColorAt(0.0, QColor(8, 10, 15, 200))
         grad.setColorAt(0.45, QColor(8, 10, 15, 80))
         grad.setColorAt(1.0, QColor(8, 10, 15, 240))
         painter.fillRect(0, 0, w, h, grad)
-
         painter.end()
 
 
@@ -111,6 +115,7 @@ class _ArtCard(QLabel):
 
     def set_art(self, pixmap: QPixmap | None):
         self._art = pixmap
+        self._art_cache: QPixmap | None = None  # Invalidate cache on new image
         self.update()
 
     def paintEvent(self, event):
@@ -136,12 +141,17 @@ class _ArtCard(QLabel):
             clip.addRoundedRect(x, y, side, side, r, r)
             painter.setClipPath(clip)
 
-            scaled = self._art.scaled(
-                side, side, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
-            )
-            sx = (side - scaled.width()) // 2
-            sy = (side - scaled.height()) // 2
-            painter.drawPixmap(x + sx, y + sy, scaled)
+            if (
+                not hasattr(self, "_art_cache")
+                or self._art_cache is None
+                or self._art_cache.width() != side
+            ):
+                self._art_cache = self._art.scaled(
+                    side, side, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+                )
+            sx = (side - self._art_cache.width()) // 2
+            sy = (side - self._art_cache.height()) // 2
+            painter.drawPixmap(x + sx, y + sy, self._art_cache)
 
             # Thin border
             painter.setClipping(False)

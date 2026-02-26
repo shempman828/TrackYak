@@ -100,7 +100,6 @@ class QueueManager(QObject):
         if not self.queue:
             return
 
-        t1 = time.time()
         if not self.history_exists:
             if len(self.queue) > 1:
                 self.history_exists = True

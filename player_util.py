@@ -1,16 +1,6 @@
 """
 player_util.py — MusicPlayer
 Streaming music playback engine.
-
-Design principles:
-  - Audio is streamed in chunks from disk — the whole file is NEVER loaded into RAM.
-    A 5-minute FLAC that used to cost ~100 MB now costs ~32 KB (one read buffer).
-  - The next track's file is opened in a background thread while the current track
-    plays, so it is ready the instant the current one ends — eliminating the gap.
-  - The audio callback NEVER touches Qt objects directly — it only emits a
-    queued Signal (_track_finished) which Qt safely delivers to the main thread.
-  - Gain/normalization is calculated ONCE at load time, never per-callback.
-  - All public methods are safe to call from the UI thread at any time.
 """
 
 import threading
@@ -22,7 +12,6 @@ from typing import Optional
 import numpy as np
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from asset_paths import config
 from config_setup import app_config
 from equalizer_utility import EqualizerUtility
 from logger_config import logger
@@ -52,34 +41,6 @@ class MusicPlayer(QObject):
     """
     Streaming music player.  Reads audio from disk in small chunks so RAM usage
     stays flat regardless of file size or library size.
-
-    Public signals:
-        position_changed(int)         — current position in ms
-        duration_changed(int)         — total duration in ms
-        state_changed(str)            — "playing" | "paused" | "stopped"
-        volume_changed(int)           — volume 0-100
-        error_occurred(str)           — human-readable error
-        track_changed(Path)           — Path of the newly loaded track
-        play_count_updated(Path, int) — path + new play count after threshold
-        audio_device_changed(str)     — name of newly selected audio device
-        playback_mode_changed(str)    — "exclusive" | "shared"
-
-    Public methods:
-        play(), pause(), stop()
-        play_next(), play_previous()
-        seek(position_ms)
-        set_volume(value)
-        set_repeat_mode(mode)         — 0=none, 1=one, 2=all
-        toggle_play_pause()
-        increase_volume(), decrease_volume()
-        seek_forward(), seek_backward()
-        load_track(file_path) -> bool
-        enable_normalization(enabled)
-        set_normalization_target(target_lufs)
-        set_exclusive_mode(enabled)
-        set_audio_device(device_name)
-        get_audio_devices() -> list
-        cleanup()
     """
 
     # ── Signals ───────────────────────────────────────────────────────────────
@@ -164,7 +125,7 @@ class MusicPlayer(QObject):
 
         self._is_advancing: bool = False
         self._stream_generation: int = 0
-        self._finish_pending: bool = False
+        self._finish_pending = threading.Event()  # thread-safe flag for end-of-stream
 
         # ── Volume ────────────────────────────────────────────────────────────
         self.volume_level: int = app_config.get_volume()
@@ -242,7 +203,7 @@ class MusicPlayer(QObject):
             self._close_stream()
             self._stream_generation += 1
             my_generation = self._stream_generation
-            self._finish_pending = False
+            self._finish_pending.clear()
 
             device_config = self._get_device_config()
 
@@ -445,7 +406,6 @@ class MusicPlayer(QObject):
                     new_sr = self._next_sample_rate
                     new_ch = self._next_channels
                     new_frames = self._next_total_frames
-                    new_gain = self._next_gain_factor
                     self._next_sf_reader = None
                     self._next_file = None
                     self._next_sample_rate = 0
@@ -458,17 +418,23 @@ class MusicPlayer(QObject):
                     new_sr = new_reader.samplerate
                     new_ch = new_reader.channels
                     new_frames = len(new_reader)
-                    new_gain = 1.0  # Will be recalculated below
 
             # Close previous reader
+            old_reader = None
             with self._reader_lock:
-                if self._sf_reader is not None:
-                    try:
-                        self._sf_reader.close()
-                    except Exception:
-                        pass
-                self._sf_reader = new_reader
+                old_reader = self._sf_reader  # grab the old ref
+                self._sf_reader = new_reader  # atomically swap in the new one
                 self._current_frame = 0
+                self.current_sample_rate = new_sr
+                self.current_channels = new_ch
+                self._total_frames = new_frames
+
+            # Now close the old reader outside the lock (no callback can reach it)
+            if old_reader is not None:
+                try:
+                    old_reader.close()
+                except Exception:
+                    pass
                 self.current_sample_rate = new_sr
                 self.current_channels = new_ch
                 self._total_frames = new_frames
@@ -694,13 +660,11 @@ class MusicPlayer(QObject):
                 return {
                     "device": self.current_device,
                     "latency": "low",
-                    "blocksize": BLOCKSIZE,
                 }
 
             return {
                 "device": self.current_device,
                 "latency": "high",
-                "blocksize": BLOCKSIZE,
                 "clip_off": True,
             }
         except Exception as exc:
@@ -731,9 +695,10 @@ class MusicPlayer(QObject):
     # =========================================================================
 
     def _emit_track_finished_once(self):
-        """Emit _track_finished exactly once per stream lifetime (callback-safe)."""
-        if not self._finish_pending:
-            self._finish_pending = True
+        """Emit _track_finished exactly once per stream lifetime (callback-safe).
+        Uses a threading.Event so the check-and-set is atomic across threads."""
+        if not self._finish_pending.is_set():
+            self._finish_pending.set()
             self._track_finished.emit()
 
     def _audio_callback(
@@ -759,20 +724,38 @@ class MusicPlayer(QObject):
             return
 
         try:
+            # ── Narrow lock: only grab what we need, release before disk read ─
             with self._reader_lock:
                 frames_remaining = self._total_frames - self._current_frame
-
                 if frames_remaining <= 0:
                     outdata.fill(0)
                     self._emit_track_finished_once()
                     return
-
                 to_read = min(frames, frames_remaining)
-                # Read directly from the file — this is the streaming step.
-                # soundfile reads are fast (kernel buffer cache usually has
-                # the data already) and do NOT block the GIL.
-                chunk = self._sf_reader.read(to_read, dtype="float32", always_2d=True)
-                self._current_frame += len(chunk)
+                reader_snapshot = self._sf_reader  # grab reference while locked
+
+            # ── Disk read happens OUTSIDE the lock ────────────────────────────
+            # This is safe because:
+            #   - reader_snapshot is a local reference; load_track() replaces
+            #     self._sf_reader atomically under _reader_lock, it doesn't
+            #     mutate the old reader object.
+            #   - seek() acquires _reader_lock so it cannot race with us here.
+            #   - If the stream generation has changed by the time we get back,
+            #     the generation check at the top of the next callback call
+            #     will discard the stale output.
+            if reader_snapshot is None:
+                outdata.fill(0)
+                return
+            chunk = reader_snapshot.read(to_read, dtype="float32", always_2d=True)
+
+            # ── Update frame counter under lock ───────────────────────────────
+            with self._reader_lock:
+                if self._sf_reader is reader_snapshot:  # still the same track
+                    self._current_frame += len(chunk)
+                else:
+                    # Track changed mid-read — output silence and bail
+                    outdata.fill(0)
+                    return
 
             # ── Apply gain (volume × normalization) ───────────────────────────
             effective_gain = self._gain_factor * (self.volume_level / 100.0)
@@ -798,11 +781,17 @@ class MusicPlayer(QObject):
 
     def _handle_playback_finished(self):
         """Called on the main thread when the current track ends."""
+        logger.debug(f"_handle_playback_finished called at {time.time()}")
         if self._is_advancing:
+            # Signal arrived while a transition was already in progress.
+            # Retry once after the lock releases rather than silently dropping it.
+            logger.warning(
+                "_handle_playback_finished: _is_advancing=True, retrying in 600ms"
+            )
+            QTimer.singleShot(ADVANCE_LOCK_MS + 100, self._handle_playback_finished)
             return
 
         if self.repeat_mode == 1:
-            # Repeat-one: seek back to start and keep playing
             self.seek(0)
             self.play()
         else:
