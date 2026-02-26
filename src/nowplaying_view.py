@@ -431,59 +431,63 @@ class NowPlayingView(QWidget):
     # ── public API ────────────────────────────────────────────────────────
 
     def updateUI(self, track):
-        """Populate all widgets from a track ORM object."""
         try:
             if not track:
                 self.clearUI()
                 return
+            import time
 
+            t0 = time.time()
             logger.info(f"NowPlayingView.updateUI: {getattr(track, 'track_name', '?')}")
 
-            # ── title
             title = getattr(track, "track_name", None) or "Unknown Title"
             self._title_lbl.setText(title)
 
-            # ── artist
+            t1 = time.time()
             artists = getattr(track, "artists", None) or []
             artist_name = ""
             if artists:
                 artist_name = getattr(artists[0], "artist_name", "") or ""
             self._artist_lbl.setText(artist_name or "—")
+            logger.debug(f"updateUI: artists took {time.time() - t1:.3f}s")
 
-            # ── album
+            t2 = time.time()
             album = getattr(track, "album", None)
             album_name = ""
             if album:
                 album_name = getattr(album, "album_name", "") or ""
             self._album_lbl.setText(album_name or "—")
+            logger.debug(f"updateUI: album took {time.time() - t2:.3f}s")
 
-            # ── chips
+            t3 = time.time()
             self._update_chips(track)
+            logger.debug(f"updateUI: chips took {time.time() - t3:.3f}s")
 
-            # ── lyrics
+            t4 = time.time()
             lyrics = getattr(track, "lyrics", None)
             if lyrics and lyrics.strip():
                 self._lyrics_lbl.setText(lyrics)
-                self._lyrics_section_lbl.setVisible(True)
-                self._lyrics_area.setVisible(True)
             else:
                 self._lyrics_lbl.setText("No lyrics available.")
-                self._lyrics_section_lbl.setVisible(True)
-                self._lyrics_area.setVisible(True)
+            self._lyrics_section_lbl.setVisible(True)
+            self._lyrics_area.setVisible(True)
+            logger.debug(f"updateUI: lyrics took {time.time() - t4:.3f}s")
 
-            # ── album art
-            art_path: Path | None = None
+            t5 = time.time()
+            art_path = None
             if album:
                 art_str = getattr(album, "front_cover_path", "") or ""
                 if art_str:
                     art_path = Path(art_str)
-
             if art_path and art_path.exists():
                 self._load_art(QPixmap(str(art_path)))
             elif self.default_art_path and Path(self.default_art_path).exists():
                 self._load_art(QPixmap(self.default_art_path))
             else:
                 self._load_art(None)
+            logger.debug(f"updateUI: art took {time.time() - t5:.3f}s")
+
+            logger.debug(f"updateUI: TOTAL took {time.time() - t0:.3f}s")
 
         except Exception as e:
             logger.error(

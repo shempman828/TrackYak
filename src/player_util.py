@@ -14,8 +14,8 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from src.config_setup import app_config
 from src.equalizer_utility import EqualizerUtility
-from src.queue_utility import QueueManager
 from src.logger_config import logger
+from src.queue_utility import QueueManager
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Constants
@@ -692,21 +692,26 @@ class MusicPlayer(QObject):
                 self.audio_stream = None
 
     def _close_stream_async(self):
-        """Close the current audio stream on a background thread.
-
-        Used during natural track-end transitions to avoid blocking the main
-        thread while sounddevice waits for the callback to finish.
-        """
         stream_to_close = self.audio_stream
-        self.audio_stream = None  # Main thread no longer owns it
+        self.audio_stream = None
         if stream_to_close is not None:
 
             def _do_close():
+                t_start = time.time()
+                logger.debug(f"_close_stream_async: stop() BEGIN at {t_start}")
                 try:
                     stream_to_close.stop()
+                    logger.debug(
+                        f"_close_stream_async: stop() DONE, took {time.time() - t_start:.3f}s"
+                    )
                     stream_to_close.close()
-                except Exception:
-                    pass
+                    logger.debug(
+                        f"_close_stream_async: close() DONE, total {time.time() - t_start:.3f}s"
+                    )
+                except Exception as e:
+                    logger.debug(
+                        f"_close_stream_async: exception {e} after {time.time() - t_start:.3f}s"
+                    )
 
             threading.Thread(target=_do_close, daemon=True, name="StreamClose").start()
 
@@ -742,7 +747,7 @@ class MusicPlayer(QObject):
           - Keep it fast — this runs in real-time.
         """
         if status:
-            logger.warning(f"Audio callback status: {status}")
+            logger.warning(f"Audio callback status: {status} (generation={generation})")
 
         if generation != self._stream_generation:
             outdata.fill(0)
@@ -762,16 +767,6 @@ class MusicPlayer(QObject):
                     return
                 to_read = min(frames, frames_remaining)
                 reader_snapshot = self._sf_reader  # grab reference while locked
-
-            # ── Disk read happens OUTSIDE the lock ────────────────────────────
-            # This is safe because:
-            #   - reader_snapshot is a local reference; load_track() replaces
-            #     self._sf_reader atomically under _reader_lock, it doesn't
-            #     mutate the old reader object.
-            #   - seek() acquires _reader_lock so it cannot race with us here.
-            #   - If the stream generation has changed by the time we get back,
-            #     the generation check at the top of the next callback call
-            #     will discard the stale output.
             if reader_snapshot is None:
                 outdata.fill(0)
                 return
@@ -827,6 +822,7 @@ class MusicPlayer(QObject):
             self.play_next()
 
     def _release_advance_lock(self):
+        logger.debug(f"_release_advance_lock called at {time.time():.3f}")
         self._is_advancing = False
 
     # =========================================================================
@@ -840,7 +836,9 @@ class MusicPlayer(QObject):
         # Add a small guard to prevent updates during track transition
         if self._is_advancing:
             return
-
+        logger.debug(
+            f"_update_position tick at {time.time():.3f}, frame={self._current_frame}, is_advancing={self._is_advancing}"
+        )
         self._position = int(self._current_frame / self.current_sample_rate * 1000)
         self.position_changed.emit(self._position)
 

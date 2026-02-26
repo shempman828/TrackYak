@@ -318,21 +318,9 @@ class GUI(QMainWindow, MenuBar):
                 "Track", track_file_path=str(file_path)
             )
             if track:
-                logger.info(
-                    f"Track found: {getattr(track, 'title', getattr(track, 'track_name', 'Unknown'))}"
-                )
                 self.now_playing.updateUI(track)
             else:
                 logger.warning(f"Track not found in database: {file_path}")
-                filename = file_path.name
-                tracks = self.controller.get.get_all_entities("Track")
-                for t in tracks:
-                    if hasattr(t, "track_file_path") and filename in str(
-                        t.track_file_path
-                    ):
-                        self.now_playing.updateUI(t)
-                        logger.info(f"Found track by filename: {filename}")
-                        return
                 self.now_playing.clearUI()
         except Exception as e:
             logger.error(f"Error updating NowPlayingView: {e}")
