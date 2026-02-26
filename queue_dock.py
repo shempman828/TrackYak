@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -29,7 +29,14 @@ class QueueDockWidget(QWidget):
         super().__init__(parent)
         self.controller = controller
         self.queue_manager = controller.mediaplayer.queue_manager
-        self.queue_manager.queue_changed.connect(self.update_queue_display)
+
+        # Create a timer for deferred updates
+        self.update_timer = QTimer()
+        self.update_timer.setSingleShot(True)
+        self.update_timer.setInterval(50)  # 50ms delay
+        self.update_timer.timeout.connect(self.update_queue_display)
+
+        self.queue_manager.queue_changed.connect(self.update_timer.start)
         self.init_ui()
         self.setup_drag_drop()
         self.setup_context_menu()

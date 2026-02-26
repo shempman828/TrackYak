@@ -14,6 +14,7 @@ Design principles:
 """
 
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -31,12 +32,13 @@ from queue_utility import QueueManager
 #  Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-BLOCKSIZE = 4096  # Frames per audio callback buffer. Larger = more stable.
-READ_AHEAD_BLOCKS = 8  # How many blocks to read ahead into the ring buffer.
+BLOCKSIZE = 16384  # Frames per audio callback buffer. Larger = more stable.
+READ_AHEAD_BLOCKS = 16  # How many blocks to read ahead into the ring buffer.
 POSITION_INTERVAL_MS = 50  # UI position update interval (20 fps).
 ADVANCE_LOCK_MS = 500  # Lock duration after a track change to prevent double-fire.
 PLAY_COUNT_THRESHOLD = 0.90
 RESTART_THRESHOLD_MS = 3_000
+BUFFER_QUEUE_SIZE = 20
 
 SUPPORTED_FORMATS = {".wav", ".flac", ".mp3", ".aiff", ".aif", ".ogg"}
 
@@ -90,6 +92,7 @@ class MusicPlayer(QObject):
     play_count_updated = Signal(Path, int)
     audio_device_changed = Signal(str)
     playback_mode_changed = Signal(str)
+    track_metadata_loaded = Signal(Path, dict)  # Path and metadata dict
 
     # Cross-thread signal: audio callback → main thread track advancement.
     # Must use QueuedConnection (see __init__).
@@ -114,7 +117,7 @@ class MusicPlayer(QObject):
         self.controller = controller
         self.equalizer = EqualizerUtility(self)
         self.queue_manager = QueueManager()
-        self.queue_manager.load_queue_from_config(config)
+        self.queue_manager.load_queue_from_config(app_config)
 
         # ── Audio backend ──────────────────────────────────────────────────────
         self.sd = None
@@ -297,25 +300,27 @@ class MusicPlayer(QObject):
             self.play()
 
     def play_next(self):
-        """Advance queue and start the next track."""
+        logger.debug(f"play_next ENTER {time.time()}")
         if self._is_advancing:
-            logger.debug("play_next: advance already in progress, skipping.")
             return
-
         self._is_advancing = True
+        self._position_timer.stop()  # Stop the position timer temporarily to prevent callback interference
         try:
             logger.info("Advancing to next track...")
+            t1 = time.time()
             self.queue_manager.advance_queue()
+            logger.debug(f"advance_queue took {time.time() - t1:.3f}s")
+
+            t2 = time.time()
             track = self.queue_manager.get_current_track()
+            logger.debug(f"get_current_track took {time.time() - t2:.3f}s")
 
             if track:
                 if self.load_track(Path(track.track_file_path)):
                     self.play()
                 else:
                     self._is_advancing = False
-                    return
             else:
-                logger.info("Queue exhausted — stopping.")
                 self.stop()
         except Exception as exc:
             logger.error(f"play_next error: {exc}")
@@ -416,6 +421,7 @@ class MusicPlayer(QObject):
         No audio data is decoded until the audio callback starts pulling chunks.
         Returns True on success, False on failure.
         """
+        logger.debug(f"load_track ENTER {time.time()}")
         if not file_path.exists():
             self.error_occurred.emit(f"File not found: {file_path}")
             return False
@@ -426,6 +432,7 @@ class MusicPlayer(QObject):
 
         # Stop current playback cleanly
         self.stop()
+        logger.debug(f"stop completed at {time.time()}")
 
         logger.info(f"Opening: {file_path}")
 
@@ -465,7 +472,7 @@ class MusicPlayer(QObject):
                 self.current_sample_rate = new_sr
                 self.current_channels = new_ch
                 self._total_frames = new_frames
-
+            logger.debug(f"file opened at {time.time()}")
             self.current_file = file_path
             self.current_format = file_path.suffix.lower()
             self.current_bit_depth = 32
@@ -476,6 +483,7 @@ class MusicPlayer(QObject):
             self._gain_factor = self._calculate_gain_factor()
 
             self.track_changed.emit(file_path)
+            logger.debug(f"track_changed emitted at {time.time()}")
             self.duration_changed.emit(self._duration)
 
             logger.info(
@@ -811,6 +819,9 @@ class MusicPlayer(QObject):
         """Fired by the position timer every POSITION_INTERVAL_MS."""
         if not self.playing or self.paused or self._sf_reader is None:
             return
+        # Add a small guard to prevent updates during track transition
+        if self._is_advancing:
+            return
 
         self._position = int(self._current_frame / self.current_sample_rate * 1000)
         self.position_changed.emit(self._position)
@@ -825,26 +836,34 @@ class MusicPlayer(QObject):
             self._increment_play_count()
 
     def _increment_play_count(self):
-        """Write an incremented play count and updated last_listened_date to the DB."""
-        try:
-            if not self.current_file or self._play_count_recorded:
-                return
-            track = self.controller.get.get_entity_object(
-                "Track", track_file_path=str(self.current_file)
-            )
-            if track and getattr(track, "track_id", None):
-                new_count = (getattr(track, "play_count", 0) or 0) + 1
-                self.controller.update.update_entity(
-                    "Track",
-                    track.track_id,
-                    play_count=new_count,
-                    last_listened_date=datetime.now(),
+        """Write an incremented play count to DB in background thread."""
+        if not self.current_file or self._play_count_recorded:
+            return
+
+        # Store current file path locally for thread safety
+        current_path = self.current_file
+
+        def _update_db():
+            try:
+                track = self.controller.get.get_entity_object(
+                    "Track", track_file_path=str(current_path)
                 )
-                self._play_count_recorded = True
-                self.play_count_updated.emit(self.current_file, new_count)
-                logger.info(f"Play count → {new_count}: {self.current_file.name}")
-        except Exception as exc:
-            logger.error(f"Play count update error: {exc}")
+                if track and getattr(track, "track_id", None):
+                    new_count = (getattr(track, "play_count", 0) or 0) + 1
+                    self.controller.update.update_entity(
+                        "Track",
+                        track.track_id,
+                        play_count=new_count,
+                        last_listened_date=datetime.now(),
+                    )
+                    # Emit signal back to main thread
+                    self.play_count_updated.emit(current_path, new_count)
+                    logger.info(f"Play count → {new_count}: {current_path.name}")
+            except Exception as exc:
+                logger.error(f"Play count update error: {exc}")
+
+        self._play_count_recorded = True  # Mark as recorded immediately
+        threading.Thread(target=_update_db, daemon=True, name="PlayCountUpdate").start()
 
     # =========================================================================
     #  Internal — gain calculation

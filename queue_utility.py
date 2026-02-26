@@ -93,33 +93,46 @@ class QueueManager(QObject):
         return len(self.queue)
 
     def advance_queue(self):
-        """
-        Called when a track finishes.
-        We don't necessarily pop the item; we just shift our 'History' state.
-        """
+        import time
+
+        t0 = time.time()
+
         if not self.queue:
             return
 
+        t1 = time.time()
         if not self.history_exists:
-            # First advance: We don't pop anything.
-            # We just mark that Index 0 is now 'History', so get_current_track() will look at Index 1.
             if len(self.queue) > 1:
                 self.history_exists = True
+                t2 = time.time()
                 self._save_queue_to_config()
+                t3 = time.time()
+                logger.debug(f"advance_queue: save took {t3 - t2:.3f}s")
                 self.queue_changed.emit()
+                t4 = time.time()
+                logger.debug(f"advance_queue: signal took {t4 - t3:.3f}s")
             else:
-                # If only 1 track, we pop it because it's done
                 self.queue.pop(0)
                 self._track_ids.pop(0)
+                t2 = time.time()
                 self._save_queue_to_config()
+                t3 = time.time()
+                logger.debug(f"advance_queue: save took {t3 - t2:.3f}s")
                 self.queue_changed.emit()
+                t4 = time.time()
+                logger.debug(f"advance_queue: signal took {t4 - t3:.3f}s")
         else:
-            # Subsequent advances: Pop the OLD history (Index 0).
-            # The Old Current (Index 1) becomes New History (Index 0).
             self.queue.pop(0)
             self._track_ids.pop(0)
+            t2 = time.time()
             self._save_queue_to_config()
+            t3 = time.time()
+            logger.debug(f"advance_queue: save took {t3 - t2:.3f}s")
             self.queue_changed.emit()
+            t4 = time.time()
+            logger.debug(f"advance_queue: signal took {t4 - t3:.3f}s")
+
+        logger.debug(f"advance_queue TOTAL: {time.time() - t0:.3f}s")
 
     def previous_track_in_queue(self) -> Optional[Track]:
         """
@@ -139,21 +152,32 @@ class QueueManager(QObject):
         return self.queue[0]
 
     def _save_queue_to_config(self):
-        """Save queue state to config."""
-        if not self.config:
+        """Save only relevant portion of queue to config."""
+        if not self.config or not self._save_pending:
             return
 
-        # Save track IDs as comma-separated string
-        track_ids_str = ",".join(str(track_id) for track_id in self._track_ids)
+        self._save_pending = False
+
+        # Save only:
+        # - The current/history track (index 0-1)
+        # - Next 200 tracks (index 2-201)
+        # This is enough to restore playback state and keep the queue going
+        save_count = min(len(self._track_ids), 202)  # 2 history + 200 upcoming
+        track_ids_to_save = self._track_ids[:save_count]
+
+        track_ids_str = ",".join(str(id) for id in track_ids_to_save)
         self.config.set("queue", "track_ids", track_ids_str)
-
-        # Save history state
         self.config.set("queue", "history_exists", str(self.history_exists).lower())
+        self.config.set(
+            "queue", "total_size", str(len(self._track_ids))
+        )  # So UI knows total
 
-        # Save immediately if config supports it
         if hasattr(self.config, "save"):
             try:
                 self.config.save()
+                logger.debug(
+                    f"Saved {save_count} tracks to config (queue total: {len(self._track_ids)})"
+                )
             except Exception as e:
                 logger.error(f"Error saving queue to config: {e}")
 

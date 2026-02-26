@@ -855,8 +855,8 @@ class PlayerUI(QWidget):
                 "PlaylistTracks", playlist_id=playlist_id, track_id=track_id
             )
             if already_in:
-                QMessageBox.information(
-                    self, "Already Added", "This track is already in that playlist."
+                logger.warning(
+                    "Already Added", "This track is already in that playlist."
                 )
                 return
 
@@ -873,7 +873,7 @@ class PlayerUI(QWidget):
                 position=next_position,
             )
             if success:
-                QMessageBox.information(self, "Added", "Track added to playlist.")
+                pass
             else:
                 QMessageBox.warning(self, "Failed", "Could not add track to playlist.")
 
@@ -896,7 +896,7 @@ class PlayerUI(QWidget):
                 "MoodTrackAssociation", mood_id=mood_id, track_id=track_id
             )
             if existing:
-                QMessageBox.information(
+                logger.warning(
                     self, "Already Added", "This track is already in that mood."
                 )
                 return
@@ -907,7 +907,7 @@ class PlayerUI(QWidget):
                 track_id=track_id,
             )
             if success:
-                QMessageBox.information(self, "Added", "Track added to mood.")
+                pass
             else:
                 QMessageBox.warning(self, "Failed", "Could not add track to mood.")
 
