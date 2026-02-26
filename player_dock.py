@@ -3,9 +3,12 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QAction,
     QDockWidget,
     QHBoxLayout,
     QLabel,
+    QMenu,
+    QMessageBox,
     QPushButton,
     QSlider,
     QVBoxLayout,
@@ -16,6 +19,7 @@ from asset_paths import icon
 from config_setup import app_config
 from logger_config import logger
 from rating_widget import RatingStarsWidget
+from track_edit import TrackEditDialog
 
 
 class PlayerUI(QWidget):
@@ -757,3 +761,154 @@ class PlayerUI(QWidget):
         # Auto-show when playback starts if auto-hide is enabled
         if is_playing and self.auto_hide_enabled and not self.is_visible:
             self.show_player()
+
+    # =========================================================================
+    #  Right-click context menu
+    # =========================================================================
+
+    def contextMenuEvent(self, event):
+        """
+        Show a context menu when the user right-clicks anywhere on the player dock.
+        Only appears when a track is loaded (self.current_track is not None).
+        """
+        if not self.current_track:
+            return  # Nothing playing — skip the menu
+
+        menu = QMenu(self)
+
+        # Edit Track
+        edit_action = QAction("✏️  Edit Track", self)
+        edit_action.triggered.connect(self._context_edit_track)
+        menu.addAction(edit_action)
+
+        menu.addSeparator()
+
+        # Add to Playlist (submenu)
+        playlist_menu = QMenu("➕  Add to Playlist", self)
+        self._populate_playlist_submenu(playlist_menu)
+        menu.addMenu(playlist_menu)
+
+        # Add to Mood (submenu)
+        mood_menu = QMenu("🎭  Add to Mood", self)
+        self._populate_mood_submenu(mood_menu)
+        menu.addMenu(mood_menu)
+
+        menu.exec_(event.globalPos())
+
+    def _populate_playlist_submenu(self, submenu: QMenu):
+        """Fill the Add to Playlist submenu with every playlist in the database."""
+        try:
+            playlists = self.controller.get.get_all_entities("Playlist")
+            if not playlists:
+                submenu.addAction("No playlists available").setEnabled(False)
+                return
+            for playlist in playlists:
+                action = QAction(playlist.playlist_name, self)
+                action.setData(playlist.playlist_id)
+                action.triggered.connect(self._context_add_to_playlist)
+                submenu.addAction(action)
+        except Exception as e:
+            logger.error(f"Error populating playlist submenu: {e}")
+            submenu.addAction("Error loading playlists").setEnabled(False)
+
+    def _populate_mood_submenu(self, submenu: QMenu):
+        """Fill the Add to Mood submenu with every mood in the database."""
+        try:
+            moods = self.controller.get.get_all_entities("Mood")
+            if not moods:
+                submenu.addAction("No moods available").setEnabled(False)
+                return
+            for mood in moods:
+                action = QAction(mood.mood_name, self)
+                action.setData(mood.mood_id)
+                action.triggered.connect(self._context_add_to_mood)
+                submenu.addAction(action)
+        except Exception as e:
+            logger.error(f"Error populating mood submenu: {e}")
+            submenu.addAction("Error loading moods").setEnabled(False)
+
+    def _context_edit_track(self):
+        """Open TrackEditDialog for the currently playing track."""
+        if not self.current_track:
+            return
+        try:
+            dialog = TrackEditDialog(self.current_track, self.controller, self)
+            dialog.exec_()
+        except Exception as e:
+            logger.error(f"Error opening track editor from player dock: {e}")
+            QMessageBox.critical(self, "Error", f"Could not open track editor:\\n{e}")
+
+    def _context_add_to_playlist(self):
+        """Add the currently playing track to the playlist chosen in the menu."""
+        action = self.sender()
+        if not action or not self.current_track:
+            return
+
+        playlist_id = action.data()
+        track_id = self.current_track.track_id
+
+        try:
+            # Check if the track is already in the playlist
+            already_in = self.controller.get.get_entity_links(
+                "PlaylistTracks", playlist_id=playlist_id, track_id=track_id
+            )
+            if already_in:
+                QMessageBox.information(
+                    self, "Already Added", "This track is already in that playlist."
+                )
+                return
+
+            # Find the next available position (append at the end)
+            existing = self.controller.get.get_entity_links(
+                "PlaylistTracks", playlist_id=playlist_id
+            )
+            next_position = max((t.position for t in existing), default=0) + 1
+
+            success = self.controller.add.add_entity_link(
+                "PlaylistTracks",
+                playlist_id=playlist_id,
+                track_id=track_id,
+                position=next_position,
+            )
+            if success:
+                QMessageBox.information(self, "Added", "Track added to playlist.")
+            else:
+                QMessageBox.warning(self, "Failed", "Could not add track to playlist.")
+
+        except Exception as e:
+            logger.error(f"Error adding track to playlist from player dock: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to add to playlist:\\n{e}")
+
+    def _context_add_to_mood(self):
+        """Add the currently playing track to the mood chosen in the menu."""
+        action = self.sender()
+        if not action or not self.current_track:
+            return
+
+        mood_id = action.data()
+        track_id = self.current_track.track_id
+
+        try:
+            # Check if already associated
+            existing = self.controller.get.get_entity_links(
+                "MoodTrackAssociation", mood_id=mood_id, track_id=track_id
+            )
+            if existing:
+                QMessageBox.information(
+                    self, "Already Added", "This track is already in that mood."
+                )
+                return
+
+            success = self.controller.add.add_entity_link(
+                "MoodTrackAssociation",
+                mood_id=mood_id,
+                track_id=track_id,
+            )
+            if success:
+                QMessageBox.information(self, "Added", "Track added to mood.")
+            else:
+                QMessageBox.warning(self, "Failed", "Could not add track to mood.")
+
+        except Exception as e:
+            logger.error(f"Error adding track to mood from player dock: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to add to mood:\\n{e}")
