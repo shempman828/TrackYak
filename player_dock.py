@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QIcon, QKeySequence, QShortcut, QAction
+from PySide6.QtGui import QAction, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDockWidget,
     QHBoxLayout,
@@ -33,6 +33,7 @@ class PlayerUI(QWidget):
         self.controller = controller
         self.player = controller.mediaplayer
         self.parent_window = parent
+        self.current_track = None
 
         # Dragging support for mini-player
         self.drag_enabled = False
@@ -286,6 +287,7 @@ class PlayerUI(QWidget):
                 )
                 if track:
                     # Show rating and update it
+                    self.current_track = track
                     self.rating_container.show()
                     self.rating_stars.set_current_file(file_path)
                     self.rating_stars.set_rating(
@@ -519,6 +521,7 @@ class PlayerUI(QWidget):
 
     def _clear_track_display(self):
         """Hide rating and clear track info when no track is playing."""
+        self.current_track = None
         self.rating_container.hide()
         self.rating_stars.set_current_file(None)
         self.rating_stars.set_rating(0.0)

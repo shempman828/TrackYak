@@ -18,11 +18,7 @@ Key changes vs the original:
 import random
 from pathlib import Path
 
-from PySide6.QtCore import (
-    QByteArray,
-    QMimeData,
-    Qt,
-)
+from PySide6.QtCore import QByteArray, QMimeData, Qt
 from PySide6.QtGui import (
     QAction,
     QDrag,
@@ -282,9 +278,7 @@ class TrackView(QWidget):
     def _update_status(self):
         total = len(self._all_tracks)
         visible = (
-            self._loaded_count
-            if not self._filter_active
-            else self.proxy_model.rowCount()
+            self._loaded_count if not self._filter_active else self.model.rowCount()
         )
         self.status_label.setText(f"Showing {visible:,} / {total:,} tracks")
 
@@ -375,11 +369,11 @@ class TrackView(QWidget):
             self._add_all_to_queue(shuffle=shuffle)
             return
 
-        # Make sure the model is fully populated so the proxy has everything to filter
+        # Make sure the model is fully populated so the model has everything to filter
         if self._loaded_count < len(self._all_tracks):
             self._fill_model_completely()
 
-        # Collect tracks that survive the current proxy filter
+        # Collect tracks that survive the current model filter
         column_keys = list(self.columns.keys())
         try:
             track_id_col = column_keys.index("track_id")
@@ -388,9 +382,9 @@ class TrackView(QWidget):
             return
 
         filtered_track_ids = set()
-        for proxy_row in range(self.proxy_model.rowCount()):
-            source_index = self.proxy_model.mapToSource(
-                self.proxy_model.index(proxy_row, track_id_col)
+        for model_row in range(self.model.rowCount()):
+            source_index = self.model.mapToSource(
+                self.model.index(model_row, track_id_col)
             )
             item = self.model.item(source_index.row(), track_id_col)
             if item:
@@ -425,8 +419,9 @@ class TrackView(QWidget):
         tracks = []
 
         for index in selected:
-            source_index = self.proxy_model.mapToSource(index)
-            item = self.model.item(source_index.row(), track_id_col)
+            # Remove mapToSource - index is already correct
+            row = index.row()
+            item = self.model.item(row, track_id_col)
             if not item:
                 continue
             try:
@@ -465,8 +460,7 @@ class TrackView(QWidget):
 
     def on_double_clicked(self, index):
         """Play the double-clicked track."""
-        source_index = self.proxy_model.mapToSource(index)
-        row = source_index.row()
+        row = index.row()
         try:
             file_path_col = list(self.columns.keys()).index("track_file_path")
             file_path = self.model.item(row, file_path_col).text()
@@ -491,8 +485,8 @@ class TrackView(QWidget):
         track_id_col = list(self.columns.keys()).index("track_id")
         track_ids = []
         for index in selected:
-            source_index = self.proxy_model.mapToSource(index)
-            item = self.model.item(source_index.row(), track_id_col)
+            row = index.row()
+            item = self.model.item(row, track_id_col)
             if item:
                 try:
                     track_ids.append(int(item.text()))
@@ -540,8 +534,8 @@ class TrackView(QWidget):
         track_id_col = list(self.columns.keys()).index("track_id")
         track_ids = []
         for index in selected:
-            source_index = self.proxy_model.mapToSource(index)
-            item = self.model.item(source_index.row(), track_id_col)
+            row = index.row()
+            item = self.model.item(row, track_id_col)
             if item:
                 track_ids.append(item.text())
 
@@ -804,8 +798,8 @@ class TrackView(QWidget):
 
         paths = []
         for index in selected:
-            source_index = self.proxy_model.mapToSource(index)
-            item = self.model.item(source_index.row(), file_path_col)
+            row = index.row()
+            item = self.model.item(row, file_path_col)
             if item and item.text():
                 paths.append(item.text())
 
