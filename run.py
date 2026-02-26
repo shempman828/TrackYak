@@ -16,7 +16,7 @@ from db_defaults import Defaults
 from db_tables import MusicDatabase
 from display_settings import DisplaySettings
 from logger_config import logger
-from music_controller import MusicController
+from src.music_controller import MusicController
 from player_mpris2 import MPRIS2Player
 from splash_screen import StartupSplash
 from startup_dialog import StartupDialog
