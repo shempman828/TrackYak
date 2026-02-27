@@ -3,6 +3,7 @@ player_util.py — MusicPlayer
 Streaming music playback engine.
 """
 
+import collections
 import threading
 import time
 from datetime import datetime
@@ -24,10 +25,10 @@ from src.queue_utility import QueueManager
 BLOCKSIZE = 16384  # Frames per audio callback buffer. Larger = more stable.
 READ_AHEAD_BLOCKS = 16  # How many blocks to read ahead into the ring buffer.
 POSITION_INTERVAL_MS = 50  # UI position update interval (20 fps).
-ADVANCE_LOCK_MS = 500  # Lock duration after a track change to prevent double-fire.
 PLAY_COUNT_THRESHOLD = 0.90
 RESTART_THRESHOLD_MS = 3_000
 BUFFER_QUEUE_SIZE = 20
+PREFILL_BLOCKS = 8  # blocks to decode ahead of the callback
 
 SUPPORTED_FORMATS = {".wav", ".flac", ".mp3", ".aiff", ".aif", ".ogg"}
 
@@ -100,6 +101,10 @@ class MusicPlayer(QObject):
         # Lock protecting _sf_reader and _current_frame from concurrent access
         # between the audio callback thread and the main thread (seek).
         self._reader_lock = threading.Lock()
+        self._audio_buffer: collections.deque = collections.deque()
+        self._buffer_lock = threading.Lock()
+        self._reader_thread: Optional[threading.Thread] = None
+        self._reader_stop = threading.Event()
 
         # ── Pre-load: next track ──────────────────────────────────────────────
         # We open the *next* track's SoundFile in a background thread so it is
@@ -126,6 +131,8 @@ class MusicPlayer(QObject):
         self._is_advancing: bool = False
         self._stream_generation: int = 0
         self._finish_pending = threading.Event()  # thread-safe flag for end-of-stream
+        self._stream_close_event = threading.Event()  # set when async close completes
+        self._stream_close_event.set()  # starts "set" (no close in progress)
 
         # ── Volume ────────────────────────────────────────────────────────────
         self.volume_level: int = app_config.get_volume()
@@ -165,19 +172,78 @@ class MusicPlayer(QObject):
         if not self._audio_initialized:
             logger.error("MusicPlayer: audio backend failed to initialize")
 
+    def _start_reader_thread(self):
+        """Start background thread that decodes audio into the buffer."""
+        self._reader_stop.clear()
+        with self._buffer_lock:
+            self._audio_buffer.clear()
+        self._reader_thread = threading.Thread(
+            target=self._reader_loop, daemon=True, name="AudioReader"
+        )
+        self._reader_thread.start()
+
+    def _stop_reader_thread(self):
+        """Signal the reader thread to stop and wait briefly."""
+        self._reader_stop.set()
+        if self._reader_thread and self._reader_thread.is_alive():
+            self._reader_thread.join(timeout=1.0)
+        self._reader_thread = None
+        with self._buffer_lock:
+            self._audio_buffer.clear()
+
+    def _reader_loop(self):
+        """
+        Background thread: reads BLOCKSIZE chunks from the SoundFile and
+        pushes them into _audio_buffer. Sleeps when the buffer is full.
+        """
+        import time as _time
+
+        while not self._reader_stop.is_set():
+            with self._buffer_lock:
+                buf_len = len(self._audio_buffer)
+
+            if buf_len >= PREFILL_BLOCKS:
+                # Buffer full — wait a bit before checking again
+                self._reader_stop.wait(timeout=0.02)
+                continue
+
+            with self._reader_lock:
+                reader = self._sf_reader
+                frames_remaining = self._total_frames - self._current_frame
+                if frames_remaining <= 0 or reader is None:
+                    break
+                to_read = min(BLOCKSIZE, frames_remaining)
+
+            try:
+                _t_read = _time.perf_counter()
+                chunk = reader.read(to_read, dtype="float32", always_2d=True)
+                _read_ms = (_time.perf_counter() - _t_read) * 1000
+                if _read_ms > 5:
+                    logger.warning(f"SLOW READ: {_read_ms:.1f}ms for {to_read} frames")
+            except Exception as exc:
+                logger.error(f"Reader thread read error: {exc}")
+                break
+
+            with self._reader_lock:
+                if self._sf_reader is reader:
+                    self._current_frame += len(chunk)
+                else:
+                    break  # Track changed under us
+
+            with self._buffer_lock:
+                self._audio_buffer.append(chunk)
+
     # =========================================================================
     #  Public playback controls
     # =========================================================================
 
     def play(self):
-        """Start or resume playback."""
         logger.debug(f"play() ENTER at {time.time():.3f}")
         if self.sd is None:
             if not self._initialize_audio_backend():
                 self.error_occurred.emit("Audio backend not available.")
                 return
 
-        # Auto-load from queue if nothing is loaded yet
         if self.current_file is None or self._sf_reader is None:
             track = self.queue_manager.get_current_track()
             if track:
@@ -191,7 +257,6 @@ class MusicPlayer(QObject):
         self._play_count_recorded = False
 
         try:
-            # Resume from pause (no need to rebuild stream)
             if self.paused and self.audio_stream is not None:
                 self.paused = False
                 self.playing = True
@@ -200,7 +265,25 @@ class MusicPlayer(QObject):
                 logger.info("Playback resumed")
                 return
 
-            # Fresh start — open a new stream
+            # ── Reuse existing stream if sample rate and channels match ──────────
+            if (
+                self.audio_stream is not None
+                and self.audio_stream.samplerate == self.current_sample_rate
+                and self.audio_stream.channels == self.current_channels
+            ):
+                # Stream already open and compatible — just unpause and go
+                self._finish_pending.clear()
+                self.playing = True
+                self.paused = False
+                self.state_changed.emit("playing")
+                self._position_timer.start()
+                logger.info(
+                    f"Playback continued on existing stream: {self.current_file.name}"
+                )
+                logger.debug(f"play() EXIT at {time.time():.3f}")
+                return
+
+            # ── Open a new stream (first play, or sample rate changed) ───────────
             self._close_stream()
             self._stream_generation += 1
             my_generation = self._stream_generation
@@ -217,7 +300,7 @@ class MusicPlayer(QObject):
                 dtype="float32",
                 device=device_config["device"],
                 latency=device_config.get("latency", "high"),
-                blocksize=device_config.get("blocksize", BLOCKSIZE),
+                blocksize=BLOCKSIZE,
                 callback=_stamped_callback,
             )
             self.audio_stream.start()
@@ -247,12 +330,17 @@ class MusicPlayer(QObject):
         """Stop playback and reset position."""
         self.playing = False
         self.paused = False
-        self._close_stream()
+        self._finish_pending.set()
         self._position_timer.stop()
         self._has_reached_threshold = False
         self._play_count_recorded = False
+        self._position = 0
         self.state_changed.emit("stopped")
         logger.debug("Playback stopped")
+
+    def _force_close_stream(self):
+        """Actually close the audio stream — only call on device change or app exit."""
+        self._close_stream()
 
     def toggle_play_pause(self):
         if self.paused:
@@ -267,17 +355,10 @@ class MusicPlayer(QObject):
         if self._is_advancing:
             return
         self._is_advancing = True
-        self._position_timer.stop()  # Stop the position timer temporarily to prevent callback interference
         try:
             logger.info("Advancing to next track...")
-            t1 = time.time()
             self.queue_manager.advance_queue()
-            logger.debug(f"advance_queue took {time.time() - t1:.3f}s")
-
-            t2 = time.time()
             track = self.queue_manager.get_current_track()
-            logger.debug(f"get_current_track took {time.time() - t2:.3f}s")
-
             if track:
                 if self.load_track(Path(track.track_file_path)):
                     self.play()
@@ -288,7 +369,7 @@ class MusicPlayer(QObject):
         except Exception as exc:
             logger.error(f"play_next error: {exc}")
         finally:
-            QTimer.singleShot(ADVANCE_LOCK_MS, self._release_advance_lock)
+            self._is_advancing = False
 
     def play_previous(self):
         """Go to the previous track, or restart the current one."""
@@ -318,7 +399,7 @@ class MusicPlayer(QObject):
         except Exception as exc:
             logger.error(f"play_previous error: {exc}")
         finally:
-            QTimer.singleShot(ADVANCE_LOCK_MS, self._release_advance_lock)
+            self._is_advancing = False
 
     def seek(self, position_ms: int):
         """Seek to position in milliseconds."""
@@ -393,19 +474,13 @@ class MusicPlayer(QObject):
             self.error_occurred.emit(f"Unsupported format: {file_path.suffix}")
             return False
 
-        # Stop current playback cleanly
-        if self._is_advancing and self.audio_stream is not None:
-            self.playing = False
-            self.paused = False
-            self._position_timer.stop()
-            self._has_reached_threshold = False
-            self._play_count_recorded = False
-            self.state_changed.emit("stopped")
-            self._close_stream_async()  # Non-blocking — safe during callback-driven transition
-            logger.debug(f"async stream close initiated at {time.time()}")
-        else:
-            self.stop()
-            logger.debug(f"stop completed at {time.time()}")
+        # Stop current playback
+        self.playing = False
+        self._position_timer.stop()
+        self._finish_pending.set()  # Prevent double-fire
+        self._has_reached_threshold = False
+        self._play_count_recorded = False
+        self._position = 0
 
         logger.info(f"Opening: {file_path}")
 
@@ -693,30 +768,6 @@ class MusicPlayer(QObject):
             finally:
                 self.audio_stream = None
 
-    def _close_stream_async(self):
-        stream_to_close = self.audio_stream
-        self.audio_stream = None
-        if stream_to_close is not None:
-
-            def _do_close():
-                t_start = time.time()
-                logger.debug(f"_close_stream_async: stop() BEGIN at {t_start}")
-                try:
-                    stream_to_close.stop()
-                    logger.debug(
-                        f"_close_stream_async: stop() DONE, took {time.time() - t_start:.3f}s"
-                    )
-                    stream_to_close.close()
-                    logger.debug(
-                        f"_close_stream_async: close() DONE, total {time.time() - t_start:.3f}s"
-                    )
-                except Exception as e:
-                    logger.debug(
-                        f"_close_stream_async: exception {e} after {time.time() - t_start:.3f}s"
-                    )
-
-            threading.Thread(target=_do_close, daemon=True, name="StreamClose").start()
-
     def _restart_playback_if_active(self):
         if self.current_file and (self.playing or self.paused):
             saved_pos = self._position
@@ -740,66 +791,54 @@ class MusicPlayer(QObject):
     def _audio_callback(
         self, outdata: np.ndarray, frames: int, time, status, generation: int
     ):
-        """
-        Called by sounddevice on a background thread to fill the next buffer.
+        import time as _time
 
-        Rules:
-          - NEVER call Qt signals directly — only emit _track_finished.
-          - NEVER seek or close the reader here (use _reader_lock for _current_frame).
-          - Keep it fast — this runs in real-time.
-        """
+        _t0 = _time.perf_counter()
+
         if status:
-            logger.warning(f"Audio callback status: {status} (generation={generation})")
+            logger.warning(
+                f"Audio callback status: {status} "
+                f"(generation={generation}, playing={self.playing}, "
+                f"advancing={self._is_advancing}, frames_done={self._current_frame})"
+            )
 
         if generation != self._stream_generation:
             outdata.fill(0)
             return
 
-        if not self.playing or self.paused or self._sf_reader is None:
+        if not self.playing or self.paused:
             outdata.fill(0)
             return
 
-        try:
-            # ── Narrow lock: only grab what we need, release before disk read ─
-            with self._reader_lock:
-                frames_remaining = self._total_frames - self._current_frame
-                if frames_remaining <= 0:
-                    outdata.fill(0)
-                    self._emit_track_finished_once()
-                    return
-                to_read = min(frames, frames_remaining)
-                reader_snapshot = self._sf_reader  # grab reference while locked
-            if reader_snapshot is None:
+        # Pop a pre-decoded chunk from the buffer
+        with self._buffer_lock:
+            if self._audio_buffer:
+                chunk = self._audio_buffer.popleft()
+            else:
+                # Buffer underrun — reader thread hasn't caught up
                 outdata.fill(0)
+                if self._total_frames > 0 and self._current_frame >= self._total_frames:
+                    self._emit_track_finished_once()
                 return
-            chunk = reader_snapshot.read(to_read, dtype="float32", always_2d=True)
 
-            # ── Update frame counter under lock ───────────────────────────────
-            with self._reader_lock:
-                if self._sf_reader is reader_snapshot:  # still the same track
-                    self._current_frame += len(chunk)
-                else:
-                    # Track changed mid-read — output silence and bail
-                    outdata.fill(0)
-                    return
+        # Apply gain
+        effective_gain = self._gain_factor * (self.volume_level / 100.0)
+        chunk = chunk * effective_gain
 
-            # ── Apply gain (volume × normalization) ───────────────────────────
-            effective_gain = self._gain_factor * (self.volume_level / 100.0)
-            chunk = chunk * effective_gain  # avoids in-place mutation of shared data
+        # Apply equalizer (CPU-bound but now not on the deadline-critical path...
+        # wait, this is still in the callback. Move EQ to reader thread instead.)
+        if len(chunk) >= 32:
+            chunk = self.equalizer.process_audio(chunk)
 
-            # ── Apply equalizer ───────────────────────────────────────────────
-            if len(chunk) >= 32:
-                chunk = self.equalizer.process_audio(chunk)
-
-            # ── Write to output buffer ────────────────────────────────────────
-            outdata[: len(chunk)] = chunk
-            if len(chunk) < frames:
-                outdata[len(chunk) :] = 0  # Zero-pad the tail of the last buffer
-                self._emit_track_finished_once()
-
-        except Exception as exc:
-            logger.error(f"Audio callback error: {exc}")
-            outdata.fill(0)
+        outdata[: len(chunk)] = chunk
+        if len(chunk) < frames:
+            outdata[len(chunk) :] = 0
+            self._emit_track_finished_once()
+        _elapsed = _time.perf_counter() - _t0
+        if _elapsed > 0.01:  # log anything taking more than 10ms
+            logger.warning(
+                f"SLOW CALLBACK: {_elapsed * 1000:.1f}ms (frames={frames}, sr={self.current_sample_rate})"
+            )
 
     # =========================================================================
     #  Internal — playback finished handler (runs on the main thread)
@@ -808,24 +847,12 @@ class MusicPlayer(QObject):
     def _handle_playback_finished(self):
         """Called on the main thread when the current track ends."""
         logger.debug(f"_handle_playback_finished called at {time.time()}")
-        if self._is_advancing:
-            # Signal arrived while a transition was already in progress.
-            # Retry once after the lock releases rather than silently dropping it.
-            logger.warning(
-                "_handle_playback_finished: _is_advancing=True, retrying in 600ms"
-            )
-            QTimer.singleShot(ADVANCE_LOCK_MS + 100, self._handle_playback_finished)
-            return
-
+        # _is_advancing guards against double-fire; play_next() also checks it
         if self.repeat_mode == 1:
             self.seek(0)
             self.play()
         else:
             self.play_next()
-
-    def _release_advance_lock(self):
-        logger.debug(f"_release_advance_lock called at {time.time():.3f}")
-        self._is_advancing = False
 
     # =========================================================================
     #  Internal — position tracking & play count
@@ -834,9 +861,6 @@ class MusicPlayer(QObject):
     def _update_position(self):
         """Fired by the position timer every POSITION_INTERVAL_MS."""
         if not self.playing or self.paused or self._sf_reader is None:
-            return
-        # Add a small guard to prevent updates during track transition
-        if self._is_advancing:
             return
         self._position = int(self._current_frame / self.current_sample_rate * 1000)
         self.position_changed.emit(self._position)
