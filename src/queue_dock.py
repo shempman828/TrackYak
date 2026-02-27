@@ -50,8 +50,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.logger_config import logger
-from src.track_edit import TrackEditDialog
-from src.track_editing_multiple import MultiTrackEditDialog
+from src.track_edit import MultiTrackEditDialog, TrackEditDialog
 
 # How many upcoming rows are visible / loaded at a time before the user scrolls
 PAGE_SIZE = 100

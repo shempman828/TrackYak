@@ -1,6 +1,26 @@
 # track_edit.py
+"""
+Track editing dialog — clean architecture.
+
+Design rules:
+  - ONE file. No external loaders/searchers modules.
+  - Each tab is a self-contained QWidget subclass.
+    It receives (tracks, controller) and owns its own load/save/search logic.
+    It NEVER reaches back into the parent dialog.
+  - TrackEditDialog accepts a single track OR a list of tracks.
+    is_multi is a flag, not a separate class.
+  - The dialog's Save button calls tab.collect_changes() on every tab and
+    commits everything in one pass.
+  - Relationship tabs (roles, genres, places, moods, awards, samples) write
+    directly to the database on Add/Remove — no deferred save needed.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Union
+
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QShortcut
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -8,18 +28,19 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
-    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMenu,
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QStackedWidget,
     QTableWidget,
-    QTabWidget,
+    QTableWidgetItem,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -27,702 +48,1557 @@ from PySide6.QtWidgets import (
 
 from src.db_mapping_tracks import TRACK_FIELDS
 from src.logger_config import logger
-from src.track_editing_loaders import DataLoaders
-from src.track_editing_searchers import SearchHandlers
+from src.wikipedia_seach import search_wikipedia
+
+
+# ---------------------------------------------------------------------------
+# Helpers shared by all tabs
+# ---------------------------------------------------------------------------
+
+
+def _make_widget_for_field(field_name: str, field_config, on_change_cb):
+    """
+    Create and return the right editable widget for a TrackField.
+    Connects the widget's change signal to on_change_cb(field_name).
+    """
+    if field_config.type == bool:  # noqa: E721
+        w = QCheckBox()
+        w.toggled.connect(lambda _checked, fn=field_name: on_change_cb(fn))
+    elif field_config.type == int:  # noqa: E721
+        w = QSpinBox()
+        w.setRange(
+            int(field_config.min) if field_config.min is not None else -2_147_483_648,
+            int(field_config.max) if field_config.max is not None else 2_147_483_647,
+        )
+        w.valueChanged.connect(lambda _v, fn=field_name: on_change_cb(fn))
+    elif field_config.type == float:  # noqa: E721
+        w = QDoubleSpinBox()
+        w.setDecimals(4)
+        w.setRange(
+            field_config.min if field_config.min is not None else -1e9,
+            field_config.max if field_config.max is not None else 1e9,
+        )
+        w.valueChanged.connect(lambda _v, fn=field_name: on_change_cb(fn))
+    elif field_config.longtext:
+        w = QTextEdit()
+        w.textChanged.connect(lambda fn=field_name: on_change_cb(fn))
+    else:
+        w = QLineEdit()
+        if field_config.placeholder:
+            w.setPlaceholderText(field_config.placeholder)
+        if field_config.length:
+            w.setMaxLength(field_config.length)
+        w.textChanged.connect(lambda _t, fn=field_name: on_change_cb(fn))
+    return w
+
+
+def _read_widget(widget) -> Any:
+    """Return the current value from any supported widget type."""
+    if isinstance(widget, QCheckBox):
+        return widget.isChecked()
+    if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+        return widget.value()
+    if isinstance(widget, QTextEdit):
+        return widget.toPlainText()
+    if isinstance(widget, QLineEdit):
+        return widget.text()
+    return None
+
+
+def _write_widget(widget, value) -> None:
+    """Write a value into any supported widget type without triggering signals."""
+    if value is None:
+        value_for_widget = None
+    else:
+        value_for_widget = value
+
+    widget.blockSignals(True)
+    try:
+        if isinstance(widget, QCheckBox):
+            widget.setChecked(
+                bool(value_for_widget) if value_for_widget is not None else False
+            )
+        elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+            widget.setValue(value_for_widget if value_for_widget is not None else 0)
+        elif isinstance(widget, QTextEdit):
+            widget.setPlainText(
+                str(value_for_widget) if value_for_widget is not None else ""
+            )
+        elif isinstance(widget, QLineEdit):
+            widget.setText(
+                str(value_for_widget) if value_for_widget is not None else ""
+            )
+    finally:
+        widget.blockSignals(False)
+
+
+def _coerce(value, field_config) -> Any:
+    """Convert a raw widget value to the correct Python type."""
+    if value in (None, ""):
+        return None
+    try:
+        if field_config.type == int:  # noqa: E721
+            return int(value)
+        if field_config.type == float:  # noqa: E721
+            return float(value)
+        if field_config.type == bool:  # noqa: E721
+            return bool(value)
+    except (ValueError, TypeError):
+        return None
+    return value
+
+
+def _format_readonly(value, field_config) -> str:
+    """Format a value for display in a readonly QLabel."""
+    if value is None or value == "":
+        return "—"
+    if field_config and field_config.type == bool:  # noqa: E721
+        return "Yes" if value else "No"
+    text = str(value)
+    if len(text) > 80:
+        return text[:77] + "..."
+    return text
+
+
+# ---------------------------------------------------------------------------
+# Base class for all tabs
+# ---------------------------------------------------------------------------
+
+
+class _BaseTab(QWidget):
+    """
+    Every tab subclass must implement:
+      load(tracks)          — populate widgets from the track(s)
+      collect_changes()     — return {field_name: new_value} for scalar fields
+                              (relationship tabs return {} — they write directly)
+    """
+
+    def __init__(self, tracks: list, controller, parent=None):
+        super().__init__(parent)
+        # Always a list — even for single-track editing
+        self.tracks = tracks
+        self.controller = controller
+        self.is_multi = len(tracks) > 1
+        # Tracks which scalar fields the user has touched
+        self._dirty: set = set()
+
+    @property
+    def track(self):
+        """Convenience: the single track (only valid when is_multi is False)."""
+        return self.tracks[0]
+
+    def load(self, tracks: list) -> None:
+        raise NotImplementedError
+
+    def collect_changes(self) -> Dict[str, Any]:
+        return {}
+
+    def _mark_dirty(self, field_name: str) -> None:
+        self._dirty.add(field_name)
+
+    def _has_changed(self, field_name: str, new_value) -> bool:
+        """Return True if new_value differs meaningfully from the original."""
+        old = getattr(self.track, field_name, None)
+        if old is None and new_value in (None, "", 0, 0.0, False):
+            return False
+        return str(old).strip() != str(new_value).strip()
+
+
+# ---------------------------------------------------------------------------
+# FieldFormTab — auto-builds a QFormLayout from TRACK_FIELDS for one category
+# ---------------------------------------------------------------------------
+
+
+class FieldFormTab(_BaseTab):
+    """
+    Generic tab that renders all TRACK_FIELDS belonging to `category`.
+    Editable fields → appropriate input widget.
+    Read-only fields → styled QLabel.
+    """
+
+    def __init__(self, category: str, tracks: list, controller, parent=None):
+        super().__init__(tracks, controller, parent)
+        self.category = category
+        self._widgets: Dict[str, QWidget] = {}  # editable widgets
+        self._labels: Dict[str, QLabel] = {}  # readonly labels
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QFormLayout(self)
+        layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+
+        fields = {
+            name: cfg
+            for name, cfg in TRACK_FIELDS.items()
+            if cfg.category == self.category
+        }
+
+        if self.is_multi:
+            note = QLabel("⚠  Changes will apply to all selected tracks.")
+            note.setStyleSheet("color: #888; font-style: italic;")
+            layout.addRow(note)
+
+        for field_name, cfg in fields.items():
+            # Build the label
+            label_text = cfg.friendly or field_name
+            lbl = QLabel(f"{label_text}:")
+            if cfg.tooltip:
+                lbl.setToolTip(cfg.tooltip)
+
+            if not cfg.editable:
+                # Read-only display label
+                val_lbl = QLabel("—")
+                val_lbl.setWordWrap(True)
+                val_lbl.setStyleSheet("color: #666; font-style: italic;")
+                val_lbl.setFocusPolicy(Qt.NoFocus)
+                val_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                self._labels[field_name] = val_lbl
+                layout.addRow(lbl, val_lbl)
+            else:
+                # Skip fields marked multiple=False in multi-track mode
+                if self.is_multi and not cfg.multiple:
+                    continue
+                w = _make_widget_for_field(field_name, cfg, self._mark_dirty)
+                self._widgets[field_name] = w
+                layout.addRow(lbl, w)
+
+    # ── _BaseTab interface ───────────────────────────────────────────────
+
+    def load(self, tracks: list) -> None:
+        self.tracks = tracks
+        self._dirty.clear()
+
+        if self.is_multi:
+            # Show value only when all tracks agree; blank otherwise
+            for field_name, w in self._widgets.items():
+                values = [getattr(t, field_name, None) for t in tracks]
+                unique = set(str(v) for v in values)
+                _write_widget(w, values[0] if len(unique) == 1 else None)
+        else:
+            for field_name, w in self._widgets.items():
+                _write_widget(w, getattr(self.track, field_name, None))
+            for field_name, lbl in self._labels.items():
+                cfg = TRACK_FIELDS.get(field_name)
+                lbl.setText(
+                    _format_readonly(getattr(self.track, field_name, None), cfg)
+                )
+
+    def collect_changes(self) -> Dict[str, Any]:
+        changes = {}
+        for field_name in self._dirty:
+            w = self._widgets.get(field_name)
+            if w is None:
+                continue
+            cfg = TRACK_FIELDS.get(field_name)
+            if cfg is None:
+                continue
+            raw = _read_widget(w)
+            new_val = _coerce(raw, cfg)
+            if self.is_multi or self._has_changed(field_name, new_val):
+                changes[field_name] = new_val
+        return changes
+
+
+# ---------------------------------------------------------------------------
+# LyricsTab
+# ---------------------------------------------------------------------------
+
+
+class LyricsTab(_BaseTab):
+    def __init__(self, tracks: list, controller, parent=None):
+        super().__init__(tracks, controller, parent)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Search button row
+        btn_row = QHBoxLayout()
+        self._search_btn = QPushButton("🔍  Search Lyrics Online")
+        self._search_btn.clicked.connect(self._search_lyrics)
+        btn_row.addWidget(self._search_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        lbl = QLabel("Lyrics:")
+        cfg = TRACK_FIELDS.get("lyrics")
+        if cfg and cfg.tooltip:
+            lbl.setToolTip(cfg.tooltip)
+        layout.addWidget(lbl)
+
+        self._edit = QTextEdit()
+        self._edit.textChanged.connect(lambda: self._mark_dirty("lyrics"))
+        layout.addWidget(self._edit)
+
+    def load(self, tracks: list) -> None:
+        self.tracks = tracks
+        self._dirty.clear()
+        if self.is_multi:
+            self._edit.setPlainText("")
+            self._search_btn.setEnabled(False)
+        else:
+            val = getattr(self.track, "lyrics", None) or ""
+            self._edit.blockSignals(True)
+            self._edit.setPlainText(val)
+            self._edit.blockSignals(False)
+            self._search_btn.setEnabled(True)
+
+    def collect_changes(self) -> Dict[str, Any]:
+        if "lyrics" not in self._dirty:
+            return {}
+        return {"lyrics": self._edit.toPlainText() or None}
+
+    def _search_lyrics(self):
+        try:
+            from src.lyrics_search import search_lyrics_for_track
+
+            lyrics = search_lyrics_for_track(self.track)
+            if lyrics:
+                formatted = self._format_lyrics(lyrics)
+                self._edit.setPlainText(formatted)
+            else:
+                QMessageBox.information(self, "Lyrics Search", "No lyrics found.")
+        except Exception as e:
+            logger.error(f"Lyrics search error: {e}")
+            QMessageBox.warning(self, "Lyrics Search", f"Search failed:\n{e}")
+
+    @staticmethod
+    def _format_lyrics(lyrics_obj) -> str:
+        """
+        Convert lyrics to a plain string.
+        Handles three cases:
+          - already a str → return as-is
+          - object with a .lyrics dict attribute → format as [timestamp] line
+          - bare dict → format as [timestamp] line
+        """
+        if isinstance(lyrics_obj, str):
+            return lyrics_obj
+
+        # Unwrap object wrapper if present
+        lyrics_dict = getattr(lyrics_obj, "lyrics", lyrics_obj)
+
+        if isinstance(lyrics_dict, dict):
+            lines = []
+            for ts in sorted(lyrics_dict.keys()):
+                line = lyrics_dict[ts]
+                if str(line).strip() == "♪":
+                    lines.append("")
+                else:
+                    lines.append(f"[{ts}] {line}")
+            return "\n".join(lines)
+
+        # Fallback: just stringify whatever we got
+        return str(lyrics_obj)
+
+
+# ---------------------------------------------------------------------------
+# IdentificationTab — like FieldFormTab("Identification") but adds Wikipedia
+# ---------------------------------------------------------------------------
+
+
+class IdentificationTab(FieldFormTab):
+    def __init__(self, tracks: list, controller, parent=None):
+        super().__init__("Identification", tracks, controller, parent)
+        self._inject_wikipedia_button()
+
+    def _inject_wikipedia_button(self):
+        """Replace the plain Wikipedia link field with one that has a search button."""
+        wiki_widget = self._widgets.get("track_wikipedia_link")
+        if wiki_widget is None:
+            return
+
+        # Find the row in the form layout and replace the field widget
+        form = self.layout()
+        for i in range(form.rowCount()):
+            label_item = form.itemAt(i, QFormLayout.LabelRole)  # noqa: F841
+            field_item = form.itemAt(i, QFormLayout.FieldRole)
+            if field_item and field_item.widget() is wiki_widget:
+                # Build a row widget: [line edit] [search button]
+                container = QWidget()
+                row = QHBoxLayout(container)
+                row.setContentsMargins(0, 0, 0, 0)
+                row.addWidget(wiki_widget)
+                btn = QPushButton("Search Wikipedia")
+                btn.clicked.connect(self._search_wikipedia)
+                row.addWidget(btn)
+                form.removeRow(i)
+                label_item_widget = QLabel("Wikipedia Link:")
+                form.insertRow(i, label_item_widget, container)
+                break
+
+    def _search_wikipedia(self):
+        try:
+            query = self.track.track_name if not self.is_multi else ""
+            title, summary, _full, link, _images = search_wikipedia(query, self)
+            if not link:
+                return
+            wiki_w = self._widgets.get("track_wikipedia_link")
+            if wiki_w:
+                wiki_w.setText(link)
+                self._mark_dirty("track_wikipedia_link")
+            # Optionally pre-fill description if it is empty
+            desc_w = self._widgets.get("track_description")
+            if desc_w and summary and not _read_widget(desc_w).strip():
+                desc_text = summary[:500] + ("..." if len(summary) > 500 else "")
+                _write_widget(desc_w, desc_text)
+                self._mark_dirty("track_description")
+        except Exception as e:
+            logger.error(f"Wikipedia search error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# RolesTab — artist / role relationships
+# ---------------------------------------------------------------------------
+
+
+class RolesTab(_BaseTab):
+    def __init__(self, tracks: list, controller, parent=None):
+        super().__init__(tracks, controller, parent)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+
+        # ── Search row ────────────────────────────────────────────────────
+        search_row = QHBoxLayout()
+
+        self._artist_search = QLineEdit()
+        self._artist_search.setPlaceholderText("Search artists… (min 2 chars)")
+        self._artist_search.textChanged.connect(self._on_artist_search)
+        search_row.addWidget(self._artist_search)
+
+        self._artist_combo = QComboBox()
+        self._artist_combo.setVisible(False)
+        self._artist_combo.currentIndexChanged.connect(self._on_artist_selected)
+        search_row.addWidget(self._artist_combo)
+
+        self._role_edit = QLineEdit()
+        self._role_edit.setPlaceholderText("Role (e.g. Performer, Composer…)")
+        self._role_edit.textChanged.connect(self._update_add_btn)
+        search_row.addWidget(self._role_edit)
+
+        self._add_btn = QPushButton("Add Role")
+        self._add_btn.setEnabled(False)
+        self._add_btn.clicked.connect(self._add_role)
+        search_row.addWidget(self._add_btn)
+        layout.addLayout(search_row)
+
+        # ── Current roles table ───────────────────────────────────────────
+        self._table = QTableWidget(0, 3)
+        self._table.setHorizontalHeaderLabels(["Artist", "Role", ""])
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeToContents
+        )
+        layout.addWidget(self._table)
+
+    # ── Loading ───────────────────────────────────────────────────────────
+
+    def load(self, tracks: list) -> None:
+        self.tracks = tracks
+        self._table.setRowCount(0)
+        if self.is_multi:
+            self._load_common_roles()
+        else:
+            for role_assoc in self.track.artist_roles:
+                self._add_table_row(
+                    artist_name=role_assoc.artist.artist_name
+                    if role_assoc.artist
+                    else "?",
+                    role_name=role_assoc.role.role_name if role_assoc.role else "?",
+                    artist_id=role_assoc.artist.artist_id
+                    if role_assoc.artist
+                    else None,
+                    role_id=role_assoc.role.role_id if role_assoc.role else None,
+                )
+
+    def _load_common_roles(self):
+        """Show only roles shared by every track in the selection."""
+        all_sets = []
+        for t in self.tracks:
+            s = set()
+            for ra in t.artist_roles:
+                if ra.artist and ra.role:
+                    s.add(
+                        (
+                            ra.artist.artist_id,
+                            ra.role.role_id,
+                            ra.artist.artist_name,
+                            ra.role.role_name,
+                        )
+                    )
+            all_sets.append(s)
+        common = all_sets[0]
+        for s in all_sets[1:]:
+            common &= s
+        for artist_id, role_id, artist_name, role_name in common:
+            self._add_table_row(artist_name, role_name, artist_id, role_id)
+
+    def _add_table_row(self, artist_name, role_name, artist_id, role_id):
+        row = self._table.rowCount()
+        self._table.insertRow(row)
+        artist_item = QTableWidgetItem(artist_name)
+        artist_item.setData(Qt.UserRole, artist_id)
+        self._table.setItem(row, 0, artist_item)
+        role_item = QTableWidgetItem(role_name)
+        role_item.setData(Qt.UserRole, role_id)
+        self._table.setItem(row, 1, role_item)
+        btn = QPushButton("Remove")
+        btn.clicked.connect(lambda _checked, r=row: self._remove_role(r))
+        self._table.setCellWidget(row, 2, btn)
+
+    # ── Search ────────────────────────────────────────────────────────────
+
+    def _on_artist_search(self, text: str):
+        text = text.strip()
+        self._artist_combo.blockSignals(True)
+        self._artist_combo.clear()
+        if len(text) >= 2:
+            results = self.controller.get.get_entity_object("Artist", artist_name=text)
+            self._artist_combo.addItem(f"Create new: '{text}'", "new")
+            if results is not None:
+                items = results if isinstance(results, list) else [results]
+                for a in items:
+                    self._artist_combo.addItem(a.artist_name, a.artist_id)
+            self._artist_combo.setVisible(self._artist_combo.count() > 1)
+        else:
+            self._artist_combo.setVisible(False)
+        self._artist_combo.blockSignals(False)
+        self._update_add_btn()
+
+    def _on_artist_selected(self, index: int):
+        if index > 0:
+            self._artist_search.blockSignals(True)
+            self._artist_search.setText(self._artist_combo.currentText())
+            self._artist_search.blockSignals(False)
+        self._update_add_btn()
+
+    def _update_add_btn(self):
+        artist_ok = len(self._artist_search.text().strip()) >= 2
+        role_ok = len(self._role_edit.text().strip()) >= 2
+        self._add_btn.setEnabled(artist_ok and role_ok)
+
+    # ── Add / Remove ──────────────────────────────────────────────────────
+
+    def _add_role(self):
+        artist_name = self._artist_search.text().strip()
+        role_name = self._role_edit.text().strip()
+        if not artist_name or not role_name:
+            return
+
+        # Resolve or create artist
+        combo_data = (
+            self._artist_combo.currentData() if self._artist_combo.isVisible() else None
+        )
+        if combo_data and combo_data != "new":
+            artist = self.controller.get.get_entity_object(
+                "Artist", artist_id=combo_data
+            )
+        else:
+            existing = self.controller.get.get_entity_object(
+                "Artist", artist_name=artist_name
+            )
+            if existing:
+                artist = existing if not isinstance(existing, list) else existing[0]
+            else:
+                artist = self.controller.add.add_entity(
+                    "Artist", artist_name=artist_name
+                )
+
+        # Resolve or create role
+        existing_role = self.controller.get.get_entity_object(
+            "Role", role_name=role_name
+        )
+        if existing_role:
+            role = (
+                existing_role
+                if not isinstance(existing_role, list)
+                else existing_role[0]
+            )
+        else:
+            role = self.controller.add.add_entity("Role", role_name=role_name)
+
+        if not artist or not role:
+            QMessageBox.warning(self, "Error", "Could not resolve artist or role.")
+            return
+
+        for track in self.tracks:
+            try:
+                self.controller.add.add_entity(
+                    "TrackArtistRole",
+                    track_id=track.track_id,
+                    artist_id=artist.artist_id,
+                    role_id=role.role_id,
+                )
+            except Exception as e:
+                logger.error(f"Failed to add role to track {track.track_id}: {e}")
+
+        self._artist_search.clear()
+        self._role_edit.clear()
+        self._artist_combo.setVisible(False)
+        self.load(self.tracks)
+
+    def _remove_role(self, row: int):
+        artist_item = self._table.item(row, 0)
+        role_item = self._table.item(row, 1)
+        if not artist_item or not role_item:
+            return
+        artist_id = artist_item.data(Qt.UserRole)
+        role_id = role_item.data(Qt.UserRole)
+        for track in self.tracks:
+            try:
+                self.controller.delete.delete_entity(
+                    "TrackArtistRole",
+                    track_id=track.track_id,
+                    artist_id=artist_id,
+                    role_id=role_id,
+                )
+            except Exception as e:
+                logger.error(f"Failed to remove role from track {track.track_id}: {e}")
+        self.load(self.tracks)
+
+
+# ---------------------------------------------------------------------------
+# GenresTab
+# ---------------------------------------------------------------------------
+
+
+class GenresTab(_BaseTab):
+    def __init__(self, tracks: list, controller, parent=None):
+        super().__init__(tracks, controller, parent)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+
+        search_row = QHBoxLayout()
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Search genres… (min 2 chars)")
+        self._search.textChanged.connect(self._on_search)
+        search_row.addWidget(self._search)
+
+        self._combo = QComboBox()
+        self._combo.setVisible(False)
+        self._combo.currentIndexChanged.connect(self._on_selected)
+        search_row.addWidget(self._combo)
+
+        self._add_btn = QPushButton("Add Genre")
+        self._add_btn.setEnabled(False)
+        self._add_btn.clicked.connect(self._add)
+        search_row.addWidget(self._add_btn)
+        layout.addLayout(search_row)
+
+        self._list = QListWidget()
+        layout.addWidget(self._list)
+
+    def load(self, tracks: list) -> None:
+        self.tracks = tracks
+        self._list.clear()
+        if self.is_multi:
+            genres = self._common_genres()
+        else:
+            genres = [(g.genre_id, g.genre_name) for g in self.track.genres]
+        for gid, gname in genres:
+            item = QListWidgetItem(gname)
+            item.setData(Qt.UserRole, gid)
+            self._list.addItem(item)
+
+    def _common_genres(self):
+        all_sets = []
+        for t in self.tracks:
+            all_sets.append({(g.genre_id, g.genre_name) for g in t.genres})
+        common = all_sets[0]
+        for s in all_sets[1:]:
+            common &= s
+        return list(common)
+
+    def _on_search(self, text: str):
+        text = text.strip()
+        self._combo.blockSignals(True)
+        self._combo.clear()
+        if len(text) >= 2:
+            results = self.controller.get.get_entity_object("Genre", genre_name=text)
+            self._combo.addItem(f"Create new: '{text}'", "new")
+            if results is not None:
+                items = results if isinstance(results, list) else [results]
+                for g in items:
+                    self._combo.addItem(g.genre_name, g.genre_id)
+            self._combo.setVisible(self._combo.count() > 1)
+        else:
+            self._combo.setVisible(False)
+        self._combo.blockSignals(False)
+        self._add_btn.setEnabled(len(text) >= 2)
+
+    def _on_selected(self, index: int):
+        if index > 0:
+            self._search.blockSignals(True)
+            self._search.setText(self._combo.currentText())
+            self._search.blockSignals(False)
+
+    def _add(self):
+        genre_name = self._search.text().strip()
+        if not genre_name:
+            return
+        combo_data = self._combo.currentData() if self._combo.isVisible() else None
+        if combo_data and combo_data != "new":
+            genre = self.controller.get.get_entity_object("Genre", genre_id=combo_data)
+        else:
+            existing = self.controller.get.get_entity_object(
+                "Genre", genre_name=genre_name
+            )
+            if existing:
+                genre = existing if not isinstance(existing, list) else existing[0]
+            else:
+                genre = self.controller.add.add_entity("Genre", genre_name=genre_name)
+        if not genre:
+            return
+        for track in self.tracks:
+            try:
+                self.controller.add.add_entity(
+                    "TrackGenre", track_id=track.track_id, genre_id=genre.genre_id
+                )
+            except Exception as e:
+                logger.error(f"Failed to add genre to track {track.track_id}: {e}")
+        self._search.clear()
+        self._combo.setVisible(False)
+        self.load(self.tracks)
+
+    def _remove_selected(self):
+        item = self._list.currentItem()
+        if not item:
+            return
+        genre_id = item.data(Qt.UserRole)
+        for track in self.tracks:
+            try:
+                self.controller.delete.delete_entity(
+                    "TrackGenre", track_id=track.track_id, genre_id=genre_id
+                )
+            except Exception as e:
+                logger.error(f"Failed to remove genre from track {track.track_id}: {e}")
+        self.load(self.tracks)
+
+    def contextMenuEvent(self, event):
+        if self._list.currentItem():
+            menu = QMenu(self)
+            menu.addAction("Remove", self._remove_selected)
+            menu.exec(event.globalPos())
+
+
+# ---------------------------------------------------------------------------
+# PlacesTab
+# ---------------------------------------------------------------------------
+
+
+class PlacesTab(_BaseTab):
+    def __init__(self, tracks: list, controller, parent=None):
+        super().__init__(tracks, controller, parent)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+
+        search_row = QHBoxLayout()
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Search places… (min 2 chars)")
+        self._search.textChanged.connect(self._on_search)
+        search_row.addWidget(self._search)
+
+        self._combo = QComboBox()
+        self._combo.setVisible(False)
+        self._combo.currentIndexChanged.connect(self._on_selected)
+        search_row.addWidget(self._combo)
+
+        self._type_edit = QLineEdit()
+        self._type_edit.setPlaceholderText("Type (Recorded, Composed, etc.)")
+        search_row.addWidget(self._type_edit)
+
+        self._add_btn = QPushButton("Add Place")
+        self._add_btn.setEnabled(False)
+        self._add_btn.clicked.connect(self._add)
+        search_row.addWidget(self._add_btn)
+        layout.addLayout(search_row)
+
+        self._table = QTableWidget(0, 3)
+        self._table.setHorizontalHeaderLabels(["Place", "Type", ""])
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeToContents
+        )
+        layout.addWidget(self._table)
+
+    def load(self, tracks: list) -> None:
+        self.tracks = tracks
+        self._table.setRowCount(0)
+        if self.is_multi:
+            rows = self._common_places()
+        else:
+            assocs = self.controller.get.get_entity_links(
+                "PlaceAssociation", entity_id=self.track.track_id, entity_type="Track"
+            )
+            rows = []
+            for a in assocs:
+                place = self.controller.get.get_entity_object(
+                    "Place", place_id=a.place_id
+                )
+                if place:
+                    rows.append(
+                        (place.place_id, place.place_name, a.association_type or "")
+                    )
+        for place_id, place_name, assoc_type in rows:
+            self._add_row(place_id, place_name, assoc_type)
+
+    def _common_places(self):
+        all_sets = []
+        for t in self.tracks:
+            s = set()
+            assocs = self.controller.get.get_entity_links(
+                "PlaceAssociation", entity_id=t.track_id, entity_type="Track"
+            )
+            for a in assocs:
+                place = self.controller.get.get_entity_object(
+                    "Place", place_id=a.place_id
+                )
+                if place:
+                    s.add((place.place_id, place.place_name, a.association_type or ""))
+            all_sets.append(s)
+        common = all_sets[0]
+        for s in all_sets[1:]:
+            common &= s
+        return list(common)
+
+    def _add_row(self, place_id, place_name, assoc_type):
+        row = self._table.rowCount()
+        self._table.insertRow(row)
+        pi = QTableWidgetItem(place_name)
+        pi.setData(Qt.UserRole, place_id)
+        self._table.setItem(row, 0, pi)
+        self._table.setItem(row, 1, QTableWidgetItem(assoc_type))
+        btn = QPushButton("Remove")
+        btn.clicked.connect(lambda _c, r=row: self._remove_row(r))
+        self._table.setCellWidget(row, 2, btn)
+
+    def _on_search(self, text: str):
+        text = text.strip()
+        self._combo.blockSignals(True)
+        self._combo.clear()
+        if len(text) >= 2:
+            results = self.controller.get.get_entity_object("Place", place_name=text)
+            self._combo.addItem(f"Create new: '{text}'", "new")
+            if results is not None:
+                items = results if isinstance(results, list) else [results]
+                for p in items:
+                    self._combo.addItem(p.place_name, p.place_id)
+            self._combo.setVisible(self._combo.count() > 1)
+        else:
+            self._combo.setVisible(False)
+        self._combo.blockSignals(False)
+        self._add_btn.setEnabled(len(text) >= 2)
+
+    def _on_selected(self, index: int):
+        if index > 0:
+            self._search.blockSignals(True)
+            self._search.setText(self._combo.currentText())
+            self._search.blockSignals(False)
+
+    def _add(self):
+        place_name = self._search.text().strip()
+        assoc_type = self._type_edit.text().strip() or None
+        if not place_name:
+            return
+        combo_data = self._combo.currentData() if self._combo.isVisible() else None
+        if combo_data and combo_data != "new":
+            place = self.controller.get.get_entity_object("Place", place_id=combo_data)
+        else:
+            existing = self.controller.get.get_entity_object(
+                "Place", place_name=place_name
+            )
+            if existing:
+                place = existing if not isinstance(existing, list) else existing[0]
+            else:
+                place = self.controller.add.add_entity("Place", place_name=place_name)
+        if not place:
+            return
+        for track in self.tracks:
+            try:
+                self.controller.add.add_entity(
+                    "PlaceAssociation",
+                    entity_id=track.track_id,
+                    entity_type="Track",
+                    place_id=place.place_id,
+                    association_type=assoc_type,
+                )
+            except Exception as e:
+                logger.error(f"Failed to add place to track {track.track_id}: {e}")
+        self._search.clear()
+        self._type_edit.clear()
+        self._combo.setVisible(False)
+        self.load(self.tracks)
+
+    def _remove_row(self, row: int):
+        place_item = self._table.item(row, 0)
+        if not place_item:
+            return
+        place_id = place_item.data(Qt.UserRole)
+        for track in self.tracks:
+            try:
+                self.controller.delete.delete_entity(
+                    "PlaceAssociation",
+                    entity_id=track.track_id,
+                    entity_type="Track",
+                    place_id=place_id,
+                )
+            except Exception as e:
+                logger.error(f"Failed to remove place from track {track.track_id}: {e}")
+        self.load(self.tracks)
+
+
+# ---------------------------------------------------------------------------
+# MoodsTab
+# ---------------------------------------------------------------------------
+
+
+class MoodsTab(_BaseTab):
+    def __init__(self, tracks: list, controller, parent=None):
+        super().__init__(tracks, controller, parent)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+
+        search_row = QHBoxLayout()
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Search moods… (min 2 chars)")
+        self._search.textChanged.connect(self._on_search)
+        search_row.addWidget(self._search)
+
+        self._combo = QComboBox()
+        self._combo.setVisible(False)
+        self._combo.currentIndexChanged.connect(self._on_selected)
+        search_row.addWidget(self._combo)
+
+        self._add_btn = QPushButton("Add Mood")
+        self._add_btn.setEnabled(False)
+        self._add_btn.clicked.connect(self._add)
+        search_row.addWidget(self._add_btn)
+        layout.addLayout(search_row)
+
+        self._list = QListWidget()
+        layout.addWidget(self._list)
+
+    def load(self, tracks: list) -> None:
+        self.tracks = tracks
+        self._list.clear()
+        if self.is_multi:
+            moods = self._common_moods()
+        else:
+            assocs = self.controller.get.get_entity_links(
+                "MoodTrackAssociation", track_id=self.track.track_id
+            )
+            moods = []
+            for a in assocs:
+                mood = self.controller.get.get_entity_object("Mood", mood_id=a.mood_id)
+                if mood:
+                    moods.append((mood.mood_id, mood.mood_name))
+        for mood_id, mood_name in moods:
+            item = QListWidgetItem(mood_name)
+            item.setData(Qt.UserRole, mood_id)
+            self._list.addItem(item)
+
+    def _common_moods(self):
+        all_sets = []
+        for t in self.tracks:
+            s = set()
+            assocs = self.controller.get.get_entity_links(
+                "MoodTrackAssociation", track_id=t.track_id
+            )
+            for a in assocs:
+                mood = self.controller.get.get_entity_object("Mood", mood_id=a.mood_id)
+                if mood:
+                    s.add((mood.mood_id, mood.mood_name))
+            all_sets.append(s)
+        common = all_sets[0]
+        for s in all_sets[1:]:
+            common &= s
+        return list(common)
+
+    def _on_search(self, text: str):
+        text = text.strip()
+        self._combo.blockSignals(True)
+        self._combo.clear()
+        if len(text) >= 2:
+            results = self.controller.get.get_entity_object("Mood", mood_name=text)
+            self._combo.addItem(f"Create new: '{text}'", "new")
+            if results is not None:
+                items = results if isinstance(results, list) else [results]
+                for m in items:
+                    self._combo.addItem(m.mood_name, m.mood_id)
+            self._combo.setVisible(self._combo.count() > 1)
+        else:
+            self._combo.setVisible(False)
+        self._combo.blockSignals(False)
+        self._add_btn.setEnabled(len(text) >= 2)
+
+    def _on_selected(self, index: int):
+        if index > 0:
+            self._search.blockSignals(True)
+            self._search.setText(self._combo.currentText())
+            self._search.blockSignals(False)
+
+    def _add(self):
+        mood_name = self._search.text().strip()
+        if not mood_name:
+            return
+        combo_data = self._combo.currentData() if self._combo.isVisible() else None
+        if combo_data and combo_data != "new":
+            mood = self.controller.get.get_entity_object("Mood", mood_id=combo_data)
+        else:
+            existing = self.controller.get.get_entity_object(
+                "Mood", mood_name=mood_name
+            )
+            if existing:
+                mood = existing if not isinstance(existing, list) else existing[0]
+            else:
+                mood = self.controller.add.add_entity("Mood", mood_name=mood_name)
+        if not mood:
+            return
+        for track in self.tracks:
+            try:
+                self.controller.add.add_entity_link(
+                    "MoodTrackAssociation",
+                    track_id=track.track_id,
+                    mood_id=mood.mood_id,
+                )
+            except Exception as e:
+                logger.error(f"Failed to add mood to track {track.track_id}: {e}")
+        self._search.clear()
+        self._combo.setVisible(False)
+        self.load(self.tracks)
+
+    def _remove_selected(self):
+        item = self._list.currentItem()
+        if not item:
+            return
+        mood_id = item.data(Qt.UserRole)
+        for track in self.tracks:
+            try:
+                self.controller.delete.delete_entity(
+                    "MoodTrackAssociation", track_id=track.track_id, mood_id=mood_id
+                )
+            except Exception as e:
+                logger.error(f"Failed to remove mood from track {track.track_id}: {e}")
+        self.load(self.tracks)
+
+    def contextMenuEvent(self, event):
+        if self._list.currentItem():
+            menu = QMenu(self)
+            menu.addAction("Remove", self._remove_selected)
+            menu.exec(event.globalPos())
+
+
+# ---------------------------------------------------------------------------
+# AwardsTab
+# ---------------------------------------------------------------------------
+
+
+class AwardsTab(_BaseTab):
+    def __init__(self, tracks: list, controller, parent=None):
+        super().__init__(tracks, controller, parent)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+
+        search_row = QHBoxLayout()
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Search awards… (min 2 chars)")
+        self._search.textChanged.connect(self._on_search)
+        search_row.addWidget(self._search)
+
+        self._combo = QComboBox()
+        self._combo.setVisible(False)
+        self._combo.currentIndexChanged.connect(self._on_selected)
+        search_row.addWidget(self._combo)
+
+        self._cat_edit = QLineEdit()
+        self._cat_edit.setPlaceholderText("Category (optional)")
+        search_row.addWidget(self._cat_edit)
+
+        self._year_spin = QSpinBox()
+        self._year_spin.setRange(0, 2200)
+        self._year_spin.setSpecialValueText("Year")
+        search_row.addWidget(self._year_spin)
+
+        self._add_btn = QPushButton("Add Award")
+        self._add_btn.setEnabled(False)
+        self._add_btn.clicked.connect(self._add)
+        search_row.addWidget(self._add_btn)
+        layout.addLayout(search_row)
+
+        self._table = QTableWidget(0, 4)
+        self._table.setHorizontalHeaderLabels(["Award", "Category", "Year", ""])
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeToContents
+        )
+        self._table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeToContents
+        )
+        layout.addWidget(self._table)
+
+    def load(self, tracks: list) -> None:
+        self.tracks = tracks
+        self._table.setRowCount(0)
+        if self.is_multi:
+            rows = self._common_awards()
+        else:
+            assocs = self.controller.get.get_entity_links(
+                "AwardAssociation", entity_id=self.track.track_id, entity_type="Track"
+            )
+            rows = []
+            for a in assocs:
+                award = self.controller.get.get_entity_object(
+                    "Award", award_id=a.award_id
+                )
+                if award:
+                    rows.append(
+                        (award.award_id, award.award_name, a.category or "", a.year)
+                    )
+        for award_id, award_name, category, year in rows:
+            self._add_row(award_id, award_name, category, year)
+
+    def _common_awards(self):
+        all_sets = []
+        for t in self.tracks:
+            s = set()
+            assocs = self.controller.get.get_entity_links(
+                "AwardAssociation", entity_id=t.track_id, entity_type="Track"
+            )
+            for a in assocs:
+                award = self.controller.get.get_entity_object(
+                    "Award", award_id=a.award_id
+                )
+                if award:
+                    s.add(
+                        (
+                            award.award_id,
+                            award.award_name,
+                            a.category or "",
+                            a.year or 0,
+                        )
+                    )
+            all_sets.append(s)
+        common = all_sets[0]
+        for s in all_sets[1:]:
+            common &= s
+        return [
+            (aid, aname, cat, yr if yr != 0 else None) for aid, aname, cat, yr in common
+        ]
+
+    def _add_row(self, award_id, award_name, category, year):
+        row = self._table.rowCount()
+        self._table.insertRow(row)
+        ai = QTableWidgetItem(award_name)
+        ai.setData(Qt.UserRole, award_id)
+        self._table.setItem(row, 0, ai)
+        self._table.setItem(row, 1, QTableWidgetItem(category))
+        self._table.setItem(row, 2, QTableWidgetItem(str(year) if year else ""))
+        btn = QPushButton("Remove")
+        btn.clicked.connect(lambda _c, r=row: self._remove_row(r))
+        self._table.setCellWidget(row, 3, btn)
+
+    def _on_search(self, text: str):
+        text = text.strip()
+        self._combo.blockSignals(True)
+        self._combo.clear()
+        if len(text) >= 2:
+            results = self.controller.get.get_entity_object("Award", award_name=text)
+            self._combo.addItem(f"Create new: '{text}'", "new")
+            if results is not None:
+                items = results if isinstance(results, list) else [results]
+                for a in items:
+                    self._combo.addItem(a.award_name, a.award_id)
+            self._combo.setVisible(self._combo.count() > 1)
+        else:
+            self._combo.setVisible(False)
+        self._combo.blockSignals(False)
+        self._add_btn.setEnabled(len(text) >= 2)
+
+    def _on_selected(self, index: int):
+        if index > 0:
+            self._search.blockSignals(True)
+            self._search.setText(self._combo.currentText())
+            self._search.blockSignals(False)
+
+    def _add(self):
+        award_name = self._search.text().strip()
+        category = self._cat_edit.text().strip() or None
+        year = self._year_spin.value() or None
+        if not award_name:
+            return
+        combo_data = self._combo.currentData() if self._combo.isVisible() else None
+        if combo_data and combo_data != "new":
+            award = self.controller.get.get_entity_object("Award", award_id=combo_data)
+        else:
+            existing = self.controller.get.get_entity_object(
+                "Award", award_name=award_name
+            )
+            if existing:
+                award = existing if not isinstance(existing, list) else existing[0]
+            else:
+                award = self.controller.add.add_entity("Award", award_name=award_name)
+        if not award:
+            return
+        for track in self.tracks:
+            try:
+                self.controller.add.add_entity(
+                    "AwardAssociation",
+                    entity_id=track.track_id,
+                    entity_type="Track",
+                    award_id=award.award_id,
+                    category=category,
+                    year=year,
+                )
+            except Exception as e:
+                logger.error(f"Failed to add award to track {track.track_id}: {e}")
+        self._search.clear()
+        self._cat_edit.clear()
+        self._year_spin.setValue(0)
+        self._combo.setVisible(False)
+        self.load(self.tracks)
+
+    def _remove_row(self, row: int):
+        award_item = self._table.item(row, 0)
+        if not award_item:
+            return
+        award_id = award_item.data(Qt.UserRole)
+        for track in self.tracks:
+            try:
+                self.controller.delete.delete_entity(
+                    "AwardAssociation",
+                    entity_id=track.track_id,
+                    entity_type="Track",
+                    award_id=award_id,
+                )
+            except Exception as e:
+                logger.error(f"Failed to remove award from track {track.track_id}: {e}")
+        self.load(self.tracks)
+
+
+# ---------------------------------------------------------------------------
+# SamplesTab
+# ---------------------------------------------------------------------------
+
+
+class SamplesTab(_BaseTab):
+    def __init__(self, tracks: list, controller, parent=None):
+        super().__init__(tracks, controller, parent)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Search / add used samples
+        search_row = QHBoxLayout()
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Search tracks to sample… (min 2 chars)")
+        self._search.textChanged.connect(self._on_search)
+        search_row.addWidget(self._search)
+
+        self._combo = QComboBox()
+        self._combo.setVisible(False)
+        self._combo.currentIndexChanged.connect(self._on_selected)
+        search_row.addWidget(self._combo)
+
+        self._add_btn = QPushButton("Add Sample")
+        self._add_btn.setEnabled(False)
+        self._add_btn.clicked.connect(self._add)
+        search_row.addWidget(self._add_btn)
+        layout.addLayout(search_row)
+
+        # Samples used list
+        layout.addWidget(QLabel("Samples Used (tracks this track samples):"))
+        self._used_list = QListWidget()
+        self._used_list.itemDoubleClicked.connect(self._open_sampled)
+        self._used_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._used_list.customContextMenuRequested.connect(
+            lambda pos: self._list_context_menu(
+                self._used_list, pos, self._remove_sample
+            )
+        )
+        layout.addWidget(self._used_list)
+
+        # Sampled-by list (read-only)
+        layout.addWidget(QLabel("Sampled By (tracks that sample this track):"))
+        self._by_list = QListWidget()
+        self._by_list.itemDoubleClicked.connect(self._open_sampler)
+        layout.addWidget(self._by_list)
+
+        layout.addWidget(QLabel("Double-click any track to open its editor."))
+
+    def load(self, tracks: list) -> None:
+        self.tracks = tracks
+        self._used_list.clear()
+        self._by_list.clear()
+
+        # Samples tab is single-track only in a meaningful way
+        if self.is_multi:
+            self._used_list.addItem("(Select a single track to manage samples)")
+            self._add_btn.setEnabled(False)
+            return
+
+        for sample in self.track.samples_used:
+            st = sample.sampled
+            if st:
+                text = st.track_name + (f"  [{st.album_name}]" if st.album_name else "")
+                item = QListWidgetItem(text)
+                item.setData(Qt.UserRole, st.track_id)
+                self._used_list.addItem(item)
+
+        for sample in self.track.sampled_by_tracks:
+            st = sample.sampled_by
+            if st:
+                text = st.track_name + (f"  [{st.album_name}]" if st.album_name else "")
+                item = QListWidgetItem(text)
+                item.setData(Qt.UserRole, st.track_id)
+                self._by_list.addItem(item)
+
+    def _on_search(self, text: str):
+        text = text.strip()
+        self._combo.blockSignals(True)
+        self._combo.clear()
+        if len(text) >= 2:
+            results = self.controller.get.get_entity_object("Track", track_name=text)
+            if results is not None:
+                items = results if isinstance(results, list) else [results]
+                for t in items:
+                    self._combo.addItem(t.track_name, t.track_id)
+            self._combo.setVisible(self._combo.count() > 0)
+        else:
+            self._combo.setVisible(False)
+        self._combo.blockSignals(False)
+        self._add_btn.setEnabled(len(text) >= 2 and self._combo.count() > 0)
+
+    def _on_selected(self, index: int):
+        if index >= 0:
+            self._search.blockSignals(True)
+            self._search.setText(self._combo.currentText())
+            self._search.blockSignals(False)
+
+    def _add(self):
+        if self._combo.currentData() is None:
+            return
+        sampled_id = self._combo.currentData()
+        try:
+            self.controller.add.add_entity(
+                "TrackSample",
+                sampler_id=self.track.track_id,
+                sampled_id=sampled_id,
+            )
+        except Exception as e:
+            logger.error(f"Failed to add sample: {e}")
+        self._search.clear()
+        self._combo.setVisible(False)
+        self.load(self.tracks)
+
+    def _remove_sample(self):
+        item = self._used_list.currentItem()
+        if not item:
+            return
+        sampled_id = item.data(Qt.UserRole)
+        try:
+            self.controller.delete.delete_entity(
+                "TrackSample",
+                sampler_id=self.track.track_id,
+                sampled_id=sampled_id,
+            )
+        except Exception as e:
+            logger.error(f"Failed to remove sample: {e}")
+        self.load(self.tracks)
+
+    def _open_sampled(self, item):
+        self._open_track(item.data(Qt.UserRole))
+
+    def _open_sampler(self, item):
+        self._open_track(item.data(Qt.UserRole))
+
+    def _open_track(self, track_id):
+        track = self.controller.get.get_entity_object("Track", track_id=track_id)
+        if track:
+            dlg = TrackEditDialog(track, self.controller, self)
+            dlg.exec()
+
+    @staticmethod
+    def _list_context_menu(list_widget, pos, remove_cb):
+        if list_widget.currentItem():
+            menu = QMenu(list_widget)
+            menu.addAction("Remove", remove_cb)
+            menu.exec(list_widget.mapToGlobal(pos))
+
+
+# ---------------------------------------------------------------------------
+# TrackEditDialog — the main dialog
+# ---------------------------------------------------------------------------
 
 
 class TrackEditDialog(QDialog):
-    """Track editing dialog with real-time updates and smart field handling."""
+    """
+    Edit one track — or bulk-edit many at once.
+
+    Usage:
+        # Single track
+        dlg = TrackEditDialog(track, controller, parent)
+        # Multiple tracks
+        dlg = TrackEditDialog([t1, t2, t3], controller, parent)
+    """
 
     field_modified = Signal()
 
-    def __init__(self, track, controller, parent=None):
-        super().__init__()
-        self.track = track  # track ORM model
-        self.controller = controller  # access to db operations
-        self.modified_fields = set()
+    def __init__(
+        self,
+        track_or_tracks: Union[Any, List],
+        controller,
+        parent=None,
+    ):
+        super().__init__(parent)
 
-        self.is_multi_track = False
+        # Normalise to a list
+        if isinstance(track_or_tracks, list):
+            self.tracks = track_or_tracks
+        else:
+            self.tracks = [track_or_tracks]
 
-        # Initialize field storage dictionaries BEFORE creating tabs
-        self.field_widgets = {}
-        self.readonly_labels = {}  # Store readonly labels for data loading
+        self.controller = controller
+        self.is_multi = len(self.tracks) > 1
 
-        # FIX: Pre-initialize searchers/loaders to None so __getattr__ does not
-        # enter infinite recursion if Qt queries attributes before __init__ completes.
-        self.searchers = None
-        self.loaders = None
+        # Convenience property
+        self.track = self.tracks[0]
 
-        self.setWindowTitle(f"Edit Track: {track.track_name}")
-        self.setMinimumWidth(800)
-        self.setMinimumHeight(600)
-
-        # Initialize helper classes
-        self.loaders = DataLoaders(self, self.is_multi_track)
-        self.searchers = SearchHandlers(self, self.is_multi_track)
-
-        self.main_layout = QHBoxLayout(self)  # Horizontal layout
-
-        # Create sidebar
-        self.sidebar = QListWidget()
-        self.sidebar.setMaximumWidth(150)
-        self.sidebar.itemClicked.connect(self._on_sidebar_item_clicked)
-
-        # Create container for tabs
-        self.tab_container = QWidget()
-        self.tab_layout = QVBoxLayout(self.tab_container)
-        self.tabs = QTabWidget()
-        self.tab_layout.addWidget(self.tabs)
-
-        # Add to main layout
-        self.main_layout.addWidget(self.sidebar)
-        self.main_layout.addWidget(self.tab_container)
-
-        # Create all tabs
-        self._create_tab_from_fields("Basic", "Basic")
-        self._create_lyrics_tab()
-        self._create_tab_from_fields("Date", "Dates")
-        self._create_tab_from_fields("Classical", "Classical")
-        self._create_tab_from_fields("Properties", "Properties")
-        self._create_tab_from_fields("User", "User Data")
-        self._create_identification_tab()
-        self._create_roles_tab()
-        self._create_genres_tab()
-        self._create_places_tab()
-        self._create_moods_tab()
-        self._create_awards_tab()
-        self._create_tab_from_fields("Alias", "Name Aliases")
-        self._create_samples_tab()
-        self._create_tab_from_fields("Advanced", "Advanced")
-
-        self.main_layout.addWidget(self.tabs)
-        self._setup_tab_shortcuts()
-        self._populate_sidebar()
-
-        # Add buttons
-        self.button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        title = (
+            f"Edit {len(self.tracks)} Tracks"
+            if self.is_multi
+            else f"Edit Track: {self.track.track_name}"
         )
-        self.button_box.accepted.connect(self._on_save)
-        self.button_box.rejected.connect(self.reject)
-        self.main_layout.addWidget(self.button_box)
+        self.setWindowTitle(title)
+        self.setMinimumSize(900, 650)
 
-        # Load current track data
-        self._load_track_data()
+        self._build_ui()
+        self._load_all()
 
-    def _create_tab_from_fields(self, category_name, tab_name):
-        """Create a tab with fields from a specific category."""
-        tab = QWidget()
-        layout = QFormLayout(tab)
+    # ── UI Construction ───────────────────────────────────────────────────
 
-        # Get ALL fields for this category (both editable and non-editable)
-        category_fields = {
-            field_name: field_config
-            for field_name, field_config in TRACK_FIELDS.items()
-            if field_config.category == category_name
-        }
+    def _build_ui(self):
+        root = QHBoxLayout(self)
 
-        for field_name, field_config in category_fields.items():
-            label_text = field_config.friendly
-            if field_config.tooltip:
-                label = QLabel(f"{label_text} ℹ️")
-                label.setToolTip(field_config.tooltip)
-            else:
-                label = QLabel(label_text)
+        # Left sidebar — tab navigation list
+        self._sidebar = QListWidget()
+        self._sidebar.setFixedWidth(155)
+        self._sidebar.currentRowChanged.connect(self._on_nav)
+        root.addWidget(self._sidebar)
 
-            if not field_config.editable:
-                # Create simple QLabel for readonly fields (not interactable)
-                value_widget = QLabel()
-                value_widget.setWordWrap(True)
-                # Make readonly fields visually distinct
-                value_widget.setStyleSheet("color: #555; font-style: italic;")
-                # Prevent the label from accepting focus or clicks
-                value_widget.setFocusPolicy(Qt.NoFocus)
-                value_widget.setTextInteractionFlags(Qt.NoTextInteraction)
+        # Right side: stacked tab widgets + button box
+        right = QVBoxLayout()
+        self._stack = QStackedWidget()
+        right.addWidget(self._stack)
 
-                self.readonly_labels[field_name] = value_widget
-                layout.addRow(label, value_widget)
-            else:
-                # Create editable widgets for editable fields
-                if field_config.type == bool:  # noqa: E721
-                    widget = QCheckBox()
-                    widget.toggled.connect(
-                        lambda checked, fn=field_name: self._on_field_modified(fn)
-                    )
-                elif field_config.type == int:  # noqa: E721
-                    widget = QSpinBox()
-                    if field_config.min is not None:
-                        widget.setMinimum(int(field_config.min))
-                    if field_config.max is not None:
-                        widget.setMaximum(int(field_config.max))
-                    widget.valueChanged.connect(
-                        lambda value, fn=field_name: self._on_field_modified(fn)
-                    )
-                elif field_config.type == float:  # noqa: E721
-                    widget = QDoubleSpinBox()
-                    if field_config.min is not None:
-                        widget.setMinimum(field_config.min)
-                    if field_config.max is not None:
-                        widget.setMaximum(field_config.max)
-                    widget.setDecimals(2)
-                    widget.valueChanged.connect(
-                        lambda value, fn=field_name: self._on_field_modified(fn)
-                    )
-                elif field_config.longtext:
-                    widget = QTextEdit()
-                    widget.textChanged.connect(
-                        lambda fn=field_name: self._on_field_modified(fn)
-                    )
-                else:
-                    widget = QLineEdit()
-                    if field_config.placeholder:
-                        widget.setPlaceholderText(field_config.placeholder)
-                    if field_config.length:
-                        widget.setMaxLength(field_config.length)
-                    widget.textChanged.connect(
-                        lambda text, fn=field_name: self._on_field_modified(fn)
-                    )
+        btn_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        btn_box.accepted.connect(self._on_save)
+        btn_box.rejected.connect(self.reject)
+        right.addWidget(btn_box)
 
-                self.field_widgets[field_name] = widget
-                layout.addRow(label, widget)
+        right_widget = QWidget()
+        right_widget.setLayout(right)
+        root.addWidget(right_widget, stretch=1)
 
-        self.tabs.addTab(tab, tab_name)
-        return tab
-
-    def _create_lyrics_tab(self):
-        """Create lyrics tab with search functionality."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-
-        # Lyrics search button
-        search_layout = QHBoxLayout()
-        self.search_lyrics_btn = QPushButton("Search Lyrics Online")
-        self.search_lyrics_btn.clicked.connect(lambda: self._search_lyrics(self.track))
-        search_layout.addWidget(self.search_lyrics_btn)
-        search_layout.addStretch()
-        layout.addLayout(search_layout)
-
-        # Lyrics editor
-        lyrics_label = QLabel("Lyrics:")
-        lyrics_label.setToolTip(TRACK_FIELDS["lyrics"].tooltip)
-        self.lyrics_edit = QTextEdit()
-        self.lyrics_edit.textChanged.connect(lambda: self._on_field_modified("lyrics"))
-        layout.addWidget(lyrics_label)
-        layout.addWidget(self.lyrics_edit)
-
-        self.tabs.addTab(tab, "Lyrics")
-
-    def _create_identification_tab(self):
-        """Create identification information tab with Wikipedia search."""
-        tab = self._create_tab_from_fields("Identification", "Identification")
-
-        # FIX: Guard against track_wikipedia_link not being in field_widgets
-        # (e.g. if it's non-editable or missing from TRACK_FIELDS)
-        if "track_wikipedia_link" not in self.field_widgets:
-            logger.warning(
-                "track_wikipedia_link not found in field_widgets; "
-                "skipping Wikipedia search button enhancement."
-            )
-            return tab
-
-        # Add Wikipedia search button to the identification tab
-        wikipedia_layout = QHBoxLayout()
-        wikipedia_label = QLabel("Wikipedia Link:")
-        tooltip = getattr(TRACK_FIELDS.get("track_wikipedia_link"), "tooltip", "")
-        if tooltip:
-            wikipedia_label.setToolTip(tooltip)
-
-        self.track_wikipedia_link_edit = self.field_widgets["track_wikipedia_link"]
-
-        self.wikipedia_search_btn = QPushButton("Search Wikipedia")
-        self.wikipedia_search_btn.clicked.connect(self._search_wikipedia)
-        wikipedia_layout.addWidget(self.track_wikipedia_link_edit)
-        wikipedia_layout.addWidget(self.wikipedia_search_btn)
-
-        # Find the Wikipedia row in the form and replace it with our enhanced layout
-        form_layout = tab.layout()
-        for i in range(form_layout.rowCount()):
-            item = form_layout.itemAt(i, QFormLayout.LabelRole)
-            if item and item.widget() and "Wikipedia" in item.widget().text():
-                field_item = form_layout.itemAt(i, QFormLayout.FieldRole)
-                if field_item:
-                    form_layout.removeRow(i)
-                    break
-
-        # Add the enhanced Wikipedia row
-        form_layout.insertRow(-1, wikipedia_label, wikipedia_layout)
-
-        return tab
-
-    def _create_roles_tab(self):
-        """Search-based artist roles management."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-
-        search_layout = QHBoxLayout()
-
-        self.artist_search_edit = QLineEdit()
-        self.artist_search_edit.setPlaceholderText(
-            "Search artists... (min 2 characters)"
+        # Build all tabs
+        self._tabs: List[_BaseTab] = []
+        self._add_tab("Basic Info", FieldFormTab("Basic", self.tracks, self.controller))
+        self._add_tab("Lyrics", LyricsTab(self.tracks, self.controller))
+        self._add_tab("Dates", FieldFormTab("Date", self.tracks, self.controller))
+        self._add_tab(
+            "Classical", FieldFormTab("Classical", self.tracks, self.controller)
         )
-        self.artist_search_edit.textChanged.connect(
-            self.searchers._on_artist_search_changed
+        self._add_tab(
+            "Properties", FieldFormTab("Properties", self.tracks, self.controller)
         )
-        search_layout.addWidget(self.artist_search_edit)
-
-        self.artist_search_combo = QComboBox()
-        self.artist_search_combo.setVisible(False)
-        self.artist_search_combo.currentIndexChanged.connect(
-            self.searchers._on_artist_selected
+        self._add_tab("Identification", IdentificationTab(self.tracks, self.controller))
+        self._add_tab("User Data", FieldFormTab("User", self.tracks, self.controller))
+        self._add_tab("Artists & Roles", RolesTab(self.tracks, self.controller))
+        self._add_tab("Genres", GenresTab(self.tracks, self.controller))
+        self._add_tab("Places", PlacesTab(self.tracks, self.controller))
+        self._add_tab("Moods", MoodsTab(self.tracks, self.controller))
+        self._add_tab("Awards", AwardsTab(self.tracks, self.controller))
+        self._add_tab("Aliases", FieldFormTab("Alias", self.tracks, self.controller))
+        self._add_tab("Samples", SamplesTab(self.tracks, self.controller))
+        self._add_tab(
+            "Advanced", FieldFormTab("Advanced", self.tracks, self.controller)
         )
-        search_layout.addWidget(self.artist_search_combo)
 
-        self.role_edit = QLineEdit()
-        self.role_edit.setPlaceholderText("Role (performer, composer, etc.)")
-        self.role_edit.textChanged.connect(self.searchers._on_role_changed)
-        search_layout.addWidget(self.role_edit)
+        # Keyboard shortcuts Ctrl+1 … Ctrl+9 for first 9 tabs
+        for i in range(min(9, len(self._tabs))):
+            sc = QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self)
+            sc.activated.connect(lambda idx=i: self._sidebar.setCurrentRow(idx))
 
-        self.add_artist_role_btn = QPushButton("Add Role")
-        self.add_artist_role_btn.clicked.connect(self.searchers._add_artist_role)
-        self.add_artist_role_btn.setEnabled(False)
-        search_layout.addWidget(self.add_artist_role_btn)
+        self._sidebar.setCurrentRow(0)
 
-        layout.addLayout(search_layout)
+    def _add_tab(self, label: str, tab: _BaseTab):
+        self._sidebar.addItem(label)
+        self._stack.addWidget(tab)
+        self._tabs.append(tab)
 
-        self.artist_roles_table = QTableWidget(0, 3)
-        self.artist_roles_table.setHorizontalHeaderLabels(["Artist", "Role", "Actions"])
-        self.artist_roles_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Stretch
-        )
-        layout.addWidget(self.artist_roles_table)
+    def _on_nav(self, row: int):
+        self._stack.setCurrentIndex(row)
 
-        self.tabs.addTab(tab, "Artists && Roles")
+    # ── Data ──────────────────────────────────────────────────────────────
 
-    def _create_genres_tab(self):
-        """Search-based genre management."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
+    def _load_all(self):
+        for tab in self._tabs:
+            try:
+                tab.load(self.tracks)
+            except Exception as e:
+                logger.error(
+                    f"Error loading tab {type(tab).__name__}: {e}", exc_info=True
+                )
 
-        search_layout = QHBoxLayout()
-
-        self.genre_search_edit = QLineEdit()
-        self.genre_search_edit.setPlaceholderText("Search genres... (min 2 characters)")
-        self.genre_search_edit.textChanged.connect(
-            self.searchers._on_genre_search_changed
-        )
-        search_layout.addWidget(self.genre_search_edit)
-
-        self.genre_search_combo = QComboBox()
-        self.genre_search_combo.setVisible(False)
-        self.genre_search_combo.currentIndexChanged.connect(
-            self.searchers._on_genre_selected
-        )
-        search_layout.addWidget(self.genre_search_combo)
-
-        self.add_genre_btn = QPushButton("Add Genre")
-        self.add_genre_btn.clicked.connect(self.searchers._add_genre)
-        self.add_genre_btn.setEnabled(False)
-        search_layout.addWidget(self.add_genre_btn)
-
-        layout.addLayout(search_layout)
-
-        self.genres_list = QListWidget()
-        layout.addWidget(self.genres_list)
-
-        self.tabs.addTab(tab, "Genres")
-
-    def _create_places_tab(self):
-        """Search-based place associations with free-form type input."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-
-        search_layout = QHBoxLayout()
-
-        self.place_search_edit = QLineEdit()
-        self.place_search_edit.setPlaceholderText("Search places... (min 2 characters)")
-        self.place_search_edit.textChanged.connect(
-            self.searchers._on_place_search_changed
-        )
-        search_layout.addWidget(self.place_search_edit)
-
-        self.place_search_combo = QComboBox()
-        self.place_search_combo.setVisible(False)
-        self.place_search_combo.currentIndexChanged.connect(
-            self.searchers._on_place_selected
-        )
-        search_layout.addWidget(self.place_search_combo)
-
-        self.place_type_edit = QLineEdit()
-        self.place_type_edit.setPlaceholderText("Type (Recorded, Composed, etc.)")
-        search_layout.addWidget(self.place_type_edit)
-
-        self.add_place_btn = QPushButton("Add Place")
-        self.add_place_btn.clicked.connect(self.searchers._add_place_association)
-        self.add_place_btn.setEnabled(False)
-        search_layout.addWidget(self.add_place_btn)
-
-        layout.addLayout(search_layout)
-
-        self.place_associations_table = QTableWidget(0, 3)
-        self.place_associations_table.setHorizontalHeaderLabels(
-            ["Place", "Type", "Actions"]
-        )
-        self.place_associations_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Stretch
-        )
-        layout.addWidget(self.place_associations_table)
-
-        self.tabs.addTab(tab, "Places")
-
-    def _create_moods_tab(self):
-        """Search-based mood associations."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-
-        search_layout = QHBoxLayout()
-
-        self.mood_search_edit = QLineEdit()
-        self.mood_search_edit.setPlaceholderText("Search moods... (min 2 characters)")
-        self.mood_search_edit.textChanged.connect(
-            self.searchers._on_mood_search_changed
-        )
-        search_layout.addWidget(self.mood_search_edit)
-
-        self.mood_search_combo = QComboBox()
-        self.mood_search_combo.setVisible(False)
-        self.mood_search_combo.currentIndexChanged.connect(
-            self.searchers._on_mood_selected
-        )
-        search_layout.addWidget(self.mood_search_combo)
-
-        self.add_mood_btn = QPushButton("Add Mood")
-        self.add_mood_btn.clicked.connect(self.searchers._add_mood)
-        self.add_mood_btn.setEnabled(False)
-        search_layout.addWidget(self.add_mood_btn)
-
-        layout.addLayout(search_layout)
-
-        self.moods_list = QListWidget()
-        layout.addWidget(self.moods_list)
-
-        self.tabs.addTab(tab, "Moods")
-
-    def _create_awards_tab(self):
-        """Search-based award associations."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-
-        search_layout = QHBoxLayout()
-
-        self.award_search_edit = QLineEdit()
-        self.award_search_edit.setPlaceholderText("Search awards... (min 2 characters)")
-        self.award_search_edit.textChanged.connect(
-            self.searchers._on_award_search_changed
-        )
-        search_layout.addWidget(self.award_search_edit)
-
-        self.award_search_combo = QComboBox()
-        self.award_search_combo.setVisible(False)
-        self.award_search_combo.currentIndexChanged.connect(
-            self.searchers._on_award_selected
-        )
-        search_layout.addWidget(self.award_search_combo)
-
-        self.award_category_edit = QLineEdit()
-        self.award_category_edit.setPlaceholderText("Category (optional)")
-        search_layout.addWidget(self.award_category_edit)
-
-        self.award_year_edit = QSpinBox()
-        self.award_year_edit.setRange(1900, 2100)
-        self.award_year_edit.setSpecialValueText("Year")
-        search_layout.addWidget(self.award_year_edit)
-
-        self.add_award_btn = QPushButton("Add Award")
-        self.add_award_btn.clicked.connect(self._add_award)
-        self.add_award_btn.setEnabled(False)
-        search_layout.addWidget(self.add_award_btn)
-
-        layout.addLayout(search_layout)
-
-        self.awards_table = QTableWidget(0, 4)
-        self.awards_table.setHorizontalHeaderLabels(
-            ["Award", "Category", "Year", "Actions"]
-        )
-        self.awards_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        layout.addWidget(self.awards_table)
-
-        self.tabs.addTab(tab, "Awards")
-
-    def _create_samples_tab(self):
-        """Create samples management tab with search functionality."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-
-        # Search for tracks that this track samples
-        samples_section = QVBoxLayout()
-        samples_label = QLabel("Samples Used (Tracks this track samples):")
-        samples_label.setStyleSheet("font-weight: bold;")
-        samples_section.addWidget(samples_label)
-
-        search_samples_layout = QHBoxLayout()
-
-        self.sample_search_edit = QLineEdit()
-        self.sample_search_edit.setPlaceholderText(
-            "Search tracks to sample... (min 2 characters)"
-        )
-        self.sample_search_edit.textChanged.connect(
-            self.searchers._on_sample_search_changed
-        )
-        search_samples_layout.addWidget(self.sample_search_edit)
-
-        self.sample_search_combo = QComboBox()
-        self.sample_search_combo.setVisible(False)
-        self.sample_search_combo.currentIndexChanged.connect(
-            self.searchers._on_sample_selected
-        )
-        search_samples_layout.addWidget(self.sample_search_combo)
-
-        self.add_sample_btn = QPushButton("Add Sample")
-        self.add_sample_btn.clicked.connect(self.searchers._add_sample)
-        self.add_sample_btn.setEnabled(False)
-        search_samples_layout.addWidget(self.add_sample_btn)
-
-        samples_section.addLayout(search_samples_layout)
-
-        self.samples_used_list = QListWidget()
-        self.samples_used_list.itemDoubleClicked.connect(self._open_sampled_track)
-        samples_section.addWidget(self.samples_used_list)
-
-        layout.addLayout(samples_section)
-
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(separator)
-
-        sampled_by_section = QVBoxLayout()
-        sampled_by_label = QLabel("Sampled By (Tracks that sample this track):")
-        sampled_by_label.setStyleSheet("font-weight: bold;")
-        sampled_by_section.addWidget(sampled_by_label)
-
-        self.sampled_by_list = QListWidget()
-        self.sampled_by_list.itemDoubleClicked.connect(self._open_sampling_track)
-        sampled_by_section.addWidget(self.sampled_by_list)
-
-        layout.addLayout(sampled_by_section)
-
-        help_label = QLabel("Double-click on any track to open its edit dialog.")
-        help_label.setStyleSheet("font-style: italic; color: #666;")
-        layout.addWidget(help_label)
-
-        layout.addStretch()
-
-        self._setup_samples_context_menu()
-        self.tabs.addTab(tab, "Samples")
-        return tab
-
-    def _open_sampled_track(self, item):
-        """Open the edit dialog for a sampled track."""
-        if item and item.data(Qt.UserRole):
-            track_id = item.data(Qt.UserRole)
-            track = self.controller.get.get_entity_object("Track", track_id=track_id)
-            if track:
-                dialog = TrackEditDialog(track, self.controller, self)
-                dialog.exec()
-
-    def _open_sampling_track(self, item):
-        """Open the edit dialog for a track that samples this track."""
-        if item and item.data(Qt.UserRole):
-            track_id = item.data(Qt.UserRole)
-            track = self.controller.get.get_entity_object("Track", track_id=track_id)
-            if track:
-                dialog = TrackEditDialog(track, self.controller, self)
-                dialog.exec()
-
-    def _on_field_modified(self, field_name):
-        """Mark field as modified when changed."""
-        self.modified_fields.add(field_name)
-        self.field_modified.emit()
-
-    def _has_meaningful_change(self, old_value, new_value):
-        """Determine if a change is meaningful (not just empty/None changes)."""
-        if old_value is None and new_value in (None, "", 0, 0.0):
-            return False
-        if old_value == new_value:
-            return False
-        if str(old_value).strip() == str(new_value).strip():
-            return False
-        return True
+    # ── Save ──────────────────────────────────────────────────────────────
 
     def _on_save(self):
-        """Save only modified track fields using TRACK_FIELDS configuration."""
         try:
-            updates = {}
+            # Collect scalar field changes from all tabs
+            all_changes: Dict[str, Any] = {}
+            for tab in self._tabs:
+                try:
+                    changes = tab.collect_changes()
+                    all_changes.update(changes)
+                except Exception as e:
+                    logger.error(
+                        f"Error collecting changes from {type(tab).__name__}: {e}"
+                    )
 
-            for field_name in self.modified_fields:
-                if field_name in self.field_widgets:
-                    widget = self.field_widgets[field_name]
-                    field_config = TRACK_FIELDS.get(field_name)
-
-                    # FIX: Guard against missing field config
-                    if field_config is None:
-                        logger.warning(
-                            f"Field '{field_name}' in modified_fields but not in TRACK_FIELDS; skipping."
-                        )
-                        continue
-
-                    if isinstance(widget, QCheckBox):
-                        new_value = widget.isChecked()
-                    elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-                        new_value = widget.value()
-                    elif isinstance(widget, QTextEdit):
-                        new_value = widget.toPlainText()
-                    elif isinstance(widget, QLineEdit):
-                        new_value = widget.text()
-                    else:
-                        logger.warning(
-                            f"Unrecognised widget type for field '{field_name}': {type(widget)}; skipping."
-                        )
-                        continue
-
-                    old_value = getattr(self.track, field_name, None)
-
-                    if self._has_meaningful_change(old_value, new_value):
-                        if field_config.type == int:  # noqa: E721
-                            try:
-                                new_value = (
-                                    int(new_value)
-                                    if new_value not in ("", None)
-                                    else None
-                                )
-                            except (ValueError, TypeError):
-                                new_value = None
-                        elif field_config.type == float:  # noqa: E721
-                            try:
-                                new_value = (
-                                    float(new_value)
-                                    if new_value not in ("", None)
-                                    else None
-                                )
-                            except (ValueError, TypeError):
-                                new_value = None
-                        elif field_config.type == bool:  # noqa: E721
-                            new_value = bool(new_value)
-
-                        updates[field_name] = new_value
-
-            if updates:
-                self.controller.update.update_entity(
-                    "Track", self.track.track_id, **updates
-                )
+            if all_changes:
+                for track in self.tracks:
+                    self.controller.update.update_entity(
+                        "Track", track.track_id, **all_changes
+                    )
                 logger.info(
-                    f"Updated track {self.track.track_id} with fields: {list(updates.keys())}"
+                    f"Saved {len(self.tracks)} track(s), "
+                    f"fields: {list(all_changes.keys())}"
                 )
 
+            self.field_modified.emit()
             self.accept()
 
         except Exception as e:
-            logger.error(f"Error saving track: {e}", exc_info=True)
-            QMessageBox.critical(self, "Save Error", f"Failed to save track: {str(e)}")
+            logger.error(f"Error saving track(s): {e}", exc_info=True)
+            QMessageBox.critical(self, "Save Error", f"Failed to save:\n{e}")
 
-    def _setup_samples_context_menu(self):
-        """Setup context menu for samples list."""
-        self.samples_used_list.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.samples_used_list.customContextMenuRequested.connect(
-            self._show_samples_context_menu
-        )
 
-    def _show_samples_context_menu(self, position):
-        """Show context menu for samples list."""
-        item = self.samples_used_list.itemAt(position)
-        if item:
-            menu = QMenu(self)
-            remove_action = menu.addAction("Remove Sample")
-            action = menu.exec(self.samples_used_list.mapToGlobal(position))
-            if action == remove_action:
-                row = self.samples_used_list.row(item)
-                self.searchers._remove_sample(row)
+# ---------------------------------------------------------------------------
+# Backwards-compatibility alias so existing callers don't need changes
+# ---------------------------------------------------------------------------
 
-    def _update_readonly_label(self, field_name, field_config, label_widget, value):
-        """Update a readonly label with new value and appropriate formatting."""
-        # FIX: Guard against None field_config to prevent AttributeError CTD
-        if field_config is None:
-            label_widget.setText(str(value) if value is not None else "—")
-            return
-
-        if value is None or value == "":
-            display_text = "—"  # Use em dash for empty values
-        else:
-            if field_config.type == bool:  # noqa: E721
-                display_text = "Yes" if value else "No"
-            elif field_config.type in (int, float):
-                display_text = str(value)
-            else:
-                display_text = str(value)
-
-        label_widget.setText(display_text)
-        longtext = getattr(field_config, "longtext", False)
-        if len(display_text) > 50 and not longtext:
-            label_widget.setToolTip(display_text)
-            label_widget.setText(display_text[:47] + "...")
-        else:
-            label_widget.setToolTip("")
-
-    def _load_track_data(self):
-        """Load current track data into all fields."""
-        # Load editable fields
-        for field_name, widget in self.field_widgets.items():
-            if hasattr(self.track, field_name):
-                value = getattr(self.track, field_name)
-                if value is not None:
-                    if isinstance(widget, QCheckBox):
-                        widget.setChecked(bool(value))
-                    elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-                        widget.setValue(value)
-                    elif isinstance(widget, QTextEdit):
-                        widget.setPlainText(str(value))
-                    elif isinstance(widget, QLineEdit):
-                        widget.setText(str(value))
-                else:
-                    if isinstance(widget, QCheckBox):
-                        widget.setChecked(False)
-                    elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-                        widget.setValue(0)
-                    elif isinstance(widget, QTextEdit):
-                        widget.setPlainText("")
-                    elif isinstance(widget, QLineEdit):
-                        widget.setText("")
-
-        # Load readonly fields
-        for field_name, label_widget in self.readonly_labels.items():
-            if hasattr(self.track, field_name):
-                value = getattr(self.track, field_name)
-                field_config = TRACK_FIELDS.get(field_name)  # may be None — handled
-                self._update_readonly_label(
-                    field_name, field_config, label_widget, value
-                )
-
-        # Load relationship data
-        self.loaders._load_artist_roles()
-        self.loaders._load_genres()
-        self.loaders._load_place_associations()
-        self.loaders._load_moods()
-        self.loaders._load_awards()
-        self.loaders._load_samples()
-
-    def _setup_tab_shortcuts(self):
-        """Set up keyboard shortcuts for tab navigation."""
-        for i in range(min(self.tabs.count(), 9)):  # 1-9 shortcuts
-            shortcut = QShortcut(f"Ctrl+{i + 1}", self)
-            shortcut.activated.connect(lambda idx=i: self.tabs.setCurrentIndex(idx))
-
-    def _populate_sidebar(self):
-        """Populate sidebar with tab names."""
-        for i in range(self.tabs.count()):
-            tab_name = self.tabs.tabText(i)
-            self.sidebar.addItem(tab_name)
-
-    def _on_sidebar_item_clicked(self, item):
-        """Switch to tab when sidebar item clicked."""
-        index = self.sidebar.row(item)
-        self.tabs.setCurrentIndex(index)
+# Any code that imported MultiTrackEditDialog can now pass a list to
+# TrackEditDialog instead. We keep the name around to avoid import errors.
+MultiTrackEditDialog = TrackEditDialog

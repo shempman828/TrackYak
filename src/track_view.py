@@ -31,8 +31,7 @@ from src.config_setup import app_config
 from src.db_mapping_tracks import TRACK_FIELDS
 from src.logger_config import logger
 from src.track_columns import ColumnCustomizationDialog
-from src.track_edit import TrackEditDialog
-from src.track_editing_multiple import MultiTrackEditDialog
+from src.track_edit import MultiTrackEditDialog, TrackEditDialog
 
 # How many rows to load into the Qt model in each batch.
 LAZY_BATCH_SIZE = 200
@@ -608,14 +607,14 @@ class TrackView(QWidget):
             return
         if len(tracks) == 1:
             try:
-                dialog = TrackEditDialog(self.controller, tracks[0], self)
+                dialog = TrackEditDialog(tracks[0], self.controller, self)
                 if dialog.exec_() == QDialog.Accepted:
                     self._force_reload()
             except Exception as e:
                 logger.error(f"Error opening track edit dialog: {e}")
         else:
             try:
-                dialog = MultiTrackEditDialog(self.controller, tracks, self)
+                dialog = MultiTrackEditDialog(tracks, self.controller, self)
                 if dialog.exec_() == QDialog.Accepted:
                     self._force_reload()
             except Exception as e:

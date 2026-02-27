@@ -170,7 +170,7 @@ class AlbumDetailView(QWidget):
             # Make sure RIAA_certification widget exists
             if "RIAA_certification" not in self.field_widgets:
                 # Create it if it doesn't exist
-                from album_components import AlbumUIComponents
+                from src.album_components import AlbumUIComponents
 
                 field_config = ALBUM_FIELDS.get("RIAA_certification")
                 if field_config:
