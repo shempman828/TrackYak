@@ -1,558 +1,443 @@
-from queue import Queue
-import time
+"""
+analysis_dialog.py
 
-from PySide6.QtCore import QTimer
+Audio Analysis Manager — a monitoring dashboard for the BatchAnalysisScheduler.
+
+Responsibilities
+----------------
+* Show how many tracks still need analysis and which ones they are.
+* Let the user start, pause, resume, and stop background analysis.
+* Right-click any track in the list to force a re-analysis (clears cache entry).
+* Stay out of the way: closing the dialog does NOT stop analysis.
+* If analysis is already running when the dialog opens, reconnect to it and
+  show live progress immediately.
+"""
+
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
     QDialog,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QListWidgetItem,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
-    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
 )
 
-from src.analysis_utility import AudioAnalysis, AudioAnalysisWorker
+from src.analysis_utility import (
+    BatchAnalysisScheduler,
+    analysis_cache,
+)
+from src.logger_config import logger
 from src.status_utility import StatusManager
 
 
+# Fields that must be present and non-zero/None for a track to be
+# considered fully analysed.  Extend this list if new metrics are added.
+_REQUIRED_FIELDS = [
+    "bpm",
+    "key",
+    "track_gain",
+    "spectral_centroid",
+    "dynamic_range",
+    "energy",
+    "danceability",
+]
+
+
+def _track_needs_analysis(track) -> bool:
+    """Return True if any required audio field is missing or zero."""
+    for field in _REQUIRED_FIELDS:
+        val = getattr(track, field, None)
+        if val is None or val == 0 or val == 0.0:
+            return True
+    return False
+
+
 class AudioAnalysisDialog(QDialog):
-    def __init__(self, controller, parent=None):
+    """
+    Background Analysis Manager dialog.
+
+    The dialog is a *monitor*.  It does not own the scheduler — the scheduler
+    is passed in (or created fresh) so it can outlive the dialog being closed.
+    """
+
+    def __init__(
+        self, controller, scheduler: BatchAnalysisScheduler | None = None, parent=None
+    ):
         super().__init__(parent)
         self.controller = controller
-        self.tracks_to_analyze = []
-        self.current_track_index = 0
-        self.is_analyzing = False
-        self.cancelled = False
-        self.task_queue = Queue()
-        self.setup_ui()
-        self.load_tracks_missing_data()
 
-    def setup_ui(self):
-        self.setWindowTitle("Audio Analysis")
-        self.setMinimumSize(600, 500)
+        # Accept an externally-owned scheduler so a running analysis survives
+        # the dialog being closed and reopened.
+        if scheduler is not None:
+            self._scheduler = scheduler
+            self._owns_scheduler = False
+        else:
+            self._scheduler = BatchAnalysisScheduler(controller, num_workers=2)
+            self._owns_scheduler = True
 
-        # Set size policy to allow expansion
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setWindowTitle("Audio Analysis Manager")
+        self.setMinimumSize(560, 520)
+        self.setModal(False)  # Non-modal so the user can keep using the app
 
-        layout = QVBoxLayout(self)
+        self._tracks_pending: list = []  # tracks not yet in the cache
+        self._track_id_to_item: dict = {}  # track_id → QListWidgetItem
 
-        # Make the layout expand
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
+        self._build_ui()
+        self._connect_scheduler_signals()
+        self._load_pending_tracks()
 
-        # Description
-        desc_label = QLabel(
-            "This will analyze audio files to extract musical properties like BPM, key, "
-            "energy, danceability, and other audio features. Analysis may take several "
-            "seconds per file."
-        )
-        desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("QLabel { padding: 10px; }")
-        layout.addWidget(desc_label)
+        # If the scheduler is already running (dialog was closed and reopened),
+        # reflect the live state immediately.
+        if self._scheduler.is_running:
+            self._sync_running_state()
 
-        # Tracks found section - FIXED: Make this expandable
-        tracks_group = QGroupBox("Tracks Found for Analysis")
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setSpacing(10)
+
+        # --- Summary ---
+        summary_group = QGroupBox("Library Status")
+        summary_layout = QVBoxLayout(summary_group)
+
+        self._summary_label = QLabel("Scanning library…")
+        self._summary_label.setWordWrap(True)
+        summary_layout.addWidget(self._summary_label)
+
+        root.addWidget(summary_group)
+
+        # --- Track list ---
+        tracks_group = QGroupBox("Tracks Pending Analysis")
         tracks_layout = QVBoxLayout(tracks_group)
 
-        # Allow the group box to expand
-        tracks_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._list = QListWidget()
+        self._list.setAlternatingRowColors(True)
+        self._list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._list.customContextMenuRequested.connect(self._show_context_menu)
+        self._list.setToolTip(
+            "Right-click a track to force re-analysis even if it is cached."
+        )
+        tracks_layout.addWidget(self._list)
 
-        self.tracks_count_label = QLabel("Found 0 tracks missing audio analysis data")
-        tracks_layout.addWidget(self.tracks_count_label)
+        root.addWidget(tracks_group)
 
-        self.tracks_list = QListWidget()
-        # FIX: Remove fixed maximum height and let it expand
-        # self.tracks_list.setMaximumHeight(150)  # REMOVE THIS LINE
-        self.tracks_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        tracks_layout.addWidget(self.tracks_list)
+        # --- Settings ---
+        settings_group = QGroupBox("Settings")
+        settings_layout = QHBoxLayout(settings_group)
 
-        # Set stretch factor to make the list widget take available space
-        tracks_layout.setStretchFactor(self.tracks_list, 1)
+        settings_layout.addWidget(QLabel("Worker threads:"))
+        self._workers_spin = QSpinBox()
+        self._workers_spin.setRange(1, 8)
+        self._workers_spin.setValue(2)
+        self._workers_spin.setToolTip(
+            "Number of parallel analysis workers.  More workers = faster but "
+            "higher CPU and memory usage.  2 is a good default."
+        )
+        settings_layout.addWidget(self._workers_spin)
+        settings_layout.addStretch()
 
-        layout.addWidget(tracks_group)
+        root.addWidget(settings_group)
 
-        # FIX: Set stretch factors for the main layout to control expansion
-        layout.setStretchFactor(tracks_group, 1)  # Tracks group should expand the most
-
-        # Analysis options
-        options_group = QGroupBox("Analysis Options")
-        options_layout = QVBoxLayout(options_group)
-
-        limit_layout = QHBoxLayout()
-        limit_layout.addWidget(QLabel("Limit analysis to:"))
-        self.limit_analysis_spinbox = QSpinBox()
-        self.limit_analysis_spinbox.setMinimum(0)  # 0 means no limit
-        self.limit_analysis_spinbox.setMaximum(10000)
-        self.limit_analysis_spinbox.setValue(0)  # Default to no limit
-        self.limit_analysis_spinbox.setSuffix(" tracks")
-        self.limit_analysis_spinbox.valueChanged.connect(self.update_tracks_list)
-        limit_layout.addWidget(self.limit_analysis_spinbox)
-        limit_layout.addStretch()
-        options_layout.addLayout(limit_layout)
-
-        layout.addWidget(options_group)
-
-        # Progress section
-        progress_group = QGroupBox("Analysis Progress")
+        # --- Progress ---
+        progress_group = QGroupBox("Progress")
         progress_layout = QVBoxLayout(progress_group)
 
-        self.current_file_label = QLabel("Ready to start analysis...")
-        progress_layout.addWidget(self.current_file_label)
+        self._status_label = QLabel("Ready.")
+        progress_layout.addWidget(self._status_label)
 
-        self.worker_status_label = QLabel("Workers: Idle")
-        progress_layout.addWidget(self.worker_status_label)
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setMinimum(0)
+        self._progress_bar.setValue(0)
+        progress_layout.addWidget(self._progress_bar)
 
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setMinimum(0)
-        self.progress_bar.setValue(0)
-        progress_layout.addWidget(self.progress_bar)
+        self._progress_label = QLabel("0 / 0 tracks processed")
+        progress_layout.addWidget(self._progress_label)
 
-        self.progress_label = QLabel("0/0 tracks processed")
-        progress_layout.addWidget(self.progress_label)
+        root.addWidget(progress_group)
 
-        layout.addWidget(progress_group)
+        # --- Buttons ---
+        btn_layout = QHBoxLayout()
 
-        # Buttons - FIXED: Keep buttons at the bottom
-        button_layout = QHBoxLayout()
+        self._start_btn = QPushButton("Start Analysis")
+        self._start_btn.clicked.connect(self._on_start)
+        btn_layout.addWidget(self._start_btn)
 
-        self.start_button = QPushButton("Start Analysis")
-        self.start_button.clicked.connect(self.start_analysis)
-        button_layout.addWidget(self.start_button)
+        self._pause_btn = QPushButton("Pause")
+        self._pause_btn.clicked.connect(self._on_pause_resume)
+        self._pause_btn.setEnabled(False)
+        btn_layout.addWidget(self._pause_btn)
 
-        self.pause_button = QPushButton("Pause")
-        self.pause_button.clicked.connect(self.toggle_pause)
-        self.pause_button.setEnabled(False)
-        button_layout.addWidget(self.pause_button)
+        self._stop_btn = QPushButton("Stop")
+        self._stop_btn.clicked.connect(self._on_stop)
+        self._stop_btn.setEnabled(False)
+        btn_layout.addWidget(self._stop_btn)
 
-        self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.clicked.connect(self.cancel_analysis)
-        button_layout.addWidget(self.cancel_button)
+        btn_layout.addStretch()
 
-        self.close_button = QPushButton("Close")
-        self.close_button.clicked.connect(self.close)
-        button_layout.addWidget(self.close_button)
+        self._close_btn = QPushButton("Close")
+        self._close_btn.clicked.connect(self.close)
+        btn_layout.addWidget(self._close_btn)
 
-        layout.addLayout(button_layout)
+        root.addLayout(btn_layout)
 
-        # FIX: Set stretch factors to control which sections expand
-        # 0 = doesn't expand, 1 = expands
-        layout.setStretchFactor(tracks_group, 1)  # Tracks list expands the most
-        layout.setStretchFactor(options_group, 0)  # Options stays fixed
-        layout.setStretchFactor(progress_group, 0)  # Progress stays fixed
-        # Buttons automatically stay at bottom
+    # ------------------------------------------------------------------
+    # Data loading
+    # ------------------------------------------------------------------
 
-    def load_tracks_missing_data(self):
-        """Load tracks that are missing any of the audio analysis data points"""
+    def _load_pending_tracks(self):
+        """
+        Find tracks that need analysis.
+
+        Fast path: if the track_id is already in the analysis cache, skip it
+        without inspecting the DB fields at all.  Only for tracks NOT in the
+        cache do we check individual fields — this keeps the scan fast even
+        on large libraries.
+        """
         try:
-            # Get all tracks
             all_tracks = self.controller.get.get_all_entities("Track")
-
-            # Filter tracks missing any audio analysis data
-            self.tracks_to_analyze = []
-            audio_data_fields = [
-                "bpm",
-                "key",
-                "track_gain",
-                "spectral_centroid",
-                "dynamic_range",
-                "danceability",
-                "energy",
-                "fidelity_score",
-            ]
-
-            for track in all_tracks:
-                # Check if any of the key audio fields are missing or None
-                missing_data = False
-                for field in audio_data_fields:
-                    if getattr(track, field, None) is None:
-                        missing_data = True
-                        break
-
-                # Also check for default/placeholder values that might indicate missing analysis
-                if not missing_data and hasattr(track, "bpm"):
-                    if (
-                        track.bpm == 120.0
-                        and getattr(track, "tempo_confidence", 1.0) < 0.6
-                    ):
-                        missing_data = True
-
-                if missing_data:
-                    self.tracks_to_analyze.append(track)
-
-            # Update UI with found tracks
-            self.update_tracks_list()
-
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to load tracks: {str(e)}")
+            logger.error(f"AudioAnalysisDialog: failed to load tracks — {e}")
+            self._summary_label.setText("Error loading library.")
+            return
 
-    def update_tracks_list(self):
-        """Update the tracks list display"""
-        self.tracks_list.clear()
+        self._tracks_pending = []
+        self._track_id_to_item = {}
 
-        limit = self.limit_analysis_spinbox.value()
-        if limit > 0:
-            display_tracks = self.tracks_to_analyze[:limit]
-        else:
-            display_tracks = self.tracks_to_analyze
+        for track in all_tracks:
+            tid = track.track_id
+            if analysis_cache.is_analysed(tid):
+                continue
+            if _track_needs_analysis(track):
+                self._tracks_pending.append(track)
 
-        for track in display_tracks:
-            track_name = getattr(track, "track_name", "Unknown Title")
-            artist = track.artists[0].artist_name if track.artists else "Unknown Artist"
-            self.tracks_list.addItem(f"{artist} - {track_name}")
+        self._refresh_list()
 
-        total_count = len(self.tracks_to_analyze)
-        display_count = len(display_tracks)
+    def _refresh_list(self):
+        """Repopulate the QListWidget from self._tracks_pending."""
+        self._list.clear()
+        self._track_id_to_item = {}
 
-        if limit > 0 and total_count > limit:
-            self.tracks_count_label.setText(
-                f"Found {total_count} tracks missing audio analysis data (showing first {display_count})"
+        for track in self._tracks_pending:
+            name = getattr(track, "track_name", "Unknown Title")
+            artist = (
+                track.artists[0].artist_name
+                if getattr(track, "artists", None)
+                else "Unknown Artist"
             )
-        else:
-            self.tracks_count_label.setText(
-                f"Found {total_count} tracks missing audio analysis data"
-            )
+            item = QListWidgetItem(f"{artist} — {name}")
+            item.setData(Qt.UserRole, track.track_id)
+            self._list.addItem(item)
+            self._track_id_to_item[track.track_id] = item
 
-        # Update progress bar maximum
-        self.progress_bar.setMaximum(len(display_tracks))
+        total_cached = analysis_cache.count()
+        pending = len(self._tracks_pending)
 
-    def start_analysis(self):
-        """Start the audio analysis process using background workers"""
-        if not self.tracks_to_analyze:
+        self._summary_label.setText(
+            f"{total_cached} tracks already analysed in cache.  "
+            f"{pending} track{'s' if pending != 1 else ''} pending."
+        )
+        self._progress_bar.setMaximum(max(pending, 1))
+        self._progress_bar.setValue(0)
+        self._progress_label.setText(f"0 / {pending} tracks processed")
+
+        # Disable Start if nothing to do
+        self._start_btn.setEnabled(pending > 0 and not self._scheduler.is_running)
+
+    # ------------------------------------------------------------------
+    # Scheduler signal wiring
+    # ------------------------------------------------------------------
+
+    def _connect_scheduler_signals(self):
+        self._scheduler.signals.track_done.connect(self._on_track_done)
+        self._scheduler.signals.batch_done.connect(self._on_batch_done)
+        self._scheduler.signals.all_done.connect(self._on_all_done)
+        self._scheduler.signals.error.connect(self._on_track_error)
+
+    def _sync_running_state(self):
+        """Update buttons/labels to match a scheduler that's already running."""
+        completed, total = self._scheduler.progress
+        self._set_running_ui(total)
+        self._update_progress_display(completed, total)
+
+    # ------------------------------------------------------------------
+    # Button handlers
+    # ------------------------------------------------------------------
+
+    def _on_start(self):
+        if not self._tracks_pending:
             QMessageBox.information(
-                self, "No Tracks", "No tracks found that need analysis."
+                self, "Nothing to do", "All tracks are already analysed."
             )
             return
 
-        # Get the tracks to analyze (limited if spinbox has value > 0)
-        limit = self.limit_analysis_spinbox.value()
-        if limit > 0:
-            analysis_tracks = self.tracks_to_analyze[:limit]
-        else:
-            analysis_tracks = self.tracks_to_analyze
-
-        if not analysis_tracks:
-            return
-
-        self.is_analyzing = True
-        self.cancelled = False
-        self.current_track_index = 0
-        self.completed_tracks = 0
-
-        # Update UI
-        self.start_button.setEnabled(False)
-        self.pause_button.setEnabled(True)
-        self.pause_button.setText("Pause")
-        self.close_button.setEnabled(True)  # Keep close enabled for background work
-
-        self.progress_bar.setMaximum(len(analysis_tracks))
-        self.progress_bar.setValue(0)
-        self.progress_label.setText(f"0/{len(analysis_tracks)} tracks processed")
-        self.worker_status_label.setText(f"Workers: Active (0/{len(analysis_tracks)})")
-
-        # Create task queue if it doesn't exist
-        if not hasattr(self, "task_queue"):
-            from queue import Queue
-
-            self.task_queue = Queue()
-
-        # Clear the task queue and add all tracks
-        while not self.task_queue.empty():
-            try:
-                self.task_queue.get_nowait()
-                self.task_queue.task_done()
-            except:  # noqa: E722
+        # Recreate the scheduler if it finished or was stopped
+        if not self._scheduler.is_running:
+            if not self._owns_scheduler:
+                # Don't replace an externally-owned scheduler; just restart it
                 pass
+            self._scheduler.num_workers = self._workers_spin.value()
 
-        for track in analysis_tracks:
-            self.task_queue.put((self.controller, track))
+        self._set_running_ui(len(self._tracks_pending))
+        StatusManager.start_task(f"Analysing {len(self._tracks_pending)} tracks…")
+        self._scheduler.start(self._tracks_pending)
 
-        # Create threads spinbox if it doesn't exist (for backward compatibility)
-        if not hasattr(self, "threads_spinbox"):
-            # Default to 2 workers
-            num_workers = 2
+    def _on_pause_resume(self):
+        if self._scheduler.is_paused:
+            self._scheduler.resume()
+            self._pause_btn.setText("Pause")
+            self._status_label.setText("Analysing…")
+            StatusManager.show_message("Analysis resumed", 2000)
         else:
-            num_workers = self.threads_spinbox.value()
-
-        # Start worker threads
-        self.workers = []
-
-        for i in range(num_workers):
-            worker = AudioAnalysisWorker(self.task_queue, self.on_track_analyzed)
-            worker.start()
-            self.workers.append(worker)
-
-        # Start progress monitoring timer
-        self.progress_timer = QTimer()
-        self.progress_timer.timeout.connect(self.update_progress)
-        self.progress_timer.start(500)  # Update every 500ms
-
-        # Start analysis task in status manager
-        StatusManager.start_task(f"Analyzing {len(analysis_tracks)} tracks...")
-
-    def on_track_analyzed(self, track_id, metadata):
-        """Callback when a track analysis is completed"""
-        self.completed_tracks += 1
-
-        # Update progress on the main thread - but only if dialog is visible
-        if self.isVisible():
-            QTimer.singleShot(0, self.update_progress_ui)
-
-        # Always update status manager for background progress
-        limit = self.limit_analysis_spinbox.value()
-        if limit > 0:
-            total_tracks = min(len(self.tracks_to_analyze), limit)
-        else:
-            total_tracks = len(self.tracks_to_analyze)
-
-        if self.completed_tracks < total_tracks:
-            StatusManager.show_message(
-                f"Analyzing audio... ({self.completed_tracks}/{total_tracks} completed)",
-                0,  # Persistent message
-            )
-
-    def update_progress(self):
-        """Update progress display"""
-        if not self.is_analyzing or self.cancelled:
-            return
-
-        limit = self.limit_analysis_spinbox.value()
-        if limit > 0:
-            total_tracks = min(len(self.tracks_to_analyze), limit)
-        else:
-            total_tracks = len(self.tracks_to_analyze)
-
-        # Check if all tracks are processed
-        if self.completed_tracks >= total_tracks:
-            self.analysis_complete()
-            return
-
-        # Update UI only if dialog is visible
-        if self.isVisible():
-            self.update_progress_ui()
-
-    def update_progress_ui(self):
-        """Update progress UI elements"""
-        limit = self.limit_analysis_spinbox.value()
-        if limit > 0:
-            total_tracks = min(len(self.tracks_to_analyze), limit)
-        else:
-            total_tracks = len(self.tracks_to_analyze)
-
-        self.progress_bar.setValue(self.completed_tracks)
-        self.progress_label.setText(
-            f"{self.completed_tracks}/{total_tracks} tracks processed"
-        )
-        self.worker_status_label.setText(
-            f"Workers: Active ({self.completed_tracks}/{total_tracks})"
-        )
-
-        # Update current file label to show overall progress
-        if self.completed_tracks < total_tracks:
-            self.current_file_label.setText(
-                f"Processing... ({self.completed_tracks}/{total_tracks} completed)"
-            )
-        else:
-            self.current_file_label.setText("Finalizing...")
-
-    def analyze_next_track(self):
-        """Analyze the next track in the queue"""
-        if self.cancelled or not self.is_analyzing:
-            return
-
-        limit = self.limit_analysis_spinbox.value()
-        if limit > 0:
-            analysis_tracks = self.tracks_to_analyze[:limit]
-        else:
-            analysis_tracks = self.tracks_to_analyze
-
-        if self.current_track_index >= len(analysis_tracks):
-            self.analysis_complete()
-            return
-
-        current_track = analysis_tracks[self.current_track_index]
-        track_name = getattr(current_track, "track_name", "Unknown Title")
-        artist = getattr(current_track, "primary_artist_names", "Unknown Artist")
-
-        # Update progress UI
-        self.current_file_label.setText(f"Analyzing: {artist} - {track_name}")
-        self.progress_bar.setValue(self.current_track_index)
-        self.progress_label.setText(
-            f"{self.current_track_index}/{len(analysis_tracks)} tracks processed"
-        )
-
-        # Update status manager with current progress
-        progress_text = f"Analyzing {self.current_track_index + 1}/{len(analysis_tracks)}: {artist} - {track_name}"
-        StatusManager.show_message(progress_text, 0)  # Persistent during analysis
-
-        # Process events to update UI
-        self.repaint()
-
-        try:
-            # Perform audio analysis
-            analysis = AudioAnalysis(self.controller, current_track)
-            analysis.update_track()
-
-            # Small delay to allow UI updates and prevent freezing
-            time.sleep(0.1)
-
-        except Exception as e:
-            print(f"Error analyzing track {track_name}: {e}")
-            # Continue with next track even if this one fails
-
-        # Move to next track
-        self.current_track_index += 1
-
-        # Schedule next analysis with a small delay to keep UI responsive
-        if self.is_analyzing and not self.cancelled:
-            QTimer.singleShot(50, self.analyze_next_track)
-        else:
-            self.analysis_complete()
-
-    def toggle_pause(self):
-        """Toggle pause/resume analysis"""
-        if self.is_analyzing:
-            # Pause - stop the progress timer but keep workers running
-            self.is_analyzing = False
-            self.pause_button.setText("Resume")
-            self.current_file_label.setText("Analysis paused...")
-            if hasattr(self, "progress_timer"):
-                self.progress_timer.stop()
+            self._scheduler.pause()
+            self._pause_btn.setText("Resume")
+            self._status_label.setText("Paused.")
             StatusManager.show_message("Analysis paused", 0)
-        else:
-            # Resume
-            self.is_analyzing = True
-            self.pause_button.setText("Pause")
-            if hasattr(self, "progress_timer"):
-                self.progress_timer.start(500)
-            StatusManager.show_message("Resuming analysis...", 2000)
 
-    def cancel_analysis(self):
-        """Cancel the ongoing analysis"""
-        self.cancelled = True
-        self.is_analyzing = False
-
-        # Stop progress timer
-        if hasattr(self, "progress_timer"):
-            self.progress_timer.stop()
-
-        # Stop worker threads
-        if hasattr(self, "workers"):
-            for worker in self.workers:
-                worker.running = False
-            self.workers.clear()
-
-        # Clear the queue
-        while not self.task_queue.empty():
-            try:
-                self.task_queue.get_nowait()
-                self.task_queue.task_done()
-            except:  # noqa: E722
-                pass
-
-        self.current_file_label.setText("Analysis cancelled")
-        StatusManager.end_task("Analysis cancelled", 3000)
-        self.reset_ui_state()
-
-        # Show completion message for partial analysis
-        if self.completed_tracks > 0:
-            QMessageBox.information(
-                self,
-                "Analysis Cancelled",
-                f"Analysis cancelled. Processed {self.completed_tracks} tracks.",
-            )
-
-    def analysis_complete(self):
-        """Handle analysis completion"""
-        self.is_analyzing = False
-        self.cancelled = False
-
-        # Stop progress timer
-        if hasattr(self, "progress_timer"):
-            self.progress_timer.stop()
-
-        # Stop worker threads
-        if hasattr(self, "workers"):
-            for worker in self.workers:
-                worker.running = False
-            self.workers.clear()
-
-        # Determine which tracks were analyzed
-        limit = self.limit_analysis_spinbox.value()
-        if limit > 0:
-            analysis_tracks = self.tracks_to_analyze[:limit]
-        else:
-            analysis_tracks = self.tracks_to_analyze
-
-        # StatusManager finish message
-        StatusManager.end_task(
-            f"Analysis complete: {len(analysis_tracks)} tracks processed", 5000
+    def _on_stop(self):
+        reply = QMessageBox.question(
+            self,
+            "Stop Analysis",
+            "Stop the current analysis?\n\n"
+            "Progress is saved — the next run will continue where this one left off.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
+        if reply == QMessageBox.Yes:
+            self._scheduler.stop()
+            self._set_idle_ui()
+            StatusManager.end_task("Analysis stopped", 3000)
 
-        # UI updates only if dialog is visible
+    # ------------------------------------------------------------------
+    # Scheduler callbacks  (run on main thread via Qt signals)
+    # ------------------------------------------------------------------
+
+    @Slot(int, dict)
+    def _on_track_done(self, track_id: int, metadata: dict):
+        """Remove the finished track from the pending list display."""
+        item = self._track_id_to_item.pop(track_id, None)
+        if item:
+            row = self._list.row(item)
+            if row >= 0:
+                self._list.takeItem(row)
+
+        completed, total = self._scheduler.progress
+        self._update_progress_display(completed, total)
+
+    @Slot(int, int)
+    def _on_batch_done(self, completed: int, total: int):
+        self._update_progress_display(completed, total)
+
+    @Slot(int)
+    def _on_all_done(self, total: int):
+        self._set_idle_ui()
+        self._load_pending_tracks()  # Refresh list (should now be empty / much smaller)
+
+        StatusManager.end_task(f"Analysis complete: {total} tracks processed", 5000)
+
         if self.isVisible():
-            self.current_file_label.setText("Analysis complete!")
-            self.progress_bar.setValue(len(analysis_tracks))
-            self.progress_label.setText(
-                f"Complete: {len(analysis_tracks)}/{len(analysis_tracks)} tracks processed"
-            )
-            self.worker_status_label.setText("Workers: Idle")
-            self.reset_ui_state()
-
-            # Notify user
             QMessageBox.information(
                 self,
                 "Analysis Complete",
-                f"Audio analysis completed for {len(analysis_tracks)} tracks.",
+                f"Audio analysis finished.\n{total} tracks processed.",
             )
 
-            # Reload remaining tracks (if any)
-            self.load_tracks_missing_data()
-        else:
-            # If dialog was closed, just reset the UI state for next time
-            self.reset_ui_state()
+    @Slot(int, str)
+    def _on_track_error(self, track_id: int, message: str):
+        logger.warning(f"Analysis error for track {track_id}: {message}")
+        # Don't pop from display — a failed track may still need a retry
 
-    def reset_ui_state(self):
-        """Reset UI to initial state"""
-        self.start_button.setEnabled(True)
-        self.pause_button.setEnabled(False)
-        self.pause_button.setText("Pause")
-        self.close_button.setEnabled(True)
+    # ------------------------------------------------------------------
+    # Context menu — right-click force re-analyse
+    # ------------------------------------------------------------------
+
+    def _show_context_menu(self, pos):
+        item = self._list.itemAt(pos)
+        if item is None:
+            return
+
+        track_id = item.data(Qt.UserRole)
+        menu = QMenu(self)
+
+        reanalyse_action = menu.addAction("Force Re-analyse This Track")
+        action = menu.exec(self._list.viewport().mapToGlobal(pos))
+
+        if action == reanalyse_action:
+            self._force_reanalyse(track_id)
+
+    def _force_reanalyse(self, track_id: int):
+        """Remove a track from the cache so it will be picked up next run."""
+        analysis_cache.remove(track_id)
+
+        # If it's not already in the pending list, reload so it appears
+        pending_ids = {t.track_id for t in self._tracks_pending}
+        if track_id not in pending_ids:
+            self._load_pending_tracks()
+        else:
+            self._refresh_list()
+
+        logger.info(f"Track {track_id} removed from cache — will be re-analysed")
+
+        if self._scheduler.is_running:
+            QMessageBox.information(
+                self,
+                "Track Queued",
+                "This track will be re-analysed the next time you start analysis.\n"
+                "(Stop and restart to include it in the current run.)",
+            )
+
+    # ------------------------------------------------------------------
+    # UI state helpers
+    # ------------------------------------------------------------------
+
+    def _set_running_ui(self, total: int):
+        self._start_btn.setEnabled(False)
+        self._pause_btn.setEnabled(True)
+        self._pause_btn.setText("Pause")
+        self._stop_btn.setEnabled(True)
+        self._workers_spin.setEnabled(False)
+        self._progress_bar.setMaximum(max(total, 1))
+        self._status_label.setText("Analysing…")
+
+    def _set_idle_ui(self):
+        self._start_btn.setEnabled(bool(self._tracks_pending))
+        self._pause_btn.setEnabled(False)
+        self._pause_btn.setText("Pause")
+        self._stop_btn.setEnabled(False)
+        self._workers_spin.setEnabled(True)
+        self._status_label.setText("Ready.")
+
+    def _update_progress_display(self, completed: int, total: int):
+        self._progress_bar.setValue(completed)
+        self._progress_label.setText(f"{completed} / {total} tracks processed")
+        self._status_label.setText(
+            f"Analysing… ({completed}/{total} complete)"
+            if completed < total
+            else "Finishing up…"
+        )
+
+    # ------------------------------------------------------------------
+    # Close behaviour — analysis keeps running
+    # ------------------------------------------------------------------
 
     def closeEvent(self, event):
-        """Handle dialog close event - allow background processing"""
-        if self.is_analyzing:
-            reply = QMessageBox.question(
-                self,
-                "Analysis in Progress",
-                "Audio analysis is in progress. Do you want to:\n\n"
-                "Yes - Close and continue analysis in background\n"
-                "No - Stay open and monitor progress\n"
-                "Cancel - Stop analysis and close",
-                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
-                QMessageBox.No,
-            )
-
-            if reply == QMessageBox.Yes:
-                # Close dialog but keep analysis running in background
-                event.accept()
-            elif reply == QMessageBox.No:
-                # Stay open
-                event.ignore()
-            else:  # Cancel
-                # Stop analysis and close
-                self.cancel_analysis()
-                event.accept()
-        else:
-            event.accept()
-
-    def showEvent(self, event):
-        """Handle dialog show event - update UI if analysis is running"""
-        super().showEvent(event)
-        if self.is_analyzing:
-            # Update UI to reflect current progress when dialog is shown
-            self.update_progress_ui()
+        if self._scheduler.is_running:
+            # Disconnect signals from this dialog instance so stale callbacks
+            # don't try to update widgets that no longer exist.
+            try:
+                self._scheduler.signals.track_done.disconnect(self._on_track_done)
+                self._scheduler.signals.batch_done.disconnect(self._on_batch_done)
+                self._scheduler.signals.all_done.disconnect(self._on_all_done)
+                self._scheduler.signals.error.disconnect(self._on_track_error)
+            except RuntimeError:
+                pass  # Already disconnected
+        event.accept()
