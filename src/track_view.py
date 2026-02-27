@@ -1,24 +1,11 @@
 """
 track_view.py — TrackView
-Main library track listing with lazy loading for large collections.
-
-Key changes vs the original:
-  - Lazy loading: only 200 rows are in the Qt model at any time.  As the user
-    scrolls near the bottom another 200 are appended.  This makes the initial
-    load instant even with 200 000 tracks.
-  - The full track list (all ORM objects) is held in self._all_tracks so that
-    "Add All" / "Shuffle All" operations still work without another DB round-trip.
-  - Four new toolbar buttons:
-      • Add All to Queue      — adds all tracks in the current filter to the queue
-      • Shuffle All to Queue  — same, but shuffled
-      • Add Library to Queue  — adds every track in the whole library
-      • Shuffle Library       — same, but shuffled
 """
 
 import random
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QMimeData, Qt
+from PySide6.QtCore import QByteArray, QMimeData, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QDrag,
@@ -34,7 +21,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
-    QMessageBox,
     QPushButton,
     QTableView,
     QVBoxLayout,
@@ -51,16 +37,18 @@ from src.track_editing_multiple import MultiTrackEditDialog
 # How many rows to load into the Qt model in each batch.
 LAZY_BATCH_SIZE = 200
 
+# Search debounce delay in ms — prevents filtering on every keystroke.
+SEARCH_DEBOUNCE_MS = 300
+
 
 class TrackView(QWidget):
     """
     Main library track view with lazy loading.
 
-    self._all_tracks  — the complete list returned by the DB (held in Python,
-                        NOT pushed into Qt — cheap to hold as ORM objects).
-    self._loaded_count — how many of _all_tracks have been pushed into the model.
-    self._filtered_ids — when a search filter is active this holds the track_ids
-                         of the filtered subset so the "Add Filtered" buttons work.
+    self._all_tracks    — full track list from DB, loaded ONCE and cached.
+    self._loaded_count  — rows currently pushed into the Qt model.
+    self._filtered_tracks — active subset when a search filter is live.
+    self._filter_active — True while a search filter is applied.
     """
 
     def __init__(self, controller, music_player):
@@ -68,12 +56,11 @@ class TrackView(QWidget):
         self.controller = controller
         self.player = music_player
         self.track_fields = TRACK_FIELDS
-        self._filtered_tracks = []
-
-        # Full track list from the DB (lightweight ORM objects, not audio data)
+        self._filtered_tracks: list = []
         self._all_tracks: list = []
-        self._loaded_count: int = 0  # rows currently in the Qt model
+        self._loaded_count: int = 0
         self._filter_active: bool = False
+        self._tracks_loaded: bool = False  # Guard against redundant DB calls
 
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(4, 4, 4, 4)
@@ -82,7 +69,13 @@ class TrackView(QWidget):
         # ── Toolbar row 1: search + column buttons ────────────────────────
         self.search_bar = QLineEdit(self)
         self.search_bar.setPlaceholderText("Search tracks…")
-        self.search_bar.textChanged.connect(self._on_search_changed)
+
+        # Debounce — only fire filter logic after user pauses typing
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(SEARCH_DEBOUNCE_MS)
+        self._search_timer.timeout.connect(self._apply_search_filter)
+        self.search_bar.textChanged.connect(self._search_timer.start)
 
         self.column_toggle_button = QPushButton("Toggle Columns", self)
         self.column_toggle_button.clicked.connect(self.show_column_menu)
@@ -91,7 +84,7 @@ class TrackView(QWidget):
         self.customize_columns_button.clicked.connect(self.show_column_customization)
 
         self.refresh_button = QPushButton("Refresh", self)
-        self.refresh_button.clicked.connect(self.load_tracks_on_startup)
+        self.refresh_button.clicked.connect(self._force_reload)
 
         search_layout = QHBoxLayout()
         search_layout.addWidget(self.search_bar, stretch=1)
@@ -101,8 +94,6 @@ class TrackView(QWidget):
         self.layout.addLayout(search_layout)
 
         # ── Toolbar row 2: queue action buttons ───────────────────────────
-        # "Filtered" buttons act on whatever the search box is currently showing.
-        # "Library" buttons always act on every track in the whole library.
         self.btn_add_filtered = QPushButton("➕ Add Filtered to Queue")
         self.btn_add_filtered.setToolTip(
             "Add all tracks matching the current search to the queue"
@@ -110,9 +101,7 @@ class TrackView(QWidget):
         self.btn_add_filtered.clicked.connect(self._add_filtered_to_queue)
 
         self.btn_shuffle_filtered = QPushButton("🔀 Shuffle Filtered to Queue")
-        self.btn_shuffle_filtered.setToolTip(
-            "Add all matching tracks to the queue in random order"
-        )
+        self.btn_shuffle_filtered.setToolTip("Add all matching tracks in random order")
         self.btn_shuffle_filtered.clicked.connect(
             lambda: self._add_filtered_to_queue(shuffle=True)
         )
@@ -122,14 +111,11 @@ class TrackView(QWidget):
         self.btn_add_all.clicked.connect(self._add_all_to_queue)
 
         self.btn_shuffle_all = QPushButton("🔀 Shuffle Library")
-        self.btn_shuffle_all.setToolTip(
-            "Add every track in your library to the queue in random order"
-        )
+        self.btn_shuffle_all.setToolTip("Add every track in random order")
         self.btn_shuffle_all.clicked.connect(
             lambda: self._add_all_to_queue(shuffle=True)
         )
 
-        # Status label shows e.g. "Showing 200 / 52 341 tracks"
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color: grey; font-size: 11px;")
 
@@ -145,25 +131,21 @@ class TrackView(QWidget):
         # ── Table setup ───────────────────────────────────────────────────
         self._initialize_columns()
 
+        self.model = QStandardItemModel()
         self.table = QTableView(self)
+        self.table.setModel(self.model)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_context_menu)
-
-        self.model = QStandardItemModel()
-        self.table.setModel(self.model)
 
         self._setup_table()
         self.load_column_state()
 
         self.layout.addWidget(self.table)
 
-        # Connect double-click
         self.table.doubleClicked.connect(self.on_double_clicked)
-
-        # Detect when the user scrolls near the bottom so we can load more rows
         self.table.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
-        # Load tracks on startup
+        # Initial load
         self.load_tracks_on_startup()
 
     # =========================================================================
@@ -211,30 +193,128 @@ class TrackView(QWidget):
                 self.table.setColumnHidden(i, True)
 
     # =========================================================================
-    #  Data loading — lazy
+    #  Column state persistence
+    # =========================================================================
+
+    def load_column_state(self):
+        try:
+            visible = app_config.get_track_view_visible_columns()
+            order = app_config.get_track_view_column_order()
+            widths = app_config.get_track_view_column_widths()
+            col_keys = list(self.columns.keys())
+
+            if visible:
+                for i, key in enumerate(col_keys):
+                    self.table.setColumnHidden(i, key not in visible)
+
+            if order:
+                header = self.table.horizontalHeader()
+                for target_visual, key in enumerate(order):
+                    if key in col_keys:
+                        current_visual = header.visualIndex(col_keys.index(key))
+                        if current_visual != target_visual:
+                            header.moveSection(current_visual, target_visual)
+
+            if widths:
+                for i, w in enumerate(widths):
+                    if i < len(col_keys) and w > 0:
+                        self.table.setColumnWidth(i, w)
+        except Exception as e:
+            logger.error(f"Error loading column state: {e}")
+
+    def save_column_state(self):
+        try:
+            col_keys = list(self.columns.keys())
+            header = self.table.horizontalHeader()
+            visible = [
+                k for i, k in enumerate(col_keys) if not self.table.isColumnHidden(i)
+            ]
+            order = [col_keys[header.logicalIndex(v)] for v in range(header.count())]
+            widths = [self.table.columnWidth(i) for i in range(len(col_keys))]
+
+            app_config.set_track_view_visible_columns(visible)
+            app_config.set_track_view_column_order(order)
+            app_config.set_track_view_column_widths(widths)
+        except Exception as e:
+            logger.error(f"Error saving column state: {e}")
+
+    def show_column_menu(self):
+        menu = QMenu(self)
+        list(self.columns.keys())
+        for i, (key, label) in enumerate(self.columns.items()):
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(not self.table.isColumnHidden(i))
+            action.setData(i)
+            action.triggered.connect(self._toggle_column)
+            menu.addAction(action)
+        menu.exec_(
+            self.column_toggle_button.mapToGlobal(
+                self.column_toggle_button.rect().bottomLeft()
+            )
+        )
+
+    def _toggle_column(self):
+        action = self.sender()
+        if action:
+            i = action.data()
+            self.table.setColumnHidden(i, not action.isChecked())
+            self.save_column_state()
+
+    def show_column_customization(self):
+        dialog = ColumnCustomizationDialog(self, self)
+        dialog.exec_()
+
+    # =========================================================================
+    #  Data loading — lazy, single DB call
     # =========================================================================
 
     def load_tracks_on_startup(self):
-        """Fetch all track objects from the DB then display the first batch."""
-        try:
-            tracks = self.controller.get.get_all_entities("Track")
-            self._all_tracks = tracks or []
-            self._loaded_count = 0
-            self._filter_active = False
-            self.model.setRowCount(0)
-            self._append_next_batch(self._all_tracks)
-            self._update_status()
-            logger.info(
-                f"Loaded {len(self._all_tracks)} tracks (lazy, first batch shown)."
-            )
-        except Exception as e:
-            logger.error(f"Error loading tracks on startup: {e}")
+        """
+        Load all tracks from DB into self._all_tracks (once).
+        Only pushes the first LAZY_BATCH_SIZE rows into the Qt model.
+        Subsequent calls from search-clear reuse the cached list.
+        """
+        if not self._tracks_loaded:
+            try:
+                tracks = self.controller.get.get_all_entities("Track")
+                self._all_tracks = tracks or []
+                self._tracks_loaded = True
+                logger.info(
+                    f"Fetched {len(self._all_tracks):,} tracks from DB (one-time)."
+                )
+            except Exception as e:
+                logger.error(f"Error fetching tracks: {e}")
+                self._all_tracks = []
+
+        self._filter_active = False
+        self._filtered_tracks = []
+        self._loaded_count = 0
+        self.model.setRowCount(0)
+        self._append_next_batch(self._all_tracks)
+        self._update_status()
+
+    def _force_reload(self):
+        """Explicitly re-query the DB (Refresh button)."""
+        self._tracks_loaded = False
+        self.load_tracks_on_startup()
+
+    def load_data(self, tracks: list):
+        """
+        External callers (e.g. main_window refresh) can push a new track list.
+        This replaces the cache and resets the view.
+        """
+        self._all_tracks = tracks or []
+        self._tracks_loaded = True
+        self._filter_active = False
+        self._filtered_tracks = []
+        self._loaded_count = 0
+        self.model.setRowCount(0)
+        self._append_next_batch(self._all_tracks)
+        self._update_status()
 
     def _append_next_batch(self, source_list: list):
-        """
-        Push the next LAZY_BATCH_SIZE rows from source_list into the Qt model.
-        source_list should already be sliced/filtered as needed.
-        """
+        """Push the next LAZY_BATCH_SIZE rows from source_list into the Qt model."""
         start = self._loaded_count
         end = min(start + LAZY_BATCH_SIZE, len(source_list))
         if start >= end:
@@ -253,12 +333,10 @@ class TrackView(QWidget):
                 display_value = self._format_value(value, field_name, field_config)
                 item = QStandardItem(display_value)
                 item.setEditable(False)
-
-                if isinstance(value, (int, float)):
-                    item.setData(value, Qt.UserRole)
-                else:
-                    item.setData(display_value, Qt.UserRole)
-
+                item.setData(
+                    value if isinstance(value, (int, float)) else display_value,
+                    Qt.UserRole,
+                )
                 row_items.append(item)
 
             self.model.appendRow(row_items)
@@ -269,60 +347,158 @@ class TrackView(QWidget):
     def _on_scroll(self, value: int):
         scrollbar = self.table.verticalScrollBar()
         if scrollbar.maximum() > 0 and value >= scrollbar.maximum() * 0.90:
-            # Determine which list to pull the next batch from
             source = self._filtered_tracks if self._filter_active else self._all_tracks
-
             if self._loaded_count < len(source):
                 self._append_next_batch(source)
 
     def _update_status(self):
         total = len(self._all_tracks)
-        visible = (
-            self._loaded_count if not self._filter_active else self.model.rowCount()
-        )
-        self.status_label.setText(f"Showing {visible:,} / {total:,} tracks")
+        if self._filter_active:
+            visible = len(self._filtered_tracks)
+            self.status_label.setText(
+                f"Showing {self._loaded_count:,} / {visible:,} matches  ({total:,} total)"
+            )
+        else:
+            self.status_label.setText(
+                f"Showing {self._loaded_count:,} / {total:,} tracks"
+            )
 
     # =========================================================================
     #  Search / filter
     # =========================================================================
 
-    def _on_search_changed(self, text: str):
+    def _apply_search_filter(self):
         """
-        Filters the Python list first, then pushes only the matches to the model.
-        This avoids overloading Qt with 200,000 items.
+        Called after debounce timer fires.
+        Filters self._all_tracks in Python (fast) then reloads the model
+        with just the matching subset.
         """
-        search_text = text.strip().lower()
+        search_text = self.search_bar.text().strip().lower()
 
         if not search_text:
-            # Reset to normal lazy loading mode
+            # Clear filter — reuse cached track list, no DB call
             self._filter_active = False
             self._filtered_tracks = []
-            self.load_tracks_on_startup()  # Or a lightweight reset
+            self._loaded_count = 0
+            self.model.setRowCount(0)
+            self._append_next_batch(self._all_tracks)
+            self._update_status()
             return
 
         self._filter_active = True
 
-        # 1. Filter the Python list (extremely fast)
-        # We check common fields like Title and Artist
-        self._filtered_tracks = [
-            t
-            for t in self._all_tracks
-            if search_text in (getattr(t, "track_title", "") or "").lower()
-            or search_text in (self._get_artist_name(t) or "").lower()
-        ]
+        # Filter against: track_name, primary_artist_names, album name
+        self._filtered_tracks = []
+        for t in self._all_tracks:
+            title = (getattr(t, "track_name", "") or "").lower()
+            artist = (self._get_artist_name(t) or "").lower()
+            album_obj = getattr(t, "album", None)
+            album = (
+                (getattr(album_obj, "album_name", "") or "").lower()
+                if album_obj
+                else ""
+            )
 
-        # 2. Reset the model and load ONLY the first batch of results
-        self.model.setRowCount(0)
+            if search_text in title or search_text in artist or search_text in album:
+                self._filtered_tracks.append(t)
+
         self._loaded_count = 0
+        self.model.setRowCount(0)
         self._append_next_batch(self._filtered_tracks)
         self._update_status()
+        logger.debug(f"Search '{search_text}' → {len(self._filtered_tracks):,} matches")
 
     def filter_tracks(self, text: str):
         """Public alias kept for compatibility with external callers."""
-        self._on_search_changed(text)
+        self.search_bar.setText(text)
 
     # =========================================================================
-    #  Queue action buttons
+    #  Artist name helper — uses primary_artist_names like player_dock
+    # =========================================================================
+
+    def _get_artist_name(self, track) -> str:
+        """
+        Return primary artist name(s) for the track.
+        Uses track.primary_artist_names which walks TrackArtistRole with
+        Role='Primary Artist' — the same data player_dock uses.
+        Falls back to track.artists[0] for backward compatibility.
+        """
+        # Preferred: proper role-filtered property
+        try:
+            name = getattr(track, "primary_artist_names", None)
+            if name:
+                return name
+        except Exception:
+            pass
+
+        # Fallback: first artist in the unfiltered artists proxy
+        try:
+            artists = getattr(track, "artists", None) or []
+            if artists:
+                return getattr(artists[0], "artist_name", "") or ""
+        except Exception:
+            pass
+
+        return ""
+
+    def _format_value(self, value, field_name: str, field_config) -> str:
+        if value is None:
+            return ""
+        if field_name == "duration" and isinstance(value, (int, float)):
+            total_s = int(value)
+            m, s = divmod(total_s, 60)
+            return f"{m}:{s:02d}"
+        if field_name in ("file_size",) and isinstance(value, (int, float)):
+            return f"{value / (1024 * 1024):.1f} MB"
+        return str(value)
+
+    # =========================================================================
+    #  Drag support
+    # =========================================================================
+
+    def startDrag(self, supported_actions):
+        selected = self.table.selectionModel().selectedRows()
+        if not selected:
+            return
+
+        col_keys = list(self.columns.keys())
+        try:
+            track_id_col = col_keys.index("track_id")
+        except ValueError:
+            return
+
+        track_ids = []
+        for index in selected:
+            item = self.model.item(index.row(), track_id_col)
+            if item:
+                try:
+                    track_ids.append(int(item.text()))
+                except ValueError:
+                    pass
+
+        if not track_ids:
+            return
+
+        mime = QMimeData()
+        mime.setData(
+            "application/x-track-id",
+            QByteArray(",".join(str(i) for i in track_ids).encode()),
+        )
+
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+
+        pixmap = QPixmap(200, 30)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setPen(Qt.white)
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, f"{len(track_ids)} track(s)")
+        painter.end()
+        drag.setPixmap(pixmap)
+        drag.exec_(Qt.CopyAction)
+
+    # =========================================================================
+    #  Queue helpers
     # =========================================================================
 
     def _get_queue_manager(self):
@@ -336,17 +512,13 @@ class TrackView(QWidget):
         return None
 
     def _add_all_to_queue(self, shuffle: bool = False):
-        """Add every track in the library to the queue (optionally shuffled)."""
         qm = self._get_queue_manager()
         if not qm:
             return
-
-        tracks = list(self._all_tracks)  # copy so we don't mutate the master list
-        verb = "Shuffling" if shuffle else "Adding"
-        logger.info(f"{verb} entire library ({len(tracks):,} tracks) to queue…")
-
-        # Use async path for large libraries — keeps the UI responsive.
-        # The queue dock's bulk_add_started/finished signals handle status display.
+        tracks = list(self._all_tracks)
+        logger.info(
+            f"{'Shuffling' if shuffle else 'Adding'} {len(tracks):,} tracks to queue"
+        )
         if len(tracks) > 500:
             qm.add_tracks_async(tracks, shuffle=shuffle)
         else:
@@ -355,73 +527,35 @@ class TrackView(QWidget):
             qm.add_tracks_to_queue(tracks)
 
     def _add_filtered_to_queue(self, shuffle: bool = False):
-        """
-        Add all tracks that are currently visible (after search filter) to the queue.
-        If no search is active this behaves identically to _add_all_to_queue.
-        """
         qm = self._get_queue_manager()
         if not qm:
             return
-
-        search_text = self.search_bar.text().strip()
-        if not search_text:
-            # No filter — same as "add all"
-            self._add_all_to_queue(shuffle=shuffle)
-            return
-
-        # Make sure the model is fully populated so the model has everything to filter
-        if self._loaded_count < len(self._all_tracks):
-            self._fill_model_completely()
-
-        # Collect tracks that survive the current model filter
-        column_keys = list(self.columns.keys())
-        try:
-            track_id_col = column_keys.index("track_id")
-        except ValueError:
-            logger.error("track_id column not found — cannot collect filtered tracks")
-            return
-
-        filtered_track_ids = set()
-        for model_row in range(self.model.rowCount()):
-            source_index = self.model.mapToSource(
-                self.model.index(model_row, track_id_col)
-            )
-            item = self.model.item(source_index.row(), track_id_col)
-            if item:
-                try:
-                    filtered_track_ids.add(int(item.text()))
-                except ValueError:
-                    pass
-
-        # Build ordered track list preserving original order
-        tracks = [t for t in self._all_tracks if t.track_id in filtered_track_ids]
+        source = (
+            self._filtered_tracks if self._filter_active else list(self._all_tracks)
+        )
+        tracks = list(source)
         if shuffle:
             random.shuffle(tracks)
-
-        qm.add_tracks_to_queue(tracks)
-        verb = "Shuffled" if shuffle else "Added"
-        logger.info(f"{verb} {len(tracks)} filtered tracks to queue")
-        QMessageBox.information(
-            self,
-            "Queue Updated",
-            f"{verb} {len(tracks):,} matching tracks to the queue.",
+        if len(tracks) > 500:
+            qm.add_tracks_async(tracks, shuffle=False)  # already shuffled if needed
+        else:
+            qm.add_tracks_to_queue(tracks)
+        logger.info(
+            f"{'Shuffled' if shuffle else 'Added'} {len(tracks):,} filtered tracks to queue"
         )
 
-    # =========================================================================
-    #  Selected-track queue (context menu)
-    # =========================================================================
-
-    def _get_selected_track_objects(self):
-        """Return track objects for all selected rows."""
+    def _get_selected_track_objects(self) -> list:
+        """Return Track ORM objects for all selected rows."""
         selected = self.table.selectionModel().selectedRows()
         col_keys = list(self.columns.keys())
-        track_id_col = col_keys.index("track_id")
-        tracks = []
+        try:
+            track_id_col = col_keys.index("track_id")
+        except ValueError:
+            return []
 
+        tracks = []
         for index in selected:
-            # Remove mapToSource - index is already correct
-            row = index.row()
-            item = self.model.item(row, track_id_col)
+            item = self.model.item(index.row(), track_id_col)
             if not item:
                 continue
             try:
@@ -431,35 +565,27 @@ class TrackView(QWidget):
                 if track:
                     tracks.append(track)
             except Exception as e:
-                logger.error(f"Error fetching track for queue: {e}")
-
+                logger.error(f"Error fetching selected track: {e}")
         return tracks
 
     def add_selected_to_queue(self, insert_next: bool = False):
-        """Add currently selected tracks to the playback queue."""
         qm = self._get_queue_manager()
         if not qm:
             return
-
         tracks = self._get_selected_track_objects()
         if not tracks:
             return
-
-        if insert_next and hasattr(qm, "insert_tracks_next"):
+        if insert_next:
             qm.insert_tracks_next(tracks)
         else:
             qm.add_tracks_to_queue(tracks)
-
-        logger.info(
-            f"Added {len(tracks)} track(s) to queue (insert_next={insert_next})"
-        )
+        logger.info(f"Added {len(tracks)} track(s) to queue (next={insert_next})")
 
     # =========================================================================
     #  Playback
     # =========================================================================
 
     def on_double_clicked(self, index):
-        """Play the double-clicked track."""
         row = index.row()
         try:
             file_path_col = list(self.columns.keys()).index("track_file_path")
@@ -477,372 +603,272 @@ class TrackView(QWidget):
     # =========================================================================
 
     def edit_selected_track(self):
-        """Open edit dialog for selected track(s)."""
-        selected = self.table.selectionModel().selectedRows()
-        if not selected:
+        tracks = self._get_selected_track_objects()
+        if not tracks:
             return
-
-        track_id_col = list(self.columns.keys()).index("track_id")
-        track_ids = []
-        for index in selected:
-            row = index.row()
-            item = self.model.item(row, track_id_col)
-            if item:
-                try:
-                    track_ids.append(int(item.text()))
-                except ValueError:
-                    pass
-
-        if not track_ids:
-            return
-
-        if len(track_ids) == 1:
+        if len(tracks) == 1:
             try:
-                track = self.controller.get.get_entity_object(
-                    "Track", track_id=track_ids[0]
-                )
-                if track:
-                    dialog = TrackEditDialog(self.controller, track, self)
-                    if dialog.exec_() == QDialog.Accepted:
-                        self.load_tracks_on_startup()
+                dialog = TrackEditDialog(self.controller, tracks[0], self)
+                if dialog.exec_() == QDialog.Accepted:
+                    self._force_reload()
             except Exception as e:
                 logger.error(f"Error opening track edit dialog: {e}")
         else:
             try:
-                tracks = [
-                    self.controller.get.get_entity_object("Track", track_id=tid)
-                    for tid in track_ids
-                ]
-                tracks = [t for t in tracks if t]
-                if tracks:
-                    dialog = MultiTrackEditDialog(self.controller, tracks, self)
-                    if dialog.exec_() == QDialog.Accepted:
-                        self.load_tracks_on_startup()
+                dialog = MultiTrackEditDialog(self.controller, tracks, self)
+                if dialog.exec_() == QDialog.Accepted:
+                    self._force_reload()
             except Exception as e:
                 logger.error(f"Error opening multi-track edit dialog: {e}")
 
     # =========================================================================
-    #  Context menu
+    #  Context menu — player_dock style with hierarchical submenus
     # =========================================================================
 
     def show_context_menu(self, pos):
-        """Show context menu for track operations."""
         selected = self.table.selectionModel().selectedRows()
         if not selected:
             return
 
-        track_id_col = list(self.columns.keys()).index("track_id")
-        track_ids = []
-        for index in selected:
-            row = index.row()
-            item = self.model.item(row, track_id_col)
-            if item:
-                track_ids.append(item.text())
+        tracks = self._get_selected_track_objects()
+        if not tracks:
+            return
+
+        track_ids = [str(t.track_id) for t in tracks]
+        count = len(tracks)
 
         menu = QMenu(self)
-        count = len(selected)
 
-        edit_label = "Edit Track" if count == 1 else f"Edit {count} Tracks"
-        menu.addAction(edit_label, self.edit_selected_track)
-        menu.addSeparator()
-
-        add_queue_action = QAction("Add to Queue", menu)
-        add_queue_action.triggered.connect(self.add_selected_to_queue)
-        menu.addAction(add_queue_action)
-
-        add_queue_next_action = QAction("Add to Queue (Next)", menu)
-        add_queue_next_action.triggered.connect(
+        # ── Playback ──────────────────────────────────────────────────────
+        play_next_action = QAction("▶  Play Next", self)
+        play_next_action.triggered.connect(
             lambda: self.add_selected_to_queue(insert_next=True)
         )
-        menu.addAction(add_queue_next_action)
+        menu.addAction(play_next_action)
+
+        add_queue_action = QAction("➕  Add to Queue", self)
+        add_queue_action.triggered.connect(
+            lambda: self.add_selected_to_queue(insert_next=False)
+        )
+        menu.addAction(add_queue_action)
+
         menu.addSeparator()
 
-        add_to_playlist_menu = menu.addMenu("Add to Playlist")
-        self._populate_playlist_submenu(add_to_playlist_menu, track_ids)
+        # ── Edit ──────────────────────────────────────────────────────────
+        if count == 1:
+            edit_action = QAction("✏️  Edit Track", self)
+            edit_action.triggered.connect(self.edit_selected_track)
+            menu.addAction(edit_action)
+        else:
+            edit_action = QAction(f"✏️  Edit {count} Tracks", self)
+            edit_action.triggered.connect(self.edit_selected_track)
+            menu.addAction(edit_action)
 
-        add_to_mood_menu = menu.addMenu("Add to Mood")
-        self._populate_mood_submenu(add_to_mood_menu, track_ids)
+        menu.addSeparator()
 
-        menu.exec_(self.table.viewport().mapToGlobal(pos))
+        # ── Add to Playlist (hierarchical, alphabetical) ──────────────────
+        playlist_menu = QMenu("📋  Add to Playlist", self)
+        self._populate_playlist_submenu(playlist_menu, tracks, track_ids)
+        menu.addMenu(playlist_menu)
 
-    def _populate_playlist_submenu(self, submenu: QMenu, track_ids: list):
+        # ── Add to Mood (hierarchical, alphabetical) ──────────────────────
+        mood_menu = QMenu("🎭  Add to Mood", self)
+        self._populate_mood_submenu(mood_menu, tracks, track_ids)
+        menu.addMenu(mood_menu)
+
+        menu.exec_(self.table.mapToGlobal(pos))
+
+    # ── Playlist submenu ──────────────────────────────────────────────────
+
+    def _populate_playlist_submenu(self, submenu: QMenu, tracks: list, track_ids: list):
         try:
-            playlists = self.controller.get.get_all_entities("Playlist")
+            playlists = self.controller.get.get_all_entities("Playlist") or []
             if not playlists:
                 submenu.addAction("No playlists available").setEnabled(False)
                 return
-            for playlist in playlists:
-                action = submenu.addAction(playlist.playlist_name)
-                action.setData((playlist.playlist_id, track_ids))
-                action.triggered.connect(self.add_to_playlist)
+
+            # Which playlists contain ALL selected tracks?
+            # (for checkmarks — only show checked if every track is a member)
+            track_playlist_sets = []
+            for track in tracks:
+                pts = getattr(track, "playlists", []) or []
+                track_playlist_sets.append({pt.playlist_id for pt in pts})
+            all_playlist_ids = (
+                track_playlist_sets[0].intersection(*track_playlist_sets[1:])
+                if track_playlist_sets
+                else set()
+            )
+
+            # Build hierarchy
+            children_map: dict = {}
+            for pl in playlists:
+                pid = getattr(pl, "parent_id", None)
+                children_map.setdefault(pid, []).append(pl)
+            for pid in children_map:
+                children_map[pid].sort(key=lambda x: x.playlist_name.lower())
+
+            self._build_playlist_hierarchy(
+                submenu, None, children_map, all_playlist_ids, track_ids
+            )
+
         except Exception as e:
-            logger.error(f"Error loading playlists for context menu: {e}")
+            logger.error(f"Error populating playlist submenu: {e}")
             submenu.addAction("Error loading playlists").setEnabled(False)
 
-    def _populate_mood_submenu(self, submenu: QMenu, track_ids: list):
-        try:
-            moods = self.controller.get.get_all_entities("Mood")
-            if not moods:
-                submenu.addAction("No moods available").setEnabled(False)
-                return
-            for mood in moods:
-                action = submenu.addAction(mood.mood_name)
-                action.setData((mood.mood_id, track_ids))
-                action.triggered.connect(self.add_to_mood)
-        except Exception as e:
-            logger.error(f"Error loading moods for context menu: {e}")
-            submenu.addAction("Error loading moods").setEnabled(False)
+    def _build_playlist_hierarchy(
+        self, parent_menu, parent_id, children_map, member_ids, track_ids, depth=0
+    ):
+        if depth > 8:
+            return
+        for pl in children_map.get(parent_id, []):
+            has_children = bool(children_map.get(pl.playlist_id))
+            if has_children:
+                sub = QMenu(pl.playlist_name, parent_menu)
+                self._build_playlist_hierarchy(
+                    sub, pl.playlist_id, children_map, member_ids, track_ids, depth + 1
+                )
+                sub.addSeparator()
+                act = QAction(f"Add to '{pl.playlist_name}'", sub)
+                act.setData((pl.playlist_id, track_ids))
+                if pl.playlist_id in member_ids:
+                    act.setCheckable(True)
+                    act.setChecked(True)
+                act.triggered.connect(self.add_to_playlist)
+                sub.addAction(act)
+                parent_menu.addMenu(sub)
+            else:
+                act = QAction(pl.playlist_name, parent_menu)
+                act.setData((pl.playlist_id, track_ids))
+                if pl.playlist_id in member_ids:
+                    act.setCheckable(True)
+                    act.setChecked(True)
+                act.triggered.connect(self.add_to_playlist)
+                parent_menu.addAction(act)
 
     def add_to_playlist(self):
         action = self.sender()
         if not action:
             return
         playlist_id, track_ids = action.data()
-        success_count = 0
         try:
             existing = self.controller.get.get_entity_links(
                 "PlaylistTracks", playlist_id=playlist_id
             )
             next_position = max((t.position for t in existing), default=0) + 1
+            added = 0
             for track_id in track_ids:
-                if self.controller.add.add_entity_link(
+                already = self.controller.get.get_entity_links(
+                    "PlaylistTracks", playlist_id=playlist_id, track_id=int(track_id)
+                )
+                if already:
+                    continue
+                ok = self.controller.add.add_entity_link(
                     "PlaylistTracks",
                     playlist_id=playlist_id,
-                    track_id=track_id,
+                    track_id=int(track_id),
                     position=next_position,
-                ):
-                    success_count += 1
+                )
+                if ok:
                     next_position += 1
-            self._show_batch_result(success_count, len(track_ids), "playlist")
+                    added += 1
+            logger.info(f"Added {added} track(s) to playlist {playlist_id}")
         except Exception as e:
             logger.error(f"Error adding tracks to playlist: {e}")
-            QMessageBox.critical(
-                self, "Error", f"Failed to add tracks to playlist:\n{e}"
+
+    # ── Mood submenu ──────────────────────────────────────────────────────
+
+    def _populate_mood_submenu(self, submenu: QMenu, tracks: list, track_ids: list):
+        try:
+            moods = self.controller.get.get_all_entities("Mood") or []
+            if not moods:
+                submenu.addAction("No moods available").setEnabled(False)
+                return
+
+            # Checkmark if ALL selected tracks share the mood
+            track_mood_sets = []
+            for track in tracks:
+                tm = getattr(track, "moods", []) or []
+                track_mood_sets.append({m.mood_id for m in tm})
+            all_mood_ids = (
+                track_mood_sets[0].intersection(*track_mood_sets[1:])
+                if track_mood_sets
+                else set()
             )
+
+            children_map: dict = {}
+            for m in moods:
+                pid = getattr(m, "parent_id", None)
+                children_map.setdefault(pid, []).append(m)
+            for pid in children_map:
+                children_map[pid].sort(key=lambda x: x.mood_name.lower())
+
+            self._build_mood_hierarchy(
+                submenu, None, children_map, all_mood_ids, track_ids
+            )
+
+        except Exception as e:
+            logger.error(f"Error populating mood submenu: {e}")
+            submenu.addAction("Error loading moods").setEnabled(False)
+
+    def _build_mood_hierarchy(
+        self, parent_menu, parent_id, children_map, member_ids, track_ids, depth=0
+    ):
+        if depth > 8:
+            return
+        for mood in children_map.get(parent_id, []):
+            has_children = bool(children_map.get(mood.mood_id))
+            if has_children:
+                sub = QMenu(mood.mood_name, parent_menu)
+                self._build_mood_hierarchy(
+                    sub, mood.mood_id, children_map, member_ids, track_ids, depth + 1
+                )
+                sub.addSeparator()
+                act = QAction(f"Add to '{mood.mood_name}'", sub)
+                act.setData((mood.mood_id, track_ids))
+                if mood.mood_id in member_ids:
+                    act.setCheckable(True)
+                    act.setChecked(True)
+                act.triggered.connect(self.add_to_mood)
+                sub.addAction(act)
+                parent_menu.addMenu(sub)
+            else:
+                act = QAction(mood.mood_name, parent_menu)
+                act.setData((mood.mood_id, track_ids))
+                if mood.mood_id in member_ids:
+                    act.setCheckable(True)
+                    act.setChecked(True)
+                act.triggered.connect(self.add_to_mood)
+                parent_menu.addAction(act)
 
     def add_to_mood(self):
         action = self.sender()
         if not action:
             return
         mood_id, track_ids = action.data()
-        success_count = 0
         try:
+            added = 0
             for track_id in track_ids:
-                if self.controller.add.add_entity_link(
-                    "MoodTracks", mood_id=mood_id, track_id=track_id
-                ):
-                    success_count += 1
-            self._show_batch_result(success_count, len(track_ids), "mood")
+                already = self.controller.get.get_entity_links(
+                    "MoodTrackAssociation", mood_id=mood_id, track_id=int(track_id)
+                )
+                if already:
+                    continue
+                ok = self.controller.add.add_entity_link(
+                    "MoodTrackAssociation",
+                    mood_id=mood_id,
+                    track_id=int(track_id),
+                )
+                if ok:
+                    added += 1
+            logger.info(f"Added {added} track(s) to mood {mood_id}")
         except Exception as e:
             logger.error(f"Error adding tracks to mood: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to add tracks to mood:\n{e}")
-
-    def _show_batch_result(
-        self,
-        success_count: int,
-        total: int,
-        destination: str,
-        already_present_possible: bool = True,
-    ):
-        if success_count == total:
-            QMessageBox.information(
-                self, "Success", f"Added {success_count} track(s) to {destination}."
-            )
-        elif success_count > 0:
-            msg = (
-                f"Added {success_count} of {total} track(s). "
-                f"Some may already be in the {destination}."
-                if already_present_possible
-                else f"Added {success_count} of {total} track(s) to {destination}."
-            )
-            QMessageBox.warning(self, "Partial Success", msg)
-        else:
-            msg = (
-                f"No tracks were added. They may already be in the {destination}."
-                if already_present_possible
-                else f"No tracks were added to {destination}."
-            )
-            QMessageBox.warning(self, "Nothing Added", msg)
 
     # =========================================================================
-    #  Column management
+    #  Fill model fully (used by _add_filtered_to_queue edge case)
     # =========================================================================
 
-    def show_column_menu(self):
-        menu = QMenu(self)
-        categories: dict[str, list] = {}
-
-        for i, (field_name, display_name) in enumerate(self.columns.items()):
-            field_config = self.track_fields.get(field_name)
-            category = field_config.category if field_config else "General"
-            categories.setdefault(category, []).append(
-                (i, field_name, display_name, field_config)
-            )
-
-        for category_name, cols in categories.items():
-            parent_menu = menu.addMenu(category_name) if len(categories) > 1 else menu
-            for i, field_name, display_name, field_config in cols:
-                action = parent_menu.addAction(display_name)
-                action.setCheckable(True)
-                action.setChecked(not self.table.isColumnHidden(i))
-                if field_config and field_config.tooltip:
-                    action.setToolTip(field_config.tooltip)
-                action.triggered.connect(
-                    lambda checked, col=i: self._toggle_column_visibility(
-                        col, not checked
-                    )
-                )
-
-        menu.exec_(
-            self.column_toggle_button.mapToGlobal(
-                self.column_toggle_button.rect().bottomLeft()
-            )
-        )
-
-    def _toggle_column_visibility(self, column_index: int, hide: bool):
-        self.table.setColumnHidden(column_index, hide)
-        self.save_column_state()
-
-    def show_column_customization(self):
-        dialog = ColumnCustomizationDialog(self, self)
-        dialog.exec_()
-
-    def save_column_state(self):
-        try:
-            header = self.table.horizontalHeader()
-            column_keys = list(self.columns.keys())
-
-            columns_by_visual_order = sorted(
-                range(self.model.columnCount()),
-                key=lambda logical: header.visualIndex(logical),
-            )
-
-            visible_columns = []
-            column_order = []
-            column_widths_map = {}
-
-            for logical_index in columns_by_visual_order:
-                field_name = column_keys[logical_index]
-                column_order.append(field_name)
-                column_widths_map[field_name] = self.table.columnWidth(logical_index)
-                if not self.table.isColumnHidden(logical_index):
-                    visible_columns.append(field_name)
-
-            column_widths = [column_widths_map[f] for f in column_order]
-
-            app_config.set_track_view_visible_columns(visible_columns)
-            app_config.set_track_view_column_order(column_order)
-            app_config.set_track_view_column_widths(column_widths)
-            app_config.save()
-        except Exception as e:
-            logger.error(f"Error saving column state: {e}")
-
-    def load_column_state(self):
-        try:
-            visible_columns = app_config.get_track_view_visible_columns()
-            column_order = app_config.get_track_view_column_order()
-            column_widths = app_config.get_track_view_column_widths()
-            column_keys = list(self.columns.keys())
-
-            if column_order:
-                self._reorder_columns(column_order)
-
-            if visible_columns:
-                for i, field_name in enumerate(column_keys):
-                    self.table.setColumnHidden(i, field_name not in visible_columns)
-
-            if column_widths and len(column_widths) == len(column_keys):
-                for i, width in enumerate(column_widths):
-                    if width > 0:
-                        self.table.setColumnWidth(i, width)
-        except Exception as e:
-            logger.error(f"Error loading column state: {e}")
-
-    def get_column_state(self) -> dict:
-        state = {"visible": [], "order": [], "widths": [], "positions": {}}
-        for i in range(self.model.columnCount()):
-            field_name = list(self.columns.keys())[i]
-            visual_index = self.table.horizontalHeader().visualIndex(i)
-            state["order"].append(field_name)
-            state["widths"].append(self.table.columnWidth(i))
-            state["positions"][field_name] = visual_index
-            if not self.table.isColumnHidden(i):
-                state["visible"].append(field_name)
-        state["order"] = sorted(state["order"], key=lambda x: state["positions"][x])
-        return state
-
-    def _reorder_columns(self, ordered_field_names: list):
-        header = self.table.horizontalHeader()
-        column_keys = list(self.columns.keys())
-        for desired_visual_index, field_name in enumerate(ordered_field_names):
-            if field_name not in column_keys:
-                continue
-            logical_index = column_keys.index(field_name)
-            current_visual_index = header.visualIndex(logical_index)
-            if current_visual_index != desired_visual_index:
-                header.moveSection(current_visual_index, desired_visual_index)
-
-    # =========================================================================
-    #  Drag support
-    # =========================================================================
-
-    def startDrag(self, supported_actions):
-        selected = self.table.selectionModel().selectedRows()
-        if not selected:
-            return
-
-        try:
-            file_path_col = list(self.columns.keys()).index("track_file_path")
-        except ValueError:
-            return
-
-        paths = []
-        for index in selected:
-            row = index.row()
-            item = self.model.item(row, file_path_col)
-            if item and item.text():
-                paths.append(item.text())
-
-        if not paths:
-            return
-
-        mime = QMimeData()
-        mime.setData("application/x-track-paths", QByteArray("\n".join(paths).encode()))
-
-        drag = QDrag(self.table)
-        drag.setMimeData(mime)
-
-        pixmap = QPixmap(200, 30)
-        pixmap.fill(Qt.transparent)
-        painter = QPainter(pixmap)
-        painter.drawText(pixmap.rect(), Qt.AlignCenter, f"{len(paths)} track(s)")
-        painter.end()
-        drag.setPixmap(pixmap)
-
-        drag.exec_(supported_actions)
-
-    # =========================================================================
-    #  Helpers
-    # =========================================================================
-
-    def _get_artist_name(self, track) -> str:
-        if hasattr(track, "primary_artist_names"):
-            return track.primary_artist_names
-        if track.artist_roles:
-            artist = track.artist_roles[0].artist
-            return artist.artist_name if artist else "Unknown Artist"
-        return "Unknown Artist"
-
-    def _format_value(self, value, db_field: str, field_config) -> str:
-        if value is None:
-            return ""
-        if db_field == "duration" and isinstance(value, int):
-            try:
-                return f"{value // 60}:{value % 60:02d}"
-            except (TypeError, ValueError):
-                return "0:00"
-        if db_field == "sample_rate" and isinstance(value, int):
-            return f"{value / 1000:,.1f} kHz"
-        if db_field == "file_size" and isinstance(value, int):
-            return f"{value / (1024 * 1024):.2f} MB"
-        return str(value)
+    def _fill_model_completely(self):
+        source = self._filtered_tracks if self._filter_active else self._all_tracks
+        while self._loaded_count < len(source):
+            self._append_next_batch(source)
