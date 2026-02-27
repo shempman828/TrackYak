@@ -14,10 +14,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.config_setup import app_config
-from src.rating_widget import RatingStarsWidget
 from src.asset_paths import icon
+from src.config_setup import app_config
 from src.logger_config import logger
+from src.rating_widget import RatingStarsWidget
 from src.track_edit import TrackEditDialog
 
 
@@ -795,36 +795,184 @@ class PlayerUI(QWidget):
         menu.exec_(event.globalPos())
 
     def _populate_playlist_submenu(self, submenu: QMenu):
-        """Fill the Add to Playlist submenu with every playlist in the database."""
+        """Fill the Add to Playlist submenu with hierarchical, alphabetically sorted playlists."""
         try:
-            playlists = self.controller.get.get_all_entities("Playlist")
+            # Fetch all playlists with their relationships
+            playlists = self.controller.get.get_all_entities("Playlist") or []
+
             if not playlists:
                 submenu.addAction("No playlists available").setEnabled(False)
                 return
+
+            # Get current track's playlist IDs
+            track_playlist_ids = set()
+            if self.current_track and hasattr(self.current_track, "playlists"):
+                track_playlist_ids = {
+                    pt.playlist_id for pt in self.current_track.playlists
+                }
+
+            # Build hierarchy map
+            playlist_map = {p.playlist_id: p for p in playlists}
+            children_map = {}
             for playlist in playlists:
-                action = QAction(playlist.playlist_name, self)
-                action.setData(playlist.playlist_id)
-                action.triggered.connect(self._context_add_to_playlist)
-                submenu.addAction(action)
+                parent_id = getattr(playlist, "parent_id", None)
+                if parent_id not in children_map:
+                    children_map[parent_id] = []
+                children_map[parent_id].append(playlist)
+
+            # Sort playlists alphabetically at each level
+            for parent_id in children_map:
+                children_map[parent_id].sort(key=lambda x: x.playlist_name.lower())
+
+            # Build hierarchical menu starting from root (None parent)
+            self._build_playlist_hierarchy(
+                submenu, None, children_map, track_playlist_ids
+            )
+
         except Exception as e:
             logger.error(f"Error populating playlist submenu: {e}")
             submenu.addAction("Error loading playlists").setEnabled(False)
 
+    def _build_playlist_hierarchy(
+        self, parent_menu: QMenu, parent_id, children_map, track_playlist_ids, depth=0
+    ):
+        """Recursively build playlist hierarchy in the menu."""
+        MAX_DEPTH = 8  # Prevent infinite recursion
+
+        if depth > MAX_DEPTH:
+            return
+
+        children = children_map.get(parent_id, [])
+
+        for playlist in children:
+            # Check if this playlist has children
+            has_children = bool(children_map.get(playlist.playlist_id, []))
+
+            if has_children:
+                # Create a submenu for playlists with children
+                playlist_menu = QMenu(playlist.playlist_name, parent_menu)
+
+                # Recursively add children
+                self._build_playlist_hierarchy(
+                    playlist_menu,
+                    playlist.playlist_id,
+                    children_map,
+                    track_playlist_ids,
+                    depth + 1,
+                )
+
+                # Add separator and option to add to this parent playlist
+                playlist_menu.addSeparator()
+                action = QAction(f"Add to '{playlist.playlist_name}'", playlist_menu)
+                action.setData(playlist.playlist_id)
+
+                # Add checkmark if track is in this playlist
+                if playlist.playlist_id in track_playlist_ids:
+                    action.setCheckable(True)
+                    action.setChecked(True)
+
+                action.triggered.connect(self._context_add_to_playlist)
+                playlist_menu.addAction(action)
+
+                parent_menu.addMenu(playlist_menu)
+            else:
+                # Direct action for leaf playlists
+                action = QAction(playlist.playlist_name, parent_menu)
+                action.setData(playlist.playlist_id)
+
+                # Add checkmark if track is in this playlist
+                if playlist.playlist_id in track_playlist_ids:
+                    action.setCheckable(True)
+                    action.setChecked(True)
+
+                action.triggered.connect(self._context_add_to_playlist)
+                parent_menu.addAction(action)
+
     def _populate_mood_submenu(self, submenu: QMenu):
-        """Fill the Add to Mood submenu with every mood in the database."""
+        """Fill the Add to Mood submenu with hierarchical, alphabetically sorted moods."""
         try:
-            moods = self.controller.get.get_all_entities("Mood")
+            # Fetch all moods with their relationships
+            moods = self.controller.get.get_all_entities("Mood") or []
+
             if not moods:
                 submenu.addAction("No moods available").setEnabled(False)
                 return
+
+            # Get current track's mood IDs
+            track_mood_ids = set()
+            if self.current_track and hasattr(self.current_track, "moods"):
+                track_mood_ids = {mood.mood_id for mood in self.current_track.moods}
+
+            # Build hierarchy map
+            mood_map = {m.mood_id: m for m in moods}
+            children_map = {}
             for mood in moods:
-                action = QAction(mood.mood_name, self)
-                action.setData(mood.mood_id)
-                action.triggered.connect(self._context_add_to_mood)
-                submenu.addAction(action)
+                parent_id = getattr(mood, "parent_id", None)
+                if parent_id not in children_map:
+                    children_map[parent_id] = []
+                children_map[parent_id].append(mood)
+
+            # Sort moods alphabetically at each level
+            for parent_id in children_map:
+                children_map[parent_id].sort(key=lambda x: x.mood_name.lower())
+
+            # Build hierarchical menu starting from root (None parent)
+            self._build_mood_hierarchy(submenu, None, children_map, track_mood_ids)
+
         except Exception as e:
             logger.error(f"Error populating mood submenu: {e}")
             submenu.addAction("Error loading moods").setEnabled(False)
+
+    def _build_mood_hierarchy(
+        self, parent_menu: QMenu, parent_id, children_map, track_mood_ids, depth=0
+    ):
+        """Recursively build mood hierarchy in the menu."""
+        MAX_DEPTH = 8  # Prevent infinite recursion
+
+        if depth > MAX_DEPTH:
+            return
+
+        children = children_map.get(parent_id, [])
+
+        for mood in children:
+            # Check if this mood has children
+            has_children = bool(children_map.get(mood.mood_id, []))
+
+            if has_children:
+                # Create a submenu for moods with children
+                mood_menu = QMenu(mood.mood_name, parent_menu)
+
+                # Recursively add children
+                self._build_mood_hierarchy(
+                    mood_menu, mood.mood_id, children_map, track_mood_ids, depth + 1
+                )
+
+                # Add separator and option to add to this parent mood
+                mood_menu.addSeparator()
+                action = QAction(f"Add to '{mood.mood_name}'", mood_menu)
+                action.setData(mood.mood_id)
+
+                # Add checkmark if track has this mood
+                if mood.mood_id in track_mood_ids:
+                    action.setCheckable(True)
+                    action.setChecked(True)
+
+                action.triggered.connect(self._context_add_to_mood)
+                mood_menu.addAction(action)
+
+                parent_menu.addMenu(mood_menu)
+            else:
+                # Direct action for leaf moods
+                action = QAction(mood.mood_name, parent_menu)
+                action.setData(mood.mood_id)
+
+                # Add checkmark if track has this mood
+                if mood.mood_id in track_mood_ids:
+                    action.setCheckable(True)
+                    action.setChecked(True)
+
+                action.triggered.connect(self._context_add_to_mood)
+                parent_menu.addAction(action)
 
     def _context_edit_track(self):
         """Open TrackEditDialog for the currently playing track."""

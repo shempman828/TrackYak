@@ -21,13 +21,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.logger_config import logger
 from src.playlist_edit import EditPlaylist
 from src.playlist_export import PlaylistExporter
 from src.playlist_new import PlaylistCreateDialog
 from src.playlist_smart_builder import SmartPlaylistBuilder
 from src.playlist_smart_new import SmartPlaylistCreateDialog
 from src.playlist_tracks_window import PlaylistTracksWindow
-from src.logger_config import logger
 
 
 class PlaylistView(QWidget):
