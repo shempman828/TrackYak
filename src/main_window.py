@@ -30,6 +30,7 @@ from src.file_manager_dialog import FileManager
 from src.genre_view import GenreView
 from src.import_dialog import ImportDialog
 from src.influences_view import InfluencesView
+from src.logger_config import logger
 from src.menu_bar import MenuBar
 from src.moods_view import MoodView
 from src.navigation_dock import NavigationDock
@@ -40,7 +41,6 @@ from src.playlist_view import PlaylistView
 from src.publisher_view import PublisherView
 from src.queue_dock import QueueDockWidget
 from src.role_view import RoleView
-from src.logger_config import logger
 from src.status_utility import StatusManager
 from src.status_widget import StatusBarWidget
 from src.sync_view import SyncView
@@ -564,9 +564,12 @@ class GUI(QMainWindow, MenuBar):
         app_config.set_window_position(self.pos())
         app_config.set_window_maximized(self.isMaximized())
         app_config.set_window_state(self.saveState())
+
+        # Save queue state (history + upcoming) before writing config to disk.
+        try:
+            self.mediaplayer.queue_manager.save_queue_to_config()
+        except Exception as exc:
+            logger.error(f"closeEvent: failed to save queue: {exc}")
+
         app_config.save()
         self.mediaplayer.cleanup()
-        self.controller.close_session()
-        if hasattr(self, "_mpris"):
-            self._mpris.stop()
-        super().closeEvent(event)

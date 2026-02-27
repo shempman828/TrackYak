@@ -381,6 +381,7 @@ class MusicPlayer(QObject):
 
         self._is_advancing = True
         try:
+            # If we're more than 3 seconds in, just restart the current track.
             if self._position > RESTART_THRESHOLD_MS and self.current_file is not None:
                 logger.info("play_previous: restarting current track")
                 self.seek(0)
@@ -388,14 +389,17 @@ class MusicPlayer(QObject):
                     self.play()
                 return
 
-            prev_track = self.queue_manager.previous_track_in_queue()
-            if prev_track:
-                if self.load_track(Path(prev_track.track_file_path)):
+            # go_to_previous() pops history[-1] and inserts it at queue[0].
+            # If there is no history it returns False.
+            went_back = self.queue_manager.go_to_previous()
+            if went_back:
+                track = self.queue_manager.get_current_track()
+                if track and self.load_track(Path(track.track_file_path)):
                     self.play()
                 else:
                     self._is_advancing = False
-                    return
             else:
+                # No history — just restart.
                 self.seek(0)
                 if not self.playing:
                     self.play()
@@ -585,7 +589,7 @@ class MusicPlayer(QObject):
                 self._next_file = None
 
         q = self.queue_manager.queue
-        next_index = 2 if self.queue_manager.history_exists else 1
+        next_index = 1  # index 0 = current, index 1 = next
         if len(q) <= next_index:
             return  # No next track
 

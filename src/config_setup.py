@@ -118,9 +118,9 @@ class Config:
         # Queue section
 
         self.config["queue"] = {
-            "track_ids": "",  # Comma-separated list of track IDs
-            "history_exists": "false",
-            "persist_queue": "true",  # Whether to save/load queue on app start/exit
+            "history_ids": "",  # most-recent-last, up to 500 entries
+            "queue_ids": "",  # current + up to 500 upcoming
+            "persist_queue": "true",
         }
         self.config["track_view"] = {
             "visible_columns": "track_file_name,artist_name,album_name,title,genre,duration,year",

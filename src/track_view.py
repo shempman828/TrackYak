@@ -342,17 +342,17 @@ class TrackView(QWidget):
             return
 
         tracks = list(self._all_tracks)  # copy so we don't mutate the master list
-        if shuffle:
-            random.shuffle(tracks)
+        verb = "Shuffling" if shuffle else "Adding"
+        logger.info(f"{verb} entire library ({len(tracks):,} tracks) to queue…")
 
-        qm.add_tracks_to_queue(tracks)
-        verb = "Shuffled" if shuffle else "Added"
-        logger.info(f"{verb} entire library ({len(tracks)} tracks) to queue")
-        QMessageBox.information(
-            self,
-            "Queue Updated",
-            f"{verb} {len(tracks):,} tracks to the queue.",
-        )
+        # Use async path for large libraries — keeps the UI responsive.
+        # The queue dock's bulk_add_started/finished signals handle status display.
+        if len(tracks) > 500:
+            qm.add_tracks_async(tracks, shuffle=shuffle)
+        else:
+            if shuffle:
+                random.shuffle(tracks)
+            qm.add_tracks_to_queue(tracks)
 
     def _add_filtered_to_queue(self, shuffle: bool = False):
         """
