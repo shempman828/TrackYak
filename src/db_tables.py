@@ -1056,6 +1056,7 @@ class SmartPlaylist(Base):
     playlist_id = Column(Integer, ForeignKey("playlists.playlist_id"), primary_key=True)
     last_refreshed = Column(DateTime)
     auto_refresh = Column(Integer, default=0)  # Refresh on app start
+    logic = Column(String, default="AND")
 
     playlist = relationship("Playlist", back_populates="smart_playlist")
 
