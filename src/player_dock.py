@@ -19,6 +19,239 @@ from src.config_setup import app_config
 from src.logger_config import logger
 from src.rating_widget import RatingStarsWidget
 from src.track_edit import TrackEditDialog
+from src.base_album_edit import AlbumEditor
+from src.artist_edit import ArtistEditor
+
+_COLOR_TRACK = "#b8c0f0"  # text primary – soft lavender white
+_COLOR_ARTIST = "#8599ea"  # accent periwinkle blue-purple
+_COLOR_ALBUM = "#EAD685"  # complementary gold
+
+
+class _ScrollingLabel(QLabel):
+    """
+    A QLabel that smoothly scrolls its text from right to left when the text
+    is too wide to fit inside the widget.  When the text fits, it just sits
+    centred like a normal label.
+
+    How it works:
+    - A QTimer fires every ~40 ms (≈25 fps).
+    - Each tick we nudge an internal pixel offset forward by `scroll_speed`.
+    - paintEvent draws the text at that offset so it glides across.
+    - Once the text has fully scrolled off the left edge we reset the offset
+      back to the start and pause briefly before repeating.
+    """
+
+    def __init__(self, text="", scroll_speed=1, pause_ms=1500, parent=None):
+        super().__init__(text, parent)
+        self.scroll_speed = scroll_speed  # pixels per tick
+        self._offset = 0  # current horizontal scroll position
+        self._paused = False  # True while we're in the pause gap
+
+        # The timer drives the animation
+        self._timer = QTimer(self)
+        self._timer.setInterval(40)  # ~25 fps, smooth enough
+        self._timer.timeout.connect(self._tick)
+
+        self.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+
+    # ── Public helpers ────────────────────────────────────────────────────────
+
+    def setText(self, text):
+        """Override so we restart the scroll whenever the text changes."""
+        super().setText(text)
+        self._reset()
+
+    # ── Internal helpers ──────────────────────────────────────────────────────
+
+    def _reset(self):
+        self._offset = 0
+        self._paused = False
+        self._timer.stop()
+        self.update()  # force a repaint with the new text
+        self._maybe_start()  # only start the timer if scrolling is needed
+
+    def _maybe_start(self):
+        """Start the timer only when the text is actually wider than the widget."""
+        fm = self.fontMetrics()
+        text_w = fm.horizontalAdvance(self.text())
+        if text_w > self.width():
+            # Short pause before the text starts moving so the user can read
+            # the beginning first.
+            QTimer.singleShot(1500, self._start_scroll)
+
+    def _start_scroll(self):
+        if not self._timer.isActive():
+            self._timer.start()
+
+    def _tick(self):
+        if self._paused:
+            return
+        self._offset += self.scroll_speed
+        fm = self.fontMetrics()
+        text_w = fm.horizontalAdvance(self.text())
+        # Once the text has scrolled fully off the left edge, reset with a pause
+        if self._offset > text_w + self.width() // 2:
+            self._offset = 0
+            self._paused = True
+            QTimer.singleShot(1500, self._unpause)
+        self.update()
+
+    def _unpause(self):
+        self._paused = False
+
+    # ── Drawing ───────────────────────────────────────────────────────────────
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Re-check whether scrolling is needed after the widget is resized
+        self._reset()
+
+    def paintEvent(self, event):
+        fm = self.fontMetrics()
+        text_w = fm.horizontalAdvance(self.text())
+
+        if text_w <= self.width():
+            # Text fits — just draw it normally (centred)
+            super().paintEvent(event)
+            return
+
+        # Text is too long — draw it at the current scroll offset
+        from PySide6.QtGui import QPainter
+
+        painter = QPainter(self)
+        painter.setClipRect(self.rect())
+        painter.setPen(self.palette().color(self.foregroundRole()))
+        painter.setFont(self.font())
+        y = (self.height() + fm.ascent() - fm.descent()) // 2
+        painter.drawText(-self._offset, y, self.text())
+        painter.end()
+
+
+class _TrackInfoWidget(QWidget):
+    """
+    A small three-line display showing track name, artist, and album.
+
+    - Track name  → text-primary color (#b8c0f0), scrolls if too long
+    - Artist name → accent blue-purple (#8599ea), clickable → opens ArtistEditor
+    - Album name  → gold (#EAD685), clickable → opens AlbumEditor
+    """
+
+    def __init__(self, controller, parent=None):
+        super().__init__(parent)
+        self.controller = controller
+        self._current_track = None
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(1)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # Track title row — scrolling label
+        self.title_label = _ScrollingLabel("")
+        self.title_label.setAlignment(Qt.AlignCenter)
+        self.title_label.setStyleSheet(
+            f"color: {_COLOR_TRACK}; font-style: italic; font-size: 1.3em;"
+        )
+        self.title_label.setMinimumWidth(180)
+
+        # Artist label — clickable
+        self.artist_label = QLabel("")
+        self.artist_label.setAlignment(Qt.AlignCenter)
+        self.artist_label.setStyleSheet(
+            f"color: {_COLOR_ARTIST}; font-size: 1.0em; cursor: pointer;"
+        )
+        self.artist_label.setCursor(Qt.PointingHandCursor)
+        self.artist_label.mousePressEvent = self._on_artist_clicked
+
+        # Album label — clickable
+        self.album_label = QLabel("")
+        self.album_label.setAlignment(Qt.AlignCenter)
+        self.album_label.setStyleSheet(
+            f"color: {_COLOR_ALBUM}; font-size: 1.0em; cursor: pointer;"
+        )
+        self.album_label.setCursor(Qt.PointingHandCursor)
+        self.album_label.mousePressEvent = self._on_album_clicked
+
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.artist_label)
+        layout.addWidget(self.album_label)
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def update_track(self, track):
+        """Populate the labels from a track ORM object."""
+        self._current_track = track
+        if track is None:
+            self.clear()
+            return
+
+        title = getattr(track, "track_name", "") or "Unknown Title"
+        self.title_label.setText(title)
+
+        # Artist
+        artist_name = ""
+        try:
+            artist_name = getattr(track, "primary_artist_names", "") or ""
+            if not artist_name:
+                artists = getattr(track, "artists", []) or []
+                if artists:
+                    artist_name = getattr(artists[0], "artist_name", "") or ""
+        except Exception:
+            pass
+        self.artist_label.setText(artist_name)
+        # Hide the row entirely when there's nothing to show
+        self.artist_label.setVisible(bool(artist_name))
+
+        # Album
+        album_name = getattr(track, "album_name", "") or ""
+        self.album_label.setText(album_name)
+        self.album_label.setVisible(bool(album_name))
+
+    def clear(self):
+        self._current_track = None
+        self.title_label.setText("")
+        self.artist_label.setText("")
+        self.album_label.setText("")
+
+    # ── Click handlers ────────────────────────────────────────────────────────
+
+    def _on_artist_clicked(self, event):
+        """Open the ArtistEditor for the current track's primary artist."""
+        if self._current_track is None:
+            return
+        try:
+            # Try to get the first primary artist object
+            artist = None
+            artists = getattr(self._current_track, "artists", []) or []
+            if artists:
+                artist = artists[0]
+            if artist is None:
+                return
+            # Re-fetch to make sure we have a full ORM object
+            artist_obj = self.controller.get.get_entity_object(
+                "Artist", artist_id=artist.artist_id
+            )
+            if artist_obj:
+                dialog = ArtistEditor(self.controller, artist_obj, self)
+                dialog.exec_()
+        except Exception as e:
+            logger.error(f"Error opening ArtistEditor from player dock: {e}")
+
+    def _on_album_clicked(self, event):
+        """Open the AlbumEditor for the current track's album."""
+        if self._current_track is None:
+            return
+        try:
+            album_obj = getattr(self._current_track, "album", None)
+            if album_obj is None:
+                return
+            album = self.controller.get.get_entity_object(
+                "Album", album_id=album_obj.album_id
+            )
+            if album:
+                dialog = AlbumEditor(self.controller, album)
+                dialog.exec_()
+        except Exception as e:
+            logger.error(f"Error opening AlbumEditor from player dock: {e}")
 
 
 class PlayerUI(QWidget):
@@ -70,13 +303,12 @@ class PlayerUI(QWidget):
         self.repeat_labels = ["Repeat: None", "Repeat: One", "Repeat: All"]
         self.repeat_icons = ["repeat_none.svg", "repeat_one.svg", "repeat_all.svg"]
 
-        # Track info label - initially empty
-        self.track_info_label = QLabel("")
-        self.track_info_label.setAlignment(Qt.AlignCenter)
-        self.track_info_label.setMinimumWidth(200)
-        self.track_info_label.setStyleSheet(
-            "QLabel {font-style: italic; font-size: 1.4em; }"
-        )
+        # Track info widget — scrolling title + clickable artist/album
+        self.track_info_widget = _TrackInfoWidget(self.controller, self)
+        self.track_info_widget.setMinimumWidth(200)
+        # Keep a .track_info_label alias so any other code that reads
+        # .track_info_label.text() still works without breaking.
+        self.track_info_label = self.track_info_widget.title_label
 
         # Playback buttons
         self.previous_button = self._create_button(
@@ -140,7 +372,7 @@ class PlayerUI(QWidget):
         # Track info row
         info_row = QHBoxLayout()
         info_row.addStretch()
-        info_row.addWidget(self.track_info_label)
+        info_row.addWidget(self.track_info_widget)
         info_row.addStretch()
 
         # Progress row
@@ -291,9 +523,10 @@ class PlayerUI(QWidget):
                         getattr(track, "user_rating", 0.0) or 0.0
                     )
 
-                    # Format track info based on classical flag
+                    # Update the rich track info widget (title + artist + album)
+                    self.track_info_widget.update_track(track)
+                    # Also keep the plain-text fallback for anything that reads it
                     display_text = self._format_track_display(track)
-                    self.track_info_label.setText(display_text)
                     self.current_track_info = display_text
                 else:
                     self._clear_track_display()
@@ -511,10 +744,7 @@ class PlayerUI(QWidget):
         self.rating_container.hide()
         self.rating_stars.set_current_file(None)
         self.rating_stars.set_rating(0.0)
-        self.track_info_label.setText("")  # Clear the label
-        self.track_info_label.setStyleSheet(
-            "QLabel { color: #666; font-style: italic; }"
-        )
+        self.track_info_widget.clear()
         self.current_track_info = ""
 
     def adjust_dock_size(self):

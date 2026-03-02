@@ -418,9 +418,6 @@ class TrackView(QWidget):
     def _get_artist_name(self, track) -> str:
         """
         Return primary artist name(s) for the track.
-        Uses track.primary_artist_names which walks TrackArtistRole with
-        Role='Primary Artist' — the same data player_dock uses.
-        Falls back to track.artists[0] for backward compatibility.
         """
         # Preferred: proper role-filtered property
         try:
