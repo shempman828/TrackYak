@@ -15,9 +15,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.logger_config import logger
 from src.place_assoc_details import AssociationDetailsDialog
 from src.place_map_filter import MultiSelectWidget
-from src.logger_config import logger
 
 
 class MapView(QWidget):
@@ -245,7 +245,9 @@ class MapView(QWidget):
         """Create complete HTML content for the map with WebChannel support."""
 
         # Load HTML template from file
-        template_path = Path(__file__).parent / "place_map_template.html"
+        template_path = (
+            Path(__file__).parent.parent / "assets" / "place_map_template.html"
+        )
         if template_path.exists():
             try:
                 with open(template_path, "r", encoding="utf-8") as f:
