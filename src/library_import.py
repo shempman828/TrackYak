@@ -44,6 +44,10 @@ class TrackImporter:
             bool: True if successful, False otherwise
         """
         try:
+            # Check first — no point doing any work if this file is already in the library
+            if self._track_exists(file_path):
+                return None  # None = skipped (not an error, not a new import)
+
             logger.info(f"Processing track: {file_path}")
 
             # Extract metadata using metadata_controller
@@ -55,10 +59,6 @@ class TrackImporter:
             logger.debug(f"Metadata keys: {list(metadata.keys())}")
             self._log_metadata_debug(metadata, file_path)
             self._debug_metadata_types(metadata)
-            # Check if track already exists
-            if self._track_exists(file_path):
-                logger.info(f"Track already exists: {file_path}")
-                return True
 
             # Process entities in correct order
             album_extractor = AlbumImporter(self.controller)
@@ -773,17 +773,18 @@ class ImportWorker(QThread):
         return all_files
 
     def _process_single_file(self, file_path: Path, index: int, total: int) -> int:
-        """Process a single file and return 1 if successful, 0 otherwise."""
+        """Process a single file and return 1 if newly imported, 0 otherwise."""
         try:
-            if self.importer.add_track(str(file_path)):
-                self.progress.emit(index + 1, total)
+            result = self.importer.add_track(str(file_path))
+            self.progress.emit(index + 1, total)
 
-                # Clear metadata cache periodically to manage memory
-                if index % self._clear_cache_interval == 0:
-                    self.importer._metadata_cache.clear()
-                    logger.debug("Cleared metadata cache to free memory")
+            # Clear metadata cache periodically to manage memory
+            if index % self._clear_cache_interval == 0:
+                self.importer._metadata_cache.clear()
+                logger.debug("Cleared metadata cache to free memory")
 
-                return 1
+            # True = newly imported, None = skipped (already exists), False = failed
+            return 1 if result is True else 0
         except MemoryError:
             # Clear cache and try to continue
             self.importer._metadata_cache.clear()
