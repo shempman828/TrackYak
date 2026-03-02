@@ -1,106 +1,210 @@
-from PySide6.QtWidgets import (
-    QWidget,
-    QHBoxLayout,
-    QComboBox,
-    QLineEdit,
-    QSpinBox,
-    QDoubleSpinBox,
-    QDateTimeEdit,
-    QPushButton,
-    QApplication,
-    QStyle,
-)
+"""
+playlist_smart_criteria_widget.py
+
+Widget for a single smart playlist criteria row.
+
+Key improvement: instead of maintaining a separate TRACK_MAPPINGS list
+that duplicated (and often disagreed with) TRACK_FIELDS in db_mapping_tracks.py,
+we now import TRACK_FIELDS directly and derive everything from it — display names,
+tooltips, types, min/max ranges. Any future changes to field definitions in
+db_mapping_tracks.py automatically flow through to the smart playlist UI for free.
+"""
+
+from datetime import datetime
+
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QDateTimeEdit,
+    QDoubleSpinBox,
+    QHBoxLayout,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
+    QStyle,
+    QWidget,
+)
 
+from src.db_mapping_tracks import TRACK_FIELDS, TrackField
 
-# Mapping for track object fields [field_name, data_type, display_name]
-TRACK_MAPPINGS = [
-    # --- Core Identification ---
-    ["track_name", "String", "Title"],
-    ["comment", "String", "Comment"],
-    ["lyrics", "String", "Lyrics"],
-    ["track_quality", "String", "Quality"],
-    ["is_fixed", "Integer", "Metadata Complete"],  # 0 or 1
-    # --- File Information ---
-    ["file_size", "Integer", "File Size (bytes)"],
-    ["file_extension", "String", "File Extension"],
-    ["bit_rate", "Integer", "Bit Rate (kbps)"],
-    ["sample_rate", "Integer", "Sample Rate (Hz)"],
-    ["bit_depth", "Integer", "Bit Depth"],
-    ["channels", "Integer", "Channels"],
-    ["duration", "Float", "Duration (seconds)"],
-    # --- Date Information ---
-    ["recorded_year", "Integer", "Recorded Year"],
-    ["recorded_month", "Integer", "Recorded Month"],
-    ["recorded_day", "Integer", "Recorded Day"],
-    ["composed_year", "Integer", "Composed Year"],
-    ["composed_month", "Integer", "Composed Month"],
-    ["composed_day", "Integer", "Composed Day"],
-    ["first_performed_year", "Integer", "First Performed Year"],
-    ["date_added", "Datetime", "Date Added"],
-    ["last_listened_date", "Datetime", "Last Played"],
-    # --- Musical Attributes ---
-    ["bpm", "Integer", "Beats Per Minute"],
-    ["key", "String", "Musical Key"],
-    ["mode", "String", "Musical Mode"],
-    ["is_classical", "Integer", "Is Classical"],  # 0 or 1
-    ["work_type", "String", "Classical Work Type"],
-    ["is_explicit", "Integer", "Explicit"],  # 0 or 1
-    ["is_instrumental", "Integer", "Instrumental"],  # 0 or 1
-    # --- Acoustic Analysis (Spotify-style fields) ---
-    ["danceability", "Float", "Danceability"],  # 0.0–1.0
-    ["energy", "Float", "Energy"],  # 0.0–1.0
-    ["acousticness", "Float", "Acousticness"],  # 0.0–1.0
-    ["liveness", "Float", "Liveness"],  # 0.0–1.0
-    ["valence", "Float", "Valence"],  # 0.0–1.0
-    ["instrumentalness", "Float", "Instrumentalness"],  # 0.0–1.0
-    ["tempo_confidence", "Float", "Tempo Confidence"],
-    ["key_confidence", "Float", "Key Confidence"],
-    # --- User Interaction ---
-    ["user_rating", "Float", "User Rating (0–10)"],
-    ["play_count", "Integer", "Play Count"],
-    ["track_description", "String", "Description"],
-    # --- Property Shortcuts ---
-    ["album_name", "String", "Album Name"],
-    ["genre_names", "List", "Genre Names"],
-    ["artist_names", "List", "Artist Names"],
-    ["mood_name", "String", "Mood Name"],
-    ["place_name", "String", "Place Name"],
+# ---------------------------------------------------------------------------
+# Fields to exclude from smart playlist filtering (internal / not filterable)
+# ---------------------------------------------------------------------------
+_EXCLUDED_FIELDS = {
+    "track_id",
+    "track_file_path",
+    "MBID",
+    "track_barcode",
+    "track_wikipedia_link",
+    "lyrics",  # too long to filter meaningfully
+    "track_gain",  # internal audio normalization value
+    "track_peak",  # internal audio normalization value
+}
+
+# ---------------------------------------------------------------------------
+# Extra "List" fields that are association proxies on the Track model.
+# These aren't in TRACK_FIELDS (they're relationships, not scalar columns)
+# but are very useful for smart playlist filtering.
+# ---------------------------------------------------------------------------
+_LIST_FIELDS = [
+    ("genre_names", "Genre Names", "Filter by genre, e.g.: Rock, Jazz"),
+    ("artist_names", "Artist Names", "Filter by any associated artist name"),
+    ("primary_artist_name", "Primary Artist", "Filter by primary credited artist"),
+    ("place_names", "Place Names", "Filter by associated place"),
+    ("mood_name", "Mood", "Filter by mood"),
 ]
 
-# operator mapping for comparison (kwarg shortcut, text description, symbolic description)
-# controller pattern: self.controller.get.get_all_entities("Track", **kwargs)
-OPERATOR_MAPPINGS = [
-    {"kwarg": "eq", "description": "equals", "symbol": "="},
-    {"kwarg": "not", "description": "does not equal / not in", "symbol": "!="},
-    {"kwarg": "in", "description": "is one of", "symbol": "∈"},
-    {"kwarg": "not_in", "description": "is not one of", "symbol": "∉"},
-    {"kwarg": "contains", "description": "contains substring", "symbol": "∋"},
-    {"kwarg": "startswith", "description": "starts with", "symbol": "^"},
-    {"kwarg": "endswith", "description": "ends with", "symbol": "$"},
-    {"kwarg": "gt", "description": "greater than", "symbol": ">"},
-    {"kwarg": "lt", "description": "less than", "symbol": "<"},
-    {"kwarg": "gte", "description": "greater than or equal", "symbol": "≥"},
-    {"kwarg": "lte", "description": "less than or equal", "symbol": "≤"},
-    {"kwarg": "range", "description": "between (inclusive)", "symbol": "[a,b]"},
-    {"kwarg": "isnull", "description": "is empty (null)", "symbol": "IS NULL"},
-    {
-        "kwarg": "notnull",
-        "description": "has a value (not null)",
-        "symbol": "IS NOT NULL",
-    },
-]
+
+# ---------------------------------------------------------------------------
+# Map a TrackField's Python type → our operator-group key
+# ---------------------------------------------------------------------------
+def _field_to_group(field: TrackField) -> str:
+    t = field.type
+    if t is int:
+        return "Integer"
+    if t is float:
+        return "Float"
+    if t is bool:
+        return "Bool"
+    if t is datetime:
+        return "Datetime"
+    return "String"
+
+
+# ---------------------------------------------------------------------------
+# Build the ordered field list from TRACK_FIELDS + _LIST_FIELDS.
+# Each entry: (field_name, op_group, display_name, tooltip, min, max)
+# ---------------------------------------------------------------------------
+def _build_criteria_fields():
+    entries = []
+
+    category_order = [
+        "Basic",
+        "Properties",
+        "Date",
+        "User",
+        "Advanced",
+        "Classical",
+        "Identification",
+    ]
+    buckets = {cat: [] for cat in category_order}
+    buckets["Other"] = []
+
+    for field_name, field in TRACK_FIELDS.items():
+        if field_name in _EXCLUDED_FIELDS:
+            continue
+        cat = field.category or "Other"
+        buckets.setdefault(cat, []).append((field_name, field))
+
+    for cat in category_order + ["Other"]:
+        for field_name, field in buckets.get(cat, []):
+            entries.append(
+                (
+                    field_name,
+                    _field_to_group(field),
+                    field.friendly or field_name,
+                    field.tooltip or "",
+                    field.min,
+                    field.max,
+                )
+            )
+
+    # Append relationship / list fields
+    for field_name, display, tooltip in _LIST_FIELDS:
+        entries.append((field_name, "List", display, tooltip, None, None))
+
+    return entries
+
+
+CRITERIA_FIELDS = _build_criteria_fields()
+
+# ---------------------------------------------------------------------------
+# Operators available per group — only logically valid operators are shown
+# ---------------------------------------------------------------------------
+OPERATORS_BY_GROUP = {
+    "String": [
+        ("eq", "equals"),
+        ("not", "does not equal"),
+        ("contains", "contains"),
+        ("startswith", "starts with"),
+        ("endswith", "ends with"),
+        ("isnull", "is empty"),
+        ("notnull", "has a value"),
+    ],
+    "Integer": [
+        ("eq", "equals"),
+        ("not", "does not equal"),
+        ("gt", "greater than"),
+        ("lt", "less than"),
+        ("gte", "greater than or equal"),
+        ("lte", "less than or equal"),
+        ("range", "between (inclusive)"),
+        ("isnull", "is empty"),
+        ("notnull", "has a value"),
+    ],
+    "Float": [
+        ("eq", "equals"),
+        ("not", "does not equal"),
+        ("gt", "greater than"),
+        ("lt", "less than"),
+        ("gte", "greater than or equal"),
+        ("lte", "less than or equal"),
+        ("range", "between (inclusive)"),
+        ("isnull", "is empty"),
+        ("notnull", "has a value"),
+    ],
+    "Bool": [
+        ("eq", "is"),
+        ("not", "is not"),
+        ("isnull", "is empty"),
+        ("notnull", "has a value"),
+    ],
+    "Datetime": [
+        ("gt", "after"),
+        ("lt", "before"),
+        ("gte", "on or after"),
+        ("lte", "on or before"),
+        ("eq", "exactly"),
+        ("range", "between (inclusive)"),
+        ("isnull", "is empty"),
+        ("notnull", "has a value"),
+    ],
+    "List": [
+        ("in", "is one of"),
+        ("not_in", "is not one of"),
+        ("contains", "contains"),
+        ("isnull", "is empty"),
+        ("notnull", "has a value"),
+    ],
+}
+
+# Operators that require no value input from the user
+NO_VALUE_OPERATORS = {"isnull", "notnull"}
+
+
+# ---------------------------------------------------------------------------
+# CriteriaWidget
+# ---------------------------------------------------------------------------
 
 
 class CriteriaWidget(QWidget):
-    """Widget for editing a single criteria condition"""
+    """
+    A single criteria row: [Field ▾] [Operator ▾] [Value input] [✕]
+
+    The operator list and value widget update automatically when the field
+    changes, ensuring only valid combinations are ever possible.
+    """
 
     delete_requested = Signal(QWidget)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.field_mapping = {}
-        self.operator_mapping = {}
+        # Lookup: field_name → (op_group, display, tooltip, min, max)
+        self._field_meta = {
+            name: (grp, disp, tip, mn, mx)
+            for name, grp, disp, tip, mn, mx in CRITERIA_FIELDS
+        }
         self.init_ui()
 
     def init_ui(self):
@@ -110,20 +214,18 @@ class CriteriaWidget(QWidget):
 
         # Field selector
         self.field_combo = QComboBox()
-        for mapping in TRACK_MAPPINGS:
-            field_name, data_type, display_name = mapping
-            self.field_combo.addItem(display_name, field_name)
-            self.field_mapping[field_name] = {
-                "type": data_type,
-                "display": display_name,
-            }
-        self.field_combo.currentIndexChanged.connect(self.on_field_changed)
+        for field_name, op_group, display, tooltip, mn, mx in CRITERIA_FIELDS:
+            self.field_combo.addItem(display, field_name)
+            if tooltip:
+                idx = self.field_combo.count() - 1
+                self.field_combo.setItemData(idx, tooltip, Qt.ToolTipRole)
+        self.field_combo.currentIndexChanged.connect(self._on_field_changed)
 
         # Operator selector
         self.operator_combo = QComboBox()
-        self.update_operator_list()
+        self.operator_combo.currentIndexChanged.connect(self._on_operator_changed)
 
-        # Value widget placeholder - will be created based on field type
+        # Value widget (replaced dynamically based on field type)
         self.value_widget = QLineEdit()
         self.value_widget.setPlaceholderText("Enter value...")
 
@@ -141,178 +243,157 @@ class CriteriaWidget(QWidget):
         layout.addWidget(self.value_widget, 3)
         layout.addWidget(delete_btn)
 
-        # Set initial value widget based on first field
-        self.on_field_changed(0)
+        # Populate initial state
+        self._on_field_changed(0)
 
-    def update_operator_list(self):
-        """Update the operator list based on current field type."""
-        current_op = (
-            self.operator_combo.currentData()
-            if self.operator_combo.count() > 0
-            else None
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _current_field_name(self) -> str:
+        return self.field_combo.currentData() or ""
+
+    def _current_meta(self):
+        """Return (op_group, display, tooltip, min, max) for selected field."""
+        return self._field_meta.get(
+            self._current_field_name(), ("String", "", "", None, None)
         )
 
+    def _rebuild_operator_combo(self):
+        """Refill operators to only those valid for the current field's type."""
+        previous_op = self.operator_combo.currentData()
+
+        self.operator_combo.currentIndexChanged.disconnect(self._on_operator_changed)
         self.operator_combo.clear()
 
-        # Get current field type
-        if self.field_combo.count() > 0:
-            field_name = self.field_combo.currentData()
-            field_info = self.field_mapping.get(field_name, {})
-            data_type = field_info.get("type", "String")
+        op_group = self._current_meta()[0]
+        for kwarg, description in OPERATORS_BY_GROUP.get(
+            op_group, OPERATORS_BY_GROUP["String"]
+        ):
+            self.operator_combo.addItem(description, kwarg)
 
-            # Add appropriate operators based on data type
-            for op in OPERATOR_MAPPINGS:
-                op_type = op["kwarg"]
+        # Restore previous operator if it still exists in the new list
+        if previous_op:
+            for i in range(self.operator_combo.count()):
+                if self.operator_combo.itemData(i) == previous_op:
+                    self.operator_combo.setCurrentIndex(i)
+                    break
 
-                # Skip inappropriate operators for certain types
-                if data_type in ["String", "Text"]:
-                    if op_type in ["gt", "lt", "gte", "lte", "range"]:
-                        continue
-                elif data_type in ["Integer", "Float", "Datetime"]:
-                    if op_type in [
-                        "contains",
-                        "startswith",
-                        "endswith",
-                        "in",
-                        "not_in",
-                    ]:
-                        continue
+        self.operator_combo.currentIndexChanged.connect(self._on_operator_changed)
 
-                # For List type, only show list operators
-                elif data_type == "List":
-                    if op_type not in ["in", "not_in", "contains", "isnull", "notnull"]:
-                        continue
+    def _rebuild_value_widget(self):
+        """Replace value widget with one appropriate for the current field's type."""
+        old = self.value_widget
+        self.layout().removeWidget(old)
+        old.setParent(None)
+        old.deleteLater()
 
-                self.operator_combo.addItem(f"{op['description']}", op_type)
-                self.operator_mapping[op_type] = op
+        op_group, _, tooltip, field_min, field_max = self._current_meta()
 
-            # Restore previous operator if still available
-            if current_op and current_op in self.operator_mapping:
-                for i in range(self.operator_combo.count()):
-                    if self.operator_combo.itemData(i) == current_op:
-                        self.operator_combo.setCurrentIndex(i)
-                        break
-
-    def on_field_changed(self, index):
-        """Update value widget based on selected field type."""
-        if index < 0:
-            return
-
-        field_name = self.field_combo.currentData()
-        field_info = self.field_mapping.get(field_name, {})
-        data_type = field_info.get("type", "String")
-
-        # Remove old widget
-        old_widget = self.value_widget
-        if old_widget:
-            old_widget.setParent(None)
-            old_widget.deleteLater()
-
-        # Create appropriate widget based on data type
-        if data_type in ["String", "Text"]:
-            widget = QLineEdit()
-            widget.setPlaceholderText("Enter text...")
-
-        elif data_type == "Integer":
+        if op_group == "Integer":
             widget = QSpinBox()
-            widget.setRange(-999999, 999999)
+            lo = int(field_min) if field_min is not None else -999_999_999
+            hi = int(field_max) if field_max is not None else 999_999_999
+            widget.setRange(lo, hi)
 
-            # Set sensible defaults for specific fields
-            if field_name in ["user_rating"]:
-                widget.setRange(0, 10)
-            elif field_name in ["play_count", "file_size", "bit_rate", "sample_rate"]:
-                widget.setMinimum(0)
-            elif field_name in ["bit_depth", "channels"]:
-                widget.setMinimum(1)
-                widget.setMaximum(32)  # Reasonable max
-
-        elif data_type == "Float":
+        elif op_group == "Float":
             widget = QDoubleSpinBox()
-            widget.setRange(-999999.0, 999999.0)
-            widget.setDecimals(3)
-
-            # Spotify-style fields (0-1 range)
-            if field_name in [
-                "danceability",
-                "energy",
-                "acousticness",
-                "liveness",
-                "valence",
-                "instrumentalness",
-                "tempo_confidence",
-                "key_confidence",
-            ]:
-                widget.setRange(0.0, 1.0)
+            lo = float(field_min) if field_min is not None else -999_999.0
+            hi = float(field_max) if field_max is not None else 999_999.0
+            widget.setRange(lo, hi)
+            # Finer steps for 0–1 range fields (audio analysis); coarser for ratings
+            if hi <= 1.0:
                 widget.setDecimals(4)
                 widget.setSingleStep(0.01)
+            else:
+                widget.setDecimals(1)
+                widget.setSingleStep(0.5)
 
-        elif data_type == "Datetime":
+        elif op_group == "Bool":
+            widget = QComboBox()
+            widget.addItem("Yes", True)
+            widget.addItem("No", False)
+
+        elif op_group == "Datetime":
             widget = QDateTimeEdit()
             widget.setCalendarPopup(True)
             widget.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
 
-        elif data_type == "List":
+        elif op_group == "List":
             widget = QLineEdit()
-            widget.setPlaceholderText("Comma-separated values...")
+            widget.setPlaceholderText("Comma-separated values, e.g.: Rock, Pop")
             widget.setToolTip("Enter values separated by commas")
 
-        else:
-            # Default to QLineEdit for unknown types
+        else:  # String / fallback
             widget = QLineEdit()
+            widget.setPlaceholderText("Enter text...")
+            if tooltip:
+                widget.setToolTip(tooltip)
 
         self.value_widget = widget
+        # Position 2 = after field combo and operator combo, before delete btn
+        self.layout().insertWidget(2, widget, 3)
+        self._on_operator_changed()
 
-        # Add to layout
-        layout = self.layout()
-        layout.insertWidget(2, widget, 3)
+    # ------------------------------------------------------------------
+    # Slots
+    # ------------------------------------------------------------------
 
-        # Update operator list for new field type
-        self.update_operator_list()
+    def _on_field_changed(self, index):
+        if index < 0:
+            return
+        self._rebuild_operator_combo()
+        self._rebuild_value_widget()
 
-    def get_criteria(self):
-        """Get the criteria as a dictionary."""
-        field_name = self.field_combo.currentData()
+    def _on_operator_changed(self, index=None):
+        """Hide value input for operators that don't need a value."""
+        op = self.operator_combo.currentData()
+        self.value_widget.setVisible(op not in NO_VALUE_OPERATORS)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def get_criteria(self) -> dict:
+        """
+        Return this row as a dict, e.g.:
+            {"field": "user_rating", "comparison": "gt", "value": 5.5, "type": "Float"}
+        """
+        field_name = self._current_field_name()
+        op_group = self._current_meta()[0]
         operator = self.operator_combo.currentData()
-        field_info = self.field_mapping.get(field_name, {})
-        data_type = field_info.get("type", "String")
 
-        # Get value based on widget type
-        value = None
-
-        if isinstance(self.value_widget, QLineEdit):
+        if operator in NO_VALUE_OPERATORS:
+            value = None
+        elif isinstance(self.value_widget, QComboBox):
+            value = self.value_widget.currentData()  # Bool: True/False
+        elif isinstance(self.value_widget, QLineEdit):
             text = self.value_widget.text().strip()
-            if data_type == "List":
-                # Parse comma-separated list
-                if text:
-                    value = [v.strip() for v in text.split(",") if v.strip()]
-                else:
-                    value = []
+            if op_group == "List":
+                value = (
+                    [v.strip() for v in text.split(",") if v.strip()] if text else []
+                )
             else:
                 value = text if text else None
-
-        elif isinstance(self.value_widget, QSpinBox):
+        elif isinstance(self.value_widget, (QSpinBox, QDoubleSpinBox)):
             value = self.value_widget.value()
-
-        elif isinstance(self.value_widget, QDoubleSpinBox):
-            value = self.value_widget.value()
-
         elif isinstance(self.value_widget, QDateTimeEdit):
             value = self.value_widget.dateTime().toString(Qt.ISODate)
-
-        # Handle special operators that don't need values
-        if operator in ["isnull", "notnull"]:
+        else:
             value = None
 
         return {
             "field": field_name,
             "comparison": operator,
             "value": value,
-            "type": data_type,
+            "type": op_group,
         }
 
-    def set_criteria(self, criteria_dict):
-        """Set the widget values from a criteria dictionary."""
-        # Set field
+    def set_criteria(self, criteria_dict: dict):
+        """
+        Pre-fill this row from a saved criteria dict (used when editing a playlist).
+        """
+        # Set field first — this triggers operator + value widget rebuild
         field = criteria_dict.get("field")
         if field:
             for i in range(self.field_combo.count()):
@@ -320,8 +401,8 @@ class CriteriaWidget(QWidget):
                     self.field_combo.setCurrentIndex(i)
                     break
 
-        # Set operator
-        operator = criteria_dict.get("operator")
+        # Set operator (key is "comparison" in our saved format)
+        operator = criteria_dict.get("comparison") or criteria_dict.get("operator")
         if operator:
             for i in range(self.operator_combo.count()):
                 if self.operator_combo.itemData(i) == operator:
@@ -330,21 +411,29 @@ class CriteriaWidget(QWidget):
 
         # Set value
         value = criteria_dict.get("value")
-        if value is not None:
-            data_type = criteria_dict.get("type", "String")
+        if value is None:
+            return
 
-            if isinstance(self.value_widget, QLineEdit):
-                if data_type == "List" and isinstance(value, list):
-                    self.value_widget.setText(", ".join(str(v) for v in value))
-                else:
-                    self.value_widget.setText(str(value))
+        op_group = self._current_meta()[0]
 
-            elif isinstance(self.value_widget, (QSpinBox, QDoubleSpinBox)):
-                try:
-                    self.value_widget.setValue(float(value))
-                except (ValueError, TypeError):
-                    pass
-
-            elif isinstance(self.value_widget, QDateTimeEdit):
-                # Would need date parsing here
+        if isinstance(self.value_widget, QComboBox):
+            for i in range(self.value_widget.count()):
+                if str(self.value_widget.itemData(i)) == str(value):
+                    self.value_widget.setCurrentIndex(i)
+                    break
+        elif isinstance(self.value_widget, QLineEdit):
+            if op_group == "List" and isinstance(value, list):
+                self.value_widget.setText(", ".join(str(v) for v in value))
+            else:
+                self.value_widget.setText(str(value))
+        elif isinstance(self.value_widget, (QSpinBox, QDoubleSpinBox)):
+            try:
+                self.value_widget.setValue(float(value))
+            except (ValueError, TypeError):
                 pass
+        elif isinstance(self.value_widget, QDateTimeEdit):
+            from PySide6.QtCore import QDateTime
+
+            dt = QDateTime.fromString(str(value), Qt.ISODate)
+            if dt.isValid():
+                self.value_widget.setDateTime(dt)

@@ -1,7 +1,8 @@
 """
 playlist_smart_builder.py
 
-Builds smart playlists by evaluating criteria and adding matching tracks.
+Builds and refreshes smart playlists by evaluating stored criteria and
+updating which tracks belong in the playlist.
 """
 
 import datetime
@@ -13,219 +14,202 @@ from src.logger_config import logger
 
 
 class SmartPlaylistBuilder:
-    """Builds and updates smart playlists based on criteria."""
+    """Builds and refreshes smart playlists based on stored criteria."""
 
     def __init__(self, controller):
         self.controller = controller
 
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def refresh_playlist(self, playlist_id: int) -> bool:
         """
-        Refresh a smart playlist by evaluating criteria and updating tracks.
+        Re-evaluate a smart playlist's criteria and update its tracks.
 
-        Args:
-            playlist_id: ID of smart playlist to refresh
+        Steps:
+          - Load criteria rows from the database
+          - Find tracks that match
+          - Replace the playlist's track list
 
-        Returns:
-            bool: True if successful, False otherwise
+        Returns True on success, False on any error.
         """
         try:
-            # Get the smart playlist criteria
+            # 1. Get the SmartPlaylist record (for logic = AND / OR)
             smart_playlist = self.controller.get.get_entity_object(
                 "SmartPlaylist", playlist_id=playlist_id
             )
-
             if not smart_playlist:
-                logger.error(f"Smart playlist {playlist_id} not found")
+                logger.error(
+                    f"SmartPlaylist record not found for playlist_id={playlist_id}"
+                )
                 return False
 
-            # Convert criteria string to dictionary
-            criteria_dict = self._string_to_dict(smart_playlist.criteria)
-            if not criteria_dict:
-                logger.warning(f"No valid criteria for playlist {playlist_id}")
-                return False
+            # 2. Load criteria rows for this smart playlist
+            criteria_rows = self.controller.get.get_all_entities(
+                "SmartPlaylistCriteria",
+                smart_playlist_id=smart_playlist.playlist_id,
+            )
 
-            # Get matching track IDs based on criteria
-            matching_track_ids = self._get_matching_track_ids(criteria_dict)
+            if not criteria_rows:
+                logger.warning(
+                    f"Smart playlist {playlist_id} has no criteria — no tracks will be added."
+                )
+                # Still update the playlist (clear it) and timestamp
+                self._update_playlist_tracks(playlist_id, [])
+                self._touch_last_refreshed(playlist_id)
+                return True
 
-            # Update playlist with matching tracks
+            # 3. Convert ORM rows to plain dicts that _get_matching_track_ids understands
+            conditions = [self._row_to_condition(row) for row in criteria_rows]
+
+            # 4. Read AND/OR logic — defaults to AND if not stored
+            logic = getattr(smart_playlist, "logic", "AND") or "AND"
+
+            # 5. Find matching tracks
+            matching_track_ids = self._get_matching_track_ids(conditions, logic.upper())
+
+            # 6. Update the playlist
             success = self._update_playlist_tracks(playlist_id, matching_track_ids)
 
             if success:
-                # Update last_refreshed timestamp
-                self.controller.update.update_entity(
-                    "SmartPlaylist", playlist_id, last_refreshed=datetime.datetime.now()
-                )
+                self._touch_last_refreshed(playlist_id)
                 logger.info(
-                    f"Refreshed smart playlist {playlist_id} with {len(matching_track_ids)} tracks"
+                    f"Refreshed smart playlist {playlist_id} "
+                    f"({logic}) → {len(matching_track_ids)} tracks"
                 )
 
             return success
 
         except Exception as e:
-            logger.error(f"Error refreshing smart playlist {playlist_id}: {str(e)}")
+            logger.error(f"Error refreshing smart playlist {playlist_id}: {e}")
             return False
 
-    def _string_to_dict(self, criteria_string: str) -> Dict[str, Any]:
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _row_to_condition(self, row) -> Dict[str, Any]:
         """
-        Convert criteria string back to dictionary.
-
-        Args:
-            criteria_string: String representation of criteria dictionary
-
-        Returns:
-            Criteria dictionary
+        Convert a SmartPlaylistCriteria ORM row into a plain dict like:
+            {"field": "user_rating", "comparison": "gt", "value": "5.5", "type": "Float"}
         """
-        try:
-            if not criteria_string or criteria_string.strip() == "":
-                return {}
+        return {
+            "field": getattr(row, "field_name", ""),
+            "comparison": getattr(row, "comparison", "eq"),
+            "value": getattr(row, "value", None),
+            "type": getattr(row, "type", "String"),
+        }
 
-            # Use eval to convert string back to dict (from repr())
-            # Note: In production, consider safer alternatives for untrusted input
-            criteria_dict = eval(criteria_string)
-
-            if isinstance(criteria_dict, dict):
-                return criteria_dict
-            else:
-                logger.warning(f"Criteria is not a dictionary: {type(criteria_dict)}")
-                return {}
-
-        except Exception as e:
-            logger.error(f"Error parsing criteria string: {str(e)}")
-            return {}
-
-    def _get_matching_track_ids(self, criteria_dict: Dict[str, Any]) -> List[int]:
+    def _get_matching_track_ids(self, conditions: List[Dict], logic: str) -> List[int]:
         """
-        Get track IDs matching the criteria.
+        Query the Track table using the given conditions.
 
-        Args:
-            criteria_dict: Criteria dictionary with logic and conditions
-
-        Returns:
-            List of matching track IDs
+        AND logic: one query with all conditions combined (faster).
+        OR logic:  one query per condition, results merged.
         """
-        logic = criteria_dict.get("logic", "AND").upper()
-        conditions = criteria_dict.get("conditions", [])
-
         if not conditions:
-            # If no conditions, get all tracks
-            all_tracks = self.controller.get.get_all_entities("Track")
-            return [track.track_id for track in all_tracks]
+            return []
 
         if logic == "AND":
-            # Build combined kwargs for AND logic
             combined_kwargs = {}
             for condition in conditions:
                 kwargs = self._condition_to_kwargs(condition)
                 combined_kwargs.update(kwargs)
 
-            # Query with all conditions combined
-            matching_tracks = self.controller.get.get_all_entities(
-                "Track", **combined_kwargs
-            )
-            return [track.track_id for track in matching_tracks]
+            tracks = self.controller.get.get_all_entities("Track", **combined_kwargs)
+            return [t.track_id for t in tracks]
 
-        else:  # OR logic
-            track_ids_set: Set[int] = set()
-
-            # Query each condition separately and combine results
+        else:  # OR
+            seen: Set[int] = set()
             for condition in conditions:
                 kwargs = self._condition_to_kwargs(condition)
-                matching_tracks = self.controller.get.get_all_entities(
-                    "Track", **kwargs
-                )
-                track_ids_set.update(track.track_id for track in matching_tracks)
-
-            return list(track_ids_set)
+                tracks = self.controller.get.get_all_entities("Track", **kwargs)
+                seen.update(t.track_id for t in tracks)
+            return list(seen)
 
     def _condition_to_kwargs(self, condition: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Convert a single condition to controller kwargs format.
+        Turn one condition dict into a **kwargs dict for get_all_entities.
 
-        Args:
-            condition: Dictionary with field, comparison, value, type
-
-        Returns:
-            kwargs for controller.get_all_entities()
+        Example:
+            {"field": "user_rating", "comparison": "gt", "value": "5.5"}
+            → {"user_rating__gt": 5.5}
         """
-        field = condition.get("field")
-        comparison = condition.get("comparison")
+        field = condition.get("field", "")
+        comparison = condition.get("comparison", "eq")
         value = condition.get("value")
+        data_type = condition.get("type", "String")
 
-        if not field or comparison is None:
+        if not field or not comparison:
             return {}
 
-        # Map comparison to controller operator
-        # Note: Check if any mapping needed based on OPERATOR_MAPPINGS
-        operator_map = {
-            "eq": "eq",
-            "not": "not",
-            "in": "in",
-            "not_in": "not_in",
-            "contains": "contains",
-            "startswith": "startswith",
-            "endswith": "endswith",
-            "gt": "gt",
-            "lt": "lt",
-            "gte": "gte",
-            "lte": "lte",
-            "range": "range",
-            "isnull": "isnull",
-            "notnull": "notnull",
-        }
+        # Cast the stored string value to the correct Python type
+        cast_value = self._cast_value(value, data_type, comparison)
 
-        controller_op = operator_map.get(comparison)
-        if not controller_op:
-            logger.warning(f"Unknown comparison operator: {comparison}")
+        # Operators that use a boolean flag instead of a real value
+        if comparison == "isnull":
+            return {f"{field}__isnull": True}
+        if comparison == "notnull":
+            return {f"{field}__isnull": False}
+
+        if cast_value is None:
+            # Don't add a condition with a None value (would match everything)
+            logger.warning(f"Skipping condition with None value: {condition}")
             return {}
 
-        # Build kwargs key in format: field__operator
-        kwargs_key = f"{field}__{controller_op}"
+        return {f"{field}__{comparison}": cast_value}
 
-        # Handle special cases for null operators
-        if controller_op in ["isnull", "notnull"]:
-            # These operators use boolean values in the controller
-            value = True if controller_op == "isnull" else False
+    def _cast_value(self, value: Any, data_type: str, comparison: str) -> Any:
+        """
+        Cast the stored string value to the appropriate Python type.
 
-        return {kwargs_key: value}
+        Values are stored as strings in the database, so we need to convert
+        them back before querying (e.g. "5.5" → 5.5 for a Float field).
+        """
+        if value is None:
+            return None
+
+        try:
+            if data_type == "Integer":
+                return int(float(str(value)))  # handles "5.0" → 5
+            elif data_type == "Float":
+                return float(value)
+            elif data_type == "List":
+                # Could be a Python list already, or a comma-separated string
+                if isinstance(value, list):
+                    return value
+                return [v.strip() for v in str(value).split(",") if v.strip()]
+            else:
+                # String, Text, Datetime — keep as string
+                return str(value) if value != "" else None
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Could not cast value '{value}' as {data_type}: {e}")
+            return None
 
     def _update_playlist_tracks(self, playlist_id: int, track_ids: List[int]) -> bool:
         """
-        Update playlist with new track list, preserving existing date_added when possible.
+        Replace all tracks in the playlist with the given track_ids.
 
-        Args:
-            playlist_id: Playlist ID
-            track_ids: List of track IDs to add
-
-        Returns:
-            bool: True if successful
+        Preserves the original date_added for tracks that were already
+        in the playlist — only new tracks get today's date.
         """
         try:
-            # Get existing playlist tracks to preserve date_added
+            # Load existing tracks so we can preserve date_added
             existing_tracks = self.controller.get.get_all_entities(
                 "PlaylistTracks", playlist_id__eq=playlist_id
             )
+            existing_date_map = {pt.track_id: pt.date_added for pt in existing_tracks}
 
-            # Create map of existing track_id -> PlaylistTracks object
-            existing_map = {pt.track_id: pt for pt in existing_tracks}
-
-            # Clear all existing tracks from playlist
+            # Delete all current tracks
             self.controller.delete.delete_entity_by_filter(
                 "PlaylistTracks", playlist_id__eq=playlist_id
             )
 
-            # Add tracks back with proper positions
+            # Re-add in new order
+            now = datetime.datetime.now()
             for position, track_id in enumerate(track_ids, start=1):
-                # Check if this track was previously in playlist
-                existing_pt = existing_map.get(track_id)
-
-                if existing_pt:
-                    # Preserve original date_added
-                    date_added = existing_pt.date_added
-                else:
-                    # Use current datetime
-                    date_added = datetime.datetime.now()
-
-                # Add track to playlist
+                date_added = existing_date_map.get(track_id, now)
                 self.controller.add.add_entity(
                     "PlaylistTracks",
                     playlist_id=playlist_id,
@@ -234,9 +218,9 @@ class SmartPlaylistBuilder:
                     date_added=date_added,
                 )
 
-            # Update playlist's last_modified timestamp
+            # Bump last_modified on the Playlist itself
             self.controller.update.update_entity(
-                "Playlist", playlist_id, last_modified=datetime.datetime.now()
+                "Playlist", playlist_id, last_modified=now
             )
 
             return True
@@ -245,5 +229,16 @@ class SmartPlaylistBuilder:
             logger.error(f"Database error updating playlist tracks: {e}")
             return False
         except Exception as e:
-            logger.error(f"Error updating playlist tracks: {str(e)}")
+            logger.error(f"Error updating playlist tracks: {e}")
             return False
+
+    def _touch_last_refreshed(self, playlist_id: int):
+        """Update the last_refreshed timestamp on the SmartPlaylist record."""
+        try:
+            self.controller.update.update_entity(
+                "SmartPlaylist", playlist_id, last_refreshed=datetime.datetime.now()
+            )
+        except Exception as e:
+            logger.warning(
+                f"Could not update last_refreshed for playlist {playlist_id}: {e}"
+            )

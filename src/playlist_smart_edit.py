@@ -6,16 +6,16 @@ Lets the user enter a name, description, AND/OR logic, and one or more criteria 
 """
 
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
-    QFormLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QScrollArea,
-    QTextEdit,
     QVBoxLayout,
+    QFormLayout,
+    QLineEdit,
+    QTextEdit,
+    QPushButton,
+    QLabel,
+    QHBoxLayout,
+    QComboBox,
+    QScrollArea,
     QWidget,
 )
 

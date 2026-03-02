@@ -26,6 +26,7 @@ from src.playlist_edit import EditPlaylist
 from src.playlist_export import PlaylistExporter
 from src.playlist_new import PlaylistCreateDialog
 from src.playlist_smart_builder import SmartPlaylistBuilder
+from src.playlist_smart_edit import SmartPlaylistEditDialog
 from src.playlist_smart_new import SmartPlaylistCreateDialog
 from src.playlist_tracks_window import PlaylistTracksWindow
 
@@ -165,32 +166,38 @@ class PlaylistView(QWidget):
 
         item_type, item_id = item_data
 
-        # Properly check for smart playlist flag
+        # Check whether this is a smart playlist
         is_smart_playlist = False
         smart_flag = item.data(0, Qt.UserRole + 1)
         if smart_flag is not None:
             try:
                 is_smart_playlist = bool(smart_flag)
-            except:  # noqa: E722
+            except Exception:
                 is_smart_playlist = False
 
         menu = QMenu()
 
         if item_type == "playlist":
-            menu.addAction("Edit Playlist Metadata", self.edit_playlist)
-
-            # Only allow track editing for non-smart playlists
-            if not is_smart_playlist:
+            if is_smart_playlist:
+                # Smart playlist options
                 menu.addAction(
-                    "Open Track Editor", lambda: self.open_playlist_editor(item_id)
+                    "✏️ Edit Smart Playlist",
+                    lambda: self.edit_smart_playlist(item_id),
+                )
+                menu.addAction(
+                    "🔄 Refresh Playlist",
+                    lambda: self._refresh_smart_playlist(item_id),
+                )
+                menu.addAction(
+                    "👁 View Tracks",
+                    lambda: self.open_playlist_editor(item_id),
                 )
             else:
-                # For smart playlists, show view-only option
+                # Normal playlist options
+                menu.addAction("Edit Playlist Metadata", self.edit_playlist)
                 menu.addAction(
-                    "View Tracks", lambda: self.open_playlist_editor(item_id)
-                )
-                menu.addAction(
-                    "Refresh Playlist", lambda: self.builder.refresh_playlist(item_id)
+                    "Open Track Editor",
+                    lambda: self.open_playlist_editor(item_id),
                 )
 
             menu.addSeparator()
@@ -267,10 +274,11 @@ class PlaylistView(QWidget):
                 QMessageBox.critical(self, "Error", f"Could not create playlist: {e}")
 
     def create_smart_playlist(self):
-        """Open dialog for creating smart playlist"""
+        """Open dialog for creating a smart playlist."""
         dialog = SmartPlaylistCreateDialog(self)
         if dialog.exec_() == QDialog.Accepted:
-            name, description, criteria = dialog.get_data()
+            # NOTE: get_data() now returns 4 values — logic is new
+            name, description, logic, criteria = dialog.get_data()
 
             if not name:
                 QMessageBox.warning(
@@ -279,7 +287,7 @@ class PlaylistView(QWidget):
                 return
 
             try:
-                # Add to database using your controller's create method
+                # Create the Playlist record
                 playlist = self.controller.add.add_entity(
                     "Playlist",
                     playlist_name=name,
@@ -287,14 +295,15 @@ class PlaylistView(QWidget):
                     is_smart=1,
                 )
 
-                # Create smart playlist record first
+                # Create the SmartPlaylist record (stores logic = AND/OR)
                 smart_playlist = self.controller.add.add_entity(
                     "SmartPlaylist",
                     playlist_id=playlist.playlist_id,
+                    logic=logic,
                     last_refreshed=datetime.datetime.now(),
                 )
 
-                # Add each criterion separately
+                # Add each criterion as a separate SmartPlaylistCriteria row
                 if criteria:
                     for criterion in criteria:
                         self.controller.add.add_entity(
@@ -305,6 +314,9 @@ class PlaylistView(QWidget):
                             value=criterion.get("value", ""),
                             type=criterion.get("type", "String"),
                         )
+
+                # Immediately populate the playlist with matching tracks
+                self.builder.refresh_playlist(playlist.playlist_id)
 
                 # Refresh the UI
                 self.load_playlists()
@@ -408,3 +420,48 @@ class PlaylistView(QWidget):
         if dialog.exec_():
             self.load_playlists()
             self.playlist_updated.emit()
+
+    def edit_smart_playlist(self, playlist_id: int):
+        """Open the edit dialog for a smart playlist, then refresh it."""
+        dialog = SmartPlaylistEditDialog(self.controller, playlist_id, self)
+        if dialog.exec_() == QDialog.Accepted:
+            # Dialog saved changes — now re-evaluate which tracks match
+            success = self.builder.refresh_playlist(playlist_id)
+            if success:
+                self.load_playlists()
+                self.playlist_updated.emit()
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Refresh Failed",
+                    "Criteria were saved, but the track list could not be updated. "
+                    "Try right-clicking the playlist and choosing Refresh.",
+                )
+
+    def _refresh_smart_playlist(self, playlist_id: int):
+        """Refresh a smart playlist and show the user a result message."""
+        success = self.builder.refresh_playlist(playlist_id)
+        if success:
+            self.load_playlists()
+            self.playlist_updated.emit()
+            # Brief status message — find the track count to show
+            try:
+                tracks = self.controller.get.get_all_entities(
+                    "PlaylistTracks", playlist_id__eq=playlist_id
+                )
+                count = len(tracks) if tracks else 0
+                QMessageBox.information(
+                    self,
+                    "Playlist Refreshed",
+                    f"Done! The playlist now contains {count} matching track(s).",
+                )
+            except Exception:
+                QMessageBox.information(
+                    self, "Playlist Refreshed", "Playlist updated successfully."
+                )
+        else:
+            QMessageBox.warning(
+                self,
+                "Refresh Failed",
+                "Could not refresh the playlist. Check the log for details.",
+            )
