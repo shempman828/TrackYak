@@ -1,24 +1,34 @@
 """
 NowPlayingView module — Cinematic redesign.
 
-Layout is always two columns (art | metadata+lyrics). The lyrics panel is
-always present in the layout so the proportions never shift — it simply
-shows nothing when a track has no lyrics.
+Layout is always two columns (art | metadata+content). The content panel
+toggles between LYRICS and CREDITS via tab buttons above it.
 
 Lyrics modes:
-  - No lyrics        → lyrics area is blank; header/divider hidden
+  - No lyrics        → placeholder message shown
   - Plain text       → full scrollable text, no timestamps shown to user
   - Synced (LRC)     → karaoke style: only the CURRENT line is shown,
                        centred, large, fading in on each change.
                        Timestamps are never visible to the user.
+
+Credits mode:
+  - Stacked cards, one per artist/role pair (excludes Primary Artist)
+  - Auto-scrolls vertically like movie credits when content overflows
 """
 
 import re
+import time
 import traceback
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, Qt
+from PySide6.QtCore import (
+    Property,
+    QEasingCurve,
+    QPropertyAnimation,
+    Qt,
+    QTimer,
+)
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -33,9 +43,11 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QSlider,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -51,14 +63,6 @@ _TS_RE = re.compile(r"^\[(\d{1,2}):(\d{2})(?:[.,](\d+))?\](.*)$")
 
 
 def _parse_lyrics(raw: str) -> Tuple[bool, List[Tuple[int, str]]]:
-    """
-    Parse raw lyrics string.
-
-    Returns (is_synced, lines) where lines = [(start_ms, text), ...].
-      is_synced=True  → LRC timestamps detected; lines sorted by time
-      is_synced=False → plain text; every line gets timestamp 0
-      Empty string    → (False, [])
-    """
     if not raw or not raw.strip():
         return False, []
 
@@ -85,7 +89,6 @@ def _parse_lyrics(raw: str) -> Tuple[bool, List[Tuple[int, str]]]:
 
 
 def _active_index(lines: List[Tuple[int, str]], position_ms: int) -> int:
-    """Index of the line current at position_ms."""
     idx = 0
     for i, (ts, _) in enumerate(lines):
         if ts <= position_ms:
@@ -101,8 +104,6 @@ def _active_index(lines: List[Tuple[int, str]], position_ms: int) -> int:
 
 
 class _BlurredBackdrop(QWidget):
-    """Full-bleed blurred album-art backdrop, opacity-animated on track change."""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self._pixmap: Optional[QPixmap] = None
@@ -143,8 +144,6 @@ class _BlurredBackdrop(QWidget):
 
 
 class _ArtCard(QWidget):
-    """Rounded album-art card with soft drop shadow."""
-
     RADIUS = 18
 
     def __init__(self, parent=None):
@@ -244,9 +243,319 @@ class _Chip(QFrame):
         self.setVisible(condition)
 
 
-class _FadedScrollArea(QScrollArea):
-    """Scroll area with top/bottom fade gradients."""
+class _ScrollingChipRow(QWidget):
+    """
+    Horizontal chip strip that auto-scrolls left→right→left when chips
+    overflow the available width. No scrollbar shown — ticks silently.
+    """
 
+    _SPEED_PX = 1
+    _TICK_MS = 28
+    _PAUSE_MS = 2200
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("background: transparent;")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setFixedHeight(34)
+
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self._area = QScrollArea()
+        self._area.setFrameShape(QFrame.NoFrame)
+        self._area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._area.setStyleSheet("background: transparent; border: none;")
+        self._area.setFixedHeight(34)
+
+        self._inner = QWidget()
+        self._inner.setStyleSheet("background: transparent;")
+        self._row = QHBoxLayout(self._inner)
+        self._row.setContentsMargins(0, 0, 0, 0)
+        self._row.setSpacing(8)
+        self._row.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self._area.setWidget(self._inner)
+
+        outer.addWidget(self._area)
+
+        self._chips: List[_Chip] = []
+        self._offset = 0
+        self._direction = 1
+        self._paused = True
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(self._TICK_MS)
+        self._timer.timeout.connect(self._tick)
+
+    def set_chips(self, chips: List[_Chip]):
+        for ch in self._chips:
+            self._row.removeWidget(ch)
+            ch.setParent(None)
+        self._chips = []
+
+        for ch in chips:
+            self._row.addWidget(ch)
+            self._chips.append(ch)
+
+        self._row.addStretch()
+        self._inner.adjustSize()
+
+        self._offset = 0
+        self._direction = 1
+        self._paused = True
+        self._area.horizontalScrollBar().setValue(0)
+        self._timer.stop()
+
+        QTimer.singleShot(self._PAUSE_MS, self._maybe_start)
+
+    def _maybe_start(self):
+        if self._area.horizontalScrollBar().maximum() > 0:
+            self._paused = False
+            self._timer.start()
+
+    def _tick(self):
+        if self._paused:
+            return
+        sb = self._area.horizontalScrollBar()
+        max_val = sb.maximum()
+        if max_val <= 0:
+            self._timer.stop()
+            return
+
+        self._offset = max(
+            0, min(self._offset + self._direction * self._SPEED_PX, max_val)
+        )
+        sb.setValue(self._offset)
+
+        if self._offset >= max_val or self._offset <= 0:
+            self._paused = True
+            QTimer.singleShot(self._PAUSE_MS, self._flip)
+
+    def _flip(self):
+        self._direction *= -1
+        self._paused = False
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Credits panel
+# ──────────────────────────────────────────────────────────────────────────────
+
+_ROLE_PALETTE = {
+    "composer": "#e8a87c",
+    "lyricist": "#a8e0b0",
+    "original lyricist": "#a8e0b0",
+    "conductor": "#c8a0e8",
+    "arranger": "#80c8e8",
+    "producer": "#e8c880",
+    "engineer": "#80e8c8",
+    "mixer": "#e880a8",
+    "mastering engineer": "#a0b8e8",
+    "album artist": "#8599ea",
+    "original performer": "#e8a87c",
+    "featured artist": "#f0c0d0",
+    "piano": "#c8d8f8",
+    "guitar": "#f8d0a0",
+    "bass": "#d0f0c8",
+    "drums": "#f8c8c8",
+    "vocals": "#f8e8c0",
+    "saxophone": "#c8e8f8",
+    "trumpet": "#f8e0a8",
+    "violin": "#e8c8f0",
+}
+_ROLE_DEFAULT = "#8599ea"
+
+
+class _CreditCard(QFrame):
+    """
+    One card per artist/role pair. Left-coloured border, role label right-aligned,
+    artist name large on the right.
+    """
+
+    def __init__(self, role_name: str, artist_name: str, parent=None):
+        super().__init__(parent)
+        self.setObjectName("CreditCard")
+
+        colour = _ROLE_PALETTE.get(role_name.lower(), _ROLE_DEFAULT)
+
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(f"""
+            QFrame#CreditCard {{
+                background: rgba(133, 153, 234, 0.07);
+                border: 1px solid rgba(133, 153, 234, 0.16);
+                border-left: 3px solid {colour};
+                border-radius: 8px;
+            }}
+        """)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(14, 10, 16, 10)
+        lay.setSpacing(12)
+
+        role_lbl = QLabel(role_name.upper())
+        role_lbl.setFont(QFont("Cambria", 8, QFont.Bold))
+        role_lbl.setStyleSheet(
+            f"color: {colour}; letter-spacing: 1.8px;"
+            " background: transparent; border: none;"
+        )
+        role_lbl.setFixedWidth(148)
+        role_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        sep = QLabel("·")
+        sep.setStyleSheet(
+            "color: rgba(133,153,234,0.28); font-size: 16px;"
+            " background: transparent; border: none;"
+        )
+        sep.setAlignment(Qt.AlignCenter)
+        sep.setFixedWidth(18)
+
+        artist_lbl = QLabel(artist_name)
+        artist_lbl.setFont(QFont("Georgia", 15))
+        artist_lbl.setStyleSheet(
+            "color: rgba(230, 235, 255, 0.92); background: transparent; border: none;"
+        )
+        artist_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+        lay.addWidget(role_lbl)
+        lay.addWidget(sep)
+        lay.addWidget(artist_lbl)
+
+
+class _CreditsPanel(QWidget):
+    """
+    Scrollable stack of _CreditCard widgets. Auto-scrolls like movie credits
+    when content overflows, reverses, loops.
+    """
+
+    _SPEED = 0.55
+    _TICK_MS = 40
+    _PAUSE_MS = 2800
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("background: transparent;")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        self._area = QScrollArea()
+        self._area.setFrameShape(QFrame.NoFrame)
+        self._area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._area.setStyleSheet("background: transparent; border: none;")
+        self._area.setWidgetResizable(True)
+
+        self._container = QWidget()
+        self._container.setStyleSheet("background: transparent;")
+        self._cards_layout = QVBoxLayout(self._container)
+        self._cards_layout.setContentsMargins(0, 8, 0, 48)
+        self._cards_layout.setSpacing(6)
+        self._cards_layout.setAlignment(Qt.AlignTop)
+        self._area.setWidget(self._container)
+
+        root.addWidget(self._area)
+
+        self._pos: float = 0.0
+        self._direction = 1
+        self._paused = True
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(self._TICK_MS)
+        self._timer.timeout.connect(self._tick)
+
+    def stop(self):
+        self._timer.stop()
+
+    def load_credits(self, track):
+        self._timer.stop()
+        self._pos = 0.0
+        self._direction = 1
+        self._paused = True
+        self._area.verticalScrollBar().setValue(0)
+
+        while self._cards_layout.count():
+            item = self._cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not track:
+            self._show_placeholder("No track loaded")
+            return
+
+        rows: List[Tuple[str, str]] = []
+        try:
+            for ar in getattr(track, "artist_roles", None) or []:
+                role = getattr(ar, "role", None)
+                artist = getattr(ar, "artist", None)
+                if not role or not artist:
+                    continue
+                rname = (getattr(role, "role_name", "") or "").strip()
+                aname = (getattr(artist, "artist_name", "") or "").strip()
+                if rname.lower() == "primary artist" or not rname or not aname:
+                    continue
+                rows.append((rname, aname))
+        except Exception as exc:
+            logger.warning(f"_CreditsPanel.load_credits: {exc}")
+
+        if not rows:
+            self._show_placeholder("No credits available")
+            return
+
+        rows.sort(key=lambda r: (r[0].lower(), r[1].lower()))
+
+        for rname, aname in rows:
+            self._cards_layout.addWidget(_CreditCard(rname, aname))
+
+        self._cards_layout.addStretch()
+        QTimer.singleShot(self._PAUSE_MS, self._maybe_start)
+
+    def _show_placeholder(self, msg: str):
+        lbl = QLabel(msg)
+        lbl.setAlignment(Qt.AlignCenter)
+        lbl.setStyleSheet(
+            "color: rgba(133,153,234,0.28); font-size: 14px; font-style: italic;"
+            " background: transparent; border: none;"
+        )
+        self._cards_layout.addStretch()
+        self._cards_layout.addWidget(lbl)
+        self._cards_layout.addStretch()
+
+    def _maybe_start(self):
+        if self._area.verticalScrollBar().maximum() > 0:
+            self._paused = False
+            self._timer.start()
+
+    def _tick(self):
+        if self._paused:
+            return
+        sb = self._area.verticalScrollBar()
+        top = sb.maximum()
+        if top <= 0:
+            self._timer.stop()
+            return
+
+        self._pos = max(0.0, min(self._pos + self._direction * self._SPEED, float(top)))
+        sb.setValue(int(self._pos))
+
+        if self._pos >= top or self._pos <= 0.0:
+            self._paused = True
+            QTimer.singleShot(self._PAUSE_MS, self._flip)
+
+    def _flip(self):
+        self._direction *= -1
+        self._paused = False
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Faded scroll area (plain lyrics)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class _FadedScrollArea(QScrollArea):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWidgetResizable(True)
@@ -275,16 +584,11 @@ class _FadedScrollArea(QScrollArea):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  Karaoke line — single centred label with fade-in on text change
+#  Karaoke line
 # ──────────────────────────────────────────────────────────────────────────────
 
 
 class _KaraokeLine(QLabel):
-    """
-    Displays one lyric line at a time, centred in its space.
-    Every time the line changes it fades in from transparent.
-    """
-
     _FONT = QFont("Georgia", 20, QFont.Normal)
 
     def __init__(self, parent=None):
@@ -313,7 +617,6 @@ class _KaraokeLine(QLabel):
     lineOpacity = Property(float, _get_opacity, _set_opacity)
 
     def show_line(self, text: str):
-        """Swap text and animate opacity 0 → 1."""
         self.setText(text)
         if self._anim:
             self._anim.stop()
@@ -333,6 +636,43 @@ class _KaraokeLine(QLabel):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+#  Tab button styles
+# ──────────────────────────────────────────────────────────────────────────────
+
+_TAB_ACTIVE = """
+    QPushButton {
+        background: rgba(133, 153, 234, 0.20);
+        border: 1px solid rgba(133, 153, 234, 0.55);
+        border-bottom: none;
+        border-radius: 0px;
+        color: rgba(230, 235, 255, 0.92);
+        font-size: 10px;
+        font-weight: bold;
+        letter-spacing: 2px;
+        padding: 5px 22px;
+    }
+"""
+
+_TAB_INACTIVE = """
+    QPushButton {
+        background: transparent;
+        border: 1px solid rgba(133, 153, 234, 0.14);
+        border-bottom: none;
+        border-radius: 0px;
+        color: rgba(133, 153, 234, 0.42);
+        font-size: 10px;
+        font-weight: bold;
+        letter-spacing: 2px;
+        padding: 5px 22px;
+    }
+    QPushButton:hover {
+        background: rgba(133, 153, 234, 0.09);
+        color: rgba(200, 208, 244, 0.70);
+    }
+"""
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 #  Main view
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -345,6 +685,9 @@ class NowPlayingView(QWidget):
     _ALBUM_FONT = QFont("Cambria", 13, QFont.Normal)
     _PLAIN_FONT = QFont("Cambria", 12, QFont.Normal)
 
+    _PAGE_LYRICS = 0
+    _PAGE_CREDITS = 1
+
     def __init__(self, controller, track=None):
         super().__init__()
         self.controller = controller
@@ -353,22 +696,20 @@ class NowPlayingView(QWidget):
         self._current_pixmap: Optional[QPixmap] = None
         self._fade_anim: Optional[QPropertyAnimation] = None
 
-        # Lyrics state
         self._is_synced = False
         self._lyrics_lines: List[Tuple[int, str]] = []
         self._active_idx = -1
         self._last_position_ms = -1
-        self._sync_offset_ms = -500  # default: shift display 500ms early
+        self._sync_offset_ms = -500
 
         self._initUI()
 
-        # Connect directly — no changes needed in main_window.py
         try:
             self.controller.mediaplayer.position_changed.connect(
                 self._on_position_changed
             )
-        except Exception as e:
-            logger.warning(f"NowPlayingView: could not connect position_changed: {e}")
+        except Exception as exc:
+            logger.warning(f"NowPlayingView: could not connect position_changed: {exc}")
 
         if self.track:
             self.updateUI(self.track)
@@ -401,7 +742,7 @@ class NowPlayingView(QWidget):
         self._art_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         left_layout.addWidget(self._art_card)
 
-        # ── RIGHT — metadata + lyrics ────────────────────────────────────
+        # ── RIGHT — metadata + content panel ────────────────────────────
         right_widget = QWidget()
         right_widget.setStyleSheet("background: transparent;")
         right_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -428,7 +769,7 @@ class NowPlayingView(QWidget):
         right_layout.addWidget(self._artist_lbl)
         right_layout.addSpacing(4)
 
-        # Album
+        # Album  (release year appended at runtime)
         self._album_lbl = QLabel("—")
         self._album_lbl.setFont(self._ALBUM_FONT)
         self._album_lbl.setStyleSheet(
@@ -436,68 +777,73 @@ class NowPlayingView(QWidget):
         )
         self._album_lbl.setWordWrap(True)
         right_layout.addWidget(self._album_lbl)
-        right_layout.addSpacing(20)
+        right_layout.addSpacing(16)
 
-        # Chips row
-        chip_widget = QWidget()
-        chip_widget.setStyleSheet("background: transparent;")
-        chip_row = QHBoxLayout(chip_widget)
-        chip_row.setContentsMargins(0, 0, 0, 0)
-        chip_row.setSpacing(8)
-        chip_row.setAlignment(Qt.AlignLeft)
+        # Chip objects (created here, populated in _update_chips)
         self._chip_duration = _Chip("⏱", "—")
+        self._chip_track_no = _Chip("#", "—")
         self._chip_bpm = _Chip("♩", "—")
         self._chip_key = _Chip("𝄞", "—")
+        self._chip_timesig = _Chip("𝄴", "—")
         self._chip_bitrate = _Chip("≋", "—")
-        self._chip_track_no = _Chip("#", "—")
-        for chip in (
-            self._chip_duration,
-            self._chip_bpm,
-            self._chip_key,
-            self._chip_bitrate,
-            self._chip_track_no,
-        ):
-            chip_row.addWidget(chip)
-        chip_row.addStretch()
-        right_layout.addWidget(chip_widget)
-        right_layout.addSpacing(20)
+        self._chip_sample = _Chip("Hz", "—")
+        self._chip_depth = _Chip("bit", "—")
+        self._chip_rec_year = _Chip("📅", "—")
+        self._chip_plays = _Chip("▶", "—")
+        self._chip_rating = _Chip("★", "—")
+        self._chip_genres = _Chip("🎵", "—")
 
-        # ── Lyrics header (hidden when no lyrics) ────────────────────────
-        lyrics_hdr_row = QHBoxLayout()
-        lyrics_hdr_row.setContentsMargins(0, 0, 0, 4)
-        self._lyrics_hdr = QLabel("LYRICS")
-        self._lyrics_hdr.setFont(QFont("Cambria", 10, QFont.Bold))
-        self._lyrics_hdr.setStyleSheet(
-            "color: rgba(133,153,234,0.55); letter-spacing: 2px;"
-            " background: transparent; border: none;"
-        )
-        self._lyrics_hdr.setVisible(False)
-        lyrics_hdr_row.addWidget(self._lyrics_hdr)
-        lyrics_hdr_row.addStretch()
-        right_layout.addLayout(lyrics_hdr_row)
+        self._chip_row = _ScrollingChipRow()
+        right_layout.addWidget(self._chip_row)
+        right_layout.addSpacing(14)
 
-        self._lyrics_divider = QFrame()
-        self._lyrics_divider.setFrameShape(QFrame.HLine)
-        self._lyrics_divider.setStyleSheet(
-            "border: none; border-top: 1px solid rgba(133,153,234,0.18);"
+        # ── Tab bar ───────────────────────────────────────────────────────
+        tab_bar = QHBoxLayout()
+        tab_bar.setContentsMargins(0, 0, 0, 0)
+        tab_bar.setSpacing(0)
+
+        self._tab_lyrics = QPushButton("LYRICS")
+        self._tab_credits = QPushButton("CREDITS")
+        for btn in (self._tab_lyrics, self._tab_credits):
+            btn.setFixedHeight(28)
+            btn.setCursor(Qt.PointingHandCursor)
+
+        self._tab_lyrics.setStyleSheet(_TAB_ACTIVE)
+        self._tab_credits.setStyleSheet(_TAB_INACTIVE)
+
+        self._tab_lyrics.clicked.connect(lambda: self._switch_tab(self._PAGE_LYRICS))
+        self._tab_credits.clicked.connect(lambda: self._switch_tab(self._PAGE_CREDITS))
+
+        tab_bar.addWidget(self._tab_lyrics)
+        tab_bar.addWidget(self._tab_credits)
+        tab_bar.addStretch()
+        right_layout.addLayout(tab_bar)
+
+        tab_rule = QFrame()
+        tab_rule.setFrameShape(QFrame.HLine)
+        tab_rule.setStyleSheet(
+            "border: none; border-top: 1px solid rgba(133,153,234,0.25);"
             " background: transparent;"
         )
-        self._lyrics_divider.setFixedHeight(1)
-        self._lyrics_divider.setVisible(False)
-        right_layout.addWidget(self._lyrics_divider)
+        tab_rule.setFixedHeight(1)
+        right_layout.addWidget(tab_rule)
         right_layout.addSpacing(10)
 
-        # ── Lyrics body — always takes up space ──────────────────────────
-        #
-        # Both the karaoke label and the plain scroll area live in the same
-        # stretch slot. Only one is visible at a time; when neither is shown
-        # (no lyrics) the column keeps its full height so the layout is stable.
+        # ── Stacked pages ─────────────────────────────────────────────────
+        self._stack = QStackedWidget()
+        self._stack.setStyleSheet("background: transparent;")
+        self._stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        # Karaoke: one big centred label, fades in on each line change
+        # Page 0: LYRICS
+        lyrics_page = QWidget()
+        lyrics_page.setStyleSheet("background: transparent;")
+        lp = QVBoxLayout(lyrics_page)
+        lp.setContentsMargins(0, 0, 0, 0)
+        lp.setSpacing(0)
+
         self._karaoke_lbl = _KaraokeLine()
         self._karaoke_lbl.setVisible(False)
 
-        # Plain: full scrollable text
         self._plain_area = _FadedScrollArea()
         self._plain_area.setStyleSheet("background: transparent; border: none;")
         self._plain_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -514,17 +860,24 @@ class NowPlayingView(QWidget):
         self._plain_area.setWidget(self._plain_lbl)
         self._plain_area.setVisible(False)
 
-        right_layout.addWidget(self._karaoke_lbl, stretch=1)
-        right_layout.addWidget(self._plain_area, stretch=1)
+        self._no_lyrics_lbl = QLabel("No lyrics available")
+        self._no_lyrics_lbl.setAlignment(Qt.AlignCenter)
+        self._no_lyrics_lbl.setStyleSheet(
+            "color: rgba(133,153,234,0.28); font-size: 14px; font-style: italic;"
+            " background: transparent; border: none;"
+        )
+        self._no_lyrics_lbl.setVisible(False)
 
-        # ── Sync offset control (only visible in karaoke mode) ────────────
-        # Lets the user nudge timestamps earlier/later to compensate for
-        # inaccurate LRC files. Range: -5s to +5s in 100ms steps.
+        lp.addWidget(self._karaoke_lbl, stretch=1)
+        lp.addWidget(self._plain_area, stretch=1)
+        lp.addWidget(self._no_lyrics_lbl, stretch=1)
+
+        # Sync offset slider
         self._offset_row = QWidget()
         self._offset_row.setStyleSheet("background: transparent;")
-        offset_layout = QHBoxLayout(self._offset_row)
-        offset_layout.setContentsMargins(0, 6, 0, 0)
-        offset_layout.setSpacing(8)
+        off_lay = QHBoxLayout(self._offset_row)
+        off_lay.setContentsMargins(0, 6, 0, 0)
+        off_lay.setSpacing(8)
 
         self._offset_lbl = QLabel("Sync  −0.5s")
         self._offset_lbl.setStyleSheet(
@@ -534,8 +887,8 @@ class NowPlayingView(QWidget):
         self._offset_lbl.setFixedWidth(80)
 
         self._offset_slider = QSlider(Qt.Horizontal)
-        self._offset_slider.setRange(-50, 50)  # steps of 100ms → −5s to +5s
-        self._offset_slider.setValue(-5)  # default −500ms
+        self._offset_slider.setRange(-50, 50)
+        self._offset_slider.setValue(-5)
         self._offset_slider.setTickInterval(5)
         self._offset_slider.setSingleStep(1)
         self._offset_slider.setStyleSheet(
@@ -549,13 +902,34 @@ class NowPlayingView(QWidget):
         )
         self._offset_slider.valueChanged.connect(self._on_offset_changed)
 
-        offset_layout.addWidget(self._offset_lbl)
-        offset_layout.addWidget(self._offset_slider)
+        off_lay.addWidget(self._offset_lbl)
+        off_lay.addWidget(self._offset_slider)
         self._offset_row.setVisible(False)
-        right_layout.addWidget(self._offset_row)
+        lp.addWidget(self._offset_row)
+
+        # Page 1: CREDITS
+        self._credits_panel = _CreditsPanel()
+
+        self._stack.addWidget(lyrics_page)
+        self._stack.addWidget(self._credits_panel)
+
+        right_layout.addWidget(self._stack, stretch=1)
 
         root.addWidget(left_widget, 42)
         root.addWidget(right_widget, 58)
+
+    # ── tab switching ──────────────────────────────────────────────────────
+
+    def _switch_tab(self, page: int):
+        self._stack.setCurrentIndex(page)
+        if page == self._PAGE_LYRICS:
+            self._tab_lyrics.setStyleSheet(_TAB_ACTIVE)
+            self._tab_credits.setStyleSheet(_TAB_INACTIVE)
+            self._credits_panel.stop()
+        else:
+            self._tab_lyrics.setStyleSheet(_TAB_INACTIVE)
+            self._tab_credits.setStyleSheet(_TAB_ACTIVE)
+            self._credits_panel.load_credits(self.track)
 
     # ── resize ────────────────────────────────────────────────────────────
 
@@ -571,10 +945,10 @@ class NowPlayingView(QWidget):
                 self.clearUI()
                 return
 
-            import time
-
             t0 = time.time()
             logger.info(f"NowPlayingView.updateUI: {getattr(track, 'track_name', '?')}")
+
+            self.track = track
 
             self._title_lbl.setText(
                 getattr(track, "track_name", None) or "Unknown Title"
@@ -586,12 +960,18 @@ class NowPlayingView(QWidget):
             )
 
             album = getattr(track, "album", None)
-            self._album_lbl.setText(
-                getattr(album, "album_name", "") or "—" if album else "—"
-            )
+            if album:
+                name = getattr(album, "album_name", "") or "—"
+                year = getattr(album, "release_year", None)
+                self._album_lbl.setText(f"{name}  ({year})" if year else name)
+            else:
+                self._album_lbl.setText("—")
 
             self._update_chips(track)
             self._update_lyrics(track)
+
+            if self._stack.currentIndex() == self._PAGE_CREDITS:
+                self._credits_panel.load_credits(track)
 
             art_path = None
             if album:
@@ -607,26 +987,20 @@ class NowPlayingView(QWidget):
 
             logger.debug(f"updateUI TOTAL: {time.time() - t0:.3f}s")
 
-        except Exception as e:
+        except Exception as exc:
             logger.error(
-                f"NowPlayingView.updateUI failed: {e}\n{traceback.format_exc()}"
+                f"NowPlayingView.updateUI failed: {exc}\n{traceback.format_exc()}"
             )
             self.clearUI()
 
     def clearUI(self):
+        self.track = None
         self._title_lbl.setText("No Track Playing")
         self._artist_lbl.setText("—")
         self._album_lbl.setText("—")
         self._set_lyrics_mode_none()
-        for chip in (
-            self._chip_duration,
-            self._chip_bpm,
-            self._chip_key,
-            self._chip_bitrate,
-            self._chip_track_no,
-        ):
-            chip.set_value("—")
-            chip.setVisible(False)
+        self._credits_panel.load_credits(None)
+        self._chip_row.set_chips([])
         if self.default_art_path and Path(self.default_art_path).exists():
             self._load_art(QPixmap(self.default_art_path))
         else:
@@ -635,10 +1009,8 @@ class NowPlayingView(QWidget):
     # ── lyrics ────────────────────────────────────────────────────────────
 
     def _update_lyrics(self, track):
-        """Parse lyrics and switch the display to the appropriate mode."""
         raw = getattr(track, "lyrics", None)
 
-        # Reset sync state
         self._is_synced = False
         self._lyrics_lines = []
         self._active_idx = -1
@@ -654,43 +1026,35 @@ class NowPlayingView(QWidget):
 
         if is_synced:
             self._set_lyrics_mode_karaoke()
-            # Show line at position 0 immediately
-            first_text = lines[0][1] if lines else ""
-            if first_text:
-                self._karaoke_lbl.show_line(first_text)
+            first = lines[0][1] if lines else ""
+            if first:
+                self._karaoke_lbl.show_line(first)
             self._active_idx = 0
         else:
-            plain_text = "\n".join(text for _, text in lines)
-            self._set_lyrics_mode_plain(plain_text)
+            self._set_lyrics_mode_plain("\n".join(t for _, t in lines))
 
     def _set_lyrics_mode_none(self):
-        """No lyrics — blank the area; header and divider hidden."""
         self._is_synced = False
         self._lyrics_lines = []
         self._active_idx = -1
-        self._lyrics_hdr.setVisible(False)
-        self._lyrics_divider.setVisible(False)
         self._karaoke_lbl.setVisible(False)
         self._karaoke_lbl.clear_line()
         self._plain_area.setVisible(False)
         self._plain_lbl.setText("")
+        self._no_lyrics_lbl.setVisible(True)
         self._offset_row.setVisible(False)
 
     def _set_lyrics_mode_karaoke(self):
-        """Synced lyrics — show karaoke label and offset slider."""
-        self._lyrics_hdr.setVisible(True)
-        self._lyrics_divider.setVisible(True)
         self._plain_area.setVisible(False)
+        self._no_lyrics_lbl.setVisible(False)
         self._karaoke_lbl.setVisible(True)
-        self._offset_slider.setValue(-5)  # reset to default −500ms on each new track
+        self._offset_slider.setValue(-5)
         self._offset_row.setVisible(True)
 
     def _set_lyrics_mode_plain(self, text: str):
-        """Plain lyrics — show scrollable text only."""
-        self._lyrics_hdr.setVisible(True)
-        self._lyrics_divider.setVisible(True)
         self._karaoke_lbl.setVisible(False)
         self._karaoke_lbl.clear_line()
+        self._no_lyrics_lbl.setVisible(False)
         self._offset_row.setVisible(False)
         self._plain_lbl.setText(text)
         self._plain_area.setVisible(True)
@@ -699,10 +1063,6 @@ class NowPlayingView(QWidget):
     # ── position sync ─────────────────────────────────────────────────────
 
     def _on_position_changed(self, position_ms: int):
-        """
-        Fired ~every 50 ms by MusicPlayer. Throttled to 150 ms.
-        Updates the karaoke label when the active line changes.
-        """
         if not self._is_synced or not self._lyrics_lines:
             return
         if abs(position_ms - self._last_position_ms) < 150:
@@ -712,62 +1072,78 @@ class NowPlayingView(QWidget):
         new_idx = _active_index(self._lyrics_lines, position_ms + self._sync_offset_ms)
         if new_idx == self._active_idx:
             return
-
         self._active_idx = new_idx
-        line_text = self._lyrics_lines[new_idx][1]
-
-        # Skip blank/instrumental marker lines — keep showing the previous line
-        if line_text.strip():
-            self._karaoke_lbl.show_line(line_text)
+        text = self._lyrics_lines[new_idx][1]
+        if text.strip():
+            self._karaoke_lbl.show_line(text)
 
     def _on_offset_changed(self, value: int):
-        """Slider moved — update offset and force a lyric re-check."""
-        self._sync_offset_ms = value * 100  # each step = 100 ms
-        seconds = self._sync_offset_ms / 1000
-        sign = "+" if seconds >= 0 else "−"
-        self._offset_lbl.setText(f"Sync  {sign}{abs(seconds):.1f}s")
-        # Force re-evaluation at the current position
+        self._sync_offset_ms = value * 100
+        secs = self._sync_offset_ms / 1000
+        sign = "+" if secs >= 0 else "−"
+        self._offset_lbl.setText(f"Sync  {sign}{abs(secs):.1f}s")
         self._last_position_ms = -1
 
-    # ── chips + art ───────────────────────────────────────────────────────
+    # ── chips ─────────────────────────────────────────────────────────────
 
     def _update_chips(self, track):
+        visible: List[_Chip] = []
+
+        def _maybe(chip: _Chip, val: Optional[str]):
+            if val:
+                chip.set_value(val)
+                visible.append(chip)
+
         dur = getattr(track, "duration", None)
         if dur:
-            mins, secs = int(dur) // 60, int(dur) % 60
-            self._chip_duration.set_value(f"{mins}:{secs:02d}")
-            self._chip_duration.setVisible(True)
-        else:
-            self._chip_duration.setVisible(False)
+            m, s = int(dur) // 60, int(dur) % 60
+            _maybe(self._chip_duration, f"{m}:{s:02d}")
+
+        _maybe(
+            self._chip_track_no,
+            f"Track {getattr(track, 'track_number', None)}"
+            if getattr(track, "track_number", None)
+            else None,
+        )
 
         bpm = getattr(track, "bpm", None)
-        if bpm:
-            self._chip_bpm.set_value(f"{float(bpm):.0f} BPM")
-            self._chip_bpm.setVisible(True)
-        else:
-            self._chip_bpm.setVisible(False)
+        _maybe(self._chip_bpm, f"{float(bpm):.0f} BPM" if bpm else None)
 
         key = getattr(track, "key", None)
         if key:
             mode = getattr(track, "mode", "") or ""
-            self._chip_key.set_value(f"{key} {mode}".strip())
-            self._chip_key.setVisible(True)
-        else:
-            self._chip_key.setVisible(False)
+            _maybe(self._chip_key, f"{key} {mode}".strip())
 
-        bitrate = getattr(track, "bit_rate", None)
-        if bitrate:
-            self._chip_bitrate.set_value(f"{int(bitrate)} kbps")
-            self._chip_bitrate.setVisible(True)
-        else:
-            self._chip_bitrate.setVisible(False)
+        ts = getattr(track, "primary_time_signature", None)
+        _maybe(self._chip_timesig, str(ts) if ts else None)
 
-        track_no = getattr(track, "track_number", None)
-        if track_no:
-            self._chip_track_no.set_value(f"Track {track_no}")
-            self._chip_track_no.setVisible(True)
-        else:
-            self._chip_track_no.setVisible(False)
+        br = getattr(track, "bit_rate", None)
+        _maybe(self._chip_bitrate, f"{int(br)} kbps" if br else None)
+
+        sr = getattr(track, "sample_rate", None)
+        _maybe(self._chip_sample, f"{int(sr) // 1000} kHz" if sr else None)
+
+        bd = getattr(track, "bit_depth", None)
+        _maybe(self._chip_depth, f"{int(bd)}-bit" if bd else None)
+
+        ry = getattr(track, "recorded_year", None)
+        _maybe(self._chip_rec_year, str(ry) if ry else None)
+
+        plays = getattr(track, "play_count", None)
+        _maybe(self._chip_plays, f"{int(plays)} plays" if plays else None)
+
+        rating = getattr(track, "user_rating", None)
+        _maybe(self._chip_rating, f"{float(rating):.1f}/10" if rating else None)
+
+        genres = getattr(track, "genres", None) or []
+        if genres:
+            names = [getattr(g, "genre_name", "") for g in genres[:3]]
+            gstr = ", ".join(n for n in names if n)
+            _maybe(self._chip_genres, gstr or None)
+
+        self._chip_row.set_chips(visible)
+
+    # ── art ───────────────────────────────────────────────────────────────
 
     def _load_art(self, pixmap: Optional[QPixmap]):
         self._current_pixmap = pixmap
