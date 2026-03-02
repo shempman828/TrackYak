@@ -18,11 +18,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.base_album_widget import ScrollableAlbumFlow
-from src.publisher_association_dialog import PublisherAssociationDialog
 from src.asset_paths import icon
 from src.base_track_view import BaseTrackView
 from src.logger_config import logger
+from src.publisher_albums import PublisherAlbumsWindow
+from src.publisher_association_dialog import PublisherAssociationDialog
 from src.wikipedia_seach import search_wikipedia
 
 
@@ -55,15 +55,12 @@ class PublisherDetailTab(QWidget):
 
         self.scroll_layout.addWidget(self.empty_state)
 
-        # Create detail cards (but don't add to layout yet)
         self.info_card = self.create_info_card()
         self.places_card = self.create_places_card()
-        self.albums_card = self.create_albums_card()
 
         # Initially hide detail cards
         self.info_card.hide()
         self.places_card.hide()
-        self.albums_card.hide()
 
     def create_info_card(self):
         """Create publisher information card."""
@@ -117,7 +114,7 @@ class PublisherDetailTab(QWidget):
         self.wiki_btn = QPushButton("Wikipedia Search")
         self.wiki_btn.clicked.connect(self._search_wikipedia)
         self.associations_btn = QPushButton("View Albums")
-        self.associations_btn.clicked.connect(self.show_associations)
+        self.associations_btn.clicked.connect(self._open_albums_window)
         self.tracks_button = QPushButton("View Tracks")
         self.tracks_button.clicked.connect(self.show_tracks)
 
@@ -142,38 +139,12 @@ class PublisherDetailTab(QWidget):
 
         return card
 
-    def create_albums_card(self):
-        """Create albums card with responsive grid using BaseAlbumFlowWidget."""
-        card = QFrame()
-        card.setFrameStyle(QFrame.StyledPanel)
-
-        layout = QVBoxLayout(card)
-        layout.addWidget(QLabel("Albums"))
-
-        self.albums_flow = ScrollableAlbumFlow(
-            albums=[],
-            album_size=140,
-            parent=self,
-        )
-
-        # Configure scroll area properly
-        self.albums_flow.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.albums_flow.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.albums_flow.setWidgetResizable(True)
-
-        # Set minimum size to ensure scroll bars appear when needed
-        self.albums_flow.setMinimumHeight(300)
-
-        layout.addWidget(self.albums_flow)
-
-        return card
-
     def show_empty_state(self):
         """Show empty state when no publisher is selected."""
         self.empty_state.show()
 
         # Remove cards from layout if they exist
-        for card in [self.info_card, self.places_card, self.albums_card]:
+        for card in [self.info_card, self.places_card]:
             if card.parent() == self.scroll_content:
                 self.scroll_layout.removeWidget(card)
                 card.hide()
@@ -195,9 +166,6 @@ class PublisherDetailTab(QWidget):
 
         self.scroll_layout.addWidget(self.places_card)
         self.places_card.show()
-
-        self.scroll_layout.addWidget(self.albums_card)
-        self.albums_card.show()
 
         # Add stretch to push content to top
         self.scroll_layout.addStretch()
@@ -221,12 +189,18 @@ class PublisherDetailTab(QWidget):
             # Load places
             self._load_publisher_places(publisher_id)
 
-            # Load albums
-            self._load_publisher_albums(publisher_id)
-
         except Exception as e:
             logger.error(f"Error loading publisher data: {str(e)}")
             self.show_empty_state()
+
+    def _open_albums_window(self):
+        """Open a separate window showing all albums for this publisher."""
+        if not self.current_publisher:
+            return
+        self._albums_window = PublisherAlbumsWindow(
+            self.controller, self.current_publisher, self
+        )
+        self._albums_window.show()
 
     def _display_publisher_info(self, publisher):
         """Update publisher information display."""
@@ -243,9 +217,12 @@ class PublisherDetailTab(QWidget):
             years_text += f" - {publisher.end_year}"
         self.years_label.setText(years_text or "Years not specified")
 
-        # Track count
-        track_count = self.calculate_publisher_track_count(publisher.publisher_id)
-        self.tracks_label.setText(f"Total Tracks: {track_count}")
+        album_links = self.controller.get.get_entity_links(
+            "AlbumPublisher", publisher_id=publisher.publisher_id
+        )
+        album_count = len(album_links) if album_links else 0
+        self.tracks_label.setText(f"Albums: {album_count}")
+        self.associations_btn.setText(f"View Albums ({album_count})")
 
         # Description
         desc = publisher.description or "No description available"

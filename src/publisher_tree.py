@@ -13,7 +13,7 @@ class PublisherTreeWidget(QTreeWidget):
         self.controller = controller
         self.setHeaderHidden(False)
         self.setColumnCount(2)
-        self.setHeaderLabels(["Publisher", "Tracks"])
+        self.setHeaderLabels(["Publisher", "Albums"])
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
         self.setDropIndicatorShown(True)
@@ -39,15 +39,15 @@ class PublisherTreeWidget(QTreeWidget):
 
         # First pass: create all items with recursive track count
         for publisher in publishers:
-            track_count = self.calculate_recursive_track_count(publisher.publisher_id)
+            album_count = self.calculate_recursive_album_count(publisher.publisher_id)
             item = QTreeWidgetItem()
             item.setText(0, publisher.publisher_name)
             item.setFlags(item.flags() | Qt.ItemIsEditable)
-            item.setData(1, Qt.DisplayRole, track_count)
+            item.setData(1, Qt.DisplayRole, album_count)
             item.setData(0, Qt.UserRole, publisher.publisher_id)
 
             # CRITICAL: Set numeric value for sorting in Qt.DisplayRole
-            item.setData(1, Qt.DisplayRole, track_count)  # Sort by this numeric value
+            item.setData(1, Qt.DisplayRole, album_count)  # Sort by this numeric value
 
             publisher_dict[publisher.publisher_id] = {
                 "item": item,
@@ -95,34 +95,26 @@ class PublisherTreeWidget(QTreeWidget):
             # Optional: reload to revert the text on failure
             self.load_publishers()
 
-    def calculate_recursive_track_count(self, publisher_id):
-        """Calculate total tracks for a publisher including all children."""
+    def calculate_recursive_album_count(self, publisher_id):
+        """Calculate total albums for a publisher including all child publishers."""
         try:
-            # Get direct albums
+            # Count direct album links for this publisher
             album_links = self.controller.get.get_entity_links(
                 "AlbumPublisher", publisher_id=publisher_id
             )
+            total_albums = len(album_links)
 
-            total_tracks = 0
-            for link in album_links:
-                album = self.controller.get.get_entity_object(
-                    "Album", album_id=link.album_id
-                )
-                if album and album.track_count:
-                    total_tracks += int(album.track_count)  # Ensure it's an int
-
-            # Get child publishers and add their tracks
+            # Add counts from any child publishers
             child_publishers = self.controller.get.get_all_entities(
                 "Publisher", parent_id=publisher_id
             )
-
             for child in child_publishers:
-                total_tracks += self.calculate_recursive_track_count(child.publisher_id)
+                total_albums += self.calculate_recursive_album_count(child.publisher_id)
 
-            return total_tracks
+            return total_albums
 
         except Exception as e:
-            logger.error(f"Error calculating track count: {str(e)}")
+            logger.error(f"Error calculating album count: {str(e)}")
             return 0
 
     def filter_items(self, search_text):
