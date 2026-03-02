@@ -27,7 +27,6 @@ class AudioSettingsDialog(QDialog):
     crossfade_duration_changed = Signal(int)
     normalization_changed = Signal(bool)
     normalization_target_changed = Signal(float)
-    exclusive_mode_changed = Signal(bool)
 
     def __init__(self, music_player, parent=None):
         super().__init__(parent)
@@ -51,13 +50,6 @@ class AudioSettingsDialog(QDialog):
         self.device_combo = QComboBox()
         self.device_combo.currentTextChanged.connect(self._on_device_changed)
         device_layout.addRow("Output Device:", self.device_combo)
-
-        self.exclusive_mode_check = QCheckBox("Exclusive Mode")
-        self.exclusive_mode_check.setToolTip(
-            "Enable exclusive mode to give this application full control over your audio device. Other programs will be unable to play sound while this is active, which can reduce latency and prevent audio glitches."
-        )
-        self.exclusive_mode_check.toggled.connect(self.exclusive_mode_changed.emit)
-        device_layout.addRow(self.exclusive_mode_check)
 
         layout.addWidget(device_group)
 
@@ -151,12 +143,7 @@ class AudioSettingsDialog(QDialog):
                 getattr(self.music_player, "normalization_enabled", False)
             )
             self.normalization_spinbox.setValue(
-                getattr(self.music_player, "normalization_target", -23.0)
-            )
-
-            # Load exclusive mode
-            self.exclusive_mode_check.setChecked(
-                getattr(self.music_player, "exclusive_mode", False)
+                getattr(self.music_player, "normalization_target", -14.0)
             )
 
             # Enable/disable dependent controls
@@ -245,9 +232,6 @@ class AudioSettingsDialog(QDialog):
                 self.normalization_spinbox.value()
             )
 
-            # Apply exclusive mode
-            self.music_player.set_exclusive_mode(self.exclusive_mode_check.isChecked())
-
             logger.info("Audio settings applied successfully")
 
         except Exception as e:
@@ -266,7 +250,6 @@ class AudioSettingsDialog(QDialog):
             "crossfade_duration": self.crossfade_spinbox.value(),
             "normalization_enabled": self.normalization_check.isChecked(),
             "normalization_target": self.normalization_spinbox.value(),
-            "exclusive_mode": self.exclusive_mode_check.isChecked(),
         }
 
     def set_settings(self, settings: dict):
@@ -291,10 +274,6 @@ class AudioSettingsDialog(QDialog):
                 self.normalization_check.setChecked(settings["normalization_enabled"])
             if "normalization_target" in settings:
                 self.normalization_spinbox.setValue(settings["normalization_target"])
-
-            # Exclusive mode
-            if "exclusive_mode" in settings:
-                self.exclusive_mode_check.setChecked(settings["exclusive_mode"])
 
             self._update_controls_state()
 
@@ -321,7 +300,6 @@ def show_audio_settings_dialog(music_player, parent=None):
     dialog.crossfade_duration_changed.connect(music_player.set_crossfade_duration)
     dialog.normalization_changed.connect(music_player.enable_normalization)
     dialog.normalization_target_changed.connect(music_player.set_normalization_target)
-    dialog.exclusive_mode_changed.connect(music_player.set_exclusive_mode)
 
     result = dialog.exec()
 
@@ -331,6 +309,5 @@ def show_audio_settings_dialog(music_player, parent=None):
     dialog.crossfade_duration_changed.disconnect()
     dialog.normalization_changed.disconnect()
     dialog.normalization_target_changed.disconnect()
-    dialog.exclusive_mode_changed.disconnect()
 
     return result == QDialog.Accepted

@@ -146,7 +146,7 @@ class MusicPlayer(QObject):
 
         # ── Normalization ─────────────────────────────────────────────────────
         self.normalization_enabled: bool = False
-        self.normalization_target: float = -23.0  # LUFS
+        self.normalization_target: float = -14.0  # LUFS (music streaming standard)
 
         # ── Audio device ──────────────────────────────────────────────────────
         self.exclusive_mode: bool = False
@@ -641,11 +641,6 @@ class MusicPlayer(QObject):
     #  Audio device
     # =========================================================================
 
-    def set_exclusive_mode(self, enabled: bool):
-        self.exclusive_mode = enabled
-        self.playback_mode_changed.emit("exclusive" if enabled else "shared")
-        self._restart_playback_if_active()
-
     def set_audio_device(self, device_name: str):
         if device_name == self.current_device:
             return
@@ -931,9 +926,6 @@ class MusicPlayer(QObject):
         """
         Returns the multiplier applied to every audio chunk.
         Uses ReplayGain from the DB when available; falls back to 1.0.
-        Streaming mode cannot do RMS estimation (we haven't read the file),
-        so the fallback when normalization is on but no ReplayGain data
-        exists is simply 1.0 (no change).
         """
         if not self.normalization_enabled or self.current_file is None:
             return 1.0
@@ -942,13 +934,25 @@ class MusicPlayer(QObject):
             track_gain, track_peak = self._get_track_gain_from_db()
 
             if track_gain is not None:
-                gain_factor = 10.0 ** ((self.normalization_target + track_gain) / 20.0)
+                # ReplayGain stores the adjustment needed to reach reference loudness.
+                # We then shift that reference to our target (default -14 LUFS).
+                # Reference loudness for ReplayGain is -18 LUFS (older standard) or
+                # -23 LUFS (EBU R128). We offset from -18 as a safe middle ground.
+                REPLAYGAIN_REFERENCE_LUFS = -18.0
+                target_offset = self.normalization_target - REPLAYGAIN_REFERENCE_LUFS
+                gain_db = track_gain + target_offset
+                gain_factor = 10.0 ** (gain_db / 20.0)
+
+                # Peak limiter: only clamp if the boosted signal would clip.
+                # This runs AFTER gain is set so quiet tracks still get lifted.
                 if track_peak and track_peak > 0:
-                    headroom = 0.99
-                    max_output = abs(gain_factor) * float(track_peak)
-                    if max_output > headroom:
-                        gain_factor *= headroom / max_output
-                logger.debug(f"Gain factor (ReplayGain): {gain_factor:.4f}")
+                    max_output = gain_factor * float(track_peak)
+                    if max_output > 0.99:
+                        gain_factor = 0.99 / float(track_peak)
+
+                logger.debug(
+                    f"Gain factor (ReplayGain): {gain_factor:.4f}  (track_gain={track_gain:.2f} dB, target={self.normalization_target} LUFS)"
+                )
                 return float(gain_factor)
 
         except Exception as exc:
