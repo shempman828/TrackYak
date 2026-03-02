@@ -123,14 +123,28 @@ class Album(Base):
 
     @property
     def album_artist_names(self):
-        """Return list of artist names for this album, handling None values."""
-        names = []
-        for artist in self.album_artists:
-            if artist and hasattr(artist, "artist_name"):
-                names.append(artist.artist_name)
-            else:
-                names.append("Unknown Artist")
-        return names
+        """Return properly formatted album artist names (Oxford comma style)."""
+        names = [
+            artist.artist_name
+            if artist and hasattr(artist, "artist_name") and artist.artist_name
+            else "Unknown Artist"
+            for artist in self.album_artists
+        ]
+
+        # Clean whitespace and remove empty values
+        names = [name.strip() for name in names if name and name.strip()]
+
+        if not names:
+            return "Unknown Artist"
+
+        if len(names) == 1:
+            return names[0]
+
+        if len(names) == 2:
+            return f"{names[0]} & {names[1]}"
+
+        # 3 or more → Oxford comma
+        return f"{', '.join(names[:-1])}, & {names[-1]}"
 
     @property
     def total_plays(self):
@@ -491,6 +505,14 @@ class Track(Base):
     def album_MBID(self):
         """Return the MusicBrainz ID of the album, if available."""
         return self.album.MBID if self.album and self.album.MBID else None
+
+    @property
+    def album_complete(self):
+        """return True if track has all album-level metadata filled in, False otherwise."""
+        if not self.album:
+            return False
+        if self.album.is_fixed == 1:
+            return True
 
 
 class AlbumVirtualTrack(Base):
