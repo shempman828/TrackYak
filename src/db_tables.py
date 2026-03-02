@@ -386,14 +386,28 @@ class Track(Base):
 
     @property
     def primary_artist_names(self):
-        """Return comma-separated primary artist names for this track."""
-        names = []
-        for artist in self.primary_artists:
-            if artist and hasattr(artist, "artist_name"):
-                names.append(artist.artist_name)
-            else:
-                names.append("Unknown Artist")
-        return ", ".join(names)
+        """Return properly formatted primary artist names (Oxford comma style)."""
+        names = [
+            artist.artist_name
+            if artist and hasattr(artist, "artist_name") and artist.artist_name
+            else "Unknown Artist"
+            for artist in self.primary_artists
+        ]
+
+        # Clean up whitespace and remove empty strings
+        names = [name.strip() for name in names if name and name.strip()]
+
+        if not names:
+            return "Unknown Artist"
+
+        if len(names) == 1:
+            return names[0]
+
+        if len(names) == 2:
+            return f"{names[0]} & {names[1]}"
+
+        # 3 or more → Oxford comma
+        return f"{', '.join(names[:-1])}, & {names[-1]}"
 
     @property
     def composer_names(self):
