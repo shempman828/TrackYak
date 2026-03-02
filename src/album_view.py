@@ -601,6 +601,10 @@ class AlbumView(QWidget):
         self.scroll_content.setUpdatesEnabled(False)
         self._clear_layout(self.grid_layout)
         self.grid_layout.invalidate()
+        # Flush any pending deleteLater() calls so ghost widgets don't linger
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.processEvents()
         self.scroll_content.setUpdatesEnabled(True)
         for album in self.filtered_albums[: self.display_count]:
             self._add_album_widget(album)

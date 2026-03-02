@@ -1,13 +1,14 @@
 from pathlib import Path
-from PySide6.QtCore import Qt, Signal, QTimer
+
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QWidget,
-    QLabel,
-    QVBoxLayout,
     QGridLayout,
+    QLabel,
     QScrollArea,
     QSizePolicy,
+    QVBoxLayout,
+    QWidget,
 )
 
 
@@ -177,9 +178,12 @@ class AlbumFlowWidget(QWidget):
         return max(1, width // (self.album_size + 40))
 
     def refresh_grid(self):
-        # Clear existing
-        for w in self.widgets:
-            w.deleteLater()
+        # Properly remove each widget from the layout AND schedule it for deletion
+        while self.layout.count():
+            item = self.layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
         self.widgets.clear()
 
         if not self.albums:
