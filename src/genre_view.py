@@ -144,10 +144,23 @@ class GenreView(QWidget):
     def load_genres(self):
         """Load genres from the database using the controller."""
         try:
+            # Save which genre IDs are currently expanded
+            expanded_ids = set()
+
+            def collect_expanded(item):
+                if item.isExpanded():
+                    genre_id = item.data(0, Qt.UserRole)
+                    if genre_id is not None:
+                        expanded_ids.add(genre_id)
+                for i in range(item.childCount()):
+                    collect_expanded(item.child(i))
+
+            root = self.tree.invisibleRootItem()
+            for i in range(root.childCount()):
+                collect_expanded(root.child(i))
+
             self.tree.clear()
-            genres = self.controller.get.get_all_entities(
-                "Genre"
-            )  # This calls the provided SQLAlchemy query
+            genres = self.controller.get.get_all_entities("Genre")
 
             # Get track counts for each genre from TrackGenre table
             track_counts = {}
@@ -173,6 +186,20 @@ class GenreView(QWidget):
 
             # Build the tree recursively starting from root nodes (parent_id=None)
             self._build_genre_tree(None, children_map, genre_map, track_counts, 0)
+
+            def restore_expanded(item):
+                genre_id = item.data(0, Qt.UserRole)
+                if genre_id in expanded_ids:
+                    item.setExpanded(True)
+                for i in range(item.childCount()):
+                    restore_expanded(item.child(i))
+
+            if expanded_ids:
+                root = self.tree.invisibleRootItem()
+                for i in range(root.childCount()):
+                    restore_expanded(root.child(i))
+            else:
+                self.tree.expandAll()
             logger.info(f"Loaded {len(genres)} genres with track counts")
 
         except Exception as e:
@@ -183,7 +210,9 @@ class GenreView(QWidget):
     ):
         """Recursively build the tree structure with visual hierarchy indicators."""
         parent_id = parent_item.data(0, Qt.UserRole) if parent_item else None
-        for genre in children_map.get(parent_id, []):
+        for genre in sorted(
+            children_map.get(parent_id, []), key=lambda g: g.genre_name.lower()
+        ):
             # Get track count for this genre
             count = track_counts.get(genre.genre_id, 0)
 
@@ -251,7 +280,6 @@ class GenreView(QWidget):
 
             if parent_item:
                 parent_item.addChild(item)
-                parent_item.setExpanded(True)
             else:
                 self.tree.addTopLevelItem(item)
 
