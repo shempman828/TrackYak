@@ -199,6 +199,19 @@ class MoodView(QWidget):
 
     def build_mood_tree(self):
         """Build hierarchical tree from flat moods list with color coding"""
+        expanded_ids = set()
+
+        def collect_expanded(item):
+            if item.isExpanded():
+                mood_id = item.data(0, Qt.UserRole)
+                if mood_id is not None:
+                    expanded_ids.add(mood_id)
+            for i in range(item.childCount()):
+                collect_expanded(item.child(i))
+
+        root = self.mood_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            collect_expanded(root.child(i))
         self.mood_tree.clear()
 
         # Get track counts for all moods
@@ -233,16 +246,21 @@ class MoodView(QWidget):
         mood_dict = {mood.mood_id: mood for mood in self.moods_data}
 
         # Find root moods (no parent or parent not in current list)
-        root_moods = []
-        for mood in self.moods_data:
-            if not mood.parent_id or mood.parent_id not in mood_dict:
-                root_moods.append(mood)
+        root_moods = sorted(
+            [
+                mood
+                for mood in self.moods_data
+                if not mood.parent_id or mood.parent_id not in mood_dict
+            ],
+            key=lambda m: m.mood_name.lower(),
+        )
 
         # Recursively build tree with depth tracking
         def add_children(parent_item, parent_mood, depth):
-            children = [
-                m for m in self.moods_data if m.parent_id == parent_mood.mood_id
-            ]
+            children = sorted(
+                [m for m in self.moods_data if m.parent_id == parent_mood.mood_id],
+                key=lambda m: m.mood_name.lower(),
+            )
             for child in children:
                 # Get track count for this mood
                 track_count = mood_track_counts.get(child.mood_id, 0)
@@ -280,7 +298,21 @@ class MoodView(QWidget):
 
             add_children(item, mood, 1)
 
-        self.mood_tree.expandAll()
+        def restore_expanded(item):
+            mood_id = item.data(0, Qt.UserRole)
+            if mood_id in expanded_ids:
+                item.setExpanded(True)
+            for i in range(item.childCount()):
+                restore_expanded(item.child(i))
+
+        if expanded_ids:
+            # We had a previous state — restore it
+            root = self.mood_tree.invisibleRootItem()
+            for i in range(root.childCount()):
+                restore_expanded(root.child(i))
+        else:
+            # First time loading — expand everything like before
+            self.mood_tree.expandAll()
 
     def create_colored_icon(self, color, size=16):
         """Create a colored circle icon for hierarchy levels."""
