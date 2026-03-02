@@ -50,7 +50,6 @@ from src.db_mapping_tracks import TRACK_FIELDS
 from src.logger_config import logger
 from src.wikipedia_seach import search_wikipedia
 
-
 # ---------------------------------------------------------------------------
 # Helpers shared by all tabs
 # ---------------------------------------------------------------------------
@@ -491,6 +490,10 @@ class RolesTab(_BaseTab):
         self._table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeToContents
         )
+        self._table.horizontalHeader().setToolTip(
+            "Double-click a role to edit it inline"
+        )
+        self._table.cellChanged.connect(self._on_role_cell_changed)
         layout.addWidget(self._table)
 
     # ── Loading ───────────────────────────────────────────────────────────
@@ -538,12 +541,17 @@ class RolesTab(_BaseTab):
     def _add_table_row(self, artist_name, role_name, artist_id, role_id):
         row = self._table.rowCount()
         self._table.insertRow(row)
+
         artist_item = QTableWidgetItem(artist_name)
         artist_item.setData(Qt.UserRole, artist_id)
+        artist_item.setFlags(artist_item.flags() & ~Qt.ItemIsEditable)  # read-only
         self._table.setItem(row, 0, artist_item)
+
         role_item = QTableWidgetItem(role_name)
         role_item.setData(Qt.UserRole, role_id)
+        role_item.setData(Qt.UserRole + 1, role_name)  # stash original name for revert
         self._table.setItem(row, 1, role_item)
+
         btn = QPushButton("Remove")
         btn.clicked.connect(lambda _checked, r=row: self._remove_role(r))
         self._table.setCellWidget(row, 2, btn)
@@ -637,6 +645,73 @@ class RolesTab(_BaseTab):
         self._artist_search.clear()
         self._role_edit.clear()
         self._artist_combo.setVisible(False)
+        self.load(self.tracks)
+
+    def _on_role_cell_changed(self, row: int, col: int):
+        # Only care about the Role column (col 1)
+        if col != 1:
+            return
+
+        role_item = self._table.item(row, 1)
+        artist_item = self._table.item(row, 0)
+        if not role_item or not artist_item:
+            return
+
+        new_role_name = role_item.text().strip()
+        original_role_name = role_item.data(Qt.UserRole + 1)  # what we stashed on load
+        old_role_id = role_item.data(Qt.UserRole)
+        artist_id = artist_item.data(Qt.UserRole)
+
+        # Nothing actually changed — ignore
+        if new_role_name == original_role_name:
+            return
+
+        # Empty input — revert silently
+        if not new_role_name:
+            self._table.blockSignals(True)
+            role_item.setText(original_role_name)
+            self._table.blockSignals(False)
+            return
+
+        # Resolve or create the new role (same logic as _add_role)
+        existing_role = self.controller.get.get_entity_object(
+            "Role", role_name=new_role_name
+        )
+        if existing_role:
+            new_role = (
+                existing_role
+                if not isinstance(existing_role, list)
+                else existing_role[0]
+            )
+        else:
+            new_role = self.controller.add.add_entity("Role", role_name=new_role_name)
+
+        if not new_role:
+            logger.error(f"Could not resolve or create role '{new_role_name}'")
+            self._table.blockSignals(True)
+            role_item.setText(original_role_name)
+            self._table.blockSignals(False)
+            return
+
+        # For every track: delete the old TrackArtistRole, add the new one
+        for track in self.tracks:
+            try:
+                self.controller.delete.delete_entity(
+                    "TrackArtistRole",
+                    track_id=track.track_id,
+                    artist_id=artist_id,
+                    role_id=old_role_id,
+                )
+                self.controller.add.add_entity(
+                    "TrackArtistRole",
+                    track_id=track.track_id,
+                    artist_id=artist_id,
+                    role_id=new_role.role_id,
+                )
+            except Exception as e:
+                logger.error(f"Failed to update role on track {track.track_id}: {e}")
+
+        # Reload the table to reflect the final state cleanly
         self.load(self.tracks)
 
     def _remove_role(self, row: int):
