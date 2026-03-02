@@ -50,7 +50,7 @@ _EXCLUDED_FIELDS = {
 _LIST_FIELDS = [
     ("genre_names", "Genre Names", "Filter by genre, e.g.: Rock, Jazz"),
     ("artist_names", "Artist Names", "Filter by any associated artist name"),
-    ("primary_artist_name", "Primary Artist", "Filter by primary credited artist"),
+    ("primary_artist_names", "Primary Artist", "Filter by primary credited artist"),
     ("place_names", "Place Names", "Filter by associated place"),
     ("mood_name", "Mood", "Filter by mood"),
 ]

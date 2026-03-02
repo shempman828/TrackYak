@@ -325,7 +325,11 @@ class PlayerUI(QWidget):
         parts.append(track_name)
 
         # Artist name
-        artist_name = self._get_primary_artist_name(track)
+        artist_name = (
+            track.primary_artist_names
+            if hasattr(track, "primary_artist_names")
+            else None
+        )
         if artist_name:
             parts.append(f"by {artist_name}")
 
@@ -423,30 +427,15 @@ class PlayerUI(QWidget):
             lines.append(f"({''.join(perf_parts)})")
 
         # Artist credit (performers)
-        performer_name = self._get_primary_artist_name(track)
+        performer_name = (
+            track.primary_artist_names
+            if hasattr(track, "primary_artist_names")
+            else None
+        )
         if performer_name:
             lines.append(f"Performed by {performer_name}")
 
         return "\n".join(lines)
-
-    def _get_primary_artist_name(self, track) -> str:
-        """Extract primary artist name from track."""
-        try:
-            # Try primary_artist first
-            primary_artist = getattr(track, "primary_artist", None)
-            if primary_artist:
-                return getattr(primary_artist, "artist_name", "Unknown Artist")
-
-            # Fall back to artists list
-            artists = getattr(track, "artists", [])
-            if artists:
-                first_artist = artists[0]
-                return getattr(first_artist, "artist_name", "Unknown Artist")
-
-            return "Unknown Artist"
-        except Exception as e:
-            logger.error(f"Error getting artist name: {e}")
-            return "Unknown Artist"
 
     def _get_composer_names(self, track) -> str:
         """Extract and format composer names for classical tracks."""

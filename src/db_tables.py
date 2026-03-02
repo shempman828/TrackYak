@@ -63,7 +63,7 @@ class Album(Base):
     estimated_sales = Column(Integer)
     status = Column(
         String
-    )  # official, promotion, bootleg,withdrawn, expunged, cancelled
+    )  # official, promotion, bootleg, withdrawn, expunged, cancelled
 
     album_roles = relationship(
         "AlbumRoleAssociation",

@@ -604,11 +604,11 @@ TRACK_FIELDS = {
         tooltip="The day the album was released.",
         editable=False,
     ),
-    "primary_artist_name": TrackField(
+    "primary_artist_names": TrackField(
         category="Basic",
-        friendly="Primary Artist Name",
+        friendly="Primary Artist(s)",
         short="Artist",
-        tooltip="The name of the primary artist for the track.",
+        tooltip="The name of the primary artist(s) for the track.",
         editable=False,
     ),
     "disc_number": TrackField(
