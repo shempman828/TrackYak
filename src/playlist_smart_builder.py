@@ -202,7 +202,7 @@ class SmartPlaylistBuilder:
             existing_date_map = {pt.track_id: pt.date_added for pt in existing_tracks}
 
             # Delete all current tracks
-            self.controller.delete.delete_entity_by_filter(
+            self.controller.delete.delete_entity(
                 "PlaylistTracks", playlist_id__eq=playlist_id
             )
 

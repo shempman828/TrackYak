@@ -235,7 +235,7 @@ class SmartPlaylistEditDialog(QDialog):
 
             # 3. Replace all criteria rows:
             #    Delete the old ones, then insert the new ones.
-            self.controller.delete.delete_entity_by_filter(
+            self.controller.delete.delete_entity(
                 "SmartPlaylistCriteria",
                 smart_playlist_id=self.playlist_id,
             )
