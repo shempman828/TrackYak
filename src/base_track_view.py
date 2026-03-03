@@ -1,5 +1,7 @@
 # base_track_view.py
 
+import random
+
 from PySide6.QtCore import QMimeData, QRegularExpression, QSortFilterProxyModel, Qt
 from PySide6.QtGui import QAction, QDrag, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
@@ -10,6 +12,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QMessageBox,
+    QPushButton,
     QTableView,
     QVBoxLayout,
 )
@@ -21,6 +24,8 @@ from src.logger_config import logger
 
 class BaseTrackView(QDialog):
     """Base reusable view for listing tracks. Takes in any number of track objects for table list display."""
+
+    LAZY_BATCH_SIZE = 100
 
     def __init__(
         self, controller, tracks, title="Tracks", enable_drag=False, enable_drop=False
@@ -42,6 +47,12 @@ class BaseTrackView(QDialog):
         self.enable_drag = enable_drag
         self.enable_drop = enable_drop
 
+        # Lazy loading state
+        self._all_tracks = []
+        self._loaded_count = 0
+        self._filter_active = False
+        self._filtered_tracks = []
+
         self.setWindowTitle(title)
         self.setMinimumSize(800, 600)
 
@@ -55,10 +66,22 @@ class BaseTrackView(QDialog):
         self.info_label = QLabel(f"Showing {len(tracks)} tracks")
         self.layout.addWidget(self.info_label)
 
-        # Search bar
+        # Search bar and shuffle button layout
+        search_layout = QHBoxLayout()
+
         self.search_bar = QLineEdit(self)
         self.search_bar.setPlaceholderText("Search tracks...")
         self.search_bar.textChanged.connect(self.filter_tracks)
+        search_layout.addWidget(self.search_bar)
+
+        # Shuffle All button
+        self.shuffle_button = QPushButton("🔀 Shuffle All")
+        self.shuffle_button.setToolTip("Shuffle all tracks and add to queue")
+        self.shuffle_button.clicked.connect(self.shuffle_all_tracks)
+        self.shuffle_button.setMaximumWidth(120)
+        search_layout.addWidget(self.shuffle_button)
+
+        self.layout.addLayout(search_layout)
 
         # Table setup
         self.table = QTableView(self)
@@ -71,11 +94,9 @@ class BaseTrackView(QDialog):
         self.proxy_model.setFilterKeyColumn(-1)  # Filter across all columns
         self.proxy_model.setSortRole(Qt.UserRole)
         self.table.setModel(self.proxy_model)
+        self.table.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
         # Layout
-        search_layout = QHBoxLayout()
-        search_layout.addWidget(self.search_bar)
-        self.layout.addLayout(search_layout)
         self.layout.addWidget(self.table)
 
         # Set up context menu
@@ -182,13 +203,13 @@ class BaseTrackView(QDialog):
         """Get list of selected track objects."""
         selected_indexes = self.table.selectionModel().selectedRows()
         selected_tracks = []
+        track_list = self._filtered_tracks if self._filter_active else self._all_tracks
 
         for index in selected_indexes:
-            # Map to source model through proxy
             source_index = self.proxy_model.mapToSource(index)
             row = source_index.row()
-            if 0 <= row < len(self.tracks):
-                selected_tracks.append(self.tracks[row])
+            if 0 <= row < len(track_list):
+                selected_tracks.append(track_list[row])
 
         return selected_tracks
 
@@ -242,27 +263,69 @@ class BaseTrackView(QDialog):
             QMessageBox.warning(self, "Error", f"Failed to load playlists: {str(e)}")
 
     def load_data(self, tracks):
-        """Populate the table with track metadata."""
-        self.model.setRowCount(0)  # Clear existing rows
-        self.tracks = tracks  # Update tracks reference
+        """Load tracks with lazy loading - only loads first batch initially."""
+        self.tracks = tracks
+        self._all_tracks = tracks
+        self._filter_active = False
+        self._filtered_tracks = []
+        self._loaded_count = 0
 
-        for track in tracks:
-            row = []
-            for db_field, display_name in self.essential_columns.items():
-                field_config = self.track_fields.get(db_field)
-                value = self._get_formatted_field_value(track, db_field, field_config)
+        self.model.setRowCount(0)
+        self._append_next_batch(tracks)
+        self._update_status()
+
+        logger.info(f"Loaded {self._loaded_count} of {len(tracks)} tracks initially")
+
+    def _append_next_batch(self, tracks_to_load):
+        """Append the next batch of tracks to the model."""
+        start_idx = self._loaded_count
+        end_idx = min(start_idx + self.LAZY_BATCH_SIZE, len(tracks_to_load))
+
+        if start_idx >= len(tracks_to_load):
+            return
+
+        for i in range(start_idx, end_idx):
+            track = tracks_to_load[i]
+            row_items = []
+            for db_field in self.columns.keys():
+                value = self._get_track_value(track, db_field)
                 item = QStandardItem(str(value))
+                item.setData(value, Qt.UserRole)
+                row_items.append(item)
+            self.model.appendRow(row_items)
 
-                # Set sorting data for numeric fields
-                if field_config and field_config.type in (int, float):
-                    raw_value = getattr(track, db_field, None)
-                    if raw_value is not None:
-                        item.setData(raw_value, Qt.UserRole)
+        self._loaded_count = end_idx
+        logger.debug(f"Loaded tracks {start_idx} to {end_idx}")
 
-                row.append(item)
-            self.model.appendRow(row)
+    def _on_scroll(self, value):
+        """Handle scroll events to trigger lazy loading."""
+        scrollbar = self.table.verticalScrollBar()
+        if value >= scrollbar.maximum() * 0.9:
+            tracks_to_load = (
+                self._filtered_tracks if self._filter_active else self._all_tracks
+            )
+            if self._loaded_count < len(tracks_to_load):
+                self._append_next_batch(tracks_to_load)
+                self._update_status()
 
-        logger.info(f"Loaded {len(tracks)} tracks into base track view.")
+    def _update_status(self):
+        """Update the info label with current loading status."""
+        total = (
+            len(self._filtered_tracks) if self._filter_active else len(self._all_tracks)
+        )
+        if self._loaded_count < total:
+            self.info_label.setText(
+                f"Showing {self._loaded_count} of {total} tracks (scroll for more)"
+            )
+        else:
+            self.info_label.setText(f"Showing {total} tracks")
+
+    def _get_queue_manager(self):
+        """Helper to get the queue manager from controller."""
+        queue_manager = getattr(self.controller, "queue_manager", None)
+        if not queue_manager and hasattr(self.controller, "mediaplayer"):
+            queue_manager = getattr(self.controller.mediaplayer, "queue_manager", None)
+        return queue_manager
 
     def _get_formatted_field_value(self, track, db_field, field_config):
         """Get formatted value for a track field."""
@@ -313,9 +376,79 @@ class BaseTrackView(QDialog):
         return str(value)
 
     def filter_tracks(self, text):
-        """Filter tracks based on search text."""
-        regex = QRegularExpression(text, QRegularExpression.CaseInsensitiveOption)
-        self.proxy_model.setFilterRegularExpression(regex)
+        """Filter tracks - searches ALL tracks, not just loaded ones."""
+        if not text:
+            self._filter_active = False
+            self._filtered_tracks = []
+            self._loaded_count = 0
+            self.model.setRowCount(0)
+            self._append_next_batch(self._all_tracks)
+            self._update_status()
+            return
+
+        text_lower = text.lower()
+        self._filtered_tracks = []
+
+        for track in self._all_tracks:
+            for db_field in self.columns.keys():
+                value = str(self._get_track_value(track, db_field)).lower()
+                if text_lower in value:
+                    self._filtered_tracks.append(track)
+                    break
+
+        self._filter_active = True
+        self._loaded_count = 0
+        self.model.setRowCount(0)
+        self._append_next_batch(self._filtered_tracks)
+        self._update_status()
+
+    def shuffle_all_tracks(self):
+        """Shuffle ALL tracks and add them to the queue, then start playing."""
+        tracks_to_shuffle = (
+            self._filtered_tracks.copy()
+            if self._filter_active
+            else self._all_tracks.copy()
+        )
+
+        if not tracks_to_shuffle:
+            QMessageBox.information(
+                self, "No Tracks", "No tracks available to shuffle."
+            )
+            return
+
+        random.shuffle(tracks_to_shuffle)
+        queue_manager = self._get_queue_manager()
+
+        if not queue_manager:
+            QMessageBox.warning(
+                self, "Queue Unavailable", "Could not access the playback queue."
+            )
+            return
+
+        if hasattr(queue_manager, "clear_queue"):
+            queue_manager.clear_queue()
+        queue_manager.add_tracks_to_queue(tracks_to_shuffle)
+
+        # Start playing first track
+        if tracks_to_shuffle and hasattr(self.controller, "mediaplayer"):
+            try:
+                from pathlib import Path
+
+                first_track = tracks_to_shuffle[0]
+                track_path = Path(first_track.track_file_path)
+                if self.controller.mediaplayer.load_track(track_path):
+                    self.controller.mediaplayer.player.play()
+                    logger.info(
+                        f"Started shuffled playback: {len(tracks_to_shuffle)} tracks"
+                    )
+            except Exception as e:
+                logger.error(f"Error starting playback: {e}")
+
+        QMessageBox.information(
+            self,
+            "Shuffle Complete",
+            f"Shuffled {len(tracks_to_shuffle)} tracks and started playback!",
+        )
 
     def setup_drag_support(self):
         """Set up drag support for the table."""
