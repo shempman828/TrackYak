@@ -72,17 +72,8 @@ class AlbumWidget(QWidget):
 
         self.title_label.setText(f"{album_name}{year_str}")
 
-        # 3. Handle Artists (Unified logic)
-        artists = []
-        for attr in ["album_artist_names", "artist_names", "album_artists"]:
-            val = getattr(self.album, attr, [])
-            if val:
-                artists = [
-                    a.artist_name if hasattr(a, "artist_name") else str(a) for a in val
-                ]
-                break
-
-        artist_text = ", ".join(artists) if artists else "Unknown Artist"
+        # 3. Handle Artists
+        artist_text = getattr(self.album, "album_artist_names", "Unknown Artist")
         self.artist_label.setText(artist_text)
 
         # 4. Tooltip & Size

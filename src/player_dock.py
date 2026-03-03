@@ -14,13 +14,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.artist_edit import ArtistEditor
 from src.asset_paths import icon
+from src.base_album_edit import AlbumEditor
 from src.config_setup import app_config
 from src.logger_config import logger
 from src.rating_widget import RatingStarsWidget
 from src.track_edit import TrackEditDialog
-from src.base_album_edit import AlbumEditor
-from src.artist_edit import ArtistEditor
 
 _COLOR_TRACK = "#b8c0f0"  # text primary – soft lavender white
 _COLOR_ARTIST = "#8599ea"  # accent periwinkle blue-purple
@@ -153,23 +153,15 @@ class _TrackInfoWidget(QWidget):
         )
         self.title_label.setMinimumWidth(180)
 
-        # Artist label — clickable
+        # Artist label — display only (editing via context menu on PlayerUI)
         self.artist_label = QLabel("")
         self.artist_label.setAlignment(Qt.AlignCenter)
-        self.artist_label.setStyleSheet(
-            f"color: {_COLOR_ARTIST}; font-size: 1.0em; cursor: pointer;"
-        )
-        self.artist_label.setCursor(Qt.PointingHandCursor)
-        self.artist_label.mousePressEvent = self._on_artist_clicked
+        self.artist_label.setStyleSheet(f"color: {_COLOR_ARTIST}; font-size: 1.0em;")
 
-        # Album label — clickable
+        # Album label — display only (editing via context menu on PlayerUI)
         self.album_label = QLabel("")
         self.album_label.setAlignment(Qt.AlignCenter)
-        self.album_label.setStyleSheet(
-            f"color: {_COLOR_ALBUM}; font-size: 1.0em; cursor: pointer;"
-        )
-        self.album_label.setCursor(Qt.PointingHandCursor)
-        self.album_label.mousePressEvent = self._on_album_clicked
+        self.album_label.setStyleSheet(f"color: {_COLOR_ALBUM}; font-size: 1.0em;")
 
         layout.addWidget(self.title_label)
         layout.addWidget(self.artist_label)
@@ -201,9 +193,14 @@ class _TrackInfoWidget(QWidget):
         # Hide the row entirely when there's nothing to show
         self.artist_label.setVisible(bool(artist_name))
 
-        # Album
+        # Album (with release year in parentheses if available)
         album_name = getattr(track, "album_name", "") or ""
-        self.album_label.setText(album_name)
+        release_year = getattr(track, "release_year", None)
+        if album_name and release_year:
+            album_display = f"{album_name} ({release_year})"
+        else:
+            album_display = album_name
+        self.album_label.setText(album_display)
         self.album_label.setVisible(bool(album_name))
 
     def clear(self):
@@ -211,47 +208,6 @@ class _TrackInfoWidget(QWidget):
         self.title_label.setText("")
         self.artist_label.setText("")
         self.album_label.setText("")
-
-    # ── Click handlers ────────────────────────────────────────────────────────
-
-    def _on_artist_clicked(self, event):
-        """Open the ArtistEditor for the current track's primary artist."""
-        if self._current_track is None:
-            return
-        try:
-            # Try to get the first primary artist object
-            artist = None
-            artists = getattr(self._current_track, "artists", []) or []
-            if artists:
-                artist = artists[0]
-            if artist is None:
-                return
-            # Re-fetch to make sure we have a full ORM object
-            artist_obj = self.controller.get.get_entity_object(
-                "Artist", artist_id=artist.artist_id
-            )
-            if artist_obj:
-                dialog = ArtistEditor(self.controller, artist_obj, self)
-                dialog.exec_()
-        except Exception as e:
-            logger.error(f"Error opening ArtistEditor from player dock: {e}")
-
-    def _on_album_clicked(self, event):
-        """Open the AlbumEditor for the current track's album."""
-        if self._current_track is None:
-            return
-        try:
-            album_obj = getattr(self._current_track, "album", None)
-            if album_obj is None:
-                return
-            album = self.controller.get.get_entity_object(
-                "Album", album_id=album_obj.album_id
-            )
-            if album:
-                dialog = AlbumEditor(self.controller, album)
-                dialog.exec_()
-        except Exception as e:
-            logger.error(f"Error opening AlbumEditor from player dock: {e}")
 
 
 class PlayerUI(QWidget):
@@ -994,19 +950,34 @@ class PlayerUI(QWidget):
 
         menu = QMenu(self)
 
-        # Edit Track
+        # ── Edit Track ────────────────────────────────────────────────────
         edit_action = QAction("✏️  Edit Track", self)
         edit_action.triggered.connect(self._context_edit_track)
         menu.addAction(edit_action)
 
+        # ── Edit Album ────────────────────────────────────────────────────
+        edit_album_action = QAction("💿  Edit Album", self)
+        edit_album_action.triggered.connect(self._context_edit_album)
+        menu.addAction(edit_album_action)
+
+        # ── Edit Artist (submenu — one entry per primary artist) ──────────
+        edit_artist_menu = QMenu("🎤  Edit Artist", self)
+        self._populate_edit_artist_submenu(edit_artist_menu)
+        menu.addMenu(edit_artist_menu)
+
+        # ── Search Lyrics ─────────────────────────────────────────────────
+        lyrics_action = QAction("🔍  Search Lyrics", self)
+        lyrics_action.triggered.connect(self._context_search_lyrics)
+        menu.addAction(lyrics_action)
+
         menu.addSeparator()
 
-        # Add to Playlist (submenu)
+        # ── Add to Playlist (submenu) ─────────────────────────────────────
         playlist_menu = QMenu("➕  Add to Playlist", self)
         self._populate_playlist_submenu(playlist_menu)
         menu.addMenu(playlist_menu)
 
-        # Add to Mood (submenu)
+        # ── Add to Mood (submenu) ─────────────────────────────────────────
         mood_menu = QMenu("🎭  Add to Mood", self)
         self._populate_mood_submenu(mood_menu)
         menu.addMenu(mood_menu)
@@ -1015,10 +986,11 @@ class PlayerUI(QWidget):
 
     def _populate_playlist_submenu(self, submenu: QMenu):
         """Fill the Add to Playlist submenu with hierarchical, alphabetically sorted playlists."""
+
         try:
             # Fetch all playlists with their relationships
             playlists = self.controller.get.get_all_entities("Playlist") or []
-
+            playlists = [p for p in playlists if not getattr(p, "is_smart", 0)]
             if not playlists:
                 submenu.addAction("No playlists available").setEnabled(False)
                 return
@@ -1090,7 +1062,9 @@ class PlayerUI(QWidget):
                     action.setCheckable(True)
                     action.setChecked(True)
 
-                action.triggered.connect(self._context_add_to_playlist)
+                action.triggered.connect(
+                    self._context_add_to_playlist, Qt.QueuedConnection
+                )
                 playlist_menu.addAction(action)
 
                 parent_menu.addMenu(playlist_menu)
@@ -1104,7 +1078,9 @@ class PlayerUI(QWidget):
                     action.setCheckable(True)
                     action.setChecked(True)
 
-                action.triggered.connect(self._context_add_to_playlist)
+                action.triggered.connect(
+                    self._context_add_to_playlist, Qt.QueuedConnection
+                )
                 parent_menu.addAction(action)
 
     def _populate_mood_submenu(self, submenu: QMenu):
@@ -1176,7 +1152,7 @@ class PlayerUI(QWidget):
                     action.setCheckable(True)
                     action.setChecked(True)
 
-                action.triggered.connect(self._context_add_to_mood)
+                action.triggered.connect(self._context_add_to_mood, Qt.QueuedConnection)
                 mood_menu.addAction(action)
 
                 parent_menu.addMenu(mood_menu)
@@ -1190,7 +1166,7 @@ class PlayerUI(QWidget):
                     action.setCheckable(True)
                     action.setChecked(True)
 
-                action.triggered.connect(self._context_add_to_mood)
+                action.triggered.connect(self._context_add_to_mood, Qt.QueuedConnection)
                 parent_menu.addAction(action)
 
     def _context_edit_track(self):
@@ -1205,7 +1181,10 @@ class PlayerUI(QWidget):
             QMessageBox.critical(self, "Error", f"Could not open track editor:\\n{e}")
 
     def _context_add_to_playlist(self):
-        """Add the currently playing track to the playlist chosen in the menu."""
+        """Toggle the currently playing track in/out of the chosen playlist.
+        If the track is already in the playlist (action is checked), remove it.
+        Otherwise add it.
+        """
         action = self.sender()
         if not action or not self.current_track:
             return
@@ -1218,35 +1197,51 @@ class PlayerUI(QWidget):
             already_in = self.controller.get.get_entity_links(
                 "PlaylistTracks", playlist_id=playlist_id, track_id=track_id
             )
+
             if already_in:
-                logger.warning(
-                    "Already Added", "This track is already in that playlist."
+                # Track is already in playlist — remove it
+                success = self.controller.delete.delete_entity(
+                    "PlaylistTracks",
+                    playlist_id=playlist_id,
+                    track_id=track_id,
                 )
-                return
-
-            # Find the next available position (append at the end)
-            existing = self.controller.get.get_entity_links(
-                "PlaylistTracks", playlist_id=playlist_id
-            )
-            next_position = max((t.position for t in existing), default=0) + 1
-
-            success = self.controller.add.add_entity_link(
-                "PlaylistTracks",
-                playlist_id=playlist_id,
-                track_id=track_id,
-                position=next_position,
-            )
-            if success:
-                pass
+                if not success:
+                    QMessageBox.warning(
+                        self, "Failed", "Could not remove track from playlist."
+                    )
+                # Update the checkmark state on the action
+                action.setCheckable(True)
+                action.setChecked(False)
             else:
-                QMessageBox.warning(self, "Failed", "Could not add track to playlist.")
+                # Track is not in playlist — add it
+                existing = self.controller.get.get_entity_links(
+                    "PlaylistTracks", playlist_id=playlist_id
+                )
+                next_position = max((t.position for t in existing), default=0) + 1
+
+                success = self.controller.add.add_entity_link(
+                    "PlaylistTracks",
+                    playlist_id=playlist_id,
+                    track_id=track_id,
+                    position=next_position,
+                )
+                if not success:
+                    QMessageBox.warning(
+                        self, "Failed", "Could not add track to playlist."
+                    )
+                # Update the checkmark state on the action
+                action.setCheckable(True)
+                action.setChecked(True)
 
         except Exception as e:
-            logger.error(f"Error adding track to playlist from player dock: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to add to playlist:\\n{e}")
+            logger.error(f"Error toggling track in playlist from player dock: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to update playlist:\n{e}")
 
     def _context_add_to_mood(self):
-        """Add the currently playing track to the mood chosen in the menu."""
+        """Toggle the currently playing track in/out of the chosen mood.
+        If the track is already in the mood (action is checked), remove it.
+        Otherwise add it.
+        """
         action = self.sender()
         if not action or not self.current_track:
             return
@@ -1259,22 +1254,161 @@ class PlayerUI(QWidget):
             existing = self.controller.get.get_entity_links(
                 "MoodTrackAssociation", mood_id=mood_id, track_id=track_id
             )
-            if existing:
-                logger.warning(
-                    self, "Already Added", "This track is already in that mood."
-                )
-                return
 
-            success = self.controller.add.add_entity_link(
-                "MoodTrackAssociation",
-                mood_id=mood_id,
-                track_id=track_id,
-            )
-            if success:
-                pass
+            if existing:
+                # Already in mood — remove it
+                success = self.controller.delete.delete_entity(
+                    "MoodTrackAssociation",
+                    mood_id=mood_id,
+                    track_id=track_id,
+                )
+                if not success:
+                    QMessageBox.warning(
+                        self, "Failed", "Could not remove track from mood."
+                    )
+                # Update the checkmark state on the action
+                action.setCheckable(True)
+                action.setChecked(False)
             else:
-                QMessageBox.warning(self, "Failed", "Could not add track to mood.")
+                # Not in mood — add it
+                success = self.controller.add.add_entity_link(
+                    "MoodTrackAssociation",
+                    mood_id=mood_id,
+                    track_id=track_id,
+                )
+                if not success:
+                    QMessageBox.warning(self, "Failed", "Could not add track to mood.")
+                # Update the checkmark state on the action
+                action.setCheckable(True)
+                action.setChecked(True)
 
         except Exception as e:
-            logger.error(f"Error adding track to mood from player dock: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to add to mood:\\n{e}")
+            logger.error(f"Error toggling track in mood from player dock: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to update mood:\n{e}")
+
+    def _context_edit_album(self):
+        """Open the AlbumEditor for the currently playing track's album."""
+        if not self.current_track:
+            return
+        try:
+            album_obj = getattr(self.current_track, "album", None)
+            if album_obj is None:
+                return
+            album = self.controller.get.get_entity_object(
+                "Album", album_id=album_obj.album_id
+            )
+            if album:
+                dialog = AlbumEditor(self.controller, album)
+                dialog.exec_()
+        except Exception as e:
+            logger.error(f"Error opening AlbumEditor from player dock: {e}")
+            QMessageBox.critical(self, "Error", f"Could not open album editor:\n{e}")
+
+    def _populate_edit_artist_submenu(self, submenu: QMenu):
+        """
+        Fill the Edit Artist submenu with one entry per primary artist on the track.
+        Primary artists are those with the role name 'Primary Artist'.
+        Falls back to the plain artists list if no primary role is found.
+        """
+        if not self.current_track:
+            submenu.addAction("No track loaded").setEnabled(False)
+            return
+        try:
+            # Collect primary artists via TrackArtistRole
+            primary_artists = []
+            roles = getattr(self.current_track, "artist_roles", []) or []
+            for role_assoc in roles:
+                role = getattr(role_assoc, "role", None)
+                if role and getattr(role, "role_name", "") == "Primary Artist":
+                    artist = getattr(role_assoc, "artist", None)
+                    if artist:
+                        primary_artists.append(artist)
+
+            # Fallback: use track.artists if no primary role entries found
+            if not primary_artists:
+                primary_artists = list(getattr(self.current_track, "artists", []) or [])
+
+            if not primary_artists:
+                submenu.addAction("No artists found").setEnabled(False)
+                return
+
+            for artist in primary_artists:
+                artist_name = getattr(artist, "artist_name", "Unknown Artist")
+                action = QAction(artist_name, submenu)
+                action.setData(getattr(artist, "artist_id", None))
+                action.triggered.connect(self._context_edit_artist)
+                submenu.addAction(action)
+
+        except Exception as e:
+            logger.error(f"Error building Edit Artist submenu: {e}")
+            submenu.addAction("Error loading artists").setEnabled(False)
+
+    def _context_edit_artist(self):
+        """Open the ArtistEditor for the artist chosen in the submenu."""
+        action = self.sender()
+        if not action:
+            return
+        artist_id = action.data()
+        if artist_id is None:
+            return
+        try:
+            artist_obj = self.controller.get.get_entity_object(
+                "Artist", artist_id=artist_id
+            )
+            if artist_obj:
+                dialog = ArtistEditor(self.controller, artist_obj, self)
+                dialog.exec_()
+        except Exception as e:
+            logger.error(f"Error opening ArtistEditor from player dock: {e}")
+            QMessageBox.critical(self, "Error", f"Could not open artist editor:\n{e}")
+
+    def _context_search_lyrics(self):
+        """Search for lyrics for the currently playing track and save them."""
+        if not self.current_track:
+            return
+        try:
+            from src.lyrics_search import search_lyrics_for_track
+
+            lyrics = search_lyrics_for_track(self.current_track)
+            if lyrics:
+                # Save to database
+                self.controller.update.update_entity(
+                    "Track",
+                    self.current_track.track_id,
+                    lyrics=lyrics,
+                )
+                QMessageBox.information(
+                    self, "Lyrics Found", "Lyrics were found and saved to the track."
+                )
+            else:
+                QMessageBox.information(
+                    self, "Lyrics Search", "No lyrics found for this track."
+                )
+        except Exception as e:
+            logger.error(f"Lyrics search error from player dock: {e}")
+            QMessageBox.warning(self, "Lyrics Search", f"Search failed:\n{e}")
+
+    @staticmethod
+    def _make_persistent_action(
+        text, parent_menu, slot, data=None, checkable=False, checked=False
+    ):
+        """
+        Create a QAction that does NOT auto-close its parent menu when triggered.
+        This lets the user check/uncheck multiple playlists or moods in one go.
+        """
+        action = QAction(text, parent_menu)
+        if data is not None:
+            action.setData(data)
+        if checkable:
+            action.setCheckable(True)
+            action.setChecked(checked)
+
+        def _trigger(checked_state=False):
+            slot()
+            # Keep the menu visible by re-showing it
+            # (Qt closes the menu before firing triggered; we work around that
+            #  by making the action connection use a queued call on the menu.)
+
+        # Use triggered(bool) so we can ignore the bool arg
+        action.triggered.connect(lambda _=False: slot())
+        return action

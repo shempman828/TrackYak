@@ -21,8 +21,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.album_delete_dialog import DeleteEmptyAlbumsDialog
-from src.album_detail import AlbumDetailView
 from src.album_flowlayout import FlowLayout
+from src.base_album_edit import AlbumEditor
 from src.base_album_widget import AlbumWidget
 from src.logger_config import logger
 
@@ -662,7 +662,7 @@ class AlbumView(QWidget):
         dialog.setMinimumSize(800, 600)
 
         layout = QVBoxLayout(dialog)
-        detail_view = AlbumDetailView(album, self.controller, editable=True)
+        detail_view = AlbumEditor(self.controller, album, self)
         layout.addWidget(detail_view)
 
         btn_box = QDialogButtonBox(QDialogButtonBox.Close)

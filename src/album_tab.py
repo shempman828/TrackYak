@@ -24,7 +24,7 @@ class AlbumTabBuilder:
     def __init__(self, album_view):
         self.view = album_view
         self.album = album_view.album
-        self.editable = album_view.editable
+
         self.controller = album_view.controller
         self.helper = album_view.helper
 
@@ -35,14 +35,10 @@ class AlbumTabBuilder:
         layout.setVerticalSpacing(10)
 
         # Description
-        if self.editable:
-            desc_widget = self.view.field_widgets.get("album_description", QLineEdit())
-            desc_widget.setText(self.album.album_description or "")
-            layout.addRow("Description:", desc_widget)
-        elif self.album.album_description:
-            desc_label = QLabel(self.album.album_description)
-            desc_label.setWordWrap(True)
-            layout.addRow("Description:", desc_label)
+
+        desc_widget = self.view.field_widgets.get("album_description", QLineEdit())
+        desc_widget.setText(self.album.album_description or "")
+        layout.addRow("Description:", desc_widget)
 
         # Technical fields
         self._add_metadata_fields(layout)
@@ -71,10 +67,9 @@ class AlbumTabBuilder:
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        if self.editable:
-            add_btn = QPushButton("Add Album Award")
-            add_btn.clicked.connect(self.helper.add_album_award)
-            layout.addWidget(add_btn)
+        add_btn = QPushButton("Add Album Award")
+        add_btn.clicked.connect(self.helper.add_album_award)
+        layout.addWidget(add_btn)
 
         awards_content = self._build_awards_list()
         layout.addWidget(awards_content)
@@ -87,10 +82,9 @@ class AlbumTabBuilder:
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        if self.editable:
-            add_btn = QPushButton("Add Artist Credit")
-            add_btn.clicked.connect(self.helper.add_artist_credit)
-            layout.addWidget(add_btn)
+        add_btn = QPushButton("Add Artist Credit")
+        add_btn.clicked.connect(self.helper.add_artist_credit)
+        layout.addWidget(add_btn)
 
         artists_content = self._build_artists_list()
         layout.addWidget(artists_content)
@@ -116,29 +110,19 @@ class AlbumTabBuilder:
             gain_widget = self.view.field_widgets.get(
                 "album_gain", QLabel(f"{self.album.album_gain:.2f} dB")
             )
-            if self.editable:
-                gain_widget.setText(f"{self.album.album_gain:.2f}")
-                layout.addRow("Album Gain:", gain_widget)
-            else:
-                layout.addRow("Album Gain:", QLabel(f"{self.album.album_gain:.2f} dB"))
+
+            gain_widget.setText(f"{self.album.album_gain:.2f}")
+            layout.addRow("Album Gain:", gain_widget)
 
         # Track count (read-only)
         actual_track_count = len(self.album.tracks) if self.album.tracks else 0
         layout.addRow("Track Count:", QLabel(str(actual_track_count)))
 
         # Wikipedia link
-        if self.editable:
-            wiki_widget = self.view.field_widgets.get(
-                "album_wikipedia_link", QLineEdit()
-            )
-            wiki_widget.setText(self.album.album_wikipedia_link or "")
-            layout.addRow("Wikipedia:", wiki_widget)
-        elif self.album.album_wikipedia_link:
-            wiki_label = QLabel(
-                f'<a href="{self.album.album_wikipedia_link}">Wikipedia Page</a>'
-            )
-            wiki_label.setOpenExternalLinks(True)
-            layout.addRow("Wikipedia:", wiki_label)
+
+        wiki_widget = self.view.field_widgets.get("album_wikipedia_link", QLineEdit())
+        wiki_widget.setText(self.album.album_wikipedia_link or "")
+        layout.addRow("Wikipedia:", wiki_widget)
 
         # Additional metadata fields
         metadata_fields = ["album_language", "MBID", "status"]
@@ -148,21 +132,17 @@ class AlbumTabBuilder:
                 continue
 
             current_value = getattr(self.album, field_name, None)
-            if current_value or self.editable:
-                if self.editable:
-                    widget = self.view.field_widgets.get(field_name)
-                    if widget and current_value is not None:
-                        if isinstance(widget, (QLineEdit, QTextEdit)):
-                            widget.setText(str(current_value))
-                        elif isinstance(widget, QSpinBox):
-                            widget.setValue(int(current_value))
-                        elif isinstance(widget, QCheckBox):
-                            widget.setChecked(bool(current_value))
-                    layout.addRow(f"{field_config.friendly}:", widget or QLineEdit())
-                elif current_value:
-                    layout.addRow(
-                        f"{field_config.friendly}:", QLabel(str(current_value))
-                    )
+            widget = self.view.field_widgets.get(field_name)
+            if widget and current_value is not None:
+                if isinstance(widget, (QLineEdit, QTextEdit)):
+                    widget.setText(str(current_value))
+                elif isinstance(widget, QSpinBox):
+                    widget.setValue(int(current_value))
+                elif isinstance(widget, QCheckBox):
+                    widget.setChecked(bool(current_value))
+                layout.addRow(f"{field_config.friendly}:", widget or QLineEdit())
+            elif current_value:
+                layout.addRow(f"{field_config.friendly}:", QLabel(str(current_value)))
 
     def _build_publishers_section(self):
         """Build publishers section"""
@@ -183,23 +163,21 @@ class AlbumTabBuilder:
                     widget_layout = QHBoxLayout(widget)
                     widget_layout.addWidget(QLabel(publisher.publisher_name))
 
-                    if self.editable:
-                        remove_btn = QPushButton("Remove")
-                        remove_btn.clicked.connect(
-                            lambda checked, ap=album_publisher: (
-                                self.helper.remove_publisher(ap)
-                            )
+                    remove_btn = QPushButton("Remove")
+                    remove_btn.clicked.connect(
+                        lambda checked, ap=album_publisher: (
+                            self.helper.remove_publisher(ap)
                         )
-                        widget_layout.addWidget(remove_btn)
+                    )
+                    widget_layout.addWidget(remove_btn)
 
                     layout.addWidget(widget)
         else:
             layout.addWidget(QLabel("No publishers associated"))
 
-        if self.editable:
-            add_btn = QPushButton("Add Publisher")
-            add_btn.clicked.connect(self.helper.add_publisher)
-            layout.addWidget(add_btn)
+        add_btn = QPushButton("Add Publisher")
+        add_btn.clicked.connect(self.helper.add_publisher)
+        layout.addWidget(add_btn)
 
         return group
 
@@ -222,23 +200,21 @@ class AlbumTabBuilder:
                     place_text = f"{place.place_name} ({association.association_type})"
                     widget_layout.addWidget(QLabel(place_text))
 
-                    if self.editable:
-                        remove_btn = QPushButton("Remove")
-                        remove_btn.clicked.connect(
-                            lambda checked, a=association: (
-                                self.helper.remove_place_association(a)
-                            )
+                    remove_btn = QPushButton("Remove")
+                    remove_btn.clicked.connect(
+                        lambda checked, a=association: (
+                            self.helper.remove_place_association(a)
                         )
-                        widget_layout.addWidget(remove_btn)
+                    )
+                    widget_layout.addWidget(remove_btn)
 
                     layout.addWidget(widget)
         else:
             layout.addWidget(QLabel("No place associations"))
 
-        if self.editable:
-            add_btn = QPushButton("Add Place Association")
-            add_btn.clicked.connect(self.helper.add_place_association)
-            layout.addWidget(add_btn)
+        add_btn = QPushButton("Add Place Association")
+        add_btn.clicked.connect(self.helper.add_place_association)
+        layout.addWidget(add_btn)
 
         return group
 
@@ -317,14 +293,12 @@ class AlbumTabBuilder:
                 layout.addWidget(desc_label)
 
             # Remove button
-            if self.editable:
-                remove_btn = QPushButton("Remove Award")
-                remove_btn.clicked.connect(
-                    lambda checked, a=award: self.helper.remove_album_award_association(
-                        a
-                    )
-                )
-                layout.addWidget(remove_btn)
+
+            remove_btn = QPushButton("Remove Award")
+            remove_btn.clicked.connect(
+                lambda checked, a=award: self.helper.remove_album_award_association(a)
+            )
+            layout.addWidget(remove_btn)
 
         except Exception as e:
             logger.error(f"Error displaying award {award}: {e}")
@@ -362,14 +336,11 @@ class AlbumTabBuilder:
                 artist_layout = QHBoxLayout(artist_widget)
                 artist_layout.addWidget(QLabel(artist_name))
 
-                if self.editable:
-                    remove_btn = QPushButton("Remove")
-                    remove_btn.clicked.connect(
-                        lambda checked, ra=role_assoc: self.helper.remove_artist_credit(
-                            ra
-                        )
-                    )
-                    artist_layout.addWidget(remove_btn)
+                remove_btn = QPushButton("Remove")
+                remove_btn.clicked.connect(
+                    lambda checked, ra=role_assoc: self.helper.remove_artist_credit(ra)
+                )
+                artist_layout.addWidget(remove_btn)
 
                 role_layout.addWidget(artist_widget)
 

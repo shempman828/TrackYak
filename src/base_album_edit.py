@@ -1,888 +1,526 @@
 """
-Controller pattern: self.controller.get.get_entity_object("Album", **kwargs)
-self.controller.get.get_all_entities
-self.controller.update.update_entity("Album", self.album.album_id, **kwargs)
-Tabs: Basic, track list, artwork, artist credits, publishers places & awards, advanced
-"""
+Unified Album Editor combining the best features of base_album_edit and album_detail.
 
-from datetime import datetime
+This module provides a comprehensive QDialog for editing all album metadata using:
+- ALBUM_FIELDS mapping for maintainable field definitions
+- RelationshipHelpers for managing artists, publishers, places, and awards
+- AlbumTabBuilder for organized tab structure
+- DiscManagementView for track management
+- Proper save/refresh functionality
+
+Controller pattern:
+    self.controller.get.get_entity_object("Album", **kwargs)
+    self.controller.get.get_all_entities("Entity", **filters)
+    self.controller.update.update_entity("Album", album_id, **kwargs)
+"""
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
+    QApplication,
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
-    QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
     QPushButton,
-    QSpinBox,
-    QTableWidget,
-    QTableWidgetItem,
+    QScrollArea,
     QTabWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from src.base_track_view import BaseTrackView
+from src.album_components import AlbumUIComponents
+from src.album_editing_relationship_helpers import RelationshipHelpers
+from src.album_tab import AlbumTabBuilder
+from src.db_mapping_albums import ALBUM_FIELDS
+from src.disc_view import DiscManagementView
 from src.logger_config import logger
 
 
 class AlbumEditor(QDialog):
-    """QDialog to edit all album metadata with tabs for each section"""
+    """
+    Comprehensive album editor dialog with tabbed interface.
 
-    def __init__(self, controller, album):
-        super().__init__()
-        self.controller = controller  # grants access to db
-        self.album = album  # Album ORM object
+    Features:
+    - Metadata editing using ALBUM_FIELDS mapping
+    - Track management via DiscManagementView
+    - Artist, publisher, place, and award relationships
+    - Cover art management
+    - Statistics and advanced settings
+    """
 
+    def __init__(self, controller, album, parent=None):
+        super().__init__(parent)
+        self.controller = controller
+        self.album = album
+
+        # Initialize helpers
+        self.helper = RelationshipHelpers(controller, album, self.refresh_view)
+        self.field_widgets = {}
+        self.tab_builder = AlbumTabBuilder(self)
+
+        # UI setup
         self.setWindowTitle(f"Edit Album: {album.album_name}")
         self.setMinimumSize(1000, 700)
 
+        self.init_editable_widgets()
         self.init_ui()
-        self.load_album_data()
         self.setup_connections()
 
-    def init_ui(self):
-        """Initialize the UI with tabs"""
-        main_layout = QVBoxLayout(self)
+    def init_editable_widgets(self):
+        """Initialize editable widgets based on ALBUM_FIELDS mapping"""
+        for field_name, field_config in ALBUM_FIELDS.items():
+            if not field_config.editable:
+                continue
 
-        # Title
+            current_value = getattr(self.album, field_name, None)
+            self.field_widgets[field_name] = AlbumUIComponents.create_editable_field(
+                field_config, current_value
+            )
+
+    def init_ui(self):
+        """Initialize the main UI with scrollable content and tabs"""
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(15)
+
+        # Header with title
         title_label = QLabel(f"Editing: {self.album.album_name}")
         title_label.setStyleSheet("font-size: 16px; font-weight: bold;")
         main_layout.addWidget(title_label)
 
-        # Tab widget
-        self.tab_widget = QTabWidget()
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
 
-        # Create tabs
-        self.basic_tab = self.create_basic_tab()
-        self.tracklist_tab = self.create_tracklist_tab()
-        self.artwork_tab = self.create_artwork_tab()
-        self.artists_tab = self.create_artists_tab()
-        self.publishers_tab = self.create_publishers_tab()
-        self.places_tab = self.create_places_tab()
-        self.awards_tab = self.create_awards_tab()
-        self.advanced_tab = self.create_advanced_tab()
+        # Main content widget
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setSpacing(20)
 
-        # Add tabs
-        self.tab_widget.addTab(self.basic_tab, "Basic")
-        self.tab_widget.addTab(self.tracklist_tab, "Track List")
-        self.tab_widget.addTab(self.artwork_tab, "Artwork")
-        self.tab_widget.addTab(self.artists_tab, "Artist Credits")
-        self.tab_widget.addTab(self.publishers_tab, "Publishers")
-        self.tab_widget.addTab(self.places_tab, "Places")
-        self.tab_widget.addTab(self.awards_tab, "Awards")
-        self.tab_widget.addTab(self.advanced_tab, "Advanced")
+        # Header section with cover and basic info
+        content_layout.addWidget(self.create_header_section())
 
-        main_layout.addWidget(self.tab_widget)
+        # Tab widget for detailed sections
+        tabs = QTabWidget()
+        tabs.addTab(self.create_metadata_tab(), "Metadata")
+        tabs.addTab(self.create_tracks_tab(), "Tracks")
+        tabs.addTab(self.create_artwork_tab(), "Artwork")
+        tabs.addTab(self.tab_builder.build_artists_tab(), "Artist Credits")
+        tabs.addTab(self.tab_builder.build_relationships_tab(), "Publishers & Places")
+        tabs.addTab(self.tab_builder.build_awards_tab(), "Awards")
+        tabs.addTab(self.create_advanced_tab(), "Advanced")
 
-        # Buttons
-        button_layout = QHBoxLayout()
+        content_layout.addWidget(tabs)
+        content_layout.addStretch()
 
-        self.save_button = QPushButton("Save")
-        self.save_button.setStyleSheet("background-color: #4CAF50; color: white;")
-        self.save_button.clicked.connect(self.save_album)
+        scroll_area.setWidget(content_widget)
+        main_layout.addWidget(scroll_area)
 
-        self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.setStyleSheet("background-color: #f44336; color: white;")
-        self.cancel_button.clicked.connect(self.reject)
+        # Dialog buttons
+        self.add_dialog_buttons(main_layout)
 
-        self.refresh_button = QPushButton("Refresh")
-        self.refresh_button.clicked.connect(self.refresh_data)
-
-        button_layout.addStretch()
-        button_layout.addWidget(self.refresh_button)
-        button_layout.addWidget(self.cancel_button)
-        button_layout.addWidget(self.save_button)
-
-        main_layout.addLayout(button_layout)
-
-    def create_basic_tab(self):
-        """Create the basic information tab"""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-
-        # Album info group
-        info_group = QGroupBox("Album Information")
-        info_layout = QFormLayout()
-
-        self.title_edit = QLineEdit()
-        self.subtitle_edit = QLineEdit()
-        self.language_combo = QComboBox()
-        self.language_combo.addItems(
-            ["English", "Japanese", "Spanish", "French", "German", "Other"]
+        # Size the dialog appropriately
+        self.adjustSize()
+        self.resize(
+            self.sizeHint().boundedTo(
+                QApplication.primaryScreen().availableGeometry().size() * 0.9
+            )
         )
 
-        self.release_type_combo = QComboBox()
-        self.release_type_combo.addItems(
-            [
-                "Album",
-                "Single",
-                "EP",
-                "Compilation",
-                "Live",
-                "Soundtrack",
-                "Remix",
-                "Demo",
-                "Mixtape",
-                "Other",
-            ]
-        )
+    def create_header_section(self):
+        """Create the header section with album cover and title"""
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setSpacing(20)
 
-        self.description_edit = QTextEdit()
-        self.description_edit.setMaximumHeight(100)
+        # Album cover
+        cover_widget = self.create_cover_section()
+        header_layout.addWidget(cover_widget)
 
-        self.catalog_edit = QLineEdit()
-        self.mbid_edit = QLineEdit()
+        # Basic info preview
+        info_widget = self.create_info_preview()
+        header_layout.addWidget(info_widget, 1)
 
-        info_layout.addRow("Title:", self.title_edit)
-        info_layout.addRow("Subtitle:", self.subtitle_edit)
-        info_layout.addRow("Language:", self.language_combo)
-        info_layout.addRow("Release Type:", self.release_type_combo)
-        info_layout.addRow("Catalog #:", self.catalog_edit)
-        info_layout.addRow("MBID:", self.mbid_edit)
-        info_layout.addRow("Description:", self.description_edit)
+        return header_widget
 
-        info_group.setLayout(info_layout)
-        layout.addWidget(info_group)
+    def create_cover_section(self):
+        """Create the album cover display and change button"""
+        cover_widget = QWidget()
+        layout = QVBoxLayout(cover_widget)
+        layout.setAlignment(Qt.AlignTop)
 
-        # Release date group
-        date_group = QGroupBox("Release Date")
-        date_layout = QHBoxLayout()
+        # Album cover image
+        self.cover_label = QLabel()
+        self.cover_label.setAlignment(Qt.AlignCenter)
+        self.cover_label.setFixedSize(200, 200)
+        self.cover_label.setStyleSheet("border: 1px solid #ccc; background: #f0f0f0;")
+        self.load_album_cover()
+        layout.addWidget(self.cover_label)
 
-        self.year_spin = QSpinBox()
-        self.year_spin.setRange(1800, datetime.now().year)
-        self.year_spin.setSpecialValueText("Year")
+        # Change cover button
+        change_btn = QPushButton("Change Cover")
+        change_btn.clicked.connect(self.change_front_cover)
+        layout.addWidget(change_btn)
 
-        self.month_spin = QSpinBox()
-        self.month_spin.setRange(0, 12)
-        self.month_spin.setSpecialValueText("Month")
-        self.month_spin.setPrefix("")
+        return cover_widget
 
-        self.day_spin = QSpinBox()
-        self.day_spin.setRange(0, 31)
-        self.day_spin.setSpecialValueText("Day")
-        self.day_spin.setPrefix("")
+    def create_info_preview(self):
+        """Create a preview of basic album info"""
+        info_widget = QWidget()
+        layout = QVBoxLayout(info_widget)
+        layout.setSpacing(10)
 
-        date_layout.addWidget(QLabel("Year:"))
-        date_layout.addWidget(self.year_spin)
-        date_layout.addStretch()
-        date_layout.addWidget(QLabel("Month:"))
-        date_layout.addWidget(self.month_spin)
-        date_layout.addStretch()
-        date_layout.addWidget(QLabel("Day:"))
-        date_layout.addWidget(self.day_spin)
+        # Album title
+        title_widget = self.field_widgets.get("album_name")
+        if title_widget:
+            title_widget.setStyleSheet("font-size: 18px; font-weight: bold;")
+            layout.addWidget(title_widget)
 
-        date_group.setLayout(date_layout)
-        layout.addWidget(date_group)
+        # Artist name (if available)
+        if hasattr(self.album, "album_artists") and self.album.album_artists:
+            artist_names = ", ".join(
+                [artist.artist_name for artist in self.album.album_artists[:3]]
+            )
+            if len(self.album.album_artists) > 3:
+                artist_names += "..."
+            artist_label = QLabel(f"by {artist_names}")
+            artist_label.setStyleSheet("font-size: 14px; color: #666;")
+            layout.addWidget(artist_label)
 
-        # Flags group
-        flags_group = QGroupBox("Album Flags")
-        flags_layout = QVBoxLayout()
-
-        self.live_checkbox = QCheckBox("Live Recording")
-        self.compilation_checkbox = QCheckBox("Compilation")
-        self.fixed_checkbox = QCheckBox("Metadata Fixed")
-
-        flags_layout.addWidget(self.live_checkbox)
-        flags_layout.addWidget(self.compilation_checkbox)
-        flags_layout.addWidget(self.fixed_checkbox)
-
-        flags_group.setLayout(flags_layout)
-        layout.addWidget(flags_group)
+        # Release year
+        year_widget = self.field_widgets.get("release_year")
+        if year_widget:
+            year_layout = QHBoxLayout()
+            year_layout.addWidget(QLabel("Release Year:"))
+            year_layout.addWidget(year_widget)
+            year_layout.addStretch()
+            layout.addLayout(year_layout)
 
         layout.addStretch()
-        return tab
+        return info_widget
 
-    def create_tracklist_tab(self):
-        """Create the tracklist tab using BaseTrackView"""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
+    def create_metadata_tab(self):
+        """Create the metadata tab using ALBUM_FIELDS mapping"""
+        return self.tab_builder.build_metadata_tab()
 
-        # Get tracks for this album
-        tracks = self.controller.get.get_all_entities(
-            "Track", album_id=self.album.album_id
-        )
+    def create_tracks_tab(self):
+        """Create the tracks tab with DiscManagementView"""
+        tracks_widget = QWidget()
+        layout = QVBoxLayout(tracks_widget)
+        layout.setContentsMargins(10, 10, 10, 10)
 
-        # Header with track count
-        header_layout = QHBoxLayout()
-        self.track_count_label = QLabel(f"Tracks: {len(tracks)}")
-        self.total_duration_label = QLabel(
-            f"Total Duration: {self.format_duration(self.album.total_duration)}"
-        )
+        # Header
+        header_label = QLabel("Album Tracks")
+        header_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        layout.addWidget(header_label)
 
-        header_layout.addWidget(self.track_count_label)
-        header_layout.addStretch()
-        header_layout.addWidget(self.total_duration_label)
+        # Disc management view
+        try:
+            self.disc_view = DiscManagementView(
+                self.album, self.controller, editable=True
+            )
+            layout.addWidget(self.disc_view)
+        except Exception as e:
+            logger.error(f"Error creating DiscManagementView: {e}")
+            error_label = QLabel("Error loading track view. See logs for details.")
+            error_label.setStyleSheet("color: red;")
+            layout.addWidget(error_label)
 
-        layout.addLayout(header_layout)
-
-        # Create BaseTrackView for displaying tracks
-        self.track_view = BaseTrackView(
-            controller=self.controller,
-            tracks=tracks,
-            title=f"Tracks - {self.album.album_name}",
-            enable_drag=True,
-            enable_drop=True,
-        )
-
-        # Remove the dialog wrapping and just use the widget
-        self.track_view.setParent(tab)
-        self.track_view.setWindowFlags(Qt.Widget)  # Make it a regular widget
-
-        layout.addWidget(self.track_view)
-
-        # Track management buttons
-        button_layout = QHBoxLayout()
-
-        self.add_track_button = QPushButton("Add Track")
-        self.add_track_button.clicked.connect(self.add_track)
-
-        self.edit_track_button = QPushButton("Edit Selected")
-        self.edit_track_button.clicked.connect(self.edit_selected_track)
-
-        self.remove_track_button = QPushButton("Remove Selected")
-        self.remove_track_button.clicked.connect(self.remove_selected_tracks)
-
-        self.refresh_tracks_button = QPushButton("Refresh List")
-        self.refresh_tracks_button.clicked.connect(self.refresh_tracklist)
-
-        button_layout.addWidget(self.add_track_button)
-        button_layout.addWidget(self.edit_track_button)
-        button_layout.addWidget(self.remove_track_button)
-        button_layout.addStretch()
-        button_layout.addWidget(self.refresh_tracks_button)
-
-        layout.addLayout(button_layout)
-
-        return tab
+        return tracks_widget
 
     def create_artwork_tab(self):
-        """Create the artwork tab"""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
+        """Create the artwork tab for managing cover images"""
+        artwork_widget = QWidget()
+        layout = QVBoxLayout(artwork_widget)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(15)
 
-        # Front cover
-        front_group = QGroupBox("Front Cover")
-        front_layout = QVBoxLayout()
+        # Front cover section
+        front_group = QWidget()
+        front_layout = QVBoxLayout(front_group)
+        front_layout.addWidget(QLabel("Front Cover"))
 
-        self.front_cover_label = QLabel("No image selected")
-        self.front_cover_label.setAlignment(Qt.AlignCenter)
-        self.front_cover_label.setMinimumHeight(200)
-        self.front_cover_label.setStyleSheet(
-            "border: 1px solid #ccc; background-color: #f0f0f0;"
+        self.front_cover_display = QLabel()
+        self.front_cover_display.setAlignment(Qt.AlignCenter)
+        self.front_cover_display.setFixedSize(300, 300)
+        self.front_cover_display.setStyleSheet(
+            "border: 1px solid #ccc; background: #f0f0f0;"
         )
+        front_layout.addWidget(self.front_cover_display)
 
-        self.front_cover_path_edit = QLineEdit()
-        self.front_cover_browse_button = QPushButton("Browse...")
-        self.front_cover_browse_button.clicked.connect(
-            lambda: self.browse_image("front")
-        )
+        front_btn_layout = QHBoxLayout()
+        change_front_btn = QPushButton("Change Front Cover")
+        change_front_btn.clicked.connect(self.change_front_cover)
+        clear_front_btn = QPushButton("Clear")
+        clear_front_btn.clicked.connect(lambda: self.clear_cover("front"))
+        front_btn_layout.addWidget(change_front_btn)
+        front_btn_layout.addWidget(clear_front_btn)
+        front_layout.addLayout(front_btn_layout)
 
-        front_button_layout = QHBoxLayout()
-        front_button_layout.addWidget(self.front_cover_path_edit)
-        front_button_layout.addWidget(self.front_cover_browse_button)
-
-        front_layout.addWidget(self.front_cover_label)
-        front_layout.addLayout(front_button_layout)
-        front_group.setLayout(front_layout)
         layout.addWidget(front_group)
 
-        # Rear cover
-        rear_group = QGroupBox("Rear Cover")
-        rear_layout = QVBoxLayout()
+        # Rear cover section
+        rear_group = QWidget()
+        rear_layout = QVBoxLayout(rear_group)
+        rear_layout.addWidget(QLabel("Rear Cover"))
 
-        self.rear_cover_label = QLabel("No image selected")
-        self.rear_cover_label.setAlignment(Qt.AlignCenter)
-        self.rear_cover_label.setMinimumHeight(200)
-        self.rear_cover_label.setStyleSheet(
-            "border: 1px solid #ccc; background-color: #f0f0f0;"
+        self.rear_cover_display = QLabel()
+        self.rear_cover_display.setAlignment(Qt.AlignCenter)
+        self.rear_cover_display.setFixedSize(300, 300)
+        self.rear_cover_display.setStyleSheet(
+            "border: 1px solid #ccc; background: #f0f0f0;"
         )
+        rear_layout.addWidget(self.rear_cover_display)
 
-        self.rear_cover_path_edit = QLineEdit()
-        self.rear_cover_browse_button = QPushButton("Browse...")
-        self.rear_cover_browse_button.clicked.connect(lambda: self.browse_image("rear"))
+        rear_btn_layout = QHBoxLayout()
+        change_rear_btn = QPushButton("Change Rear Cover")
+        change_rear_btn.clicked.connect(self.change_rear_cover)
+        clear_rear_btn = QPushButton("Clear")
+        clear_rear_btn.clicked.connect(lambda: self.clear_cover("rear"))
+        rear_btn_layout.addWidget(change_rear_btn)
+        rear_btn_layout.addWidget(clear_rear_btn)
+        rear_layout.addLayout(rear_btn_layout)
 
-        rear_button_layout = QHBoxLayout()
-        rear_button_layout.addWidget(self.rear_cover_path_edit)
-        rear_button_layout.addWidget(self.rear_cover_browse_button)
-
-        rear_layout.addWidget(self.rear_cover_label)
-        rear_layout.addLayout(rear_button_layout)
-        rear_group.setLayout(rear_layout)
         layout.addWidget(rear_group)
 
-        # Liner notes
-        liner_group = QGroupBox("Liner Notes")
-        liner_layout = QVBoxLayout()
-
-        self.liner_path_edit = QLineEdit()
-        self.liner_browse_button = QPushButton("Browse PDF/Image...")
-        self.liner_browse_button.clicked.connect(lambda: self.browse_image("liner"))
-
-        liner_button_layout = QHBoxLayout()
-        liner_button_layout.addWidget(self.liner_path_edit)
-        liner_button_layout.addWidget(self.liner_browse_button)
-
-        liner_layout.addLayout(liner_button_layout)
-        liner_group.setLayout(liner_layout)
-        layout.addWidget(liner_group)
+        # Load existing images
+        self.load_artwork_previews()
 
         layout.addStretch()
-        return tab
-
-    def create_artists_tab(self):
-        """Create the artist credits tab"""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-
-        # Album artists section
-        album_artists_group = QGroupBox("Album Artists")
-        album_artists_layout = QVBoxLayout()
-
-        self.album_artists_list = QListWidget()
-
-        # Add/remove buttons for album artists
-        album_buttons_layout = QHBoxLayout()
-        self.add_album_artist_button = QPushButton("Add Artist")
-        self.remove_album_artist_button = QPushButton("Remove Selected")
-
-        album_buttons_layout.addWidget(self.add_album_artist_button)
-        album_buttons_layout.addWidget(self.remove_album_artist_button)
-        album_buttons_layout.addStretch()
-
-        album_artists_layout.addWidget(self.album_artists_list)
-        album_artists_layout.addLayout(album_buttons_layout)
-        album_artists_group.setLayout(album_artists_layout)
-        layout.addWidget(album_artists_group)
-
-        # Track artists section (summary)
-        track_artists_group = QGroupBox("Track Artists Summary")
-        track_artists_layout = QVBoxLayout()
-
-        self.track_artists_table = QTableWidget()
-        self.track_artists_table.setColumnCount(3)
-        self.track_artists_table.setHorizontalHeaderLabels(
-            ["Track", "Primary Artist", "Other Roles"]
-        )
-        self.track_artists_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Stretch
-        )
-
-        track_artists_layout.addWidget(self.track_artists_table)
-        track_artists_group.setLayout(track_artists_layout)
-        layout.addWidget(track_artists_group)
-
-        layout.addStretch()
-        return tab
-
-    def create_publishers_tab(self):
-        """Create the publishers tab"""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-
-        # Publishers list
-        publishers_group = QGroupBox("Publishers")
-        publishers_layout = QVBoxLayout()
-
-        self.publishers_list = QListWidget()
-
-        # Add/remove buttons
-        pub_buttons_layout = QHBoxLayout()
-        self.add_publisher_button = QPushButton("Add Publisher")
-        self.remove_publisher_button = QPushButton("Remove Selected")
-
-        pub_buttons_layout.addWidget(self.add_publisher_button)
-        pub_buttons_layout.addWidget(self.remove_publisher_button)
-        pub_buttons_layout.addStretch()
-
-        publishers_layout.addWidget(self.publishers_list)
-        publishers_layout.addLayout(pub_buttons_layout)
-        publishers_group.setLayout(publishers_layout)
-        layout.addWidget(publishers_group)
-
-        layout.addStretch()
-        return tab
-
-    def create_places_tab(self):
-        """Create the places tab"""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-
-        # Places list
-        places_group = QGroupBox("Associated Places")
-        places_layout = QVBoxLayout()
-
-        self.places_list = QListWidget()
-
-        # Add/remove buttons
-        places_buttons_layout = QHBoxLayout()
-        self.add_place_button = QPushButton("Add Place")
-        self.remove_place_button = QPushButton("Remove Selected")
-
-        places_buttons_layout.addWidget(self.add_place_button)
-        places_buttons_layout.addWidget(self.remove_place_button)
-        places_buttons_layout.addStretch()
-
-        places_layout.addWidget(self.places_list)
-        places_layout.addLayout(places_buttons_layout)
-        places_group.setLayout(places_layout)
-        layout.addWidget(places_group)
-
-        layout.addStretch()
-        return tab
-
-    def create_awards_tab(self):
-        """Create the awards tab"""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-
-        # Awards list
-        awards_group = QGroupBox("Awards & Certifications")
-        awards_layout = QVBoxLayout()
-
-        self.awards_list = QListWidget()
-
-        # Add/remove buttons
-        awards_buttons_layout = QHBoxLayout()
-        self.add_award_button = QPushButton("Add Award")
-        self.remove_award_button = QPushButton("Remove Selected")
-
-        awards_buttons_layout.addWidget(self.add_award_button)
-        awards_buttons_layout.addWidget(self.remove_award_button)
-        awards_buttons_layout.addStretch()
-
-        awards_layout.addWidget(self.awards_list)
-        awards_layout.addLayout(awards_buttons_layout)
-        awards_group.setLayout(awards_layout)
-        layout.addWidget(awards_group)
-
-        # RIAA certification
-        riaa_group = QGroupBox("RIAA Certification")
-        riaa_layout = QVBoxLayout()
-
-        self.sales_spin = QSpinBox()
-        self.sales_spin.setRange(0, 1000000000)
-        self.sales_spin.setSuffix(" units")
-
-        self.certification_label = QLabel("Current: None")
-        self.certification_label.setStyleSheet("font-weight: bold;")
-
-        riaa_layout.addWidget(QLabel("Estimated Sales:"))
-        riaa_layout.addWidget(self.sales_spin)
-        riaa_layout.addWidget(self.certification_label)
-
-        riaa_group.setLayout(riaa_layout)
-        layout.addWidget(riaa_group)
-
-        layout.addStretch()
-        return tab
+        return artwork_widget
 
     def create_advanced_tab(self):
         """Create the advanced settings tab"""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
+        advanced_widget = QWidget()
+        layout = QVBoxLayout(advanced_widget)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(15)
 
-        # Audio properties group
-        audio_group = QGroupBox("Audio Properties")
-        audio_layout = QFormLayout()
+        # ReplayGain section
+        if "album_gain" in self.field_widgets:
+            gain_layout = QHBoxLayout()
+            gain_layout.addWidget(QLabel("Album Gain (dB):"))
+            gain_layout.addWidget(self.field_widgets["album_gain"])
+            gain_layout.addStretch()
+            layout.addLayout(gain_layout)
 
-        self.gain_spin = QSpinBox()
-        self.gain_spin.setRange(-50, 50)
-        self.gain_spin.setSuffix(" dB")
+        if "album_peak" in self.field_widgets:
+            peak_layout = QHBoxLayout()
+            peak_layout.addWidget(QLabel("Album Peak:"))
+            peak_layout.addWidget(self.field_widgets["album_peak"])
+            peak_layout.addStretch()
+            layout.addLayout(peak_layout)
 
-        self.peak_spin = QSpinBox()
-        self.peak_spin.setRange(0, 100)
-        self.peak_spin.setSuffix(" %")
+        # Status field
+        if "status" in self.field_widgets:
+            status_layout = QHBoxLayout()
+            status_layout.addWidget(QLabel("Status:"))
+            status_layout.addWidget(self.field_widgets["status"])
+            status_layout.addStretch()
+            layout.addLayout(status_layout)
 
-        audio_layout.addRow("Album Gain:", self.gain_spin)
-        audio_layout.addRow("Album Peak:", self.peak_spin)
-
-        audio_group.setLayout(audio_layout)
-        layout.addWidget(audio_group)
-
-        # Status group
-        status_group = QGroupBox("Album Status")
-        status_layout = QVBoxLayout()
-
-        self.status_combo = QComboBox()
-        self.status_combo.addItems(
-            [
-                "official",
-                "promotion",
-                "bootleg",
-                "withdrawn",
-                "expunged",
-                "cancelled",
-                "unofficial",
-            ]
-        )
-
-        status_layout.addWidget(self.status_combo)
-        status_group.setLayout(status_layout)
-        layout.addWidget(status_group)
-
-        # Links group
-        links_group = QGroupBox("External Links")
-        links_layout = QFormLayout()
-
-        self.wikipedia_edit = QLineEdit()
-        self.website_edit = QLineEdit()
-
-        links_layout.addRow("Wikipedia:", self.wikipedia_edit)
-        links_layout.addRow("Website:", self.website_edit)
-
-        links_group.setLayout(links_layout)
-        layout.addWidget(links_group)
-
-        # Aliases group
-        aliases_group = QGroupBox("Album Aliases")
-        aliases_layout = QVBoxLayout()
-
-        self.aliases_list = QListWidget()
-
-        aliases_buttons_layout = QHBoxLayout()
-        self.add_alias_button = QPushButton("Add Alias")
-        self.remove_alias_button = QPushButton("Remove Selected")
-
-        aliases_buttons_layout.addWidget(self.add_alias_button)
-        aliases_buttons_layout.addWidget(self.remove_alias_button)
-        aliases_buttons_layout.addStretch()
-
-        aliases_layout.addWidget(self.aliases_list)
-        aliases_layout.addLayout(aliases_buttons_layout)
-        aliases_group.setLayout(aliases_layout)
-        layout.addWidget(aliases_group)
+        # Links section
+        if "album_wikipedia_link" in self.field_widgets:
+            wiki_layout = QHBoxLayout()
+            wiki_layout.addWidget(QLabel("Wikipedia Link:"))
+            wiki_layout.addWidget(self.field_widgets["album_wikipedia_link"])
+            layout.addLayout(wiki_layout)
 
         layout.addStretch()
-        return tab
+        return advanced_widget
 
-    def load_album_data(self):
-        """Load album data into the form"""
-        # Basic info
-        self.title_edit.setText(self.album.album_name or "")
-        self.subtitle_edit.setText(self.album.album_subtitle or "")
+    def add_dialog_buttons(self, layout):
+        """Add Save and Cancel buttons"""
+        button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.save_changes)
+        button_box.rejected.connect(self.reject)
 
-        if self.album.album_language:
-            index = self.language_combo.findText(self.album.album_language)
-            if index >= 0:
-                self.language_combo.setCurrentIndex(index)
+        # Add refresh button
+        refresh_btn = button_box.addButton("Refresh", QDialogButtonBox.ActionRole)
+        refresh_btn.clicked.connect(self.refresh_from_database)
 
-        if self.album.release_type:
-            index = self.release_type_combo.findText(self.album.release_type)
-            if index >= 0:
-                self.release_type_combo.setCurrentIndex(index)
-
-        self.description_edit.setPlainText(self.album.album_description or "")
-        self.catalog_edit.setText(self.album.catalog_number or "")
-        self.mbid_edit.setText(self.album.MBID or "")
-
-        # Release date
-        if self.album.release_year:
-            self.year_spin.setValue(self.album.release_year)
-        if self.album.release_month:
-            self.month_spin.setValue(self.album.release_month)
-        if self.album.release_day:
-            self.day_spin.setValue(self.album.release_day)
-
-        # Flags
-        self.live_checkbox.setChecked(bool(self.album.is_live))
-        self.compilation_checkbox.setChecked(bool(self.album.is_compilation))
-        self.fixed_checkbox.setChecked(bool(self.album.is_fixed))
-
-        # Artwork paths
-        if self.album.front_cover_path:
-            self.front_cover_path_edit.setText(self.album.front_cover_path)
-            self.load_image_preview(self.album.front_cover_path, self.front_cover_label)
-
-        if self.album.rear_cover_path:
-            self.rear_cover_path_edit.setText(self.album.rear_cover_path)
-            self.load_image_preview(self.album.rear_cover_path, self.rear_cover_label)
-
-        if self.album.album_liner_path:
-            self.liner_path_edit.setText(self.album.album_liner_path)
-
-        # Load lists
-        self.load_album_artists()
-        self.load_publishers()
-        self.load_places()
-        self.load_awards()
-        self.load_aliases()
-        self.load_track_artists_summary()
-
-        # Awards tab
-        if self.album.estimated_sales:
-            self.sales_spin.setValue(self.album.estimated_sales)
-            self.update_certification_label()
-
-        # Advanced tab
-        if self.album.album_gain:
-            self.gain_spin.setValue(int(self.album.album_gain))
-        if self.album.album_peak:
-            self.peak_spin.setValue(int(self.album.album_peak * 100))
-
-        if self.album.status:
-            index = self.status_combo.findText(self.album.status)
-            if index >= 0:
-                self.status_combo.setCurrentIndex(index)
-
-        if self.album.album_wikipedia_link:
-            self.wikipedia_edit.setText(self.album.album_wikipedia_link)
-
-    def load_album_artists(self):
-        """Load album artists into the list"""
-        self.album_artists_list.clear()
-        for artist in self.album.album_artists:
-            item = QListWidgetItem(artist.artist_name)
-            item.setData(Qt.UserRole, artist.artist_id)
-            self.album_artists_list.addItem(item)
-
-    def load_publishers(self):
-        """Load publishers into the list"""
-        self.publishers_list.clear()
-        for publisher in self.album.publishers:
-            item = QListWidgetItem(publisher.publisher_name)
-            item.setData(Qt.UserRole, publisher.publisher_id)
-            self.publishers_list.addItem(item)
-
-    def load_places(self):
-        """Load places into the list"""
-        self.places_list.clear()
-        for place in self.album.places:
-            item = QListWidgetItem(f"{place.place_name} ({place.place_type})")
-            item.setData(Qt.UserRole, place.place_id)
-            self.places_list.addItem(item)
-
-    def load_awards(self):
-        """Load awards into the list"""
-        self.awards_list.clear()
-        for award in self.album.awards:
-            item_text = f"{award.award_name}"
-            if award.award_year:
-                item_text += f" ({award.award_year})"
-            if award.award_category:
-                item_text += f" - {award.award_category}"
-
-            item = QListWidgetItem(item_text)
-            item.setData(Qt.UserRole, award.award_id)
-            self.awards_list.addItem(item)
-
-    def load_aliases(self):
-        """Load album aliases into the list"""
-        self.aliases_list.clear()
-        for alias in self.album.album_aliases:
-            item_text = alias.alias_name
-            if alias.alias_type:
-                item_text += f" ({alias.alias_type})"
-
-            item = QListWidgetItem(item_text)
-            item.setData(Qt.UserRole, alias.alias_id)
-            self.aliases_list.addItem(item)
-
-    def load_track_artists_summary(self):
-        """Load track artists summary"""
-        self.track_artists_table.setRowCount(0)
-
-        tracks = self.controller.get.get_all_entities(
-            "Track", album_id=self.album.album_id
-        )
-
-        for i, track in enumerate(tracks):
-            self.track_artists_table.insertRow(i)
-
-            # Track name
-            self.track_artists_table.setItem(i, 0, QTableWidgetItem(track.track_name))
-
-            # Primary artist
-            primary_artists = track.primary_artist_names
-            self.track_artists_table.setItem(
-                i, 1, QTableWidgetItem(str(primary_artists))
-            )
-
-            # Other roles
-            other_roles = []
-            for role in track.artist_roles:
-                if role.role and role.role.role_name != "Primary":
-                    other_roles.append(
-                        f"{role.artist.artist_name} ({role.role.role_name})"
-                    )
-
-            self.track_artists_table.setItem(
-                i, 2, QTableWidgetItem(", ".join(other_roles))
-            )
+        layout.addWidget(button_box)
 
     def setup_connections(self):
         """Setup signal connections"""
-        # Sales spin connection for RIAA certification
-        self.sales_spin.valueChanged.connect(self.update_certification_label)
+        # Connect any field-specific signals here
+        # Example: sales field updating certification
+        if "estimated_sales" in self.field_widgets:
+            sales_widget = self.field_widgets["estimated_sales"]
+            if hasattr(sales_widget, "valueChanged"):
+                sales_widget.valueChanged.connect(self.update_certification_preview)
 
-        # Album artists buttons
-        self.add_album_artist_button.clicked.connect(self.add_album_artist)
-        self.remove_album_artist_button.clicked.connect(
-            lambda: self.remove_list_item(self.album_artists_list, "album_artist")
-        )
+    # =========================================================================
+    # Image Loading and Management
+    # =========================================================================
 
-    def update_certification_label(self):
-        """Update RIAA certification label based on sales"""
-        sales = self.sales_spin.value()
-        if sales < 250000:
-            cert = "None"
-        elif sales < 500000:
-            cert = "Silver"
-        elif sales < 1000000:
-            cert = "Gold"
-        else:
-            platinum_count = sales // 1000000
-            cert = f"{platinum_count}× Platinum" if platinum_count > 1 else "Platinum"
-
-        self.certification_label.setText(f"Current: {cert}")
-
-    def browse_image(self, image_type):
-        """Browse for image files"""
-        file_filter = "Images (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*.*)"
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            f"Select {image_type.replace('_', ' ').title()} Image",
-            "",
-            file_filter,
-        )
-
-        if file_path:
-            if image_type == "front":
-                self.front_cover_path_edit.setText(file_path)
-                self.load_image_preview(file_path, self.front_cover_label)
-            elif image_type == "rear":
-                self.rear_cover_path_edit.setText(file_path)
-                self.load_image_preview(file_path, self.rear_cover_label)
-            elif image_type == "liner":
-                self.liner_path_edit.setText(file_path)
-
-    def load_image_preview(self, file_path, label):
-        """Load and display image preview"""
+    def load_album_cover(self):
+        """Load and display the album cover in the header"""
         try:
-            pixmap = QPixmap(file_path)
+            if hasattr(self.album, "front_cover_path") and self.album.front_cover_path:
+                pixmap = QPixmap()
+
+                # Handle both file paths and binary data
+                if isinstance(self.album.front_cover_path, bytes):
+                    if pixmap.loadFromData(self.album.front_cover_path):
+                        scaled_pixmap = pixmap.scaled(
+                            200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                        )
+                        self.cover_label.setPixmap(scaled_pixmap)
+                        return
+                elif isinstance(self.album.front_cover_path, str):
+                    if pixmap.load(self.album.front_cover_path):
+                        scaled_pixmap = pixmap.scaled(
+                            200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                        )
+                        self.cover_label.setPixmap(scaled_pixmap)
+                        return
+
+            # Fallback: show placeholder
+            self.cover_label.setText("No Cover\nImage")
+            self.cover_label.setStyleSheet(
+                "border: 1px solid #ccc; background: #f0f0f0; color: #999;"
+            )
+
+        except Exception as e:
+            logger.error(f"Error loading album cover: {e}")
+            self.cover_label.setText("Error\nLoading Cover")
+            self.cover_label.setStyleSheet(
+                "border: 1px solid #ccc; background: #f0f0f0; color: #ff0000;"
+            )
+
+    def load_artwork_previews(self):
+        """Load artwork previews in the artwork tab"""
+        # Front cover
+        if hasattr(self.album, "front_cover_path") and self.album.front_cover_path:
+            self.load_image_to_label(
+                self.album.front_cover_path, self.front_cover_display, 300
+            )
+        else:
+            self.front_cover_display.setText("No Front Cover")
+
+        # Rear cover
+        if hasattr(self.album, "rear_cover_path") and self.album.rear_cover_path:
+            self.load_image_to_label(
+                self.album.rear_cover_path, self.rear_cover_display, 300
+            )
+        else:
+            self.rear_cover_display.setText("No Rear Cover")
+
+    def load_image_to_label(self, image_data, label, size):
+        """Load image data into a QLabel"""
+        try:
+            pixmap = QPixmap()
+
+            if isinstance(image_data, bytes):
+                pixmap.loadFromData(image_data)
+            elif isinstance(image_data, str):
+                pixmap.load(image_data)
+
             if not pixmap.isNull():
-                # Scale to fit while maintaining aspect ratio
                 scaled_pixmap = pixmap.scaled(
-                    label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                    size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation
                 )
                 label.setPixmap(scaled_pixmap)
             else:
-                label.setText("Invalid image")
+                label.setText("Invalid Image")
         except Exception as e:
-            logger.error(f"Error loading image preview: {e}")
-            label.setText("Error loading image")
+            logger.error(f"Error loading image: {e}")
+            label.setText("Error Loading Image")
 
-    def add_album_artist(self):
-        """Open dialog to add album artist"""
-        # This would typically open an artist selection dialog
-        # For now, just show a message
-        QMessageBox.information(
-            self,
-            "Add Artist",
-            "Artist selection dialog would open here.\n"
-            "Implementation would depend on your artist selection UI.",
-        )
+    def change_front_cover(self):
+        """Change the album front cover"""
+        self.change_cover_image("front")
 
-    def remove_list_item(self, list_widget, item_type):
-        """Remove selected item from list"""
-        current_item = list_widget.currentItem()
-        if current_item:
-            list_widget.takeItem(list_widget.row(current_item))
+    def change_rear_cover(self):
+        """Change the album rear cover"""
+        self.change_cover_image("rear")
 
-    def add_track(self):
-        """Add a new track to the album"""
-        QMessageBox.information(
-            self,
-            "Add Track",
-            "Track editor would open here.\n"
-            "Implementation would depend on your track editing UI.",
-        )
+    def change_cover_image(self, cover_type):
+        """Generic method to change cover images"""
+        try:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                f"Select {cover_type.title()} Cover",
+                "",
+                "Image Files (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*.*)",
+            )
 
-    def edit_selected_track(self):
-        """Edit the selected track"""
-        selected_tracks = self.track_view.get_selected_tracks()
-        if not selected_tracks:
-            QMessageBox.warning(self, "No Selection", "Please select a track to edit.")
-            return
+            if not file_path:
+                return
 
-        # Open track editor for first selected track
-        track = selected_tracks[0]
-        QMessageBox.information(
-            self,
-            "Edit Track",
-            f"Would open track editor for: {track.track_name}\n"
-            "Implementation would depend on your track editing UI.",
-        )
+            # Read the image file
+            with open(file_path, "rb") as f:
+                image_data = f.read()
 
-    def remove_selected_tracks(self):
-        """Remove selected tracks from album"""
-        selected_tracks = self.track_view.get_selected_tracks()
-        if not selected_tracks:
-            QMessageBox.warning(self, "No Selection", "Please select tracks to remove.")
-            return
+            # Update the album object
+            if cover_type == "front":
+                self.album.front_cover_path = image_data
+                self.load_album_cover()  # Update header
+                self.load_image_to_label(image_data, self.front_cover_display, 300)
+            elif cover_type == "rear":
+                self.album.rear_cover_path = image_data
+                self.load_image_to_label(image_data, self.rear_cover_display, 300)
 
-        confirm = QMessageBox.question(
-            self,
-            "Confirm Removal",
-            f"Remove {len(selected_tracks)} track(s) from album?\n"
-            "This will only remove the association, not delete the tracks from the library.",
-            QMessageBox.Yes | QMessageBox.No,
-        )
+        except Exception as e:
+            logger.error(f"Error changing {cover_type} cover: {e}")
+            QMessageBox.warning(self, "Error", f"Could not load image: {str(e)}")
 
-        if confirm == QMessageBox.Yes:
-            try:
-                for track in selected_tracks:
-                    # Update track to remove album association
-                    self.controller.update.update_entity(
-                        "Track", track.track_id, album_id=None
-                    )
+    def clear_cover(self, cover_type):
+        """Clear a cover image"""
+        if cover_type == "front":
+            self.album.front_cover_path = None
+            self.cover_label.setText("No Cover\nImage")
+            self.front_cover_display.setText("No Front Cover")
+        elif cover_type == "rear":
+            self.album.rear_cover_path = None
+            self.rear_cover_display.setText("No Rear Cover")
 
-                self.refresh_tracklist()
-                QMessageBox.information(
-                    self,
-                    "Success",
-                    f"Removed {len(selected_tracks)} track(s) from album.",
-                )
+    # =========================================================================
+    # Data Management
+    # =========================================================================
 
-            except Exception as e:
-                logger.error(f"Error removing tracks: {e}")
-                QMessageBox.critical(
-                    self, "Error", f"Failed to remove tracks: {str(e)}"
-                )
+    def update_certification_preview(self):
+        """Update RIAA certification preview based on sales"""
+        # This would be implemented if you have a certification display
+        # For now, it's a placeholder for future enhancement
+        pass
 
-    def refresh_tracklist(self):
-        """Refresh the tracklist view"""
-        tracks = self.controller.get.get_all_entities(
-            "Track", album_id=self.album.album_id
-        )
-        self.track_view.load_data(tracks)
-        self.track_count_label.setText(f"Tracks: {len(tracks)}")
-        self.total_duration_label.setText(
-            f"Total Duration: {self.format_duration(self.album.total_duration)}"
-        )
+    def refresh_view(self):
+        """Refresh the view after relationship changes"""
+        try:
+            # Reload album data
+            updated_album = self.controller.get.get_entity_object(
+                "Album", album_id=self.album.album_id
+            )
+            if updated_album:
+                self.album = updated_album
 
-    def refresh_data(self):
-        """Refresh all data from database"""
+            # Reinitialize UI components that might have changed
+            # This is called by RelationshipHelpers after modifications
+            logger.info("Album view refreshed after relationship change")
+
+        except Exception as e:
+            logger.error(f"Error refreshing album view: {e}")
+            QMessageBox.warning(self, "Error", "Could not refresh album data")
+
+    def refresh_from_database(self):
+        """Manually refresh all data from the database"""
         try:
             # Reload album from database
             self.album = self.controller.get.get_entity_object(
                 "Album", album_id=self.album.album_id
             )
 
-            # Reload all data
-            self.load_album_data()
-            self.refresh_tracklist()
+            # Reinitialize widgets with fresh data
+            self.init_editable_widgets()
+
+            # Reload UI
+            self.init_ui()
 
             QMessageBox.information(
                 self, "Refreshed", "Album data refreshed from database."
@@ -892,80 +530,77 @@ class AlbumEditor(QDialog):
             logger.error(f"Error refreshing album data: {e}")
             QMessageBox.critical(self, "Error", f"Failed to refresh data: {str(e)}")
 
-    def save_album(self):
-        """Save album changes to database"""
+    def save_changes(self):
+        """Save all changes to the database"""
         try:
-            # Collect basic data
-            album_data = {
-                "album_name": self.title_edit.text().strip() or None,
-                "album_subtitle": self.subtitle_edit.text().strip() or None,
-                "album_language": self.language_combo.currentText() or None,
-                "release_type": self.release_type_combo.currentText() or None,
-                "album_description": self.description_edit.toPlainText().strip()
-                or None,
-                "catalog_number": self.catalog_edit.text().strip() or None,
-                "MBID": self.mbid_edit.text().strip() or None,
-                "release_year": self.year_spin.value()
-                if self.year_spin.value() > 0
-                else None,
-                "release_month": self.month_spin.value()
-                if self.month_spin.value() > 0
-                else None,
-                "release_day": self.day_spin.value()
-                if self.day_spin.value() > 0
-                else None,
-                "is_live": 1 if self.live_checkbox.isChecked() else 0,
-                "is_compilation": 1 if self.compilation_checkbox.isChecked() else 0,
-                "is_fixed": 1 if self.fixed_checkbox.isChecked() else 0,
-                "front_cover_path": self.front_cover_path_edit.text().strip() or None,
-                "rear_cover_path": self.rear_cover_path_edit.text().strip() or None,
-                "album_liner_path": self.liner_path_edit.text().strip() or None,
-                "estimated_sales": self.sales_spin.value() or None,
-                "album_gain": self.gain_spin.value()
-                if self.gain_spin.value() != 0
-                else None,
-                "album_peak": self.peak_spin.value() / 100
-                if self.peak_spin.value() > 0
-                else None,
-                "status": self.status_combo.currentText() or None,
-                "album_wikipedia_link": self.wikipedia_edit.text().strip() or None,
-            }
+            # Update album object from field widgets
+            for field_name, widget in self.field_widgets.items():
+                field_config = ALBUM_FIELDS.get(field_name)
+                if field_config and field_config.editable:
+                    value = AlbumUIComponents.get_field_value(widget, field_config.type)
+                    setattr(self.album, field_name, value)
 
-            # Update album in database
-            self.controller.update.update_entity(
-                "Album", self.album.album_id, **album_data
-            )
+            # Save to database using controller
+            success = self.controller.update.update_album(self.album)
 
-            # Update album object
-            self.album = self.controller.get.get_entity_object(
-                "Album", album_id=self.album.album_id
-            )
-
-            self.accept()
+            if success:
+                QMessageBox.information(self, "Success", "Album updated successfully!")
+                self.accept()  # Close the dialog
+            else:
+                QMessageBox.warning(
+                    self, "Warning", "Album update returned no confirmation."
+                )
 
         except Exception as e:
-            logger.error(f"Error saving album: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save album: {str(e)}")
+            logger.error(f"Error saving album changes: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to save changes: {str(e)}")
+
+    def get_album_place_associations(self):
+        """Get place associations for the album"""
+        try:
+            return (
+                self.controller.get.get_all_entities(
+                    "AlbumPlace", album_id=self.album.album_id
+                )
+                or []
+            )
+        except Exception as e:
+            logger.error(f"Error loading album place associations: {e}")
+            return []
+
+    # =========================================================================
+    # Utility Methods
+    # =========================================================================
 
     @staticmethod
     def format_duration(seconds):
-        """Format duration in seconds to HH:MM:SS or MM:SS"""
+        """Format duration in seconds to readable string"""
         if not seconds:
             return "0:00"
 
-        seconds = int(seconds)
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        secs = seconds % 60
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
 
         if hours > 0:
             return f"{hours}:{minutes:02d}:{secs:02d}"
         else:
             return f"{minutes}:{secs:02d}"
 
-    def closeEvent(self, event):
-        """Handle dialog close event"""
-        # Clean up track view if needed
-        if hasattr(self, "track_view"):
-            self.track_view.setParent(None)
-        event.accept()
+    def get_month_name(self, month_num):
+        """Convert month number to month name"""
+        months = [
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        ]
+        return months[month_num - 1] if 1 <= month_num <= 12 else ""
