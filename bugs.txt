@@ -10,6 +10,7 @@ nowplaying_view.py
     Chips seem to be broken for many tracks
     keyboard shortcut to toggle a complete fullscreen view - no player dock, no menu bar, no navigation.
     artist_name logic is wrong.use Track.primary_artist_names string from db_tables
+    an extra nowplaying view opens in a separate window on startup for some reason
 
 
 player_utility.py
@@ -17,6 +18,12 @@ player_utility.py
     Back should restart track if more than 5 seconds in. Otherwise, it should go to previous track in queue
     remove slow callback debugging
     remove slow read debugging
+    2026-03-04 10:58:11,788 - WARNING - player_util.py:863 - _audio_callback() - SLOW CALLBACK: 15.4ms (frames=16384, sr=44100)
+    WARNING:musiclib:SLOW CALLBACK: 15.4ms (frames=16384, sr=44100)
+    2026-03-04 10:58:16,979 - ERROR - player_util.py:225 - _reader_loop() - Reader thread read error: Error : flac decoder lost sync.
+    ERROR:musiclib:Reader thread read error: Error : flac decoder lost sync.
+    2026-03-04 10:58:18,849 - WARNING - player_util.py:863 - _audio_callback() - SLOW CALLBACK: 10.5ms (frames=16384, sr=44100)
+    WARNING:musiclib:SLOW CALLBACK: 10.5ms (frames=16384, sr=44100)
 
 
 player_dock.py
@@ -47,27 +54,21 @@ config_setup.py
     make sure debugging level is a setting
 
 base_album_edit.py
-    release year spinbox defaults to 99? Even if there is an existing release_year?
-    release_month and release_day
-    add album_liner_path and display
-    metadata tab does not make sense. Move description to header it should be long text box
-    AutocompleteDialog.get_inputs takes 1 to 2 positional arguments but 3 were given
     publishers && places
-    implement wikipedia search
     allow wikipedia search to save front and/or rear cover or liner
-    album_language, album_subtitle, release_type,catalog_number, is_fixed, is_live, is_compilation, estimated_sales, MBID not implemented
-    implement album aliases
-    add buttons to open wikipedia page and open MusicBrainz page to the header if those links exist.
-    implement disc_edit for track management
-    dialog size is a bit small for fitting everything vertically. Use more horizontal space and make the dialog a bit bigger by default.
-    update_album is wrong. The correct call is self.controller.update.update_entity("Album", album.album_id, **kwargs)
     When picking a file for album cover, remember the last directory used and start there
-    make sure uploaded album covers are renamed and moved to the appropriate place and the path is correctly updated in the album.
+    artist credits are too big
 
 
 db_tables.py
     implement "used in" feature for tracks, showing contexts where the track was used. Soundtracks, events, etc.
     property for albums to estimate if any tracks are missing
+
+queue_utility.py
+    queue is not saving and loading properly
+
+album_editing_relationship_helpers.py
+    changing a relationship does not update tab
 
 
 

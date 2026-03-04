@@ -202,9 +202,7 @@ class AlbumTabBuilder:
 
                     remove_btn = QPushButton("Remove")
                     remove_btn.clicked.connect(
-                        lambda checked, a=association: (
-                            self.helper.remove_place_association(a)
-                        )
+                        lambda checked, a=association: self.helper.remove_place(a)
                     )
                     widget_layout.addWidget(remove_btn)
 
@@ -213,7 +211,7 @@ class AlbumTabBuilder:
             layout.addWidget(QLabel("No place associations"))
 
         add_btn = QPushButton("Add Place Association")
-        add_btn.clicked.connect(self.helper.add_place_association)
+        add_btn.clicked.connect(self.helper.add_place)
         layout.addWidget(add_btn)
 
         return group

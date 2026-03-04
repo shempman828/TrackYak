@@ -1,3 +1,7 @@
+"""
+album_editing_relationship_helpers.py
+"""
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCompleter,
@@ -14,41 +18,156 @@ from src.logger_config import logger
 
 
 class RelationshipHelpers:
-    """Helper functions to manage relationships"""
+    """Manages album relationship operations (artists, publishers, places, awards)"""
 
-    def __init__(self, controller, album, refresh_callback=None):
+    def __init__(self, controller, album, refresh_callback):
         self.controller = controller
         self.album = album
-        self.refresh_callback = (
-            refresh_callback  # Use callback instead of creating view
+        self.show_updated_view = refresh_callback
+
+    # =========================================================================
+    # Publisher management
+    # =========================================================================
+
+    def add_publisher(self):
+        """Add a new publisher to the album."""
+        existing_publishers = self._get_existing_entities("Publisher", "publisher_name")
+
+        result = AutocompleteDialog.get_inputs(
+            [
+                {
+                    "name": "publisher_name",
+                    "label": "Publisher Name:",
+                    "type": "text",
+                    "completer_data": existing_publishers,
+                    "placeholder": "Start typing to search publishers...",
+                }
+            ],
+            title="Add Publisher",
+            parent=None,
         )
 
-    def show_updated_view(self):
-        """Delegate to the refresh callback if available"""
-        if self.refresh_callback:
-            self.refresh_callback()
+        if not result or not result["publisher_name"]:
+            return
 
-    def remove_place_association(self, association):
-        """Remove a place association from the album."""
+        publisher_name = result["publisher_name"]
+        try:
+            publisher = self.controller.get.get_entity_object(
+                "Publisher", publisher_name=publisher_name
+            )
+            if not publisher:
+                publisher = self.controller.add.add_entity(
+                    "Publisher", publisher_name=publisher_name
+                )
+
+            self.controller.add.add_entity(
+                "AlbumPublisher",
+                publisher_id=publisher.publisher_id,
+                album_id=self.album.album_id,
+            )
+
+            self.show_updated_view()
+            QMessageBox.information(None, "Success", "Publisher added successfully!")
+
+        except Exception as e:
+            logger.exception("Failed to add publisher")
+            QMessageBox.critical(None, "Error", f"Failed to add publisher: {str(e)}")
+
+    def remove_publisher(self, album_publisher):
+        """Remove a publisher from the album using the association object."""
         try:
             self.controller.delete.delete_entity(
-                "PlaceAssociation", association.place_association_id
+                "AlbumPublisher", album_publisher.album_publisher_id
+            )
+            self.show_updated_view()
+        except Exception as e:
+            QMessageBox.critical(None, "Error", f"Failed to remove publisher: {str(e)}")
+
+    # =========================================================================
+    # Artist credit management
+    # =========================================================================
+
+    def add_artist_credit(self):
+        """Add a new artist credit with role to the album."""
+        existing_artists = self._get_existing_entities("Artist", "artist_name")
+        existing_roles = self._get_existing_entities("Role", "role_name")
+
+        result = AutocompleteDialog.get_inputs(
+            [
+                {
+                    "name": "artist_name",
+                    "label": "Artist:",
+                    "type": "text",
+                    "completer_data": existing_artists,
+                    "placeholder": "Start typing to search artists...",
+                },
+                {
+                    "name": "role_name",
+                    "label": "Role:",
+                    "type": "text",
+                    "completer_data": existing_roles,
+                    "placeholder": "Enter role (composer, performer, etc.)",
+                },
+            ],
+            title="Add Artist Credit",
+            parent=None,
+        )
+
+        if not result or not result["artist_name"] or not result["role_name"]:
+            QMessageBox.warning(None, "Warning", "Both artist and role are required.")
+            return
+
+        try:
+            artist = self.controller.get.get_entity_object(
+                "Artist", artist_name=result["artist_name"]
+            )
+            if not artist:
+                artist = self.controller.add.add_entity(
+                    "Artist", artist_name=result["artist_name"]
+                )
+
+            role = self.controller.get.get_entity_object(
+                "Role", role_name=result["role_name"]
+            )
+            if not role:
+                role = self.controller.add.add_entity(
+                    "Role", role_name=result["role_name"]
+                )
+
+            self.controller.add.add_entity(
+                "AlbumRoleAssociation",
+                album_id=self.album.album_id,
+                artist_id=artist.artist_id,
+                role_id=role.role_id,
+            )
+
+            self.show_updated_view()
+
+        except Exception as e:
+            logger.exception("Failed to add artist credit")
+            QMessageBox.critical(
+                None, "Error", f"Failed to add artist credit: {str(e)}"
+            )
+
+    def remove_artist_credit(self, role_assoc):
+        """Remove an artist credit from the album."""
+        try:
+            self.controller.delete.delete_entity(
+                "AlbumRoleAssociation", role_assoc.album_role_id
             )
             self.show_updated_view()
         except Exception as e:
             QMessageBox.critical(
-                None, "Error", f"Failed to remove place association: {str(e)}"
+                None, "Error", f"Failed to remove artist credit: {str(e)}"
             )
 
-    def add_place_association(self):
-        """Add a new place association for the album with autocomplete."""
+    # =========================================================================
+    # Place management
+    # =========================================================================
+
+    def add_place(self):
+        """Add a place association to the album."""
         existing_places = self._get_existing_entities("Place", "place_name")
-        existing_types = [
-            "Recording Location",
-            "Production Location",
-            "Origin",
-            "Other",
-        ]
 
         result = AutocompleteDialog.get_inputs(
             [
@@ -63,22 +182,18 @@ class RelationshipHelpers:
                     "name": "association_type",
                     "label": "Association Type:",
                     "type": "text",
-                    "completer_data": existing_types,
-                    "placeholder": "Enter association type",
+                    "placeholder": "e.g. Recording Location, Release Country...",
                 },
             ],
-            "Add Place Association",
-            None,
+            title="Add Place Association",
+            parent=None,
         )
 
-        if not result or not result["place_name"] or not result["association_type"]:
-            QMessageBox.warning(
-                None, "Warning", "Both place name and association type are required."
-            )
+        if not result or not result["place_name"]:
+            QMessageBox.warning(None, "Warning", "Place name is required.")
             return
 
         try:
-            # Find or create the place
             place = self.controller.get.get_entity_object(
                 "Place", place_name=result["place_name"]
             )
@@ -87,7 +202,6 @@ class RelationshipHelpers:
                     "Place", place_name=result["place_name"]
                 )
 
-            # Create the association
             params = dict(
                 place_id=place.place_id,
                 entity_id=self.album.album_id,
@@ -106,6 +220,22 @@ class RelationshipHelpers:
             QMessageBox.critical(
                 None, "Error", f"Failed to add place association: {str(e)}"
             )
+
+    def remove_place(self, place_assoc):
+        """Remove a place association from the album."""
+        try:
+            self.controller.delete.delete_entity(
+                "PlaceAssociation", place_assoc.place_association_id
+            )
+            self.show_updated_view()
+        except Exception as e:
+            QMessageBox.critical(
+                None, "Error", f"Failed to remove place association: {str(e)}"
+            )
+
+    # =========================================================================
+    # Award management
+    # =========================================================================
 
     def add_album_award(self):
         """Add a new award to the album."""
@@ -138,8 +268,8 @@ class RelationshipHelpers:
                     "placeholder": "Enter award description...",
                 },
             ],
-            "Add Album Award",
-            None,
+            title="Add Album Award",
+            parent=None,
         )
 
         if not result or not result["award_name"]:
@@ -147,186 +277,41 @@ class RelationshipHelpers:
             return
 
         try:
-            # Create the award entity
             award = self.controller.add.add_entity(
                 "Award",
                 award_name=result["award_name"],
-                award_year=result["award_year"],
-                award_category=result["award_category"] or None,
-                award_description=result["award_description"] or None,
+                award_year=result.get("award_year"),
+                award_category=result.get("award_category"),
+                award_description=result.get("award_description"),
             )
 
-            # Create the association
             self.controller.add.add_entity(
                 "AwardAssociation",
                 award_id=award.award_id,
                 entity_id=self.album.album_id,
                 entity_type="Album",
-                association_type="recipient",
             )
 
             self.show_updated_view()
             QMessageBox.information(None, "Success", "Award added successfully!")
 
         except Exception as e:
-            logger.exception("Failed to add album award")
+            logger.exception("Failed to add award")
             QMessageBox.critical(None, "Error", f"Failed to add award: {str(e)}")
 
-    def remove_album_award_association(self, award):
-        """Remove the association between an album and an award."""
-        try:
-            # Find the association record
-            association = self.controller.get.get_entity(
-                "AwardAssociation",
-                award_id=award.award_id,
-                entity_id=self.album.album_id,
-                entity_type="Album",
-            )
-
-            if association:
-                self.controller.delete.delete_entity(association)
-                # Refresh the awards tab
-                self.refresh_awards_tab()
-            else:
-                logger.warning(
-                    f"No association found for award {award.award_id} and album {self.album.album_id}"
-                )
-
-        except Exception as e:
-            logger.error(f"Error removing album award association: {e}")
-
-    def add_publisher(self):
-        """Add a new publisher to the album with autocomplete."""
-        existing_publishers = self._get_existing_entities("Publisher", "publisher_name")
-
-        result = AutocompleteDialog.get_inputs(
-            [
-                {
-                    "name": "publisher_name",
-                    "label": "Publisher Name:",
-                    "type": "text",
-                    "completer_data": existing_publishers,
-                    "placeholder": "Start typing to search publishers...",
-                }
-            ],
-            "Add Publisher",
-            None,
-        )
-
-        if not result or not result["publisher_name"]:
-            return
-
-        publisher_name = result["publisher_name"]
-        try:
-            # Find or create publisher
-            publisher = self.controller.get.get_entity_object(
-                "Publisher", publisher_name=publisher_name
-            )
-            if not publisher:
-                publisher = self.controller.add.add_entity(
-                    "Publisher", publisher_name=publisher_name
-                )
-
-            # Create the album-publisher association
-            self.controller.add.add_entity(
-                "AlbumPublisher",
-                publisher_id=publisher.publisher_id,
-                album_id=self.album.album_id,
-            )
-
-            self.show_updated_view()
-            QMessageBox.information(None, "Success", "Publisher added successfully!")
-
-        except Exception as e:
-            logger.exception("Failed to add publisher")
-            QMessageBox.critical(None, "Error", f"Failed to add publisher: {str(e)}")
-
-    def remove_publisher(self, album_publisher):
-        """Remove a publisher from the album using the association object."""
+    def remove_award(self, award_assoc):
+        """Remove an award association from the album."""
         try:
             self.controller.delete.delete_entity(
-                "AlbumPublisher", album_publisher.album_publisher_id
+                "AwardAssociation", award_assoc.award_association_id
             )
             self.show_updated_view()
         except Exception as e:
-            QMessageBox.critical(None, "Error", f"Failed to remove publisher: {str(e)}")
+            QMessageBox.critical(None, "Error", f"Failed to remove award: {str(e)}")
 
-    def add_artist_credit(self):
-        """Add a new artist credit with role to the album."""
-        existing_artists = self._get_existing_entities("Artist", "artist_name")
-        existing_roles = self._get_existing_entities("Role", "role_name")
-
-        result = AutocompleteDialog.get_inputs(
-            [
-                {
-                    "name": "artist_name",
-                    "label": "Artist:",
-                    "type": "text",
-                    "completer_data": existing_artists,
-                    "placeholder": "Start typing to search artists...",
-                },
-                {
-                    "name": "role_name",
-                    "label": "Role:",
-                    "type": "text",
-                    "completer_data": existing_roles,
-                    "placeholder": "Enter role (composer, performer, etc.)",
-                },
-            ],
-            "Add Artist Credit",
-            None,
-        )
-
-        if not result or not result["artist_name"] or not result["role_name"]:
-            QMessageBox.warning(None, "Warning", "Both artist and role are required.")
-            return
-
-        try:
-            # Find or create artist
-            artist = self.controller.get.get_entity_object(
-                "Artist", artist_name=result["artist_name"]
-            )
-            if not artist:
-                artist = self.controller.add.add_entity(
-                    "Artist", artist_name=result["artist_name"]
-                )
-
-            # Find or create role
-            role = self.controller.get.get_entity_object(
-                "Role", role_name=result["role_name"]
-            )
-            if not role:
-                role = self.controller.add.add_entity(
-                    "Role", role_name=result["role_name"]
-                )
-
-            # Create the album role association
-            self.controller.add.add_entity(
-                "AlbumRoleAssociation",
-                album_id=self.album.album_id,
-                artist_id=artist.artist_id,
-                role_id=role.role_id,
-            )
-
-            self.show_updated_view()
-
-        except Exception as e:
-            logger.exception("Failed to add artist credit")
-            QMessageBox.critical(
-                None, "Error", f"Failed to add artist credit: {str(e)}"
-            )
-
-    def remove_artist_credit(self, role_assoc):
-        """Remove an artist credit from the album."""
-        try:
-            self.controller.delete.delete_entity(
-                "AlbumRoleAssociation", role_assoc.album_role_id
-            )
-            self.show_updated_view()
-        except Exception as e:
-            QMessageBox.critical(
-                None, "Error", f"Failed to remove artist credit: {str(e)}"
-            )
+    # =========================================================================
+    # Internal helpers
+    # =========================================================================
 
     def _get_existing_entities(self, entity_type, name_field="name"):
         """Get existing entities for autocomplete"""
@@ -342,26 +327,49 @@ class RelationshipHelpers:
             return []
 
 
+# =============================================================================
+# AutocompleteDialog
+# =============================================================================
+
+
 class AutocompleteDialog:
-    """Reusable dialog with autocomplete fields"""
+    """Reusable dialog with autocomplete fields.
+
+    Call signature for get_inputs:
+        get_inputs(field_configs, title="", parent=None)
+
+    Previous code was passing title and parent as positional args 2 and 3,
+    but the old method signature only accepted (field_configs, existing_data=None).
+    This has been corrected — title and parent are now proper named parameters.
+    """
 
     @staticmethod
-    def get_inputs(field_configs, existing_data=None):
+    def get_inputs(field_configs, title="", parent=None):
         """
-        field_configs: list of dicts with:
-          - 'label': field label
-          - 'type': 'text', 'spin', 'combo', etc.
-          - 'completer_data': list for autocomplete
-          - 'placeholder': placeholder text
-          - 'default': default value
+        Show a dialog with the given fields and return the entered values.
+
+        field_configs: list of dicts, each with:
+          - 'name'           : key for the result dict
+          - 'label'          : label shown next to the widget
+          - 'type'           : 'text', 'spin', 'textarea'
+          - 'completer_data' : list of strings for autocomplete (text only)
+          - 'placeholder'    : placeholder text
+          - 'default'        : default value
+          - 'min' / 'max'    : range for spin widgets
+
+        Returns a dict of {name: value} or None if cancelled.
         """
-        dialog = QDialog()
+        dialog = QDialog(parent)
+        dialog.setWindowTitle(title or "Enter Details")
         dialog.setMinimumWidth(400)
+
         layout = QFormLayout(dialog)
         widgets = {}
 
         for config in field_configs:
-            if config["type"] == "text":
+            widget_type = config.get("type", "text")
+
+            if widget_type == "text":
                 widget = QLineEdit()
                 if config.get("placeholder"):
                     widget.setPlaceholderText(config["placeholder"])
@@ -370,20 +378,29 @@ class AutocompleteDialog:
                     completer.setCaseSensitivity(Qt.CaseInsensitive)
                     completer.setFilterMode(Qt.MatchContains)
                     widget.setCompleter(completer)
-            elif config["type"] == "spin":
+
+            elif widget_type == "spin":
                 widget = QSpinBox()
                 widget.setRange(config.get("min", 1900), config.get("max", 2100))
-            elif config["type"] == "textarea":
+
+            elif widget_type == "textarea":
                 widget = QTextEdit()
                 widget.setMaximumHeight(100)
                 if config.get("placeholder"):
                     widget.setPlaceholderText(config["placeholder"])
 
-            if config.get("default"):
-                if hasattr(widget, "setText"):
-                    widget.setText(str(config["default"]))
-                elif hasattr(widget, "setValue"):
-                    widget.setValue(config["default"])
+            else:
+                widget = QLineEdit()
+
+            # Apply default value
+            default = config.get("default")
+            if default is not None:
+                if isinstance(widget, QLineEdit):
+                    widget.setText(str(default))
+                elif isinstance(widget, QTextEdit):
+                    widget.setPlainText(str(default))
+                elif isinstance(widget, QSpinBox):
+                    widget.setValue(int(default))
 
             layout.addRow(config["label"], widget)
             widgets[config["name"]] = widget
@@ -393,7 +410,7 @@ class AutocompleteDialog:
         button_box.rejected.connect(dialog.reject)
         layout.addRow(button_box)
 
-        if dialog.exec_() == QDialog.Accepted:
+        if dialog.exec() == QDialog.Accepted:
             return {
                 name: AutocompleteDialog._get_widget_value(widget)
                 for name, widget in widgets.items()
@@ -402,12 +419,10 @@ class AutocompleteDialog:
 
     @staticmethod
     def _get_widget_value(widget):
-        if isinstance(widget, (QLineEdit, QTextEdit)):
-            return (
-                widget.text().strip()
-                if isinstance(widget, QLineEdit)
-                else widget.toPlainText().strip()
-            )
+        if isinstance(widget, QLineEdit):
+            return widget.text().strip()
+        elif isinstance(widget, QTextEdit):
+            return widget.toPlainText().strip()
         elif isinstance(widget, QSpinBox):
             return widget.value()
         return None
