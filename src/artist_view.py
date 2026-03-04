@@ -1,5 +1,8 @@
 """Artist management view handling both individuals and groups."""
 
+import urllib.parse
+import webbrowser
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -15,7 +18,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QSplitter,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -38,6 +40,19 @@ from src.logger_config import logger
 class ArtistView(QWidget):
     """Unified artist management view handling both individuals and groups."""
 
+    # Sort options: (display label, sort key function)
+    _SORT_OPTIONS = [
+        ("Name (A–Z)", lambda a: a.artist_name.lower()),
+        ("Name (Z–A)", lambda a: a.artist_name.lower()),  # reversed below
+        ("Earliest First", lambda a: getattr(a, "begin_year", None) or 9999),
+        ("Latest First", lambda a: getattr(a, "begin_year", None) or 9999),  # reversed
+        ("Has Bio First", lambda a: 0 if getattr(a, "biography", None) else 1),
+    ]
+    _SORT_REVERSED = {
+        "Name (Z–A)": True,
+        "Latest First": True,
+    }
+
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
@@ -51,50 +66,95 @@ class ArtistView(QWidget):
     # ----------------------------
 
     def _setup_ui(self):
-        """Build the main layout with filter bar, artist list, and detail tabs."""
+        """Build the main layout with filter bar, artist list, and detail panel."""
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
 
-        # --- Filter / mode bar ---
+        # --- Single compact filter row ---
         filter_bar = QHBoxLayout()
-        filter_bar.addWidget(QLabel("Show:"))
+        filter_bar.setSpacing(4)
 
         self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["All Artists", "Individuals", "Groups"])
+        self.mode_combo.addItems(["All", "Individuals", "Groups"])
+        self.mode_combo.setToolTip("Show all artists, individuals only, or groups only")
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
         filter_bar.addWidget(self.mode_combo)
 
         self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText("Filter artists…")
-        self.search_box.textChanged.connect(self._filter_list)
-        filter_bar.addWidget(self.search_box)
+        self.search_box.setPlaceholderText("Search…")
+        self.search_box.setClearButtonEnabled(True)
+        self.search_box.textChanged.connect(self._apply_filters)
+        filter_bar.addWidget(self.search_box, stretch=1)
+
+        self.sort_combo = QComboBox()
+        for label, _ in self._SORT_OPTIONS:
+            self.sort_combo.addItem(label)
+        self.sort_combo.setToolTip("Sort order")
+        self.sort_combo.currentTextChanged.connect(self._apply_filters)
+        filter_bar.addWidget(self.sort_combo)
+
+        self.metadata_combo = QComboBox()
+        self.metadata_combo.addItems(["Any Metadata", "Complete", "Incomplete"])
+        self.metadata_combo.setToolTip("Filter by metadata completeness")
+        self.metadata_combo.currentTextChanged.connect(self._apply_filters)
+        filter_bar.addWidget(self.metadata_combo)
+
+        self.image_combo = QComboBox()
+        self.image_combo.addItems(["Any Image", "Has Image", "No Image"])
+        self.image_combo.setToolTip("Filter by profile image")
+        self.image_combo.currentTextChanged.connect(self._apply_filters)
+        filter_bar.addWidget(self.image_combo)
+
+        # Count label — shows "Showing X of Y"
+        self.count_label = QLabel()
+        self.count_label.setStyleSheet("color: grey; font-size: 11px;")
+        filter_bar.addWidget(self.count_label)
 
         layout.addLayout(filter_bar)
 
-        # --- Splitter: list on the left, detail tabs on the right ---
+        # --- Splitter: list on the left, detail panel on the right ---
         splitter = QSplitter(Qt.Horizontal)
 
+        # Artist list with a minimum width so it never collapses too small,
+        # but users can drag to make it wider.
         self.artist_list = QListWidget()
+        self.artist_list.setMinimumWidth(180)
         self.artist_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.artist_list.customContextMenuRequested.connect(self._show_context_menu)
         self.artist_list.currentItemChanged.connect(self._on_artist_selected)
         splitter.addWidget(self.artist_list)
 
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setTabsClosable(True)
-        self.tab_widget.tabCloseRequested.connect(self._close_tab)
-        splitter.addWidget(self.tab_widget)
+        # Detail panel: plain widget that swaps in an ArtistDetailTab directly —
+        # no tab bar or tab names needed, since the detail header already shows
+        # the artist name.
+        self.detail_container = QWidget()
+        self.detail_layout = QVBoxLayout(self.detail_container)
+        self.detail_layout.setContentsMargins(0, 0, 0, 0)
 
+        self._placeholder = QLabel("Select an artist to view details")
+        self._placeholder.setAlignment(Qt.AlignCenter)
+        self._placeholder.setStyleSheet("color: grey; font-style: italic;")
+        self.detail_layout.addWidget(self._placeholder)
+
+        self._current_detail = None  # track which widget is currently shown
+
+        splitter.addWidget(self.detail_container)
+
+        # Give the list ~1 part and the detail ~3 parts of available space.
+        # The initial pixel sizes respect the minimum and give a sensible default.
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
+        splitter.setSizes([220, 660])
 
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, stretch=1)
 
     # ----------------------------
     # Data Loading
     # ----------------------------
 
     def load_artists(self):
-        """Load artists filtered by current mode."""
+        """Load all artists from DB, pre-filtered by individual/group mode."""
         try:
             all_artists = sorted(
                 self.controller.get.get_all_entities("Artist"),
@@ -109,29 +169,72 @@ class ArtistView(QWidget):
                 artists = all_artists
 
             self.all_artists = artists
-            self._populate_list(artists)
+            self._apply_filters()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load artists: {e}")
 
-    def _populate_list(self, artists):
-        """Fill the list widget from a list of artist objects."""
-        self.artist_list.clear()
-        filter_text = (
-            self.search_box.text().lower() if hasattr(self, "search_box") else ""
+    def _apply_filters(self):
+        """Apply search text, metadata, image, and sort filters, then repopulate."""
+        artists = list(self.all_artists)
+
+        # --- Search text filter ---
+        text = self.search_box.text().lower().strip()
+        if text:
+            artists = [a for a in artists if text in a.artist_name.lower()]
+
+        # --- Metadata complete filter ---
+        metadata_mode = self.metadata_combo.currentText()
+        if metadata_mode == "Complete":
+            artists = [a for a in artists if getattr(a, "is_fixed", 0)]
+        elif metadata_mode == "Incomplete":
+            artists = [a for a in artists if not getattr(a, "is_fixed", 0)]
+
+        # --- Profile image filter ---
+        image_mode = self.image_combo.currentText()
+        if image_mode == "Has Image":
+            artists = [a for a in artists if getattr(a, "profile_pic_path", None)]
+        elif image_mode == "No Image":
+            artists = [a for a in artists if not getattr(a, "profile_pic_path", None)]
+
+        # --- Sort ---
+        sort_label = self.sort_combo.currentText()
+        sort_key = next(
+            (key for label, key in self._SORT_OPTIONS if label == sort_label),
+            lambda a: a.artist_name.lower(),
         )
+        reverse = self._SORT_REVERSED.get(sort_label, False)
+        try:
+            artists = sorted(artists, key=sort_key, reverse=reverse)
+        except Exception as e:
+            logger.warning(f"Sort failed: {e}")
+
+        self._populate_list(artists)
+
+    def _populate_list(self, artists):
+        """Fill the list widget from a filtered/sorted list of artist objects."""
+        self.artist_list.clear()
 
         for artist in artists:
-            if filter_text and filter_text not in artist.artist_name.lower():
-                continue
-
-            display_name = artist.artist_name
+            display_name = artist.artist_name or "(no name)"
             if getattr(artist, "isgroup", 0):
                 display_name = f"👥 {display_name}"
+
+            # Small badge if metadata is flagged complete
+            if getattr(artist, "is_fixed", 0):
+                display_name = f"{display_name} ✓"
 
             item = QListWidgetItem(display_name)
             item.setData(Qt.UserRole, artist.artist_id)
             self.artist_list.addItem(item)
+
+        # Update count label
+        total = len(self.all_artists)
+        showing = len(artists)
+        if showing == total:
+            self.count_label.setText(f"{total} artist{'s' if total != 1 else ''}")
+        else:
+            self.count_label.setText(f"{showing} of {total} artists")
 
     # ----------------------------
     # Event Handlers
@@ -140,19 +243,15 @@ class ArtistView(QWidget):
     def _on_mode_changed(self, mode_text: str):
         """Handle mode changes between all/individuals/groups."""
         mode_map = {
-            "All Artists": "all",
+            "All": "all",
             "Individuals": "individuals",
             "Groups": "groups",
         }
         self.current_mode = mode_map.get(mode_text, "all")
         self.load_artists()
 
-    def _filter_list(self, text: str):
-        """Re-populate the list applying the current search filter."""
-        self._populate_list(self.all_artists)
-
     def _on_artist_selected(self):
-        """Display selected artist/group detail tab."""
+        """Swap the detail panel to show the selected artist — no tabs needed."""
         selected = self.artist_list.currentItem()
         if not selected:
             return
@@ -165,13 +264,18 @@ class ArtistView(QWidget):
             )
             return
 
-        self.tab_widget.clear()
-        detail_tab = ArtistDetailTab(artist, self.controller)
-        self.tab_widget.addTab(detail_tab, artist.artist_name)
+        # Remove whatever is currently in the detail panel
+        if self._current_detail is not None:
+            self.detail_layout.removeWidget(self._current_detail)
+            self._current_detail.setParent(None)
+            self._current_detail.deleteLater()
+            self._current_detail = None
 
-    def _close_tab(self, index: int):
-        """Close the tab at the given index."""
-        self.tab_widget.removeTab(index)
+        # Hide the placeholder and insert the new detail widget
+        self._placeholder.hide()
+        detail = ArtistDetailTab(artist, self.controller)
+        self.detail_layout.addWidget(detail)
+        self._current_detail = detail
 
     # ----------------------------
     # Context Menu
@@ -241,8 +345,20 @@ class ArtistView(QWidget):
                 convert_action = menu.addAction("👥 Convert to Group")
                 convert_action.triggered.connect(lambda: self._convert_to_group(artist))
 
-            wiki_action = menu.addAction("🌐 Wikipedia Search")
-            wiki_action.triggered.connect(self.search_wikipedia)
+            menu.addSeparator()
+
+            # Wikipedia: open stored link if available, always offer a search
+            wiki_link = getattr(artist, "wikipedia_link", None)
+            if wiki_link:
+                open_wiki_action = menu.addAction("🌐 Open Wikipedia Page")
+                open_wiki_action.triggered.connect(
+                    lambda checked=False, url=wiki_link: webbrowser.open(url)
+                )
+            search_wiki_action = menu.addAction("🔍 Search Wikipedia…")
+            search_wiki_action.triggered.connect(self.search_wikipedia)
+
+            import_wiki_action = menu.addAction("⬇️ Import from Wikipedia…")
+            import_wiki_action.triggered.connect(self.import_from_wikipedia)
 
             influences_action = menu.addAction("🔗 Edit Influences")
             influences_action.triggered.connect(self.edit_influences)
@@ -311,175 +427,149 @@ class ArtistView(QWidget):
         via both TrackArtistRole (track-level credits) and AlbumRoleAssociation
         (album-level credits, e.g. album artist).
         """
-        track_map: dict[int, object] = {}
+        seen_ids = set()
+        tracks = []
 
-        # --- Track-level roles ---
         try:
-            track_roles = (
-                self.controller.get.get_all_entities(
-                    "TrackArtistRole", artist_id=artist_id
-                )
-                or []
+            track_roles = self.controller.get.get_all_entities(
+                "TrackArtistRole", artist_id=artist_id
             )
-            for tr in track_roles:
+            for role in track_roles:
                 track = self.controller.get.get_entity_object(
-                    "Track", track_id=tr.track_id
+                    "Track", track_id=role.track_id
                 )
-                if track and track.track_id not in track_map:
-                    track_map[track.track_id] = track
+                if track and track.track_id not in seen_ids:
+                    seen_ids.add(track.track_id)
+                    tracks.append(track)
         except Exception as e:
-            logger.warning(f"Error fetching track roles for artist {artist_id}: {e}")
+            logger.warning(f"Error fetching track-level credits: {e}")
 
-        # --- Album-level roles (e.g. album artist) ---
         try:
-            album_roles = (
-                self.controller.get.get_all_entities(
-                    "AlbumRoleAssociation", artist_id=artist_id
-                )
-                or []
+            album_roles = self.controller.get.get_all_entities(
+                "AlbumRoleAssociation", artist_id=artist_id
             )
-            for ar in album_roles:
-                album_tracks = (
-                    self.controller.get.get_entity_links(
-                        "AlbumTracks", album_id=ar.album_id
-                    )
-                    or []
+            for role in album_roles:
+                album_tracks = self.controller.get.get_all_entities(
+                    "Track", album_id=role.album_id
                 )
-                for at in album_tracks:
-                    if at.track_id not in track_map:
-                        track = self.controller.get.get_entity_object(
-                            "Track", track_id=at.track_id
-                        )
-                        if track:
-                            track_map[track.track_id] = track
+                for track in album_tracks:
+                    if track.track_id not in seen_ids:
+                        seen_ids.add(track.track_id)
+                        tracks.append(track)
         except Exception as e:
-            logger.warning(f"Error fetching album roles for artist {artist_id}: {e}")
+            logger.warning(f"Error fetching album-level credits: {e}")
 
-        return list(track_map.values())
+        return tracks
 
     # ----------------------------
-    # Group / Member Actions
+    # Artist CRUD / Actions
     # ----------------------------
 
-    def _add_member(self, group):
-        """Add a member to a group."""
-        dialog = AddMemberDialog(self.controller, group, self)
-        if dialog.exec_() == QDialog.Accepted:
-            self.load_artists()
+    def add_new_artist(self):
+        """Open the ArtistEditor dialog to add a new individual artist."""
+        try:
+            dialog = ArtistEditor(self.controller, parent=self)
+            if dialog.exec_() == QDialog.Accepted:
+                self.load_artists()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to open artist editor: {e}")
+
+    def add_new_group(self):
+        """Open the AddGroupDialog to create a new group."""
+        try:
+            dialog = AddGroupDialog(self.controller, parent=self)
+            if dialog.exec_() == QDialog.Accepted:
+                self.load_artists()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to open group dialog: {e}")
+
+    def _edit_artist(self, artist):
+        """Open the ArtistEditor dialog for an existing artist."""
+        try:
+            dialog = ArtistEditor(self.controller, artist=artist, parent=self)
+            if dialog.exec_() == QDialog.Accepted:
+                self.load_artists()
+                self._on_artist_selected()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to open artist editor: {e}")
+
+    def _add_member(self, group_artist):
+        """Open the AddMemberDialog to add a member to a group."""
+        try:
+            dialog = AddMemberDialog(self.controller, group_artist, parent=self)
+            if dialog.exec_() == QDialog.Accepted:
+                self._on_artist_selected()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to add member: {e}")
 
     def _add_to_group(self, artist):
-        """Add an individual artist to an existing group."""
-        groups = [a for a in self.all_artists if getattr(a, "isgroup", 0)]
-        if not groups:
-            QMessageBox.information(self, "No Groups", "No groups exist yet.")
-            return
+        """Open an input dialog to add this individual to an existing group."""
+        try:
+            groups = [
+                a
+                for a in self.controller.get.get_all_entities("Artist")
+                if getattr(a, "isgroup", 0)
+            ]
+            group_names = [g.artist_name for g in groups]
+            if not group_names:
+                QMessageBox.information(self, "No Groups", "No groups exist yet.")
+                return
 
-        group_names = [g.artist_name for g in groups]
-        choice, ok = QInputDialog.getItem(
-            self, "Add to Group", "Select group:", group_names, 0, False
-        )
-        if not ok:
-            return
-
-        group = next((g for g in groups if g.artist_name == choice), None)
-        if group:
-            try:
-                self.controller.add.add_entity(
-                    "GroupMembership",
-                    group_id=group.artist_id,
-                    member_id=artist.artist_id,
-                )
-                QMessageBox.information(
-                    self,
-                    "Success",
-                    f"'{artist.artist_name}' added to '{group.artist_name}'.",
-                )
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to add to group: {e}")
+            name, ok = QInputDialog.getItem(
+                self, "Add to Group", "Select a group:", group_names, editable=False
+            )
+            if ok and name:
+                group = next((g for g in groups if g.artist_name == name), None)
+                if group:
+                    self.controller.add.add_entity(
+                        "GroupMembership",
+                        group_id=group.artist_id,
+                        member_id=artist.artist_id,
+                    )
+                    self._on_artist_selected()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to add to group: {e}")
 
     def _convert_to_group(self, artist):
         """Convert an individual artist to a group."""
-        try:
-            self.controller.update.update_entity("Artist", artist.artist_id, isgroup=1)
-            self.load_artists()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to convert: {e}")
-
-    def _convert_to_individual(self, group):
-        """Convert a group to an individual artist."""
         reply = QMessageBox.question(
             self,
-            "Convert to Individual",
-            f"Convert '{group.artist_name}' to an individual artist?",
+            "Convert to Group",
+            f"Convert '{artist.artist_name}' to a group?",
             QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
         if reply == QMessageBox.Yes:
             try:
                 self.controller.update.update_entity(
-                    "Artist", group.artist_id, isgroup=0
+                    "Artist", artist.artist_id, isgroup=1
                 )
                 self.load_artists()
-                QMessageBox.information(
-                    self, "Success", "Group converted to individual."
-                )
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to convert: {e}")
 
-    # ----------------------------
-    # Add / Edit / Delete Actions
-    # ----------------------------
-
-    def add_new_artist(self):
-        """Prompt for a name and add a new artist."""
-        name, ok = QInputDialog.getText(self, "Add Artist", "Artist name:")
-        if ok and name.strip():
+    def _convert_to_individual(self, artist):
+        """Convert a group to an individual artist."""
+        reply = QMessageBox.question(
+            self,
+            "Convert to Individual",
+            f"Convert '{artist.artist_name}' to an individual?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
             try:
-                self.controller.add.add_entity("Artist", artist_name=name.strip())
+                self.controller.update.update_entity(
+                    "Artist", artist.artist_id, isgroup=0
+                )
                 self.load_artists()
             except Exception as e:
-                QMessageBox.warning(self, "Error", f"Failed to add artist: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to convert: {e}")
 
-    def add_new_group(self):
-        """Open the Add Group dialog."""
-        dialog = AddGroupDialog(self.controller, self)
-        if dialog.exec_() == QDialog.Accepted:
-            self.load_artists()
-
-    def _edit_artist(self, artist=None):
-        """Open the artist editor for the given or currently selected artist."""
-        if artist is None:
-            selected = self.artist_list.currentItem()
-            if not selected:
-                logger.error("No artist selected for editing.")
-                return
-            artist_id = selected.data(Qt.UserRole)
-            artist = self.controller.get.get_entity_object(
-                "Artist", artist_id=artist_id
-            )
-            if not artist:
-                logger.warning(f"Artist with id {artist_id} not found.")
-                return
-
-        dialog = ArtistEditor(self.controller, artist, self)
-        if dialog.exec_() == QDialog.Accepted:
-            self.load_artists()
-
-    def _split_artist(self, artist=None):
-        """Open the split dialog for the given or currently selected artist."""
-        if artist is None:
-            selected = self.artist_list.currentItem()
-            if not selected:
-                QMessageBox.warning(
-                    self, "Select Artist", "Please select an artist first."
-                )
-                return
-            artist_id = selected.data(Qt.UserRole)
-            artist = self.controller.get.get_entity_object(
-                "Artist", artist_id=artist_id
-            )
-            if not artist:
-                QMessageBox.warning(self, "Not Found", "Artist not found.")
-                return
+    def _split_artist(self, artist):
+        """Split this artist record into two separate artists."""
+        if not artist:
+            return
 
         dialog = SplitDBDialog(self.controller.split, "Artist", artist, self)
         if dialog.exec_() == QDialog.Accepted:
@@ -543,7 +633,18 @@ class ArtistView(QWidget):
     # ----------------------------
 
     def search_wikipedia(self):
-        """Search Wikipedia for the currently selected artist."""
+        """Open a Wikipedia search in the browser for the currently selected artist."""
+        selected = self.artist_list.currentItem()
+        if not selected:
+            return
+        artist_id = selected.data(Qt.UserRole)
+        artist = self.controller.get.get_entity_object("Artist", artist_id=artist_id)
+        if artist:
+            query = urllib.parse.quote_plus(artist.artist_name)
+            webbrowser.open(f"https://en.wikipedia.org/w/index.php?search={query}")
+
+    def import_from_wikipedia(self):
+        """Open the Wikipedia import dialog for the currently selected artist."""
         selected = self.artist_list.currentItem()
         if not selected:
             return
