@@ -1,0 +1,16 @@
+nowplaying_view.py
+    Toggle between seeing timed lyrics vs untimed
+    Sync slider remembers position between tracks and seessions (saved to config when changed with debounce)
+    Make a better default album image
+    Lyrics shouldn't show if too far away from position (lyrics don't begin until five minutes in for example)
+
+
+player_utility.py
+    Stop does not actually stop, just pauses. Should reset playing progress
+    Back should restart track if more than 5 seconds in. Otherwise, it should go to previous track in queue
+
+player_dock.py
+    Half star clicking position can be finicky
+    "Player" title header is annoying and unwanted
+
+
