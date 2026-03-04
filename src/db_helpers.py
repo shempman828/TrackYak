@@ -586,25 +586,55 @@ class SplitDB(BaseDBHelper):
         try:
             new_artists = []
 
-            # Create new artists
+            # Create or find artists for each name
             for name in new_names:
-                new_artist = src.db_tables.Artist(
-                    artist_name=name,
+                # Check if an artist with this name already exists
+                existing_artist = self.session.scalar(
+                    select(src.db_tables.Artist).where(
+                        src.db_tables.Artist.artist_name == name
+                    )
                 )
-                self.session.add(new_artist)
-                new_artists.append(new_artist)
+
+                if existing_artist:
+                    # Use the existing artist instead of creating a duplicate
+                    logger.debug(
+                        f"Using existing artist: {name} (ID: {existing_artist.artist_id})"
+                    )
+                    new_artists.append(existing_artist)
+                else:
+                    # Create a brand new artist
+                    new_artist = src.db_tables.Artist(
+                        artist_name=name,
+                    )
+                    self.session.add(new_artist)
+                    new_artists.append(new_artist)
+                    logger.debug(f"Creating new artist: {name}")
 
             self.session.flush()
+
+            # Collect existing track role combos to avoid duplicate primary key errors
+            existing_track_roles = {
+                (tr.track_id, tr.artist_id, tr.role_id)
+                for new_artist in new_artists
+                for tr in new_artist.track_roles
+            }
 
             # Duplicate track artist roles
             for track_role in original_artist.track_roles:
                 for new_artist in new_artists:
-                    new_role = src.db_tables.TrackArtistRole(
-                        track_id=track_role.track_id,
-                        artist_id=new_artist.artist_id,
-                        role_id=track_role.role_id,
+                    combo = (
+                        track_role.track_id,
+                        new_artist.artist_id,
+                        track_role.role_id,
                     )
-                    self.session.add(new_role)
+                    if combo not in existing_track_roles:
+                        new_role = src.db_tables.TrackArtistRole(
+                            track_id=track_role.track_id,
+                            artist_id=new_artist.artist_id,
+                            role_id=track_role.role_id,
+                        )
+                        self.session.add(new_role)
+                        existing_track_roles.add(combo)
 
             # Duplicate album roles
             for album_role in original_artist.album_roles:
@@ -616,12 +646,17 @@ class SplitDB(BaseDBHelper):
                     )
                     self.session.add(new_album_role)
 
-            # Now simply delete the original artist - cascades will handle relationship cleanup
-            self.session.delete(original_artist)
+            # Delete the original artist - cascades handle relationship cleanup
+            # (but only if it's not one of the artists we're keeping)
+            if original_artist not in new_artists:
+                self.session.delete(original_artist)
+
             self.session.commit()
 
             logger.info(
-                f"Successfully split artist {artist_id} into {len(new_artists)} artists"
+                f"Successfully split artist {artist_id} into {len(new_artists)} artists. "
+                f"Created {len([a for a in new_artists if a.artist_id != artist_id])} new, "
+                f"used {len([a for a in new_artists if a.artist_id == artist_id])} existing."
             )
             return True
 
