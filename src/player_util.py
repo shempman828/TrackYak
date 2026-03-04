@@ -26,7 +26,7 @@ BLOCKSIZE = 16384  # Frames per audio callback buffer. Larger = more stable.
 READ_AHEAD_BLOCKS = 16  # How many blocks to read ahead into the ring buffer.
 POSITION_INTERVAL_MS = 50  # UI position update interval (20 fps).
 PLAY_COUNT_THRESHOLD = 0.90
-RESTART_THRESHOLD_MS = 3_000
+RESTART_THRESHOLD_MS = 10_000
 BUFFER_QUEUE_SIZE = 20
 PREFILL_BLOCKS = 8  # blocks to decode ahead of the callback
 
@@ -187,7 +187,7 @@ class MusicPlayer(QObject):
         """Signal the reader thread to stop and wait briefly."""
         self._reader_stop.set()
         if self._reader_thread and self._reader_thread.is_alive():
-            self._reader_thread.join(timeout=1.0)
+            self._reader_thread.join(timeout=2.0)
         self._reader_thread = None
         with self._buffer_lock:
             self._audio_buffer.clear()
@@ -197,39 +197,30 @@ class MusicPlayer(QObject):
         Background thread: reads BLOCKSIZE chunks from the SoundFile and
         pushes them into _audio_buffer. Sleeps when the buffer is full.
         """
-        import time as _time
-
         while not self._reader_stop.is_set():
             with self._buffer_lock:
                 buf_len = len(self._audio_buffer)
 
             if buf_len >= PREFILL_BLOCKS:
-                # Buffer full — wait a bit before checking again
                 self._reader_stop.wait(timeout=0.02)
                 continue
 
+            # Hold the reader lock for the entire read so a seek on the main
+            # thread can't move the file cursor between our frame check and
+            # our reader.read() call — that interleaving is what causes FLAC
+            # desync and bad header errors when skipping quickly.
             with self._reader_lock:
                 reader = self._sf_reader
                 frames_remaining = self._total_frames - self._current_frame
                 if frames_remaining <= 0 or reader is None:
                     break
                 to_read = min(BLOCKSIZE, frames_remaining)
-
-            try:
-                _t_read = _time.perf_counter()
-                chunk = reader.read(to_read, dtype="float32", always_2d=True)
-                _read_ms = (_time.perf_counter() - _t_read) * 1000
-                if _read_ms > 5:
-                    logger.warning(f"SLOW READ: {_read_ms:.1f}ms for {to_read} frames")
-            except Exception as exc:
-                logger.error(f"Reader thread read error: {exc}")
-                break
-
-            with self._reader_lock:
-                if self._sf_reader is reader:
+                try:
+                    chunk = reader.read(to_read, dtype="float32", always_2d=True)
                     self._current_frame += len(chunk)
-                else:
-                    break  # Track changed under us
+                except Exception as exc:
+                    logger.error(f"Reader thread read error: {exc}")
+                    break
 
             with self._buffer_lock:
                 self._audio_buffer.append(chunk)
@@ -306,6 +297,7 @@ class MusicPlayer(QObject):
                 blocksize=BLOCKSIZE,
                 callback=_stamped_callback,
             )
+            self._start_reader_thread()
             self.audio_stream.start()
 
             self.playing = True
@@ -331,14 +323,28 @@ class MusicPlayer(QObject):
             logger.debug("Playback paused")
 
     def stop(self):
-        """Stop playback and reset position."""
+        """Stop playback and reset to the beginning."""
         self.playing = False
         self.paused = False
         self._finish_pending.set()
         self._position_timer.stop()
         self._has_reached_threshold = False
         self._play_count_recorded = False
+        # Reset the reader cursor to the beginning of the track
+        self._stop_reader_thread()
+        with self._reader_lock:
+            if self._sf_reader is not None:
+                try:
+                    self._sf_reader.seek(0)
+                    self._current_frame = 0
+                except Exception:
+                    pass
+        self._frames_played = 0
+        with self._buffer_lock:
+            self._audio_buffer.clear()
         self._position = 0
+        # Close the stream so play() opens a fresh one from frame 0
+        self._close_stream()
         self.state_changed.emit("stopped")
         logger.debug("Playback stopped")
 
@@ -857,12 +863,6 @@ class MusicPlayer(QObject):
         if len(chunk) < frames:
             outdata[len(chunk) :] = 0
             self._emit_track_finished_once()
-
-        _elapsed = _time.perf_counter() - _t0
-        if _elapsed > 0.01:  # log anything taking more than 10ms
-            logger.warning(
-                f"SLOW CALLBACK: {_elapsed * 1000:.1f}ms (frames={frames}, sr={self.current_sample_rate})"
-            )
 
     # =========================================================================
     #  Internal — playback finished handler (runs on the main thread)

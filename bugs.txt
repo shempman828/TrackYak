@@ -14,16 +14,7 @@ nowplaying_view.py
 
 
 player_utility.py
-    Stop does not actually stop, just pauses. Should reset playing progress
-    Back should restart track if more than 5 seconds in. Otherwise, it should go to previous track in queue
-    remove slow callback debugging
-    remove slow read debugging
-    2026-03-04 10:58:11,788 - WARNING - player_util.py:863 - _audio_callback() - SLOW CALLBACK: 15.4ms (frames=16384, sr=44100)
-    WARNING:musiclib:SLOW CALLBACK: 15.4ms (frames=16384, sr=44100)
-    2026-03-04 10:58:16,979 - ERROR - player_util.py:225 - _reader_loop() - Reader thread read error: Error : flac decoder lost sync.
-    ERROR:musiclib:Reader thread read error: Error : flac decoder lost sync.
-    2026-03-04 10:58:18,849 - WARNING - player_util.py:863 - _audio_callback() - SLOW CALLBACK: 10.5ms (frames=16384, sr=44100)
-    WARNING:musiclib:SLOW CALLBACK: 10.5ms (frames=16384, sr=44100)
+    windows port
 
 
 player_dock.py
