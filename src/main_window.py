@@ -58,7 +58,6 @@ class GUI(QMainWindow, MenuBar):
         # NowPlayingView is cheap to construct and is needed immediately,
         # so we keep it as an eager view.
         self.now_playing = NowPlayingView(controller)
-        self.now_playing.setVisible(True)
 
         self.setObjectName("MainWindow")
         self.view_registry = {}

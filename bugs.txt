@@ -2,15 +2,10 @@ NEW IDEAS
     add a module for finding possible duplicate tracks (maybe implement fingerprinting too?)
 
 nowplaying_view.py
-    Toggle between seeing timed lyrics vs untimed
-    Sync slider remembers position between tracks and seessions (saved to config when changed with debounce)
+    Sync slider should remember position between tracks and sessions (saved to config when changed with debounce)
     Make a better default album image
-    Lyrics shouldn't show if too far away from position (lyrics don't begin until five minutes in for example) Or maybe show a timer to the lyrics if 5 seconds or more apart
-    if no lyrics found, default to credits page
-    Chips seem to be broken for many tracks
-    keyboard shortcut to toggle a complete fullscreen view - no player dock, no menu bar, no navigation.
-    artist_name logic is wrong.use Track.primary_artist_names string from db_tables
-    an extra nowplaying view opens in a separate window on startup for some reason
+    Chips expand display options
+    Chips sometimes missing
 
 
 player_utility.py
@@ -61,7 +56,8 @@ queue_utility.py
 album_editing_relationship_helpers.py
     changing a relationship does not update tab
 
-
+album_view.py
+    size slider does not function unless manually refreshed
 
 
 

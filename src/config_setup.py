@@ -127,6 +127,9 @@ class Config:
             "column_order": "track_file_name,artist_name,album_name,title,genre,duration,year",
             "column_widths": "",
         }
+        self.config["nowplaying"] = {
+            "lyrics_sync_offset": "-5",  # stored as tenths of a second (int)
+        }
 
     def save(self):
         """Save configuration to file"""
@@ -537,6 +540,26 @@ class Config:
         """Set column widths in config."""
         widths_str = ",".join(str(w) for w in widths)
         self.config.set("track_view", "column_widths", widths_str)
+
+    def get_lyrics_sync_offset(self) -> int:
+        """
+        Get the saved lyrics sync-offset slider value.
+        The value is stored as tenths of a second (e.g. -5 = −0.5 s).
+        Returns an int in the range the slider accepts (−50 … 50).
+        """
+        try:
+            return self.config.getint("nowplaying", "lyrics_sync_offset", fallback=-5)
+        except Exception:
+            return -5
+
+    def set_lyrics_sync_offset(self, value: int):
+        """
+        Persist the lyrics sync-offset slider value.
+        value is in tenths of a second (same unit the slider uses).
+        """
+        if "nowplaying" not in self.config:
+            self.config["nowplaying"] = {}
+        self.config.set("nowplaying", "lyrics_sync_offset", str(int(value)))
 
 
 app_config = Config()
