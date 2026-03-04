@@ -28,6 +28,7 @@ from src.artist_edit import ArtistEditor
 from src.artist_fuzzy_match import FuzzyMatchDialog
 from src.artist_group_dialog import AddGroupDialog, AddMemberDialog
 from src.award_new import AddAwardDialog
+from src.base_merge_dialog import MergeDBDialog
 from src.base_split_dialog import SplitDBDialog
 from src.base_track_view import BaseTrackView
 from src.influences_dialog import AddInfluenceDialog
@@ -576,12 +577,26 @@ class ArtistView(QWidget):
             self.load_artists()
 
     def _merge_artist(self, artist):
-        """Merge this artist into another (placeholder — implement via merge controller)."""
-        QMessageBox.information(
-            self,
-            "Merge Artist",
-            "Use the Merge feature from the artist detail panel to perform merges.",
-        )
+        """Open the merge dialog with this artist pre-selected as the source."""
+        try:
+            dialog = MergeDBDialog(self.controller, "Artist", self)
+
+            # Pre-populate the source side so the user only needs to pick a target.
+            # We set the entity directly then call the dialog's own update methods
+            # to reflect the selection in its UI (info label, highlights, buttons).
+            dialog.source_entity = artist
+            dialog.source_info.setText(dialog._build_entity_info(artist, "source"))
+            dialog.source_search.setText(artist.artist_name)
+            dialog._update_list(artist.artist_name, "source")
+            dialog._highlight_selected_entities()
+            dialog.target_find_similar_btn.setEnabled(True)
+            dialog._auto_suggest_similar(artist, "target")
+            dialog._update_action_buttons()
+
+            if dialog.exec_() == QDialog.Accepted:
+                self.load_artists()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to open merge dialog: {e}")
 
     def _delete_artist(self, artist):
         """Delete an artist after confirmation."""
