@@ -293,7 +293,7 @@ class MenuBar:
 
         if display_settings is None:
             # Create a DisplaySettings instance if needed
-            from display_settings import DisplaySettings
+            from src.display_settings import DisplaySettings
 
             display_settings = DisplaySettings()
 
