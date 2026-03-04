@@ -54,8 +54,11 @@ base_album_edit.py
     publishers && places
     implement wikipedia search
     allow wikipedia search to save front and/or rear cover or liner
-    album_language, album_subtitle, release_type,catalog_number, is_fixed, is_live, is_compilation, estimated_sales not implemented
+    album_language, album_subtitle, release_type,catalog_number, is_fixed, is_live, is_compilation, estimated_sales, MBID not implemented
     implement album aliases
+    add buttons to open wikipedia page and open MusicBrainz page to the header if those links exist.
+    implement disc_edit for track management
+
 
 
 
