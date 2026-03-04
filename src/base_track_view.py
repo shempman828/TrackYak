@@ -59,6 +59,15 @@ class BaseTrackView(QDialog):
         # Initialize the models FIRST
         self.model = QStandardItemModel()
         self.proxy_model = QSortFilterProxyModel(self)
+        self.columns = {
+            "track_name": "Title",
+            "artist_name": "Artist",
+            "album_name": "Album",
+            "track_number": "#",
+            "duration": "Duration",
+            "year": "Year",
+        }
+        self.column_keys = list(self.columns.keys())
 
         self.layout = QVBoxLayout(self)
 
@@ -698,3 +707,24 @@ class BaseTrackView(QDialog):
             QMessageBox.critical(
                 self, "Error", f"Failed to add tracks to mood:\n{str(e)}"
             )
+
+    def _get_track_value(self, track, db_field):
+        """Extract value from track object for the given field."""
+        try:
+            # Handle special relationship fields
+            if db_field == "artist_name":
+                return self._get_artist_name(track)
+            elif db_field == "album_name":
+                return track.album.album_name if track.album else "Unknown Album"
+            elif db_field == "duration":
+                # Return raw duration for sorting, formatted in display
+                return getattr(track, "duration", 0)
+            else:
+                # Direct attribute access
+                value = getattr(track, db_field, "")
+                if value is None:
+                    return ""
+                return value
+        except Exception as e:
+            logger.debug(f"Error getting value for {db_field}: {e}")
+            return ""
