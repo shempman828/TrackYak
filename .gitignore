@@ -9,3 +9,4 @@ logs/
 playlists/
 publisher_logos/
 *.db
+*.db-journal

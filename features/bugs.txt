@@ -9,6 +9,7 @@ nowplaying_view.py
     if no lyrics found, default to credits page
     Chips seem to be broken for many tracks
     keyboard shortcut to toggle a complete fullscreen view - no player dock, no menu bar, no navigation.
+    artist_name logic is wrong.use Track.primary_artist_names string from db_tables
 
 
 player_utility.py
@@ -58,6 +59,15 @@ base_album_edit.py
     implement album aliases
     add buttons to open wikipedia page and open MusicBrainz page to the header if those links exist.
     implement disc_edit for track management
+    dialog size is a bit small for fitting everything vertically. Use more horizontal space and make the dialog a bit bigger by default.
+    update_album is wrong. The correct call is self.controller.update.update_entity("Album", album.album_id, **kwargs)
+    When picking a file for album cover, remember the last directory used and start there
+    make sure uploaded album covers are renamed and moved to the appropriate place and the path is correctly updated in the album.
+
+
+db_tables.py
+    implement "used in" feature for tracks, showing contexts where the track was used. Soundtracks, events, etc.
+    property for albums to estimate if any tracks are missing
 
 
 
