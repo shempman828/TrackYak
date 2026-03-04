@@ -87,6 +87,10 @@ class StatusBarWidget(QWidget):
             self.progress_bar.hide()
             self.close_btn.hide()
 
+        # Reset any fixed height constraints before showing
+        self.setMinimumHeight(0)
+        self.setMaximumHeight(16777215)  # Qt's default maximum
+
         # Show the status bar
         self.show()
 
@@ -97,9 +101,15 @@ class StatusBarWidget(QWidget):
             self._auto_hide_timer.stop()
 
     def hide(self):
-        """Hide the status bar"""
-        super().hide()
+        """Hide the status bar and return space to the layout"""
+        # Hide child widgets first
         self.progress_bar.hide()
         self.close_btn.hide()
         self._auto_hide_timer.stop()
-        self.setFixedHeight(0)
+
+        # Remove any fixed size constraints so the layout can collapse properly
+        self.setMinimumHeight(0)
+        self.setMaximumHeight(0)
+
+        # Now hide the widget itself
+        super().hide()
