@@ -97,6 +97,7 @@ class MusicPlayer(QObject):
 
         self._total_frames: int = 0  # total frames in the file
         self._current_frame: int = 0  # how many frames we have read so far
+        self._frames_played: int = 0  # how many frames the audio callback has output
 
         # Lock protecting _sf_reader and _current_frame from concurrent access
         # between the audio callback thread and the main thread (seek).
@@ -424,6 +425,7 @@ class MusicPlayer(QObject):
                 self._current_frame = target_frame
 
             self._position = position_ms
+            self._frames_played = int(position_ms / 1000.0 * self.current_sample_rate)
 
             if (
                 self._duration > 0
@@ -494,6 +496,7 @@ class MusicPlayer(QObject):
         self._has_reached_threshold = False
         self._play_count_recorded = False
         self._position = 0
+        self._frames_played = 0
 
         # Stop the reader thread BEFORE swapping the file, so it can't race
         # against us while we close the old reader and open the new one.
@@ -502,6 +505,10 @@ class MusicPlayer(QObject):
         logger.info(f"Opening: {file_path}")
 
         try:
+            new_reader = None
+            new_sr = 0
+            new_ch = 0
+            new_frames = 0
             # Check if we pre-loaded this exact file
             with self._preload_lock:
                 if self._next_file == file_path and self._next_sf_reader is not None:
@@ -545,6 +552,7 @@ class MusicPlayer(QObject):
             self.current_bit_depth = 32
             self._duration = int(new_frames / new_sr * 1000)
             self._position = 0
+            self._frames_played = 0
 
             self.equalizer.set_sample_rate(new_sr)
             self._gain_factor = self._calculate_gain_factor()
@@ -845,6 +853,7 @@ class MusicPlayer(QObject):
             chunk = self.equalizer.process_audio(chunk)
 
         outdata[: len(chunk)] = chunk
+        self._frames_played += len(chunk)
         if len(chunk) < frames:
             outdata[len(chunk) :] = 0
             self._emit_track_finished_once()
@@ -876,7 +885,7 @@ class MusicPlayer(QObject):
         """Fired by the position timer every POSITION_INTERVAL_MS."""
         if not self.playing or self.paused or self._sf_reader is None:
             return
-        self._position = int(self._current_frame / self.current_sample_rate * 1000)
+        self._position = int(self._frames_played / self.current_sample_rate * 1000)
         self.position_changed.emit(self._position)
 
         if (

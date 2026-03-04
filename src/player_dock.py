@@ -465,6 +465,12 @@ class PlayerUI(QWidget):
 
     def _update_track_display(self, file_path: Path):
         """Update UI elements based on track state with robust formatting for classical/non-classical tracks."""
+        # Reset position display immediately on every track change
+        self.position_slider.blockSignals(True)
+        self.position_slider.setValue(0)
+        self.position_slider.blockSignals(False)
+        self.position_label.setText("0:00 / 0:00")
+
         try:
             if file_path:
                 track = self.controller.get.get_entity_object(

@@ -341,6 +341,9 @@ class GUI(QMainWindow, MenuBar):
         self.addDockWidget(Qt.BottomDockWidgetArea, self.player_dock)
         self.player_dock.show()
         self.mediaplayer.track_changed.connect(self._ensure_player_dock_visible)
+        self.player_dock.setStyleSheet(
+            "QDockWidget::title { height: 0px; padding: 0px; border: none; }"
+        )
         self.player_dock.raise_()
         logger.info("Player dock created")
 
@@ -364,9 +367,6 @@ class GUI(QMainWindow, MenuBar):
             QDockWidget.DockWidgetMovable
             | QDockWidget.DockWidgetFloatable
             | QDockWidget.DockWidgetClosable
-        )
-        self.player_dock.setStyleSheet(
-            "QDockWidget::title { height: 0px; padding: 0px; border: none; }"
         )
         self.queue_dock.setAllowedAreas(Qt.RightDockWidgetArea | Qt.LeftDockWidgetArea)
         self.queue_dock.setMinimumWidth(300)
