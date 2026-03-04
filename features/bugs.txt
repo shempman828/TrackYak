@@ -1,16 +1,62 @@
+NEW IDEAS
+    add a module for finding possible duplicate tracks (maybe implement fingerprinting too?)
+
 nowplaying_view.py
     Toggle between seeing timed lyrics vs untimed
     Sync slider remembers position between tracks and seessions (saved to config when changed with debounce)
     Make a better default album image
-    Lyrics shouldn't show if too far away from position (lyrics don't begin until five minutes in for example)
+    Lyrics shouldn't show if too far away from position (lyrics don't begin until five minutes in for example) Or maybe show a timer to the lyrics if 5 seconds or more apart
+    if no lyrics found, default to credits page
+    Chips seem to be broken for many tracks
+    keyboard shortcut to toggle a complete fullscreen view - no player dock, no menu bar, no navigation.
 
 
 player_utility.py
     Stop does not actually stop, just pauses. Should reset playing progress
     Back should restart track if more than 5 seconds in. Otherwise, it should go to previous track in queue
+    remove slow callback debugging
+    remove slow read debugging
+
 
 player_dock.py
     Half star clicking position can be finicky
     "Player" title header is annoying and unwanted
+    search lyrics button does not save lyrics to db
+    search lyrics does not need qmessagebox, use status widget
+    reload now playing view on lyrics save
+
+
+status_widget.py
+    use a notification style, don't allocate space within the main window.
+
+roles_view.py
+    data loading is expensive
+
+player_settings.py
+    remember choices between sessions (write and read to config)
+
+menu_bar.py
+    add feature to auto hide unless moused over
+    add mouse over feature to display settings and config
+    implement project support links in "about"
+    add a general settings page.
+    add debugging level to general settings.
+
+config_setup.py
+    make sure debugging level is a setting
+
+base_album_edit.py
+    release year spinbox defaults to 99? Even if there is an existing release_year?
+    release_month and release_day
+    add album_liner_path and display
+    metadata tab does not make sense. Move description to header it should be long text box
+    AutocompleteDialog.get_inputs takes 1 to 2 positional arguments but 3 were given
+    publishers && places
+    implement wikipedia search
+    allow wikipedia search to save front and/or rear cover or liner
+    album_language, album_subtitle, release_type,catalog_number, is_fixed, is_live, is_compilation, estimated_sales not implemented
+    implement album aliases
+
+
 
 
