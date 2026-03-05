@@ -82,18 +82,26 @@ class RatingStarsWidget(QWidget):
             self.rating_changed.emit(self.pending_rating)
             self.pending_rating = None
 
-    def paintEvent(self, event):
-        """Render the stars with hover and current rating."""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
+    def _star_geometry(self):
+        """
+        Return (star_size, spacing, start_x, start_y) computed from the
+        current widget size.  Both paintEvent and _calculate_rating_from_pos
+        must use this so click zones match the drawn stars.
+        """
         available_height = self.height() - 4
         star_size = min(available_height, 12)
         spacing = star_size * 0.3
         total_width = 10 * star_size + 9 * spacing
         start_x = max(0, (self.width() - total_width) / 2)
         start_y = (self.height() - star_size) / 2
+        return star_size, spacing, start_x, start_y
 
+    def paintEvent(self, event):
+        """Render the stars with hover and current rating."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        star_size, spacing, start_x, start_y = self._star_geometry()
         display_rating = self.hover_rating if self.is_hovering else self.rating
 
         for i in range(10):
@@ -145,10 +153,7 @@ class RatingStarsWidget(QWidget):
     def _calculate_rating_from_pos(self, pos) -> float:
         """Return rating based on mouse position, 0.5 steps."""
         try:
-            star_size = 12
-            spacing = star_size * 0.3
-            total_width = 10 * star_size + 9 * spacing
-            start_x = max(0, (self.width() - total_width) / 2)
+            star_size, spacing, start_x, _ = self._star_geometry()
             rel_x = pos.x() - start_x
 
             if rel_x < 0:

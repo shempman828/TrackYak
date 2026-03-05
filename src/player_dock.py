@@ -20,6 +20,7 @@ from src.base_album_edit import AlbumEditor
 from src.config_setup import app_config
 from src.logger_config import logger
 from src.rating_widget import RatingStarsWidget
+from src.status_utility import StatusManager
 from src.track_edit import TrackEditDialog
 
 _COLOR_TRACK = "#b8c0f0"  # text primary – soft lavender white
@@ -721,9 +722,6 @@ class PlayerUI(QWidget):
                     dock.setMinimumHeight(height)
                     dock.setMinimumWidth(width)
                     self.setMinimumHeight(ideal_size.height())
-                dock.setStyleSheet(
-                    "QDockWidget::title { height: 0px; padding: 0px; border: none; }"
-                )
         except Exception as e:
             logger.error(f"Error adjusting player dock size: {e}")
 
@@ -1375,6 +1373,8 @@ class PlayerUI(QWidget):
         try:
             from src.lyrics_search import search_lyrics_for_track
 
+            StatusManager.show_message("Searching for lyrics…", 0)  # persistent
+
             lyrics = search_lyrics_for_track(self.current_track)
             if lyrics:
                 # Save to database
@@ -1383,16 +1383,44 @@ class PlayerUI(QWidget):
                     self.current_track.track_id,
                     lyrics=lyrics,
                 )
-                QMessageBox.information(
-                    self, "Lyrics Found", "Lyrics were found and saved to the track."
-                )
+                StatusManager.show_message("Lyrics found and saved.", 4000)
+
+                # Reload the Now Playing view so lyrics appear immediately
+                self._reload_now_playing()
             else:
-                QMessageBox.information(
-                    self, "Lyrics Search", "No lyrics found for this track."
-                )
+                StatusManager.show_message("No lyrics found for this track.", 4000)
+
         except Exception as e:
             logger.error(f"Lyrics search error from player dock: {e}")
-            QMessageBox.warning(self, "Lyrics Search", f"Search failed:\n{e}")
+            StatusManager.show_message(f"Lyrics search failed: {e}", 5000)
+
+    def _reload_now_playing(self):
+        """
+        Ask the main window to refresh the Now Playing view.
+        Safe to call even if the main window or the view don't exist.
+        """
+        try:
+            # Walk up the parent chain to find the QMainWindow
+            main_win = self.parent_window
+            if main_win is None:
+                # Fallback: try Qt parent hierarchy
+                w = self.parent()
+                while w is not None:
+                    from PySide6.QtWidgets import QMainWindow
+
+                    if isinstance(w, QMainWindow):
+                        main_win = w
+                        break
+                    w = w.parent()
+
+            if main_win and hasattr(main_win, "update_now_playing_view"):
+                track = self.current_track
+                if track and hasattr(track, "track_file_path"):
+                    from pathlib import Path
+
+                    main_win.update_now_playing_view(Path(track.track_file_path))
+        except Exception as e:
+            logger.error(f"Error reloading Now Playing view after lyrics save: {e}")
 
     @staticmethod
     def _make_persistent_action(

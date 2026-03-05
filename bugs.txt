@@ -14,7 +14,7 @@ player_utility.py
 player_dock.py
     Half star clicking position can be finicky
     "Player" title header is annoying and unwanted
-    search lyrics button does not save lyrics to db
+    search lyrics context button does not save lyrics to db
     search lyrics does not need qmessagebox, use status widget
     reload now playing view on lyrics save
 
