@@ -164,7 +164,7 @@ class AlbumEditor(QDialog):
         tabs.addTab(self._build_artwork_tab(), "Artwork")
         tabs.addTab(self._build_aliases_tab(), "Aliases")
         tabs.addTab(self.tab_builder.build_artists_tab(), "Artist Credits")
-        tabs.addTab(self.tab_builder.build_relationships_tab(), "Publishers & Places")
+        tabs.addTab(self.tab_builder.build_relationships_tab(), "Publishers && Places")
         tabs.addTab(self.tab_builder.build_awards_tab(), "Awards")
         tabs.addTab(self._build_advanced_tab(), "Advanced")
 
