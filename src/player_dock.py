@@ -1373,19 +1373,19 @@ class PlayerUI(QWidget):
         try:
             from src.lyrics_search import search_lyrics_for_track
 
-            StatusManager.show_message("Searching for lyrics…", 0)  # persistent
+            StatusManager.show_message("Searching for lyrics…", 0)
 
             lyrics = search_lyrics_for_track(self.current_track)
             if lyrics:
-                # Save to database
+                # Convert the Lyrics object to a plain string before saving
+                lyrics_text = self._format_lyrics(lyrics)
+
                 self.controller.update.update_entity(
                     "Track",
                     self.current_track.track_id,
-                    lyrics=lyrics,
+                    lyrics=lyrics_text,
                 )
                 StatusManager.show_message("Lyrics found and saved.", 4000)
-
-                # Reload the Now Playing view so lyrics appear immediately
                 self._reload_now_playing()
             else:
                 StatusManager.show_message("No lyrics found for this track.", 4000)
@@ -1446,3 +1446,25 @@ class PlayerUI(QWidget):
         # Use triggered(bool) so we can ignore the bool arg
         action.triggered.connect(lambda _=False: slot())
         return action
+
+    @staticmethod
+    def _format_lyrics(lyrics_obj) -> str:
+        """Convert a Lyrics object or string to a plain storable string."""
+        if isinstance(lyrics_obj, str):
+            return lyrics_obj
+
+        # Unwrap object wrapper if present (lyriq returns a Lyrics object)
+        lyrics_dict = getattr(lyrics_obj, "lyrics", lyrics_obj)
+
+        if isinstance(lyrics_dict, dict):
+            lines = []
+            for ts in sorted(lyrics_dict.keys()):
+                line = lyrics_dict[ts]
+                if str(line).strip() == "♪":
+                    lines.append("")
+                else:
+                    lines.append(f"[{ts}] {line}")
+            return "\n".join(lines)
+
+        # Fallback: stringify whatever we got
+        return str(lyrics_obj)
