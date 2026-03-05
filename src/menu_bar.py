@@ -8,6 +8,7 @@ from src.analysis_dialog import AudioAnalysisDialog
 from src.asset_paths import icon
 from src.config_setup import app_config
 from src.display_dialog import DisplaySettingsDialog
+from src.duplicate_finder import DuplicateFinderDialog
 from src.equalizer_dialog import EqualizerDialog
 from src.file_manager_dialog import FileManager
 from src.import_dialog import ImportDialog
@@ -40,6 +41,12 @@ class MenuBar:
         statistics_action.setIcon(QIcon(icon("statistics.svg")))
         statistics_action.triggered.connect(self.show_statistics_dialog)
         file_menu.addAction(statistics_action)
+
+        # Duplicate Finder
+        duplicate_action = QAction("Find Duplicate Tracks", self)
+        duplicate_action.setToolTip("Scan library for possible duplicate tracks")
+        duplicate_action.triggered.connect(self.show_duplicate_finder)
+        file_menu.addAction(duplicate_action)
 
         file_menu.addSeparator()
         file_menu.addSeparator()
@@ -146,6 +153,11 @@ class MenuBar:
         self.statistics_dialog.show()
         self.statistics_dialog.raise_()
         self.statistics_dialog.activateWindow()
+
+    def show_duplicate_finder(self):
+        """Open the Duplicate Track Finder dialog."""
+        dialog = DuplicateFinderDialog(self.controller)
+        dialog.exec_()
 
     def show_about_dialog(self):
         # Program description
