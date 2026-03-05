@@ -16,8 +16,6 @@ Usage:
         pass
 """
 
-import logging
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -38,7 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-logger = logging.getLogger(__name__)
+from src.logger_config import logger
 
 # Alias types as defined in the ArtistAlias table comment
 ALIAS_TYPES = [

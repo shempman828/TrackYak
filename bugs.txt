@@ -67,15 +67,9 @@ library_import.py
     the only date that is ever imported is year. Month and day are never imported correctly.
 
 artist_editing
-    date editing - must delete "-" to start typing number, very inefficient
+
     cannot move dialog independently of applicaiton
-    Members tab is awkward. It should only allow editing of group members for groups and only allow member of for individuals. You can currently add members to indivudals and can't actually add an individual to a group from this screen
-    places management is not great.We can only add a place that already exists in the db and can't define the relationship? It just says associated with but I want to define birth place, death place, etc.
-    Similarly, awards must already exist. This is not efficient
-    Discography section is inefficient. We don't really need to see "Primary Artist" credits for which the artist is the "Album Artist" for the album. Redundant.
-    born/founded and death/disbanded should dynamically change for indivudals or groups
-    artist type should not be a set dropdown but an open prompt with autocomplete suggestions for existing artist types
-    There should be a concrete alive toggle so death/disband isn't just left hanging like it is missing data
+    cannot add individual to any groups from the member tab
 
 artist alias management
     allow user to define alias type with autocomplete suggestions for existing types, not a predefined dropdown.

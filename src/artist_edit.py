@@ -2,17 +2,16 @@
 artist_edit_dialog.py
 
 A comprehensive artist editing dialog covering all fields and relationships
-from the Artist ORM model in db_tables.py:
+from the Artist ORM model in db_tables.py.
 """
 
-import logging
-
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QIntValidator, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QCompleter,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -24,7 +23,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -35,35 +33,42 @@ from PySide6.QtWidgets import (
 )
 
 from src.artist_alias_dialog import ArtistAliasDialog
-
-logger = logging.getLogger(__name__)
+from src.logger_config import logger
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-ARTIST_TYPES = ["", "Person", "Band", "Orchestra", "Choir"]
+# Suggestions for artist type autocomplete (user can still type anything)
+ARTIST_TYPE_SUGGESTIONS = [
+    "Person",
+    "Band",
+    "Orchestra",
+    "Choir",
+    "Ensemble",
+]
+
 GENDERS = ["", "Male", "Female", "Non-binary", "Other", "Unknown"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Helper: compact SpinBox that shows 0 as "–" (unset)
+# Helper: compact integer-only QLineEdit that returns None when empty
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-class OptionalSpinBox(QSpinBox):
-    """SpinBox where 0 means 'not set'. Displays blank for 0."""
+class OptionalIntEdit(QLineEdit):
+    """A QLineEdit that only accepts integers and returns None when empty."""
 
-    def __init__(self, minimum=0, maximum=9999, parent=None):
+    def __init__(self, placeholder="", parent=None):
         super().__init__(parent)
-        self.setRange(minimum, maximum)
-        self.setSpecialValueText("–")  # shown when value == minimum (0)
-        self.setValue(0)
+        self.setPlaceholderText(placeholder)
+        self.setFixedWidth(70)
+        self.setValidator(QIntValidator(0, 9999, self))
 
     def get_value_or_none(self):
-        v = self.value()
-        return None if v == self.minimum() else v
+        text = self.text().strip()
+        return int(text) if text else None
 
     def set_from_db(self, val):
-        self.setValue(int(val) if val is not None else 0)
+        self.setText(str(int(val)) if val is not None else "")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -83,7 +88,7 @@ class ArtistEditor(QDialog):
     Members        – group_memberships / member_memberships (GroupMembership)
     Influences     – influencer_relations / influenced_relations (ArtistInfluence)
     Places & Awards– artist.places, artist.awards
-    Discography    – read-only album/track credit summary
+    Discography    – read-only album/track credit summary (excluding Primary Artist album credits)
     Advanced       – profile_pic_path, is_fixed, links, raw IDs
     """
 
@@ -94,7 +99,8 @@ class ArtistEditor(QDialog):
 
         self.setWindowTitle(f"Edit Artist: {artist.artist_name}")
         self.setMinimumSize(920, 680)
-        self.setModal(True)
+        # WindowModal = user can still move/interact with the main app window
+        self.setWindowModality(Qt.WindowModal)
 
         self._init_ui()
         self._load_all()
@@ -118,7 +124,7 @@ class ArtistEditor(QDialog):
         self.tabs.addTab(self._build_aliases_tab(), "Aliases")
         self.tabs.addTab(self._build_members_tab(), "Members")
         self.tabs.addTab(self._build_influences_tab(), "Influences")
-        self.tabs.addTab(self._build_places_awards_tab(), "Places && Awards")
+        self.tabs.addTab(self._build_places_awards_tab(), "Places & Awards")
         self.tabs.addTab(self._build_discography_tab(), "Discography")
         self.tabs.addTab(self._build_advanced_tab(), "Advanced")
         root.addWidget(self.tabs)
@@ -145,48 +151,69 @@ class ArtistEditor(QDialog):
         self.name_edit.setPlaceholderText("Artist name")
         form.addRow("Name *:", self.name_edit)
 
-        self.artist_type_combo = QComboBox()
-        self.artist_type_combo.addItems(ARTIST_TYPES)
-        form.addRow("Type:", self.artist_type_combo)
+        # Artist type: free-text with autocomplete suggestions
+        self.artist_type_edit = QLineEdit()
+        self.artist_type_edit.setPlaceholderText("e.g. Person, Band, Orchestra…")
+        self.artist_type_edit.setToolTip(
+            "Type any value. Common types are suggested as you type."
+        )
+        self._artist_type_completer = QCompleter(ARTIST_TYPE_SUGGESTIONS, self)
+        self._artist_type_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._artist_type_completer.setCompletionMode(QCompleter.PopupCompletion)
+        self.artist_type_edit.setCompleter(self._artist_type_completer)
+        form.addRow("Type:", self.artist_type_edit)
 
         self.isgroup_check = QCheckBox("This name represents a group / band")
+        self.isgroup_check.toggled.connect(self._on_isgroup_changed)
         form.addRow("Is Group:", self.isgroup_check)
 
         self.gender_combo = QComboBox()
         self.gender_combo.addItems(GENDERS)
         form.addRow("Gender:", self.gender_combo)
 
-        # Begin date
+        # ── Begin date (label updated dynamically) ──
         begin_box = QHBoxLayout()
-        self.begin_year_spin = OptionalSpinBox(0, 2100)
-        self.begin_year_spin.setToolTip("Year born / founded (0 = unknown)")
-        self.begin_month_spin = OptionalSpinBox(0, 12)
-        self.begin_month_spin.setToolTip("Month (0 = unknown)")
-        self.begin_day_spin = OptionalSpinBox(0, 31)
-        self.begin_day_spin.setToolTip("Day (0 = unknown)")
+        self.begin_year_edit = OptionalIntEdit("YYYY")
+        self.begin_year_edit.setToolTip("Year born / founded")
+        self.begin_month_edit = OptionalIntEdit("MM")
+        self.begin_month_edit.setToolTip("Month (1-12)")
+        self.begin_day_edit = OptionalIntEdit("DD")
+        self.begin_day_edit.setToolTip("Day (1-31)")
         begin_box.addWidget(QLabel("Year"))
-        begin_box.addWidget(self.begin_year_spin)
+        begin_box.addWidget(self.begin_year_edit)
         begin_box.addWidget(QLabel("Month"))
-        begin_box.addWidget(self.begin_month_spin)
+        begin_box.addWidget(self.begin_month_edit)
         begin_box.addWidget(QLabel("Day"))
-        begin_box.addWidget(self.begin_day_spin)
+        begin_box.addWidget(self.begin_day_edit)
         begin_box.addStretch()
-        form.addRow("Born / Founded:", begin_box)
+        # Store the form row label so we can update it
+        self.begin_date_label = QLabel("Born / Founded:")
+        form.addRow(self.begin_date_label, begin_box)
 
-        # End date
+        # ── Currently Active toggle ──
+        self.is_active_check = QCheckBox("Alive / Active")
+        self.is_active_check.setToolTip(
+            "Check this if the artist is still active. "
+            "Unchecking enables the end date fields below."
+        )
+        self.is_active_check.toggled.connect(self._on_active_toggled)
+        form.addRow("Status:", self.is_active_check)
+
+        # ── End date ──
         end_box = QHBoxLayout()
-        self.end_year_spin = OptionalSpinBox(0, 2100)
-        self.end_year_spin.setToolTip("Year died / disbanded (0 = still active)")
-        self.end_month_spin = OptionalSpinBox(0, 12)
-        self.end_day_spin = OptionalSpinBox(0, 31)
+        self.end_year_edit = OptionalIntEdit("YYYY")
+        self.end_year_edit.setToolTip("Year died / disbanded")
+        self.end_month_edit = OptionalIntEdit("MM")
+        self.end_day_edit = OptionalIntEdit("DD")
         end_box.addWidget(QLabel("Year"))
-        end_box.addWidget(self.end_year_spin)
+        end_box.addWidget(self.end_year_edit)
         end_box.addWidget(QLabel("Month"))
-        end_box.addWidget(self.end_month_spin)
+        end_box.addWidget(self.end_month_edit)
         end_box.addWidget(QLabel("Day"))
-        end_box.addWidget(self.end_day_spin)
+        end_box.addWidget(self.end_day_edit)
         end_box.addStretch()
-        form.addRow("Died / Disbanded:", end_box)
+        self.end_date_label = QLabel("Died / Disbanded:")
+        form.addRow(self.end_date_label, end_box)
 
         layout.addWidget(form_widget, 1)
 
@@ -209,6 +236,36 @@ class ArtistEditor(QDialog):
         layout.addWidget(pic_grp)
 
         return w
+
+    def _on_isgroup_changed(self, is_group: bool):
+        """Update date labels when group status changes."""
+        if is_group:
+            self.begin_date_label.setText("Founded:")
+            self.end_date_label.setText("Disbanded:")
+            self.is_active_check.setText("Alive / Active (still together)")
+        else:
+            self.begin_date_label.setText("Born:")
+            self.end_date_label.setText("Died:")
+            self.is_active_check.setText("Currently alive / active")
+        self._update_members_tab_visibility()
+
+    def _on_active_toggled(self, is_active: bool):
+        """Enable/disable end date fields based on active status."""
+        self.end_year_edit.setEnabled(not is_active)
+        self.end_month_edit.setEnabled(not is_active)
+        self.end_day_edit.setEnabled(not is_active)
+        if is_active:
+            self.end_year_edit.clear()
+            self.end_month_edit.clear()
+            self.end_day_edit.clear()
+
+    def _update_members_tab_visibility(self):
+        """Show/hide sections in Members tab based on isgroup."""
+        is_group = self.isgroup_check.isChecked()
+        if hasattr(self, "_members_group_widget"):
+            self._members_group_widget.setVisible(is_group)
+        if hasattr(self, "_members_affil_widget"):
+            self._members_affil_widget.setVisible(not is_group)
 
     # ── Tab: Biography ────────────────────────────────────────────────────────
 
@@ -248,13 +305,22 @@ class ArtistEditor(QDialog):
     # ── Tab: Members ──────────────────────────────────────────────────────────
 
     def _build_members_tab(self):
-        """GroupMembership – either members of this group, or groups this person belongs to."""
+        """
+        GroupMembership tab.
+
+        - For GROUPS: shows "Members of this Group" with an Add Member form.
+        - For INDIVIDUALS: shows "Groups This Artist Belongs To" (read-only list).
+        Both sections exist in the widget but visibility is toggled by isgroup.
+        """
         w = QWidget()
         layout = QVBoxLayout(w)
-
         splitter = QSplitter(Qt.Vertical)
 
-        # ─ Group Members (when this artist IS the group) ─
+        # ─ Group Members section (only shown when isgroup=True) ─
+        self._members_group_widget = QWidget()
+        gw_layout = QVBoxLayout(self._members_group_widget)
+        gw_layout.setContentsMargins(0, 0, 0, 0)
+
         grp_members = QGroupBox("Members of this Group")
         gm_layout = QVBoxLayout(grp_members)
         self.members_table = self._make_table(
@@ -267,17 +333,17 @@ class ArtistEditor(QDialog):
         self.new_member_edit.setPlaceholderText("Member artist name…")
         self.new_member_role_edit = QLineEdit()
         self.new_member_role_edit.setPlaceholderText("Role (e.g. Guitarist)")
-        self.new_member_start_spin = OptionalSpinBox(0, 2100)
-        self.new_member_end_spin = OptionalSpinBox(0, 2100)
+        self.new_member_start_edit = OptionalIntEdit("Start yr")
+        self.new_member_end_edit = OptionalIntEdit("End yr")
         self.new_member_current_check = QCheckBox("Current")
         add_member_btn = QPushButton("Add Member")
         add_member_btn.clicked.connect(self._add_member)
         add_member_row.addWidget(self.new_member_edit, 2)
         add_member_row.addWidget(self.new_member_role_edit, 2)
         add_member_row.addWidget(QLabel("Start"))
-        add_member_row.addWidget(self.new_member_start_spin)
+        add_member_row.addWidget(self.new_member_start_edit)
         add_member_row.addWidget(QLabel("End"))
-        add_member_row.addWidget(self.new_member_end_spin)
+        add_member_row.addWidget(self.new_member_end_edit)
         add_member_row.addWidget(self.new_member_current_check)
         add_member_row.addWidget(add_member_btn)
         gm_layout.addLayout(add_member_row)
@@ -287,16 +353,22 @@ class ArtistEditor(QDialog):
             lambda: self._remove_selected_row(self.members_table, self._remove_member)
         )
         gm_layout.addWidget(rm_member_btn, alignment=Qt.AlignLeft)
-        splitter.addWidget(grp_members)
+        gw_layout.addWidget(grp_members)
+        splitter.addWidget(self._members_group_widget)
 
-        # ─ Group Affiliations (when this artist IS a member) ─
+        # ─ Group Affiliations section (shown for all, but mainly useful for individuals) ─
+        self._members_affil_widget = QWidget()
+        aw_layout = QVBoxLayout(self._members_affil_widget)
+        aw_layout.setContentsMargins(0, 0, 0, 0)
+
         grp_affil = QGroupBox("Groups This Artist Belongs To")
         ga_layout = QVBoxLayout(grp_affil)
         self.affiliations_table = self._make_table(
             ["Group", "Role", "Start Year", "End Year", "Current"], editable=False
         )
         ga_layout.addWidget(self.affiliations_table)
-        splitter.addWidget(grp_affil)
+        aw_layout.addWidget(grp_affil)
+        splitter.addWidget(self._members_affil_widget)
 
         layout.addWidget(splitter)
         return w
@@ -316,52 +388,52 @@ class ArtistEditor(QDialog):
         )
         inf_layout.addWidget(self.influenced_table)
 
-        add_inf_row = QHBoxLayout()
+        add_infl_row = QHBoxLayout()
         self.new_influenced_edit = QLineEdit()
         self.new_influenced_edit.setPlaceholderText("Artist name…")
-        self.new_inf_desc_edit = QLineEdit()
-        self.new_inf_desc_edit.setPlaceholderText("Description (optional)")
-        add_inf_btn = QPushButton("Add")
-        add_inf_btn.clicked.connect(self._add_influenced)
-        add_inf_row.addWidget(self.new_influenced_edit, 2)
-        add_inf_row.addWidget(self.new_inf_desc_edit, 2)
-        add_inf_row.addWidget(add_inf_btn)
-        inf_layout.addLayout(add_inf_row)
-        rm_inf_btn = QPushButton("Remove Selected")
-        rm_inf_btn.clicked.connect(
+        self.new_influenced_desc_edit = QLineEdit()
+        self.new_influenced_desc_edit.setPlaceholderText("Description (optional)")
+        add_infl_btn = QPushButton("Add →")
+        add_infl_btn.clicked.connect(self._add_influenced)
+        rm_infl_btn = QPushButton("Remove Selected")
+        rm_infl_btn.clicked.connect(
             lambda: self._remove_selected_row(
                 self.influenced_table, self._remove_influenced
             )
         )
-        inf_layout.addWidget(rm_inf_btn, alignment=Qt.AlignLeft)
+        add_infl_row.addWidget(self.new_influenced_edit, 2)
+        add_infl_row.addWidget(self.new_influenced_desc_edit, 2)
+        add_infl_row.addWidget(add_infl_btn)
+        inf_layout.addLayout(add_infl_row)
+        inf_layout.addWidget(rm_infl_btn, alignment=Qt.AlignLeft)
         splitter.addWidget(inf_grp)
 
-        # Influencers (artists that influenced this one)
-        infl_grp = QGroupBox("Influenced By")
+        # Influencers (artists who influenced this one)
+        infl_grp = QGroupBox("Artists Who Influenced This Artist")
         infl_layout = QVBoxLayout(infl_grp)
         self.influencer_table = self._make_table(
-            ["Influencing Artist", "Description"], editable=False
+            ["Influencer Artist", "Description"], editable=False
         )
         infl_layout.addWidget(self.influencer_table)
 
-        add_infl_row = QHBoxLayout()
+        add_influencer_row = QHBoxLayout()
         self.new_influencer_edit = QLineEdit()
         self.new_influencer_edit.setPlaceholderText("Artist name…")
         self.new_influencer_desc_edit = QLineEdit()
         self.new_influencer_desc_edit.setPlaceholderText("Description (optional)")
-        add_infl_btn = QPushButton("Add")
-        add_infl_btn.clicked.connect(self._add_influencer)
-        add_infl_row.addWidget(self.new_influencer_edit, 2)
-        add_infl_row.addWidget(self.new_influencer_desc_edit, 2)
-        add_infl_row.addWidget(add_infl_btn)
-        infl_layout.addLayout(add_infl_row)
-        rm_infl_btn = QPushButton("Remove Selected")
-        rm_infl_btn.clicked.connect(
+        add_influencer_btn = QPushButton("Add →")
+        add_influencer_btn.clicked.connect(self._add_influencer)
+        rm_influencer_btn = QPushButton("Remove Selected")
+        rm_influencer_btn.clicked.connect(
             lambda: self._remove_selected_row(
                 self.influencer_table, self._remove_influencer
             )
         )
-        infl_layout.addWidget(rm_infl_btn, alignment=Qt.AlignLeft)
+        add_influencer_row.addWidget(self.new_influencer_edit, 2)
+        add_influencer_row.addWidget(self.new_influencer_desc_edit, 2)
+        add_influencer_row.addWidget(add_influencer_btn)
+        infl_layout.addLayout(add_influencer_row)
+        infl_layout.addWidget(rm_influencer_btn, alignment=Qt.AlignLeft)
         splitter.addWidget(infl_grp)
 
         layout.addWidget(splitter)
@@ -374,17 +446,35 @@ class ArtistEditor(QDialog):
         layout = QVBoxLayout(w)
         splitter = QSplitter(Qt.Vertical)
 
-        # Places
+        # ── Places ──
         places_grp = QGroupBox("Associated Places")
         pl_layout = QVBoxLayout(places_grp)
+
+        # Table now shows association_type
         self.places_table = self._make_table(
-            ["Place Name", "Type", "Country"], editable=False
+            ["Place Name", "Association Type", "Place Type", "Region/Country"],
+            editable=False,
         )
         pl_layout.addWidget(self.places_table)
 
+        # Help text
+        place_help = QLabel(
+            "You can type a new place name — it will be created automatically if it doesn't exist yet."
+        )
+        place_help.setWordWrap(True)
+        place_help.setStyleSheet("color: #888; font-size: 11px;")
+        pl_layout.addWidget(place_help)
+
         pl_add_row = QHBoxLayout()
         self.new_place_edit = QLineEdit()
-        self.new_place_edit.setPlaceholderText("Place name (must already exist)…")
+        self.new_place_edit.setPlaceholderText("Place name (new or existing)…")
+
+        # Association type: combo with common suggestions + custom text allowed
+        self.new_place_assoc_edit = QLineEdit()
+        self.new_place_assoc_edit.setPlaceholderText(
+            "Relationship (e.g. Birthplace, Hometown)…"
+        )
+
         add_place_btn = QPushButton("Link Place")
         add_place_btn.clicked.connect(self._add_place)
         rm_place_btn = QPushButton("Unlink Selected")
@@ -392,12 +482,13 @@ class ArtistEditor(QDialog):
             lambda: self._remove_selected_row(self.places_table, self._remove_place)
         )
         pl_add_row.addWidget(self.new_place_edit, 3)
+        pl_add_row.addWidget(self.new_place_assoc_edit, 2)
         pl_add_row.addWidget(add_place_btn)
         pl_add_row.addWidget(rm_place_btn)
         pl_layout.addLayout(pl_add_row)
         splitter.addWidget(places_grp)
 
-        # Awards
+        # ── Awards ──
         awards_grp = QGroupBox("Awards")
         aw_layout = QVBoxLayout(awards_grp)
         self.awards_table = self._make_table(
@@ -405,9 +496,16 @@ class ArtistEditor(QDialog):
         )
         aw_layout.addWidget(self.awards_table)
 
+        award_help = QLabel(
+            "You can type a new award name — it will be created automatically if it doesn't exist yet."
+        )
+        award_help.setWordWrap(True)
+        award_help.setStyleSheet("color: #888; font-size: 11px;")
+        aw_layout.addWidget(award_help)
+
         aw_add_row = QHBoxLayout()
         self.new_award_edit = QLineEdit()
-        self.new_award_edit.setPlaceholderText("Award name (must already exist)…")
+        self.new_award_edit.setPlaceholderText("Award name (new or existing)…")
         add_award_btn = QPushButton("Link Award")
         add_award_btn.clicked.connect(self._add_award)
         rm_award_btn = QPushButton("Unlink Selected")
@@ -423,26 +521,31 @@ class ArtistEditor(QDialog):
         layout.addWidget(splitter)
         return w
 
-    # ── Tab: Discography (read-only) ──────────────────────────────────────────
+    # ── Tab: Discography ──────────────────────────────────────────────────────
 
     def _build_discography_tab(self):
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.addWidget(
-            QLabel("<i>Read-only summary of this artist's album and track credits.</i>")
-        )
 
-        albums_grp = QGroupBox("Album Credits")
-        alb_layout = QVBoxLayout(albums_grp)
+        note = QLabel(
+            "<i>Album credits where this artist is the primary Album Artist are shown here. "
+            '"Primary Artist" track credits for those same albums are hidden to avoid redundancy.</i>'
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        albums_grp = QGroupBox("Album Credits (non-redundant roles)")
+        al_layout = QVBoxLayout(albums_grp)
         self.albums_table = self._make_table(["Album", "Role", "Year"], editable=False)
-        alb_layout.addWidget(self.albums_table)
+        al_layout.addWidget(self.albums_table)
         layout.addWidget(albums_grp)
 
         tracks_grp = QGroupBox("Track Credits")
-        trk_layout = QVBoxLayout(tracks_grp)
+        tr_layout = QVBoxLayout(tracks_grp)
         self.tracks_table = self._make_table(["Track", "Role", "Album"], editable=False)
-        trk_layout.addWidget(self.tracks_table)
+        tr_layout.addWidget(self.tracks_table)
         layout.addWidget(tracks_grp)
+
         return w
 
     # ── Tab: Advanced ─────────────────────────────────────────────────────────
@@ -450,24 +553,20 @@ class ArtistEditor(QDialog):
     def _build_advanced_tab(self):
         w = QWidget()
         form = QFormLayout(w)
-        form.setLabelAlignment(Qt.AlignRight)
 
         self.mbid_edit = QLineEdit()
-        self.mbid_edit.setPlaceholderText("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
-        form.addRow("MusicBrainz ID:", self.mbid_edit)
+        self.mbid_edit.setPlaceholderText("MusicBrainz ID")
+        form.addRow("MBID:", self.mbid_edit)
 
         self.wiki_edit = QLineEdit()
-        self.wiki_edit.setPlaceholderText("https://en.wikipedia.org/wiki/…")
-        form.addRow("Wikipedia Link:", self.wiki_edit)
+        self.wiki_edit.setPlaceholderText("https://en.wikipedia.org/…")
+        form.addRow("Wikipedia:", self.wiki_edit)
 
         self.website_edit = QLineEdit()
         self.website_edit.setPlaceholderText("https://…")
-        form.addRow("Official Website:", self.website_edit)
+        form.addRow("Website:", self.website_edit)
 
-        self.is_fixed_check = QCheckBox("Mark profile as complete / fixed")
-        self.is_fixed_check.setToolTip(
-            "Tick when you are satisfied that this artist's metadata is complete."
-        )
+        self.is_fixed_check = QCheckBox("Mark metadata as complete")
         form.addRow("Metadata Complete:", self.is_fixed_check)
 
         # Read-only artist_id
@@ -513,17 +612,35 @@ class ArtistEditor(QDialog):
         a = self.artist
         # Basic
         self.name_edit.setText(a.artist_name or "")
-        idx = self.artist_type_combo.findText(a.artist_type or "")
-        self.artist_type_combo.setCurrentIndex(max(idx, 0))
-        self.isgroup_check.setChecked(bool(a.isgroup))
+        self.artist_type_edit.setText(a.artist_type or "")
+
+        is_group = bool(a.isgroup)
+        # Block signals temporarily so _on_isgroup_changed doesn't fire mid-load
+        self.isgroup_check.blockSignals(True)
+        self.isgroup_check.setChecked(is_group)
+        self.isgroup_check.blockSignals(False)
+        # Manually set labels to match loaded state
+        self._on_isgroup_changed(is_group)
+
         g_idx = self.gender_combo.findText(a.gender or "")
         self.gender_combo.setCurrentIndex(max(g_idx, 0))
-        self.begin_year_spin.set_from_db(a.begin_year)
-        self.begin_month_spin.set_from_db(a.begin_month)
-        self.begin_day_spin.set_from_db(a.begin_day)
-        self.end_year_spin.set_from_db(a.end_year)
-        self.end_month_spin.set_from_db(a.end_month)
-        self.end_day_spin.set_from_db(a.end_day)
+
+        self.begin_year_edit.set_from_db(a.begin_year)
+        self.begin_month_edit.set_from_db(a.begin_month)
+        self.begin_day_edit.set_from_db(a.begin_day)
+
+        # Determine "active" state: active if end_year is None/0
+        is_active = not bool(a.end_year)
+        self.is_active_check.blockSignals(True)
+        self.is_active_check.setChecked(is_active)
+        self.is_active_check.blockSignals(False)
+        self._on_active_toggled(is_active)
+
+        if not is_active:
+            self.end_year_edit.set_from_db(a.end_year)
+            self.end_month_edit.set_from_db(a.end_month)
+            self.end_day_edit.set_from_db(a.end_day)
+
         self.pic_path_edit.setText(a.profile_pic_path or "")
 
         # Biography
@@ -588,6 +705,9 @@ class ArtistEditor(QDialog):
                 ],
             )
 
+        # Apply visibility based on isgroup
+        self._update_members_tab_visibility()
+
     def _load_influences(self):
         self.influenced_table.setRowCount(0)
         for rel in getattr(self.artist, "influencer_relations", []):
@@ -612,17 +732,49 @@ class ArtistEditor(QDialog):
             )
 
     def _load_places(self):
+        """Load place associations, showing the association_type column."""
         self.places_table.setRowCount(0)
-        for place in getattr(self.artist, "places", []):
-            self._append_row(
-                self.places_table,
-                [
-                    place.place_name,
-                    place.place_type or "",
-                    self._parent_place_name(place),
-                ],
-                user_data=place.place_id,
+
+        # Try to load via PlaceAssociation for full data including association_type
+        assocs_loaded = False
+        try:
+            place_assocs = self.controller.get.get_all_entities(
+                "PlaceAssociation",
+                entity_id=self.artist.artist_id,
+                entity_type="Artist",
             )
+            if place_assocs is not None:
+                for assoc in place_assocs:
+                    place = assoc.place
+                    if place is None:
+                        continue
+                    self._append_row(
+                        self.places_table,
+                        [
+                            place.place_name,
+                            assoc.association_type or "",
+                            place.place_type or "",
+                            self._parent_place_name(place),
+                        ],
+                        user_data=assoc.association_id,
+                    )
+                assocs_loaded = True
+        except Exception as e:
+            logger.debug(f"Could not load via PlaceAssociation entities: {e}")
+
+        if not assocs_loaded:
+            # Fallback: use artist.places (association_type not available here)
+            for place in getattr(self.artist, "places", []):
+                self._append_row(
+                    self.places_table,
+                    [
+                        place.place_name,
+                        "",
+                        place.place_type or "",
+                        self._parent_place_name(place),
+                    ],
+                    user_data=place.place_id,
+                )
 
     def _load_awards(self):
         self.awards_table.setRowCount(0)
@@ -634,17 +786,37 @@ class ArtistEditor(QDialog):
             )
 
     def _load_discography(self):
+        """
+        Load album and track credits.
+        Filter out album-level "Primary Artist" credits where the artist IS
+        the album artist — those are the main discography, not additional credits.
+        """
         self.albums_table.setRowCount(0)
+
+        # Collect album IDs where this artist is Album Artist (to filter redundant Primary Artist rows)
+        album_artist_album_ids = set()
+        for assoc in getattr(self.artist, "album_roles", []):
+            role = assoc.role
+            if role and getattr(role, "role_name", "") == "Album Artist":
+                album_artist_album_ids.add(assoc.album_id)
+
         for assoc in getattr(self.artist, "album_roles", []):
             album = assoc.album
             role = assoc.role
             if album is None:
                 continue
+            role_name = role.role_name if role else ""
+            # Skip "Primary Artist" credits for albums where this artist is already Album Artist
+            if (
+                role_name == "Primary Artist"
+                and album.album_id in album_artist_album_ids
+            ):
+                continue
             self._append_row(
                 self.albums_table,
                 [
                     album.album_name,
-                    role.role_name if role else "",
+                    role_name,
                     album.release_year or "",
                 ],
             )
@@ -666,8 +838,6 @@ class ArtistEditor(QDialog):
     def _open_alias_dialog(self):
         dlg = ArtistAliasDialog(self.controller, self.artist, parent=self)
         dlg.exec()
-        # Refresh summary after dialog closes
-        # Re-fetch artist to get updated aliases
         try:
             refreshed = self.controller.get.get_entity_object(
                 "Artist", artist_id=self.artist.artist_id
@@ -728,8 +898,8 @@ class ArtistEditor(QDialog):
                 group_id=self.artist.artist_id,
                 member_id=member.artist_id,
                 role=self.new_member_role_edit.text().strip() or None,
-                active_start_year=self.new_member_start_spin.get_value_or_none(),
-                active_end_year=self.new_member_end_spin.get_value_or_none(),
+                active_start_year=self.new_member_start_edit.get_value_or_none(),
+                active_end_year=self.new_member_end_edit.get_value_or_none(),
                 is_current=1 if self.new_member_current_check.isChecked() else 0,
             )
         except Exception as e:
@@ -738,11 +908,10 @@ class ArtistEditor(QDialog):
 
         self._reload_artist()
         self._load_members()
-        # Clear fields
         self.new_member_edit.clear()
         self.new_member_role_edit.clear()
-        self.new_member_start_spin.setValue(0)
-        self.new_member_end_spin.setValue(0)
+        self.new_member_start_edit.clear()
+        self.new_member_end_edit.clear()
         self.new_member_current_check.setChecked(False)
 
     def _remove_member(self, row):
@@ -763,71 +932,34 @@ class ArtistEditor(QDialog):
     # ─ Influences ──────────────────────────────────────
 
     def _add_influenced(self):
-        self._add_influence_rel(
-            influencer_id=self.artist.artist_id,
-            new_artist_name=self.new_influenced_edit.text().strip(),
-            description=self.new_inf_desc_edit.text().strip(),
-            is_influencer=True,
-        )
-        self.new_influenced_edit.clear()
-        self.new_inf_desc_edit.clear()
-
-    def _add_influencer(self):
-        self._add_influence_rel(
-            influenced_id=self.artist.artist_id,
-            new_artist_name=self.new_influencer_edit.text().strip(),
-            description=self.new_influencer_desc_edit.text().strip(),
-            is_influencer=False,
-        )
-        self.new_influencer_edit.clear()
-        self.new_influencer_desc_edit.clear()
-
-    def _add_influence_rel(
-        self,
-        new_artist_name,
-        description,
-        is_influencer,
-        influencer_id=None,
-        influenced_id=None,
-    ):
-        if not new_artist_name:
-            QMessageBox.warning(self, "Validation", "Please enter an artist name.")
+        name = self.new_influenced_edit.text().strip()
+        if not name:
             return
         try:
-            artists = self.controller.get.get_entity_object(
-                "Artist", artist_name=new_artist_name
+            influenced = self.controller.get.get_entity_object(
+                "Artist", artist_name=name
             )
-            if artists:
-                other = artists[0] if isinstance(artists, list) else artists
-            else:
-                other = self.controller.add.add_entity(
-                    "Artist", artist_name=new_artist_name
-                )
+            if not influenced:
+                influenced = self.controller.add.add_entity("Artist", artist_name=name)
+            if isinstance(influenced, list):
+                influenced = influenced[0]
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Could not find/create artist:\n{e}")
             return
-
         try:
-            if is_influencer:
-                self.controller.add.add_entity(
-                    "ArtistInfluence",
-                    influencer_id=self.artist.artist_id,
-                    influenced_id=other.artist_id,
-                    description=description or None,
-                )
-            else:
-                self.controller.add.add_entity(
-                    "ArtistInfluence",
-                    influencer_id=other.artist_id,
-                    influenced_id=self.artist.artist_id,
-                    description=description or None,
-                )
+            self.controller.add.add_entity(
+                "ArtistInfluence",
+                influencer_id=self.artist.artist_id,
+                influenced_id=influenced.artist_id,
+                description=self.new_influenced_desc_edit.text().strip() or None,
+            )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Could not add influence:\n{e}")
             return
-
         self._reload_artist()
         self._load_influences()
+        self.new_influenced_edit.clear()
+        self.new_influenced_desc_edit.clear()
 
     def _remove_influenced(self, row):
         influence_id = self.influenced_table.item(row, 0).data(Qt.UserRole)
@@ -840,6 +972,36 @@ class ArtistEditor(QDialog):
             return
         self._reload_artist()
         self._load_influences()
+
+    def _add_influencer(self):
+        name = self.new_influencer_edit.text().strip()
+        if not name:
+            return
+        try:
+            influencer = self.controller.get.get_entity_object(
+                "Artist", artist_name=name
+            )
+            if not influencer:
+                influencer = self.controller.add.add_entity("Artist", artist_name=name)
+            if isinstance(influencer, list):
+                influencer = influencer[0]
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not find/create artist:\n{e}")
+            return
+        try:
+            self.controller.add.add_entity(
+                "ArtistInfluence",
+                influencer_id=influencer.artist_id,
+                influenced_id=self.artist.artist_id,
+                description=self.new_influencer_desc_edit.text().strip() or None,
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not add influence:\n{e}")
+            return
+        self._reload_artist()
+        self._load_influences()
+        self.new_influencer_edit.clear()
+        self.new_influencer_desc_edit.clear()
 
     def _remove_influencer(self, row):
         influence_id = self.influencer_table.item(row, 0).data(Qt.UserRole)
@@ -858,22 +1020,27 @@ class ArtistEditor(QDialog):
     def _add_place(self):
         name = self.new_place_edit.text().strip()
         if not name:
-            return
-        try:
-            places = self.controller.get.get_entity_object("Place", place_name=name)
-            place = (
-                (places[0] if isinstance(places, list) else places) if places else None
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Could not find place:\n{e}")
+            QMessageBox.warning(self, "Validation", "Please enter a place name.")
             return
 
-        if place is None:
+        association_type = self.new_place_assoc_edit.text().strip()
+        if not association_type:
             QMessageBox.warning(
                 self,
-                "Not Found",
-                f"No place named '{name}' exists.\nPlease create it in the Places view first.",
+                "Validation",
+                "Please enter the relationship type (e.g. Birthplace, Hometown).",
             )
+            return
+
+        # Find or create the place
+        try:
+            place = self.controller.get.get_entity_object("Place", place_name=name)
+            if isinstance(place, list):
+                place = place[0] if place else None
+            if place is None:
+                place = self.controller.add.add_entity("Place", place_name=name)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not find/create place:\n{e}")
             return
 
         try:
@@ -882,6 +1049,7 @@ class ArtistEditor(QDialog):
                 entity_id=self.artist.artist_id,
                 entity_type="Artist",
                 place_id=place.place_id,
+                association_type=association_type,
             )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Could not link place:\n{e}")
@@ -890,21 +1058,27 @@ class ArtistEditor(QDialog):
         self._reload_artist()
         self._load_places()
         self.new_place_edit.clear()
+        self.new_place_assoc_edit.clear()
 
     def _remove_place(self, row):
-        place_id = self.places_table.item(row, 0).data(Qt.UserRole)
-        if place_id is None:
+        assoc_id = self.places_table.item(row, 0).data(Qt.UserRole)
+        if assoc_id is None:
             return
         try:
-            self.controller.delete.delete_entity(
-                "PlaceAssociation",
-                entity_id=self.artist.artist_id,
-                entity_type="Artist",
-                place_id=place_id,
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Could not unlink place:\n{e}")
-            return
+            # Try to delete by association_id first
+            self.controller.delete.delete_entity("PlaceAssociation", assoc_id)
+        except Exception:
+            # Fallback: try by entity/place combo (older controller versions)
+            try:
+                self.controller.delete.delete_entity(
+                    "PlaceAssociation",
+                    entity_id=self.artist.artist_id,
+                    entity_type="Artist",
+                    place_id=assoc_id,
+                )
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Could not unlink place:\n{e}")
+                return
         self._reload_artist()
         self._load_places()
 
@@ -914,21 +1088,18 @@ class ArtistEditor(QDialog):
         name = self.new_award_edit.text().strip()
         if not name:
             return
+
+        # Find or create the award
         try:
             awards = self.controller.get.get_entity_object("Award", award_name=name)
-            award = (
-                (awards[0] if isinstance(awards, list) else awards) if awards else None
-            )
+            if isinstance(awards, list):
+                award = awards[0] if awards else None
+            else:
+                award = awards
+            if award is None:
+                award = self.controller.add.add_entity("Award", award_name=name)
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Could not find award:\n{e}")
-            return
-
-        if award is None:
-            QMessageBox.warning(
-                self,
-                "Not Found",
-                f"No award named '{name}' exists.\nPlease create it in the Awards view first.",
-            )
+            QMessageBox.critical(self, "Error", f"Could not find/create award:\n{e}")
             return
 
         try:
@@ -999,15 +1170,15 @@ class ArtistEditor(QDialog):
 
         kwargs = dict(
             artist_name=name,
-            artist_type=self.artist_type_combo.currentText() or None,
+            artist_type=self.artist_type_edit.text().strip() or None,
             isgroup=1 if self.isgroup_check.isChecked() else 0,
             gender=self.gender_combo.currentText() or None,
-            begin_year=self.begin_year_spin.get_value_or_none(),
-            begin_month=self.begin_month_spin.get_value_or_none(),
-            begin_day=self.begin_day_spin.get_value_or_none(),
-            end_year=self.end_year_spin.get_value_or_none(),
-            end_month=self.end_month_spin.get_value_or_none(),
-            end_day=self.end_day_spin.get_value_or_none(),
+            begin_year=self.begin_year_edit.get_value_or_none(),
+            begin_month=self.begin_month_edit.get_value_or_none(),
+            begin_day=self.begin_day_edit.get_value_or_none(),
+            end_year=self.end_year_edit.get_value_or_none(),
+            end_month=self.end_month_edit.get_value_or_none(),
+            end_day=self.end_day_edit.get_value_or_none(),
             biography=self.bio_edit.toPlainText().strip() or None,
             profile_pic_path=self.pic_path_edit.text().strip() or None,
             MBID=self.mbid_edit.text().strip() or None,
