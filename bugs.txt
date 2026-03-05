@@ -3,8 +3,7 @@ NEW IDEAS
 
 nowplaying_view.py
     Sync slider should remember position between tracks and sessions (saved to config when changed with debounce)
-    Make a better default album image
-    Chips expand display options
+    Chips expand possible data points
     Chips sometimes missing. I think they don't display when any piece of data is missing. It should instead show what it can
 
 
