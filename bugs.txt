@@ -1,10 +1,11 @@
 NEW IDEAS
-    add a module for finding possible duplicate tracks (maybe implement fingerprinting too?)
+    replace many qmessageboxes with status manager
 
 nowplaying_view.py
     Sync slider should remember position between tracks and sessions (saved to config when changed with debounce)
     Chips expand possible data points
     Chips sometimes missing. I think they don't display when any piece of data is missing. It should instead show what it can
+    Lyrics timer should still show the lyrics, just a countdown to the line shown if longer than 5 seconds
 
 
 player_utility.py
@@ -29,17 +30,25 @@ menu_bar.py
     implement project support links in "about"
     add a general settings page.
     add debugging level to general settings.
+    audio settings do not seem to persist between sessions and sometimes even within a session
+    Do you see any other missing settings?
 
 config_setup.py
     make sure debugging level is a setting
 
 base_album_edit.py
     artist credits are too big
+    cannot remove publisher
+    reload on any dialog close, like publisher
+    description box wastes a lot of space
+    extra floating close button
+    does not open to reasonable size. Scale to fit?
 
 
 db_tables.py
     implement "used in" feature for tracks, showing contexts where the track was used. Soundtracks, events, etc.
     property for albums to estimate if any tracks are missing
+    improve indeces
 
 queue_utility.py
     queue is not saving and loading properly
@@ -57,12 +66,10 @@ track_view.py
     delete should give option of just from db or entire file
 
 
-
 library_import.py
     the only date that is ever imported is year. Month and day are never imported correctly.
 
 artist_editing
-
     cannot move dialog independently of applicaiton
     cannot add individual to any groups from the member tab
 
@@ -73,3 +80,48 @@ artist alias management
 
 wikipedia search
     exclude svg from image options
+
+track_editing
+    add new album tab
+    add ability to remove album relationship
+    add ability to add album relationship to existing album
+    add ability to add album relationship to new album (new/existing should be dynamic)
+    add ability to add track to album virtual relationship
+
+disc management
+    add edit tracks context menu
+    reload on edit tracks close
+
+
+statistics_dialog.py
+
+
+genre_view
+    merge organize alphabetical and into submenus by hierarchy
+    splitting genres always makes new genres instead of finding existing if they match.
+
+places_view.py
+    map does not load js: Uncaught SyntaxError: missing ) after argument list
+    dragging a place to a new parent does not update the db
+
+dates_view.py
+    year slider is very messy with lots of years. Maybe collapse into decades and selecting a decade expands to years?
+    the drag feature on timeline is pointless unless using touch screen. It should be eliminated
+
+sync_view.py
+    organize playlists into hierarchy and sort alphabetically
+
+award_view.py
+    deleting award should reload award list
+
+influences_view.py
+    disconnected "islands" of connections float away eternally
+
+moods_view.py
+    add collapse all and expand all buttons
+
+publisher_detail.py
+    clicking "view albums" opens a very buggy widget
+
+artist_view.py
+    merge artist dialog is awkward and the autocomplete and find similar seems to not be working correctly. Trying to merge 3io and 3iO doesn't seem to want to work.
