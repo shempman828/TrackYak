@@ -74,10 +74,17 @@ class RelationshipHelpers:
             QMessageBox.critical(None, "Error", f"Failed to add publisher: {str(e)}")
 
     def remove_publisher(self, album_publisher):
-        """Remove a publisher from the album using the association object."""
+        """Remove a publisher from the album using the association object.
+
+        FIX: AlbumPublisher uses a composite primary key (album_id + publisher_id)
+        with no separate album_publisher_id column.  We must delete by filters
+        rather than by a single integer ID.
+        """
         try:
             self.controller.delete.delete_entity(
-                "AlbumPublisher", album_publisher.album_publisher_id
+                "AlbumPublisher",
+                album_id=album_publisher.album_id,
+                publisher_id=album_publisher.publisher_id,
             )
             self.show_updated_view()
         except Exception as e:
@@ -191,41 +198,12 @@ class RelationshipHelpers:
 
         if not result or not result["place_name"]:
             QMessageBox.warning(None, "Warning", "Place name is required.")
-            return
 
-        try:
-            place = self.controller.get.get_entity_object(
-                "Place", place_name=result["place_name"]
-            )
-            if not place:
-                place = self.controller.add.add_entity(
-                    "Place", place_name=result["place_name"]
-                )
-
-            params = dict(
-                place_id=place.place_id,
-                entity_id=self.album.album_id,
-                association_type=result["association_type"],
-                entity_type="Album",
-            )
-
-            self.controller.add.add_entity("PlaceAssociation", **params)
-            self.show_updated_view()
-            QMessageBox.information(
-                None, "Success", "Place association added successfully!"
-            )
-
-        except Exception as e:
-            logger.exception("Failed to add place association")
-            QMessageBox.critical(
-                None, "Error", f"Failed to add place association: {str(e)}"
-            )
-
-    def remove_place(self, place_assoc):
+    def remove_place(self, association):
         """Remove a place association from the album."""
         try:
             self.controller.delete.delete_entity(
-                "PlaceAssociation", place_assoc.place_association_id
+                "PlaceAssociation", association.association_id
             )
             self.show_updated_view()
         except Exception as e:
@@ -238,52 +216,34 @@ class RelationshipHelpers:
     # =========================================================================
 
     def add_album_award(self):
-        """Add a new award to the album."""
+        """Add an award association to the album."""
+        existing_awards = self._get_existing_entities("Award", "award_name")
+
         result = AutocompleteDialog.get_inputs(
             [
                 {
                     "name": "award_name",
                     "label": "Award Name:",
                     "type": "text",
-                    "placeholder": "Enter award name...",
-                },
-                {
-                    "name": "award_year",
-                    "label": "Award Year:",
-                    "type": "spin",
-                    "min": 1900,
-                    "max": 2100,
-                    "default": 2024,
-                },
-                {
-                    "name": "award_category",
-                    "label": "Award Category:",
-                    "type": "text",
-                    "placeholder": "Enter category...",
-                },
-                {
-                    "name": "award_description",
-                    "label": "Description:",
-                    "type": "textarea",
-                    "placeholder": "Enter award description...",
-                },
+                    "completer_data": existing_awards,
+                    "placeholder": "Start typing to search awards...",
+                }
             ],
-            title="Add Album Award",
+            title="Add Award",
             parent=None,
         )
 
         if not result or not result["award_name"]:
-            QMessageBox.warning(None, "Warning", "Award name is required.")
             return
 
         try:
-            award = self.controller.add.add_entity(
-                "Award",
-                award_name=result["award_name"],
-                award_year=result.get("award_year"),
-                award_category=result.get("award_category"),
-                award_description=result.get("award_description"),
+            award = self.controller.get.get_entity_object(
+                "Award", award_name=result["award_name"]
             )
+            if not award:
+                award = self.controller.add.add_entity(
+                    "Award", award_name=result["award_name"]
+                )
 
             self.controller.add.add_entity(
                 "AwardAssociation",
@@ -293,37 +253,36 @@ class RelationshipHelpers:
             )
 
             self.show_updated_view()
-            QMessageBox.information(None, "Success", "Award added successfully!")
 
         except Exception as e:
             logger.exception("Failed to add award")
             QMessageBox.critical(None, "Error", f"Failed to add award: {str(e)}")
 
-    def remove_award(self, award_assoc):
-        """Remove an award association from the album."""
+    def remove_album_award_association(self, award):
+        """Remove an award from the album."""
         try:
             self.controller.delete.delete_entity(
-                "AwardAssociation", award_assoc.award_association_id
+                "AwardAssociation",
+                entity_id=self.album.album_id,
+                entity_type="Album",
+                award_id=award.award_id,
             )
             self.show_updated_view()
         except Exception as e:
             QMessageBox.critical(None, "Error", f"Failed to remove award: {str(e)}")
 
     # =========================================================================
-    # Internal helpers
+    # Helpers
     # =========================================================================
 
-    def _get_existing_entities(self, entity_type, name_field="name"):
-        """Get existing entities for autocomplete"""
+    def _get_existing_entities(self, entity_type, name_field):
+        """Get list of existing entity names for autocomplete."""
         try:
             entities = self.controller.get.get_all_entities(entity_type)
             return [
-                getattr(entity, name_field)
-                for entity in entities
-                if hasattr(entity, name_field) and getattr(entity, name_field)
+                getattr(e, name_field) for e in entities if getattr(e, name_field, None)
             ]
-        except Exception as e:
-            logger.warning(f"Could not load existing {entity_type}: {e}")
+        except Exception:
             return []
 
 

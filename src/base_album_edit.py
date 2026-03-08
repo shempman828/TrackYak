@@ -2,29 +2,6 @@
 base_album_edit.py
 
 Unified Album Editor dialog.
-
-Changes from the previous version
-──────────────────────────────────
-BUG FIXES
-  • release_year spinbox no longer defaults to 99 — fix is in album_components.py,
-    but we also explicitly pull the value from the album object here.
-  • release_month and release_day are now shown in the header date row.
-  • AutocompleteDialog.get_inputs called with correct signature (title= keyword).
-  • update_entity used instead of the non-existent update_album method.
-  • DiscManagementView no longer receives the unsupported editable=True kwarg.
-
-NEW FEATURES
-  • Description moved to the header as a tall QTextEdit.
-  • album_language, album_subtitle, release_type, catalog_number, is_fixed,
-    is_live, is_compilation, estimated_sales, MBID all wired up in the Details tab.
-  • Album aliases tab added (add / remove, with alias_type).
-  • Wikipedia search button: populates description, link, and lets you pick and save
-    front cover, rear cover, or liner art from the Wikipedia images.
-  • Wikipedia and MusicBrainz "open page" buttons shown in header when links exist.
-  • Cover art picker remembers the last used directory (stored in Config).
-  • Picked cover art is copied to ALBUM_ART_DIR/artist/album/ and the path is saved.
-  • liner art picker and display added to the Artwork tab.
-  • Dialog minimum size bumped; uses more horizontal space.
 """
 
 import shutil
@@ -34,6 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -113,13 +91,14 @@ class AlbumEditor(QDialog):
         self.tab_builder = AlbumTabBuilder(self)
 
         self.setWindowTitle(f"Edit Album: {album.album_name}")
-        # Larger default — more horizontal room so fields don't feel cramped
-        self.setMinimumSize(1150, 750)
-        self.resize(1250, 820)
+        self.setMinimumSize(900, 600)
 
         self.init_editable_widgets()
         self.init_ui()
         self.setup_connections()
+
+        # Size to fit contents after the UI is fully built, capped at 90% of screen
+        self._fit_to_screen()
 
     # =========================================================================
     # Widget initialisation
@@ -158,23 +137,25 @@ class AlbumEditor(QDialog):
         content_layout.addWidget(self._build_header_section())
 
         # ── Tab widget ───────────────────────────────────────────────────────
-        tabs = QTabWidget()
-        tabs.addTab(self._build_details_tab(), "Details")
-        tabs.addTab(self._build_tracks_tab(), "Tracks")
-        tabs.addTab(self._build_artwork_tab(), "Artwork")
-        tabs.addTab(self._build_aliases_tab(), "Aliases")
-        tabs.addTab(self.tab_builder.build_artists_tab(), "Artist Credits")
-        tabs.addTab(self.tab_builder.build_relationships_tab(), "Publishers && Places")
-        tabs.addTab(self.tab_builder.build_awards_tab(), "Awards")
-        tabs.addTab(self._build_advanced_tab(), "Advanced")
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_details_tab(), "Details")
+        self.tabs.addTab(self._build_tracks_tab(), "Tracks")
+        self.tabs.addTab(self._build_artwork_tab(), "Artwork")
+        self.tabs.addTab(self._build_aliases_tab(), "Aliases")
+        self.tabs.addTab(self.tab_builder.build_artists_tab(), "Artist Credits")
+        self.tabs.addTab(
+            self.tab_builder.build_relationships_tab(), "Publishers && Places"
+        )
+        self.tabs.addTab(self.tab_builder.build_awards_tab(), "Awards")
+        self.tabs.addTab(self._build_advanced_tab(), "Advanced")
 
-        content_layout.addWidget(tabs)
+        content_layout.addWidget(self.tabs)
         content_layout.addStretch()
 
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)
 
-        # ── Dialog buttons ───────────────────────────────────────────────────
+        # ── Dialog buttons (Save / Cancel / Refresh only — no extra Close) ──
         self._add_dialog_buttons(main_layout)
 
     # =========================================================================
@@ -215,7 +196,7 @@ class AlbumEditor(QDialog):
         """Right-hand side of the header: title, subtitle, artists, date, description, external links."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
 
         # Album title (large, editable)
         title_widget = self.field_widgets.get("album_name")
@@ -229,13 +210,14 @@ class AlbumEditor(QDialog):
             subtitle_widget.setPlaceholderText("Subtitle (optional)")
             layout.addWidget(subtitle_widget)
 
-        # Artist names (read-only display)
+        # Artist names (read-only display) — FIX: smaller font, no bold
         if hasattr(self.album, "album_artists") and self.album.album_artists:
             names = ", ".join(a.artist_name for a in self.album.album_artists[:4])
             if len(self.album.album_artists) > 4:
                 names += "…"
             artist_label = QLabel(f"by {names}")
-            artist_label.setStyleSheet("color: #aaa; font-size: 13px;")
+            # Reduced from 13px to 11px so it doesn't dominate the header
+            artist_label.setStyleSheet("color: #aaa; font-size: 11px;")
             layout.addWidget(artist_label)
 
         # Release date row  (year / month / day side by side)
@@ -257,7 +239,9 @@ class AlbumEditor(QDialog):
         date_row.addStretch()
         layout.addLayout(date_row)
 
-        # Description — full-width, tall QTextEdit
+        # Description — compact QTextEdit.
+        # FIX: removed excess padding; height is now just tall enough to show
+        # 3-4 lines without wasting vertical space.
         desc_label = QLabel("Description:")
         desc_label.setStyleSheet("font-weight: bold;")
         layout.addWidget(desc_label)
@@ -267,8 +251,11 @@ class AlbumEditor(QDialog):
             # Fallback: create one if ALBUM_FIELDS doesn't mark it editable
             self.desc_widget = QTextEdit()
             self.desc_widget.setPlainText(self.album.album_description or "")
-        self.desc_widget.setMinimumHeight(80)
-        self.desc_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+        # 3-line-ish height; no runaway stretching
+        self.desc_widget.setFixedHeight(72)
+        self.desc_widget.setStyleSheet("padding: 2px 4px;")
+        self.desc_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout.addWidget(self.desc_widget)
 
         # External link buttons (Wikipedia / MusicBrainz) — only shown when set
@@ -372,19 +359,9 @@ class AlbumEditor(QDialog):
     def _build_tracks_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-
-        try:
-            # NOTE: DiscManagementView does NOT accept an `editable` keyword.
-            # Passing it would raise a TypeError — removed here.
-            self.disc_view = DiscManagementView(self.album, self.controller)
-            layout.addWidget(self.disc_view)
-        except Exception as e:
-            logger.error(f"Error creating DiscManagementView: {e}")
-            err = QLabel("Error loading track view — see logs for details.")
-            err.setStyleSheet("color: red;")
-            layout.addWidget(err)
-
+        layout.setContentsMargins(0, 0, 0, 0)
+        disc_view = DiscManagementView(self.album, self.controller, parent=tab)
+        layout.addWidget(disc_view)
         return tab
 
     # =========================================================================
@@ -427,7 +404,6 @@ class AlbumEditor(QDialog):
             btn_row.addWidget(clear_btn)
             g_layout.addLayout(btn_row)
 
-            # Path display (read-only)
             path_label = QLabel()
             path_label.setWordWrap(True)
             path_label.setStyleSheet("color: #888; font-size: 10px;")
@@ -465,7 +441,7 @@ class AlbumEditor(QDialog):
 
         self._refresh_aliases_list()
 
-        # Add new alias row
+        # Inline add row — no sub-dialog, no extra Close button
         add_group = QGroupBox("Add New Alias")
         add_row = QHBoxLayout(add_group)
 
@@ -486,8 +462,7 @@ class AlbumEditor(QDialog):
         return tab
 
     def _refresh_aliases_list(self):
-        """Rebuild the alias list widget from the database."""
-        # Clear old rows
+        """Rebuild the alias list widget from the current album object."""
         while self.aliases_layout.count():
             item = self.aliases_layout.takeAt(0)
             if item.widget():
@@ -499,7 +474,9 @@ class AlbumEditor(QDialog):
             return
 
         for alias in aliases:
-            row = QHBoxLayout()
+            row_widget = QWidget()
+            row = QHBoxLayout(row_widget)
+            row.setContentsMargins(0, 0, 0, 0)
             name_lbl = QLabel(f"<b>{alias.alias_name}</b>")
             type_lbl = QLabel(alias.alias_type or "—")
             type_lbl.setStyleSheet("color: #aaa;")
@@ -512,9 +489,6 @@ class AlbumEditor(QDialog):
             row.addWidget(name_lbl, 2)
             row.addWidget(type_lbl, 1)
             row.addWidget(remove_btn)
-
-            row_widget = QWidget()
-            row_widget.setLayout(row)
             self.aliases_layout.addWidget(row_widget)
 
     def _add_alias(self):
@@ -522,7 +496,7 @@ class AlbumEditor(QDialog):
         if not alias_name:
             QMessageBox.warning(self, "Missing Name", "Please enter an alias name.")
             return
-        alias_type = self.new_alias_type.currentText() or None
+        alias_type = self.new_alias_type.currentText().strip() or None
         try:
             self.controller.add.add_entity(
                 "AlbumAlias",
@@ -532,7 +506,6 @@ class AlbumEditor(QDialog):
             )
             self.new_alias_name.clear()
             self.new_alias_type.setCurrentIndex(0)
-            # Reload the album object so aliases list is fresh
             self.album = self.controller.get.get_entity_object(
                 "Album", album_id=self.album.album_id
             )
@@ -545,7 +518,7 @@ class AlbumEditor(QDialog):
         confirm = QMessageBox.question(
             self,
             "Remove Alias",
-            f"Remove alias '{alias.alias_name}'?",
+            f"Remove alias '{getattr(alias, 'alias_name', alias)}'?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -608,6 +581,7 @@ class AlbumEditor(QDialog):
     # =========================================================================
 
     def _add_dialog_buttons(self, layout):
+        # FIX: only Save + Cancel + Refresh.  No extra Close button.
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.save_changes)
         button_box.rejected.connect(self.reject)
@@ -622,6 +596,73 @@ class AlbumEditor(QDialog):
     def setup_connections(self):
         """Wire up any extra signal connections."""
         pass  # Extend as needed
+
+    # =========================================================================
+    # Sizing helper
+    # =========================================================================
+
+    def _fit_to_screen(self):
+        """Resize the dialog to fit its contents, capped at 90 % of the screen."""
+        self.adjustSize()
+        screen = QApplication.primaryScreen()
+        if screen:
+            available = screen.availableGeometry()
+            max_w = int(available.width() * 0.90)
+            max_h = int(available.height() * 0.90)
+            w = min(self.sizeHint().width(), max_w)
+            h = min(self.sizeHint().height(), max_h)
+            # Enforce a comfortable minimum
+            w = max(w, 950)
+            h = max(h, 650)
+            self.resize(w, h)
+
+    # =========================================================================
+    # Sub-dialog close hook — reload view on any dialog close
+    # =========================================================================
+
+    def _on_subdialog_closed(self, result=None):
+        """Called whenever a sub-dialog (aliases, etc.) closes.
+
+        Reloads the album from the DB and rebuilds the current tab so any
+        changes made inside the sub-dialog are immediately visible.
+        """
+        try:
+            updated = self.controller.get.get_entity_object(
+                "Album", album_id=self.album.album_id
+            )
+            if updated:
+                self.album = updated
+                self.helper.album = updated
+                self.tab_builder.album = updated
+            self._rebuild_current_tab()
+        except Exception as e:
+            logger.error(f"Error refreshing after sub-dialog close: {e}")
+
+    def _rebuild_current_tab(self):
+        """Replace the currently visible tab with a freshly built version."""
+        try:
+            idx = self.tabs.currentIndex()
+            tab_title = self.tabs.tabText(idx)
+
+            rebuild_map = {
+                "Details": self._build_details_tab,
+                "Tracks": self._build_tracks_tab,
+                "Artwork": self._build_artwork_tab,
+                "Aliases": self._build_aliases_tab,
+                "Artist Credits": self.tab_builder.build_artists_tab,
+                "Publishers && Places": self.tab_builder.build_relationships_tab,
+                "Awards": self.tab_builder.build_awards_tab,
+                "Advanced": self._build_advanced_tab,
+            }
+
+            builder = rebuild_map.get(tab_title)
+            if builder:
+                new_tab = builder()
+                self.tabs.removeTab(idx)
+                self.tabs.insertTab(idx, new_tab, tab_title)
+                self.tabs.setCurrentIndex(idx)
+        except Exception as e:
+            logger.error(f"Error rebuilding tab: {e}")
 
     # =========================================================================
     # Cover art  — loading
@@ -697,65 +738,46 @@ class AlbumEditor(QDialog):
 
     def _pick_cover(self, cover_type: str):
         """Open a file dialog, copy the image to ALBUM_ART_DIR, update the album."""
-        # Remember the last directory the user navigated to
-        last_dir = self._config.config.get(
-            "ui", "last_cover_dir", fallback=str(Path.home())
-        )
-
-        file_path, _ = QFileDialog.getOpenFileName(
+        last_dir = self._config.get("last_art_dir", str(Path.home()))
+        path, _ = QFileDialog.getOpenFileName(
             self,
             f"Select {cover_type.title()} Cover",
             last_dir,
-            "Image Files (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;All Files (*)",
+            "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)",
         )
-        if not file_path:
+        if not path:
             return
 
-        # Save the directory for next time
-        try:
-            if "ui" not in self._config.config:
-                self._config.config["ui"] = {}
-            self._config.config["ui"]["last_cover_dir"] = str(Path(file_path).parent)
-            self._config.save()
-        except Exception as e:
-            logger.warning(f"Could not save last cover dir: {e}")
+        self._config.set("last_art_dir", str(Path(path).parent))
 
         try:
-            dest_path = self._save_cover_file(file_path, cover_type)
-        except Exception as e:
-            logger.error(f"Failed to save cover image: {e}")
-            QMessageBox.warning(self, "Error", f"Could not save image: {e}")
-            return
+            dest = self._copy_cover_to_album_dir(path, cover_type)
 
-        # Update the album object and the database
-        attr_map = {
-            "front": "front_cover_path",
-            "rear": "rear_cover_path",
-            "liner": "album_liner_path",
-        }
-        attr = attr_map[cover_type]
-        setattr(self.album, attr, str(dest_path))
-
-        try:
+            attr_map = {
+                "front": "front_cover_path",
+                "rear": "rear_cover_path",
+                "liner": "album_liner_path",
+            }
+            attr = attr_map[cover_type]
+            setattr(self.album, attr, str(dest))
             self.controller.update.update_entity(
-                "Album", self.album.album_id, **{attr: str(dest_path)}
+                "Album", self.album.album_id, **{attr: str(dest)}
             )
+
+            display = getattr(self, f"{cover_type}_cover_display")
+            path_label = getattr(self, f"{cover_type}_path_label")
+            self._load_image_to_label(str(dest), display, 250)
+            path_label.setText(str(dest))
+
+            if cover_type == "front":
+                self._load_album_cover()
+
         except Exception as e:
-            logger.error(f"DB update failed for cover: {e}")
+            logger.error(f"Error saving {cover_type} cover: {e}")
+            QMessageBox.critical(self, "Error", f"Could not save cover art:\n{e}")
 
-        # Refresh displays
-        display = getattr(self, f"{cover_type}_cover_display")
-        path_label = getattr(self, f"{cover_type}_path_label")
-        self._load_image_to_label(str(dest_path), display, 250)
-        path_label.setText(str(dest_path))
-
-        if cover_type == "front":
-            self._load_album_cover()
-
-    def _save_cover_file(self, source_path: str, cover_type: str) -> Path:
-        """
-        Copy *source_path* into ALBUM_ART_DIR/<artist>/<album>/<cover_type>.<ext>
-        and return the destination Path.
+    def _copy_cover_to_album_dir(self, source_path: str, cover_type: str) -> Path:
+        """Copy cover art into ALBUM_ART_DIR/artist/album/ and return the destination path.
 
         This mirrors the logic in library_import_album.py so covers end up in a
         predictable, consistent location.
@@ -763,7 +785,6 @@ class AlbumEditor(QDialog):
         source = Path(source_path)
         ext = source.suffix.lower() or ".jpg"
 
-        # Determine artist name for the folder structure
         artist_name = "Unknown Artist"
         if hasattr(self.album, "album_artists") and self.album.album_artists:
             artist_name = self.album.album_artists[0].artist_name
@@ -820,10 +841,6 @@ class AlbumEditor(QDialog):
         2. Open AlbumWikipediaImportDialog — shows description, link, AND all
            images at once so the user can approve/reject everything in one pass.
         3. Apply whatever the user selected.
-
-        BUG FIX: previous code called self.desc_widget.setPlainText() but
-        desc_widget can be a QLineEdit (which has no setPlainText).  Now we
-        always use a helper that handles both widget types.
         """
         try:
             from src.wikipedia_seach import download_wikipedia_image, search_wikipedia
@@ -839,7 +856,6 @@ class AlbumEditor(QDialog):
         if not title:
             return  # User cancelled or closed the search dialog
 
-        # ── Single comprehensive import dialog ───────────────────────────────
         try:
             from src.album_wikipedia import AlbumWikipediaImportDialog
         except ImportError as e:
@@ -852,17 +868,14 @@ class AlbumEditor(QDialog):
 
         selected = dlg.get_selected_imports()
 
-        # ── Apply description ────────────────────────────────────────────────
         if selected.get("description"):
             self._set_desc_widget(selected["description"])
 
-        # ── Apply Wikipedia link ─────────────────────────────────────────────
         if selected.get("link"):
             w = self.field_widgets.get("album_wikipedia_link")
             if w and hasattr(w, "setText"):
                 w.setText(selected["link"])
 
-        # ── Download and save each assigned image ────────────────────────────
         role_to_cover = {
             "Front Cover": "front",
             "Rear Cover": "rear",
@@ -947,13 +960,11 @@ class AlbumEditor(QDialog):
             self._load_album_cover()
 
     # =========================================================================
-    # Save / Refresh
+    # Save / refresh
     # =========================================================================
 
     def save_changes(self):
         """
-        Collect all widget values and persist to the database.
-
         BUG FIX: The old code called self.controller.update.update_album(self.album)
         which does not exist.  The correct call is:
             self.controller.update.update_entity("Album", album_id, **kwargs)
@@ -988,56 +999,55 @@ class AlbumEditor(QDialog):
             QMessageBox.critical(self, "Error", f"Failed to save changes: {e}")
 
     def refresh_view(self):
-        """Called by RelationshipHelpers after any relationship change."""
+        """Called by RelationshipHelpers after any relationship change.
+
+        FIX: also rebuild the current tab so the UI actually updates.
+        """
         try:
             updated = self.controller.get.get_entity_object(
                 "Album", album_id=self.album.album_id
             )
             if updated:
                 self.album = updated
+                self.helper.album = updated
+                self.tab_builder.album = updated
+            self._rebuild_current_tab()
             logger.info("Album view refreshed")
         except Exception as e:
             logger.error(f"Error refreshing album view: {e}")
 
     def _refresh_from_database(self):
-        """Reload the full dialog from the latest DB state."""
+        """Reload all editable widgets from the latest DB state."""
         try:
-            self.album = self.controller.get.get_entity_object(
+            updated = self.controller.get.get_entity_object(
                 "Album", album_id=self.album.album_id
             )
+            if updated:
+                self.album = updated
+                self.helper.album = updated
+                self.tab_builder.album = updated
             self.init_editable_widgets()
-            # Re-build the UI in place by deleting and re-adding
-            # the central widget.  Simplest: close and reopen.
-            QMessageBox.information(
-                self,
-                "Refreshed",
-                "Data reloaded.  Close and re-open this dialog to see all changes.",
-            )
+            self._rebuild_current_tab()
+            QMessageBox.information(self, "Refreshed", "Data reloaded from database.")
         except Exception as e:
-            logger.error(f"Error refreshing album from DB: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to refresh: {e}")
+            logger.error(f"Error refreshing from database: {e}")
+            QMessageBox.critical(self, "Error", f"Could not refresh: {e}")
 
     # =========================================================================
-    # Utility
+    # Place associations helper (called by album_tab.py)
     # =========================================================================
-
-    @staticmethod
-    def format_duration(seconds):
-        if not seconds:
-            return "0:00"
-        h = int(seconds // 3600)
-        m = int((seconds % 3600) // 60)
-        s = int(seconds % 60)
-        return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
     def get_album_place_associations(self):
+        """Return place associations for the current album."""
         try:
             return (
                 self.controller.get.get_all_entities(
-                    "AlbumPlace", album_id=self.album.album_id
+                    "PlaceAssociation",
+                    entity_id=self.album.album_id,
+                    entity_type="Album",
                 )
                 or []
             )
         except Exception as e:
-            logger.error(f"Error loading album place associations: {e}")
+            logger.error(f"Error loading place associations: {e}")
             return []

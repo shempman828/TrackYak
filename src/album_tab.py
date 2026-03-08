@@ -1,3 +1,17 @@
+"""
+album_tab.py  —  AlbumTabBuilder
+
+Changes (this revision)
+───────────────────────
+• _build_artists_list: QGroupBox title font shrunk to 11 px; artist rows use
+  compact margins so the tab doesn't feel overwhelmingly large.
+• _build_publishers_section / _build_places_section: after any Remove action
+  the parent dialog's _on_subdialog_closed() is NOT called here (the helper
+  already calls refresh_view which triggers _rebuild_current_tab).  No change
+  needed here for the reload-on-close requirement.
+"""
+
+from PySide6.QtGui import QFont
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -24,9 +38,12 @@ class AlbumTabBuilder:
     def __init__(self, album_view):
         self.view = album_view
         self.album = album_view.album
-
         self.controller = album_view.controller
         self.helper = album_view.helper
+
+    # =========================================================================
+    # Public tab builders
+    # =========================================================================
 
     def build_metadata_tab(self):
         """Build the technical metadata tab using field mapping"""
@@ -34,13 +51,10 @@ class AlbumTabBuilder:
         layout = QFormLayout(tab)
         layout.setVerticalSpacing(10)
 
-        # Description
-
         desc_widget = self.view.field_widgets.get("album_description", QLineEdit())
         desc_widget.setText(self.album.album_description or "")
         layout.addRow("Description:", desc_widget)
 
-        # Technical fields
         self._add_metadata_fields(layout)
         layout.addRow(QWidget(), QWidget())  # Spacer
 
@@ -51,14 +65,8 @@ class AlbumTabBuilder:
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        # Publishers section
-        publishers_group = self._build_publishers_section()
-        layout.addWidget(publishers_group)
-
-        # Places section
-        places_group = self._build_places_section()
-        layout.addWidget(places_group)
-
+        layout.addWidget(self._build_publishers_section())
+        layout.addWidget(self._build_places_section())
         layout.addStretch()
         return tab
 
@@ -71,10 +79,8 @@ class AlbumTabBuilder:
         add_btn.clicked.connect(self.helper.add_album_award)
         layout.addWidget(add_btn)
 
-        awards_content = self._build_awards_list()
-        layout.addWidget(awards_content)
+        layout.addWidget(self._build_awards_list())
         layout.addStretch()
-
         return tab
 
     def build_artists_tab(self):
@@ -86,10 +92,8 @@ class AlbumTabBuilder:
         add_btn.clicked.connect(self.helper.add_artist_credit)
         layout.addWidget(add_btn)
 
-        artists_content = self._build_artists_list()
-        layout.addWidget(artists_content)
+        layout.addWidget(self._build_artists_list())
         layout.addStretch()
-
         return tab
 
     def build_statistics_tab(self):
@@ -97,40 +101,35 @@ class AlbumTabBuilder:
         tab = QWidget()
         layout = QFormLayout(tab)
         layout.setVerticalSpacing(10)
-
         self._add_statistics_fields(layout)
         layout.addRow(QWidget(), QWidget())  # Spacer
-
         return tab
+
+    # =========================================================================
+    # Internal section builders
+    # =========================================================================
 
     def _add_metadata_fields(self, layout):
         """Add metadata fields to form layout"""
-        # Technical audio data
         if self.album.album_gain:
             gain_widget = self.view.field_widgets.get(
                 "album_gain", QLabel(f"{self.album.album_gain:.2f} dB")
             )
-
             gain_widget.setText(f"{self.album.album_gain:.2f}")
             layout.addRow("Album Gain:", gain_widget)
 
-        # Track count (read-only)
         actual_track_count = len(self.album.tracks) if self.album.tracks else 0
         layout.addRow("Track Count:", QLabel(str(actual_track_count)))
-
-        # Wikipedia link
 
         wiki_widget = self.view.field_widgets.get("album_wikipedia_link", QLineEdit())
         wiki_widget.setText(self.album.album_wikipedia_link or "")
         layout.addRow("Wikipedia:", wiki_widget)
 
-        # Additional metadata fields
         metadata_fields = ["album_language", "MBID", "status"]
         for field_name in metadata_fields:
             field_config = ALBUM_FIELDS.get(field_name)
             if not field_config:
                 continue
-
             current_value = getattr(self.album, field_name, None)
             widget = self.view.field_widgets.get(field_name)
             if widget and current_value is not None:
@@ -161,6 +160,7 @@ class AlbumTabBuilder:
                 if publisher:
                     widget = QWidget()
                     widget_layout = QHBoxLayout(widget)
+                    widget_layout.setContentsMargins(0, 0, 0, 0)
                     widget_layout.addWidget(QLabel(publisher.publisher_name))
 
                     remove_btn = QPushButton("Remove")
@@ -170,7 +170,6 @@ class AlbumTabBuilder:
                         )
                     )
                     widget_layout.addWidget(remove_btn)
-
                     layout.addWidget(widget)
         else:
             layout.addWidget(QLabel("No publishers associated"))
@@ -196,6 +195,7 @@ class AlbumTabBuilder:
                 if place:
                     widget = QWidget()
                     widget_layout = QHBoxLayout(widget)
+                    widget_layout.setContentsMargins(0, 0, 0, 0)
 
                     place_text = f"{place.place_name} ({association.association_type})"
                     widget_layout.addWidget(QLabel(place_text))
@@ -205,7 +205,6 @@ class AlbumTabBuilder:
                         lambda checked, a=association: self.helper.remove_place(a)
                     )
                     widget_layout.addWidget(remove_btn)
-
                     layout.addWidget(widget)
         else:
             layout.addWidget(QLabel("No place associations"))
@@ -227,11 +226,9 @@ class AlbumTabBuilder:
                 )
                 or []
             )
-
             album_awards = [
                 assoc.award for assoc in award_associations if assoc.award is not None
             ]
-
         except Exception as e:
             logger.error(f"Error loading album awards: {e}")
             album_awards = []
@@ -246,14 +243,12 @@ class AlbumTabBuilder:
         layout = QVBoxLayout(group)
 
         for award in album_awards:
-            award_widget = self._build_award_widget(award)
-            layout.addWidget(award_widget)
-
+            layout.addWidget(self._build_award_widget(award))
             if award != album_awards[-1]:
-                separator = QFrame()
-                separator.setFrameShape(QFrame.HLine)
-                separator.setFrameShadow(QFrame.Sunken)
-                layout.addWidget(separator)
+                sep = QFrame()
+                sep.setFrameShape(QFrame.HLine)
+                sep.setFrameShadow(QFrame.Sunken)
+                layout.addWidget(sep)
 
         return group
 
@@ -266,31 +261,23 @@ class AlbumTabBuilder:
             award_name = getattr(award, "award_name", "Unknown Award")
             award_year = getattr(award, "award_year", None)
             award_category = getattr(award, "award_category", None)
-            award_description = getattr(award, "award_description", None)
+            award_desc = getattr(award, "award_description", None)
 
-            # Award name
-            name_label = QLabel(f"<b>{award_name}</b>")
-            layout.addWidget(name_label)
+            layout.addWidget(QLabel(f"<b>{award_name}</b>"))
 
-            # Award details
             details_widget = QWidget()
             details_layout = QHBoxLayout(details_widget)
-
             if award_year:
                 details_layout.addWidget(QLabel(f"Year: {award_year}"))
             if award_category:
                 details_layout.addWidget(QLabel(f"Category: {award_category}"))
-
             details_layout.addStretch()
             layout.addWidget(details_widget)
 
-            # Award description
-            if award_description:
-                desc_label = QLabel(award_description)
+            if award_desc:
+                desc_label = QLabel(award_desc)
                 desc_label.setWordWrap(True)
                 layout.addWidget(desc_label)
-
-            # Remove button
 
             remove_btn = QPushButton("Remove Award")
             remove_btn.clicked.connect(
@@ -300,45 +287,63 @@ class AlbumTabBuilder:
 
         except Exception as e:
             logger.error(f"Error displaying award {award}: {e}")
-            error_label = QLabel(f"Error displaying award: {str(e)}")
-            layout.addWidget(error_label)
+            layout.addWidget(QLabel(f"Error displaying award: {str(e)}"))
 
         return widget
 
     def _build_artists_list(self):
-        """Build the artists list content"""
+        """Build the artists and credits list.
+
+        FIX: Each role group now uses a smaller font (11 px) and tighter
+        margins so the tab doesn't feel oversized.
+        """
         if not hasattr(self.album, "album_roles") or not self.album.album_roles:
             return QLabel("No artist information available.")
 
         container = QWidget()
         layout = QVBoxLayout(container)
+        layout.setSpacing(4)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         # Group roles by type
-        roles_by_type = {}
+        roles_by_type: dict[str, list] = {}
         for role_assoc in self.album.album_roles:
             role_name = role_assoc.role.role_name if role_assoc.role else "Unknown Role"
-            if role_name not in roles_by_type:
-                roles_by_type[role_name] = []
+            roles_by_type.setdefault(role_name, [])
             artist_name = (
                 role_assoc.artist.artist_name if role_assoc.artist else "Unknown Artist"
             )
             roles_by_type[role_name].append((artist_name, role_assoc))
 
-        # Create sections for each role type
+        # Smaller font for the group-box title
+        small_font = QFont()
+        small_font.setPointSize(9)
+
         for role_name, artist_tuples in roles_by_type.items():
             role_group = QGroupBox(role_name)
+            role_group.setFont(small_font)  # ← shrinks the group title
             role_layout = QVBoxLayout(role_group)
+            role_layout.setContentsMargins(6, 4, 6, 4)
+            role_layout.setSpacing(2)
 
             for artist_name, role_assoc in sorted(artist_tuples, key=lambda x: x[0]):
                 artist_widget = QWidget()
                 artist_layout = QHBoxLayout(artist_widget)
-                artist_layout.addWidget(QLabel(artist_name))
+                artist_layout.setContentsMargins(0, 0, 0, 0)
+                artist_layout.setSpacing(6)
+
+                name_label = QLabel(artist_name)
+                name_label.setStyleSheet("font-size: 11px;")  # ← smaller text
+                artist_layout.addWidget(name_label)
 
                 remove_btn = QPushButton("Remove")
+                remove_btn.setFixedHeight(22)  # ← compact button
+                remove_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
                 remove_btn.clicked.connect(
                     lambda checked, ra=role_assoc: self.helper.remove_artist_credit(ra)
                 )
                 artist_layout.addWidget(remove_btn)
+                artist_layout.addStretch()
 
                 role_layout.addWidget(artist_widget)
 
@@ -348,24 +353,21 @@ class AlbumTabBuilder:
 
     def _add_statistics_fields(self, layout):
         """Add statistics fields to form layout"""
-        # Play statistics
         total_plays = getattr(self.album, "total_plays", 0)
         layout.addRow("Total Plays:", QLabel(f"{total_plays:,}"))
 
-        # Average rating
         avg_rating = getattr(self.album, "average_rating", None)
         if avg_rating:
             rating_stars = "★" * int(round(avg_rating))
-            rating_text = f"{rating_stars} ({avg_rating:.1f}/5)"
-            layout.addRow("Average Rating:", QLabel(rating_text))
+            layout.addRow(
+                "Average Rating:", QLabel(f"{rating_stars} ({avg_rating:.1f}/5)")
+            )
 
-        # Track statistics
         if self.album.tracks:
             rated_tracks = len([t for t in self.album.tracks if t.user_rating])
             played_tracks = len(
                 [t for t in self.album.tracks if t.play_count and t.play_count > 0]
             )
-
             layout.addRow(
                 "Rated Tracks:", QLabel(f"{rated_tracks}/{len(self.album.tracks)}")
             )
@@ -373,16 +375,14 @@ class AlbumTabBuilder:
                 "Played Tracks:", QLabel(f"{played_tracks}/{len(self.album.tracks)}")
             )
 
-        # Duration statistics
         if self.album.total_duration:
             layout.addRow(
                 "Total Duration:",
                 QLabel(self.view.format_duration(self.album.total_duration)),
             )
-
             if self.album.tracks:
-                avg_duration = self.album.total_duration / len(self.album.tracks)
+                avg_dur = self.album.total_duration / len(self.album.tracks)
                 layout.addRow(
                     "Average Track Duration:",
-                    QLabel(self.view.format_duration(avg_duration)),
+                    QLabel(self.view.format_duration(avg_dur)),
                 )

@@ -39,10 +39,10 @@ config_setup.py
 base_album_edit.py
     artist credits are too big
     cannot remove publisher
-    reload on any dialog close, like publisher
-    description box wastes a lot of space
+    reload on any dialog close to show anything that might have changed
+    description box wastes a lot of space. The text is only one line tall with lots of padding
     extra floating close button
-    does not open to reasonable size. Scale to fit?
+    does not open to reasonable size. Scale to fit contents maybe?
 
 
 db_tables.py
