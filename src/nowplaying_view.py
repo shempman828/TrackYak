@@ -745,6 +745,14 @@ class NowPlayingView(QWidget):
         self._chip_plays = _Chip("▶", "—")
         self._chip_rating = _Chip("★", "—")
         self._chip_genres = _Chip("🎵", "—")
+        # Advanced audio analysis chips
+        self._chip_energy = _Chip("⚡", "—")
+        self._chip_danceability = _Chip("🕺", "—")
+        self._chip_valence = _Chip("☀", "—")
+        self._chip_acousticness = _Chip("🎸", "—")
+        self._chip_liveness = _Chip("🎤", "—")
+        self._chip_fidelity = _Chip("◉", "—")
+        self._chip_gain = _Chip("🔊", "—")
 
         self._chip_row = _ScrollingChipRow()
         right_layout.addWidget(self._chip_row)
@@ -820,19 +828,20 @@ class NowPlayingView(QWidget):
         )
         self._no_lyrics_lbl.setVisible(False)
 
-        # Countdown label (shown when next lyric is ≥5 s away)
+        # Countdown label (shown below current lyric when next line is ≥5 s away)
         self._countdown_lbl = QLabel("")
         self._countdown_lbl.setAlignment(Qt.AlignCenter)
         self._countdown_lbl.setStyleSheet(
-            "color: rgba(133,153,234,0.55); font-size: 16px; font-style: italic;"
+            "color: rgba(133,153,234,0.55); font-size: 13px; font-style: italic;"
             " background: transparent; border: none;"
         )
+        self._countdown_lbl.setFixedHeight(28)
         self._countdown_lbl.setVisible(False)
 
         lp.addWidget(self._karaoke_lbl, stretch=1)
         lp.addWidget(self._plain_area, stretch=1)
         lp.addWidget(self._no_lyrics_lbl, stretch=1)
-        lp.addWidget(self._countdown_lbl, stretch=1)
+        lp.addWidget(self._countdown_lbl)  # fixed height — sits below lyric
 
         # Sync offset row — contains slider + "SHOW ALL" toggle
         self._offset_row = QWidget()
@@ -1126,9 +1135,12 @@ class NowPlayingView(QWidget):
         return -1
 
     def _start_countdown(self, target_ms: int):
-        """Show countdown to target_ms; hide karaoke label."""
+        """Show countdown to target_ms below the current lyric line.
+        The karaoke label stays visible so the last line isn't clipped away —
+        only the small countdown indicator is added beneath it."""
         self._next_lyric_ms = target_ms
-        self._karaoke_lbl.setVisible(False)
+        # Keep karaoke label showing — don't hide it
+        self._karaoke_lbl.setVisible(True)
         self._countdown_lbl.setVisible(True)
         self._update_countdown()
         if not self._countdown_timer.isActive():
@@ -1184,63 +1196,185 @@ class NowPlayingView(QWidget):
         visible: List[_Chip] = []
 
         def _maybe(chip: _Chip, val):
-            """Add chip if val is a non-empty string (handles 0 as falsy)."""
+            """Add chip if val is a non-empty string."""
             if val is not None and str(val).strip():
                 chip.set_value(str(val))
                 visible.append(chip)
 
-        dur = getattr(track, "duration", None)
-        if dur is not None:
-            m, s = int(dur) // 60, int(dur) % 60
-            _maybe(self._chip_duration, f"{m}:{s:02d}")
+        def _safe(chip: _Chip, fn):
+            """Run fn() to get a formatted string; silently skip this chip on any error.
+            This means one missing/broken field never prevents others from showing."""
+            try:
+                val = fn()
+                _maybe(chip, val)
+            except Exception as exc:
+                logger.debug(f"_update_chips: skipping chip due to error: {exc}")
 
-        track_no = getattr(track, "track_number", None)
-        if track_no is not None:
-            _maybe(self._chip_track_no, f"Track {track_no}")
+        # ── Basic metadata ─────────────────────────────────────────────────
+        _safe(
+            self._chip_duration,
+            lambda: (
+                f"{int(track.duration) // 60}:{int(track.duration) % 60:02d}"
+                if getattr(track, "duration", None) is not None
+                else None
+            ),
+        )
+        _safe(
+            self._chip_track_no,
+            lambda: (
+                f"Track {track.track_number}"
+                if getattr(track, "track_number", None) is not None
+                else None
+            ),
+        )
+        _safe(
+            self._chip_bpm,
+            lambda: (
+                f"{float(track.bpm):.0f} BPM"
+                if getattr(track, "bpm", None) is not None
+                else None
+            ),
+        )
+        _safe(
+            self._chip_key,
+            lambda: (
+                f"{track.key} {(getattr(track, 'mode', '') or '')}".strip()
+                if getattr(track, "key", None)
+                else None
+            ),
+        )
+        _safe(
+            self._chip_timesig,
+            lambda: (
+                str(track.primary_time_signature)
+                if getattr(track, "primary_time_signature", None) is not None
+                else None
+            ),
+        )
 
-        bpm = getattr(track, "bpm", None)
-        if bpm is not None:
-            _maybe(self._chip_bpm, f"{float(bpm):.0f} BPM")
+        # ── Audio file properties ──────────────────────────────────────────
+        _safe(
+            self._chip_bitrate,
+            lambda: (
+                f"{int(track.bit_rate)} kbps"
+                if getattr(track, "bit_rate", None) is not None
+                else None
+            ),
+        )
+        _safe(
+            self._chip_sample,
+            lambda: (
+                f"{int(track.sample_rate) // 1000} kHz"
+                if getattr(track, "sample_rate", None) is not None
+                else None
+            ),
+        )
+        _safe(
+            self._chip_depth,
+            lambda: (
+                f"{int(track.bit_depth)}-bit"
+                if getattr(track, "bit_depth", None) is not None
+                else None
+            ),
+        )
+        _safe(
+            self._chip_gain,
+            lambda: (
+                f"{float(track.track_gain):+.1f} dB"
+                if getattr(track, "track_gain", None) is not None
+                else None
+            ),
+        )
 
-        key = getattr(track, "key", None)
-        if key:
-            mode = getattr(track, "mode", "") or ""
-            _maybe(self._chip_key, f"{key} {mode}".strip())
+        # ── User & library data ────────────────────────────────────────────
+        _safe(
+            self._chip_rec_year,
+            lambda: (
+                str(track.recorded_year)
+                if getattr(track, "recorded_year", None) is not None
+                else None
+            ),
+        )
+        _safe(
+            self._chip_plays,
+            lambda: (
+                f"{int(track.play_count)} plays"
+                if getattr(track, "play_count", None) is not None
+                else None
+            ),
+        )
+        _safe(
+            self._chip_rating,
+            lambda: (
+                f"{float(track.user_rating):.1f}/10"
+                if getattr(track, "user_rating", None) is not None
+                else None
+            ),
+        )
+        _safe(
+            self._chip_genres,
+            lambda: (
+                ", ".join(
+                    n
+                    for n in [
+                        getattr(g, "genre_name", "")
+                        for g in (getattr(track, "genres", None) or [])[:3]
+                    ]
+                    if n
+                )
+                or None
+            ),
+        )
 
-        ts = getattr(track, "primary_time_signature", None)
-        if ts is not None:
-            _maybe(self._chip_timesig, str(ts))
-
-        br = getattr(track, "bit_rate", None)
-        if br is not None:
-            _maybe(self._chip_bitrate, f"{int(br)} kbps")
-
-        sr = getattr(track, "sample_rate", None)
-        if sr is not None:
-            _maybe(self._chip_sample, f"{int(sr) // 1000} kHz")
-
-        bd = getattr(track, "bit_depth", None)
-        if bd is not None:
-            _maybe(self._chip_depth, f"{int(bd)}-bit")
-
-        ry = getattr(track, "recorded_year", None)
-        if ry is not None:
-            _maybe(self._chip_rec_year, str(ry))
-
-        plays = getattr(track, "play_count", None)
-        if plays is not None:
-            _maybe(self._chip_plays, f"{int(plays)} plays")
-
-        rating = getattr(track, "user_rating", None)
-        if rating is not None:
-            _maybe(self._chip_rating, f"{float(rating):.1f}/10")
-
-        genres = getattr(track, "genres", None) or []
-        if genres:
-            names = [getattr(g, "genre_name", "") for g in genres[:3]]
-            gstr = ", ".join(n for n in names if n)
-            if gstr:
-                _maybe(self._chip_genres, gstr)
+        # ── Advanced audio analysis ────────────────────────────────────────
+        _safe(
+            self._chip_energy,
+            lambda: (
+                f"{track.energy * 100:.0f}% energy"
+                if getattr(track, "energy", None) is not None
+                else None
+            ),
+        )
+        _safe(
+            self._chip_danceability,
+            lambda: (
+                f"{track.danceability * 100:.0f}% dance"
+                if getattr(track, "danceability", None) is not None
+                else None
+            ),
+        )
+        _safe(
+            self._chip_valence,
+            lambda: (
+                f"{track.valence * 100:.0f}% valence"
+                if getattr(track, "valence", None) is not None
+                else None
+            ),
+        )
+        _safe(
+            self._chip_acousticness,
+            lambda: (
+                f"{track.acousticness * 100:.0f}% acoustic"
+                if getattr(track, "acousticness", None) is not None
+                else None
+            ),
+        )
+        _safe(
+            self._chip_liveness,
+            lambda: (
+                f"{track.liveness * 100:.0f}% live"
+                if getattr(track, "liveness", None) is not None
+                else None
+            ),
+        )
+        _safe(
+            self._chip_fidelity,
+            lambda: (
+                f"{track.fidelity_score * 100:.0f}% fidelity"
+                if getattr(track, "fidelity_score", None) is not None
+                else None
+            ),
+        )
 
         self._chip_row.set_chips(visible)
 

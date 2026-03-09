@@ -2,10 +2,7 @@ NEW IDEAS
     replace many qmessageboxes with status manager
 
 nowplaying_view.py
-    Sync slider should remember position between tracks and sessions (saved to config when changed with debounce)
-    Chips expand possible data points
-    Chips sometimes missing. I think they don't display when any piece of data is missing. It should instead show what it can
-    Lyrics timer should still show the lyrics, just a countdown to the line shown if longer than 5 seconds
+
 
 
 player_utility.py
