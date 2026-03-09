@@ -1,6 +1,6 @@
 import os
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import QTimer, Qt, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -24,31 +24,39 @@ class MenuBar:
 
         # File menu
         file_menu = menu_bar.addMenu("File")
-        # Import Directory Action
+
         import_action = QAction("Import Directory", self)
         import_action.setIcon(QIcon(icon("import.svg")))
         import_action.triggered.connect(self.show_import_dialog)
         file_menu.addAction(import_action)
 
-        # File Manager Action
         file_manager_action = QAction("Manage Library", self)
         file_manager_action.setIcon(QIcon(icon("manage_library.svg")))
         file_manager_action.triggered.connect(self.show_file_manager)
         file_menu.addAction(file_manager_action)
 
-        # Library Statistics
         statistics_action = QAction("View Library Statistics", self)
         statistics_action.setIcon(QIcon(icon("statistics.svg")))
         statistics_action.triggered.connect(self.show_statistics_dialog)
         file_menu.addAction(statistics_action)
 
-        # Duplicate Finder
         duplicate_action = QAction("Find Duplicate Tracks", self)
         duplicate_action.setToolTip("Scan library for possible duplicate tracks")
         duplicate_action.triggered.connect(self.show_duplicate_finder)
         file_menu.addAction(duplicate_action)
 
         file_menu.addSeparator()
+
+        # General Settings — opens the full ConfigDialog
+        general_settings_action = QAction("General Settings", self)
+        general_settings_action.setIcon(
+            QIcon(icon("settings.svg"))
+            if self._icon_exists("settings.svg")
+            else QIcon()
+        )
+        general_settings_action.triggered.connect(self.show_general_settings_dialog)
+        file_menu.addAction(general_settings_action)
+
         file_menu.addSeparator()
 
         exit_action = QAction("Exit", self)
@@ -59,19 +67,17 @@ class MenuBar:
 
         # Audio Menu
         audio_menu = menu_bar.addMenu("Audio")
-        # Audio Settings Action
+
         audio_settings_action = QAction("Manage Audio Settings", self)
         audio_settings_action.setIcon(QIcon(icon("audio_settings.svg")))
         audio_settings_action.triggered.connect(self.show_audio_settings_dialog)
         audio_menu.addAction(audio_settings_action)
 
-        # equalizer
         equalizer_action = QAction("Equalizer Settings", self)
         equalizer_action.setIcon(QIcon(icon("equalizer.svg")))
         equalizer_action.triggered.connect(self.show_equalizer_dialog)
         audio_menu.addAction(equalizer_action)
 
-        # Audio Properties Action
         audio_props_action = QAction("Audio File Analysis", self)
         audio_props_action.setIcon(QIcon(icon("audio_analysis.svg")))
         audio_props_action.triggered.connect(self.show_audio_properties)
@@ -80,13 +86,11 @@ class MenuBar:
         # View menu
         self.view_menu = menu_bar.addMenu("View")
 
-        # Display Settings
         display_settings_action = QAction("Display Settings", self)
         display_settings_action.setIcon(QIcon(icon("display_settings.svg")))
         display_settings_action.triggered.connect(self.show_display_settings_dialog)
         self.view_menu.addAction(display_settings_action)
 
-        # Add queue visibility toggle
         self.toggle_queue_action = QAction("Show Queue", self)
         self.toggle_queue_action.setCheckable(True)
         self.toggle_queue_action.setChecked(False)
@@ -102,7 +106,6 @@ class MenuBar:
         fullscreen_action.triggered.connect(self.toggle_fullscreen)
         self.view_menu.addAction(fullscreen_action)
 
-        # miniplayer toggle
         miniplayer_action = QAction("Mini Player", self)
         miniplayer_action.setShortcut(QKeySequence("Ctrl+M"))
         miniplayer_action.triggered.connect(self.open_miniplayer)
@@ -111,16 +114,13 @@ class MenuBar:
         # Help menu
         help_menu = menu_bar.addMenu("Help")
 
-        # About
         about_action = QAction("About", self)
         about_action.triggered.connect(self.show_about_dialog)
         help_menu.addAction(about_action)
 
-        # support project
         support_action = QAction("Support this Project", self)
         help_menu.addAction(support_action)
 
-        # support Wikipedia
         wikipedia_url = "https://wikimediafoundation.org/give/?rdfrom=%2F%2Fdonate.wikimedia.org%2Fw%2Findex.php%3Ftitle%3DWays_to_Give%26redirect%3Dno#ways-to-give"
         wikipedia_action = QAction("Support Wikipedia", self)
         wikipedia_action.triggered.connect(
@@ -128,9 +128,115 @@ class MenuBar:
         )
         help_menu.addAction(wikipedia_action)
 
+        # --- Menu bar auto-hide setup ---
+        # A timer is used to add a small delay before hiding so the bar doesn't
+        # flicker when the user moves between menus.
+        self._menu_bar_hide_timer = QTimer(self)
+        self._menu_bar_hide_timer.setSingleShot(True)
+        self._menu_bar_hide_timer.setInterval(300)  # 300 ms grace period
+        self._menu_bar_hide_timer.timeout.connect(self._hide_menu_bar_if_mouse_gone)
+
+        # Apply the saved auto-hide preference on startup
+        self._apply_menu_bar_auto_hide(self._get_display_settings_auto_hide())
+
+    # ------------------------------------------------------------------
+    # Auto-hide helpers
+    # ------------------------------------------------------------------
+
+    def _icon_exists(self, name: str) -> bool:
+        """Safely check if an icon file exists before loading it."""
+        try:
+            path = icon(name)
+            return bool(path) and os.path.exists(path)
+        except Exception:
+            return False
+
+    def _get_display_settings_auto_hide(self) -> bool:
+        """Read the current auto-hide preference from wherever DisplaySettings lives."""
+        ds = self._resolve_display_settings()
+        if ds is not None:
+            return ds.get_menu_bar_auto_hide()
+        return False
+
+    def _resolve_display_settings(self):
+        """Return the DisplaySettings instance, or None if unavailable."""
+        if hasattr(self, "display_settings"):
+            return self.display_settings
+        if hasattr(self, "controller") and hasattr(self.controller, "display_settings"):
+            return self.controller.display_settings
+        if hasattr(app_config, "display_settings"):
+            return app_config.display_settings
+        return None
+
+    def _apply_menu_bar_auto_hide(self, enabled: bool):
+        """
+        Turn auto-hide on or off.
+        When ON:  the menu bar is hidden and mouse-tracking on the central widget
+                  is used to detect when the user moves near the top of the window.
+        When OFF: the menu bar is always visible (normal behaviour).
+        """
+        menu_bar = self.menuBar()
+
+        if enabled:
+            menu_bar.hide()
+            # Install an event filter on ourselves so we catch mouseMoveEvents
+            # for the whole window without blocking anything else.
+            self.setMouseTracking(True)
+            if self.centralWidget():
+                self.centralWidget().setMouseTracking(True)
+        else:
+            # Stop the hide timer and make sure the bar is visible
+            self._menu_bar_hide_timer.stop()
+            menu_bar.show()
+            self.setMouseTracking(False)
+            if self.centralWidget():
+                self.centralWidget().setMouseTracking(False)
+
+    def _hide_menu_bar_if_mouse_gone(self):
+        """Called by the timer — hides the bar only if auto-hide is still on."""
+        if self._get_display_settings_auto_hide():
+            self.menuBar().hide()
+
+    def mouseMoveEvent(self, event):
+        """
+        Override to implement menu bar auto-show on hover.
+        When the mouse enters the top 5 pixels of the window the bar appears.
+        Moving away starts the hide timer.
+        """
+        super().mouseMoveEvent(event)
+
+        if not self._get_display_settings_auto_hide():
+            return
+
+        menu_bar = self.menuBar()
+        menu_bar_height = menu_bar.sizeHint().height()
+        y = event.position().y() if hasattr(event, "position") else event.y()
+
+        if y <= menu_bar_height + 5:
+            # Mouse is near the top — show the bar and cancel any pending hide
+            self._menu_bar_hide_timer.stop()
+            menu_bar.show()
+        else:
+            # Mouse moved away — start the grace-period timer
+            if menu_bar.isVisible() and not menu_bar.activeAction():
+                self._menu_bar_hide_timer.start()
+
+    # ------------------------------------------------------------------
+    # Audio settings
+    # ------------------------------------------------------------------
+
     def show_audio_settings_dialog(self):
-        # The dialog will handle all the settings automatically
-        settings_applied = show_audio_settings_dialog(self.mediaplayer, self)
+        """Open the audio settings dialog. Uses controller.mediaplayer if available."""
+        # Support both self.mediaplayer and self.controller.mediaplayer
+        player = getattr(self, "mediaplayer", None)
+        if player is None and hasattr(self, "controller"):
+            player = getattr(self.controller, "mediaplayer", None)
+
+        if player is None:
+            self.statusBar().showMessage("Audio player not available", 3000)
+            return
+
+        settings_applied = show_audio_settings_dialog(player, self)
 
         if settings_applied:
             self.statusBar().showMessage("Audio settings updated", 3000)
@@ -147,6 +253,21 @@ class MenuBar:
         self.equalizer_dialog.raise_()
         self.equalizer_dialog.activateWindow()
 
+    # ------------------------------------------------------------------
+    # General Settings
+    # ------------------------------------------------------------------
+
+    def show_general_settings_dialog(self):
+        """Open the General Settings (ConfigDialog) window."""
+        from src.config_dialog import ConfigDialog
+
+        dialog = ConfigDialog(app_config, self)
+        dialog.exec_()
+
+    # ------------------------------------------------------------------
+    # Other dialogs
+    # ------------------------------------------------------------------
+
     def show_statistics_dialog(self):
         if not hasattr(self, "statistics_dialog"):
             self.statistics_dialog = MusicStatsDialog(self.controller, self)
@@ -160,15 +281,11 @@ class MenuBar:
         dialog.exec_()
 
     def show_about_dialog(self):
-        # Program description
         description = """TrackYak is a powerful application for tracking and managing your music library."""
 
-        # Create the about message box
         about_box = QMessageBox(self)
         about_box.setWindowTitle("About TrackYak")
         about_box.setIcon(QMessageBox.Information)
-
-        # Set the main text with program title and developer
         about_box.setTextFormat(Qt.RichText)
         about_box.setText(
             f"<h2>TrackYak</h2>"
@@ -180,17 +297,9 @@ class MenuBar:
             f"<h3>License:</h3>"
             f"<p><a href='file:///{os.path.abspath('license.md')}'>View Full License Text</a></p>"
         )
-
-        # Make links clickable
         about_box.setTextInteractionFlags(Qt.TextBrowserInteraction)
-
-        # Set standard OK button
         about_box.setStandardButtons(QMessageBox.Ok)
-
-        # Optional: Set the dialog to be modal
         about_box.setModal(True)
-
-        # Show the dialog
         about_box.exec_()
 
     def toggle_queue_visibility(self, checked):
@@ -211,52 +320,39 @@ class MenuBar:
 
     def show_import_dialog(self):
         """Display the ImportDialog when the 'Import Directory' action is triggered."""
-        # Check if we need to create a new dialog
         if not hasattr(self, "import_dialog"):
             self.import_dialog = ImportDialog(self.controller)
 
-        # Check if the C++ object was deleted (happens with WA_DeleteOnClose)
         try:
-            # This will raise RuntimeError if the C++ object was deleted
             self.import_dialog.isVisible()
         except RuntimeError:
-            # Recreate the dialog
             self.import_dialog = ImportDialog(self.controller)
 
-        # Bring the dialog to the front
         self.import_dialog.raise_()
         self.import_dialog.activateWindow()
         self.import_dialog.show()
 
     def show_file_manager(self):
-        """Show the FileManager dialog when the 'Manage Library' action is triggered"""
+        """Show the FileManager dialog when the 'Manage Library' action is triggered."""
         if not hasattr(self, "file_manager"):
-            # Lazy initialization of the FileManager
             self.file_manager = FileManager(self.controller)
-            # Connect the library modified signal
             self.file_manager.library_modified.connect(self._refresh_all_views)
 
         self.file_manager.show()
 
     def toggle_fullscreen(self):
         """Toggle between fullscreen and normal window mode (Wayland/X11 safe)."""
-        # Use setWindowState instead of showFullScreen/showNormal (works better on Wayland)
         if self.windowState() & Qt.WindowFullScreen:
             self.setWindowState(self.windowState() & ~Qt.WindowFullScreen)
         else:
             self.setWindowState(self.windowState() | Qt.WindowFullScreen)
 
-        # Ensure Qt processes the state change immediately
         QApplication.processEvents()
-
-        # Force a repaint in case the compositor leaves a blank surface
         self.repaint()
 
     def open_miniplayer(self):
         """Show or hide the mini-player window as an independent window."""
-        # Always create a new instance - simplest approach
         if hasattr(self, "_mini_player") and self._mini_player:
-            # Try to close existing one
             try:
                 self._mini_player.close()
                 self._mini_player.deleteLater()
@@ -264,13 +360,9 @@ class MenuBar:
                 pass
             self._mini_player = None
 
-        # Create new instance
         self._mini_player = MiniPlayerWindow(self.controller)
+        self._mini_player.setParent(None)
 
-        # Force it to be a top-level window
-        self._mini_player.setParent(None)  # THIS IS KEY!
-
-        # Position it
         main_window_pos = self.pos()
         main_window_size = self.size()
         self._mini_player.move(
@@ -278,37 +370,35 @@ class MenuBar:
             main_window_pos.y() + 50,
         )
 
-        # Connect signals
         player = self.controller.mediaplayer
         player.track_changed.connect(self._mini_player._on_track_changed)
         player.state_changed.connect(self._mini_player._on_player_state_changed)
 
-        # Show it
         self._mini_player.show()
         self._mini_player.raise_()
 
     def show_display_settings_dialog(self):
         """Show the display settings dialog."""
-        # Check if display_settings is available (depends on your app structure)
-        # Assuming it's available as self.display or through app_config
-        display_settings = None
-
-        # Try different possible locations for display settings
-        if hasattr(self, "display_settings"):
-            display_settings = self.display_settings
-        elif hasattr(self, "controller") and hasattr(
-            self.controller, "display_settings"
-        ):
-            display_settings = self.controller.display_settings
-        elif hasattr(app_config, "display_settings"):
-            display_settings = app_config.display_settings
+        display_settings = self._resolve_display_settings()
 
         if display_settings is None:
-            # Create a DisplaySettings instance if needed
             from src.display_settings import DisplaySettings
 
             display_settings = DisplaySettings()
 
-        # Create and show the dialog
         dialog = DisplaySettingsDialog(display_settings, self)
+
+        # When auto-hide changes inside the dialog, apply it immediately
+        display_settings.menu_bar_auto_hide_changed.connect(
+            self._apply_menu_bar_auto_hide
+        )
+
         dialog.exec_()
+
+        # Disconnect after dialog closes to avoid duplicate connections next time
+        try:
+            display_settings.menu_bar_auto_hide_changed.disconnect(
+                self._apply_menu_bar_auto_hide
+            )
+        except RuntimeError:
+            pass  # Signal was already disconnected

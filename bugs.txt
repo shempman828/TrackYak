@@ -25,13 +25,7 @@ player_settings.py
     remember choices between sessions (write and read to config)
 
 menu_bar.py
-    add feature to auto hide unless moused over
-    add mouse over feature to display settings and config
     implement project support links in "about"
-    add a general settings page.
-    add debugging level to general settings.
-    audio settings do not seem to persist between sessions and sometimes even within a session
-    Do you see any other missing settings?
 
 config_setup.py
     make sure debugging level is a setting

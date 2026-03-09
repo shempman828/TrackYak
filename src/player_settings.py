@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.config_setup import app_config
 from src.logger_config import logger
 
 
@@ -125,26 +126,22 @@ class AudioSettingsDialog(QDialog):
         layout.addWidget(button_box)
 
     def _load_current_settings(self):
-        """Load current settings from music player."""
+        """Load current settings — first from config, then fall back to live player state."""
         try:
-            # Load audio devices
+            # Load audio devices into combo box
             self._load_audio_devices()
 
-            # Load crossfade settings
-            self.crossfade_check.setChecked(
-                getattr(self.music_player, "crossfade_enabled", False)
-            )
-            self.crossfade_spinbox.setValue(
-                getattr(self.music_player, "crossfade_duration", 3000)
-            )
+            # Crossfade: prefer config value so it survives restarts
+            crossfade_enabled = app_config.get_crossfade()
+            crossfade_duration = getattr(self.music_player, "crossfade_duration", 3000)
+            self.crossfade_check.setChecked(crossfade_enabled)
+            self.crossfade_spinbox.setValue(crossfade_duration)
 
-            # Load normalization settings
-            self.normalization_check.setChecked(
-                getattr(self.music_player, "normalization_enabled", False)
-            )
-            self.normalization_spinbox.setValue(
-                getattr(self.music_player, "normalization_target", -14.0)
-            )
+            # Normalization: fall back to live player attribute
+            norm_enabled = getattr(self.music_player, "normalization_enabled", False)
+            norm_target = getattr(self.music_player, "normalization_target", -14.0)
+            self.normalization_check.setChecked(norm_enabled)
+            self.normalization_spinbox.setValue(norm_target)
 
             # Enable/disable dependent controls
             self._update_controls_state()
@@ -153,7 +150,7 @@ class AudioSettingsDialog(QDialog):
             logger.error(f"Error loading audio settings: {e}")
 
     def _load_audio_devices(self):
-        """Load available audio devices into combo box."""
+        """Load available audio devices into combo box, selecting the saved device."""
         try:
             self.device_combo.clear()
 
@@ -163,8 +160,15 @@ class AudioSettingsDialog(QDialog):
             # Get available devices from music player
             devices = self.music_player.get_audio_devices()
 
-            current_device = getattr(self.music_player, "current_device", None)
-            current_index = 0  # Default to first item
+            # Use saved config device first, fall back to live player attribute
+            saved_device = app_config.get_output_device()
+            current_device = (
+                saved_device
+                if saved_device != "default"
+                else getattr(self.music_player, "current_device", None)
+            )
+
+            current_index = 0  # Default to first item (Default Output Device)
 
             for i, device in enumerate(devices):
                 device_name = device.get("name", f"Device {device['id']}")
@@ -176,7 +180,7 @@ class AudioSettingsDialog(QDialog):
 
                 self.device_combo.addItem(display_name, device["id"])
 
-                # Select current device if it matches
+                # Select the saved/current device if it matches
                 if current_device and (
                     str(device["id"]) == str(current_device)
                     or device_name == current_device
@@ -215,24 +219,34 @@ class AudioSettingsDialog(QDialog):
         self._update_controls_state()
 
     def _apply_settings(self):
-        """Apply settings to music player."""
+        """Apply settings to music player AND save them to config so they persist."""
         try:
-            # Apply audio device
+            # --- Apply to live player ---
             device_data = self.device_combo.currentData()
             if device_data is not None:
                 self.music_player.set_audio_device(device_data)
 
-            # Apply crossfade settings
             self.music_player.enable_crossfade(self.crossfade_check.isChecked())
             self.music_player.set_crossfade_duration(self.crossfade_spinbox.value())
 
-            # Apply normalization settings
             self.music_player.enable_normalization(self.normalization_check.isChecked())
             self.music_player.set_normalization_target(
                 self.normalization_spinbox.value()
             )
 
-            logger.info("Audio settings applied successfully")
+            # --- Save to config so settings survive restarts ---
+            # Device: store empty string for "default", otherwise store the device id
+            device_to_save = device_data if device_data else "default"
+            app_config.set_output_device(str(device_to_save))
+
+            app_config.set_crossfade(self.crossfade_check.isChecked())
+
+            # crossfade_duration lives in the playback section (fade_duration key)
+            app_config.set_fade_duration(self.crossfade_spinbox.value())
+
+            app_config.save()
+
+            logger.info("Audio settings applied and saved to config")
 
         except Exception as e:
             logger.error(f"Error applying audio settings: {e}")
