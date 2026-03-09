@@ -448,11 +448,36 @@ class GenreView(QWidget):
                 )
                 return
 
+            # Build a lookup map and a parent→children map for hierarchy display
+            genre_map = {g.genre_id: g for g in all_genres}
+            children_map = defaultdict(list)
+            for g in all_genres:
+                children_map[g.parent_id].append(g)
+
+            # Recursively collect genres in hierarchy order (alphabetical within each level)
+            # Returns a flat list of (display_label, genre_id) tuples
+            def collect_ordered(parent_id, depth):
+                results = []
+                children = sorted(
+                    children_map.get(parent_id, []), key=lambda g: g.genre_name.lower()
+                )
+                for genre in children:
+                    if genre.genre_id == source_genre_id:
+                        # Still recurse into children even if source is excluded
+                        results.extend(collect_ordered(genre.genre_id, depth + 1))
+                        continue
+                    prefix = "  " * depth + ("↳ " if depth > 0 else "")
+                    results.append((prefix + genre.genre_name, genre.genre_id))
+                    results.extend(collect_ordered(genre.genre_id, depth + 1))
+                return results
+
+            ordered_genres = collect_ordered(None, 0)
+
             # Create a simple target selection dialog
             dialog = QDialog(self)
             dialog.setWindowTitle("Select Target Genre")
             dialog.setModal(True)
-            dialog.resize(300, 150)
+            dialog.resize(350, 150)
 
             layout = QVBoxLayout(dialog)
 
@@ -460,8 +485,8 @@ class GenreView(QWidget):
             layout.addWidget(info_label)
 
             target_combo = QComboBox()
-            for genre in target_genres:
-                target_combo.addItem(genre.genre_name, genre.genre_id)
+            for label, genre_id in ordered_genres:
+                target_combo.addItem(label, genre_id)
             layout.addWidget(target_combo)
 
             buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)

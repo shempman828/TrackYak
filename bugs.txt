@@ -94,7 +94,7 @@ statistics_dialog.py
 
 
 genre_view
-    merge organize alphabetical and into submenus by hierarchy
+    merge dialog organize genres into alphabetical order and into submenus by hierarchy
     splitting genres always makes new genres instead of finding existing if they match.
 
 places_view.py

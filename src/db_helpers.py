@@ -719,22 +719,48 @@ class SplitDB(BaseDBHelper):
         try:
             new_genres = []
 
-            # Create new genres
+            # Create new genres, or reuse existing ones if the name already exists
             for name in new_names:
-                new_genre = src.db_tables.Genre(
-                    genre_name=name,
-                    description=original_genre.description,
-                    parent_id=original_genre.parent_id,
+                existing_genre = (
+                    self.session.query(src.db_tables.Genre)
+                    .filter(src.db_tables.Genre.genre_name == name)
+                    .first()
                 )
-                self.session.add(new_genre)
-                new_genres.append(new_genre)
+                if existing_genre and existing_genre.genre_id != genre_id:
+                    # A genre with this name already exists — reuse it
+                    logger.info(
+                        f"Reusing existing genre '{name}' (ID: {existing_genre.genre_id})"
+                    )
+                    new_genres.append(existing_genre)
+                else:
+                    # No match found — create a brand new genre
+                    new_genre = src.db_tables.Genre(
+                        genre_name=name,
+                        description=original_genre.description,
+                        parent_id=original_genre.parent_id,
+                    )
+                    self.session.add(new_genre)
+                    new_genres.append(new_genre)
 
             self.session.flush()
 
-            # Duplicate track genre associations
+            # Duplicate track genre associations, skipping any that already exist
             for track_genre in original_genre.tracks:
                 for new_genre in new_genres:
-                    # Use the association table directly
+                    already_exists = (
+                        self.session.query(src.db_tables.TrackGenre)
+                        .filter_by(
+                            track_id=track_genre.track_id,
+                            genre_id=new_genre.genre_id,
+                        )
+                        .first()
+                    )
+                    if already_exists:
+                        logger.info(
+                            f"Skipping duplicate TrackGenre: track {track_genre.track_id} "
+                            f"already has genre '{new_genre.genre_name}'"
+                        )
+                        continue
                     assoc = src.db_tables.TrackGenre(
                         track_id=track_genre.track_id, genre_id=new_genre.genre_id
                     )
@@ -746,8 +772,9 @@ class SplitDB(BaseDBHelper):
                 for child_genre in original_genre.children:
                     child_genre.parent_id = first_new_genre_id
 
-            # Delete original genre
-            self.session.delete(original_genre)
+            # Delete original genre (only if it isn't one of the reused targets)
+            if original_genre not in new_genres:
+                self.session.delete(original_genre)
             self.session.commit()
 
             logger.info(
@@ -772,28 +799,54 @@ class SplitDB(BaseDBHelper):
         try:
             new_moods = []
 
-            # Create new moods
+            # Create new moods, or reuse existing ones if the name already exists
             for name in new_names:
-                new_mood = src.db_tables.Mood(
-                    mood_name=name,
-                    mood_description=original_mood.mood_description,
-                    parent_id=original_mood.parent_id,
+                existing_mood = (
+                    self.session.query(src.db_tables.Mood)
+                    .filter(src.db_tables.Mood.mood_name == name)
+                    .first()
                 )
-                self.session.add(new_mood)
-                new_moods.append(new_mood)
+                if existing_mood and existing_mood.mood_id != mood_id:
+                    logger.info(
+                        f"Reusing existing mood '{name}' (ID: {existing_mood.mood_id})"
+                    )
+                    new_moods.append(existing_mood)
+                else:
+                    new_mood = src.db_tables.Mood(
+                        mood_name=name,
+                        mood_description=original_mood.mood_description,
+                        parent_id=original_mood.parent_id,
+                    )
+                    self.session.add(new_mood)
+                    new_moods.append(new_mood)
 
             self.session.flush()
 
-            # Duplicate mood-track associations
+            # Duplicate mood-track associations, skipping any that already exist
             for mood_track in original_mood.mood_tracks:
                 for new_mood in new_moods:
+                    already_exists = (
+                        self.session.query(src.db_tables.MoodTrackAssociation)
+                        .filter_by(
+                            mood_id=new_mood.mood_id,
+                            track_id=mood_track.track_id,
+                        )
+                        .first()
+                    )
+                    if already_exists:
+                        logger.info(
+                            f"Skipping duplicate MoodTrackAssociation: track "
+                            f"{mood_track.track_id} already has mood '{new_mood.mood_name}'"
+                        )
+                        continue
                     new_assoc = src.db_tables.MoodTrackAssociation(
                         mood_id=new_mood.mood_id, track_id=mood_track.track_id
                     )
                     self.session.add(new_assoc)
 
-            # Delete original mood
-            self.session.delete(original_mood)
+            # Delete original mood (only if it isn't one of the reused targets)
+            if original_mood not in new_moods:
+                self.session.delete(original_mood)
             self.session.commit()
 
             logger.info(
@@ -818,42 +871,92 @@ class SplitDB(BaseDBHelper):
         try:
             new_roles = []
 
-            # Create new roles
+            # Create new roles, or reuse existing ones if the name already exists
             for name in new_names:
-                new_role = src.db_tables.Role(
-                    role_name=name,
-                    role_description=original_role.role_description,
-                    role_type=original_role.role_type,
-                    parent_id=original_role.parent_id,
-                    _artist_count=original_role._artist_count,
+                existing_role = (
+                    self.session.query(src.db_tables.Role)
+                    .filter(src.db_tables.Role.role_name == name)
+                    .first()
                 )
-                self.session.add(new_role)
-                new_roles.append(new_role)
+                if existing_role and existing_role.role_id != role_id:
+                    logger.info(
+                        f"Reusing existing role '{name}' (ID: {existing_role.role_id})"
+                    )
+                    new_roles.append(existing_role)
+                else:
+                    new_role = src.db_tables.Role(
+                        role_name=name,
+                        role_description=original_role.role_description,
+                        role_type=original_role.role_type,
+                        parent_id=original_role.parent_id,
+                        _artist_count=original_role._artist_count,
+                    )
+                    self.session.add(new_role)
+                    new_roles.append(new_role)
 
             self.session.flush()
 
-            # Duplicate track artist roles
+            # Collect existing track-role combos to avoid duplicate primary key errors
+            existing_track_roles = {
+                (tr.track_id, tr.artist_id, tr.role_id)
+                for new_role in new_roles
+                for tr in new_role.track_roles
+            }
+
+            # Duplicate track artist roles, skipping any that already exist
             for track_role in original_role.track_roles:
                 for new_role in new_roles:
+                    combo = (
+                        track_role.track_id,
+                        track_role.artist_id,
+                        new_role.role_id,
+                    )
+                    if combo in existing_track_roles:
+                        logger.info(
+                            f"Skipping duplicate TrackArtistRole: track {track_role.track_id} "
+                            f"artist {track_role.artist_id} already has role '{new_role.role_name}'"
+                        )
+                        continue
                     new_track_role = src.db_tables.TrackArtistRole(
                         track_id=track_role.track_id,
                         artist_id=track_role.artist_id,
                         role_id=new_role.role_id,
                     )
                     self.session.add(new_track_role)
+                    existing_track_roles.add(combo)
 
-            # Duplicate album role associations
+            # Collect existing album-role combos to avoid duplicate primary key errors
+            existing_album_roles = {
+                (ar.album_id, ar.artist_id, ar.role_id)
+                for new_role in new_roles
+                for ar in new_role.album_roles
+            }
+
+            # Duplicate album role associations, skipping any that already exist
             for album_role in original_role.album_roles:
                 for new_role in new_roles:
+                    combo = (
+                        album_role.album_id,
+                        album_role.artist_id,
+                        new_role.role_id,
+                    )
+                    if combo in existing_album_roles:
+                        logger.info(
+                            f"Skipping duplicate AlbumRoleAssociation: album {album_role.album_id} "
+                            f"artist {album_role.artist_id} already has role '{new_role.role_name}'"
+                        )
+                        continue
                     new_album_role = src.db_tables.AlbumRoleAssociation(
                         album_id=album_role.album_id,
                         artist_id=album_role.artist_id,
                         role_id=new_role.role_id,
                     )
                     self.session.add(new_album_role)
+                    existing_album_roles.add(combo)
 
-            # Delete original role
-            self.session.delete(original_role)
+            # Delete original role (only if it isn't one of the reused targets)
+            if original_role not in new_roles:
+                self.session.delete(original_role)
             self.session.commit()
 
             logger.info(
