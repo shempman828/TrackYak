@@ -101,7 +101,6 @@ places_view.py
 dates_view.py
 
 sync_view.py
-    organize playlists into hierarchy and sort alphabetically
 
 award_view.py
     deleting award should reload award list

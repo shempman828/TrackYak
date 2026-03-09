@@ -583,6 +583,7 @@ class SyncManager:
                 "description": pl.playlist_description,
                 "track_count": pl.track_count,
                 "is_smart": pl.is_smart,
+                "parent_id": pl.parent_id,
             }
             for pl in playlists
         ]

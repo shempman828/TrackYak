@@ -27,10 +27,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.db_helpers import Session
-from src.logger_config import logger
 from src.status_utility import StatusManager
 from src.sync_utility import (
-    MtpDevice,
     MtpManager,
     SyncManager,
     SyncProfile,
@@ -881,16 +879,36 @@ class SyncView(QWidget):
     # -----------------------------------------------------------------------
 
     def _refresh_playlists(self):
-        """Reload the full playlist list from the database."""
+        """Reload the full playlist list from the database, organised as a hierarchy."""
         self.playlist_list.blockSignals(True)
         self.playlist_list.clear()
-        for playlist in self.sync_manager.get_playlists():
-            item = QListWidgetItem()
-            item.setText(f"{playlist['name']}  ({playlist['track_count']} tracks)")
-            item.setToolTip(playlist.get("description") or "")
-            item.setData(Qt.UserRole, playlist)
-            item.setCheckState(Qt.Unchecked)
-            self.playlist_list.addItem(item)
+
+        playlists = self.sync_manager.get_playlists()
+
+        # Build a map of parent_id → [child playlists], sorted alphabetically
+        children_map: dict = {}
+        for pl in playlists:
+            parent_id = pl.get("parent_id")
+            children_map.setdefault(parent_id, []).append(pl)
+        for siblings in children_map.values():
+            siblings.sort(key=lambda p: p["name"].lower())
+
+        # Recursively add items, indenting each level with spaces
+        def add_level(parent_id, depth):
+            indent = "    " * depth  # 4 spaces per level
+            for pl in children_map.get(parent_id, []):
+                item = QListWidgetItem()
+                display = f"{indent}{pl['name']}  ({pl['track_count']} tracks)"
+                item.setText(display)
+                item.setToolTip(pl.get("description") or "")
+                item.setData(Qt.UserRole, pl)
+                item.setCheckState(Qt.Unchecked)
+                self.playlist_list.addItem(item)
+                # Add any children of this playlist beneath it
+                add_level(pl["playlist_id"], depth + 1)
+
+        add_level(None, 0)  # Start from root playlists (no parent)
+
         self.playlist_list.blockSignals(False)
 
         if self.current_profile:
