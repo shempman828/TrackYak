@@ -94,8 +94,7 @@ statistics_dialog.py
 
 
 genre_view
-    merge dialog organize genres into alphabetical order and into submenus by hierarchy
-    splitting genres always makes new genres instead of finding existing if they match.
+
 
 places_view.py
     map does not load js: Uncaught SyntaxError: missing ) after argument list

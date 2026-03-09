@@ -13,11 +13,57 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.logger_config import logger
 from src.place_assoc_details import AssociationDetailsDialog
 from src.place_detail import PlaceDetailView
 from src.place_edit import PlaceEditDialog
 from src.place_html import HtmlDelegate
-from src.logger_config import logger
+
+
+class DraggableTreeWidget(QTreeWidget):
+    """QTreeWidget subclass that correctly handles drag-and-drop to update the database."""
+
+    def __init__(self, list_view):
+        super().__init__()
+        # Keep a reference to the ListView so we can call its controller and refresh
+        self.list_view = list_view
+
+    def dropEvent(self, event):
+        """Called when a drag-and-drop is completed inside the tree."""
+        # Let Qt handle the visual move first (reorders the tree items on screen)
+        super().dropEvent(event)
+
+        try:
+            # The item that was just dropped is now the currently selected item
+            dropped_item = self.currentItem()
+            if not dropped_item:
+                return
+
+            # Get the Place object stored inside the dropped tree item
+            moved_place = dropped_item.data(0, Qt.UserRole)
+
+            # Check what the new parent is (None means it was dropped at the root level)
+            parent_item = dropped_item.parent()
+            new_parent_id = None
+            if parent_item:
+                parent_place = parent_item.data(0, Qt.UserRole)
+                new_parent_id = parent_place.place_id
+
+            # Save the new parent to the database
+            self.list_view.controller.update.update_entity(
+                "Place", moved_place.place_id, parent_id=new_parent_id
+            )
+
+            logger.info(
+                f"Updated parent for {moved_place.place_name} to {new_parent_id}"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to update parent: {str(e)}")
+            QMessageBox.critical(self, "Error", "Failed to update parent place")
+            # Refresh to revert visual changes if the DB update failed
+            if self.list_view.parent_view:
+                self.list_view.parent_view.refresh_views()
 
 
 class ListView(QWidget):
@@ -44,7 +90,7 @@ class ListView(QWidget):
         control_layout.addStretch()
 
         # tree widget with proper selection styling
-        self.tree_widget = QTreeWidget()
+        self.tree_widget = DraggableTreeWidget(self)
         self.tree_widget.setHeaderHidden(True)
         self.tree_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree_widget.customContextMenuRequested.connect(self.show_context_menu)
@@ -58,42 +104,6 @@ class ListView(QWidget):
 
         main_layout.addLayout(control_layout)
         main_layout.addWidget(self.tree_widget)
-
-    def dropEvent(self, event):
-        """Handle drop events for the tree widget."""
-        try:
-            # Let the tree widget handle the visual drop first
-            super().dropEvent(event)
-
-            # Get the dropped item
-            dropped_item = self.tree_widget.currentItem()
-            if not dropped_item:
-                return
-
-            moved_place = dropped_item.data(0, Qt.UserRole)
-
-            # Get the new parent item
-            parent_item = dropped_item.parent()
-            new_parent_id = None
-            if parent_item:
-                parent_place = parent_item.data(0, Qt.UserRole)
-                new_parent_id = parent_place.place_id
-
-            # Update the parent_id in the database
-            self.controller.update.update_entity(
-                "Place", moved_place.place_id, parent_id=new_parent_id
-            )
-
-            logger.info(
-                f"Updated parent for {moved_place.place_name} to {new_parent_id}"
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to update parent: {str(e)}")
-            QMessageBox.critical(self, "Error", "Failed to update parent place")
-            # Refresh to revert visual changes
-            if self.parent_view:
-                self.parent_view.refresh_views()
 
     def load_places(self):
         """Load places into the tree with hierarchical indentation."""

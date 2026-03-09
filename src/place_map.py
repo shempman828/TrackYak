@@ -283,6 +283,14 @@ class MapView(QWidget):
 
             popup_content = self._create_popup_content(place)
 
+            # Escape backticks and backslashes so they don't break the JS template literal
+            popup_content_escaped = popup_content.replace("\\", "\\\\").replace(
+                "`", "\\`"
+            )
+
+            # Escape single quotes in the tooltip name so they don't break the JS string
+            tooltip_name = place["name"].replace("'", "\\'")
+
             markers_js += f"""
                 L.marker([{place["lat"]}, {place["lon"]}], {{
                     icon: L.divIcon({{
@@ -292,8 +300,8 @@ class MapView(QWidget):
                         iconAnchor: [9, 9]
                     }})
                 }}).addTo(map)
-                .bindPopup(`{popup_content}`)
-                .bindTooltip('{place["name"]}');
+                .bindPopup(`{popup_content_escaped}`)
+                .bindTooltip('{tooltip_name}');
                 """
         return markers_js
 
