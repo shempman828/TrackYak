@@ -97,12 +97,8 @@ genre_view
 
 
 places_view.py
-    map does not load js: Uncaught SyntaxError: missing ) after argument list
-    dragging a place to a new parent does not update the db
 
 dates_view.py
-    year slider is very messy with lots of years. Maybe collapse into decades and selecting a decade expands to years?
-    the drag feature on timeline is pointless unless using touch screen. It should be eliminated
 
 sync_view.py
     organize playlists into hierarchy and sort alphabetically
