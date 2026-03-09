@@ -18,7 +18,6 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QDialog,
     QHBoxLayout,
     QHeaderView,
@@ -189,14 +188,21 @@ class TrackView(QWidget):
         self._search_timer.timeout.connect(self._apply_search_filter)
         self.search_bar.textChanged.connect(self._search_timer.start)
 
-        # Column selector for targeted search
-        self.search_column_combo = QComboBox(self)
-        self.search_column_combo.setToolTip("Choose which column to search")
-        self.search_column_combo.addItem("All Columns", _SEARCH_ALL)
-        # Populated fully after _initialize_columns() is called — see _populate_search_combo()
+        # Column selector for targeted search — shown as a drop-down button with
+        # category submenus (populated after _initialize_columns() via _populate_search_combo).
+        self._search_field_name: str = _SEARCH_ALL  # tracks the active field
+
+        self.search_column_btn = QToolButton(self)
+        self.search_column_btn.setText("All Columns \u25be")
+        self.search_column_btn.setToolTip("Choose which column to search")
+        self.search_column_btn.setPopupMode(QToolButton.InstantPopup)
+
+        self._search_column_menu = QMenu(self.search_column_btn)
+        self.search_column_btn.setMenu(self._search_column_menu)
+        # Menu is filled once columns are known — see _populate_search_combo()
 
         toolbar_row.addWidget(self.search_bar, stretch=1)
-        toolbar_row.addWidget(self.search_column_combo)
+        toolbar_row.addWidget(self.search_column_btn)
 
         # ── "⋮ Queue" drop-down button ────────────────────────────────────
         queue_btn = QToolButton(self)
@@ -243,13 +249,54 @@ class TrackView(QWidget):
         self.layout.addLayout(toolbar_row)
 
     def _populate_search_combo(self):
-        """Fill the column search combo with visible-column options after columns are known."""
-        self.search_column_combo.blockSignals(True)
-        self.search_column_combo.clear()
-        self.search_column_combo.addItem("All Columns", _SEARCH_ALL)
+        """
+        Build the column-search drop-down menu with category submenus.
+
+        Layout:
+            [All Columns]          ← top-level, always present
+            ─────────────
+            Basic Info  ►          ← submenu per category
+            Technical   ►
+            …
+        """
+        menu = self._search_column_menu
+        menu.clear()
+
+        # "All Columns" sits at the top level
+        all_action = QAction("All Columns", menu)
+        all_action.setData(_SEARCH_ALL)
+        all_action.triggered.connect(self._on_search_column_selected)
+        menu.addAction(all_action)
+        menu.addSeparator()
+
+        # Group columns by their TrackField category
+        category_groups: dict[str, list] = {}
         for field_name, friendly in self.columns.items():
-            self.search_column_combo.addItem(friendly, field_name)
-        self.search_column_combo.blockSignals(False)
+            field_config = self.track_fields.get(field_name)
+            cat = (field_config.category or "Other") if field_config else "Other"
+            category_groups.setdefault(cat, []).append((field_name, friendly))
+
+        for cat, fields in sorted(category_groups.items()):
+            submenu = QMenu(cat, menu)
+            for field_name, friendly in fields:
+                act = QAction(friendly, submenu)
+                act.setData(field_name)
+                act.triggered.connect(self._on_search_column_selected)
+                submenu.addAction(act)
+            menu.addMenu(submenu)
+
+    def _on_search_column_selected(self):
+        """Called when the user picks a column (or 'All Columns') from the search menu."""
+        action = self.sender()
+        if not action:
+            return
+        self._search_field_name = action.data() or _SEARCH_ALL
+        label = (
+            action.text() if self._search_field_name != _SEARCH_ALL else "All Columns"
+        )
+        self.search_column_btn.setText(f"{label} \u25be")
+        # Re-run the search immediately with the new column choice
+        self._apply_search_filter()
 
     # =========================================================================
     #  Columns
@@ -267,7 +314,7 @@ class TrackView(QWidget):
         self.model.setColumnCount(len(self.columns))
         self.model.setHorizontalHeaderLabels(list(self.columns.values()))
 
-        self.table.setSortingEnabled(True)
+        self.table.setSortingEnabled(False)  # We handle sorting ourselves
 
         # Interactive resizing so users can drag column edges
         header = self.table.horizontalHeader()
@@ -275,6 +322,12 @@ class TrackView(QWidget):
         header.setStretchLastSection(False)
         # Give a sensible default width; saved widths will override this
         header.setDefaultSectionSize(120)
+        header.setSortIndicatorShown(True)
+
+        # Track current sort state so repeated clicks toggle direction
+        self._sort_column_index: int = -1
+        self._sort_ascending: bool = True
+        header.sectionClicked.connect(self._on_header_clicked)
 
         self.table.setSelectionBehavior(QTableView.SelectRows)
         self.table.setSelectionMode(QTableView.ExtendedSelection)
@@ -483,6 +536,68 @@ class TrackView(QWidget):
         self._loaded_count = end
         self._update_status()
 
+    def _on_header_clicked(self, logical_index: int):
+        """
+        Sort the backing track list by the clicked column and reload from scratch.
+
+        - Clicking a new column sorts ascending.
+        - Clicking the same column again flips between ascending and descending.
+        - If a search/filter is active we sort only the filtered results.
+        - Sorting always resets lazy loading so you see the top of the sorted list first.
+        """
+        if self._sort_column_index == logical_index:
+            self._sort_ascending = not self._sort_ascending
+        else:
+            self._sort_column_index = logical_index
+            self._sort_ascending = True
+
+        header = self.table.horizontalHeader()
+        header.setSortIndicator(
+            logical_index,
+            Qt.AscendingOrder if self._sort_ascending else Qt.DescendingOrder,
+        )
+
+        # Pick the right source list: filtered results or everything
+        if self._filter_active:
+            self._filtered_tracks = self._sorted(self._filtered_tracks, logical_index)
+        else:
+            self._all_tracks = self._sorted(self._all_tracks, logical_index)
+
+        # Reset lazy loading and repopulate from the now-sorted list
+        self._loaded_count = 0
+        self.model.setRowCount(0)
+        source = self._filtered_tracks if self._filter_active else self._all_tracks
+        self._append_next_batch(source)
+        self._update_status()
+
+    def _sorted(self, track_list: list, logical_index: int) -> list:
+        """
+        Return a new list sorted by the column at `logical_index`.
+
+        Uses the same numeric UserRole data that _append_next_batch stores,
+        so numeric fields (duration, file_size, …) sort as numbers.
+        """
+        column_keys = list(self.columns.keys())
+        if logical_index < 0 or logical_index >= len(column_keys):
+            return track_list
+
+        field_name = column_keys[logical_index]
+
+        def sort_key(track):
+            if field_name == "artist_name":
+                raw = self._get_artist_name(track)
+            else:
+                raw = getattr(track, field_name, None)
+
+            if raw is None:
+                # Put missing values at the end regardless of direction
+                return (1, "")
+            if isinstance(raw, (int, float)):
+                return (0, raw)
+            return (0, str(raw).lower())
+
+        return sorted(track_list, key=sort_key, reverse=not self._sort_ascending)
+
     def _on_scroll(self, value: int):
         scrollbar = self.table.verticalScrollBar()
         if scrollbar.maximum() > 0 and value >= scrollbar.maximum() * 0.90:
@@ -527,7 +642,7 @@ class TrackView(QWidget):
             self._filter_worker.quit()
             self._filter_worker.wait()
 
-        field_name = self.search_column_combo.currentData() or _SEARCH_ALL
+        field_name = self._search_field_name
 
         self._filter_worker = _FilterWorker(
             self._all_tracks,
@@ -802,28 +917,57 @@ class TrackView(QWidget):
         if count > 3:
             names += f" … and {count - 3} more"
 
-        reply = QMessageBox.question(
-            self,
-            "Delete Tracks",
-            f"Permanently delete {count} track(s)?\n\n{names}",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+        # --- Ask: DB only, delete file too, or cancel ---
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Delete Tracks")
+        msg.setText(f"Delete {count} track(s)?\n\n{names}")
+        msg.setInformativeText(
+            "Remove from Library deletes the DB entry only.\n"
+            "Delete File(s) Too also removes the audio file(s) from disk."
         )
-        if reply != QMessageBox.Yes:
+        msg.setIcon(QMessageBox.Warning)
+
+        btn_db_only = msg.addButton("Remove from Library", QMessageBox.AcceptRole)
+        btn_and_file = msg.addButton("Delete File(s) Too", QMessageBox.DestructiveRole)
+        msg.addButton("Cancel", QMessageBox.RejectRole)
+        msg.setDefaultButton(btn_db_only)
+        msg.exec_()
+
+        clicked = msg.clickedButton()
+        if clicked is None or clicked.text() == "Cancel":
             return
 
-        deleted = 0
-        for track in tracks:
-            try:
-                ok = self.controller.delete.delete_entity(
-                    "Track", track_id=track.track_id
-                )
-                if ok:
-                    deleted += 1
-            except Exception as e:
-                logger.error(f"Error deleting track {track.track_id}: {e}")
+        delete_files = clicked is btn_and_file
 
-        logger.info(f"Deleted {deleted}/{count} track(s)")
+        # Collect file paths BEFORE the DB delete — ORM objects may become stale after.
+        file_paths = []
+        if delete_files:
+            for track in tracks:
+                fp = getattr(track, "track_file_path", None)
+                if fp:
+                    file_paths.append(fp)
+
+        # --- Batch delete from DB (single query via entity_ids) ---
+        entity_ids = [track.track_id for track in tracks]
+        ok = self.controller.delete.delete_entity("Track", entity_ids=entity_ids)
+        if ok:
+            logger.info(f"Batch-deleted {count} track(s) from DB")
+        else:
+            logger.error(
+                "Batch delete returned False — some tracks may not have been removed"
+            )
+
+        # --- Optionally delete files from disk via the existing delete_file helper ---
+        if delete_files and file_paths:
+            removed = 0
+            for fp in file_paths:
+                try:
+                    if self.controller.delete.delete_file(file_path=fp):
+                        removed += 1
+                except Exception as e:
+                    logger.error(f"Error deleting file {fp}: {e}")
+            logger.info(f"Removed {removed}/{len(file_paths)} file(s) from disk")
+
         self._force_reload()
 
     # =========================================================================

@@ -321,29 +321,68 @@ class UpdateDB(BaseDBHelper):
 class DeleteDB(BaseDBHelper):
     """Minimal class for deleting database entities and associated files."""
 
-    def delete_entity(self, model_name: str, entity_id: int = None, **filters):
-        """Delete a database entity by ID or filters."""
+    def delete_entity(
+        self, model_name: str, entity_id: int = None, entity_ids: list = None, **filters
+    ):
+        """
+        Delete one or many database entities.
+
+        Three ways to call this:
+
+            # Single item by primary key (original behaviour, unchanged)
+            delete_entity("Track", entity_id=42)
+
+            # Many items in one query -- new batch path
+            delete_entity("Track", entity_ids=[1, 2, 3, 99])
+
+            # Filter-based deletion (original behaviour, unchanged)
+            delete_entity("Track", track_name="Unknown")
+        """
         entity_class = globals().get(model_name)
         if not entity_class:
             logger.error(f"Entity type '{model_name}' not found")
             return False
 
         try:
-            if entity_id is not None:
-                # Use session.get() for SQLAlchemy 2.x compatibility
+            # ------------------------------------------------------------------
+            # BATCH path -- new: delete many rows in a single WHERE id IN query
+            # ------------------------------------------------------------------
+            if entity_ids is not None:
+                if not entity_ids:
+                    logger.warning("delete_entity called with an empty entity_ids list")
+                    return True  # Nothing to do -- not an error
+
+                self.session.query(entity_class).filter(
+                    entity_class.track_id.in_(
+                        entity_ids
+                    )  # <-- change track_id to match your model's actual PK field name
+                ).delete(synchronize_session="fetch")
+                # "fetch" tells SQLAlchemy to load the objects first so that
+                # cascade rules (e.g. deleting related join rows) fire correctly.
+                self.session.commit()
+                logger.info(
+                    f"Batch-deleted {len(entity_ids)} {model_name} row(s) "
+                    f"(ids={entity_ids})"
+                )
+                return True
+
+            # ------------------------------------------------------------------
+            # SINGLE item path -- original behaviour, unchanged
+            # ------------------------------------------------------------------
+            elif entity_id is not None:
                 entity = self.session.get(entity_class, entity_id)
                 if not entity:
                     logger.warning(f"{model_name} with ID {entity_id} not found")
                     return False
-
-                # With proper cascade setup, we can simply delete the entity
-                # SQLAlchemy will handle the related records automatically
                 self.session.delete(entity)
                 self.session.commit()
                 logger.info(f"Deleted {model_name} with ID {entity_id}")
                 return True
+
+            # ------------------------------------------------------------------
+            # FILTER path -- original behaviour, unchanged
+            # ------------------------------------------------------------------
             elif filters:
-                # Handle filter-based deletion
                 query = self.session.query(entity_class)
                 for attr, value in filters.items():
                     if hasattr(entity_class, attr):
@@ -351,7 +390,6 @@ class DeleteDB(BaseDBHelper):
                     else:
                         logger.warning(f"{model_name} has no attribute '{attr}'")
                         return False
-
                 entities = query.all()
                 for entity in entities:
                     self.session.delete(entity)
@@ -360,9 +398,13 @@ class DeleteDB(BaseDBHelper):
                     f"Deleted {len(entities)} {model_name} entities matching {filters}"
                 )
                 return True
+
             else:
-                logger.error("Either entity_id or filters must be provided")
+                logger.error(
+                    "Either entity_id, entity_ids, or filters must be provided"
+                )
                 return False
+
         except SQLAlchemyError as e:
             logger.error(f"Error deleting {model_name}: {e}")
             self.session.rollback()

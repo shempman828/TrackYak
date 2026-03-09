@@ -60,10 +60,7 @@ album_view.py
     size slider does not function unless manually refreshed
 
 track_view.py
-    deleting multiple tracks iterates over each one. Let's batch delete instead.
-    column filter should use category submenus
-    column sorting should bypass lazy loading, loading a new set instead. For example, if click to sort duration longest to shortest, it should lazy load the 200 longest tracks then append the next 200 unless I am searching/filtering already
-    delete should give option of just from db or entire file
+
 
 
 library_import.py
