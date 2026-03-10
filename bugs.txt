@@ -65,7 +65,7 @@ artist alias management
     embed this directly into the tab instead of using a separate dialog
 
 wikipedia search
-    exclude svg from image options
+
 
 track_editing
     add new album tab

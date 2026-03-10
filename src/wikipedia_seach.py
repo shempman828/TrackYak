@@ -93,9 +93,7 @@ class WikipediaSearch:
             self.images = [
                 img
                 for img in self.images
-                if img.lower().endswith(
-                    (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg")
-                )
+                if img.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp"))
             ]
 
             self.link = page.url
