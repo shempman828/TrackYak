@@ -39,9 +39,6 @@ base_album_edit.py
 
 
 db_tables.py
-    implement "used in" feature for tracks, showing contexts where the track was used. Soundtracks, events, etc.
-    property for albums to estimate if any tracks are missing
-    improve indeces
 
 queue_utility.py
     queue is not saving and loading properly

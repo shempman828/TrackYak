@@ -16,6 +16,7 @@ from sqlalchemy import (
     PrimaryKeyConstraint,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
     event,
     inspect,
@@ -189,9 +190,36 @@ class Album(Base):
             link.track for link in self.virtual_track_links
         ]  # 2. Get the borrowed tracks from the new table
         combined = physical + virtual
+        # Sort by track_number, pushing any tracks with no number to the end
         return sorted(
-            combined, key=lambda x: x.track_number
+            combined, key=lambda x: (x.track_number is None, x.track_number or 0)
         )  # 3. Combine them and sort by track number
+
+    @property
+    def possibly_incomplete(self):
+        """Estimate whether the album might be missing tracks.
+
+        This works by finding the highest track_number among all tracks —
+        if that number is larger than how many tracks we actually have,
+        there's probably a gap (e.g. track 7 exists but we only have 5 tracks).
+        Returns None if there are no tracks or no track numbers to compare.
+        """
+        numbered = [t.track_number for t in self.tracks if t.track_number is not None]
+        if not numbered:
+            return None
+        return len(self.tracks) < max(numbered)
+
+    @property
+    def has_all_track_numbers(self):
+        """Return True if every track on this album has a track_number assigned."""
+        if not self.tracks:
+            return True
+        return all(t.track_number is not None for t in self.tracks)
+
+    @property
+    def disc_count(self):
+        """Return the number of discs associated with this album."""
+        return len(self.discs) if self.discs else 0
 
 
 class AlbumAlias(Base):
@@ -388,6 +416,12 @@ class Track(Base):
         cascade="all, delete-orphan",
     )
     virtual_appearances = relationship("AlbumVirtualTrack", back_populates="track")
+    usages = relationship(
+        "TrackUsage",
+        back_populates="track",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     @hybrid_property
     def primary_artists(self):
@@ -508,11 +542,47 @@ class Track(Base):
 
     @property
     def album_complete(self):
-        """return True if track has all album-level metadata filled in, False otherwise."""
+        """Return True if track has all album-level metadata filled in, False otherwise."""
         if not self.album:
             return False
         if self.album.is_fixed == 1:
             return True
+        return False
+
+    @property
+    def is_complete(self):
+        """Return True if the track has the minimum expected metadata filled in."""
+        return bool(
+            self.track_name
+            and self.duration
+            and self.artist_roles
+            and self.album_id
+            and self.track_number is not None
+        )
+
+    @property
+    def has_audio_analysis(self):
+        """Return True if the key audio analysis fields are populated."""
+        return all(
+            v is not None for v in [self.bpm, self.key, self.energy, self.danceability]
+        )
+
+    @property
+    def age_in_years(self):
+        """Return how many years ago the track was recorded, or None if unknown."""
+        if self.recorded_year:
+            return datetime.now().year - self.recorded_year
+        return None
+
+    @property
+    def used_in_summary(self):
+        """Return a short list of context labels for this track's usages."""
+        if not self.usages:
+            return []
+        return [
+            f"{u.usage_type}: {u.title}" + (f" ({u.year})" if u.year else "")
+            for u in self.usages
+        ]
 
 
 class AlbumVirtualTrack(Base):
@@ -538,6 +608,30 @@ class AlbumVirtualTrack(Base):
     track = relationship("Track", back_populates="virtual_appearances")
 
 
+class TrackUsage(Base):
+    """Records external contexts where a track was used (soundtracks, events, ads, etc.)."""
+
+    __tablename__ = "track_usages"
+
+    usage_id = Column(Integer, primary_key=True)
+    track_id = Column(
+        Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), nullable=False
+    )
+    usage_type = Column(
+        String,
+        CheckConstraint(
+            "usage_type IN ('Film', 'TV Show', 'Video Game', 'Live Event', 'Commercial', 'Other')"
+        ),
+        nullable=False,
+    )
+    title = Column(String, nullable=False)  # e.g. "Guardians of the Galaxy Vol. 2"
+    year = Column(Integer)
+    description = Column(Text)  # Extra context, e.g. "Plays during the credits scene"
+    wikipedia_link = Column(String)
+
+    track = relationship("Track", back_populates="usages")
+
+
 class Disc(Base):
     __tablename__ = "discs"
 
@@ -553,7 +647,6 @@ class Disc(Base):
     tracks = relationship(
         "Track",
         backref="disc",
-        cascade="all, delete-orphan",
         order_by="Track.track_number",
         viewonly=True,
     )
@@ -676,6 +769,24 @@ class Artist(Base):
         """Get total number of tracks by this artist."""
         return len(self.tracks) if self.tracks else 0
 
+    @property
+    def is_active(self):
+        """Return True if the artist has no recorded end year (still active)."""
+        return self.end_year is None
+
+    @property
+    def career_span(self):
+        """Return a human-readable career span string, e.g. '2001–2015' or '2001–present'."""
+        if not self.begin_year:
+            return None
+        end = str(self.end_year) if self.end_year else "present"
+        return f"{self.begin_year}–{end}"
+
+    @property
+    def album_count(self):
+        """Return the number of albums this artist is credited as Album Artist on."""
+        return len(self.albums)
+
 
 class Genre(Base):
     __tablename__ = "genres"
@@ -717,6 +828,14 @@ class Genre(Base):
             result.append(child)
             result.extend(child.all_subgenres)
         return result
+
+    @property
+    def all_track_count(self):
+        """Get total track count including all sub-genres recursively."""
+        total = self.track_count
+        for subgenre in self.all_subgenres:
+            total += subgenre.track_count
+        return total
 
 
 class Mood(Base):
@@ -1173,6 +1292,12 @@ class TrackArtistRole(Base):
 
 class AlbumRoleAssociation(Base):
     __tablename__ = "album_role_association"
+    __table_args__ = (
+        # Prevent the same artist being added in the same role on the same album twice
+        UniqueConstraint(
+            "album_id", "artist_id", "role_id", name="uq_album_artist_role"
+        ),
+    )
 
     association_id = Column(Integer, primary_key=True)
     album_id = Column(Integer, ForeignKey("albums.album_id", ondelete="CASCADE"))
@@ -1204,28 +1329,62 @@ class GroupMembership(Base):
 
 
 # Indexes
+# --- Artist ---
 Index("idx_artists_name", Artist.artist_name)
+Index("idx_artist_begin_end", Artist.begin_year, Artist.end_year)
+
+# --- Album ---
 Index("idx_albums_title", Album.album_name)
+Index("idx_albums_release_year", Album.release_year)  # Commonly filtered/sorted
+
+# --- Track ---
 Index("idx_tracks_path", Track.track_file_path)
 Index("idx_tracks_title", Track.track_name)
-Index("idx_genres_name", Genre.genre_name)
-Index("ix_album_publisher_unique", "album_id", "publisher_id", unique=True)
-Index("idx_artist_begin_end", Artist.begin_year, Artist.end_year)
-Index("idx_track_artist_roles", TrackArtistRole.artist_id, TrackArtistRole.track_id)
-Index("idx_album_roles", AlbumRoleAssociation.album_id, AlbumRoleAssociation.artist_id)
-Index("idx_tracks_disc_id", Track.disc_id)
-Index("idx_discs_album_number", Disc.album_id, Disc.disc_number)
 Index("idx_track_album_id", Track.album_id)
 Index("idx_track_disc_id", Track.disc_id)
-Index("idx_album_publisher_publisher_id", AlbumPublisher.publisher_id)
+Index("idx_tracks_disc_id", Track.disc_id)
+Index("idx_tracks_track_number", Track.track_number)  # Used in sort and gap detection
+Index("idx_tracks_play_count", Track.play_count)  # Useful for "most played" queries
+Index("idx_tracks_user_rating", Track.user_rating)  # Useful for "top rated" queries
+
+# --- Genre ---
+Index("idx_genres_name", Genre.genre_name)
+
+# --- Disc ---
+Index("idx_discs_album_number", Disc.album_id, Disc.disc_number)
+
+# --- Junction tables ---
+Index("idx_track_artist_roles", TrackArtistRole.artist_id, TrackArtistRole.track_id)
+Index("idx_album_roles", AlbumRoleAssociation.album_id, AlbumRoleAssociation.artist_id)
+Index(
+    "idx_album_roles_artist", AlbumRoleAssociation.artist_id
+)  # Reverse lookup: artist → albums
+Index("idx_track_genres", TrackGenre.track_id, TrackGenre.genre_id)
 Index(
     "idx_mood_track_association",
     MoodTrackAssociation.mood_id,
     MoodTrackAssociation.track_id,
 )
+
+# --- Publisher ---
+Index("ix_album_publisher_unique", "album_id", "publisher_id", unique=True)
+Index("idx_album_publisher_publisher_id", AlbumPublisher.publisher_id)
+
+# --- Place associations ---
 Index("idx_place_associations", PlaceAssociation.place_id, PlaceAssociation.entity_id)
+Index(
+    "idx_place_assoc_entity_type", PlaceAssociation.entity_type
+)  # Filter by type quickly
+
+# --- Award associations ---
 Index("idx_award_associations", AwardAssociation.award_id, AwardAssociation.entity_id)
-Index("idx_track_genres", TrackGenre.track_id, TrackGenre.genre_id)
+Index(
+    "idx_award_assoc_entity_type", AwardAssociation.entity_type
+)  # Filter by type quickly
+
+# --- TrackUsage ---
+Index("idx_track_usages_track_id", TrackUsage.track_id)
+Index("idx_track_usages_type", TrackUsage.usage_type)
 
 
 class MusicDatabase:
@@ -1249,7 +1408,18 @@ class MusicDatabase:
             raise
 
     def _verify_integrity(self):
+        """Check that all expected tables exist, then verify columns match the ORM models.
+
+        - Missing tables are recreated automatically via create_all().
+        - Missing columns are logged as warnings. They won't crash the app on startup,
+          but any query touching that column will fail until it's added manually via
+          an ALTER TABLE migration (SQLite doesn't support automatic column addition).
+        """
         try:
+            inspector = inspect(self.engine)
+            existing_tables = set(inspector.get_table_names())
+
+            # ── Step 1: Table check ──────────────────────────────────────────
             expected_tables = {
                 "albums",
                 "tracks",
@@ -1277,18 +1447,43 @@ class MusicDatabase:
                 "artist_alias",
                 "samples",
                 "album_virtual_tracks",
+                "track_usages",
             }
-
-            inspector = inspect(self.engine)
-            existing_tables = set(inspector.get_table_names())
 
             missing_tables = expected_tables - existing_tables
             if missing_tables:
                 logger.warning(f"Missing tables: {missing_tables}. Recreating...")
                 Base.metadata.create_all(self.engine)
                 logger.info("Database schema recreated successfully.")
+                # Re-inspect after recreation so column checks see the new tables
+                inspector = inspect(self.engine)
+                existing_tables = set(inspector.get_table_names())
             else:
-                logger.info("Database integrity check passed.")
+                logger.info("Table integrity check passed.")
+
+            # ── Step 2: Column check ─────────────────────────────────────────
+            # For every ORM model, compare the columns defined in Python against
+            # the columns that actually exist in the database file.
+            missing_columns = []
+            for table_name, table in Base.metadata.tables.items():
+                if table_name not in existing_tables:
+                    continue  # Already handled above
+
+                existing_columns = {
+                    col["name"] for col in inspector.get_columns(table_name)
+                }
+                for column in table.columns:
+                    if column.name not in existing_columns:
+                        missing_columns.append(f"{table_name}.{column.name}")
+
+            if missing_columns:
+                logger.warning(
+                    f"The following columns exist in the ORM but are missing from the "
+                    f"database file — queries using them will fail until a migration is "
+                    f"run: {sorted(missing_columns)}"
+                )
+            else:
+                logger.info("Column integrity check passed.")
 
         except Exception as e:
             logger.error(f"Integrity check failed: {e}")
