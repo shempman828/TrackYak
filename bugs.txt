@@ -71,8 +71,9 @@ track_editing
     add ability to remove album relationship
     add ability to add album relationship to existing album
     add ability to add album relationship to new album (new/existing should be dynamic)
-    add ability to add track to album virtual relationship
-    implement new "used in" table
+    add ability to add track to album virtual relationship in new album tab
+    add edit album access button to new album tab
+    implement new "used in" table as tab
 
 disc management
     add edit tracks context menu
