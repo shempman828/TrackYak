@@ -17,10 +17,9 @@ status_widget.py
     use a notification style, don't allocate space within the main window.
 
 roles_view.py
-    data loading is expensive
 
 player_settings.py
-    remember choices between sessions (write and read to config)
+
 
 menu_bar.py
     auto hide feature does not work. Mousing over menu bar area does not show it
@@ -39,6 +38,7 @@ base_album_edit.py
 
 
 db_tables.py
+
 
 queue_utility.py
     queue is not saving and loading properly
@@ -74,6 +74,7 @@ track_editing
     add ability to add album relationship to existing album
     add ability to add album relationship to new album (new/existing should be dynamic)
     add ability to add track to album virtual relationship
+    implement new "used in" table
 
 disc management
     add edit tracks context menu
@@ -88,9 +89,12 @@ genre_view
 
 places_view.py
 
+
 dates_view.py
 
+
 sync_view.py
+
 
 award_view.py
     deleting award should reload award list
@@ -102,5 +106,6 @@ moods_view.py
     add collapse all and expand all buttons
 
 publisher_detail.py
+
 
 artist_view.py
