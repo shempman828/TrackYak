@@ -30,24 +30,30 @@ class DraggableTreeWidget(QTreeWidget):
 
     def dropEvent(self, event):
         """Called when a drag-and-drop is completed inside the tree."""
-        # Let Qt handle the visual move first (reorders the tree items on screen)
-        super().dropEvent(event)
+        # IMPORTANT: Read the dragged item and drop target BEFORE calling super().
+        # After super().dropEvent(), Qt's InternalMove has already repositioned the
+        # item in the tree, so dropped_item.parent() no longer tells us what the
+        # user dropped onto — it tells us where Qt moved it (usually a sibling slot).
+        dragged_item = self.currentItem()
+        if not dragged_item:
+            event.ignore()
+            return
+
+        # The item the user is hovering over when they release the mouse
+        target_item = self.itemAt(event.pos())
 
         try:
-            # The item that was just dropped is now the currently selected item
-            dropped_item = self.currentItem()
-            if not dropped_item:
-                return
+            moved_place = dragged_item.data(0, Qt.UserRole)
 
-            # Get the Place object stored inside the dropped tree item
-            moved_place = dropped_item.data(0, Qt.UserRole)
-
-            # Check what the new parent is (None means it was dropped at the root level)
-            parent_item = dropped_item.parent()
-            new_parent_id = None
-            if parent_item:
-                parent_place = parent_item.data(0, Qt.UserRole)
+            # If target_item is the same as dragged_item, the user dropped on itself — ignore
+            if target_item is None or target_item is dragged_item:
+                new_parent_id = None
+            else:
+                parent_place = target_item.data(0, Qt.UserRole)
                 new_parent_id = parent_place.place_id
+
+            # Now let Qt handle the visual repositioning
+            super().dropEvent(event)
 
             # Save the new parent to the database
             self.list_view.controller.update.update_entity(
@@ -57,6 +63,10 @@ class DraggableTreeWidget(QTreeWidget):
             logger.info(
                 f"Updated parent for {moved_place.place_name} to {new_parent_id}"
             )
+
+            # Reload both views so tree items always reflect the real database state
+            if self.list_view.parent_view:
+                self.list_view.parent_view.refresh_views()
 
         except Exception as e:
             logger.error(f"Failed to update parent: {str(e)}")
@@ -120,14 +130,17 @@ class ListView(QWidget):
         if not item:
             return
 
-        menu = QMenu(self)
-        self.current_place_id = item.data(0, Qt.UserRole)  # Added column 0
+        # FIX: Store the full Place object (not just the ID) with a clear name.
+        # Previously named self.current_place_id but it was actually the Place object,
+        # which was confusing. Now clearly named self.current_place.
+        self.current_place = item.data(0, Qt.UserRole)
 
+        menu = QMenu(self)
         menu.addAction("View Tracks", lambda: self.view_tracks_for_selected_place())
         menu.addAction("Edit", lambda: self.edit_place())
-        menu.addAction("Merge", lambda: self.merge_place(self.current_place_id))
+        menu.addAction("Merge", lambda: self.merge_place(self.current_place))
         menu.addAction("Split", lambda: self._split_place())
-        menu.addAction("Delete", lambda: self.delete_place(self.current_place_id))
+        menu.addAction("Delete", lambda: self.delete_place())
 
         menu.exec_(self.tree_widget.viewport().mapToGlobal(position))
 
@@ -237,7 +250,7 @@ class ListView(QWidget):
             )
             return
 
-        place = selected.data(0, Qt.UserRole)  # Added column 0
+        place = selected.data(0, Qt.UserRole)
         dialog = AssociationDetailsDialog(self.controller, place, self)
         dialog.exec_()
 
@@ -261,7 +274,7 @@ class ListView(QWidget):
         if not selected:
             return
 
-        old_place = selected.data(0, Qt.UserRole)  # Added column 0
+        old_place = selected.data(0, Qt.UserRole)
         dialog = PlaceEditDialog(self.controller, self, old_place)
         if dialog.exec_() == QDialog.Accepted:
             updated_data = dialog.get_place_data()
@@ -282,7 +295,7 @@ class ListView(QWidget):
         if not selected:
             return
 
-        place = selected.data(0, Qt.UserRole)  # Added column 0
+        place = selected.data(0, Qt.UserRole)
         confirm = QMessageBox.question(
             self,
             "Confirm Delete",
@@ -300,6 +313,18 @@ class ListView(QWidget):
                 logger.error(f"Failed to delete place: {str(e)}")
                 QMessageBox.critical(self, "Error", "Failed to delete place")
 
+    def merge_place(self, place):
+        """Merge this place into another. Not yet implemented."""
+        QMessageBox.information(
+            self, "Not Implemented", "Merge is not yet available for places."
+        )
+
+    def _split_place(self):
+        """Split this place into multiple places. Not yet implemented."""
+        QMessageBox.information(
+            self, "Not Implemented", "Split is not yet available for places."
+        )
+
     def view_place_details(self):
         """View detailed information about the selected place."""
         selected = self.tree_widget.currentItem()
@@ -309,6 +334,6 @@ class ListView(QWidget):
             )
             return
 
-        place = selected.data(0, Qt.UserRole)  # Added column 0
+        place = selected.data(0, Qt.UserRole)
         dialog = PlaceDetailView(self.controller, place, self)
         dialog.exec_()

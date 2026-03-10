@@ -2,7 +2,8 @@ NEW IDEAS
     replace many qmessageboxes with status manager
 
 nowplaying_view.py
-
+    Change some chips
+    chips sometimes cut off?
 
 
 player_utility.py
@@ -22,6 +23,7 @@ player_settings.py
     remember choices between sessions (write and read to config)
 
 menu_bar.py
+    auto hide feature does not work. Mousing over menu bar area does not show it
     implement project support links in "about"
 
 config_setup.py
@@ -88,7 +90,8 @@ genre_view
 
 
 places_view.py
-
+    2026-03-09 15:56:36,508 - DEBUG - db_helpers.py:286 - update_entity() - Updating Place with ID 16 with attributes: {'parent_id': None}
+    2026-03-09 15:56:36,880 - INFO - place_list.py:57 - dropEvent() - Updated parent for England to None
 dates_view.py
 
 sync_view.py
