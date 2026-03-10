@@ -14,9 +14,10 @@ player_dock.py
 
 
 status_widget.py
-    use a notification style, don't allocate space within the main window.
+
 
 roles_view.py
+
 
 player_settings.py
 
@@ -29,10 +30,8 @@ config_setup.py
     make sure debugging level is a setting
 
 base_album_edit.py
-    artist credits are too big
     cannot remove publisher
     reload on any dialog close to show anything that might have changed
-    description box wastes a lot of space. The text is only one line tall with lots of padding
     extra floating close button
     does not open to reasonable size. Scale to fit contents maybe?
 
