@@ -105,6 +105,5 @@ moods_view.py
     add collapse all and expand all buttons
 
 publisher_detail.py
-    clicking "view albums" opens a very buggy widget
 
 artist_view.py
