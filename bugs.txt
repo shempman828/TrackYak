@@ -90,8 +90,7 @@ genre_view
 
 
 places_view.py
-    2026-03-09 15:56:36,508 - DEBUG - db_helpers.py:286 - update_entity() - Updating Place with ID 16 with attributes: {'parent_id': None}
-    2026-03-09 15:56:36,880 - INFO - place_list.py:57 - dropEvent() - Updated parent for England to None
+
 dates_view.py
 
 sync_view.py
@@ -109,4 +108,3 @@ publisher_detail.py
     clicking "view albums" opens a very buggy widget
 
 artist_view.py
-    merge artist dialog is awkward and the autocomplete and find similar seems to not be working correctly. Trying to merge 3io and 3iO doesn't seem to want to work.

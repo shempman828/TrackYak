@@ -169,7 +169,12 @@ class MergeDBDialog(QDialog):
         self.stack.addWidget(search_page)
 
     def _update_list(self, text, side):
-        """Enhanced fuzzy matching with similarity scoring."""
+        """Populate the list using a plain case-insensitive substring search.
+
+        Fuzzy/similarity scoring is reserved for the 'Find Similar' button.
+        Using it here caused short names (e.g. '3io') to score below threshold
+        and disappear from the list entirely.
+        """
         l_widget = self.source_list if side == "source" else self.target_list
         l_widget.clear()
 
@@ -182,34 +187,15 @@ class MergeDBDialog(QDialog):
                 logger.error(f"Error fetching all {self.model_name.lower()}s: {str(e)}")
                 self.all_entities_cache = []
 
-        if len(text) < 1:
-            # Show all entities when search is empty
-            for e in self.all_entities_cache:
-                name = getattr(e, self.name_attr, "Unknown")
+        text_lower = text.strip().lower()
+
+        for e in self.all_entities_cache:
+            name = getattr(e, self.name_attr, "Unknown") or ""
+            # Show everything when the box is empty; otherwise do a substring match
+            if not text_lower or text_lower in name.lower():
                 item = QListWidgetItem(name)
                 item.setData(Qt.UserRole, getattr(e, self.id_attr))
                 l_widget.addItem(item)
-            return
-
-        # Use enhanced similarity search
-        similar_entities = self._find_similar_entities_by_name(
-            text, self.all_entities_cache, limit=50
-        )
-
-        for e, similarity in similar_entities:
-            name = getattr(e, self.name_attr, "Unknown")
-            display_text = f"{name} ({similarity:.0%})"
-            item = QListWidgetItem(display_text)
-            item.setData(Qt.UserRole, getattr(e, self.id_attr))
-            item.setData(Qt.UserRole + 1, similarity)
-
-            # Color code based on similarity
-            if similarity > 0.8:
-                item.setForeground(Qt.darkGreen)
-            elif similarity > 0.6:
-                item.setForeground(Qt.darkBlue)
-
-            l_widget.addItem(item)
 
     def _normalize_name(self, name):
         """Simple normalization - just lowercase and remove common punctuation."""
@@ -285,8 +271,13 @@ class MergeDBDialog(QDialog):
 
         for entity in entities:
             entity_name = getattr(entity, self.name_attr, "")
-            if str(entity_name).lower() == base_name_lower:
-                continue  # Skip exact same name
+            selected_entity = (
+                self.source_entity if hasattr(self, "source_entity") else None
+            )
+            if selected_entity is not None and getattr(
+                entity, self.id_attr, None
+            ) == getattr(selected_entity, self.id_attr, None):
+                continue
 
             score = self._calculate_name_similarity(base_name, entity_name)
 
