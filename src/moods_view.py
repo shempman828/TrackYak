@@ -8,14 +8,15 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QMessageBox,
+    QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from src.mood_dialog import MoodDialog
 from src.logger_config import logger
+from src.mood_dialog import MoodDialog
 
 
 class MoodView(QWidget):
@@ -50,6 +51,17 @@ class MoodView(QWidget):
         header_layout.addWidget(title)
 
         header_layout.addStretch()
+
+        # Expand/Collapse all buttons
+        btn_expand_all = QPushButton("Expand All")
+        btn_expand_all.setToolTip("Expand all items in the tree")
+        btn_expand_all.clicked.connect(lambda: self.mood_tree.expandAll())
+        header_layout.addWidget(btn_expand_all)
+
+        btn_collapse_all = QPushButton("Collapse All")
+        btn_collapse_all.setToolTip("Collapse all items in the tree")
+        btn_collapse_all.clicked.connect(lambda: self.mood_tree.collapseAll())
+        header_layout.addWidget(btn_collapse_all)
 
         main_layout.addLayout(header_layout)
 

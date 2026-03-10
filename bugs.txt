@@ -102,7 +102,7 @@ influences_view.py
     disconnected "islands" of connections float away eternally
 
 moods_view.py
-    add collapse all and expand all buttons
+
 
 publisher_detail.py
 
