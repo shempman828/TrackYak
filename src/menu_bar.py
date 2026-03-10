@@ -1,6 +1,6 @@
 import os
 
-from PySide6.QtCore import QTimer, Qt, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -136,6 +136,10 @@ class MenuBar:
         self._menu_bar_hide_timer.setInterval(300)  # 300 ms grace period
         self._menu_bar_hide_timer.timeout.connect(self._hide_menu_bar_if_mouse_gone)
 
+        # Store the known height of the menu bar so we can use it even when
+        # the bar is hidden (sizeHint returns 0 when hidden).
+        self._menu_bar_known_height = self.menuBar().sizeHint().height() or 25
+
         # Apply the saved auto-hide preference on startup
         self._apply_menu_bar_auto_hide(self._get_display_settings_auto_hide())
 
@@ -171,55 +175,83 @@ class MenuBar:
     def _apply_menu_bar_auto_hide(self, enabled: bool):
         """
         Turn auto-hide on or off.
-        When ON:  the menu bar is hidden and mouse-tracking on the central widget
-                  is used to detect when the user moves near the top of the window.
+        When ON:  the menu bar is hidden and a QApplication-level event filter
+                  is installed so we catch mouse moves anywhere in the window,
+                  including the area where the hidden menu bar used to be.
         When OFF: the menu bar is always visible (normal behaviour).
         """
         menu_bar = self.menuBar()
 
         if enabled:
+            # Record the height now while the bar is still visible so we have
+            # a reliable value to use when the bar is hidden.
+            h = menu_bar.sizeHint().height()
+            if h > 0:
+                self._menu_bar_known_height = h
+
             menu_bar.hide()
-            # Install an event filter on ourselves so we catch mouseMoveEvents
-            # for the whole window without blocking anything else.
-            self.setMouseTracking(True)
-            if self.centralWidget():
-                self.centralWidget().setMouseTracking(True)
+
+            # Install a QApplication-level event filter.
+            # This is the key fix: a plain mouseMoveEvent on the main window
+            # is NOT delivered when the mouse is over the hidden menu bar area,
+            # but an app-level filter sees every mouse move in the process.
+            QApplication.instance().installEventFilter(self)
         else:
             # Stop the hide timer and make sure the bar is visible
             self._menu_bar_hide_timer.stop()
             menu_bar.show()
-            self.setMouseTracking(False)
-            if self.centralWidget():
-                self.centralWidget().setMouseTracking(False)
+            QApplication.instance().removeEventFilter(self)
 
     def _hide_menu_bar_if_mouse_gone(self):
         """Called by the timer — hides the bar only if auto-hide is still on."""
         if self._get_display_settings_auto_hide():
             self.menuBar().hide()
 
-    def mouseMoveEvent(self, event):
+    def eventFilter(self, watched, event):
         """
-        Override to implement menu bar auto-show on hover.
-        When the mouse enters the top 5 pixels of the window the bar appears.
-        Moving away starts the hide timer.
+        App-level event filter used for menu bar auto-show on hover.
+
+        We listen for MouseMove events on any widget that belongs to this
+        window. When the mouse is near the top of the window the bar appears;
+        moving away starts the hide timer.
+
+        This replaces the old mouseMoveEvent override because mouseMoveEvent
+        is NOT reliably delivered over the region where a hidden menu bar
+        used to be — the app-level filter has no such blind spot.
         """
-        super().mouseMoveEvent(event)
+        from PySide6.QtCore import QEvent
 
-        if not self._get_display_settings_auto_hide():
-            return
+        if event.type() == QEvent.MouseMove and self._get_display_settings_auto_hide():
+            # Only act on events that belong to widgets inside this window.
+            if isinstance(watched, QApplication.__class__):
+                pass  # should not happen, but guard anyway
+            widget = watched if hasattr(watched, "window") else None
+            if widget is not None and widget.window() is not self:
+                return super().eventFilter(watched, event)
 
-        menu_bar = self.menuBar()
-        menu_bar_height = menu_bar.sizeHint().height()
-        y = event.position().y() if hasattr(event, "position") else event.y()
+            menu_bar = self.menuBar()
+            # Use the stored height — sizeHint() returns 0 when the bar is hidden.
+            trigger_height = self._menu_bar_known_height + 5
 
-        if y <= menu_bar_height + 5:
-            # Mouse is near the top — show the bar and cancel any pending hide
-            self._menu_bar_hide_timer.stop()
-            menu_bar.show()
-        else:
-            # Mouse moved away — start the grace-period timer
-            if menu_bar.isVisible() and not menu_bar.activeAction():
-                self._menu_bar_hide_timer.start()
+            # Map the mouse position to this window's coordinate system.
+            try:
+                global_pos = event.globalPosition().toPoint()
+            except AttributeError:
+                global_pos = event.globalPos()
+            local_pos = self.mapFromGlobal(global_pos)
+            y = local_pos.y()
+
+            if y <= trigger_height:
+                # Mouse is near the top — show the bar and cancel any pending hide.
+                self._menu_bar_hide_timer.stop()
+                if not menu_bar.isVisible():
+                    menu_bar.show()
+            else:
+                # Mouse moved away — start the grace-period timer.
+                if menu_bar.isVisible() and not menu_bar.activeAction():
+                    self._menu_bar_hide_timer.start()
+
+        return super().eventFilter(watched, event)
 
     # ------------------------------------------------------------------
     # Audio settings

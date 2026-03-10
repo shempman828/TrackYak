@@ -23,7 +23,6 @@ player_settings.py
 
 
 menu_bar.py
-    auto hide feature does not work. Mousing over menu bar area does not show it
     implement project support links in "about"
 
 config_setup.py
