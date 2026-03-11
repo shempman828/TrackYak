@@ -1,5 +1,6 @@
 NEW IDEAS
     replace many qmessageboxes with status manager
+    add family relationships to artists
 
 nowplaying_view.py
     Change some chips
@@ -54,10 +55,9 @@ album_editing_relationship_helpers.py
     changing a relationship does not update tab
 
 album_view.py
-    size slider does not function unless manually refreshed
-    AttributeError: 'AlbumView' object has no attribute '_resize_timer'
+    size slider does not function unless manually refreshed (AttributeError: 'AlbumView' object has no attribute '_resize_timer')
     date added sorting does not seem to work. Remove feature
-    add album.possibly_incomplete and album.is_fixed as filters
+    add album.possibly_incomplete and album.is_fixed as filters. Remove compilation filter.
 
 
 track_view.py

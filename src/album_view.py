@@ -45,8 +45,6 @@ class AlbumView(QWidget):
         ("Year (Oldest First)", "year", False),
         ("Track Count (Most First)", "track_count", True),
         ("Track Count (Fewest First)", "track_count", False),
-        ("Date Added (Newest First)", "date_added", True),
-        ("Date Added (Oldest First)", "date_added", False),
         ("Most Played", "play_count", True),
         ("Least Played", "play_count", False),
         ("Highest Rated", "rating", True),
@@ -68,6 +66,18 @@ class AlbumView(QWidget):
         # Sorting state – defaults to "Title (A–Z)"
         self._sort_criteria = "title"
         self._sort_descending = False
+
+        # Debounce timer for cover size slider
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(120)
+        self._resize_timer.timeout.connect(self._do_resize_art)
+
+        # Debounce timer for search bar
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(180)
+        self._search_timer.timeout.connect(self._apply_filters)
 
         self._init_ui()
         self.load_albums()
@@ -153,11 +163,19 @@ class AlbumView(QWidget):
         self.min_tracks.valueChanged.connect(self._apply_filters)
         row.addWidget(self.min_tracks)
 
-        # Compilation filter
-        self.compilation_combo = QComboBox()
-        self.compilation_combo.addItems(["All", "Compilations Only", "No Compilations"])
-        self.compilation_combo.currentIndexChanged.connect(self._apply_filters)
-        row.addWidget(self.compilation_combo)
+        # Possibly Incomplete filter
+        row.addWidget(QLabel("Incomplete:"))
+        self.incomplete_combo = QComboBox()
+        self.incomplete_combo.addItems(["Any", "Possibly Incomplete", "Complete"])
+        self.incomplete_combo.currentIndexChanged.connect(self._apply_filters)
+        row.addWidget(self.incomplete_combo)
+
+        # Is Fixed filter
+        row.addWidget(QLabel("Fixed:"))
+        self.fixed_combo = QComboBox()
+        self.fixed_combo.addItems(["Any", "Fixed Only", "Not Fixed"])
+        self.fixed_combo.currentIndexChanged.connect(self._apply_filters)
+        row.addWidget(self.fixed_combo)
 
         # Stats label
         self.stats_label = QLabel()
@@ -348,26 +366,25 @@ class AlbumView(QWidget):
         """Load all albums from the controller and refresh the grid."""
         try:
             self.all_albums = self.controller.get.get_all_entities("Album") or []
+            self._restore_sort_combo()
             self._apply_filters()
-            QTimer.singleShot(100, self._check_viewport_fill)
+            # _apply_filters schedules _check_viewport_fill — no second call needed
         except Exception as e:
             logger.exception("Failed to load albums")
             QMessageBox.critical(self, "Error", f"Failed to load albums:\n{e}")
 
     def _on_search_changed(self, text: str):
         # Debounce: only filter after typing pauses
-        if not hasattr(self, "_search_timer"):
-            self._search_timer = QTimer(singleShot=True)
-            self._search_timer.timeout.connect(self._apply_filters)
-        self._search_timer.start(180)
+        self._search_timer.start()
 
     def _apply_filters(self):
-        """Apply all active filters (search text, year range, track count, compilation)."""
+        """Apply all active filters (search text, year range, track count, possibly_incomplete, is_fixed)."""
         text = self.search_bar.text().strip().lower()
         year_from = self.year_from.value()
         year_to = self.year_to.value()
         min_tracks = self.min_tracks.value()
-        compilation_mode = self.compilation_combo.currentText()
+        incomplete_mode = self.incomplete_combo.currentText()
+        fixed_mode = self.fixed_combo.currentText()
 
         results = []
         for album in self.all_albums:
@@ -406,12 +423,21 @@ class AlbumView(QWidget):
             if min_tracks > 0 and self._get_track_count(album) < min_tracks:
                 continue
 
-            # ── Compilation filter ───────────────────────────────────────
-            is_comp = bool(getattr(album, "is_compilation", False))
-            if compilation_mode == "Compilations Only" and not is_comp:
-                continue
-            if compilation_mode == "No Compilations" and is_comp:
-                continue
+            # ── Possibly Incomplete filter ────────────────────────────────
+            if incomplete_mode != "Any":
+                is_incomplete = bool(getattr(album, "possibly_incomplete", False))
+                if incomplete_mode == "Possibly Incomplete" and not is_incomplete:
+                    continue
+                if incomplete_mode == "Complete" and is_incomplete:
+                    continue
+
+            # ── Is Fixed filter ───────────────────────────────────────────
+            if fixed_mode != "Any":
+                is_fixed = bool(getattr(album, "is_fixed", False))
+                if fixed_mode == "Fixed Only" and not is_fixed:
+                    continue
+                if fixed_mode == "Not Fixed" and is_fixed:
+                    continue
 
             results.append(album)
 
@@ -428,8 +454,13 @@ class AlbumView(QWidget):
         self.year_from.setValue(0)
         self.year_to.setValue(0)
         self.min_tracks.setValue(0)
-        self.compilation_combo.setCurrentIndex(0)
-        # _apply_filters called via signal chain above
+        self.incomplete_combo.setCurrentIndex(0)
+        self.fixed_combo.setCurrentIndex(0)
+        # Reset sort to default (Title A–Z) without double-triggering
+        self._sort_criteria = "title"
+        self._sort_descending = False
+        self._restore_sort_combo()
+        # _apply_filters called via signal chain from the spinbox/search resets above
 
     def _update_stats(self):
         total = len(self.all_albums)
@@ -449,6 +480,15 @@ class AlbumView(QWidget):
         self._sort_descending = descending
         self._sort_filtered()
         self._refresh_album_widgets()
+
+    def _restore_sort_combo(self):
+        """Set the sort combo to match the current internal sort state, without triggering a re-sort."""
+        for i, (_, criteria, descending) in enumerate(self._SORT_OPTIONS):
+            if criteria == self._sort_criteria and descending == self._sort_descending:
+                self.sort_combo.blockSignals(True)
+                self.sort_combo.setCurrentIndex(i)
+                self.sort_combo.blockSignals(False)
+                break
 
     def _sort_filtered(self):
         try:
@@ -494,12 +534,6 @@ class AlbumView(QWidget):
             elif c == "track_count":
                 return self._get_track_count(album)
 
-            elif c == "date_added":
-                ts = getattr(album, "date_added", None) or getattr(
-                    album, "created_at", None
-                )
-                return str(ts) if ts else ""
-
             elif c == "play_count":
                 return getattr(album, "total_plays", 0) or 0
 
@@ -515,7 +549,11 @@ class AlbumView(QWidget):
 
             return getattr(album, "album_name", "").lower()
 
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"Sort key failed for album {getattr(album, 'album_name', '?')} "
+                f"(criteria={self._sort_criteria}): {e}"
+            )
             return ""
 
     # =========================================================================
@@ -527,10 +565,6 @@ class AlbumView(QWidget):
         self.scroll_content.setUpdatesEnabled(False)
         self._clear_layout(self.grid_layout)
         self.grid_layout.invalidate()
-        # Flush any pending deleteLater() calls so ghost widgets don't linger
-        from PySide6.QtWidgets import QApplication
-
-        QApplication.processEvents()
         self.scroll_content.setUpdatesEnabled(True)
         for album in self.filtered_albums[: self.display_count]:
             self._add_album_widget(album)
