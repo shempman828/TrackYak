@@ -8,6 +8,7 @@ nowplaying_view.py
     chips sometimes cut off?
     If names or chips are too long, they should pan/scroll slowly
     Chips missing?
+    player comes back in ctrl shft f mode after track change
 
 player_utility.py
     windows port
@@ -32,11 +33,7 @@ config_setup.py
     make sure debugging level is a setting
 
 base_album_edit.py
-    does not open to reasonable size. Scale to fit contents maybe?
-    add album.total_plays to advanced
-    add album.average_rating to advanced
-    add album.possibly_incomplete and album.has_all_track_numbers to advanced
-    AttributeError: 'Config' object has no attribute 'get' when trying to add artwork
+
 
 db_tables.py
 
@@ -59,8 +56,7 @@ library_import.py
     the only date that is ever imported is year. Month and day are never imported correctly.
 
 artist_editing
-    cannot move dialog independently of applicaiton
-    cannot add individual to any groups from the member tab
+
 
 artist alias management
     allow user to define alias type with autocomplete suggestions for existing types, not a predefined dropdown.
@@ -89,6 +85,7 @@ places_view.py
     2026-03-10 23:22:43,746 - INFO - place_map.py:233 - generate_map() - Map generated with 17 valid places (filter: 8 types selected)
     INFO:musiclib:Map generated with 17 valid places (filter: 8 types selected)
     free(): invalid pointer
+    AttributeError: 'ListView' object has no attribute 'view_tracks_for_selected_place'
 
 dates_view.py
 
