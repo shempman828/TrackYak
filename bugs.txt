@@ -1,6 +1,7 @@
 NEW IDEAS
     replace many qmessageboxes with status manager
     add family relationships to artists
+    ability to reorder artists?
 
 nowplaying_view.py
     Change some chips
@@ -25,20 +26,17 @@ player_settings.py
 
 menu_bar.py
     implement project support links in "about"
+    mousing over the hidden bar does not show it. We should probably remove this feature.
 
 config_setup.py
     make sure debugging level is a setting
 
 base_album_edit.py
-    cannot remove publisher
-    reload on any dialog close to show anything that might have changed
-    extra close button
     does not open to reasonable size. Scale to fit contents maybe?
-    description box is only one line tall
     add album.total_plays to advanced
     add album.average_rating to advanced
-    add album.RIAA_certification somewhere
     add album.possibly_incomplete and album.has_all_track_numbers to advanced
+    AttributeError: 'Config' object has no attribute 'get'
 
 db_tables.py
 
@@ -50,7 +48,9 @@ album_editing_relationship_helpers.py
     changing a relationship does not update tab
 
 album_view.py
-
+    add album merging
+    closing album edit window changes scroll position
+    two albums are being placed in the first slot at the same time
 
 track_view.py
 
@@ -71,7 +71,7 @@ wikipedia search
 
 
 track_editing
-
+    cannot move dialog independently of app
 
 disc management
     add edit tracks context menu
@@ -81,6 +81,8 @@ statistics_dialog.py
 
 
 genre_view
+    merging fails
+
 
 
 places_view.py
@@ -96,13 +98,16 @@ sync_view.py
 
 
 award_view.py
-
+    deleting an award does not reload the award list
 
 influences_view.py
     disconnected "islands" of connections float away eternally
 
 moods_view.py
 
+
+publisher_view.py
+    editing a publisher in any way resets the sort and scroll position
 
 publisher_detail.py
 

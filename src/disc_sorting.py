@@ -1,15 +1,13 @@
-from PySide6.QtCore import QMimeData, Qt
-from PySide6.QtGui import QDrag
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QApplication,
-    QFrame,
-    QHBoxLayout,
+    QDialog,
     QHeaderView,
-    QLabel,
+    QMenu,
+    QMessageBox,
     QTreeWidget,
     QTreeWidgetItem,
-    QWidget,
 )
 
 from src.logger_config import logger
@@ -21,11 +19,18 @@ class TrackSortingDisplay(QTreeWidget):
     Only shows organizational levels that actually exist in the data.
     """
 
-    def __init__(self, tracks, discs=None, virtual_links=None, parent=None):
+    # Emitted when a track edit dialog is saved and closed.
+    # The parent DiscManagementView connects to this to trigger a full reload.
+    track_edited = Signal()
+
+    def __init__(
+        self, tracks, discs=None, virtual_links=None, controller=None, parent=None
+    ):
         super().__init__(parent)
         self.physical_tracks = tracks
-        self.discs = discs or []  # Add discs parameter
+        self.discs = discs or []
         self.virtual_links = virtual_links or []
+        self.controller = controller  # Needed to open the edit dialog
 
         # Create a combined list with metadata for sorting
         self.all_track_items = self._prepare_track_items()
@@ -84,21 +89,17 @@ class TrackSortingDisplay(QTreeWidget):
         """
         Handle tracks without disc assignments
         """
-        # Use all_track_items instead of physical_tracks
-        # This ensures we're working with the dictionary format consistently
         sides_exist = any(item["side"] is not None for item in self.all_track_items)
 
         if sides_exist:
-            # Group by side only
             sides = {}
             for item in self.all_track_items:
                 side = item["side"] or "Unknown"
                 if side not in sides:
                     sides[side] = []
-                sides[side].append(item)  # Store the item dict, not the track object
+                sides[side].append(item)
             return {"flat": {"sides": sides}}
         else:
-            # Completely flat - no discs, no sides
             return {"flat": {"tracks": self.all_track_items}}
 
     def init_ui(self):
@@ -106,7 +107,6 @@ class TrackSortingDisplay(QTreeWidget):
         self.setHeaderLabels(["#", "Track Name", "Duration", "Type"])
         header = self.header()
 
-        # Auto-adjust columns to content, except Name which stretches
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # #
         header.setSectionResizeMode(1, QHeaderView.Stretch)  # Track Name
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Duration
@@ -117,7 +117,6 @@ class TrackSortingDisplay(QTreeWidget):
         self.setAcceptDrops(True)
         self.setDragDropMode(QAbstractItemView.InternalMove)
 
-        # Change to ExtendedSelection for Shift/Ctrl multi-select
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
         self.setIndentation(20)
@@ -128,166 +127,84 @@ class TrackSortingDisplay(QTreeWidget):
                 QTreeWidget::item:selected { background: #3498db; color: white; }
             """)
 
-    def _add_disc_section(self, layout, disc_num, disc_data):
-        """Add a disc section using the specialized header."""
-        disc = disc_data["disc"]
+        # 3. Enable right-click context menu
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)
 
-        # Determine the header text
-        header_text = f"Disc {disc_num}"
-        if disc and disc.disc_title:
-            header_text += f": {disc.disc_title}"
+    # -------------------------------------------------------------------------
+    # Context menu
+    # -------------------------------------------------------------------------
 
-        # Find the controller from the parent view hierarchy
-        parent_view = self.parent()
-        while parent_view and not hasattr(parent_view, "controller"):
-            parent_view = parent_view.parent()
+    def show_context_menu(self, position):
+        """Show a context menu when the user right-clicks on a track row."""
+        item = self.itemAt(position)
+        if item is None:
+            return
 
-        # Create the robust header
-        header = DiscHeader(
-            header_text,
-            disc,
-            parent_view.controller if parent_view else None,
-            parent_view.refresh_view if parent_view else None,
-        )
-        layout.addWidget(header)
+        # track_id is stored in column 0 as an int (set in _create_track_node).
+        # Disc and side header items store a disc object instead — skip those.
+        track_id = item.data(0, Qt.UserRole)
+        if not isinstance(track_id, int):
+            return  # User right-clicked a disc or side header, not a track
 
-        # Add divider and tracks
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("color: #ddd;")
-        layout.addWidget(line)
+        is_virtual = item.data(1, Qt.UserRole)
 
-        # Handle child tracks/sides (from our previous fix)
-        if disc_data.get("sides"):
-            for side_name, side_tracks in sorted(disc_data["sides"].items()):
-                self._add_side_section(layout, side_name, side_tracks, indent=True)
-        elif disc_data.get("tracks"):
-            self._add_track_list(layout, disc_data["tracks"], indent=True)
+        menu = QMenu(self)
 
-    def _add_side_section(self, layout, side_name, tracks, indent=False):
-        """Add a side section"""
-        if side_name and side_name != "Unknown":
-            side_header = QLabel(f"Side {side_name}")
-            if indent:
-                side_header.setIndent(20)
-            side_header.setStyleSheet("font-style: italic; color: #666; margin: 5px 0;")
-            layout.addWidget(side_header)
-
-        self._add_track_list(layout, tracks, indent=indent)
-
-    def _add_track_list(self, layout, tracks, indent=False):
-        """Display list of tracks"""
-
-        logger.debug(
-            f"_add_track_list called with {len(tracks)} tracks, indent={indent}"
-        )
-
-        for track in sorted(
-            tracks,
-            key=lambda t: (
-                t["track_number"] if isinstance(t, dict) else (t.track_number or 0)
-            ),
-        ):
-            track_widget = self._create_track_widget(track)
-            logger.debug(f"Created track widget: {track_widget}")
-
-            if indent:
-                logger.debug("Adding with indentation")
-                # Apply indent by adding left margin to the widget's layout
-                if isinstance(track_widget, QWidget):
-                    # Create a container with left margin
-                    container = QWidget()
-                    container_layout = QHBoxLayout(container)
-                    container_layout.setContentsMargins(20, 0, 0, 0)
-                    container_layout.addWidget(track_widget)
-                    layout.addWidget(container)
-            else:
-                logger.debug("Adding without indentation")
-                layout.addWidget(track_widget)
-
-        logger.debug("Finished _add_track_list")
-
-    def _create_track_widget(self, track_item):
-        """Create a single track display widget (supports virtual tracks)"""
-        widget = QWidget()
-        widget.setAttribute(Qt.WA_OpaquePaintEvent, True)
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(5, 2, 5, 2)
-
-        # Handle both dictionary items and track objects
-        if isinstance(track_item, dict):
-            track = track_item["track"]
-            is_virtual = track_item.get("is_virtual", False)
-            track_number = track_item["track_number"]
+        # Edit action — virtual tracks are read-only borrowed tracks, so we
+        # only offer editing for physical tracks that live in this album.
+        if not is_virtual:
+            edit_action = QAction("✏️  Edit Track", self)
+            edit_action.triggered.connect(lambda: self._edit_track(track_id))
+            menu.addAction(edit_action)
         else:
-            track = track_item
-            is_virtual = False
-            track_number = track.track_number
+            # Still show the option but disabled, so the user knows why
+            edit_action = QAction("✏️  Edit Track  (virtual — open source album)", self)
+            edit_action.setEnabled(False)
+            menu.addAction(edit_action)
 
-        # Track number
-        track_num = track_number or "?"
-        num_label = QLabel(str(track_num))
-        num_label.setFixedWidth(30)
-        num_label.setAlignment(Qt.AlignRight)
+        menu.exec_(self.viewport().mapToGlobal(position))
 
-        if is_virtual:
-            num_label.setStyleSheet("color: #888; font-style: italic;")
+    def _edit_track(self, track_id):
+        """Open TrackEditDialog for the given track_id and reload on save."""
+        # Resolve controller — it may have been passed in directly, or we can
+        # walk up the parent chain to find the DiscManagementView that holds it.
+        controller = self.controller
+        if controller is None:
+            parent = self.parent()
+            while parent and not hasattr(parent, "controller"):
+                parent = parent.parent()
+            if parent:
+                controller = parent.controller
 
-        layout.addWidget(num_label)
+        if controller is None:
+            logger.error("Cannot open track editor: no controller found")
+            QMessageBox.warning(self, "Error", "Could not open track editor.")
+            return
 
-        # Track name
-        name = track.track_name or "Unknown Track"
-        if is_virtual and track.album:
-            name = f"{name} [from: {track.album.album_name}]"
-
-        name_label = QLabel(name)
-        name_label.setWordWrap(True)
-
-        if is_virtual:
-            name_label.setStyleSheet("color: #666; font-style: italic;")
-
-        layout.addWidget(name_label, 1)
-
-        if track.duration:
-            duration = self._format_duration(track.duration)
-            duration_label = QLabel(duration)
-            duration_label.setStyleSheet("color: #666;")
-            layout.addWidget(duration_label)
-
-        if is_virtual:
-            virtual_label = QLabel("📎")
-            virtual_label.setToolTip("Virtual track (borrowed from another album)")
-            virtual_label.setStyleSheet("color: #888; font-size: 12px;")
-            layout.addWidget(virtual_label)
-
-        # Enable dragging
-        def mousePressEvent(event):
-            if event.button() == Qt.LeftButton:
-                widget.drag_start_position = event.pos()
-
-        def mouseMoveEvent(event):
-            if not hasattr(widget, "drag_start_position"):
-                return
-            if (
-                event.pos() - widget.drag_start_position
-            ).manhattanLength() < QApplication.startDragDistance():
+        try:
+            track = controller.get.get_entity_object("Track", track_id=track_id)
+            if not track:
+                QMessageBox.warning(
+                    self, "Not Found", f"Track ID {track_id} not found."
+                )
                 return
 
-            drag = QDrag(widget)
-            mime_data = QMimeData()
-            mime_data.setText(str(track.track_id))
-            drag.setMimeData(mime_data)
-            drag.exec_(Qt.MoveAction)
+            # Import here to avoid circular imports at module level
+            from src.track_edit import TrackEditDialog
 
-        widget.mousePressEvent = mousePressEvent
-        widget.mouseMoveEvent = mouseMoveEvent
+            dialog = TrackEditDialog(track, controller, self)
+            if dialog.exec_() == QDialog.Accepted:
+                # Tell the parent view to reload so changes are visible
+                self.track_edited.emit()
 
-        return widget
+        except Exception as e:
+            logger.error(f"Error opening track editor from disc view: {e}")
+            QMessageBox.warning(self, "Error", f"Could not open track editor:\n{e}")
 
-    def _format_duration(self, seconds):
-        if not seconds:
-            return "0:00"
-        return f"{int(seconds // 60)}:{int(seconds % 60):02d}"
+    # -------------------------------------------------------------------------
+    # Tree population
+    # -------------------------------------------------------------------------
 
     def populate_tree(self):
         self.clear()
@@ -323,12 +240,22 @@ class TrackSortingDisplay(QTreeWidget):
                 "Virtual" if is_v else "Physical",
             ],
         )
-        node.setData(0, Qt.UserRole, track.track_id)
+        # Store track_id as an int so show_context_menu can identify track rows
+        node.setData(0, Qt.UserRole, int(track.track_id))
         node.setData(1, Qt.UserRole, is_v)
 
         if is_v:
             for i in range(4):
                 node.setForeground(i, Qt.gray)
+
+    def _format_duration(self, seconds):
+        if not seconds:
+            return "0:00"
+        return f"{int(seconds // 60)}:{int(seconds % 60):02d}"
+
+    # -------------------------------------------------------------------------
+    # Drag-and-drop
+    # -------------------------------------------------------------------------
 
     def dropEvent(self, event):
         """Handles multi-selection drop logic."""
@@ -353,11 +280,15 @@ class TrackSortingDisplay(QTreeWidget):
             return
 
         # 3. Locate Controller
-        parent_view = self.parent()
-        while parent_view and not hasattr(parent_view, "controller"):
-            parent_view = parent_view.parent()
+        controller = self.controller
+        if controller is None:
+            parent_view = self.parent()
+            while parent_view and not hasattr(parent_view, "controller"):
+                parent_view = parent_view.parent()
+            if parent_view:
+                controller = parent_view.controller
 
-        if not parent_view:
+        if not controller:
             return
 
         # 4. Batch Update Database
@@ -366,62 +297,17 @@ class TrackSortingDisplay(QTreeWidget):
             is_virtual = item.data(1, Qt.UserRole)
             if is_virtual is False:  # Only move physical tracks
                 track_id = item.data(0, Qt.UserRole)
-                success = parent_view.controller.update.update_entity(
+                success = controller.update.update_entity(
                     "Track", track_id, disc_id=target_disc_id
                 )
                 if success:
                     updated_any = True
 
         if updated_any:
-            parent_view.refresh_view()
+            # Walk up to find the parent view that has refresh_view
+            parent_view = self.parent()
+            while parent_view and not hasattr(parent_view, "refresh_view"):
+                parent_view = parent_view.parent()
+            if parent_view:
+                parent_view.refresh_view()
             event.acceptProposedAction()
-
-
-class DiscHeader(QLabel):
-    """A specialized header that handles track drops safely."""
-
-    def __init__(self, text, disc, controller, refresh_callback, parent=None):
-        super().__init__(text, parent)
-        self.disc = disc
-        self.controller = controller
-        self.refresh_callback = refresh_callback
-        self.setAcceptDrops(True)
-        self.setStyleSheet("""
-            QLabel {
-                font-weight: bold; font-size: 14px; margin-top: 10px;
-                padding: 5px; border-radius: 4px; background: #f8f8f8;
-            }
-            QLabel[hover="true"] { background: #e1f5fe; border: 1px dashed #0288d1; }
-        """)
-
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasText():
-            self.setProperty("hover", "true")
-            self.style().unpolish(self)
-            self.style().polish(self)
-            event.acceptProposedAction()
-
-    def dragLeaveEvent(self, event):
-        self.setProperty("hover", "false")
-        self.style().unpolish(self)
-        self.style().polish(self)
-
-    def dropEvent(self, event):
-        self.setProperty("hover", "false")
-        self.style().unpolish(self)
-        self.style().polish(self)
-
-        try:
-            track_id = int(event.mimeData().text())
-            target_disc_id = self.disc.disc_id if self.disc else None
-
-            # Update database
-            success = self.controller.update.update_entity(
-                "Track", track_id, disc_id=target_disc_id
-            )
-
-            if success:
-                self.refresh_callback()
-            event.acceptProposedAction()
-        except Exception as e:
-            logger.error(f"Drop failed: {e}")

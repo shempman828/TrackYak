@@ -192,10 +192,15 @@ class DiscManagementView(QWidget):
 
         self.track_display = TrackSortingDisplay(
             self.physical_tracks,
-            discs=self.discs,  # Add this line
+            discs=self.discs,
             virtual_links=self.virtual_links,
+            controller=self.controller,  # Pass controller so the widget can open edit dialogs
             parent=self,
         )
+
+        # Reload the whole view whenever a track edit dialog is saved and closed
+        self.track_display.track_edited.connect(self.refresh_view)
+
         self.track_layout.addWidget(self.track_display)
 
         # Add placeholder if no tracks
