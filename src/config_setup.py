@@ -561,5 +561,15 @@ class Config:
             self.config["nowplaying"] = {}
         self.config.set("nowplaying", "lyrics_sync_offset", str(int(value)))
 
+    def get_last_art_dir(self) -> str:
+        """Get the last directory used when picking album artwork."""
+        return self.config.get("ui", "last_art_dir", fallback=str(Path.home()))
+
+    def set_last_art_dir(self, directory: str) -> None:
+        """Persist the last directory used when picking album artwork."""
+        if "ui" not in self.config:
+            self.config["ui"] = {}
+        self.config.set("ui", "last_art_dir", directory)
+
 
 app_config = Config()

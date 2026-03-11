@@ -36,7 +36,7 @@ base_album_edit.py
     add album.total_plays to advanced
     add album.average_rating to advanced
     add album.possibly_incomplete and album.has_all_track_numbers to advanced
-    AttributeError: 'Config' object has no attribute 'get'
+    AttributeError: 'Config' object has no attribute 'get' when trying to add artwork
 
 db_tables.py
 
@@ -74,8 +74,7 @@ track_editing
     cannot move dialog independently of app
 
 disc management
-    add edit tracks context menu
-    reload on edit tracks close
+
 
 statistics_dialog.py
 

@@ -53,7 +53,12 @@ ALBUM_ALIAS_TYPES = [
 
 
 def _sanitize_filename(name: str) -> str:
-    """Strip characters that are illegal in file/folder names."""
+    """Strip characters that are illegal in file/folder names.
+
+    Kept as a module-level helper so it can be imported by other modules
+    (e.g. library_import_album.py) without instantiating AlbumEditor.
+    AlbumEditor also exposes it as a @staticmethod for internal use.
+    """
     if not name:
         return "Unknown"
     for ch in '<>:"/\\|?*':
@@ -218,6 +223,9 @@ class AlbumEditor(QDialog):
             artist_label = QLabel(f"by {names}")
             # Reduced from 13px to 11px so it doesn't dominate the header
             artist_label.setStyleSheet("color: #aaa; font-size: 11px;")
+            # Tooltip shows the full list when truncated
+            all_names = ", ".join(a.artist_name for a in self.album.album_artists)
+            artist_label.setToolTip(all_names)
             layout.addWidget(artist_label)
 
         # Release date row  (year / month / day side by side)
@@ -252,8 +260,9 @@ class AlbumEditor(QDialog):
             self.desc_widget = QTextEdit()
             self.desc_widget.setPlainText(self.album.album_description or "")
 
-        # 3-line-ish height; no runaway stretching
-        self.desc_widget.setFixedHeight(72)
+        # Min height shows ~3 lines; max lets it grow a bit for longer descriptions
+        self.desc_widget.setMinimumHeight(60)
+        self.desc_widget.setMaximumHeight(120)
         self.desc_widget.setStyleSheet("padding: 2px 4px;")
         self.desc_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout.addWidget(self.desc_widget)
@@ -329,22 +338,6 @@ class AlbumEditor(QDialog):
             w = self.field_widgets.get(field_name)
             if w:
                 right.addWidget(w)
-
-        right.addSpacing(12)
-        right.addWidget(QLabel("ReplayGain"))
-
-        for label, field_name in (
-            ("Album Gain (dB):", "album_gain"),
-            ("Album Peak:", "album_peak"),
-        ):
-            row = QHBoxLayout()
-            lbl = QLabel(label)
-            lbl.setFixedWidth(120)
-            row.addWidget(lbl)
-            w = self.field_widgets.get(field_name)
-            if w:
-                row.addWidget(w, 1)
-            right.addLayout(row)
 
         right.addStretch()
 
@@ -547,7 +540,7 @@ class AlbumEditor(QDialog):
         def _row(label_text, field_name):
             row = QHBoxLayout()
             lbl = QLabel(label_text)
-            lbl.setFixedWidth(140)
+            lbl.setFixedWidth(160)
             row.addWidget(lbl)
             w = self.field_widgets.get(field_name)
             if w:
@@ -556,22 +549,69 @@ class AlbumEditor(QDialog):
 
         _row("Wikipedia Link:", "album_wikipedia_link")
 
-        # Track count (read-only)
-        track_count = len(self.album.tracks) if self.album.tracks else 0
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Track Count:"))
-        row.addWidget(QLabel(str(track_count)))
-        row.addStretch()
-        layout.addLayout(row)
+        # ── ReplayGain (moved here from Details) ─────────────────────────────
+        rg_label = QLabel("ReplayGain")
+        rg_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
+        layout.addWidget(rg_label)
+        _row("Album Gain (dB):", "album_gain")
+        _row("Album Peak:", "album_peak")
 
-        # RIAA cert (read-only derived)
-        cert = getattr(self.album, "RIAA_certification", None)
-        if cert:
+        # ── Read-only derived stats ───────────────────────────────────────────
+        stats_label = QLabel("Library Stats")
+        stats_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
+        layout.addWidget(stats_label)
+
+        def _read_only_row(label_text, value_text):
             row = QHBoxLayout()
-            row.addWidget(QLabel("RIAA Certification:"))
-            row.addWidget(QLabel(cert))
+            lbl = QLabel(label_text)
+            lbl.setFixedWidth(160)
+            row.addWidget(lbl)
+            val = QLabel(value_text)
+            row.addWidget(val)
             row.addStretch()
             layout.addLayout(row)
+
+        # Track count
+        track_count = len(self.album.tracks) if self.album.tracks else 0
+        _read_only_row("Track Count:", str(track_count))
+
+        # Total plays
+        total_plays = getattr(self.album, "total_plays", None)
+        _read_only_row(
+            "Total Plays:", str(total_plays) if total_plays is not None else "—"
+        )
+
+        # Average rating
+        avg_rating = getattr(self.album, "average_rating", None)
+        if avg_rating is not None:
+            try:
+                display_rating = f"{float(avg_rating):.2f}"
+            except (TypeError, ValueError):
+                display_rating = str(avg_rating)
+        else:
+            display_rating = "—"
+        _read_only_row("Average Rating:", display_rating)
+
+        # Possibly incomplete
+        possibly_incomplete = getattr(self.album, "possibly_incomplete", None)
+        if possibly_incomplete is None:
+            inc_text = "—"
+        else:
+            inc_text = "Yes ⚠️" if possibly_incomplete else "No"
+        _read_only_row("Possibly Incomplete:", inc_text)
+
+        # Has all track numbers
+        has_all_track_numbers = getattr(self.album, "has_all_track_numbers", None)
+        if has_all_track_numbers is None:
+            tn_text = "—"
+        else:
+            tn_text = "Yes ✓" if has_all_track_numbers else "No ✗"
+        _read_only_row("Has All Track #s:", tn_text)
+
+        # RIAA cert
+        cert = getattr(self.album, "RIAA_certification", None)
+        if cert:
+            _read_only_row("RIAA Certification:", cert)
 
         layout.addStretch()
         return tab
@@ -597,24 +637,66 @@ class AlbumEditor(QDialog):
         """Wire up any extra signal connections."""
         pass  # Extend as needed
 
+    def closeEvent(self, event):
+        """Warn the user if they try to close with unsaved changes."""
+        if self._has_unsaved_changes():
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                "You have unsaved changes. Are you sure you want to close without saving?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply == QMessageBox.No:
+                event.ignore()
+                return
+        event.accept()
+
+    def _has_unsaved_changes(self) -> bool:
+        """Return True if any editable widget differs from the album's current value."""
+        for field_name, widget in self.field_widgets.items():
+            if field_name == "album_description":
+                continue  # Checked separately below
+            field_config = ALBUM_FIELDS.get(field_name)
+            if not (field_config and field_config.editable):
+                continue
+            current = AlbumUIComponents.get_field_value(widget, field_config.type)
+            original = getattr(self.album, field_name, None)
+            if current != original:
+                return True
+
+        # Check description widget separately
+        if self.desc_widget is not None:
+            if hasattr(self.desc_widget, "toPlainText"):
+                desc_val = self.desc_widget.toPlainText().strip() or None
+            elif hasattr(self.desc_widget, "text"):
+                desc_val = self.desc_widget.text().strip() or None
+            else:
+                desc_val = None
+            if desc_val != (self.album.album_description or None):
+                return True
+
+        return False
+
     # =========================================================================
     # Sizing helper
     # =========================================================================
 
     def _fit_to_screen(self):
-        """Resize the dialog to fit its contents, capped at 90 % of the screen."""
+        """Resize the dialog to fit its contents, capped at 90% of the screen, then center it."""
         self.adjustSize()
         screen = QApplication.primaryScreen()
         if screen:
             available = screen.availableGeometry()
             max_w = int(available.width() * 0.90)
             max_h = int(available.height() * 0.90)
-            w = min(self.sizeHint().width(), max_w)
-            h = min(self.sizeHint().height(), max_h)
-            # Enforce a comfortable minimum
-            w = max(w, 950)
-            h = max(h, 650)
+            w = max(min(self.sizeHint().width(), max_w), 950)
+            h = max(min(self.sizeHint().height(), max_h), 680)
             self.resize(w, h)
+            # Center on the available screen area
+            x = available.x() + (available.width() - w) // 2
+            y = available.y() + (available.height() - h) // 2
+            self.move(x, y)
 
     # =========================================================================
     # Sub-dialog close hook — reload view on any dialog close
@@ -650,7 +732,7 @@ class AlbumEditor(QDialog):
                 "Artwork": self._build_artwork_tab,
                 "Aliases": self._build_aliases_tab,
                 "Artist Credits": self.tab_builder.build_artists_tab,
-                "Publishers && Places": self.tab_builder.build_relationships_tab,
+                "Publishers & Places": self.tab_builder.build_relationships_tab,
                 "Awards": self.tab_builder.build_awards_tab,
                 "Advanced": self._build_advanced_tab,
             }
@@ -738,7 +820,12 @@ class AlbumEditor(QDialog):
 
     def _pick_cover(self, cover_type: str):
         """Open a file dialog, copy the image to ALBUM_ART_DIR, update the album."""
-        last_dir = self._config.get("last_art_dir", str(Path.home()))
+        # Use the proper Config API; fall back to home dir if the method doesn't exist yet
+        try:
+            last_dir = self._config.get_last_art_dir()
+        except AttributeError:
+            last_dir = str(Path.home())
+
         path, _ = QFileDialog.getOpenFileName(
             self,
             f"Select {cover_type.title()} Cover",
@@ -748,7 +835,11 @@ class AlbumEditor(QDialog):
         if not path:
             return
 
-        self._config.set("last_art_dir", str(Path(path).parent))
+        try:
+            self._config.set_last_art_dir(str(Path(path).parent))
+            self._config.save()
+        except AttributeError:
+            pass  # Config hasn't been updated yet — non-fatal
 
         try:
             dest = self._copy_cover_to_album_dir(path, cover_type)
@@ -775,6 +866,11 @@ class AlbumEditor(QDialog):
         except Exception as e:
             logger.error(f"Error saving {cover_type} cover: {e}")
             QMessageBox.critical(self, "Error", f"Could not save cover art:\n{e}")
+
+    @staticmethod
+    def _sanitize_filename(name: str) -> str:
+        """Strip characters that are illegal in file/folder names."""
+        return _sanitize_filename(name)
 
     def _copy_cover_to_album_dir(self, source_path: str, cover_type: str) -> Path:
         """Copy cover art into ALBUM_ART_DIR/artist/album/ and return the destination path.
@@ -972,13 +1068,16 @@ class AlbumEditor(QDialog):
         try:
             kwargs = {}
             for field_name, widget in self.field_widgets.items():
+                # Skip album_description here — we handle it separately below
+                # to avoid double-saving if desc_widget is a different object.
+                if field_name == "album_description":
+                    continue
                 field_config = ALBUM_FIELDS.get(field_name)
                 if field_config and field_config.editable:
                     value = AlbumUIComponents.get_field_value(widget, field_config.type)
                     kwargs[field_name] = value
 
-            # Also capture the description from the header widget
-            # (it may be the same widget as field_widgets["album_description"] — that's fine)
+            # Capture description from the authoritative header widget
             if self.desc_widget is not None:
                 if hasattr(self.desc_widget, "toPlainText"):
                     kwargs["album_description"] = (
@@ -1017,7 +1116,15 @@ class AlbumEditor(QDialog):
             logger.error(f"Error refreshing album view: {e}")
 
     def _refresh_from_database(self):
-        """Reload all editable widgets from the latest DB state."""
+        """Reload all editable widgets from the latest DB state.
+
+        NOTE: init_editable_widgets() creates fresh widget objects, but the old
+        widgets are still embedded in all tab layouts except the currently visible
+        one (which _rebuild_current_tab() will replace).  This means only the
+        active tab shows updated values immediately — other tabs will pick up
+        fresh widgets the next time they are rebuilt (e.g. when the user switches
+        to them and triggers a refresh, or on the next full open).
+        """
         try:
             updated = self.controller.get.get_entity_object(
                 "Album", album_id=self.album.album_id
