@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, List
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QMessageBox,
-    QSpinBox,
     QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
@@ -33,7 +32,7 @@ class AwardView(QWidget):
     def __init__(self, controller: Any):
         super().__init__()
         self.controller = controller
-        self.current_tab: Optional[QWidget] = None
+        self.all_awards: List[Any] = []  # Safe default in case load_awards() fails
         self.init_ui()
         self.award_updated.connect(self.refresh_award_list)
         self.load_awards()
@@ -122,6 +121,29 @@ class AwardView(QWidget):
         # Show the menu at the cursor position
         menu.exec_(self.award_tree.mapToGlobal(position))
 
+    @staticmethod
+    def _format_tab_name(award_name: str) -> str:
+        """Truncate an award name to fit a tab label."""
+        return f"{award_name[:15]}..." if len(award_name) > 15 else award_name
+
+    def _get_all_child_ids(self, parent_id: int) -> List[int]:
+        """Recursively collect all descendant award IDs for a given parent."""
+        child_ids = []
+        for award in self.all_awards:
+            if award.parent_id == parent_id:
+                child_ids.append(award.award_id)
+                child_ids.extend(self._get_all_child_ids(award.award_id))
+        return child_ids
+
+    def _is_descendant(self, award_id: int, potential_ancestor_id: int) -> bool:
+        """Return True if potential_ancestor_id is an ancestor of award_id."""
+        for award in self.all_awards:
+            if award.award_id == award_id and award.parent_id is not None:
+                if award.parent_id == potential_ancestor_id:
+                    return True
+                return self._is_descendant(award.parent_id, potential_ancestor_id)
+        return False
+
     def load_awards(self) -> None:
         """Load awards from database and update filters."""
         try:
@@ -146,30 +168,45 @@ class AwardView(QWidget):
         current_year = self.year_filter.currentText()
         current_category = self.category_filter.currentText()
 
-        # Update years
-        self.year_filter.clear()
-        self.year_filter.addItem("All Years")
-        years = sorted(set(a.award_year for a in awards if a.award_year), reverse=True)
-        for year in years:
-            self.year_filter.addItem(str(year))
+        # Block signals so that clearing/repopulating the dropdowns doesn't
+        # trigger _filter_awards mid-update with incomplete data
+        self.year_filter.blockSignals(True)
+        self.category_filter.blockSignals(True)
 
-        # Update categories
-        self.category_filter.clear()
-        self.category_filter.addItem("All Categories")
-        categories = sorted(set(a.award_category for a in awards if a.award_category))
-        for category in categories:
-            self.category_filter.addItem(category)
+        try:
+            # Update years
+            self.year_filter.clear()
+            self.year_filter.addItem("All Years")
+            years = sorted(
+                set(a.award_year for a in awards if a.award_year), reverse=True
+            )
+            for year in years:
+                self.year_filter.addItem(str(year))
 
-        # Restore selections if possible
-        if current_year in [
-            self.year_filter.itemText(i) for i in range(self.year_filter.count())
-        ]:
-            self.year_filter.setCurrentText(current_year)
-        if current_category in [
-            self.category_filter.itemText(i)
-            for i in range(self.category_filter.count())
-        ]:
-            self.category_filter.setCurrentText(current_category)
+            # Update categories
+            self.category_filter.clear()
+            self.category_filter.addItem("All Categories")
+            categories = sorted(
+                set(a.award_category for a in awards if a.award_category)
+            )
+            for category in categories:
+                self.category_filter.addItem(category)
+
+            # Restore selections if possible
+            if current_year in [
+                self.year_filter.itemText(i) for i in range(self.year_filter.count())
+            ]:
+                self.year_filter.setCurrentText(current_year)
+            if current_category in [
+                self.category_filter.itemText(i)
+                for i in range(self.category_filter.count())
+            ]:
+                self.category_filter.setCurrentText(current_category)
+
+        finally:
+            # Always re-enable signals, even if something above raised an error
+            self.year_filter.blockSignals(False)
+            self.category_filter.blockSignals(False)
 
     def _populate_award_list(self, awards: List[Any]) -> None:
         """Populate the award tree widget with award data in hierarchical structure."""
@@ -261,7 +298,8 @@ class AwardView(QWidget):
 
             # Check if tab already exists
             for i in range(self.tab_widget.count()):
-                if self.tab_widget.widget(i).award.award_id == award_id:
+                tab = self.tab_widget.widget(i)
+                if hasattr(tab, "award") and tab.award.award_id == award_id:
                     self.tab_widget.setCurrentIndex(i)
                     return
 
@@ -271,12 +309,7 @@ class AwardView(QWidget):
             detail_tab.save_requested.connect(
                 lambda: self._close_detail_tab(detail_tab)
             )
-            tab_name = (
-                f"{award.award_name[:15]}..."
-                if len(award.award_name) > 15
-                else award.award_name
-            )
-            self.tab_widget.addTab(detail_tab, tab_name)
+            self.tab_widget.addTab(detail_tab, self._format_tab_name(award.award_name))
             self.tab_widget.setCurrentWidget(detail_tab)
 
             logger.info(f"Opened detail tab for {award.award_name}")
@@ -312,11 +345,9 @@ class AwardView(QWidget):
         category_edit.setPlaceholderText("Optional category")
         layout.addRow("Category:", category_edit)
 
-        # Year field
-        year_edit = QSpinBox()
-        year_edit.setRange(1900, 2100)
-        year_edit.setSpecialValueText("Not set")
-        year_edit.setValue(0)
+        # Year field - plain text so any year can be entered
+        year_edit = QLineEdit()
+        year_edit.setPlaceholderText("Optional year (e.g. 1623, 2024)")
         layout.addRow("Year:", year_edit)
 
         # Parent selection
@@ -346,7 +377,16 @@ class AwardView(QWidget):
             return
 
         category = category_edit.text().strip() or None
-        year = year_edit.value() if year_edit.value() != 0 else None
+        year_text = year_edit.text().strip()
+        year = None
+        if year_text:
+            try:
+                year = int(year_text)
+            except ValueError:
+                QMessageBox.warning(
+                    self, "Invalid Input", "Year must be a whole number."
+                )
+                return
         parent_id = parent_combo.currentData()
 
         try:
@@ -381,13 +421,9 @@ class AwardView(QWidget):
                     )
                     if updated_award:
                         tab.award = updated_award
-                        # Update tab name
-                        tab_name = (
-                            f"{updated_award.award_name[:15]}..."
-                            if len(updated_award.award_name) > 15
-                            else updated_award.award_name
+                        self.tab_widget.setTabText(
+                            i, self._format_tab_name(updated_award.award_name)
                         )
-                        self.tab_widget.setTabText(i, tab_name)
                 except Exception as e:
                     logger.error(f"Error refreshing tab {i}: {e}")
 
@@ -412,6 +448,16 @@ class AwardView(QWidget):
 
             # Prevent an award from being its own parent
             if new_parent_id == dragged_award_id:
+                event.ignore()
+                return
+
+            # Prevent circular chains (dropping onto a descendant)
+            if new_parent_id is not None and self._is_descendant(
+                new_parent_id, dragged_award_id
+            ):
+                logger.warning(
+                    f"Rejected drop: award {new_parent_id} is a descendant of {dragged_award_id}"
+                )
                 event.ignore()
                 return
 
@@ -441,7 +487,6 @@ class AwardView(QWidget):
             return
 
         award_id = selected_item.data(0, Qt.UserRole)
-        award_name = selected_item.text(0)
 
         # Find the award object to check for children
         award_to_delete = None
@@ -452,6 +497,9 @@ class AwardView(QWidget):
 
         if not award_to_delete:
             return
+
+        # Use the real award name, not the formatted display text from the tree
+        award_name = award_to_delete.award_name
 
         # Check if award has children
         has_children = any(a.parent_id == award_id for a in self.all_awards)
@@ -475,19 +523,8 @@ class AwardView(QWidget):
 
         if reply == QMessageBox.Yes:
             try:
-                # Close any open tabs for this award or its children
-                awards_to_close = [award_id]
-                if has_children:
-                    # Collect all child award IDs
-                    def get_child_award_ids(parent_id):
-                        child_ids = []
-                        for award in self.all_awards:
-                            if award.parent_id == parent_id:
-                                child_ids.append(award.award_id)
-                                child_ids.extend(get_child_award_ids(award.award_id))
-                        return child_ids
-
-                    awards_to_close.extend(get_child_award_ids(award_id))
+                # Collect IDs for this award and all its descendants
+                awards_to_close = [award_id] + self._get_all_child_ids(award_id)
 
                 # Close tabs for the award being deleted and its children
                 for i in range(self.tab_widget.count() - 1, -1, -1):

@@ -93,7 +93,7 @@ sync_view.py
 
 
 award_view.py
-    deleting award should reload award list
+
 
 influences_view.py
     disconnected "islands" of connections float away eternally
