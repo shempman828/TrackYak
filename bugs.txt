@@ -4,6 +4,8 @@ NEW IDEAS
 nowplaying_view.py
     Change some chips
     chips sometimes cut off?
+    If names or chips are too long, they should pan/scroll slowly
+    Chips missing?
 
 
 player_utility.py
@@ -31,8 +33,15 @@ config_setup.py
 base_album_edit.py
     cannot remove publisher
     reload on any dialog close to show anything that might have changed
-    extra floating close button
+    extra close button
     does not open to reasonable size. Scale to fit contents maybe?
+    description box is only one line tall
+    add album.total_plays to advanced
+    add album.average_rating to advanced
+    add album.RIAA_certification somewhere
+    add album.possibly_incomplete and album.has_all_track_numbers to advanced
+
+
 
 
 db_tables.py
@@ -46,6 +55,10 @@ album_editing_relationship_helpers.py
 
 album_view.py
     size slider does not function unless manually refreshed
+    AttributeError: 'AlbumView' object has no attribute '_resize_timer'
+    date added sorting does not seem to work. Remove feature
+    add album.possibly_incomplete and album.is_fixed as filters
+
 
 track_view.py
 
@@ -67,13 +80,7 @@ wikipedia search
 
 
 track_editing
-    add new album tab
-    add ability to remove album relationship
-    add ability to add album relationship to existing album
-    add ability to add album relationship to new album (new/existing should be dynamic)
-    add ability to add track to album virtual relationship in new album tab
-    add edit album access button to new album tab
-    implement new "used in" table as tab
+
 
 disc management
     add edit tracks context menu

@@ -2,11 +2,9 @@
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -22,82 +20,10 @@ from PySide6.QtWidgets import (
 
 from src.album_delete_dialog import DeleteEmptyAlbumsDialog
 from src.album_flowlayout import FlowLayout
+from src.album_new import NewAlbumDialog
 from src.base_album_edit import AlbumEditor
 from src.base_album_widget import AlbumWidget
 from src.logger_config import logger
-
-# ---------------------------------------------------------------------------
-# Helper dialog: New Album
-# ---------------------------------------------------------------------------
-
-
-class NewAlbumDialog(QDialog):
-    """Simple dialog to create a new blank album."""
-
-    def __init__(self, controller, parent=None):
-        super().__init__(parent)
-        self.controller = controller
-        self.setWindowTitle("New Album")
-        self.setMinimumWidth(400)
-        self._build_ui()
-        self._resize_timer = QTimer()
-        self._resize_timer.setSingleShot(True)
-        self._resize_timer.setInterval(150)
-        self._resize_timer.timeout.connect(self._do_resize_art)
-
-    def _build_ui(self):
-        layout = QVBoxLayout(self)
-        form = QFormLayout()
-
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Required")
-        form.addRow("Album Name:", self.name_edit)
-
-        self.year_spin = QSpinBox()
-        self.year_spin.setRange(0, 9999)
-        self.year_spin.setValue(0)
-        self.year_spin.setSpecialValueText("Unknown")
-        form.addRow("Release Year:", self.year_spin)
-
-        self.artist_edit = QLineEdit()
-        self.artist_edit.setPlaceholderText("Optional – leave blank to add later")
-        form.addRow("Artist:", self.artist_edit)
-
-        self.compilation_check = QCheckBox()
-        form.addRow("Compilation:", self.compilation_check)
-
-        layout.addLayout(form)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def _on_accept(self):
-        if not self.name_edit.text().strip():
-            QMessageBox.warning(self, "Required", "Album name cannot be empty.")
-            return
-        self.accept()
-
-    # ── Public accessors ──────────────────────────────────────────────────
-
-    @property
-    def album_name(self) -> str:
-        return self.name_edit.text().strip()
-
-    @property
-    def release_year(self):
-        v = self.year_spin.value()
-        return v if v > 0 else None
-
-    @property
-    def artist_name(self) -> str:
-        return self.artist_edit.text().strip()
-
-    @property
-    def is_compilation(self) -> int:
-        return 1 if self.compilation_check.isChecked() else 0
-
 
 # ---------------------------------------------------------------------------
 # Main view
@@ -727,46 +653,3 @@ class AlbumView(QWidget):
                 widget.deleteLater()
             elif item.layout():
                 AlbumView._clear_layout(item.layout())
-
-    # =========================================================================
-    # Back-compat aliases (keep old callers working)
-    # =========================================================================
-
-    def init_ui(self):
-        self._init_ui()
-
-    def load_albums_legacy(self):
-        self.load_albums()
-
-    def filter_albums(self, text: str):
-        self.search_bar.setText(text)
-
-    def resize_art(self, size: int):
-        self._resize_art(size)
-
-    def show_album_details(self, album):
-        self._show_album_details(album)
-
-    def apply_sorting(self, sort_text=None):
-        """Legacy entry point kept for external callers."""
-        if sort_text:
-            for i, (label, _, _) in enumerate(self._SORT_OPTIONS):
-                if sort_text.startswith(label.split(" (")[0]):
-                    self.sort_combo.setCurrentIndex(i)
-                    return
-        self._on_sort_changed(self.sort_combo.currentIndex())
-
-    def show_context_menu(self, position):
-        self._show_context_menu(position)
-
-    def delete_empty_albums(self):
-        self._delete_empty_albums()
-
-    def check_scroll_position(self, value):
-        self._check_scroll_position(value)
-
-    def check_viewport_fill(self):
-        self._check_viewport_fill()
-
-    def refresh_album_widgets(self):
-        self._refresh_album_widgets()
