@@ -8,10 +8,8 @@ nowplaying_view.py
     If names or chips are too long, they should pan/scroll slowly
     Chips missing?
 
-
 player_utility.py
     windows port
-
 
 player_dock.py
 
@@ -42,9 +40,6 @@ base_album_edit.py
     add album.RIAA_certification somewhere
     add album.possibly_incomplete and album.has_all_track_numbers to advanced
 
-
-
-
 db_tables.py
 
 
@@ -55,13 +50,9 @@ album_editing_relationship_helpers.py
     changing a relationship does not update tab
 
 album_view.py
-    size slider does not function unless manually refreshed (AttributeError: 'AlbumView' object has no attribute '_resize_timer')
-    date added sorting does not seem to work. Remove feature
-    add album.possibly_incomplete and album.is_fixed as filters. Remove compilation filter.
 
 
 track_view.py
-
 
 
 library_import.py
@@ -85,7 +76,6 @@ track_editing
 disc management
     add edit tracks context menu
     reload on edit tracks close
-
 
 statistics_dialog.py
 
@@ -115,3 +105,5 @@ publisher_detail.py
 
 
 artist_view.py
+
+
