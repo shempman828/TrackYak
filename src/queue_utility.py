@@ -1,38 +1,5 @@
 """
 queue_utility.py — QueueManager
-
-Queue model
-───────────
-  self.queue    : List[Track]  — index 0 is always the currently playing track.
-                                 index 1 is "up next", and so on.
-  self.history  : deque[Track] — tracks that have already been played,
-                                 most-recent last.  history[-1] is the
-                                 track played just before the current one.
-
-Advancing the queue
-───────────────────
-  advance_queue() pops queue[0] into history and plays the new queue[0].
-
-Going back
-──────────
-  go_to_previous() pops history[-1] back onto the front of the queue so
-  the caller can play queue[0] again.
-
-Config persistence (save-on-close only)
-────────────────────────────────────────
-  save_queue_to_config()  — called once from main_window.closeEvent().
-  load_queue_from_config() — called once at startup.
-  Saves up to SAVE_HISTORY_LIMIT history + current + SAVE_UPCOMING_LIMIT
-  upcoming track IDs.  That is ≤ 1 001 IDs, well under 200 KB.
-
-Threading
-─────────
-  add_tracks_to_queue() and shuffle_queue() are fast pure-Python list ops
-  and can run on the main thread without issue.
-
-  For the "Shuffle Library" use-case (50 000+ tracks) the caller should use
-  add_tracks_async() which offloads the list extension to a QThread and emits
-  queue_changed on the main thread when done, keeping the UI responsive.
 """
 
 import random
@@ -95,7 +62,10 @@ class QueueManager(QObject):
     def __init__(self, config=None):
         super().__init__()
         self.queue: List[Track] = []
-        self.history: deque = deque()  # history[-1] == most recently played
+        # maxlen keeps memory bounded; oldest entry is auto-dropped when full.
+        self.history: deque = deque(
+            maxlen=SAVE_HISTORY_LIMIT
+        )  # history[-1] == most recently played
         self.config = config
 
         # Kept for any legacy callers that check .history_exists — always False now.
@@ -227,6 +197,7 @@ class QueueManager(QObject):
     def _on_bulk_add_error(self, msg: str):
         logger.error(f"bulk add error: {msg}")
         self._bulk_worker = None
+        self._bulk_thread = None
 
     def insert_tracks_next(self, tracks: List[Track]):
         """
@@ -302,7 +273,7 @@ class QueueManager(QObject):
             "tracks": self.queue,
             "current_track": self.get_current_track(),
             "history_length": len(self.history),
-            "queue_length": len(self.queue),
+            # queue_length omitted — callers can use len(tracks) directly
         }
 
     # ── Persistence ───────────────────────────────────────────────────────────
@@ -322,11 +293,14 @@ class QueueManager(QObject):
         if not self.config:
             return
 
+        # Respect the user's "persist queue across sessions" preference.
+        if not self.config.get_persist_queue():
+            logger.debug("save_queue_to_config: persist_queue is off — skipping")
+            return
+
         try:
-            # History — keep the most-recent N
+            # History — deque.maxlen already caps at SAVE_HISTORY_LIMIT, so no trimming needed
             history_list = list(self.history)
-            if len(history_list) > SAVE_HISTORY_LIMIT:
-                history_list = history_list[-SAVE_HISTORY_LIMIT:]
             history_ids = ",".join(str(t.track_id) for t in history_list)
 
             # Queue — current + next N
@@ -335,9 +309,9 @@ class QueueManager(QObject):
 
             self.config.set("queue", "history_ids", history_ids)
             self.config.set("queue", "queue_ids", queue_ids)
-            # Legacy key — clear it so old load code doesn't confuse things
-            self.config.set("queue", "track_ids", "")
-            self.config.set("queue", "history_exists", "false")
+
+            # Flush to disk so the .ini file actually updates
+            self.config.save()
 
             logger.info(
                 f"save_queue_to_config: {len(history_list)} history + "
@@ -355,13 +329,14 @@ class QueueManager(QObject):
         if not self.config:
             return False
 
+        # Respect the user's "persist queue across sessions" preference.
+        if not self.config.get_persist_queue():
+            logger.debug("load_queue_from_config: persist_queue is off — skipping")
+            return False
+
         try:
             history_ids_str = self.config.get("queue", "history_ids", fallback="")
             queue_ids_str = self.config.get("queue", "queue_ids", fallback="")
-
-            # Fall back to legacy key if new keys are empty
-            if not queue_ids_str:
-                queue_ids_str = self.config.get("queue", "track_ids", fallback="")
 
             if not queue_ids_str and not history_ids_str:
                 return False
@@ -384,7 +359,7 @@ class QueueManager(QObject):
             loaded_history = _fetch_tracks(history_ids)
             loaded_queue = _fetch_tracks(queue_ids)
 
-            self.history = deque(loaded_history)
+            self.history = deque(loaded_history, maxlen=SAVE_HISTORY_LIMIT)
             self.queue = loaded_queue
 
             logger.info(

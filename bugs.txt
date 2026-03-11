@@ -44,7 +44,7 @@ db_tables.py
 
 
 queue_utility.py
-    queue is not saving and loading properly
+    queue is not saving and loading properly ini does not appear to update
 
 album_editing_relationship_helpers.py
     changing a relationship does not update tab
@@ -84,7 +84,10 @@ genre_view
 
 
 places_view.py
-
+    place parents are not being updated on drop
+    2026-03-10 23:22:43,746 - INFO - place_map.py:233 - generate_map() - Map generated with 17 valid places (filter: 8 types selected)
+    INFO:musiclib:Map generated with 17 valid places (filter: 8 types selected)
+    free(): invalid pointer
 
 dates_view.py
 
