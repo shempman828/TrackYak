@@ -4,7 +4,6 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
-    QDialogButtonBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -617,20 +616,22 @@ class AlbumView(QWidget):
         self._show_album_details(album)
 
     def _show_album_details(self, album):
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Album: {album.album_name}")
-        dialog.setMinimumSize(800, 600)
+        """Open the AlbumEditor directly as a standalone dialog."""
+        # Fetch a fresh copy from the DB so we always show current data,
+        # including any cover art that was set in a previous session.
+        try:
+            fresh = self.controller.get.get_entity_object(
+                "Album", album_id=album.album_id
+            )
+            if fresh:
+                album = fresh
+        except Exception:
+            pass  # Non-fatal — use the album object we already have
 
-        layout = QVBoxLayout(dialog)
-        detail_view = AlbumEditor(self.controller, album, self)
-        layout.addWidget(detail_view)
-
-        btn_box = QDialogButtonBox(QDialogButtonBox.Close)
-        btn_box.rejected.connect(dialog.reject)
-        layout.addWidget(btn_box)
-
+        dialog = AlbumEditor(self.controller, album)
+        # Reload the album grid whenever the editor closes (Save or Cancel).
         dialog.finished.connect(lambda _: self.load_albums())
-        dialog.exec_()
+        dialog.exec()
 
     # =========================================================================
     # Helpers

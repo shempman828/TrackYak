@@ -34,10 +34,7 @@ config_setup.py
 
 base_album_edit.py
     changing publisher does not reload tab (adding or removing)
-    Changing cover art does not seem to work even though the log indicates it should. 2026-03-12 13:10:33,474 - INFO - base_album_edit.py:902 - _copy_cover_to_album_dir() - Copied cover art: /music/Album Covers/Neath Hawaiian Palms  Thorn In My Heart A.jpg → /home/babs/PycharmProjects/MusicLibrary/images/album_art/Bob Wills & His Texas Playboys/'Neath Hawaiian Palms _ Thorn In My Heart/frontcover.jpg
-2026-03-12 13:10:33,474 - DEBUG - db_helpers.py:286 - update_entity() - Updating Album with ID 996 with attributes: {'front_cover_path': "/home/babs/PycharmProjects/MusicLibrary/images/album_art/Bob Wills & His Texas Playboys/'Neath Hawaiian Palms _ Thorn In My Heart/frontcover.jpg"}
-    cannot move dialog window independent of app
-    can't change values to null.
+
 
 db_tables.py
 
@@ -74,7 +71,8 @@ track_editing
     cannot move dialog independently of app
 
 disc management
-
+    allow editing multiple tracks at once (see track_view)
+    changing publisher changes tab
 
 statistics_dialog.py
 
@@ -85,7 +83,6 @@ genre_view
 
 
 places_view.py
-    place parents are not being updated on drop
     2026-03-10 23:22:43,746 - INFO - place_map.py:233 - generate_map() - Map generated with 17 valid places (filter: 8 types selected)
     INFO:musiclib:Map generated with 17 valid places (filter: 8 types selected)
     free(): invalid pointer
