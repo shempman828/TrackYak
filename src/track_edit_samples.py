@@ -3,22 +3,20 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
-    QPushButton,
-    QVBoxLayout,
-    QComboBox,
     QListWidgetItem,
     QMenu,
+    QPushButton,
+    QVBoxLayout,
 )
 
 from src.logger_config import logger
-from src.track_edit import TrackEditDialog
 from src.track_edit_basetab import _BaseTab
 
 
@@ -155,10 +153,7 @@ class SamplesTab(_BaseTab):
         self._open_track(item.data(Qt.UserRole))
 
     def _open_track(self, track_id):
-        track = self.controller.get.get_entity_object("Track", track_id=track_id)
-        if track:
-            dlg = TrackEditDialog(track, self.controller, self)
-            dlg.exec()
+        pass
 
     @staticmethod
     def _list_context_menu(list_widget, pos, remove_cb):

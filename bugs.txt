@@ -103,6 +103,8 @@ moods_view.py
 
 publisher_view.py
     editing a publisher in any way resets the sort and scroll position
+    allow multiple selection and deletion
+    delete key shortcut
 
 publisher_detail.py
 
