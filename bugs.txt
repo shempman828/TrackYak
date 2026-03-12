@@ -34,6 +34,7 @@ config_setup.py
 
 base_album_edit.py
     changing publisher changes tab
+    searching wikipedia link does not activate "wikipedia" button to appear
 
 
 db_tables.py
@@ -46,7 +47,6 @@ album_editing_relationship_helpers.py
     changing a relationship does not update tab
 
 album_view.py
-    add album merging
     closing album edit window changes scroll position
     two albums are being placed in the first slot at the same time
 
@@ -64,13 +64,24 @@ artist alias management
     having action buttons in the table cell is awkward
     embed this directly into the tab instead of using a separate dialog
 
+artist_detail_credits
+    do not appear to display
+
 wikipedia search
 
 
 track_editing
-    cannot move dialog independently of app
+    cannot move dialog independently of parent
+
+track_edit_roles
+    searching artist defaults to making new instead of matching existing even when name matches
+
+track_edit_lyrics
+    if lyrics are empty, that saves. This could be a big issue when editing multiple and the lyrics are overwritten with null
 
 disc management
+    adding a disc works but it does not appear in the track list.
+    adding disc does not let you specify number?
 
 
 
@@ -81,6 +92,7 @@ genre_view
     merging fails
 
 places_view.py
+    random invalid pointer error when updating parents sometimes
     2026-03-10 23:22:43,746 - INFO - place_map.py:233 - generate_map() - Map generated with 17 valid places (filter: 8 types selected)
     INFO:musiclib:Map generated with 17 valid places (filter: 8 types selected)
     free(): invalid pointer
@@ -110,6 +122,7 @@ publisher_detail.py
 
 
 artist_view.py
+    dialog for suggesting close matches, ordered by closeness. For quick merging
 
 
 playlist_view.py

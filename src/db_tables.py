@@ -197,17 +197,24 @@ class Album(Base):
 
     @property
     def possibly_incomplete(self):
-        """Estimate whether the album might be missing tracks.
+        if not self.tracks:
+            return None
 
-        This works by finding the highest track_number among all tracks —
-        if that number is larger than how many tracks we actually have,
-        there's probably a gap (e.g. track 7 exists but we only have 5 tracks).
-        Returns None if there are no tracks or no track numbers to compare.
-        """
-        numbered = [t.track_number for t in self.tracks if t.track_number is not None]
+        numbered = sorted(
+            t.track_number for t in self.tracks if t.track_number is not None
+        )
+
         if not numbered:
             return None
-        return len(self.tracks) < max(numbered)
+
+        # suspicious: only one track
+        if len(numbered) == 1:
+            return True
+
+        expected = set(range(1, max(numbered) + 1))
+        actual = set(numbered)
+
+        return actual != expected
 
     @property
     def has_all_track_numbers(self):
