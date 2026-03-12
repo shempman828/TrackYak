@@ -33,7 +33,7 @@ config_setup.py
     make sure debugging level is a setting
 
 base_album_edit.py
-    changing publisher does not reload tab (adding or removing)
+    changing publisher changes tab
 
 
 db_tables.py
@@ -71,16 +71,14 @@ track_editing
     cannot move dialog independently of app
 
 disc management
-    allow editing multiple tracks at once (see track_view)
-    changing publisher changes tab
+
+
 
 statistics_dialog.py
 
 
 genre_view
     merging fails
-
-
 
 places_view.py
     2026-03-10 23:22:43,746 - INFO - place_map.py:233 - generate_map() - Map generated with 17 valid places (filter: 8 types selected)

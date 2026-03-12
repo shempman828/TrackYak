@@ -85,32 +85,14 @@ class TrackSortingDisplay(QTreeWidget):
                 discs[num]["tracks"].append(item)
         return discs
 
-    def _group_by_side_or_flat(self):
-        """
-        Handle tracks without disc assignments
-        """
-        sides_exist = any(item["side"] is not None for item in self.all_track_items)
-
-        if sides_exist:
-            sides = {}
-            for item in self.all_track_items:
-                side = item["side"] or "Unknown"
-                if side not in sides:
-                    sides[side] = []
-                sides[side].append(item)
-            return {"flat": {"sides": sides}}
-        else:
-            return {"flat": {"tracks": self.all_track_items}}
-
     def init_ui(self):
         # 1. Configure Columns and Auto-Resizing
-        self.setHeaderLabels(["#", "Track Name", "Duration", "Type"])
+        self.setHeaderLabels(["#", "Track Name", "Duration"])
         header = self.header()
 
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # #
         header.setSectionResizeMode(1, QHeaderView.Stretch)  # Track Name
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Duration
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Type
 
         # 2. Enable Native Multi-Drag and Drop
         self.setDragEnabled(True)
@@ -147,26 +129,50 @@ class TrackSortingDisplay(QTreeWidget):
         if not isinstance(track_id, int):
             return  # User right-clicked a disc or side header, not a track
 
-        is_virtual = item.data(1, Qt.UserRole)
+        # Collect all selected physical track IDs (the user may have
+        # highlighted multiple rows before right-clicking).
+        physical_ids = []
+        has_virtual_selected = False
+        for sel_item in self.selectedItems():
+            sel_id = sel_item.data(0, Qt.UserRole)
+            if not isinstance(sel_id, int):
+                continue  # skip disc/side header rows
+            if sel_item.data(1, Qt.UserRole):  # is_virtual
+                has_virtual_selected = True
+            else:
+                physical_ids.append(sel_id)
+
+        # If the right-clicked row isn't already in the selection, treat it
+        # as a single-item selection so the menu still works intuitively.
+        if track_id not in physical_ids and not item.data(1, Qt.UserRole):
+            physical_ids = [track_id]
 
         menu = QMenu(self)
 
-        # Edit action — virtual tracks are read-only borrowed tracks, so we
-        # only offer editing for physical tracks that live in this album.
-        if not is_virtual:
-            edit_action = QAction("✏️  Edit Track", self)
-            edit_action.triggered.connect(lambda: self._edit_track(track_id))
+        if physical_ids:
+            count = len(physical_ids)
+            label = "✏️  Edit Track" if count == 1 else f"✏️  Edit {count} Tracks"
+            edit_action = QAction(label, self)
+            # Capture the list so the lambda always sees the right value
+            edit_action.triggered.connect(
+                lambda checked=False, ids=physical_ids: self._edit_track(ids)
+            )
             menu.addAction(edit_action)
-        else:
-            # Still show the option but disabled, so the user knows why
-            edit_action = QAction("✏️  Edit Track  (virtual — open source album)", self)
-            edit_action.setEnabled(False)
-            menu.addAction(edit_action)
+
+        if has_virtual_selected:
+            # Still show the option but disabled so the user knows why
+            note = QAction("✏️  Edit Track  (virtual — open source album)", self)
+            note.setEnabled(False)
+            menu.addAction(note)
 
         menu.exec_(self.viewport().mapToGlobal(position))
 
-    def _edit_track(self, track_id):
-        """Open TrackEditDialog for the given track_id and reload on save."""
+    def _edit_track(self, track_ids):
+        """
+        Open TrackEditDialog for one or more track IDs and reload on save.
+
+        track_ids: a list of int track IDs (single-track edit passes a 1-item list).
+        """
         # Resolve controller — it may have been passed in directly, or we can
         # walk up the parent chain to find the DiscManagementView that holds it.
         controller = self.controller
@@ -183,17 +189,25 @@ class TrackSortingDisplay(QTreeWidget):
             return
 
         try:
-            track = controller.get.get_entity_object("Track", track_id=track_id)
-            if not track:
-                QMessageBox.warning(
-                    self, "Not Found", f"Track ID {track_id} not found."
-                )
+            # Fetch all track objects; skip any IDs that can't be resolved.
+            tracks = []
+            for tid in track_ids:
+                track = controller.get.get_entity_object("Track", track_id=tid)
+                if track:
+                    tracks.append(track)
+                else:
+                    logger.warning(f"Track ID {tid} not found — skipping.")
+
+            if not tracks:
+                QMessageBox.warning(self, "Not Found", "No tracks could be loaded.")
                 return
 
             # Import here to avoid circular imports at module level
             from src.track_edit import TrackEditDialog
 
-            dialog = TrackEditDialog(track, controller, self)
+            # TrackEditDialog accepts a single track or a list — pass the list
+            # directly so it can handle both single and multi-track cases.
+            dialog = TrackEditDialog(tracks, controller, self)
             if dialog.exec_() == QDialog.Accepted:
                 # Tell the parent view to reload so changes are visible
                 self.track_edited.emit()
@@ -209,9 +223,18 @@ class TrackSortingDisplay(QTreeWidget):
     def populate_tree(self):
         self.clear()
         for disc_num, data in sorted(self.grouped_tracks.items()):
-            disc_title = f"Disc {disc_num}"
-            if data["disc"] and data["disc"].disc_title:
-                disc_title += f": {data['disc'].disc_title}"
+            # disc_num == 0 means tracks have no disc assignment
+            if disc_num == 0:
+                disc_title = "Unassigned Tracks"
+            else:
+                disc_title = f"Disc {disc_num}"
+                if data["disc"] and data["disc"].disc_title:
+                    disc_title += f": {data['disc'].disc_title}"
+
+            # Skip disc groups that ended up with no tracks at all
+            # (shouldn't normally happen, but guards against bad data)
+            if not data["sides"] and not data["tracks"]:
+                continue
 
             disc_item = QTreeWidgetItem(self, [disc_title])
             disc_item.setData(0, Qt.UserRole, data["disc"])
@@ -231,13 +254,16 @@ class TrackSortingDisplay(QTreeWidget):
         is_v = item_dict["is_virtual"]
 
         duration = self._format_duration(track.duration)
+        # Append a ghost emoji to virtual track names so they're visually
+        # distinct without needing a whole dedicated column.
+        track_name = (track.track_name or "Unknown") + (" 👻" if is_v else "")
+
         node = QTreeWidgetItem(
             parent_item,
             [
                 str(item_dict["track_number"] or "?"),
-                track.track_name or "Unknown",
+                track_name,
                 duration,
-                "Virtual" if is_v else "Physical",
             ],
         )
         # Store track_id as an int so show_context_menu can identify track rows
@@ -245,8 +271,9 @@ class TrackSortingDisplay(QTreeWidget):
         node.setData(1, Qt.UserRole, is_v)
 
         if is_v:
-            for i in range(4):
+            for i in range(3):
                 node.setForeground(i, Qt.gray)
+            node.setToolTip(1, "Virtual track — borrowed from another album")
 
     def _format_duration(self, seconds):
         if not seconds:
