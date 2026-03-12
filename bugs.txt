@@ -33,7 +33,11 @@ config_setup.py
     make sure debugging level is a setting
 
 base_album_edit.py
-
+    changing publisher does not reload tab (adding or removing)
+    Changing cover art does not seem to work even though the log indicates it should. 2026-03-12 13:10:33,474 - INFO - base_album_edit.py:902 - _copy_cover_to_album_dir() - Copied cover art: /music/Album Covers/Neath Hawaiian Palms  Thorn In My Heart A.jpg → /home/babs/PycharmProjects/MusicLibrary/images/album_art/Bob Wills & His Texas Playboys/'Neath Hawaiian Palms _ Thorn In My Heart/frontcover.jpg
+2026-03-12 13:10:33,474 - DEBUG - db_helpers.py:286 - update_entity() - Updating Album with ID 996 with attributes: {'front_cover_path': "/home/babs/PycharmProjects/MusicLibrary/images/album_art/Bob Wills & His Texas Playboys/'Neath Hawaiian Palms _ Thorn In My Heart/frontcover.jpg"}
+    cannot move dialog window independent of app
+    can't change values to null.
 
 db_tables.py
 
@@ -110,4 +114,7 @@ publisher_detail.py
 
 artist_view.py
 
+
+playlist_view.py
+    show track counts in parentheses (with recursive count too)
 

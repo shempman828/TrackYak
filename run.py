@@ -26,18 +26,56 @@ try:
 except ImportError as ie:
     logger.error(f"Missing required module: {ie}")
     sys.exit(1)
-# Detect session type and configure backends accordingly
-session = os.environ.get("XDG_SESSION_TYPE", "").lower()
 
-if session == "wayland":
-    os.environ["QT_QPA_PLATFORM"] = "wayland"
-    os.environ["QT_QPA_PLATFORMTHEME"] = "xdgdesktopportal"
-else:
-    os.environ["QT_QPA_PLATFORM"] = "xcb"
-    os.environ["GDK_BACKEND"] = "x11"
+# Change #3 — fun messages moved to a module-level constant so they aren't
+# rebuilt on every startup call.
+_FUN_MESSAGES = [
+    "Reticulating musical splines… 🎵",
+    "Feeding the audio gremlins… 👹",
+    "Calculating the sound-to-yak ratio… 🐂",
+    "Tuning frequencies beyond human hearing… 🔊",
+    "Polishing the vinyl dust… 💿",
+    "Counting the beats per minute… ⏱️",
+    "Sampling the samples… 🎤",
+    "Transposing invisible sheet music… 🎼",
+    "Teaching yaks to whistle… 🐂🎶",
+    "Herding rogue sound waves… 🌊",
+    "Calculating probability of funk… 🎷",
+    "Feeding the algorithm its daily snack… 🍪",
+    "Turning up the bass to 11… 🎛️🎶",
+    "Warming the tubes in the preamp… 🔥🎛️",
+]
 
 
-def handle_first_run(config):
+def configure_display_backend() -> None:
+    """Detect the active display session and set the appropriate Qt/GDK backends."""
+    session = os.environ.get("XDG_SESSION_TYPE", "").lower()
+
+    if session == "wayland":
+        os.environ["QT_QPA_PLATFORM"] = "wayland"
+        os.environ["QT_QPA_PLATFORMTHEME"] = "xdgdesktopportal"
+    else:
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
+        os.environ["GDK_BACKEND"] = "x11"
+
+
+def show_status(splash, message: str, delay: float = 0) -> None:
+    """Update the splash screen status text, then optionally pause briefly.
+
+    Args:
+        splash:  The StartupSplash instance to update.
+        message: Status text to display.
+        delay:   Seconds to pause after updating (0 = no pause).
+    """
+    splash.update_status(message)
+    QApplication.processEvents()
+    if delay > 0:
+        loop = QEventLoop()
+        QTimer.singleShot(int(delay * 1000), loop.quit)
+        loop.exec()
+
+
+def handle_first_run(config: Config) -> bool:
     """Handle first-run configuration if needed."""
     if config.is_first_run():
         logger.info("First run detected - showing configuration dialog")
@@ -54,97 +92,83 @@ def handle_first_run(config):
     return True
 
 
-def initialize_application(splash, app):
-    """Initialize application components with progress updates and fun messages."""
+def initialize_application(splash, app, config: Config):
+    """Initialize application components with progress updates and fun messages.
 
-    fun_messages = [
-        "Reticulating musical splines… 🎵",
-        "Feeding the audio gremlins… 👹",
-        "Calculating the sound-to-yak ratio… 🐂",
-        "Tuning frequencies beyond human hearing… 🔊",
-        "Polishing the vinyl dust… 💿",
-        "Counting the beats per minute… ⏱️",
-        "Sampling the samples… 🎤",
-        "Transposing invisible sheet music… 🎼",
-        "Teaching yaks to whistle… 🐂🎶",
-        "Herding rogue sound waves… 🌊",
-        "Calculating probability of funk… 🎷",
-        "Feeding the algorithm its daily snack… 🍪",
-        "Turning up the bass to 11… 🎛️🎶",
-        "Warming the tubes in the preamp… 🔥🎛️",
-    ]
+    The MPRIS2Player instance is intentionally attached to the window object
+    (window._mpris) to keep it alive for the lifetime of the application.
+    Without this, Python's garbage collector would destroy it shortly after
+    this function returns.
 
-    # Helper to show status with optional delay
-    def show_status(message, delay=0):
-        splash.update_status(message)
-        QApplication.processEvents()
-        if delay > 0:
-            loop = QEventLoop()
-            QTimer.singleShot(int(delay * 1000), loop.quit)
-            loop.exec()
+    Args:
+        splash: The StartupSplash instance for status updates.
+        app:    The QApplication instance.
+        config: The already-created Config instance from main().
 
+    Returns:
+        A tuple of (window, display_settings).
+    """
     # Show a random fun message first
-    show_status(random.choice(fun_messages), delay=0.5)
+    show_status(splash, random.choice(_FUN_MESSAGES), delay=0.5)
 
     # Database initialization
-    show_status("Initializing database...")
+    show_status(splash, "Initializing database...")
     db = MusicDatabase()  # Single instantiation
     logger.info("Database initialized successfully")
-    show_status(random.choice(fun_messages), delay=0.3)
+    show_status(splash, random.choice(_FUN_MESSAGES), delay=0.3)
 
     # Loading defaults
-    show_status("Loading library data...")
+    show_status(splash, "Loading library data...")
     defaults = Defaults(db.Session)
     defaults.insert_defaults()
     logger.info("Default entities inserted successfully")
-    show_status(random.choice(fun_messages), delay=0.6)
+    show_status(splash, random.choice(_FUN_MESSAGES), delay=0.6)
 
-    # Load config
-    show_status("Loading configuration...")
-    config = Config()
-    show_status(random.choice(fun_messages), delay=0.2)
+    # Initialize DisplaySettings using the config passed in from main()
+    show_status(splash, "Loading configuration...")
+    show_status(splash, random.choice(_FUN_MESSAGES), delay=0.2)
 
-    # Initialize DisplaySettings with app instance
-    show_status("Configuring display...")
+    # Configure display
+    show_status(splash, "Configuring display...")
     display_settings = DisplaySettings(app, config)
     display_settings.apply_all()
-    show_status(random.choice(fun_messages), delay=0.3)
+    show_status(splash, random.choice(_FUN_MESSAGES), delay=0.3)
 
     # Build GUI controller
-    show_status("Building interface...")
+    show_status(splash, "Building interface...")
     controller = MusicController()
-    show_status(random.choice(fun_messages), delay=0.3)
+    show_status(splash, random.choice(_FUN_MESSAGES), delay=0.3)
 
-    # Initialize main window with display_settings
+    # Initialize main window
     window = GUI(controller)
-    show_status("Almost ready…", delay=0.4)
+    show_status(splash, "Almost ready…", delay=0.4)
     logger.info("Main window initialized")
     splash.finish(window)
 
+    # Start MPRIS2 and attach to window to prevent garbage collection
     mpris = MPRIS2Player(controller.mediaplayer)
     mpris.start()
-    window._mpris = (
-        mpris  # Keep it alive — attach to window so it doesn't get garbage collected
-    )
+    window._mpris = mpris
 
     return window, display_settings
 
 
 def main() -> None:
-    """
-    Main entry point for the Music Library application.
-    """
+    """Main entry point for the TrackYak application."""
     try:
         # Check Python version
         if sys.version_info < (3, 9):
             raise RuntimeError("Python 3.9 or higher required")
+
+        # Change #1 — display backend now configured via an explicit function call
+        configure_display_backend()
 
         # Initialize Qt application FIRST for splash screen
         app = QApplication(sys.argv)
         app.setApplicationName("TrackYak")
         app.setApplicationVersion("0.4")
 
-        # Create config instance to check for first run
+        # Change #2 — single Config() instance created here and passed through
         config = Config()
 
         # Handle first run configuration
@@ -156,19 +180,16 @@ def main() -> None:
         splash.show()
         splash.update_status("Starting application...")
 
-        # Initialize application components with app instance
-        window, display_settings = initialize_application(splash, app)  # Pass app here
+        # Pass config into initialize_application to avoid a second Config() call
+        window, display_settings = initialize_application(splash, app, config)
 
         # Final update before showing main window
         splash.update_status("Ready!")
 
-        # Set main window to be initially transparent for fade-in
         window.show()
 
-        # Store display_settings reference if needed globally
-        app.display_settings = (
-            display_settings  # Optional: store on app for global access
-        )
+        # Store display_settings on the app instance for global access if needed
+        app.display_settings = display_settings
 
         # Start application loop
         sys.exit(app.exec())
