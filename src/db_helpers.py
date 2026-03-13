@@ -513,7 +513,17 @@ class MergeDB(BaseDBHelper):
                                 # Continue with other tables rather than failing completely
 
             # Delete old entity only if we're confident about the merge
-            self.session.delete(source_entity)
+            from sqlalchemy import delete as sql_delete
+
+            pk_val = getattr(source_entity, pk_column)
+            self.session.execute(
+                sql_delete(entity_class.__table__).where(
+                    entity_class.__table__.c[pk_column] == pk_val
+                )
+            )
+            # Expunge the ORM object so SQLAlchemy doesn't try to DELETE it again
+            self.session.expunge(source_entity)
+
             self.session.commit()
 
             logger.info(
