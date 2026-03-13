@@ -4,9 +4,7 @@ from typing import Optional
 from PySide6.QtCore import QMimeData, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QDrag, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
-    QDialogButtonBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -19,9 +17,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.base_merge_dialog import MergeDBDialog
 from src.base_split_dialog import SplitDBDialog
 from src.genre_edit import GenreEditDialog
+from src.genre_merge import GenreMergeDialog
 from src.genre_tracks import GenreTracksWindow
 from src.logger_config import logger
 
@@ -436,80 +434,21 @@ class GenreView(QWidget):
     def merge_genre(self, source_genre_id):
         """Open the merge dialog for the selected genre."""
         try:
-            # Get all genres for target selection
-            all_genres = self.controller.get.get_all_entities("Genre")
-
-            # Filter out the source genre
-            target_genres = [g for g in all_genres if g.genre_id != source_genre_id]
-
-            if not target_genres:
-                QMessageBox.information(
-                    self, "No Targets", "No other genres available for merging."
+            genre_obj = self.controller.get.get_entity_object(
+                "Genre", genre_id=source_genre_id
+            )
+            if not genre_obj:
+                QMessageBox.warning(
+                    self, "Not Found", "The selected genre no longer exists."
                 )
                 return
 
-            # Build a lookup map and a parent→children map for hierarchy display
-            genre_map = {g.genre_id: g for g in all_genres}
-            children_map = defaultdict(list)
-            for g in all_genres:
-                children_map[g.parent_id].append(g)
+            merge_dialog = GenreMergeDialog(self.controller, self, genre_obj=genre_obj)
 
-            # Recursively collect genres in hierarchy order (alphabetical within each level)
-            # Returns a flat list of (display_label, genre_id) tuples
-            def collect_ordered(parent_id, depth):
-                results = []
-                children = sorted(
-                    children_map.get(parent_id, []), key=lambda g: g.genre_name.lower()
-                )
-                for genre in children:
-                    if genre.genre_id == source_genre_id:
-                        # Still recurse into children even if source is excluded
-                        results.extend(collect_ordered(genre.genre_id, depth + 1))
-                        continue
-                    prefix = "  " * depth + ("↳ " if depth > 0 else "")
-                    results.append((prefix + genre.genre_name, genre.genre_id))
-                    results.extend(collect_ordered(genre.genre_id, depth + 1))
-                return results
-
-            ordered_genres = collect_ordered(None, 0)
-
-            # Create a simple target selection dialog
-            dialog = QDialog(self)
-            dialog.setWindowTitle("Select Target Genre")
-            dialog.setModal(True)
-            dialog.resize(350, 150)
-
-            layout = QVBoxLayout(dialog)
-
-            info_label = QLabel("Select genre to merge into:")
-            layout.addWidget(info_label)
-
-            target_combo = QComboBox()
-            for label, genre_id in ordered_genres:
-                target_combo.addItem(label, genre_id)
-            layout.addWidget(target_combo)
-
-            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            buttons.accepted.connect(dialog.accept)
-            buttons.rejected.connect(dialog.reject)
-            layout.addWidget(buttons)
-
-            if dialog.exec_() == QDialog.Accepted:
-                target_genre_id = target_combo.currentData()
-
-                # Create the merge dialog with all required arguments
-                merge_dialog = MergeDBDialog(
-                    self.controller.merge,  # merge helper
-                    "Genre",  # entity_type
-                    source_genre_id,  # source_id
-                    target_genre_id,  # target_id
-                    self,  # parent
-                )
-
-                if merge_dialog.exec_() == QDialog.Accepted:
-                    self.load_genres()
-                    self.genre_updated.emit()
-                    self.status_bar.setText("Genre merge completed successfully")
+            if merge_dialog.exec_() == QDialog.Accepted:
+                self.load_genres()
+                self.genre_updated.emit()
+                self.status_bar.setText("Genre merge completed successfully")
 
         except Exception as e:
             logger.error(f"Error merging genre: {str(e)}")

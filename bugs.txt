@@ -35,8 +35,13 @@ config_setup.py
 base_album_edit.py
     changing publisher changes tab
     searching wikipedia link does not activate "wikipedia" button to appear
+
 base_track_view
     add editing single and multiple context menu (track_edit pattern)
+
+base_merge_dialog
+    you shouldn't have the option to merge certain relationship fields
+    layout is awkward
 
 db_tables.py
 
@@ -88,7 +93,7 @@ statistics_dialog.py
 
 
 genre_view
-    merging fails
+
 
 places_view.py
 
