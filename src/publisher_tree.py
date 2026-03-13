@@ -1,6 +1,12 @@
 from PySide6.QtCore import QMimeData, Qt
 from PySide6.QtGui import QDrag
-from PySide6.QtWidgets import QHeaderView, QMessageBox, QTreeWidget, QTreeWidgetItem
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QHeaderView,
+    QMessageBox,
+    QTreeWidget,
+    QTreeWidgetItem,
+)
 
 from src.logger_config import logger
 
@@ -21,10 +27,24 @@ class PublisherTreeWidget(QTreeWidget):
         self.setSortingEnabled(True)
         self.header().setSectionResizeMode(0, QHeaderView.Stretch)
         self.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+
+        # Allow selecting multiple items at once (Ctrl+click, Shift+click)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+
         self.itemChanged.connect(self.on_item_changed)
 
     def load_publishers(self):
-        """Load publishers as a hierarchical tree with track counts."""
+        """Load publishers as a hierarchical tree with track counts.
+
+        Preserves the current sort column, sort order, and scroll position
+        so that edits don't jump the user back to the top.
+        """
+        # --- Save state before clearing ---
+        sort_column = self.header().sortIndicatorSection()
+        sort_order = self.header().sortIndicatorOrder()
+        scrollbar = self.verticalScrollBar()
+        scroll_value = scrollbar.value() if scrollbar else 0
+
         try:
             publishers = self.controller.get.get_all_entities("Publisher")
         except Exception as e:
@@ -45,9 +65,6 @@ class PublisherTreeWidget(QTreeWidget):
             item.setFlags(item.flags() | Qt.ItemIsEditable)
             item.setData(1, Qt.DisplayRole, album_count)
             item.setData(0, Qt.UserRole, publisher.publisher_id)
-
-            # CRITICAL: Set numeric value for sorting in Qt.DisplayRole
-            item.setData(1, Qt.DisplayRole, album_count)  # Sort by this numeric value
 
             publisher_dict[publisher.publisher_id] = {
                 "item": item,
@@ -71,11 +88,27 @@ class PublisherTreeWidget(QTreeWidget):
         # Add root items
         self.addTopLevelItems(root_items)
 
-        # IMPORTANT: Force a sort on the numeric column first
-        self.sortByColumn(1, Qt.AscendingOrder)
-        self.sortByColumn(0, Qt.AscendingOrder)  # Then sort by name
+        # --- Restore sort order ---
+        self.sortByColumn(sort_column, sort_order)
 
         self.expandAll()
+
+        # --- Restore scroll position ---
+        if scrollbar:
+            scrollbar.setValue(scroll_value)
+
+    def keyPressEvent(self, event):
+        """Trigger delete when the Delete key is pressed."""
+        if event.key() == Qt.Key_Delete:
+            # Walk up to the parent PublisherView and call its delete method
+            parent_view = self.parent()
+            while parent_view is not None:
+                if hasattr(parent_view, "_delete_selected_publisher"):
+                    parent_view._delete_selected_publisher()
+                    return
+                parent_view = parent_view.parent()
+        # For all other keys, use default behaviour
+        super().keyPressEvent(event)
 
     def on_item_changed(self, item, column):
         """Handle inline rename after the user finishes editing."""
@@ -92,19 +125,16 @@ class PublisherTreeWidget(QTreeWidget):
             logger.info(f"Publisher renamed to: {new_name}")
         except Exception as e:
             logger.error(f"Failed to rename publisher: {str(e)}")
-            # Optional: reload to revert the text on failure
             self.load_publishers()
 
     def calculate_recursive_album_count(self, publisher_id):
         """Calculate total albums for a publisher including all child publishers."""
         try:
-            # Count direct album links for this publisher
             album_links = self.controller.get.get_entity_links(
                 "AlbumPublisher", publisher_id=publisher_id
             )
             total_albums = len(album_links)
 
-            # Add counts from any child publishers
             child_publishers = self.controller.get.get_all_entities(
                 "Publisher", parent_id=publisher_id
             )
@@ -125,7 +155,6 @@ class PublisherTreeWidget(QTreeWidget):
             item_text_lower = item.text(0).lower()
             matches = text_lower in item_text_lower
 
-            # Check children recursively
             child_matches = False
             for i in range(item.childCount()):
                 if filter_item(item.child(i), text):
@@ -134,7 +163,6 @@ class PublisherTreeWidget(QTreeWidget):
             should_show = matches or child_matches
             item.setHidden(not should_show)
 
-            # Expand if searching and matches
             if text and should_show:
                 item.setExpanded(True)
                 parent = item.parent()
@@ -144,7 +172,6 @@ class PublisherTreeWidget(QTreeWidget):
 
             return should_show
 
-        # Apply to all top-level items
         for i in range(self.topLevelItemCount()):
             filter_item(self.topLevelItem(i), search_text)
 
@@ -169,18 +196,15 @@ class PublisherTreeWidget(QTreeWidget):
 
         target_item = self.itemAt(event.pos())
         if not target_item:
-            # Drop on empty space - remove parent
             self.remove_parent(source_item)
             return
 
         source_id = source_item.data(0, Qt.UserRole)
         target_id = target_item.data(0, Qt.UserRole)
 
-        # Prevent self-parenting
         if source_id == target_id:
             return
 
-        # Prevent circular parenting
         if self.is_child_of(target_item, source_item):
             QMessageBox.warning(
                 self,
@@ -193,7 +217,6 @@ class PublisherTreeWidget(QTreeWidget):
             self.controller.update.update_entity(
                 "Publisher", source_id, parent_id=target_id
             )
-            # Refresh the tree to show new hierarchy
             self.load_publishers()
             logger.info("Parent relationship updated successfully.")
         except Exception as e:

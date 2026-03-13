@@ -115,9 +115,11 @@ moods_view.py
 
 
 publisher_view.py
-    editing a publisher in any way resets the sort and scroll position
-    allow multiple selection and deletion
-    delete key shortcut
+
+
+publisher_merge.py
+    Auto populate the merge dialogue with selected publisher and suggest matches to merge into.
+    dialog does not move independently of program
 
 publisher_detail.py
 
@@ -125,8 +127,6 @@ publisher_detail.py
 artist_view.py
 
 
-
 playlist_view.py
-    show track counts in parentheses (with recursive count too)
 
 

@@ -71,31 +71,34 @@ class PublisherView(QWidget):
     def show_context_menu(self, position):
         """Show context menu for publisher tree items."""
         item = self.publishers_tree.itemAt(position)
+        selected_items = self.publishers_tree.selectedItems()
         menu = QMenu(self)
 
         if item:
-            # Rename action
-            rename_action = QAction("Rename Publisher", self)
-            rename_action.triggered.connect(lambda: self._trigger_rename(item))
-            menu.addAction(rename_action)
+            # Only show single-item actions when exactly one item is selected
+            if len(selected_items) == 1:
+                rename_action = QAction("Rename Publisher", self)
+                rename_action.triggered.connect(lambda: self._trigger_rename(item))
+                menu.addAction(rename_action)
 
-            # Edit action
-            edit_action = QAction("Edit Publisher", self)
-            edit_action.triggered.connect(lambda: self.on_publisher_selected(item))
-            menu.addAction(edit_action)
+                edit_action = QAction("Edit Publisher", self)
+                edit_action.triggered.connect(lambda: self.on_publisher_selected(item))
+                menu.addAction(edit_action)
 
-            # Merge action
-            merge_action = QAction("Merge Publisher...", self)
-            merge_action.triggered.connect(self.initiate_merge)
-            menu.addAction(merge_action)
+                merge_action = QAction("Merge Publisher...", self)
+                merge_action.triggered.connect(self.initiate_merge)
+                menu.addAction(merge_action)
 
-            # Split action
-            split_action = QAction("Split Publisher...", self)
-            split_action.triggered.connect(self._split_publisher)
-            menu.addAction(split_action)
+                split_action = QAction("Split Publisher...", self)
+                split_action.triggered.connect(self._split_publisher)
+                menu.addAction(split_action)
 
-            # Delete action
-            delete_action = QAction("Delete Publisher", self)
+            # Delete works for single or multiple selection
+            count = len(selected_items)
+            delete_label = (
+                f"Delete {count} Publishers" if count > 1 else "Delete Publisher"
+            )
+            delete_action = QAction(delete_label, self)
             delete_action.triggered.connect(self._delete_selected_publisher)
             menu.addAction(delete_action)
 
@@ -123,31 +126,57 @@ class PublisherView(QWidget):
             logger.error(f"Error creating new publisher: {str(e)}")
 
     def _delete_selected_publisher(self):
-        """Delete the selected publisher."""
-        item = self.publishers_tree.currentItem()
-        if not item:
+        """Delete all currently selected publishers.
+
+        Supports single and multi-selection. The user sees one confirmation
+        dialog listing how many publishers will be deleted before anything
+        is removed.
+        """
+        selected_items = self.publishers_tree.selectedItems()
+        if not selected_items:
             QMessageBox.warning(
                 self, "No Selection", "Please select a publisher to delete."
             )
             return
 
-        publisher_id = item.data(0, Qt.UserRole)
-        publisher_name = item.text(0)
+        count = len(selected_items)
+        if count == 1:
+            publisher_name = selected_items[0].text(0)
+            message = f"Are you sure you want to delete '{publisher_name}'?"
+        else:
+            names_preview = ", ".join(item.text(0) for item in selected_items[:5])
+            if count > 5:
+                names_preview += f", … (+{count - 5} more)"
+            message = f"Are you sure you want to delete {count} publishers?\n\n{names_preview}"
 
         reply = QMessageBox.question(
             self,
             "Confirm Delete",
-            f"Are you sure you want to delete '{publisher_name}'?",
+            message,
             QMessageBox.Yes | QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
-            try:
-                self.controller.delete.delete_entity("Publisher", publisher_id)
-                self.load_publishers()
-                self.detail_tab.show_empty_state()
-            except Exception as e:
-                logger.error(f"Failed to delete publisher: {str(e)}")
+            errors = []
+            for item in selected_items:
+                publisher_id = item.data(0, Qt.UserRole)
+                try:
+                    self.controller.delete.delete_entity("Publisher", publisher_id)
+                except Exception as e:
+                    errors.append(item.text(0))
+                    logger.error(
+                        f"Failed to delete publisher '{item.text(0)}': {str(e)}"
+                    )
+
+            self.load_publishers()
+            self.detail_tab.show_empty_state()
+
+            if errors:
+                QMessageBox.warning(
+                    self,
+                    "Partial Delete",
+                    "Could not delete the following publishers:\n" + "\n".join(errors),
+                )
 
     def _split_publisher(self):
         """Split the selected publisher."""
