@@ -109,7 +109,7 @@ award_view.py
     deleting an award does not reload the award list
 
 influences_view.py
-    disconnected "islands" of connections float away eternally
+
 
 moods_view.py
 

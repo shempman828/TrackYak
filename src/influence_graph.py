@@ -408,7 +408,7 @@ class InfluenceGraphView(QGraphicsView):
                     forces[target_id] -= QPointF(fx, fy)
 
         # ── 3. Integration ────────────────────────────────────────────────────
-        total_movement = 0
+        max_movement = 0.0  # track the FASTEST single node, not the sum
         for nid, force in forces.items():
             v = self.velocities.get(nid, QPointF(0, 0))
             v = (v + force) * DAMPING
@@ -422,7 +422,8 @@ class InfluenceGraphView(QGraphicsView):
 
             self.velocities[nid] = v
             self.positions[nid] += v
-            total_movement += speed
+            if speed > max_movement:
+                max_movement = speed
 
         # ── 4. Hard collision resolution (bypasses velocity system) ──────────
         self._resolve_collisions()
@@ -430,7 +431,12 @@ class InfluenceGraphView(QGraphicsView):
         self.update_node_positions()
         self.update_edge_positions()
 
-        if total_movement < 0.5:
+        # Use max speed rather than total — total never drops below 0.5 when
+        # there are hundreds of nodes doing tiny residual movements, so the
+        # simulation would run forever. Max speed is node-count-independent:
+        # if no single node is moving more than the threshold, the graph has
+        # visually settled regardless of how many nodes exist.
+        if max_movement < 0.5:
             self.stop_force_layout()
             logger.info("Graph settled.")
 
