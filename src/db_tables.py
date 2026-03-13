@@ -946,6 +946,31 @@ class Place(Base):
         """Return all entities associated with this place."""
         return [assoc.entity for assoc in self.associations]
 
+    @property
+    def association_count(self):
+        """Return the number of entities directly associated with this place."""
+        return len(self.associations)
+
+    @property
+    def recursive_association_count(self):
+        """Return the number of associations for this place and all descendants."""
+        visited_places = set()
+        association_ids = set()
+
+        def walk(place):
+            if place.place_id in visited_places:
+                return
+            visited_places.add(place.place_id)
+
+            for assoc in place.associations:
+                association_ids.add(assoc.id)
+
+            for child in place.children:
+                walk(child)
+
+        walk(self)
+        return len(association_ids)
+
 
 class PlaceAssociation(Base):
     __tablename__ = "place_associations"

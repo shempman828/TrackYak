@@ -62,14 +62,12 @@ class PlaceView(QWidget):
         self.map_button.setEnabled(True)
 
     def load_places(self):
-        """Refresh data for both views"""
+        """Refresh data for both views."""
         self.current_places = self.controller.get.get_all_entities("Place")
         self.map_view.load_places()
+        self.map_view.refresh_place_types()
         self.list_view.load_places()
 
     def refresh_views(self):
-        """Refresh both map and list views and update type filter."""
-        self.current_places = self.controller.get.get_all_entities("Place")
-        self.map_view.load_places()
-        self.list_view.load_places()
-        self.map_view.refresh_place_types()
+        """Alias for load_places — refreshes both map and list views."""
+        self.load_places()

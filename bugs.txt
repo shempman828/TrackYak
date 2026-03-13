@@ -84,8 +84,6 @@ disc management
     adding a disc works but it does not appear in the track list.
     adding disc does not let you specify number?
 
-
-
 statistics_dialog.py
 
 
@@ -93,11 +91,7 @@ genre_view
     merging fails
 
 places_view.py
-    random invalid pointer error when updating parents sometimes
-    2026-03-10 23:22:43,746 - INFO - place_map.py:233 - generate_map() - Map generated with 17 valid places (filter: 8 types selected)
-    INFO:musiclib:Map generated with 17 valid places (filter: 8 types selected)
-    free(): invalid pointer
-    AttributeError: 'ListView' object has no attribute 'view_tracks_for_selected_place'
+
 
 dates_view.py
 
@@ -110,6 +104,8 @@ award_view.py
 
 influences_view.py
 
+influences_graph.py
+    louvain color coding doesn't seem to work?
 
 moods_view.py
 

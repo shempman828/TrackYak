@@ -31,9 +31,6 @@ class DraggableTreeWidget(QTreeWidget):
     def dropEvent(self, event):
         """Called when a drag-and-drop is completed inside the tree."""
         # IMPORTANT: Read the dragged item and drop target BEFORE calling super().
-        # After super().dropEvent(), Qt's InternalMove has already repositioned the
-        # item in the tree, so dropped_item.parent() no longer tells us what the
-        # user dropped onto — it tells us where Qt moved it (usually a sibling slot).
         dragged_item = self.currentItem()
         if not dragged_item:
             event.ignore()
@@ -130,17 +127,21 @@ class ListView(QWidget):
         if not item:
             return
 
-        # FIX: Store the full Place object (not just the ID) with a clear name.
-        # Previously named self.current_place_id but it was actually the Place object,
-        # which was confusing. Now clearly named self.current_place.
-        self.current_place = item.data(0, Qt.UserRole)
+        # Capture the place into a local variable. Each lambda below uses a
+        # default argument (p=place) to lock in this value at menu-creation
+        # time, so the action always operates on the right place even if
+        # something triggers a re-render before the user clicks.
+        place = item.data(0, Qt.UserRole)
 
         menu = QMenu(self)
-        menu.addAction("View Tracks", lambda: self.view_tracks_for_selected_place())
-        menu.addAction("Edit", lambda: self.edit_place())
-        menu.addAction("Merge", lambda: self.merge_place(self.current_place))
-        menu.addAction("Split", lambda: self._split_place())
-        menu.addAction("Delete", lambda: self.delete_place())
+        menu.addAction(
+            "View Associations", lambda p=place: self.show_association_details_for(p)
+        )
+        menu.addAction("View Details", lambda p=place: self.view_place_details_for(p))
+        menu.addAction("Edit", lambda p=place: self.edit_place_for(p))
+        menu.addAction("Merge", lambda p=place: self.merge_place(p))
+        menu.addAction("Split", lambda p=place: self._split_place())
+        menu.addAction("Delete", lambda p=place: self.delete_place_for(p))
 
         menu.exec_(self.tree_widget.viewport().mapToGlobal(position))
 
@@ -160,48 +161,16 @@ class ListView(QWidget):
             return
 
         for place in hierarchy[parent_id]:
-            # Count associations for this place
-            association_count = self.get_association_count(place.place_id)
-
-            # Create tree item
-            item_text = self.format_list_item(place, association_count, "")
+            item_text = self.format_list_item(place)
             item = QTreeWidgetItem([item_text])
             item.setData(0, Qt.UserRole, place)
-            item.setToolTip(0, self.create_tooltip(place, association_count))
+            item.setToolTip(0, self.create_tooltip(place))
 
-            # Add to parent
             parent_tree_item.addChild(item)
 
-            # Recurse into children
             self._add_places_to_tree(hierarchy, place.place_id, item)
 
-    def get_association_count(self, place_id):
-        """Get total number of associations for a place."""
-        try:
-            associations = self.controller.get.get_all_entities("PlaceAssociation")
-            count = sum(1 for assoc in associations if assoc.place_id == place_id)
-            return count
-        except Exception as e:
-            logger.error(f"Error getting association count: {str(e)}")
-            return 0
-
-    def get_detailed_associations(self, place_id):
-        """Get detailed breakdown of associations by entity type."""
-        try:
-            associations = self.controller.get.get_all_entities("PlaceAssociation")
-            entity_counts = {}
-
-            for assoc in associations:
-                if assoc.place_id == place_id:
-                    entity_type = assoc.entity_type
-                    entity_counts[entity_type] = entity_counts.get(entity_type, 0) + 1
-
-            return entity_counts
-        except Exception as e:
-            logger.error(f"Error getting detailed associations: {str(e)}")
-            return {}
-
-    def format_list_item(self, place, association_count, indent):
+    def format_list_item(self, place):
         """Return HTML-formatted text for the place entry."""
         place_name = self._escape_html(place.place_name)
         place_type = (
@@ -209,14 +178,23 @@ class ListView(QWidget):
         )
 
         base_text = (
-            f"{indent}<span class='place-name'>{place_name}</span> "
+            f"<span class='place-name'>{place_name}</span> "
             f"(<span class='place-type'>{place_type}</span>)"
         )
 
-        if association_count and association_count > 0:
-            assoc_text = f"<span class='assoc-count'> - {association_count} association(s)</span>"
-        else:
+        direct = place.association_count
+        recursive = place.recursive_association_count
+
+        if direct == 0 and recursive == 0:
             assoc_text = "<span class='no-assoc'> - no associations</span>"
+        elif recursive > direct:
+            # Has associations in child places too — show both counts
+            assoc_text = (
+                f"<span class='assoc-count'> - {direct} direct"
+                f", {recursive} total</span>"
+            )
+        else:
+            assoc_text = f"<span class='assoc-count'> - {direct} association(s)</span>"
 
         return f"<div style='font-family:inherit'>{base_text}{assoc_text}</div>"
 
@@ -226,20 +204,24 @@ class ListView(QWidget):
             return ""
         return html_escape.escape(str(text))
 
-    def create_tooltip(self, place, association_count):
+    def create_tooltip(self, place):
         """Create detailed tooltip for place."""
+        direct = place.association_count
+        recursive = place.recursive_association_count
+
         tooltip = f"Name: {place.place_name}\n"
         tooltip += f"Type: {place.place_type}\n"
         tooltip += f"Coordinates: {place.place_latitude}, {place.place_longitude}\n"
         tooltip += f"Description: {place.place_description or 'No description'}\n"
-        tooltip += f"Associations: {association_count} related entities"
-
-        if association_count > 0:
-            associations = self.get_detailed_associations(place.place_id)
-            for entity_type, count in associations.items():
-                tooltip += f"\n- {count} {entity_type}(s)"
-
+        tooltip += f"Direct associations: {direct}"
+        if recursive > direct:
+            tooltip += f"\nTotal (including children): {recursive}"
         return tooltip
+
+    def show_association_details_for(self, place):
+        """Show detailed view of all entities associated with the given place."""
+        dialog = AssociationDetailsDialog(self.controller, place, self)
+        dialog.exec_()
 
     def show_association_details(self):
         """Show detailed view of all entities associated with the selected place."""
@@ -249,10 +231,7 @@ class ListView(QWidget):
                 self, "No Selection", "Please select a place to view its associations."
             )
             return
-
-        place = selected.data(0, Qt.UserRole)
-        dialog = AssociationDetailsDialog(self.controller, place, self)
-        dialog.exec_()
+        self.show_association_details_for(selected.data(0, Qt.UserRole))
 
     def add_place(self):
         """Add place and refresh both views"""
@@ -268,13 +247,8 @@ class ListView(QWidget):
                 logger.error(f"Failed to create place: {str(e)}")
                 QMessageBox.critical(self, "Error", "Failed to create place")
 
-    def edit_place(self):
-        """Edit place and refresh both views"""
-        selected = self.tree_widget.currentItem()
-        if not selected:
-            return
-
-        old_place = selected.data(0, Qt.UserRole)
+    def edit_place_for(self, old_place):
+        """Edit the given place and refresh both views."""
         dialog = PlaceEditDialog(self.controller, self, old_place)
         if dialog.exec_() == QDialog.Accepted:
             updated_data = dialog.get_place_data()
@@ -289,20 +263,21 @@ class ListView(QWidget):
                 logger.error(f"Failed to update place: {str(e)}")
                 QMessageBox.critical(self, "Error", "Failed to update place")
 
-    def delete_place(self):
-        """Delete selected place"""
+    def edit_place(self):
+        """Edit the currently selected place."""
         selected = self.tree_widget.currentItem()
         if not selected:
             return
+        self.edit_place_for(selected.data(0, Qt.UserRole))
 
-        place = selected.data(0, Qt.UserRole)
+    def delete_place_for(self, place):
+        """Delete the given place after confirmation."""
         confirm = QMessageBox.question(
             self,
             "Confirm Delete",
             f"Delete {place.place_name} permanently?",
             QMessageBox.Yes | QMessageBox.No,
         )
-
         if confirm == QMessageBox.Yes:
             try:
                 self.controller.delete.delete_entity("Place", place.place_id)
@@ -312,6 +287,13 @@ class ListView(QWidget):
             except Exception as e:
                 logger.error(f"Failed to delete place: {str(e)}")
                 QMessageBox.critical(self, "Error", "Failed to delete place")
+
+    def delete_place(self):
+        """Delete the currently selected place."""
+        selected = self.tree_widget.currentItem()
+        if not selected:
+            return
+        self.delete_place_for(selected.data(0, Qt.UserRole))
 
     def merge_place(self, place):
         """Merge this place into another. Not yet implemented."""
@@ -325,15 +307,7 @@ class ListView(QWidget):
             self, "Not Implemented", "Split is not yet available for places."
         )
 
-    def view_place_details(self):
-        """View detailed information about the selected place."""
-        selected = self.tree_widget.currentItem()
-        if not selected:
-            QMessageBox.information(
-                self, "No Selection", "Please select a place to view its details."
-            )
-            return
-
-        place = selected.data(0, Qt.UserRole)
+    def view_place_details_for(self, place):
+        """View detailed information about the given place."""
         dialog = PlaceDetailView(self.controller, place, self)
         dialog.exec_()
