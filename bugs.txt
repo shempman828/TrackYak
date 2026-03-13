@@ -118,8 +118,7 @@ publisher_view.py
 
 
 publisher_merge.py
-    Auto populate the merge dialogue with selected publisher and suggest matches to merge into.
-    dialog does not move independently of program
+
 
 publisher_detail.py
 

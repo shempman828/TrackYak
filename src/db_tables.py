@@ -1036,7 +1036,12 @@ class Award(Base):
     parent_id = Column(Integer, ForeignKey("awards.award_id", ondelete="CASCADE"))
 
     parent = relationship("Award", remote_side=[award_id], backref="children")
-    associations = relationship("AwardAssociation", back_populates="award")
+    associations = relationship(
+        "AwardAssociation",
+        back_populates="award",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     tracks = relationship(
         "Track",
