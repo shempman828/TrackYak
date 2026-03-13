@@ -17,7 +17,6 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPixmap,
-    QRadialGradient,
     QShortcut,
 )
 from PySide6.QtWidgets import (
@@ -36,6 +35,9 @@ from PySide6.QtWidgets import (
 from src.asset_paths import asset
 from src.config_setup import app_config
 from src.logger_config import logger
+from src.nowplaying_backdrop import _BlurredBackdrop
+from src.nowplaying_chip import _Chip, _ScrollingChipRow
+from src.nowplaying_credits import _CreditsPanel
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Constants
@@ -99,66 +101,6 @@ def _active_index(lines: List[Tuple[int, str]], position_ms: int) -> int:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  Blurred backdrop
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-class _BlurredBackdrop(QWidget):
-    """Full-widget blurred album-art background with vignette overlay."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._pixmap: Optional[QPixmap] = None
-        self._opacity: float = 0.0
-        self.setAttribute(Qt.WA_TransparentForMouseEvents)
-
-    def set_pixmap(self, pixmap: Optional[QPixmap]):
-        self._pixmap = pixmap
-        self.update()
-
-    def _get_opacity(self) -> float:
-        return self._opacity
-
-    def _set_opacity(self, v: float):
-        self._opacity = v
-        self.update()
-
-    backdropOpacity = Property(float, _get_opacity, _set_opacity)
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)
-        w, h = self.width(), self.height()
-
-        # Deep background
-        painter.fillRect(0, 0, w, h, QColor(12, 14, 22))
-
-        if self._pixmap and not self._pixmap.isNull() and self._opacity > 0:
-            painter.setOpacity(self._opacity * 0.28)
-            scaled = self._pixmap.scaled(
-                w, h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
-            )
-            x = (w - scaled.width()) // 2
-            y = (h - scaled.height()) // 2
-            painter.drawPixmap(x, y, scaled)
-            painter.setOpacity(1.0)
-
-        # Vignette
-        grad = QRadialGradient(w / 2, h / 2, max(w, h) * 0.72)
-        grad.setColorAt(0.0, QColor(0, 0, 0, 0))
-        grad.setColorAt(1.0, QColor(0, 0, 0, 190))
-        painter.fillRect(0, 0, w, h, grad)
-
-        # Bottom fade
-        bot = QLinearGradient(0, h * 0.65, 0, h)
-        bot.setColorAt(0.0, QColor(0, 0, 0, 0))
-        bot.setColorAt(1.0, QColor(8, 10, 18, 210))
-        painter.fillRect(0, int(h * 0.65), w, h, bot)
-
-        painter.end()
-
-
-# ──────────────────────────────────────────────────────────────────────────────
 #  Art card
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -211,61 +153,6 @@ class _ArtCard(QWidget):
             painter.drawText(x, y, side, side, Qt.AlignCenter, "♪")
 
         painter.end()
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Chip widgets
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-class _Chip(QLabel):
-    """Pill-shaped metadata chip."""
-
-    _SS = (
-        "QLabel { background: rgba(133,153,234,0.13);"
-        " border: 1px solid rgba(133,153,234,0.28);"
-        " border-radius: 10px; color: rgba(200,208,244,0.80);"
-        " font-size: 10px; padding: 2px 10px; }"
-    )
-
-    def __init__(self, icon_str: str, value: str, parent=None):
-        super().__init__(parent)
-        self._icon = icon_str
-        self.setStyleSheet(self._SS)
-        self.set_value(value)
-
-    def set_value(self, value: str):
-        self.setText(f"{self._icon}  {value}" if self._icon else value)
-
-
-class _ScrollingChipRow(QScrollArea):
-    """Horizontally scrolling row of chips, no scrollbar visible."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFrameShape(QFrame.NoFrame)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setFixedHeight(36)
-        self.setStyleSheet("background: transparent; border: none;")
-        self.setWidgetResizable(False)
-
-        self._inner = QWidget()
-        self._inner.setStyleSheet("background: transparent;")
-        self._row = QHBoxLayout(self._inner)
-        self._row.setContentsMargins(0, 4, 0, 4)
-        self._row.setSpacing(6)
-        self.setWidget(self._inner)
-
-    def set_chips(self, chips: List[_Chip]):
-        while self._row.count():
-            item = self._row.takeAt(0)
-            if item.widget():
-                item.widget().setParent(None)
-        for chip in chips:
-            self._row.addWidget(chip)
-        self._row.addStretch()
-        self._inner.adjustSize()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -408,167 +295,6 @@ _TOGGLE_INACTIVE = """
         color: rgba(200, 208, 244, 0.70);
     }
 """
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Credits panel
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-class _CreditsPanel(QWidget):
-    """
-    Auto-scrolls like movie credits when content overflows, reverses, loops.
-    """
-
-    _SPEED = 0.55
-    _TICK_MS = 40
-    _PAUSE_MS = 2800
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setStyleSheet("background: transparent;")
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        self._area = QScrollArea()
-        self._area.setFrameShape(QFrame.NoFrame)
-        self._area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._area.setStyleSheet("background: transparent; border: none;")
-        self._area.setWidgetResizable(True)
-
-        self._container = QWidget()
-        self._container.setStyleSheet("background: transparent;")
-        self._cards_layout = QVBoxLayout(self._container)
-        self._cards_layout.setContentsMargins(0, 8, 0, 48)
-        self._cards_layout.setSpacing(6)
-        self._cards_layout.setAlignment(Qt.AlignTop)
-        self._area.setWidget(self._container)
-
-        root.addWidget(self._area)
-
-        self._pos: float = 0.0
-        self._direction = 1
-        self._paused = True
-
-        self._timer = QTimer(self)
-        self._timer.setInterval(self._TICK_MS)
-        self._timer.timeout.connect(self._tick)
-
-    def stop(self):
-        self._timer.stop()
-
-    def load_credits(self, track):
-        self._timer.stop()
-        self._pos = 0.0
-        self._direction = 1
-        self._paused = True
-        self._area.verticalScrollBar().setValue(0)
-
-        while self._cards_layout.count():
-            item = self._cards_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        if not track:
-            self._show_placeholder("No track loaded")
-            return
-
-        rows: List[Tuple[str, str]] = []
-        try:
-            for ar in getattr(track, "artist_roles", None) or []:
-                role = getattr(ar, "role", None)
-                artist = getattr(ar, "artist", None)
-                role_name = getattr(role, "role_name", "") or ""
-                artist_name = getattr(artist, "artist_name", "") or ""
-                if role_name == "Primary Artist":
-                    continue
-                if role_name and artist_name:
-                    rows.append((role_name, artist_name))
-        except Exception as exc:
-            logger.warning(f"_CreditsPanel: error reading artist_roles: {exc}")
-
-        if not rows:
-            self._show_placeholder("No credits available")
-            return
-
-        for role_name, artist_name in rows:
-            card = self._make_card(role_name, artist_name)
-            self._cards_layout.addWidget(card)
-
-        QTimer.singleShot(800, self._maybe_start_scroll)
-
-    def _show_placeholder(self, text: str):
-        lbl = QLabel(text)
-        lbl.setAlignment(Qt.AlignCenter)
-        lbl.setStyleSheet(
-            "color: rgba(133,153,234,0.28); font-size: 13px; font-style: italic;"
-            " background: transparent; border: none;"
-        )
-        self._cards_layout.addWidget(lbl)
-
-    @staticmethod
-    def _make_card(role: str, name: str) -> QWidget:
-        card = QWidget()
-        card.setStyleSheet(
-            "background: rgba(133,153,234,0.07);"
-            " border: 1px solid rgba(133,153,234,0.18);"
-            " border-radius: 8px;"
-        )
-        lay = QHBoxLayout(card)
-        lay.setContentsMargins(14, 8, 14, 8)
-        lay.setSpacing(12)
-
-        role_lbl = QLabel(role)
-        role_lbl.setStyleSheet(
-            "color: rgba(133,153,234,0.55); font-size: 10px;"
-            " background: transparent; border: none;"
-        )
-        role_lbl.setFixedWidth(130)
-
-        name_lbl = QLabel(name)
-        name_lbl.setStyleSheet(
-            "color: rgba(210,218,255,0.88); font-size: 13px;"
-            " background: transparent; border: none;"
-        )
-
-        lay.addWidget(role_lbl)
-        lay.addWidget(name_lbl, stretch=1)
-        return card
-
-    def _maybe_start_scroll(self):
-        sb = self._area.verticalScrollBar()
-        if sb.maximum() > 20:
-            self._paused = True
-            QTimer.singleShot(self._PAUSE_MS, self._start_scroll)
-
-    def _start_scroll(self):
-        self._paused = False
-        self._timer.start()
-
-    def _tick(self):
-        if self._paused:
-            return
-        sb = self._area.verticalScrollBar()
-        self._pos += self._SPEED * self._direction
-        val = int(self._pos)
-        val = max(0, min(val, sb.maximum()))
-        sb.setValue(val)
-
-        if val >= sb.maximum():
-            self._direction = -1
-            self._paused = True
-            QTimer.singleShot(self._PAUSE_MS, self._resume)
-        elif val <= 0 and self._direction == -1:
-            self._direction = 1
-            self._paused = True
-            QTimer.singleShot(self._PAUSE_MS, self._resume)
-
-    def _resume(self):
-        self._paused = False
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1212,22 +938,6 @@ class NowPlayingView(QWidget):
 
         # ── Basic metadata ─────────────────────────────────────────────────
         _safe(
-            self._chip_duration,
-            lambda: (
-                f"{int(track.duration) // 60}:{int(track.duration) % 60:02d}"
-                if getattr(track, "duration", None) is not None
-                else None
-            ),
-        )
-        _safe(
-            self._chip_track_no,
-            lambda: (
-                f"Track {track.track_number}"
-                if getattr(track, "track_number", None) is not None
-                else None
-            ),
-        )
-        _safe(
             self._chip_bpm,
             lambda: (
                 f"{float(track.bpm):.0f} BPM"
@@ -1252,62 +962,12 @@ class NowPlayingView(QWidget):
             ),
         )
 
-        # ── Audio file properties ──────────────────────────────────────────
-        _safe(
-            self._chip_bitrate,
-            lambda: (
-                f"{int(track.bit_rate)} kbps"
-                if getattr(track, "bit_rate", None) is not None
-                else None
-            ),
-        )
-        _safe(
-            self._chip_sample,
-            lambda: (
-                f"{int(track.sample_rate) // 1000} kHz"
-                if getattr(track, "sample_rate", None) is not None
-                else None
-            ),
-        )
-        _safe(
-            self._chip_depth,
-            lambda: (
-                f"{int(track.bit_depth)}-bit"
-                if getattr(track, "bit_depth", None) is not None
-                else None
-            ),
-        )
-        _safe(
-            self._chip_gain,
-            lambda: (
-                f"{float(track.track_gain):+.1f} dB"
-                if getattr(track, "track_gain", None) is not None
-                else None
-            ),
-        )
-
         # ── User & library data ────────────────────────────────────────────
-        _safe(
-            self._chip_rec_year,
-            lambda: (
-                str(track.recorded_year)
-                if getattr(track, "recorded_year", None) is not None
-                else None
-            ),
-        )
         _safe(
             self._chip_plays,
             lambda: (
                 f"{int(track.play_count)} plays"
                 if getattr(track, "play_count", None) is not None
-                else None
-            ),
-        )
-        _safe(
-            self._chip_rating,
-            lambda: (
-                f"{float(track.user_rating):.1f}/10"
-                if getattr(track, "user_rating", None) is not None
                 else None
             ),
         )
@@ -1323,56 +983,6 @@ class NowPlayingView(QWidget):
                     if n
                 )
                 or None
-            ),
-        )
-
-        # ── Advanced audio analysis ────────────────────────────────────────
-        _safe(
-            self._chip_energy,
-            lambda: (
-                f"{track.energy * 100:.0f}% energy"
-                if getattr(track, "energy", None) is not None
-                else None
-            ),
-        )
-        _safe(
-            self._chip_danceability,
-            lambda: (
-                f"{track.danceability * 100:.0f}% dance"
-                if getattr(track, "danceability", None) is not None
-                else None
-            ),
-        )
-        _safe(
-            self._chip_valence,
-            lambda: (
-                f"{track.valence * 100:.0f}% valence"
-                if getattr(track, "valence", None) is not None
-                else None
-            ),
-        )
-        _safe(
-            self._chip_acousticness,
-            lambda: (
-                f"{track.acousticness * 100:.0f}% acoustic"
-                if getattr(track, "acousticness", None) is not None
-                else None
-            ),
-        )
-        _safe(
-            self._chip_liveness,
-            lambda: (
-                f"{track.liveness * 100:.0f}% live"
-                if getattr(track, "liveness", None) is not None
-                else None
-            ),
-        )
-        _safe(
-            self._chip_fidelity,
-            lambda: (
-                f"{track.fidelity_score * 100:.0f}% fidelity"
-                if getattr(track, "fidelity_score", None) is not None
-                else None
             ),
         )
 
