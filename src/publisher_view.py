@@ -230,8 +230,21 @@ class PublisherView(QWidget):
             logger.error(f"Error removing parent: {str(e)}")
 
     def initiate_merge(self):
-        """Open the merge dialog."""
-        merge_dialog = PublisherMergeDialog(self.controller, self)
+        """Open the merge dialog, pre-selecting the currently highlighted publisher."""
+        publisher_obj = None
+        item = self.publishers_tree.currentItem()
+        if item:
+            publisher_id = item.data(0, Qt.UserRole)
+            try:
+                publisher_obj = self.controller.get.get_entity_object(
+                    "Publisher", publisher_id=publisher_id
+                )
+            except Exception as e:
+                logger.error(f"Error fetching publisher for merge: {str(e)}")
+
+        merge_dialog = PublisherMergeDialog(
+            self.controller, self, publisher_obj=publisher_obj
+        )
         if merge_dialog.exec_() == QDialog.Accepted:
             self.load_publishers()
             logger.info("Publishers merged successfully.")
