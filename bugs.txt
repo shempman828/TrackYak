@@ -106,7 +106,7 @@ sync_view.py
 
 
 award_view.py
-    deleting an award does not reload the award list
+
 
 influences_view.py
 

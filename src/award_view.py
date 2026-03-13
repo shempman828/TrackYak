@@ -1,6 +1,7 @@
 from typing import Any, List
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -33,6 +34,7 @@ class AwardView(QWidget):
         super().__init__()
         self.controller = controller
         self.all_awards: List[Any] = []  # Safe default in case load_awards() fails
+        self._is_deleting = False  # Guard flag to block selection signal during delete
         self.init_ui()
         self.award_updated.connect(self.refresh_award_list)
         self.load_awards()
@@ -82,7 +84,7 @@ class AwardView(QWidget):
         self.award_tree = QTreeWidget()
         self.award_tree.setMinimumWidth(300)
         self.award_tree.setHeaderLabels(["Award"])
-        self.award_tree.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.award_tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.award_tree.setDragEnabled(True)
         self.award_tree.setAcceptDrops(True)
         self.award_tree.setDropIndicatorShown(True)
@@ -93,6 +95,10 @@ class AwardView(QWidget):
         self.award_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.award_tree.customContextMenuRequested.connect(self._show_context_menu)
         list_layout.addWidget(self.award_tree)
+
+        # Delete key shortcut (works when the tree has focus)
+        delete_shortcut = QShortcut(QKeySequence(Qt.Key_Delete), self.award_tree)
+        delete_shortcut.activated.connect(self._delete_selected_award)
 
         left_panel.addWidget(list_group)
 
@@ -112,10 +118,15 @@ class AwardView(QWidget):
         add_action = menu.addAction("Add New Award")
         add_action.triggered.connect(self._create_new_award)
 
-        # Only show delete action if an item is selected
-        selected_item = self.award_tree.currentItem()
-        if selected_item:
-            delete_action = menu.addAction("Delete Award")
+        # Only show delete action if one or more items are selected
+        selected_items = self.award_tree.selectedItems()
+        if selected_items:
+            label = (
+                f"Delete {len(selected_items)} Awards"
+                if len(selected_items) > 1
+                else "Delete Award"
+            )
+            delete_action = menu.addAction(label)
             delete_action.triggered.connect(self._delete_selected_award)
 
         # Show the menu at the cursor position
@@ -282,18 +293,21 @@ class AwardView(QWidget):
 
     def _on_award_selected(self) -> None:
         """Handle award selection and load detail tab."""
-        selected = self.award_tree.currentItem()
-        if not selected:
+        # Don't react to selection changes triggered by delete/reload
+        if self._is_deleting:
             return
 
+        selected_items = self.award_tree.selectedItems()
+        # Only open a detail tab when exactly one item is selected
+        if len(selected_items) != 1:
+            return
+
+        selected = selected_items[0]
         award_id = selected.data(0, Qt.UserRole)
         try:
             award = self.controller.get.get_entity_object("Award", award_id=award_id)
             if not award:
                 logger.warning(f"No award found with ID: {award_id}")
-                QMessageBox.warning(
-                    self, "Not Found", f"No award found with ID: {award_id}"
-                )
                 return
 
             # Check if tab already exists
@@ -481,65 +495,103 @@ class AwardView(QWidget):
             event.ignore()
 
     def _delete_selected_award(self) -> None:
-        """Delete the currently selected award after confirmation."""
-        selected_item = self.award_tree.currentItem()
-        if not selected_item:
+        """Delete all selected awards after confirmation."""
+        selected_items = self.award_tree.selectedItems()
+        if not selected_items:
             return
 
-        award_id = selected_item.data(0, Qt.UserRole)
+        # Collect the award IDs and objects for all selected items
+        selected_ids = [item.data(0, Qt.UserRole) for item in selected_items]
+        awards_to_delete = [a for a in self.all_awards if a.award_id in selected_ids]
 
-        # Find the award object to check for children
-        award_to_delete = None
-        for award in self.all_awards:
-            if award.award_id == award_id:
-                award_to_delete = award
-                break
-
-        if not award_to_delete:
+        if not awards_to_delete:
             return
 
-        # Use the real award name, not the formatted display text from the tree
-        award_name = award_to_delete.award_name
+        # Build the full set of IDs to delete (selected + all their descendants)
+        all_ids_to_delete: List[int] = []
+        for award in awards_to_delete:
+            if award.award_id not in all_ids_to_delete:
+                all_ids_to_delete.append(award.award_id)
+            for child_id in self._get_all_child_ids(award.award_id):
+                if child_id not in all_ids_to_delete:
+                    all_ids_to_delete.append(child_id)
 
-        # Check if award has children
-        has_children = any(a.parent_id == award_id for a in self.all_awards)
+        # Build confirmation message
+        has_children = any(
+            a.parent_id in selected_ids
+            for a in self.all_awards
+            if a.award_id not in selected_ids
+        )
 
-        if has_children:
-            reply = QMessageBox.warning(
-                self,
-                "Delete Award with Children",
-                f"'{award_name}' has child awards. Deleting it will also delete all its children.\n\nAre you sure you want to continue?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
+        if len(awards_to_delete) == 1:
+            award_name = awards_to_delete[0].award_name
+            if has_children:
+                message = (
+                    f"'{award_name}' has child awards. Deleting it will also "
+                    f"delete all its children.\n\nAre you sure you want to continue?"
+                )
+                title = "Delete Award with Children"
+            else:
+                message = f"Are you sure you want to delete '{award_name}'?"
+                title = "Delete Award"
         else:
-            reply = QMessageBox.question(
-                self,
-                "Delete Award",
-                f"Are you sure you want to delete '{award_name}'?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
+            names = ", ".join(f"'{a.award_name}'" for a in awards_to_delete)
+            message = f"Are you sure you want to delete {len(awards_to_delete)} awards: {names}?"
+            if has_children:
+                message += "\n\nThis will also delete their child awards."
+            title = "Delete Multiple Awards"
 
-        if reply == QMessageBox.Yes:
-            try:
-                # Collect IDs for this award and all its descendants
-                awards_to_close = [award_id] + self._get_all_child_ids(award_id)
+        reply = QMessageBox.question(
+            self,
+            title,
+            message,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
 
-                # Close tabs for the award being deleted and its children
-                for i in range(self.tab_widget.count() - 1, -1, -1):
-                    tab = self.tab_widget.widget(i)
-                    if hasattr(tab, "award") and tab.award.award_id in awards_to_close:
-                        self.tab_widget.removeTab(i)
+        if reply != QMessageBox.Yes:
+            return
 
-                # Delete the award (controller should handle cascade deletion)
+        try:
+            # Set guard flag so _on_award_selected ignores signals during reload
+            self._is_deleting = True
+
+            # Close any open tabs for awards being deleted
+            for i in range(self.tab_widget.count() - 1, -1, -1):
+                tab = self.tab_widget.widget(i)
+                if hasattr(tab, "award") and tab.award.award_id in all_ids_to_delete:
+                    self.tab_widget.removeTab(i)
+
+            # Delete each award (delete associations first to avoid FK errors)
+            deleted_names = []
+            for award_id in all_ids_to_delete:
+                try:
+                    # Remove any AwardAssociation rows that reference this award
+                    associations = self.controller.get.get_all_entities(
+                        "AwardAssociation", award_id=award_id
+                    )
+                    for assoc in associations:
+                        self.controller.delete.delete_entity(
+                            "AwardAssociation", assoc.association_id
+                        )
+                except Exception:
+                    pass  # If associations don't exist or fail, continue
+
                 self.controller.delete.delete_entity("Award", award_id)
+                award_obj = next(
+                    (a for a in self.all_awards if a.award_id == award_id), None
+                )
+                if award_obj:
+                    deleted_names.append(award_obj.award_name)
 
-                # Refresh the award list
-                self.load_awards()
+            logger.info(f"Deleted awards: {', '.join(deleted_names)}")
 
-                logger.info(f"Deleted award: {award_name} (ID: {award_id})")
+            # Reload the list now that deletion is done
+            self.load_awards()
 
-            except Exception as e:
-                logger.error(f"Error deleting award: {e}")
-                QMessageBox.critical(self, "Error", f"Failed to delete award: {e}")
+        except Exception as e:
+            logger.error(f"Error deleting award(s): {e}")
+            QMessageBox.critical(self, "Error", f"Failed to delete award(s): {e}")
+        finally:
+            # Always clear the guard flag
+            self._is_deleting = False
