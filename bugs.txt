@@ -128,3 +128,24 @@ artist_view.py
 playlist_view.py
     show track counts in parentheses (with recursive count too)
 
+2026-03-12 16:10:54,386 - INFO - artist_detail.py:96 - __init__() - Initialized ArtistDetailTab for artist: 90sFlav
+2026-03-12 16:10:54,916 - DEBUG - db_helpers.py:38 - query_entities() - Querying Artist (multiple=False) with filters: {'artist_id': 172}
+2026-03-12 16:10:56,588 - DEBUG - db_helpers.py:38 - query_entities() - Querying Artist (multiple=False) with filters: {'artist_id': 160}
+2026-03-12 16:10:56,628 - INFO - artist_detail.py:96 - __init__() - Initialized ArtistDetailTab for artist: 90s Flav
+2026-03-12 16:10:56,995 - DEBUG - db_helpers.py:38 - query_entities() - Querying Artist (multiple=False) with filters: {'artist_id': 160}
+2026-03-12 16:10:58,201 - DEBUG - db_helpers.py:38 - query_entities() - Querying Artist (multiple=True) with filters: {}
+2026-03-12 16:11:02,649 - DEBUG - db_helpers.py:38 - query_entities() - Querying Artist (multiple=False) with filters: {'artist_id': 172}
+2026-03-12 16:11:26,503 - DEBUG - db_helpers.py:446 - merge_entities() - Merging Artist ID 160 -> 172
+2026-03-12 16:11:26,503 - DEBUG - db_helpers.py:489 - merge_entities() - Found FK: artist_alias.artist_id -> artists.artist_id
+2026-03-12 16:11:26,504 - DEBUG - db_helpers.py:489 - merge_entities() - Found FK: artist_influences.influencer_id -> artists.artist_id
+2026-03-12 16:11:26,504 - DEBUG - db_helpers.py:489 - merge_entities() - Found FK: artist_influences.influenced_id -> artists.artist_id
+2026-03-12 16:11:26,504 - DEBUG - db_helpers.py:489 - merge_entities() - Found FK: track_artist_roles.artist_id -> artists.artist_id
+2026-03-12 16:11:26,505 - INFO - db_helpers.py:504 - merge_entities() - Updated 33 rows in track_artist_roles.artist_id
+2026-03-12 16:11:26,505 - DEBUG - db_helpers.py:489 - merge_entities() - Found FK: album_role_association.artist_id -> artists.artist_id
+2026-03-12 16:11:26,505 - INFO - db_helpers.py:504 - merge_entities() - Updated 1 rows in album_role_association.artist_id
+2026-03-12 16:11:26,505 - DEBUG - db_helpers.py:489 - merge_entities() - Found FK: group_membership.group_id -> artists.artist_id
+2026-03-12 16:11:26,505 - DEBUG - db_helpers.py:489 - merge_entities() - Found FK: group_membership.member_id -> artists.artist_id
+2026-03-12 16:11:26,909 - ERROR - db_helpers.py:526 - merge_entities() - Error merging Artist: (sqlite3.IntegrityError) UNIQUE constraint failed: artists.artist_name
+[SQL: UPDATE artists SET artist_name=?, begin_year=?, end_year=?, begin_month=?, begin_day=?, end_month=?, end_day=? WHERE artists.artist_id = ?]
+[parameters: ('90s Flav', 2025, 2026, 1, 1, 2, 1, 172)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)

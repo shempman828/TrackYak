@@ -380,6 +380,9 @@ class ArtistView(QWidget):
         add_group_action = menu.addAction("👥 Add Group")
         add_group_action.triggered.connect(self.add_new_group)
 
+        fuzzy_action = menu.addAction("🔎 Find Duplicate Artists…")
+        fuzzy_action.triggered.connect(self.find_fuzzy_matches)
+
         menu.exec_(self.artist_list.mapToGlobal(position))
 
     # ----------------------------
@@ -702,6 +705,127 @@ class ArtistView(QWidget):
             QMessageBox.warning(self, "Error", "Failed to update profile picture.")
 
     def find_fuzzy_matches(self):
-        """Open the fuzzy match dialog for duplicate detection."""
-        dialog = FuzzyMatchDialog(self.controller, self)
-        dialog.exec_()
+        """Generate fuzzy duplicate candidates and open the review dialog.
+
+        Uses a blocking strategy (first 3 chars of normalised name) to avoid
+        comparing all 23k artists against each other (O(n²) = ~265M pairs).
+        Blocking reduces this to only comparing artists that share the same
+        name prefix, cutting comparisons by ~99%.
+
+        The scan runs in a background thread so the UI stays responsive.
+        """
+        import re
+        from collections import defaultdict
+        from difflib import SequenceMatcher
+
+        from PySide6.QtCore import QThread, Signal
+
+        THRESHOLD = 0.85  # 85% similarity required to flag as a duplicate
+
+        # --- Load artists up front (fast DB call) ---
+        try:
+            artists = self.controller.get.get_all_entities("Artist")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load artists: {e}")
+            return
+
+        if not artists:
+            QMessageBox.information(self, "No Artists", "No artists found in database.")
+            return
+
+        # --- Show a progress dialog so the user knows work is happening ---
+        from PySide6.QtWidgets import QProgressDialog
+
+        progress = QProgressDialog(
+            "Scanning for duplicate artists…", "Cancel", 0, 0, self
+        )
+        progress.setWindowTitle("Duplicate Scan")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        progress.show()
+
+        # --- Background worker ---
+        class _ScanWorker(QThread):
+            finished = Signal(list)
+            error = Signal(str)
+
+            def __init__(self, artists, threshold):
+                super().__init__()
+                self._artists = artists
+                self._threshold = threshold
+                self._punct_re = re.compile(r"[^\w\s]")
+
+            def _normalise(self, text):
+                text = (text or "").lower()
+                text = self._punct_re.sub("", text)
+                return " ".join(text.split())
+
+            def run(self):
+                try:
+                    matches = []
+                    seen_pairs = set()
+
+                    # Build blocks keyed on first 3 chars of normalised name
+                    blocks = defaultdict(list)
+                    for artist in self._artists:
+                        key = self._normalise(artist.artist_name)[:3]
+                        if key:
+                            blocks[key].append(artist)
+
+                    # Only compare within each block
+                    for block in blocks.values():
+                        if len(block) < 2:
+                            continue
+                        for i, a in enumerate(block):
+                            for b in block[i + 1 :]:
+                                pair_key = (
+                                    min(a.artist_id, b.artist_id),
+                                    max(a.artist_id, b.artist_id),
+                                )
+                                if pair_key in seen_pairs:
+                                    continue
+                                seen_pairs.add(pair_key)
+
+                                ratio = SequenceMatcher(
+                                    None,
+                                    self._normalise(a.artist_name),
+                                    self._normalise(b.artist_name),
+                                ).ratio()
+
+                                if ratio >= self._threshold:
+                                    matches.append((a, b, round(ratio * 100)))
+
+                    self.finished.emit(matches)
+                except Exception as e:
+                    self.error.emit(str(e))
+
+        worker = _ScanWorker(artists, THRESHOLD)
+
+        def _on_finished(matches):
+            progress.close()
+            if not matches:
+                QMessageBox.information(
+                    self,
+                    "No Duplicates Found",
+                    f"No similar artist names found (threshold: {int(THRESHOLD * 100)}% similarity).",
+                )
+                return
+            dialog = FuzzyMatchDialog(matches, self.controller, self)
+            if dialog.exec_() == QDialog.Accepted:
+                self.load_artists()
+
+        def _on_error(msg):
+            progress.close()
+            QMessageBox.critical(self, "Scan Error", f"Duplicate scan failed:\n{msg}")
+
+        def _on_cancelled():
+            worker.quit()
+
+        worker.finished.connect(_on_finished)
+        worker.error.connect(_on_error)
+        progress.canceled.connect(_on_cancelled)
+
+        # Keep a reference so the worker isn't garbage collected
+        self._fuzzy_worker = worker
+        worker.start()
