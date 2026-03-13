@@ -1175,6 +1175,30 @@ class Playlist(Base):
         """get total file size of all tracks in playlist"""
         return sum(track.track.file_size or 0 for track in self.tracks)
 
+    @property
+    def recursive_track_count(self):
+        """Count unique tracks in this playlist and all descendant playlists."""
+
+        seen_playlists = set()
+        track_ids = set()
+
+        def walk(playlist):
+            if playlist.playlist_id in seen_playlists:
+                return
+
+            seen_playlists.add(playlist.playlist_id)
+
+            for pt in playlist.tracks:
+                if pt.track_id:
+                    track_ids.add(pt.track_id)
+
+            for child in playlist.children:
+                walk(child)
+
+        walk(self)
+
+        return len(track_ids)
+
 
 class SmartPlaylist(Base):
     __tablename__ = "smart_playlists"

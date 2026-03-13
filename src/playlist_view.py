@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
+    QTreeWidgetItemIterator,
     QVBoxLayout,
     QWidget,
 )
@@ -93,16 +94,45 @@ class PlaylistView(QWidget):
         main_layout.addWidget(self.tree)
         self.setLayout(main_layout)
 
+    def _get_expanded_ids(self) -> set:
+        """Walk the current tree and return the playlist IDs of all expanded items.
+
+        This is called just before clearing the tree so we can restore the same
+        expanded state after rebuilding it.
+        """
+        expanded = set()
+        iterator = QTreeWidgetItemIterator(self.tree)
+        while iterator.value():
+            item = iterator.value()
+            if item.isExpanded():
+                item_data = item.data(0, Qt.UserRole)
+                if item_data and len(item_data) == 2:
+                    expanded.add(item_data[1])
+            iterator += 1
+        return expanded
+
+    def _restore_expanded_ids(self, expanded_ids: set) -> None:
+        """Walk the newly built tree and re-expand any item whose ID was expanded before."""
+        iterator = QTreeWidgetItemIterator(self.tree)
+        while iterator.value():
+            item = iterator.value()
+            item_data = item.data(0, Qt.UserRole)
+            if item_data and len(item_data) == 2 and item_data[1] in expanded_ids:
+                item.setExpanded(True)
+            iterator += 1
+
     def load_playlists(self) -> None:
         """Load hierarchical playlists from the database."""
         try:
+            # Save which playlists were expanded before clearing the tree
+            expanded_ids = self._get_expanded_ids()
+
             self.tree.clear()
 
             # Fetch all playlists with their relationships
             playlists = self.controller.get.get_all_entities("Playlist") or []
 
             # Build hierarchy
-            playlist_map = {p.playlist_id: p for p in playlists}
             children_map = defaultdict(list)
 
             for playlist in playlists:
@@ -110,7 +140,10 @@ class PlaylistView(QWidget):
                 children_map[parent_id].append(playlist)
 
             # Build tree recursively from root (None parent)
-            self._build_tree(None, children_map, playlist_map, 0)
+            self._build_tree(None, children_map, 0)
+
+            # Restore the expanded state from before the rebuild
+            self._restore_expanded_ids(expanded_ids)
 
             logger.info("Playlist hierarchy loaded successfully")
 
@@ -153,6 +186,12 @@ class PlaylistView(QWidget):
 
         # Create new window - it will load fresh data in its constructor
         window = PlaylistTracksWindow(playlist_id, self.controller, self)
+        # Save the reference so we can reuse it if the user opens this playlist again
+        self.open_playlist_windows[playlist_id] = window
+        # Remove the reference when the window is closed so it can be garbage collected
+        window.destroyed.connect(
+            lambda: self.open_playlist_windows.pop(playlist_id, None)
+        )
         window.show()
 
     def show_context_menu(self, pos):
@@ -205,7 +244,7 @@ class PlaylistView(QWidget):
         menu.addAction("Delete", self.delete_selected)
         menu.exec_(self.tree.viewport().mapToGlobal(pos))
 
-    def _build_tree(self, parent_item, children_map, playlist_map, depth):
+    def _build_tree(self, parent_item, children_map, depth):
         """Recursively build playlist tree with smart playlist symbols."""
         parent_id = parent_item.data(0, Qt.UserRole)[1] if parent_item else None
 
@@ -219,6 +258,22 @@ class PlaylistView(QWidget):
             display_name = child.playlist_name
             if getattr(child, "is_smart", False):
                 display_name = f"🔍 {display_name}"
+
+            # --- Track count display ---
+            # Use the playlist's own properties — no recalculation needed here
+            own_count = getattr(child, "track_count", 0) or 0
+            recursive_total = (
+                getattr(child, "recursive_track_count", own_count) or own_count
+            )
+
+            if recursive_total != own_count:
+                # This playlist has sub-playlists with additional tracks
+                # e.g. "My Folder (3, 10 total)"
+                display_name = f"{display_name} ({own_count}, {recursive_total} total)"
+            else:
+                # Counts match — no need for a separate "total"
+                # e.g. "My Playlist (5)"
+                display_name = f"{display_name} ({own_count})"
 
             item = QTreeWidgetItem([display_name])
             item.setData(0, Qt.UserRole, ("playlist", child.playlist_id))
@@ -234,7 +289,7 @@ class PlaylistView(QWidget):
 
             # Recursively add children
             if depth < self.MAX_HIERARCHY_DEPTH:
-                self._build_tree(item, children_map, playlist_map, depth + 1)
+                self._build_tree(item, children_map, depth + 1)
 
     def _cleanup_editor(self, editor) -> None:
         """Remove reference to closed editor."""
@@ -337,7 +392,16 @@ class PlaylistView(QWidget):
         if not item_data or len(item_data) != 2:
             return
         item_type, item_id = item_data
-        name = item.text(0)
+
+        # Use the stored playlist object name, not item.text(0), which now
+        # includes the track count suffix like "(5)" or "(3, 10 total)".
+        try:
+            playlist_obj = self.controller.get.get_entity_object(
+                "Playlist", playlist_id=item_id
+            )
+            name = playlist_obj.playlist_name if playlist_obj else item.text(0)
+        except Exception:
+            name = item.text(0)
 
         confirm = QMessageBox.question(
             self,
@@ -444,21 +508,20 @@ class PlaylistView(QWidget):
         if success:
             self.load_playlists()
             self.playlist_updated.emit()
-            # Brief status message — find the track count to show
+            # Read the count directly from the playlist object — no extra DB call needed
             try:
-                tracks = self.controller.get.get_all_entities(
-                    "PlaylistTracks", playlist_id__eq=playlist_id
+                playlist_obj = self.controller.get.get_entity_object(
+                    "Playlist", playlist_id=playlist_id
                 )
-                count = len(tracks) if tracks else 0
-                QMessageBox.information(
-                    self,
-                    "Playlist Refreshed",
-                    f"Done! The playlist now contains {count} matching track(s).",
+                count = getattr(playlist_obj, "track_count", None)
+                msg = (
+                    f"Done! The playlist now contains {count} matching track(s)."
+                    if count is not None
+                    else "Playlist updated successfully."
                 )
             except Exception:
-                QMessageBox.information(
-                    self, "Playlist Refreshed", "Playlist updated successfully."
-                )
+                msg = "Playlist updated successfully."
+            QMessageBox.information(self, "Playlist Refreshed", msg)
         else:
             QMessageBox.warning(
                 self,
