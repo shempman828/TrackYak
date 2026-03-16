@@ -7,7 +7,7 @@ nowplaying_view.py
     Change some chips
     chips sometimes cut off?
     If names or chips are too long, they should pan/scroll slowly
-    Chips missing?
+    Chips missing on track change?
     player comes back in ctrl shft f mode after track change
 
 player_utility.py
@@ -86,8 +86,7 @@ track_edit_lyrics
     if lyrics are empty, that saves. This could be a big issue when editing multiple and the lyrics are overwritten with null
 
 disc management
-    adding a disc works but it does not appear in the track list.
-    adding disc does not let you specify number?
+
 
 statistics_dialog.py
 

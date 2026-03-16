@@ -231,11 +231,6 @@ class TrackSortingDisplay(QTreeWidget):
                 if data["disc"] and data["disc"].disc_title:
                     disc_title += f": {data['disc'].disc_title}"
 
-            # Skip disc groups that ended up with no tracks at all
-            # (shouldn't normally happen, but guards against bad data)
-            if not data["sides"] and not data["tracks"]:
-                continue
-
             disc_item = QTreeWidgetItem(self, [disc_title])
             disc_item.setData(0, Qt.UserRole, data["disc"])
             disc_item.setExpanded(True)
