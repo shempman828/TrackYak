@@ -1,28 +1,5 @@
 """
 base_album_edit.py
-
-Unified Album Editor dialog.
-
-Each tab is implemented as a private inner class so its state and helpers stay
-self-contained, while still having access to the parent AlbumEditor via the
-`editor` reference passed to every tab on construction.
-
-Changes from previous version
-──────────────────────────────
-• Tab inner classes: DetailsTab, TracksTab, ArtworkTab, AliasesTab, AdvancedTab
-  (Artist Credits / Publishers & Places / Awards are still built by AlbumTabBuilder
-   in album_tab.py — those require the RelationshipHelpers wiring that lives there.)
-• Removed "Change Cover" button from the header — use the Artwork tab instead.
-• Cover art fix: after picking a cover, header thumbnail is reloaded immediately;
-  album_view.py must open AlbumEditor directly (not embed it in a second QDialog).
-• Publisher / relationship tab reload: refresh_view() now always rebuilds the
-  Publishers & Places tab so adding/removing publishers shows immediately.
-• Nullable int fields: QSpinBox fields now include a "Clear" checkbox so users
-  can explicitly set a value back to NULL. Empty QLineEdit also saves as None.
-• Default size bumped to 1100 × 750.
-• Redundant standalone Close button removed (Save/Cancel close the dialog).
-• setWindowFlag(Qt.Window) added so the dialog floats independently of the
-  parent window.
 """
 
 import shutil
@@ -34,14 +11,11 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -59,20 +33,7 @@ from src.album_tab import AlbumTabBuilder
 from src.asset_paths import ALBUM_ART_DIR
 from src.config_setup import Config
 from src.db_mapping_albums import ALBUM_FIELDS
-from src.disc_view import DiscManagementView
 from src.logger_config import logger
-
-# Alias types (adapted from ArtistAlias convention)
-ALBUM_ALIAS_TYPES = [
-    "",
-    "Also Known As",
-    "Localized Title",
-    "Romanized Title",
-    "Phonetic Title",
-    "Working Title",
-    "Subtitle Variant",
-    "Other",
-]
 
 
 def _sanitize_filename(name: str) -> str:
@@ -204,7 +165,7 @@ class AlbumEditor(QDialog):
                 continue
             current_value = getattr(self.album, field_name, None)
 
-            if field_config.type == int and field_name in NULLABLE_INT_FIELDS:
+            if field_config.type is int and field_name in NULLABLE_INT_FIELDS:
                 min_val = field_config.min if field_config.min is not None else 0
                 max_val = (
                     field_config.max if field_config.max is not None else 9_999_999
@@ -238,7 +199,7 @@ class AlbumEditor(QDialog):
         content_layout = QVBoxLayout(content_widget)
         content_layout.setSpacing(16)
 
-        content_layout.addWidget(self._build_header_section())
+        content_layout.addWidget(self._build_collapsible_header())
 
         self.tabs = QTabWidget()
         self._details_tab = self.DetailsTab(self)
@@ -267,8 +228,58 @@ class AlbumEditor(QDialog):
         self._add_dialog_buttons(main_layout)
 
     # =========================================================================
-    # Header section  (cover thumbnail + editable info — no Change Cover btn)
+    # Header section  (cover thumbnail + editable info — collapsible)
     # =========================================================================
+
+    def _build_collapsible_header(self) -> QWidget:
+        """A slim toggle bar + the full header content underneath.
+
+        The toggle bar is always visible and shows the album name so you always
+        know what you are editing. Clicking the ▼/▶ arrow shows or hides the
+        full header (cover image, description, links) so that tab space is not
+        wasted while you are deep-editing tracks or relationships.
+        """
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+
+        # ── Always-visible toggle bar ──────────────────────────────────────
+        toggle_bar = QWidget()
+        toggle_bar.setStyleSheet(
+            "background: #1e1e2e; border-radius: 4px; padding: 2px 4px;"
+        )
+        bar_row = QHBoxLayout(toggle_bar)
+        bar_row.setContentsMargins(8, 4, 8, 4)
+        bar_row.setSpacing(10)
+
+        self._header_toggle_btn = QPushButton("▼")
+        self._header_toggle_btn.setFixedSize(24, 24)
+        self._header_toggle_btn.setToolTip("Show / hide the album header panel")
+        self._header_toggle_btn.setStyleSheet(
+            "QPushButton { border: none; color: #aaa; font-size: 12px; }"
+            "QPushButton:hover { color: #fff; }"
+        )
+        self._header_toggle_btn.clicked.connect(self._toggle_header)
+        bar_row.addWidget(self._header_toggle_btn)
+
+        album_name_lbl = QLabel(f"<b>{self.album.album_name}</b>")
+        album_name_lbl.setStyleSheet("color: #ddd; font-size: 13px;")
+        bar_row.addWidget(album_name_lbl, 1)
+
+        container_layout.addWidget(toggle_bar)
+
+        # ── Collapsible header content ─────────────────────────────────────
+        self._header_content = self._build_header_section()
+        container_layout.addWidget(self._header_content)
+
+        return container
+
+    def _toggle_header(self):
+        """Show or hide the full header panel and flip the arrow."""
+        visible = self._header_content.isVisible()
+        self._header_content.setVisible(not visible)
+        self._header_toggle_btn.setText("▶" if visible else "▼")
 
     def _build_header_section(self):
         """Cover image on the left; editable album info on the right."""
@@ -362,294 +373,62 @@ class AlbumEditor(QDialog):
         layout.addWidget(self.desc_widget)
 
         # External links
-        links_row = QHBoxLayout()
-        links_row.setSpacing(8)
+        self._links_row = QHBoxLayout()
+        self._links_row.setSpacing(8)
 
-        wiki_link = getattr(self.album, "album_wikipedia_link", None)
-        if wiki_link:
-            wiki_btn = QPushButton("🌐 Wikipedia")
-            wiki_btn.setToolTip(wiki_link)
-            wiki_btn.clicked.connect(lambda: webbrowser.open(wiki_link))
-            links_row.addWidget(wiki_btn)
+        self._wiki_btn = None
+        self._mb_btn = None
 
-        mbid = getattr(self.album, "MBID", None)
-        if mbid:
-            mb_url = f"https://musicbrainz.org/release/{mbid}"
-            mb_btn = QPushButton("🎵 MusicBrainz")
-            mb_btn.setToolTip(mb_url)
-            mb_btn.clicked.connect(lambda: webbrowser.open(mb_url))
-            links_row.addWidget(mb_btn)
+        self._rebuild_link_buttons()
 
         wiki_search_btn = QPushButton("🔍 Search Wikipedia…")
         wiki_search_btn.clicked.connect(self._search_wikipedia)
-        links_row.addWidget(wiki_search_btn)
-        links_row.addStretch()
-        layout.addLayout(links_row)
+        self._links_row.addWidget(wiki_search_btn)
+        self._links_row.addStretch()
+        layout.addLayout(self._links_row)
 
         return widget
 
     # =========================================================================
-    # Inner tab classes
+    # Link button helpers  (called after Wikipedia search saves a link)
     # =========================================================================
 
-    class DetailsTab:
-        """Core metadata: language, type, catalog #, flags, sales, MBID."""
+    def _rebuild_link_buttons(self):
+        """Add / refresh the Wikipedia and MusicBrainz buttons in the header links row.
 
-        def __init__(self, editor: "AlbumEditor"):
-            self.editor = editor
-
-        def build(self) -> QWidget:
-            tab = QWidget()
-            outer = QHBoxLayout(tab)
-            outer.setSpacing(24)
-            outer.setContentsMargins(12, 12, 12, 12)
-
-            left = QVBoxLayout()
-            left.setSpacing(10)
-
-            def _row(label_text, field_name):
-                row = QHBoxLayout()
-                lbl = QLabel(label_text)
-                lbl.setFixedWidth(130)
-                row.addWidget(lbl)
-                w = self.editor.field_widgets.get(field_name)
-                if w:
-                    row.addWidget(w, 1)
-                left.addLayout(row)
-
-            _row("Language:", "album_language")
-            _row("Release Type:", "release_type")
-            _row("Catalog Number:", "catalog_number")
-            _row("MBID:", "MBID")
-            _row("Status:", "status")
-            _row("Est. Sales:", "estimated_sales")
-            left.addStretch()
-
-            right = QVBoxLayout()
-            right.setSpacing(10)
-            for field_name in ("is_fixed", "is_live", "is_compilation"):
-                w = self.editor.field_widgets.get(field_name)
-                if w:
-                    right.addWidget(w)
-            right.addStretch()
-
-            outer.addLayout(left, 1)
-            outer.addLayout(right, 1)
-            return tab
-
-    # -------------------------------------------------------------------------
-
-    class TracksTab:
-        """Disc / track management view."""
-
-        def __init__(self, editor: "AlbumEditor"):
-            self.editor = editor
-
-        def build(self) -> QWidget:
-            tab = QWidget()
-            layout = QVBoxLayout(tab)
-            layout.setContentsMargins(0, 0, 0, 0)
-            disc_view = DiscManagementView(
-                self.editor.album, self.editor.controller, parent=tab
-            )
-            layout.addWidget(disc_view)
-            return tab
-
-    # -------------------------------------------------------------------------
-
-    class ArtworkTab:
-        """Front cover, rear cover, and liner art — each with a pick + clear button.
-
-        After any cover change the parent editor's header thumbnail is refreshed
-        immediately so the two stay in sync.
+        Called once during construction and again any time a Wikipedia link is
+        saved so the button appears immediately without reopening the editor.
         """
+        # Remove old buttons if they exist
+        for btn_attr in ("_wiki_btn", "_mb_btn"):
+            btn = getattr(self, btn_attr, None)
+            if btn is not None:
+                self._links_row.removeWidget(btn)
+                btn.deleteLater()
+                setattr(self, btn_attr, None)
 
-        def __init__(self, editor: "AlbumEditor"):
-            self.editor = editor
+        wiki_link = getattr(self.album, "album_wikipedia_link", None)
+        # Also check the live widget value in case the user typed it in Advanced tab
+        if not wiki_link:
+            w = self.field_widgets.get("album_wikipedia_link")
+            if w is not None and hasattr(w, "text"):
+                wiki_link = w.text().strip() or None
 
-        def build(self) -> QWidget:
-            tab = QWidget()
-            layout = QHBoxLayout(tab)
-            layout.setContentsMargins(10, 10, 10, 10)
-            layout.setSpacing(16)
+        if wiki_link:
+            self._wiki_btn = QPushButton("🌐 Wikipedia")
+            self._wiki_btn.setToolTip(wiki_link)
+            _url = wiki_link  # capture for lambda
+            self._wiki_btn.clicked.connect(lambda: webbrowser.open(_url))
+            self._links_row.insertWidget(0, self._wiki_btn)
 
-            for cover_type, attr, label in (
-                ("front", "front_cover_path", "Front Cover"),
-                ("rear", "rear_cover_path", "Rear Cover"),
-                ("liner", "album_liner_path", "Liner Art"),
-            ):
-                group = QGroupBox(label)
-                g_layout = QVBoxLayout(group)
-
-                display = QLabel()
-                display.setAlignment(Qt.AlignCenter)
-                display.setFixedSize(250, 250)
-                display.setStyleSheet("border: 1px solid #555; background: #2a2a2a;")
-                display.setWordWrap(True)
-                # Store on the editor so _pick_cover / _clear_cover can reach them
-                setattr(self.editor, f"{cover_type}_cover_display", display)
-                g_layout.addWidget(display)
-
-                btn_row = QHBoxLayout()
-                pick_btn = QPushButton("Choose…")
-                pick_btn.clicked.connect(
-                    lambda checked=False, ct=cover_type: self.editor._pick_cover(ct)
-                )
-                clear_btn = QPushButton("Clear")
-                clear_btn.clicked.connect(
-                    lambda checked=False, ct=cover_type: self.editor._clear_cover(ct)
-                )
-                btn_row.addWidget(pick_btn)
-                btn_row.addWidget(clear_btn)
-                g_layout.addLayout(btn_row)
-
-                path_label = QLabel()
-                path_label.setWordWrap(True)
-                path_label.setStyleSheet("color: #888; font-size: 10px;")
-                setattr(self.editor, f"{cover_type}_path_label", path_label)
-                g_layout.addWidget(path_label)
-
-                layout.addWidget(group)
-
-            self.editor._load_artwork_previews()
-            return tab
-
-    # -------------------------------------------------------------------------
-
-    class AliasesTab:
-        """List existing aliases; allow adding and removing them inline."""
-
-        def __init__(self, editor: "AlbumEditor"):
-            self.editor = editor
-
-        def build(self) -> QWidget:
-            tab = QWidget()
-            layout = QVBoxLayout(tab)
-            layout.setContentsMargins(12, 12, 12, 12)
-            layout.setSpacing(10)
-
-            info = QLabel(
-                "Aliases are alternative titles for this album "
-                "(e.g. localized names, working titles)."
-            )
-            info.setWordWrap(True)
-            layout.addWidget(info)
-
-            # Alias list container — rebuilt on refresh
-            self.editor.aliases_container = QWidget()
-            self.editor.aliases_layout = QVBoxLayout(self.editor.aliases_container)
-            self.editor.aliases_layout.setSpacing(4)
-            layout.addWidget(self.editor.aliases_container)
-
-            self.editor._refresh_aliases_list()
-
-            # Inline add row
-            add_group = QGroupBox("Add New Alias")
-            add_row = QHBoxLayout(add_group)
-
-            self.editor.new_alias_name = QLineEdit()
-            self.editor.new_alias_name.setPlaceholderText("Alias name…")
-            add_row.addWidget(self.editor.new_alias_name, 2)
-
-            self.editor.new_alias_type = QComboBox()
-            self.editor.new_alias_type.addItems(ALBUM_ALIAS_TYPES)
-            add_row.addWidget(self.editor.new_alias_type, 1)
-
-            add_btn = QPushButton("Add Alias")
-            add_btn.clicked.connect(self.editor._add_alias)
-            add_row.addWidget(add_btn)
-
-            layout.addWidget(add_group)
-            layout.addStretch()
-            return tab
-
-    # -------------------------------------------------------------------------
-
-    class AdvancedTab:
-        """ReplayGain, Wikipedia link, and read-only library stats."""
-
-        def __init__(self, editor: "AlbumEditor"):
-            self.editor = editor
-
-        def build(self) -> QWidget:
-            tab = QWidget()
-            layout = QVBoxLayout(tab)
-            layout.setContentsMargins(12, 12, 12, 12)
-            layout.setSpacing(10)
-
-            def _row(label_text, field_name):
-                row = QHBoxLayout()
-                lbl = QLabel(label_text)
-                lbl.setFixedWidth(160)
-                row.addWidget(lbl)
-                w = self.editor.field_widgets.get(field_name)
-                if w:
-                    row.addWidget(w, 1)
-                layout.addLayout(row)
-
-            _row("Wikipedia Link:", "album_wikipedia_link")
-
-            rg_label = QLabel("ReplayGain")
-            rg_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
-            layout.addWidget(rg_label)
-            _row("Album Gain (dB):", "album_gain")
-            _row("Album Peak:", "album_peak")
-
-            stats_label = QLabel("Library Stats")
-            stats_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
-            layout.addWidget(stats_label)
-
-            def _read_only_row(label_text, value_text):
-                row = QHBoxLayout()
-                lbl = QLabel(label_text)
-                lbl.setFixedWidth(160)
-                row.addWidget(lbl)
-                val = QLabel(value_text)
-                row.addWidget(val)
-                row.addStretch()
-                layout.addLayout(row)
-
-            album = self.editor.album
-            track_count = len(album.tracks) if album.tracks else 0
-            _read_only_row("Track Count:", str(track_count))
-
-            total_plays = getattr(album, "total_plays", None)
-            _read_only_row(
-                "Total Plays:", str(total_plays) if total_plays is not None else "—"
-            )
-
-            avg_rating = getattr(album, "average_rating", None)
-            if avg_rating is not None:
-                try:
-                    display_rating = f"{float(avg_rating):.2f}"
-                except (TypeError, ValueError):
-                    display_rating = str(avg_rating)
-            else:
-                display_rating = "—"
-            _read_only_row("Average Rating:", display_rating)
-
-            possibly_incomplete = getattr(album, "possibly_incomplete", None)
-            inc_text = (
-                "—"
-                if possibly_incomplete is None
-                else ("Yes ⚠️" if possibly_incomplete else "No")
-            )
-            _read_only_row("Possibly Incomplete:", inc_text)
-
-            has_all_track_numbers = getattr(album, "has_all_track_numbers", None)
-            tn_text = (
-                "—"
-                if has_all_track_numbers is None
-                else ("Yes ✓" if has_all_track_numbers else "No ✗")
-            )
-            _read_only_row("Has All Track #s:", tn_text)
-
-            cert = getattr(album, "RIAA_certification", None)
-            if cert:
-                _read_only_row("RIAA Certification:", cert)
-
-            layout.addStretch()
-            return tab
+        mbid = getattr(self.album, "MBID", None)
+        if mbid:
+            mb_url = f"https://musicbrainz.org/release/{mbid}"
+            self._mb_btn = QPushButton("🎵 MusicBrainz")
+            self._mb_btn.setToolTip(mb_url)
+            self._mb_btn.clicked.connect(lambda: webbrowser.open(mb_url))
+            insert_idx = 1 if self._wiki_btn is not None else 0
+            self._links_row.insertWidget(insert_idx, self._mb_btn)
 
     # =========================================================================
     # Alias helpers  (called by AliasesTab, kept on the editor for
@@ -691,7 +470,7 @@ class AlbumEditor(QDialog):
         if not alias_name:
             QMessageBox.warning(self, "Missing Name", "Please enter an alias name.")
             return
-        alias_type = self.new_alias_type.currentText().strip() or None
+        alias_type = self.new_alias_type.text().strip() or None
         try:
             self.controller.add.add_entity(
                 "AlbumAlias",
@@ -700,7 +479,7 @@ class AlbumEditor(QDialog):
                 alias_type=alias_type,
             )
             self.new_alias_name.clear()
-            self.new_alias_type.setCurrentIndex(0)
+            self.new_alias_type.clear()
             self.album = self.controller.get.get_entity_object(
                 "Album", album_id=self.album.album_id
             )
@@ -1021,8 +800,11 @@ class AlbumEditor(QDialog):
 
         if selected.get("link"):
             w = self.field_widgets.get("album_wikipedia_link")
-            if w and hasattr(w, "setText"):
+            if w is not None and hasattr(w, "setText"):
                 w.setText(selected["link"])
+            # Update the album object so _rebuild_link_buttons picks up the new URL
+            self.album.album_wikipedia_link = selected["link"]
+            self._rebuild_link_buttons()
 
         role_to_cover = {
             "Front Cover": "front",
@@ -1153,7 +935,7 @@ class AlbumEditor(QDialog):
 
         Always rebuilds the Publishers & Places tab so adding/removing a
         publisher is immediately visible without switching tabs.
-        Also rebuilds the currently active tab.
+        Also rebuilds the currently active tab if it is a different tab.
         """
         try:
             updated = self.controller.get.get_entity_object(
@@ -1164,11 +946,15 @@ class AlbumEditor(QDialog):
                 self.helper.album = updated
                 self.tab_builder.album = updated
 
-            # Always refresh Publishers & Places (index 5)
+            # Always refresh Publishers & Places
             self._rebuild_tab_by_title("Publishers && Places")
 
-            # Rebuild whichever tab is currently visible (may be the same tab — safe)
-            self._rebuild_current_tab()
+            # Only rebuild the current tab if it is a different tab — avoids a
+            # double-rebuild (and the flash of the tab switching) when the user
+            # is already on the Publishers & Places tab.
+            current_title = self.tabs.tabText(self.tabs.currentIndex())
+            if current_title != "Publishers && Places":
+                self._rebuild_current_tab()
 
             logger.info("Album view refreshed")
         except Exception as e:
