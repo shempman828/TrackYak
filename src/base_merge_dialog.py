@@ -71,7 +71,24 @@ class MergeDBDialog(QDialog):
 
         # Source column with enhanced features
         source_col = QVBoxLayout()
-        source_col.addWidget(QLabel(f"Source {self.model_name} (will be deleted):"))
+        source_col.addWidget(
+            QLabel(f"<b>Source {self.model_name}</b> (will be deleted):")
+        )
+
+        # Source info display — shown ABOVE the list so it's clearly the selected item
+        self.source_info = QLabel("No entity selected")
+        self.source_info.setWordWrap(True)
+        self.source_info.setObjectName("entityInfoBox")
+        self.source_info.setStyleSheet(
+            "QLabel#entityInfoBox {"
+            "  border: 1px solid palette(mid);"
+            "  border-radius: 3px;"
+            "  padding: 4px 6px;"
+            "  background: palette(base);"
+            "  min-height: 36px;"
+            "}"
+        )
+        source_col.addWidget(self.source_info)
 
         # Source search with "Find Similar" button
         source_search_layout = QHBoxLayout()
@@ -98,14 +115,24 @@ class MergeDBDialog(QDialog):
         self.source_list.itemClicked.connect(lambda i: self._select_entity(i, "source"))
         source_col.addWidget(self.source_list)
 
-        # Source info display
-        self.source_info = QLabel("No entity selected")
-        self.source_info.setWordWrap(True)
-        source_col.addWidget(self.source_info)
-
         # Target column with enhanced features
         target_col = QVBoxLayout()
-        target_col.addWidget(QLabel(f"Target {self.model_name} (will be kept):"))
+        target_col.addWidget(QLabel(f"<b>Target {self.model_name}</b> (will be kept):"))
+
+        # Target info display — shown ABOVE the list so it's clearly the selected item
+        self.target_info = QLabel("No entity selected")
+        self.target_info.setWordWrap(True)
+        self.target_info.setObjectName("entityInfoBox")
+        self.target_info.setStyleSheet(
+            "QLabel#entityInfoBox {"
+            "  border: 1px solid palette(mid);"
+            "  border-radius: 3px;"
+            "  padding: 4px 6px;"
+            "  background: palette(base);"
+            "  min-height: 36px;"
+            "}"
+        )
+        target_col.addWidget(self.target_info)
 
         # Target search with "Find Similar" button
         target_search_layout = QHBoxLayout()
@@ -131,11 +158,6 @@ class MergeDBDialog(QDialog):
         self.target_list = QListWidget()
         self.target_list.itemClicked.connect(lambda i: self._select_entity(i, "target"))
         target_col.addWidget(self.target_list)
-
-        # Target info display
-        self.target_info = QLabel("No entity selected")
-        self.target_info.setWordWrap(True)
-        target_col.addWidget(self.target_info)
 
         cols.addLayout(source_col)
         cols.addLayout(target_col)
@@ -560,25 +582,50 @@ class MergeDBDialog(QDialog):
             scroll_layout.addWidget(
                 QLabel(
                     "<h3>Resolve Conflicts</h3>"
-                    "Select which values to keep for each conflicting field:"
+                    "Select which value to keep for each conflicting field:"
                 )
             )
+            scroll_layout.addSpacing(8)
 
             for field, (s_val, t_val) in conflicts.items():
-                scroll_layout.addWidget(QLabel(f"<b>{field}</b>"))
+                # --- Card widget: gives each field a visible box ---
+                card = QWidget()
+                card.setObjectName("conflictCard")
+                card.setStyleSheet(
+                    "QWidget#conflictCard {"
+                    "  border: 1px solid palette(mid);"
+                    "  border-radius: 4px;"
+                    "  padding: 6px;"
+                    "  margin-bottom: 6px;"
+                    "}"
+                )
+                # Limit the card width so buttons don't stretch edge-to-edge
+                card.setMaximumWidth(560)
+
+                card_layout = QVBoxLayout(card)
+                card_layout.setSpacing(4)
+                card_layout.setContentsMargins(8, 6, 8, 6)
+
+                # Field name label
+                field_label = QLabel(f"<b>{field}</b>")
+                card_layout.addWidget(field_label)
+
                 group = QButtonGroup(self)
-                row = QHBoxLayout()
 
                 s_display = self._format_value_for_display(s_val)
                 t_display = self._format_value_for_display(t_val)
 
-                s_radio = QRadioButton(f"Source: {s_display}")
-                t_radio = QRadioButton(f"Target: {t_display}")
+                source_name = getattr(self.source_entity, self.name_attr, "Source")
+                target_name = getattr(self.target_entity, self.name_attr, "Target")
+
+                # Radio buttons stacked vertically — much easier to read
+                s_radio = QRadioButton(f"Keep Source ({source_name}):  {s_display}")
+                t_radio = QRadioButton(f"Keep Target ({target_name}):  {t_display}")
 
                 group.addButton(s_radio)
                 group.addButton(t_radio)
-                row.addWidget(s_radio)
-                row.addWidget(t_radio)
+                card_layout.addWidget(s_radio)
+                card_layout.addWidget(t_radio)
 
                 # Default to Target if source is empty, otherwise Source
                 if s_val is None or s_val == "":
@@ -587,18 +634,27 @@ class MergeDBDialog(QDialog):
                     s_radio.setChecked(True)
 
                 self.radio_groups[field] = group
+
+                # Left-align the card instead of stretching it
+                row = QHBoxLayout()
+                row.addWidget(card)
+                row.addStretch()
                 scroll_layout.addLayout(row)
 
+        scroll_layout.addStretch()
         scroll.setWidget(content)
         layout.addWidget(scroll)
 
-        # Merge button
-        merge_layout = QHBoxLayout()
-        merge_layout.addStretch()
+        # Footer: Cancel on left, Confirm Merge on right
+        footer = QHBoxLayout()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        footer.addWidget(cancel_btn)
+        footer.addStretch()
         merge_btn = QPushButton("Confirm Merge")
         merge_btn.clicked.connect(self._on_merge)
-        merge_layout.addWidget(merge_btn)
-        layout.addLayout(merge_layout)
+        footer.addWidget(merge_btn)
+        layout.addLayout(footer)
 
         self.stack.addWidget(resolve_page)
         self.stack.setCurrentIndex(1)
@@ -613,16 +669,52 @@ class MergeDBDialog(QDialog):
             return value[:47] + "..."
         return str(value)
 
+    def _is_skippable_field(self, attr, value):
+        """Return True for fields that should never be shown as merge choices.
+
+        Skipped categories:
+        - Relationship fields: lists or ORM-mapped objects (not plain Python types)
+        - Auto-generated IDs: any attribute ending in '_id'
+        - Timestamps: any attribute ending in '_at' or named 'created_*' / 'updated_*'
+        """
+        # Skip ID columns (primary keys and foreign keys)
+        if attr.endswith("_id"):
+            return True
+
+        # Skip timestamp columns
+        if (
+            attr.endswith("_at")
+            or attr.startswith("created_")
+            or attr.startswith("updated_")
+        ):
+            return True
+
+        # Skip relationship fields — these are lists or mapped ORM objects,
+        # not simple scalar values the user can meaningfully choose between.
+        if isinstance(value, list):
+            return True
+        plain_types = (str, int, float, bool, type(None))
+        if not isinstance(value, plain_types):
+            return True
+
+        return False
+
     def _get_conflicts(self):
-        """Detect differences between source and target."""
+        """Detect differences between source and target, excluding non-mergeable fields."""
         conflicts = {}
         for attr in vars(self.source_entity):
             if attr.startswith("_") or attr in ("metadata", self.id_attr):
                 continue
-            s_val, t_val = (
-                getattr(self.source_entity, attr),
-                getattr(self.target_entity, attr),
-            )
+
+            s_val = getattr(self.source_entity, attr)
+            t_val = getattr(self.target_entity, attr)
+
+            # Skip fields that should not be presented as merge choices
+            if self._is_skippable_field(attr, s_val) or self._is_skippable_field(
+                attr, t_val
+            ):
+                continue
+
             if s_val != t_val:
                 conflicts[attr] = (s_val, t_val)
         return conflicts
