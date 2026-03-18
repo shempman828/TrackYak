@@ -49,7 +49,12 @@ class LyricsTab(_BaseTab):
         self.tracks = tracks
         self._dirty.clear()
         if self.is_multi:
+            # Block signals so setting the placeholder empty text does NOT
+            # mark lyrics as dirty — we never want to overwrite all tracks
+            # with null just because we cleared the box on load.
+            self._edit.blockSignals(True)
             self._edit.setPlainText("")
+            self._edit.blockSignals(False)
             self._search_btn.setEnabled(False)
         else:
             val = getattr(self.track, "lyrics", None) or ""

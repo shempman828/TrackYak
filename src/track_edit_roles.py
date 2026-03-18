@@ -139,6 +139,10 @@ class RolesTab(_BaseTab):
                 items = results if isinstance(results, list) else [results]
                 for a in items:
                     self._artist_combo.addItem(a.artist_name, a.artist_id)
+                # Auto-select the first real match so "Create new" isn't the default
+                # when matching artists already exist.
+                if items:
+                    self._artist_combo.setCurrentIndex(1)
             self._artist_combo.setVisible(self._artist_combo.count() > 1)
         else:
             self._artist_combo.setVisible(False)

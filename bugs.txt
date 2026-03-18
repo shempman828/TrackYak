@@ -77,13 +77,13 @@ wikipedia search
 
 
 track_editing
-    cannot move dialog independently of parent
+
 
 track_edit_roles
-    searching artist defaults to making new instead of matching existing even when name matches
+
 
 track_edit_lyrics
-    if lyrics are empty, that saves. This could be a big issue when editing multiple and the lyrics are overwritten with null
+
 
 disc management
 

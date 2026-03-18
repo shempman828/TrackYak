@@ -1,25 +1,13 @@
 # track_edit.py
 """
-Track editing dialog — clean architecture.
-
-Design rules:
-  - ONE file. No external loaders/searchers modules.
-  - Each tab is a self-contained QWidget subclass.
-    It receives (tracks, controller) and owns its own load/save/search logic.
-    It NEVER reaches back into the parent dialog.
-  - TrackEditDialog accepts a single track OR a list of tracks.
-    is_multi is a flag, not a separate class.
-  - The dialog's Save button calls tab.collect_changes() on every tab and
-    commits everything in one pass.
-  - Relationship tabs (roles, genres, places, moods, awards, samples) write
-    directly to the database on Add/Remove — no deferred save needed.
+Track editing dialog.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Union
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
@@ -70,7 +58,9 @@ class TrackEditDialog(QDialog):
         controller,
         parent=None,
     ):
-        super().__init__(parent)
+        # Qt.Window makes this a proper independent top-level window
+        # so it can be moved freely, separate from the parent window.
+        super().__init__(parent, Qt.Window)
 
         # Normalise to a list
         if isinstance(track_or_tracks, list):
