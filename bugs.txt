@@ -41,7 +41,7 @@ db_tables.py
 
 
 queue_utility.py
-    queue is not saving and loading properly ini does not appear to update
+
 
 album_editing_relationship_helpers.py
     changing a relationship does not update tab

@@ -307,8 +307,12 @@ class QueueManager(QObject):
             save_queue = self.queue[: SAVE_UPCOMING_LIMIT + 1]
             queue_ids = ",".join(str(t.track_id) for t in save_queue)
 
-            self.config.set("queue", "history_ids", history_ids)
-            self.config.set("queue", "queue_ids", queue_ids)
+            # self.config is the Config wrapper; self.config.config is the actual
+            # configparser object that has the .set() method we need.
+            if not self.config.config.has_section("queue"):
+                self.config.config.add_section("queue")
+            self.config.config.set("queue", "history_ids", history_ids)
+            self.config.config.set("queue", "queue_ids", queue_ids)
 
             # Flush to disk so the .ini file actually updates
             self.config.save()
@@ -335,8 +339,10 @@ class QueueManager(QObject):
             return False
 
         try:
-            history_ids_str = self.config.get("queue", "history_ids", fallback="")
-            queue_ids_str = self.config.get("queue", "queue_ids", fallback="")
+            history_ids_str = self.config.config.get(
+                "queue", "history_ids", fallback=""
+            )
+            queue_ids_str = self.config.config.get("queue", "queue_ids", fallback="")
 
             if not queue_ids_str and not history_ids_str:
                 return False

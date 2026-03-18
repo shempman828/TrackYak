@@ -1,35 +1,5 @@
 """
 queue_dock.py — QueueDockWidget
-
-Design
-──────
-The dock is split into two visual zones:
-
-  ┌─────────────────────────────────┐
-  │  ▶  Now Playing (pinned)        │  ← always visible, never scrolls
-  │     Artist — Album              │
-  ├─────────────────────────────────┤
-  │  UPCOMING  [count]  [shuffle]   │  ← section header + controls
-  ├─────────────────────────────────┤
-  │  1. Track name                  │  ← lazy-loaded QListView
-  │  2. Track name                  │    shows PAGE_SIZE rows at a time,
-  │  ...                            │    appends more on scroll
-  └─────────────────────────────────┘
-
-The QListView is backed by _QueueModel — a QAbstractListModel that holds
-the full queue slice (upcoming only) but is never rebuilt from scratch on
-every change.  Updates are surgical: beginInsertRows / endInsertRows etc.
-
-Palette (matches dark_mode.qss)
-────────────────────────────────
-  Base       #0b0c10
-  Surface    #11121a
-  Elevated   #1a1b26
-  Accent     #8599ea  (periwinkle)
-  Gold       #EAD685
-  Pink       #EA8599
-  Text       #b8c0f0
-  Dim text   #555e7a
 """
 
 from pathlib import Path
