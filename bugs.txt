@@ -4,11 +4,7 @@ NEW IDEAS
     ability to reorder artists?
 
 nowplaying_view.py
-    Change some chips
-    chips sometimes cut off?
-    If names or chips are too long, they should pan/scroll slowly
-    Chips missing on track change?
-    player comes back in ctrl shft f mode after track change
+
 
 player_utility.py
     windows port

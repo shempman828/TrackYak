@@ -8,17 +8,8 @@ import traceback
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, Qt, QTimer
-from PySide6.QtGui import (
-    QColor,
-    QFont,
-    QKeySequence,
-    QLinearGradient,
-    QPainter,
-    QPainterPath,
-    QPixmap,
-    QShortcut,
-)
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
+from PySide6.QtGui import QFont, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -35,9 +26,11 @@ from PySide6.QtWidgets import (
 from src.asset_paths import asset
 from src.config_setup import app_config
 from src.logger_config import logger
+from src.nowplaying_art import _ArtCard
 from src.nowplaying_backdrop import _BlurredBackdrop
 from src.nowplaying_chip import _Chip, _ScrollingChipRow
 from src.nowplaying_credits import _CreditsPanel
+from src.nowplaying_karaoke import _KaraokeLine
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Constants
@@ -98,112 +91,6 @@ def _active_index(lines: List[Tuple[int, str]], position_ms: int) -> int:
         else:
             break
     return idx
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Art card
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-class _ArtCard(QWidget):
-    """Rounded album-art display with subtle glow."""
-
-    _RADIUS = 18
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._pixmap: Optional[QPixmap] = None
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-    def set_art(self, pixmap: Optional[QPixmap]):
-        self._pixmap = pixmap
-        self.update()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)
-        w, h = self.width(), self.height()
-        side = min(w, h)
-        x, y = (w - side) // 2, (h - side) // 2
-
-        path = QPainterPath()
-        path.addRoundedRect(x, y, side, side, self._RADIUS, self._RADIUS)
-        painter.setClipPath(path)
-
-        if self._pixmap and not self._pixmap.isNull():
-            scaled = self._pixmap.scaled(
-                side, side, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
-            )
-            ox = x + (side - scaled.width()) // 2
-            oy = y + (side - scaled.height()) // 2
-            painter.drawPixmap(ox, oy, scaled)
-        else:
-            # Default art: dark gradient with a music note
-            bg = QLinearGradient(x, y, x + side, y + side)
-            bg.setColorAt(0.0, QColor(30, 35, 60))
-            bg.setColorAt(1.0, QColor(15, 18, 35))
-            painter.fillPath(path, bg)
-
-            # Draw a simple music note using text
-            painter.setClipping(False)
-            note_font = QFont("Arial", max(24, side // 4), QFont.Bold)
-            painter.setFont(note_font)
-            painter.setPen(QColor(100, 120, 200, 80))
-            painter.drawText(x, y, side, side, Qt.AlignCenter, "♪")
-
-        painter.end()
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Karaoke label (animated)
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-class _KaraokeLine(QLabel):
-    """Single-line karaoke label that fades in on each new line."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        font = QFont("Georgia", 22, QFont.Bold)
-        self.setFont(font)
-        self.setAlignment(Qt.AlignCenter)
-        self.setWordWrap(True)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self._opacity: float = 1.0
-        self._anim: Optional[QPropertyAnimation] = None
-        self._set_opacity(1.0)
-
-    def _get_opacity(self) -> float:
-        return self._opacity
-
-    def _set_opacity(self, v: float):
-        self._opacity = v
-        alpha = int(v * 230)
-        self.setStyleSheet(
-            f"color: rgba(230, 235, 255, {alpha});"
-            " background: transparent; border: none;"
-        )
-
-    lineOpacity = Property(float, _get_opacity, _set_opacity)
-
-    def show_line(self, text: str):
-        self.setText(text)
-        if self._anim:
-            self._anim.stop()
-        self._set_opacity(0.0)
-        self._anim = QPropertyAnimation(self, b"lineOpacity")
-        self._anim.setDuration(350)
-        self._anim.setStartValue(0.0)
-        self._anim.setEndValue(1.0)
-        self._anim.setEasingCurve(QEasingCurve.OutCubic)
-        self._anim.start()
-
-    def clear_line(self):
-        if self._anim:
-            self._anim.stop()
-        self.setText("")
-        self._set_opacity(0.0)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -345,7 +232,6 @@ class NowPlayingView(QWidget):
 
         # Cinema mode state
         self._cinema_mode = False
-        self._cinema_hidden_widgets: List = []
 
         self._initUI()
         self._setup_cinema_shortcut()
@@ -376,22 +262,25 @@ class NowPlayingView(QWidget):
         try:
             main_win = self.window()
             if self._cinema_mode:
-                self._cinema_hidden_widgets = []
                 # Hide menu bar
                 mb = getattr(main_win, "menuBar", lambda: None)()
-                if mb and mb.isVisible():
+                if mb:
                     mb.setVisible(False)
-                    self._cinema_hidden_widgets.append(mb)
                 # Hide docks
                 for attr in ("player_dock", "navigation_dock", "queue_dock"):
                     dock = getattr(main_win, attr, None)
-                    if dock and dock.isVisible():
+                    if dock:
                         dock.setVisible(False)
-                        self._cinema_hidden_widgets.append(dock)
             else:
-                for widget in self._cinema_hidden_widgets:
-                    widget.setVisible(True)
-                self._cinema_hidden_widgets = []
+                # Re-fetch widgets fresh — stored references go stale after
+                # track changes, which caused docks/menu bar to stay hidden.
+                mb = getattr(main_win, "menuBar", lambda: None)()
+                if mb:
+                    mb.setVisible(True)
+                for attr in ("player_dock", "navigation_dock", "queue_dock"):
+                    dock = getattr(main_win, attr, None)
+                    if dock:
+                        dock.setVisible(True)
         except Exception as exc:
             logger.warning(f"toggle_cinema_mode: {exc}")
 
