@@ -1,7 +1,6 @@
-# =========================================================================
-# Inner tab classes
-# =========================================================================
+from __future__ import annotations
 
+# ruff: noqa: F821
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QGroupBox,
@@ -13,8 +12,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.base_album_edit import AlbumEditor
 from src.disc_view import DiscManagementView
+
+# =========================================================================
+# Inner tab classes
+# =========================================================================
 
 
 class DetailsTab:

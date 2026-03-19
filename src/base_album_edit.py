@@ -31,6 +31,13 @@ from src.album_components import AlbumUIComponents
 from src.album_editing_relationship_helpers import RelationshipHelpers
 from src.album_tab import AlbumTabBuilder
 from src.asset_paths import ALBUM_ART_DIR
+from src.base_album_edit_tabs import (
+    AliasesTab,
+    ArtworkTab,
+    DetailsTab,
+    TracksTab,
+    AdvancedTab,
+)
 from src.config_setup import Config
 from src.db_mapping_albums import ALBUM_FIELDS
 from src.logger_config import logger
@@ -202,11 +209,11 @@ class AlbumEditor(QDialog):
         content_layout.addWidget(self._build_collapsible_header())
 
         self.tabs = QTabWidget()
-        self._details_tab = self.DetailsTab(self)
-        self._tracks_tab = self.TracksTab(self)
-        self._artwork_tab = self.ArtworkTab(self)
-        self._aliases_tab = self.AliasesTab(self)
-        self._advanced_tab = self.AdvancedTab(self)
+        self._details_tab = DetailsTab(self)
+        self._tracks_tab = TracksTab(self)
+        self._artwork_tab = ArtworkTab(self)
+        self._aliases_tab = AliasesTab(self)
+        self._advanced_tab = AdvancedTab(self)
 
         self.tabs.addTab(self._details_tab.build(), "Details")
         self.tabs.addTab(self._tracks_tab.build(), "Tracks")
@@ -984,14 +991,14 @@ class AlbumEditor(QDialog):
     def _get_tab_rebuild_map(self) -> dict:
         """Return a mapping of tab title → builder callable."""
         return {
-            "Details": lambda: self.DetailsTab(self).build(),
-            "Tracks": lambda: self.TracksTab(self).build(),
-            "Artwork": lambda: self.ArtworkTab(self).build(),
-            "Aliases": lambda: self.AliasesTab(self).build(),
+            "Details": lambda: DetailsTab(self).build(),
+            "Tracks": lambda: TracksTab(self).build(),
+            "Artwork": lambda: ArtworkTab(self).build(),
+            "Aliases": lambda: AliasesTab(self).build(),
             "Artist Credits": self.tab_builder.build_artists_tab,
             "Publishers && Places": self.tab_builder.build_relationships_tab,
             "Awards": self.tab_builder.build_awards_tab,
-            "Advanced": lambda: self.AdvancedTab(self).build(),
+            "Advanced": lambda: AdvancedTab(self).build(),
         }
 
     def _rebuild_current_tab(self):
