@@ -477,8 +477,10 @@ class AlbumView(QWidget):
         _, criteria, descending = self._SORT_OPTIONS[index]
         self._sort_criteria = criteria
         self._sort_descending = descending
-        self._sort_filtered()
-        self._refresh_album_widgets()
+        # Let _apply_filters own the single rebuild; calling _refresh_album_widgets
+        # here as well causes a double-build while deleteLater() widgets are still
+        # live, placing two albums in the first grid slot.
+        self._apply_filters()
 
     def _restore_sort_combo(self):
         """Set the sort combo to match the current internal sort state, without triggering a re-sort."""
@@ -629,8 +631,17 @@ class AlbumView(QWidget):
             pass  # Non-fatal — use the album object we already have
 
         dialog = AlbumEditor(self.controller, album)
-        # Reload the album grid whenever the editor closes (Save or Cancel).
-        dialog.finished.connect(lambda _: self.load_albums())
+
+        def _on_editor_closed(_):
+            # Capture scroll position before the grid rebuild discards it.
+            saved_scroll = self.scroll_area.verticalScrollBar().value()
+            self.load_albums()
+            # Restore after the layout has had a chance to settle.
+            QTimer.singleShot(
+                0, lambda: self.scroll_area.verticalScrollBar().setValue(saved_scroll)
+            )
+
+        dialog.finished.connect(_on_editor_closed)
         dialog.exec()
 
     # =========================================================================

@@ -41,22 +41,13 @@ db_tables.py
 
 
 queue_utility.py
-    2026-03-19 08:19:43,203 - INFO - queue_utility.py:250 - clear_queue() - clear_queue: queue cleared
-    Traceback (most recent call last):
-    File "/home/babs/PycharmProjects/MusicLibrary/src/track_view.py", line 820, in _add_filtered_to_queue
-        qm.add_tracks_async(tracks, shuffle=False)
-        ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
-    File "/home/babs/PycharmProjects/MusicLibrary/src/queue_utility.py", line 158, in add_tracks_async
-        if self._bulk_thread and self._bulk_thread.isRunning():
-                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
-    RuntimeError: Internal C++ object (PySide6.QtCore.QThread) already deleted.
+
 
 album_editing_relationship_helpers.py
     changing a relationship does not update tab
 
 album_view.py
-    closing album edit window changes scroll position
-    two albums are being placed in the first slot at the same time
+
 
 track_view.py
 
@@ -109,6 +100,7 @@ award_view.py
 
 
 influences_view.py
+
 
 influences_graph.py
     louvain color coding doesn't seem to work?
