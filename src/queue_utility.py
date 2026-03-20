@@ -179,6 +179,7 @@ class QueueManager(QObject):
         self._bulk_worker.finished.connect(self._bulk_thread.quit)
         self._bulk_worker.error.connect(self._bulk_thread.quit)
         self._bulk_thread.finished.connect(self._bulk_thread.deleteLater)
+        self._bulk_thread.finished.connect(self._on_bulk_thread_finished)
 
         self._bulk_thread.start()
 
@@ -197,6 +198,10 @@ class QueueManager(QObject):
     def _on_bulk_add_error(self, msg: str):
         logger.error(f"bulk add error: {msg}")
         self._bulk_worker = None
+
+    @Slot()
+    def _on_bulk_thread_finished(self):
+        """Null out the thread reference after Qt has deleted the C++ object."""
         self._bulk_thread = None
 
     def insert_tracks_next(self, tracks: List[Track]):
