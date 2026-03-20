@@ -61,7 +61,7 @@ artist_editing
 artist alias management
     allow user to define alias type with autocomplete suggestions for existing types, not a predefined dropdown.
     having action buttons in the table cell is awkward
-    embed this directly into the tab instead of using a separate dialog
+    embed this dialog directly into the tab instead of using a separate dialog window
 
 artist_detail_credits
     do not appear to display
