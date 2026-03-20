@@ -32,11 +32,11 @@ from src.album_editing_relationship_helpers import RelationshipHelpers
 from src.album_tab import AlbumTabBuilder
 from src.asset_paths import ALBUM_ART_DIR
 from src.base_album_edit_tabs import (
+    AdvancedTab,
     AliasesTab,
     ArtworkTab,
     DetailsTab,
     TracksTab,
-    AdvancedTab,
 )
 from src.config_setup import Config
 from src.db_mapping_albums import ALBUM_FIELDS
@@ -134,8 +134,15 @@ class AlbumEditor(QDialog):
         self.setWindowFlag(Qt.Window, True)
 
         self.controller = controller
-        self.album = album
         self._config = Config()
+
+        # Always reload the album from DB on open — avoids stale cover paths
+        # when the editor is reopened after a previous cover change.
+        try:
+            fresh = controller.get.get_entity_object("Album", album_id=album.album_id)
+            self.album = fresh if fresh is not None else album
+        except Exception:
+            self.album = album
 
         self.helper = RelationshipHelpers(controller, album, self.refresh_view)
         self.field_widgets: dict = {}
@@ -520,15 +527,10 @@ class AlbumEditor(QDialog):
     # =========================================================================
 
     def _add_dialog_buttons(self, layout):
-        """Save + Cancel + Refresh from DB.  No separate Close button."""
+        """Save + Cancel."""
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.save_changes)
         button_box.rejected.connect(self.reject)
-
-        refresh_btn = button_box.addButton(
-            "Refresh from DB", QDialogButtonBox.ActionRole
-        )
-        refresh_btn.clicked.connect(self._refresh_from_database)
 
         layout.addWidget(button_box)
 
@@ -628,9 +630,17 @@ class AlbumEditor(QDialog):
                         px.scaled(250, 250, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     )
                     if path_label:
-                        path_label.setText(
+                        info_parts = [
                             str(path) if isinstance(path, str) else "(binary)"
-                        )
+                        ]
+                        info_parts.append(f"{px.width()} × {px.height()} px")
+                        if isinstance(path, str):
+                            try:
+                                size_mb = Path(path).stat().st_size / (1024 * 1024)
+                                info_parts.append(f"{size_mb:.2f} MB")
+                            except OSError:
+                                pass
+                        path_label.setText("  |  ".join(info_parts))
                     continue
             display.setText(f"No {cover_type.title()} Cover")
             if path_label:
@@ -703,7 +713,16 @@ class AlbumEditor(QDialog):
             if display:
                 self._load_image_to_label(str(dest), display, 250)
             if path_label:
-                path_label.setText(str(dest))
+                px_check = QPixmap(str(dest))
+                info_parts = [str(dest)]
+                if not px_check.isNull():
+                    info_parts.append(f"{px_check.width()} × {px_check.height()} px")
+                try:
+                    size_mb = dest.stat().st_size / (1024 * 1024)
+                    info_parts.append(f"{size_mb:.2f} MB")
+                except OSError:
+                    pass
+                path_label.setText("  |  ".join(info_parts))
 
             # IMPORTANT: always refresh the header thumbnail when front cover changes
             if cover_type == "front":
@@ -890,7 +909,16 @@ class AlbumEditor(QDialog):
         if display:
             self._load_image_to_label(str(dest), display, 250)
         if path_label:
-            path_label.setText(str(dest))
+            px_check = QPixmap(str(dest))
+            info_parts = [str(dest)]
+            if not px_check.isNull():
+                info_parts.append(f"{px_check.width()} × {px_check.height()} px")
+            try:
+                size_mb = dest.stat().st_size / (1024 * 1024)
+                info_parts.append(f"{size_mb:.2f} MB")
+            except OSError:
+                pass
+            path_label.setText("  |  ".join(info_parts))
 
         if cover_type == "front":
             self._load_album_cover()
