@@ -8,8 +8,17 @@ import traceback
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
-from PySide6.QtGui import QFont, QKeySequence, QPixmap, QShortcut
+from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QRect, Qt, QTimer
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontMetrics,
+    QKeySequence,
+    QLinearGradient,
+    QPainter,
+    QPixmap,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -185,6 +194,133 @@ _TOGGLE_INACTIVE = """
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+#  Marquee (panning) label — used for artist names that may be very long
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class _MarqueeLabel(QWidget):
+    """
+    A single-line label that scrolls (pans) its text horizontally when the
+    text is wider than the widget.  No album-art space is consumed.
+    """
+
+    _SCROLL_STEP_PX = 1  # pixels per tick
+    _SCROLL_INTERVAL_MS = 30  # ~33 fps
+    _PAUSE_TICKS = 60  # ticks to pause at each end (~1.8 s)
+    _FADE_WIDTH = 18  # px of fade-out at edges when scrolling
+
+    def __init__(self, text: str, font: QFont, color: str, parent=None):
+        super().__init__(parent)
+        self._text = text
+        self._font = font
+        self._color = color
+        self._offset = 0  # current horizontal scroll offset
+        self._direction = 1  # 1 = scrolling right-to-left, -1 = back
+        self._pause_remaining = self._PAUSE_TICKS
+        self._text_width = 0
+
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setStyleSheet("background: transparent;")
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(self._SCROLL_INTERVAL_MS)
+        self._timer.timeout.connect(self._tick)
+
+    def set_text(self, text: str):
+        self._text = text
+        self._offset = 0
+        self._direction = 1
+        self._pause_remaining = self._PAUSE_TICKS
+        self._timer.stop()
+        self.update()
+        # Defer scroll check until after first paint gives us real geometry
+        QTimer.singleShot(200, self._check_scroll_needed)
+
+    def _check_scroll_needed(self):
+        fm = self.fontMetrics()
+        self._text_width = fm.horizontalAdvance(self._text)
+        if self._text_width > self.width():
+            self._timer.start()
+        else:
+            self._timer.stop()
+            self._offset = 0
+            self.update()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._check_scroll_needed()
+
+    def _tick(self):
+        if self._pause_remaining > 0:
+            self._pause_remaining -= 1
+            return
+        max_offset = self._text_width - self.width() + self._FADE_WIDTH
+        self._offset += self._SCROLL_STEP_PX * self._direction
+        if self._offset >= max_offset:
+            self._offset = max_offset
+            self._direction = -1
+            self._pause_remaining = self._PAUSE_TICKS
+        elif self._offset <= 0:
+            self._offset = 0
+            self._direction = 1
+            self._pause_remaining = self._PAUSE_TICKS
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setFont(self._font)
+
+        # Parse colour string into QColor
+        c = QColor(self._color) if not self._color.startswith("rgba") else None
+        if c is None:
+            # Handle rgba(r,g,b,a) where a is 0–1
+            nums = [
+                x.strip() for x in self._color.lstrip("rgba(").rstrip(")").split(",")
+            ]
+            try:
+                r, g, b = int(nums[0]), int(nums[1]), int(nums[2])
+                a = int(float(nums[3]) * 255) if len(nums) > 3 else 255
+            except Exception:
+                r, g, b, a = 180, 190, 240, 178
+            c = QColor(r, g, b, a)
+
+        painter.setPen(c)
+        painter.drawText(
+            QRect(-self._offset, 0, self._text_width + 4, self.height()),
+            Qt.AlignVCenter | Qt.AlignLeft,
+            self._text,
+        )
+
+        # Fade edges when scrolling
+        if self._text_width > self.width():
+            w = self.width()
+            h = self.height()
+            bg = QColor(0, 0, 0, 0)  # transparent
+            for x, fade_right in ((0, False), (w - self._FADE_WIDTH, True)):
+                grad = QLinearGradient(
+                    QPoint(x, 0),
+                    QPoint(x + self._FADE_WIDTH * (1 if fade_right else -1), 0),
+                )
+                grad.setColorAt(0.0, QColor(0, 0, 0, 200))
+                grad.setColorAt(1.0, bg)
+                painter.setCompositionMode(QPainter.CompositionMode_DestinationOut)
+                painter.fillRect(
+                    x if fade_right else x - self._FADE_WIDTH,
+                    0,
+                    self._FADE_WIDTH,
+                    h,
+                    grad,
+                )
+            painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+
+        painter.end()
+
+    def fontMetrics(self):
+        return QFontMetrics(self._font)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 #  Main view
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -232,6 +368,13 @@ class NowPlayingView(QWidget):
 
         # Cinema mode state
         self._cinema_mode = False
+
+        # Art slideshow state
+        self._art_images: List[QPixmap] = []
+        self._art_slide_idx: int = 0
+        self._art_slide_timer = QTimer(self)
+        self._art_slide_timer.setInterval(6_000)  # 6 s per image
+        self._art_slide_timer.timeout.connect(self._advance_art_slide)
 
         self._initUI()
         self._setup_cinema_shortcut()
@@ -329,13 +472,12 @@ class NowPlayingView(QWidget):
         self._title_lbl.setWordWrap(True)
         right_layout.addWidget(self._title_lbl)
 
-        # Artist
-        self._artist_lbl = QLabel("—")
-        self._artist_lbl.setFont(self._ARTIST_FONT)
-        self._artist_lbl.setStyleSheet(
-            "color: rgba(180,190,240,0.70); background: transparent; border: none;"
+        # Artist — scrolling marquee so long names pan rather than truncate
+        self._artist_marquee = _MarqueeLabel(
+            "—", self._ARTIST_FONT, "rgba(180,190,240,0.70)"
         )
-        right_layout.addWidget(self._artist_lbl)
+        self._artist_marquee.setFixedHeight(28)
+        right_layout.addWidget(self._artist_marquee)
 
         # Album
         self._album_lbl = QLabel("—")
@@ -349,25 +491,12 @@ class NowPlayingView(QWidget):
 
         # Chips
         self._chip_duration = _Chip("⏱", "—")
-        self._chip_track_no = _Chip("#", "—")
         self._chip_bpm = _Chip("♩", "—")
-        self._chip_key = _Chip("♭", "—")
+        self._chip_key = _Chip("key", "—")
         self._chip_timesig = _Chip("𝄴", "—")
-        self._chip_bitrate = _Chip("⚡", "—")
-        self._chip_sample = _Chip("〜", "—")
-        self._chip_depth = _Chip("◈", "—")
         self._chip_rec_year = _Chip("📅", "—")
         self._chip_plays = _Chip("▶", "—")
-        self._chip_rating = _Chip("★", "—")
         self._chip_genres = _Chip("🎵", "—")
-        # Advanced audio analysis chips
-        self._chip_energy = _Chip("⚡", "—")
-        self._chip_danceability = _Chip("🕺", "—")
-        self._chip_valence = _Chip("☀", "—")
-        self._chip_acousticness = _Chip("🎸", "—")
-        self._chip_liveness = _Chip("🎤", "—")
-        self._chip_fidelity = _Chip("◉", "—")
-        self._chip_gain = _Chip("🔊", "—")
 
         self._chip_row = _ScrollingChipRow()
         right_layout.addWidget(self._chip_row)
@@ -393,6 +522,16 @@ class NowPlayingView(QWidget):
         tab_bar.addWidget(self._tab_lyrics)
         tab_bar.addWidget(self._tab_credits)
         tab_bar.addStretch()
+
+        # Toggle to show/hide the sync-offset slider row
+        self._sync_toggle_btn = QPushButton("⏱")
+        self._sync_toggle_btn.setFixedSize(24, 24)
+        self._sync_toggle_btn.setCursor(Qt.PointingHandCursor)
+        self._sync_toggle_btn.setToolTip("Toggle lyric sync slider")
+        self._sync_toggle_btn.setStyleSheet(_TOGGLE_INACTIVE)
+        self._sync_toggle_btn.clicked.connect(self._on_toggle_sync_slider)
+        tab_bar.addWidget(self._sync_toggle_btn)
+
         right_layout.addLayout(tab_bar)
 
         tab_rule = QFrame()
@@ -419,6 +558,17 @@ class NowPlayingView(QWidget):
 
         self._karaoke_lbl = _KaraokeLine()
         self._karaoke_lbl.setVisible(False)
+
+        # Next lyric line — shown dimmer below the current karaoke line
+        self._next_lyric_lbl = QLabel("")
+        self._next_lyric_lbl.setFont(QFont("Cambria", 14, QFont.Normal))
+        self._next_lyric_lbl.setStyleSheet(
+            "color: rgba(133,153,234,0.38); font-style: italic;"
+            " background: transparent; border: none;"
+        )
+        self._next_lyric_lbl.setAlignment(Qt.AlignCenter)
+        self._next_lyric_lbl.setWordWrap(True)
+        self._next_lyric_lbl.setVisible(False)
 
         self._plain_area = _FadedScrollArea()
         self._plain_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -454,6 +604,7 @@ class NowPlayingView(QWidget):
         self._countdown_lbl.setVisible(False)
 
         lp.addWidget(self._karaoke_lbl, stretch=1)
+        lp.addWidget(self._next_lyric_lbl)  # fixed below karaoke line
         lp.addWidget(self._plain_area, stretch=1)
         lp.addWidget(self._no_lyrics_lbl, stretch=1)
         lp.addWidget(self._countdown_lbl)  # fixed height — sits below lyric
@@ -536,6 +687,7 @@ class NowPlayingView(QWidget):
             # Show full plain text from the synced lines
             text = "\n".join(t for _, t in self._lyrics_lines)
             self._karaoke_lbl.setVisible(False)
+            self._next_lyric_lbl.setVisible(False)
             self._countdown_lbl.setVisible(False)
             self._countdown_timer.stop()
             self._plain_lbl.setText(text)
@@ -578,7 +730,7 @@ class NowPlayingView(QWidget):
                 # Fallback: first artist in artists proxy
                 artists = getattr(track, "artists", None) or []
                 artist_str = getattr(artists[0], "artist_name", "") if artists else ""
-            self._artist_lbl.setText(artist_str or "—")
+            self._artist_marquee.set_text(artist_str or "—")
 
             album = getattr(track, "album", None)
             if album:
@@ -594,17 +746,7 @@ class NowPlayingView(QWidget):
             if self._stack.currentIndex() == self._PAGE_CREDITS:
                 self._credits_panel.load_credits(track)
 
-            art_path = None
-            if album:
-                art_str = getattr(album, "front_cover_path", "") or ""
-                if art_str:
-                    art_path = Path(art_str)
-            if art_path and art_path.exists():
-                self._load_art(QPixmap(str(art_path)))
-            elif self.default_art_path and Path(self.default_art_path).exists():
-                self._load_art(QPixmap(self.default_art_path))
-            else:
-                self._load_art(None)
+            self._load_art_from_track(track)
 
             logger.debug(f"updateUI TOTAL: {time.time() - t0:.3f}s")
 
@@ -617,7 +759,7 @@ class NowPlayingView(QWidget):
     def clearUI(self):
         self.track = None
         self._title_lbl.setText("No Track Playing")
-        self._artist_lbl.setText("—")
+        self._artist_marquee.set_text("—")
         self._album_lbl.setText("—")
         self._set_lyrics_mode_none()
         self._credits_panel.load_credits(None)
@@ -664,6 +806,7 @@ class NowPlayingView(QWidget):
         self._countdown_timer.stop()
         self._karaoke_lbl.setVisible(False)
         self._karaoke_lbl.clear_line()
+        self._next_lyric_lbl.setVisible(False)
         self._plain_area.setVisible(False)
         self._plain_lbl.setText("")
         self._no_lyrics_lbl.setVisible(False)
@@ -676,9 +819,10 @@ class NowPlayingView(QWidget):
         self._plain_area.setVisible(False)
         self._no_lyrics_lbl.setVisible(False)
         self._countdown_lbl.setVisible(False)
+        self._next_lyric_lbl.setVisible(False)
         self._karaoke_lbl.setVisible(True)
         # Restore saved slider value (already set in __init__, keep it)
-        self._offset_row.setVisible(True)
+        # Slider row stays hidden until user clicks the ⏱ toggle
         # Reset toggle button label
         self._toggle_mode_btn.setText("SHOW ALL")
         self._toggle_mode_btn.setStyleSheet(_TOGGLE_INACTIVE)
@@ -741,6 +885,32 @@ class NowPlayingView(QWidget):
                 # Blank line — check if next lyric is far
                 if gap_ms >= _LYRIC_GAP_THRESHOLD_MS and next_ts >= 0:
                     self._start_countdown(next_ts)
+
+            # Update next-line preview
+            self._update_next_lyric_lbl(new_idx)
+
+    def _update_next_lyric_lbl(self, current_idx: int):
+        """Show the next non-empty lyric line below the current karaoke line."""
+        next_text = ""
+        for i in range(current_idx + 1, len(self._lyrics_lines)):
+            t = self._lyrics_lines[i][1].strip()
+            if t:
+                next_text = t
+                break
+        if next_text:
+            self._next_lyric_lbl.setText(next_text)
+            self._next_lyric_lbl.setVisible(True)
+        else:
+            self._next_lyric_lbl.setText("")
+            self._next_lyric_lbl.setVisible(False)
+
+    def _on_toggle_sync_slider(self):
+        """Show/hide the sync offset slider row."""
+        visible = self._offset_row.isVisible()
+        self._offset_row.setVisible(not visible)
+        self._sync_toggle_btn.setStyleSheet(
+            _TOGGLE_ACTIVE if not visible else _TOGGLE_INACTIVE
+        )
 
     def _find_next_lyric_ts(self, effective_ms: int) -> int:
         """Return timestamp of the next lyric line after effective_ms, or -1."""
@@ -880,6 +1050,65 @@ class NowPlayingView(QWidget):
     # ── art ───────────────────────────────────────────────────────────────
 
     def _load_art(self, pixmap: Optional[QPixmap]):
+        """Single-image path kept for clearUI / fallback use."""
+        self._start_art_slideshow([pixmap] if pixmap else [])
+
+    def _load_art_from_track(self, track):
+        """Build slideshow from all available art images for this track."""
+        album = getattr(track, "album", None)
+        paths: List[Optional[str]] = []
+        if album:
+            for attr in (
+                "front_cover_path",
+                "back_cover_path",
+                "liner_path",
+                "artist_image_path",
+            ):
+                p = getattr(album, attr, None) or ""
+                if p:
+                    paths.append(p)
+        # Also try artist-level image
+        for artist in getattr(track, "artists", None) or []:
+            p = getattr(artist, "image_path", None) or ""
+            if p and p not in paths:
+                paths.append(p)
+
+        pixmaps: List[QPixmap] = []
+        for p in paths:
+            if Path(p).exists():
+                px = QPixmap(str(p))
+                if not px.isNull():
+                    pixmaps.append(px)
+
+        if not pixmaps:
+            default = self.default_art_path
+            if default and Path(default).exists():
+                px = QPixmap(default)
+                if not px.isNull():
+                    pixmaps.append(px)
+
+        self._start_art_slideshow(pixmaps)
+
+    def _start_art_slideshow(self, pixmaps: List[QPixmap]):
+        """Begin cycling through the given list of pixmaps."""
+        self._art_slide_timer.stop()
+        self._art_images = pixmaps
+        self._art_slide_idx = 0
+
+        first = pixmaps[0] if pixmaps else None
+        self._apply_art(first)
+
+        if len(pixmaps) > 1:
+            self._art_slide_timer.start()
+
+    def _advance_art_slide(self):
+        if not self._art_images:
+            return
+        self._art_slide_idx = (self._art_slide_idx + 1) % len(self._art_images)
+        self._apply_art(self._art_images[self._art_slide_idx])
+
+    def _apply_art(self, pixmap: Optional[QPixmap]):
+        """Push a single pixmap to the art card and backdrop with a fade."""
         self._current_pixmap = pixmap
         self._art_card.set_art(pixmap)
 

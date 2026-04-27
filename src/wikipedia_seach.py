@@ -7,7 +7,9 @@ import requests
 import wikipedia
 
 # Qt imports
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, QThread
+from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal as _Signal
 from PySide6.QtWidgets import (
     QDialog,
     QLabel,
@@ -147,10 +149,6 @@ class WikipediaSearchWorker(QObject):
             self.selection_finished.emit(
                 "", "", "", self.current_search.error or "Selection failed", []
             )
-
-
-# Internal signal used to dispatch select_result across thread boundary
-from PySide6.QtCore import Signal as _Signal
 
 
 class _SelectRequester(QObject):

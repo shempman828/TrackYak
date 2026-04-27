@@ -30,12 +30,7 @@ artist_edit_alias.py
     check for existing artist by alias first. Ask if you want to merge records into artist
 
 artist_edit_basic.py
-    thread error when wikipedia search result is selected for artist
-        QObject::moveToThread: Current thread (0x2a13ce80) is not the object's thread (0x0).
-        Cannot move to target thread (0x358c2ac0)
 
-        QObject::moveToThread: Current thread (0x2a13ce80) is not the object's thread (0x0).
-        Cannot move to target thread (0x364147e0)
 
 artist_edit_discography
     Lots of wasted space
@@ -134,11 +129,7 @@ navigation_dock.py
     better right border
 
 nowplaying_view.py
-    remove flat from key chip
-    album art sizes smaller when there are too many names
-    animate between cover art front, rear, liner, and artist image with a delay if available
-    show next line below current line of lyrics slightly darker
-    toggle lyric time slider
+
 
 places_view.py
 
@@ -154,7 +145,9 @@ player_settings.py
 
 
 player_utility.py
-    windows port
+    tracks sometimes don't start at the very beginning
+    tracks sometimes don't progress
+    playback code is probably way overengineered for starting and progressing queue
 
 playlist_view.py
     Sort alphabetically within tree hierarchy
