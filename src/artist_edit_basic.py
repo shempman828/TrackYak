@@ -1,6 +1,9 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # Tab: Basic
 # ══════════════════════════════════════════════════════════════════════════════
+import os
+import tempfile
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIntValidator, QPixmap
 from PySide6.QtWidgets import (
@@ -13,11 +16,17 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from src.wikipedia_seach import (
+    download_wikipedia_image,
+    search_wikipedia,
+    select_wikipedia_image,
+)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -38,6 +47,8 @@ class BasicTab(QWidget):
         super().__init__(parent)
         self.controller = controller
         self.artist = artist
+        self._wiki_link = ""  # Stores the last fetched Wikipedia URL
+        self._pic_path = ""  # Stores the current profile picture path
         self._build_ui()
 
     def _build_ui(self):
@@ -68,9 +79,11 @@ class BasicTab(QWidget):
         self.isgroup_check.toggled.connect(self._on_isgroup_changed)
         form.addRow("Is Group:", self.isgroup_check)
 
+        # Gender row — hidden when isgroup is checked
         self.gender_combo = QComboBox()
         self.gender_combo.addItems(GENDERS)
-        form.addRow("Gender:", self.gender_combo)
+        self._gender_label = QLabel("Gender:")
+        form.addRow(self._gender_label, self.gender_combo)
 
         # Begin date
         begin_box = QHBoxLayout()
@@ -115,24 +128,49 @@ class BasicTab(QWidget):
         self.end_date_label = QLabel("Died / Disbanded:")
         form.addRow(self.end_date_label, end_box)
 
+        # Wikipedia buttons
+        wiki_box = QHBoxLayout()
+        self.wiki_search_btn = QPushButton("🔍 Search Wikipedia")
+        self.wiki_search_btn.setToolTip("Search Wikipedia for this artist")
+        self.wiki_search_btn.clicked.connect(self._search_wikipedia)
+        wiki_box.addWidget(self.wiki_search_btn)
+
+        self.wiki_open_btn = QPushButton("🌐 Open Wikipedia Page")
+        self.wiki_open_btn.setToolTip("Open the Wikipedia page in your browser")
+        self.wiki_open_btn.setEnabled(False)
+        self.wiki_open_btn.clicked.connect(self._open_wiki_link)
+        wiki_box.addWidget(self.wiki_open_btn)
+
+        wiki_box.addStretch()
+        form.addRow("Wikipedia:", wiki_box)
+
         layout.addWidget(form_widget, 1)
 
         # ── Right: profile picture ───────────────────────────────────────────
         pic_grp = QGroupBox("Profile Picture")
         pic_layout = QVBoxLayout(pic_grp)
+
         self.pic_label = QLabel()
         self.pic_label.setFixedSize(180, 180)
         self.pic_label.setAlignment(Qt.AlignCenter)
         self.pic_label.setStyleSheet("border: 1px solid #888; background: #222;")
         self.pic_label.setText("No Image")
+        self.pic_label.setToolTip("No image set")
         pic_layout.addWidget(self.pic_label)
-        self.pic_path_edit = QLineEdit()
-        self.pic_path_edit.setPlaceholderText("Image path...")
-        self.pic_path_edit.textChanged.connect(self._refresh_pic_preview)
-        pic_layout.addWidget(self.pic_path_edit)
+
         browse_btn = QPushButton("Browse...")
         browse_btn.clicked.connect(self._browse_pic)
         pic_layout.addWidget(browse_btn)
+
+        self.wiki_pic_btn = QPushButton("Import from Wikipedia")
+        self.wiki_pic_btn.setToolTip("Search Wikipedia and import a profile picture")
+        self.wiki_pic_btn.clicked.connect(self._import_wikipedia_image)
+        pic_layout.addWidget(self.wiki_pic_btn)
+
+        clear_pic_btn = QPushButton("Clear")
+        clear_pic_btn.clicked.connect(self._clear_pic)
+        pic_layout.addWidget(clear_pic_btn)
+
         layout.addWidget(pic_grp)
 
     def load(self, artist):
@@ -164,7 +202,11 @@ class BasicTab(QWidget):
             self.end_month_edit.set_from_db(artist.end_month)
             self.end_day_edit.set_from_db(artist.end_day)
 
-        self.pic_path_edit.setText(artist.profile_pic_path or "")
+        self._set_pic_path(artist.profile_pic_path or "")
+
+        # Reset Wikipedia link when loading a new artist
+        self._wiki_link = ""
+        self.wiki_open_btn.setEnabled(False)
 
     def collect_changes(self):
         """Return a dict of basic field values for update_entity."""
@@ -179,16 +221,20 @@ class BasicTab(QWidget):
             end_year=self.end_year_edit.get_value_or_none(),
             end_month=self.end_month_edit.get_value_or_none(),
             end_day=self.end_day_edit.get_value_or_none(),
-            profile_pic_path=self.pic_path_edit.text().strip() or None,
+            profile_pic_path=self._pic_path or None,
         )
 
     # ── Internal slots ─────────────────────────────────────────────────────
 
     def _on_isgroup_changed(self, is_group: bool):
+        # Toggle gender row visibility
+        self.gender_combo.setVisible(not is_group)
+        self._gender_label.setVisible(not is_group)
+
         if is_group:
             self.begin_date_label.setText("Founded:")
             self.end_date_label.setText("Disbanded:")
-            self.is_active_check.setText("Alive / Active (still together)")
+            self.is_active_check.setText("Still together / Active")
         else:
             self.begin_date_label.setText("Born:")
             self.end_date_label.setText("Died:")
@@ -211,20 +257,116 @@ class BasicTab(QWidget):
             "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)",
         )
         if path:
-            self.pic_path_edit.setText(path)
+            self._set_pic_path(path)
 
-    def _refresh_pic_preview(self, path):
+    def _clear_pic(self):
+        self._set_pic_path("")
+
+    def _set_pic_path(self, path: str):
+        """Update internal path, tooltip, and preview."""
+        self._pic_path = path
+        self.pic_label.setToolTip(path if path else "No image set")
+        self._refresh_pic_preview(path)
+
+    def _refresh_pic_preview(self, path: str):
         if not path:
+            self.pic_label.setPixmap(QPixmap())
             self.pic_label.setText("No Image")
             return
         px = QPixmap(path)
         if px.isNull():
+            self.pic_label.setPixmap(QPixmap())
             self.pic_label.setText("Invalid image")
         else:
             self.pic_label.setPixmap(
                 px.scaled(
                     self.pic_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
                 )
+            )
+
+    # ── Wikipedia ──────────────────────────────────────────────────────────
+
+    def _get_search_query(self) -> str:
+        """Use the artist name as the search query, falling back to a prompt."""
+        return self.name_edit.text().strip() or ""
+
+    def _search_wikipedia(self):
+        """Open Wikipedia search dialog and store the resulting link."""
+        query = self._get_search_query()
+        if not query:
+            QMessageBox.information(
+                self, "Wikipedia Search", "Please enter an artist name first."
+            )
+            return
+
+        title, summary, full_content, link, images = search_wikipedia(query, self)
+
+        if not link:
+            return  # User cancelled or no result
+
+        self._wiki_link = link
+        self.wiki_open_btn.setEnabled(True)
+        self.wiki_open_btn.setToolTip(link)
+
+    def _open_wiki_link(self):
+        """Open the stored Wikipedia link in the default browser."""
+        if self._wiki_link:
+            import webbrowser
+
+            webbrowser.open(self._wiki_link)
+
+    def _import_wikipedia_image(self):
+        """Search Wikipedia and let the user pick an image to use as the profile picture."""
+        query = self._get_search_query()
+        if not query:
+            QMessageBox.information(
+                self, "Wikipedia Image Import", "Please enter an artist name first."
+            )
+            return
+
+        title, summary, full_content, link, images = search_wikipedia(query, self)
+
+        if not images:
+            if link:
+                QMessageBox.information(
+                    self,
+                    "Wikipedia Image Import",
+                    "No images found on the selected Wikipedia page.",
+                )
+            return
+
+        # Store the link as a side-effect if we got one
+        if link:
+            self._wiki_link = link
+            self.wiki_open_btn.setEnabled(True)
+            self.wiki_open_btn.setToolTip(link)
+
+        selected_url = select_wikipedia_image(images, self)
+        if not selected_url:
+            return
+
+        image_bytes = download_wikipedia_image(selected_url)
+        if not image_bytes:
+            QMessageBox.warning(
+                self,
+                "Download Failed",
+                "Could not download the selected image. Please try another.",
+            )
+            return
+
+        # Save to a temp file so QPixmap can load it
+        ext = os.path.splitext(selected_url.split("?")[0])[-1] or ".jpg"
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+        try:
+            tmp.write(image_bytes)
+            tmp.flush()
+            tmp.close()
+            self._set_pic_path(tmp.name)
+        except OSError as e:
+            QMessageBox.warning(
+                self,
+                "Save Failed",
+                f"Could not save the downloaded image:\n{e}",
             )
 
 

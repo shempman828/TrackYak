@@ -30,9 +30,7 @@ artist_edit_alias.py
     check for existing artist by alias first. Ask if you want to merge records into artist
 
 artist_edit_basic.py
-    disable gender when group is selected
-    add search wikipedia button and open wikipedia button (if link exists)
-    image path does not need to be here really
+
 
 artist_edit_discography
     Lots of wasted space
