@@ -157,7 +157,7 @@ class GUI(QMainWindow, MenuBar):
             "Places": lambda: PlaceView(self.controller),
             "Publishers": lambda: PublisherView(self.controller),
             "Roles": lambda: RoleView(self.controller),
-            "Moods | Folksonomy": lambda: MoodView(self.controller),
+            "Moods": lambda: MoodView(self.controller),
             "Influences": lambda: InfluencesView(self.controller),
             "Awards": lambda: AwardView(self.controller),
             "Sync": lambda: SyncView(self.controller),

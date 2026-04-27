@@ -284,8 +284,6 @@ class BaseTrackView(QDialog):
 
         except Exception as e:
             logger.error(f"Error showing playlist selection dialog: {e}")
-            from PySide6.QtWidgets import QMessageBox
-
             QMessageBox.warning(self, "Error", f"Failed to load playlists: {str(e)}")
 
     def load_data(self, tracks):
@@ -469,12 +467,6 @@ class BaseTrackView(QDialog):
                     )
             except Exception as e:
                 logger.error(f"Error starting playback: {e}")
-
-        QMessageBox.information(
-            self,
-            "Shuffle Complete",
-            f"Shuffled {len(tracks_to_shuffle)} tracks and started playback!",
-        )
 
     def setup_drag_support(self):
         """Set up drag support for the table."""

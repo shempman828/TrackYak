@@ -1,125 +1,201 @@
 NEW IDEAS
-    replace many qmessageboxes with status manager
     add family relationships to artists
     ability to reorder artists?
-
-nowplaying_view.py
-
-
-player_utility.py
-    windows port
-
-player_dock.py
-
-
-status_widget.py
-
-
-roles_view.py
-
-
-player_settings.py
-
-
-menu_bar.py
-    implement project support links in "about"
-    mousing over the hidden bar does not show it. We should probably remove this feature.
-
-config_setup.py
-    make sure debugging level is a setting
-
-base_album_edit.py
-
-
-base_track_view
-    add editing single and multiple context menu (track_edit pattern)
-
-base_merge_dialog
-
-
-db_tables.py
-
-
-queue_utility.py
-
 
 album_editing_relationship_helpers.py
     changing a relationship does not update tab
 
+
 album_view.py
-
-
-track_view.py
-
-
-library_import.py
-    the only date that is ever imported is year. Month and day are never imported correctly.
-
-artist_editing
-
+    two albums being drawn into first slot
+    min tracks filter must remove "any" before typing. Loading takes a moment.
+    add ability to hide filter row
+    refresh button not necessary
+    editing an album resets to top of scroll
 
 artist alias management
-    allow user to define alias type with autocomplete suggestions for existing types, not a predefined dropdown.
-    having action buttons in the table cell is awkward
-    embed this dialog directly into the tab instead of using a separate dialog window
+
+artist_detail.py
+    completely broken
+    showing and hiding tabs completely broken
 
 artist_detail_credits
-    do not appear to display
-
-wikipedia search
 
 
-track_editing
+artist_edit.py
+    Places && Awards
 
+artist_edit_alias.py
+    add does not seem to work
+    check for existing artist by alias first. Ask if you want to merge records into artist
 
-track_edit_roles
+artist_edit_basic.py
+    disable gender when group is selected
+    add search wikipedia button and open wikipedia button (if link exists)
+    image path does not need to be here really
 
+artist_edit_discography
+    Lots of wasted space
+    Do not show track credit "Primary Artist" if artist is "Album Artist" on Track's Album
+    allow credit filter by role names
+    show role count by name with total
 
-track_edit_lyrics
-
-
-disc management
-
-
-statistics_dialog.py
-
-
-genre_view
-
-
-places_view.py
-
-
-dates_view.py
-
-
-sync_view.py
-
-
-award_view.py
-
-
-influences_view.py
-
-
-influences_graph.py
-    louvain color coding doesn't seem to work?
-
-moods_view.py
-
-
-publisher_view.py
-
-
-publisher_merge.py
-
-
-publisher_detail.py
+artist_edit_influences
+    Lots of space feels wasted.
 
 
 artist_view.py
 
 
+audio_analysis.py
+    spectral flatness:ratio of geometric mean / arithmetic mean of the FFT magnitude
+    Inter-channel Coherence / Correlation:Measures how similar the left and right channels are.
+    MS (Mid/Side) Energy Ratio
+    Loudness & Crest Factor (LUFS vs Peaks)
+    Spectral Flux
+    Check stereo width calculation
+
+award_view.py
+
+
+base_album_edit.py
+    year MYD is awkward and unintuitive
+    Change to vertical tab layout. Make header a tab.
+
+
+base_merge_dialog
+
+
+base_track_view
+    add editing single and multiple context menu (track_edit pattern)
+    remove shuffle qmessageboxes
+
+config_setup.py
+    make sure debugging level is a setting
+
+dates_calendar.py
+    show better information in calendar date listing
+    make qdialog to show full date information
+    add filter by date type (album release, artist birth, etc)
+
+dates_view.py
+
+
+db_tables.py
+
+
+disc management
+
+display_settings.py
+    auto preview scale setting
+    auto preview font setting
+    does not load which theme is currently active
+
+duplicate_finder.py
+    stopping does not work
+    duplicate calculation feels off
+    compare fields doesn't really feel like it works
+    add estimated time remaining
+    threshold should increase speed. Calculating 98% similar should be easier than 60% right?
+    can't do anything in app when this window is open
+    show bitrate in table
+    ability to play tracks with double click
+
+genre_edit.py
+    does not populate current parent
+    sort parent selection alphabetically
+
+genre_view.py
+    expand all/contract all
+    fix merge logic to skip if existing instead of failing everything
+    add tracks to parent context option
+
+influences_graph.py
+    louvain color coding doesn't seem to work?
+
+influences_view.py
+
+
+library_import.py
+    the only date that is ever imported is year. Month and day are never imported correctly.
+    discs are not being loaded properly. Discs should be created automatically.
+
+menu_bar.py
+    implement project support links in "about"
+    mousing over the hidden bar does not show it. We should probably remove this feature.
+
+moods_view.py
+
+
+navigation_dock.py
+    better right border
+
+nowplaying_view.py
+    remove flat from key chip
+    album art sizes smaller when there are too many names
+    animate between cover art front, rear, liner, and artist image with a delay if available
+    show next line below current line of lyrics slightly darker
+    toggle lyric time slider
+
+places_view.py
+
+
+place_map_filter.py
+    make filter dropdown
+
+
+player_dock.py
+    shortcut for increase and decrease rating by 0.5
+
+player_settings.py
+
+
+player_utility.py
+    windows port
+
 playlist_view.py
+    Sort alphabetically within tree hierarchy
+
+publisher_detail.py
 
 
+publisher_merge.py
+
+
+publisher_view.py
+
+
+queue_utility.py
+
+
+roles_view.py
+
+
+statistics_dialog.py
+
+
+status_widget.py
+
+
+sync_view.py
+    Add moods to sync selection
+    Better display playlist selection
+
+track_edit_lyrics
+
+
+track_edit_roles
+
+
+track_editing
+    make advanced tab able to copy to clipboard
+
+track_view.py
+    sorting by column freezes ui. Needs threaded with spinner and faster lookups
+    only lookup on "enter"
+    appending when sorted on_scroll crashes
+    add entire library to queue redundant with shuffle library to queue
+
+wikipedia search
+    Error fetching details:
+    Error fetching page details: Expecting value: line 1 column 1 (char 0)

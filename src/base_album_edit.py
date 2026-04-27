@@ -318,11 +318,6 @@ class AlbumEditor(QDialog):
         self._load_album_cover()
         layout.addWidget(self.cover_label)
 
-        hint = QLabel("Change cover in\nArtwork tab ↓")
-        hint.setAlignment(Qt.AlignCenter)
-        hint.setStyleSheet("color: #666; font-size: 10px;")
-        layout.addWidget(hint)
-
         return widget
 
     def _build_info_section(self):
@@ -928,10 +923,18 @@ class AlbumEditor(QDialog):
     # =========================================================================
 
     def save_changes(self):
+        # These fields are written to the DB immediately when the user picks a
+        # cover via _pick_cover() / _copy_cover_to_album_dir().  They are NOT
+        # backed by a real input widget in field_widgets, so reading them here
+        # would yield None and silently overwrite the path that was just saved.
+        _COVER_FIELDS = {"front_cover_path", "rear_cover_path", "album_liner_path"}
+
         try:
             kwargs = {}
             for field_name, widget in self.field_widgets.items():
                 if field_name == "album_description":
+                    continue
+                if field_name in _COVER_FIELDS:
                     continue
                 field_config = ALBUM_FIELDS.get(field_name)
                 if not (field_config and field_config.editable):
@@ -957,8 +960,6 @@ class AlbumEditor(QDialog):
                     )
 
             self.controller.update.update_entity("Album", self.album.album_id, **kwargs)
-
-            QMessageBox.information(self, "Saved", "Album updated successfully!")
             self.accept()
 
         except Exception as e:
@@ -1007,7 +1008,6 @@ class AlbumEditor(QDialog):
                 self.tab_builder.album = updated
             self.init_editable_widgets()
             self._rebuild_current_tab()
-            QMessageBox.information(self, "Refreshed", "Data reloaded from database.")
         except Exception as e:
             logger.error(f"Error refreshing from database: {e}")
             QMessageBox.critical(self, "Error", f"Could not refresh: {e}")

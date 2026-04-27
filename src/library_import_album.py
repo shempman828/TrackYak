@@ -19,6 +19,10 @@ class AlbumImporter:
                 album_name, release_year, artist_ids
             )
             if existing_album:
+                # Still try to save artwork if it's missing on an existing album
+                if "album_art_data" in metadata and not existing_album.front_cover_path:
+                    album_artists = self._extract_album_artists_list(metadata)
+                    self._save_album_artwork(existing_album, metadata, album_artists)
                 return existing_album
 
             return self._create_new_album(
@@ -41,8 +45,10 @@ class AlbumImporter:
     def _extract_album_artists_list(self, metadata: Dict[str, Any]) -> List[str]:
         """Extract and normalize album artists list from metadata."""
         album_artists = (
-            metadata.get("album_artist_name")
-            or metadata.get("artist_album_artist")
+            metadata.get(
+                "artist_album_artist"
+            )  # Check this key first, matching library_import.py
+            or metadata.get("album_artist_name")
             or []
         )
 
@@ -102,8 +108,10 @@ class AlbumImporter:
         album_data = {
             "album_name": album_name,
             "release_year": release_year,
-            "release_month": metadata.get("release_month"),
-            "release_day": metadata.get("release_day"),
+            "release_month": metadata.get("album_release_month")
+            or metadata.get("release_month"),
+            "release_day": metadata.get("album_release_day")
+            or metadata.get("release_day"),
             "album_description": metadata.get("album_description"),
             "catalog_number": metadata.get("album_catalog_number"),
             "is_compilation": metadata.get("is_compilation"),
@@ -228,23 +236,25 @@ class AlbumImporter:
                 logger.debug(f"No album art data found for album: {album.album_name}")
                 return
 
-            # Get album artist name for directory structure
+            # Safely get album artist name for directory structure
             if album_artists:
-                # Use first album artist for directory
+                first_artist = album_artists[0]
                 album_artist_name = (
-                    album_artists[0]
-                    if isinstance(album_artists[0], str)
-                    else album_artists[0].artist_name
+                    first_artist
+                    if isinstance(first_artist, str)
+                    else first_artist.artist_name
                 )
             else:
                 album_artist_name = "Unknown Artist"
+                logger.debug(
+                    f"No album artists found for {album.album_name}, using 'Unknown Artist'"
+                )
 
             # Sanitize names for filesystem
             safe_artist_name = self._sanitize_filename(album_artist_name)
             safe_album_name = self._sanitize_filename(album.album_name)
 
             # Create directory structure: ALBUM_ART_DIR/artist/album/
-            # FIX: ALBUM_ART_DIR is a Path object, not a function
             art_dir = ALBUM_ART_DIR / safe_artist_name / safe_album_name
             art_dir.mkdir(parents=True, exist_ok=True)
 

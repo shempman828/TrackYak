@@ -6,6 +6,7 @@ Streaming music playback engine.
 import collections
 import threading
 import time
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -477,6 +478,15 @@ class MusicPlayer(QObject):
     # =========================================================================
     #  Track loading
     # =========================================================================
+    def _resolve_path(self, file_path: Path) -> Optional[Path]:
+        """Return a Path that exists on disk, trying Unicode normalization forms if needed."""
+        if file_path.exists():
+            return file_path
+        for form in ("NFC", "NFD", "NFKC", "NFKD"):
+            normalized = Path(unicodedata.normalize(form, str(file_path)))
+            if normalized.exists():
+                return normalized
+        return None
 
     def load_track(self, file_path: Path) -> bool:
         """
@@ -487,9 +497,12 @@ class MusicPlayer(QObject):
         Returns True on success, False on failure.
         """
         logger.debug(f"load_track ENTER {time.time()}")
-        if not file_path.exists():
+        resolved = self._resolve_path(file_path)
+        if resolved is None:
+            logger.error(f"File not found (exists=False): {file_path!r}")
             self.error_occurred.emit(f"File not found: {file_path}")
             return False
+        file_path = resolved  # use the resolved path for everything below
 
         if file_path.suffix.lower() not in SUPPORTED_FORMATS:
             self.error_occurred.emit(f"Unsupported format: {file_path.suffix}")

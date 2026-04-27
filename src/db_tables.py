@@ -963,7 +963,7 @@ class Place(Base):
             visited_places.add(place.place_id)
 
             for assoc in place.associations:
-                association_ids.add(assoc.id)
+                association_ids.add(assoc.association_id)
 
             for child in place.children:
                 walk(child)

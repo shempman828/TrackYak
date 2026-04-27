@@ -133,7 +133,7 @@ class AliasesTab(QWidget):
 
     def _add_alias(self):
         dlg = AliasEditDialog(extra_types=self._existing_types(), parent=self)
-        if dlg.exec() != dlg.Accepted:
+        if dlg.exec() != dlg.accepted:
             return
         try:
             self.controller.add.add_entity(
@@ -155,7 +155,7 @@ class AliasesTab(QWidget):
             extra_types=self._existing_types(),
             parent=self,
         )
-        if dlg.exec() != dlg.Accepted:
+        if dlg.exec() != dlg.accepted:
             return
         try:
             self.controller.update.update_entity(

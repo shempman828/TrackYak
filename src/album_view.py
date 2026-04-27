@@ -176,6 +176,13 @@ class AlbumView(QWidget):
         self.fixed_combo.currentIndexChanged.connect(self._apply_filters)
         row.addWidget(self.fixed_combo)
 
+        # Album Art filter
+        row.addWidget(QLabel("Art:"))
+        self.art_combo = QComboBox()
+        self.art_combo.addItems(["Any", "No Art", "Has Art"])
+        self.art_combo.currentIndexChanged.connect(self._apply_filters)
+        row.addWidget(self.art_combo)
+
         # Stats label
         self.stats_label = QLabel()
         self.stats_label.setStyleSheet("color: gray; font-size: 11px;")
@@ -438,6 +445,15 @@ class AlbumView(QWidget):
                 if fixed_mode == "Not Fixed" and is_fixed:
                     continue
 
+            # ── Album Art filter ──────────────────────────────────────────
+            art_mode = self.art_combo.currentText()
+            if art_mode != "Any":
+                has_art = bool(getattr(album, "front_cover_path", None))
+                if art_mode == "No Art" and has_art:
+                    continue
+                if art_mode == "Has Art" and not has_art:
+                    continue
+
             results.append(album)
 
         self.filtered_albums = results
@@ -455,6 +471,7 @@ class AlbumView(QWidget):
         self.min_tracks.setValue(0)
         self.incomplete_combo.setCurrentIndex(0)
         self.fixed_combo.setCurrentIndex(0)
+        self.art_combo.setCurrentIndex(0)
         # Reset sort to default (Title A–Z) without double-triggering
         self._sort_criteria = "title"
         self._sort_descending = False

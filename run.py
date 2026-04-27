@@ -27,22 +27,17 @@ except ImportError as ie:
     logger.error(f"Missing required module: {ie}")
     sys.exit(1)
 
-# Change #3 — fun messages moved to a module-level constant so they aren't
-# rebuilt on every startup call.
+
 _FUN_MESSAGES = [
     "Reticulating musical splines… 🎵",
     "Feeding the audio gremlins… 👹",
-    "Calculating the sound-to-yak ratio… 🐂",
+    "Calculating the bison-to-yak ratio… 🐂",
     "Tuning frequencies beyond human hearing… 🔊",
-    "Polishing the vinyl dust… 💿",
     "Counting the beats per minute… ⏱️",
-    "Sampling the samples… 🎤",
-    "Transposing invisible sheet music… 🎼",
     "Teaching yaks to whistle… 🐂🎶",
     "Herding rogue sound waves… 🌊",
     "Calculating probability of funk… 🎷",
-    "Feeding the algorithm its daily snack… 🍪",
-    "Turning up the bass to 11… 🎛️🎶",
+    "Turning up the volume to 11… 🎛️🎶",
     "Warming the tubes in the preamp… 🔥🎛️",
 ]
 
@@ -64,7 +59,7 @@ def show_status(splash, message: str, delay: float = 0) -> None:
 
     Args:
         splash:  The StartupSplash instance to update.
-        message: Status text to display.
+        message: Status text to display.a
         delay:   Seconds to pause after updating (0 = no pause).
     """
     splash.update_status(message)

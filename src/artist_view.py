@@ -42,12 +42,14 @@ class ArtistView(QWidget):
     """Unified artist management view handling both individuals and groups."""
 
     # Sort options: (display label, sort key function)
+    # None as the sort key signals a special-case sort handled in _apply_filters.
     _SORT_OPTIONS = [
         ("Name (A–Z)", lambda a: a.artist_name.lower()),
         ("Name (Z–A)", lambda a: a.artist_name.lower()),  # reversed below
         ("Earliest First", lambda a: getattr(a, "begin_year", None) or 9999),
         ("Latest First", lambda a: getattr(a, "begin_year", None) or 9999),  # reversed
-        ("Has Bio First", lambda a: 0 if getattr(a, "biography", None) else 1),
+        ("Most Tracks", None),  # special-case: requires track-count lookup
+        ("Random", None),  # special-case: shuffled in _apply_filters
     ]
     _SORT_REVERSED = {
         "Name (Z–A)": True,
@@ -106,6 +108,12 @@ class ArtistView(QWidget):
         self.image_combo.setToolTip("Filter by profile image")
         self.image_combo.currentTextChanged.connect(self._apply_filters)
         filter_bar.addWidget(self.image_combo)
+
+        self.type_combo = QComboBox()
+        self.type_combo.addItem("Any Type")
+        self.type_combo.setToolTip("Filter by artist type")
+        self.type_combo.currentTextChanged.connect(self._apply_filters)
+        filter_bar.addWidget(self.type_combo)
 
         # Count label — shows "Showing X of Y"
         self.count_label = QLabel()
@@ -170,6 +178,25 @@ class ArtistView(QWidget):
                 artists = all_artists
 
             self.all_artists = artists
+
+            # Rebuild artist_type filter options from loaded artists
+            types = sorted(
+                {
+                    getattr(a, "artist_type", None) or ""
+                    for a in artists
+                    if getattr(a, "artist_type", None)
+                }
+            )
+            current_type = self.type_combo.currentText()
+            self.type_combo.blockSignals(True)
+            self.type_combo.clear()
+            self.type_combo.addItem("Any Type")
+            for t in types:
+                self.type_combo.addItem(t)
+            idx = self.type_combo.findText(current_type)
+            self.type_combo.setCurrentIndex(idx if idx >= 0 else 0)
+            self.type_combo.blockSignals(False)
+
             self._apply_filters()
 
         except Exception as e:
@@ -198,17 +225,51 @@ class ArtistView(QWidget):
         elif image_mode == "No Image":
             artists = [a for a in artists if not getattr(a, "profile_pic_path", None)]
 
+        # --- Artist type filter ---
+        type_filter = self.type_combo.currentText()
+        if type_filter and type_filter != "Any Type":
+            artists = [
+                a
+                for a in artists
+                if (getattr(a, "artist_type", None) or "") == type_filter
+            ]
+
         # --- Sort ---
+        import random as _random
+
         sort_label = self.sort_combo.currentText()
-        sort_key = next(
-            (key for label, key in self._SORT_OPTIONS if label == sort_label),
-            lambda a: a.artist_name.lower(),
-        )
-        reverse = self._SORT_REVERSED.get(sort_label, False)
-        try:
-            artists = sorted(artists, key=sort_key, reverse=reverse)
-        except Exception as e:
-            logger.warning(f"Sort failed: {e}")
+
+        if sort_label == "Random":
+            _random.shuffle(artists)
+        elif sort_label == "Most Tracks":
+
+            def _track_count(artist):
+                try:
+                    roles = self.controller.get.get_all_entities(
+                        "TrackArtistRole", artist_id=artist.artist_id
+                    )
+                    return len(roles) if roles else 0
+                except Exception:
+                    return 0
+
+            try:
+                artists = sorted(artists, key=_track_count, reverse=True)
+            except Exception as e:
+                logger.warning(f"Track-count sort failed: {e}")
+        else:
+            sort_key = next(
+                (
+                    key
+                    for label, key in self._SORT_OPTIONS
+                    if label == sort_label and key is not None
+                ),
+                lambda a: a.artist_name.lower(),
+            )
+            reverse = self._SORT_REVERSED.get(sort_label, False)
+            try:
+                artists = sorted(artists, key=sort_key, reverse=reverse)
+            except Exception as e:
+                logger.warning(f"Sort failed: {e}")
 
         self._populate_list(artists)
 
