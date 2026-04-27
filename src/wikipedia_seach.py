@@ -149,8 +149,20 @@ class WikipediaSearchWorker(QObject):
             )
 
 
+# Internal signal used to dispatch select_result across thread boundary
+from PySide6.QtCore import Signal as _Signal
+
+
+class _SelectRequester(QObject):
+    """Tiny helper that lives on the worker thread and triggers select_result."""
+
+    do_select = _Signal(int)
+
+
 class WikipediaDialog(QDialog):
     """Dialog for searching and selecting Wikipedia articles."""
+
+    _do_search = _Signal(str)
 
     def __init__(self, query: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -160,11 +172,34 @@ class WikipediaDialog(QDialog):
         self.selected_full_content = ""
         self.selected_link = ""
         self.selected_images: List[str] = []
-        self.worker: Optional[WikipediaSearchWorker] = None
-        self.thread: Optional[QThread] = None
+
+        # Single worker + thread that live for the dialog's lifetime
+        self._thread = QThread(self)
+        self._worker = WikipediaSearchWorker()
+        self._worker.moveToThread(self._thread)
+
+        # Connect worker signals → dialog slots (cross-thread, queued automatically)
+        self._worker.search_finished.connect(self._on_search_finished)
+        self._worker.selection_finished.connect(self._on_selection_finished)
+
+        # Helper that lets us invoke select_result on the worker thread via signal
+        self._requester = _SelectRequester()
+        self._requester.moveToThread(self._thread)
+        self._requester.do_select.connect(self._worker.select_result)
+
+        # Clean up thread on dialog close
+        self._thread.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._requester.deleteLater)
+        self.finished.connect(self._stop_thread)
+
+        self._thread.start()
 
         self._init_ui()
         self._start_search()
+
+    def _stop_thread(self) -> None:
+        self._thread.quit()
+        self._thread.wait()
 
     def _init_ui(self) -> None:
         """Initialize dialog layout and widgets."""
@@ -193,19 +228,10 @@ class WikipediaDialog(QDialog):
         layout.addLayout(button_layout)
 
     def _start_search(self) -> None:
-        """Run the Wikipedia search on a background thread."""
+        """Invoke perform_search on the worker thread via a queued signal."""
         self.title_label.setText(f"Searching Wikipedia for: {self.query}...")
-
-        self.thread = QThread()
-        self.worker = WikipediaSearchWorker()
-        self.worker.moveToThread(self.thread)
-
-        self.thread.started.connect(lambda: self.worker.perform_search(self.query))
-        self.worker.search_finished.connect(self._on_search_finished)
-        self.worker.search_finished.connect(self.thread.quit)
-        self.worker.selection_finished.connect(self._on_selection_finished)
-        self.thread.finished.connect(self.thread.deleteLater)
-        self.thread.start()
+        self._do_search.connect(self._worker.perform_search)
+        self._do_search.emit(self.query)
 
     def _on_search_finished(self, results: List[str], error: str) -> None:
         """Populate results or show error."""
@@ -245,7 +271,7 @@ class WikipediaDialog(QDialog):
         self.accept()
 
     def _accept_selection(self) -> None:
-        """Trigger selection of the current result."""
+        """Trigger selection of the current result on the worker thread."""
         current_row = self.results_list.currentRow()
         if current_row == -1:
             QMessageBox.warning(self, "Selection", "Please select a result first.")
@@ -254,14 +280,9 @@ class WikipediaDialog(QDialog):
         self.title_label.setText("Fetching article details...")
         self.setEnabled(False)
 
-        self.thread = QThread()
-        self.worker.moveToThread(self.thread)
-
-        self.thread.started.connect(lambda: self.worker.select_result(current_row))
-        self.worker.selection_finished.connect(self._on_selection_finished)
-        self.worker.selection_finished.connect(self.thread.quit)
-        self.thread.finished.connect(self.thread.deleteLater)
-        self.thread.start()
+        # Emit through the requester — it lives on the worker thread, so
+        # select_result runs there without any moveToThread gymnastics.
+        self._requester.do_select.emit(current_row)
 
     def get_selection(self) -> Tuple[str, str, str, str, List[str]]:
         """Return details of the selected Wikipedia page."""

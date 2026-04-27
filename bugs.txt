@@ -30,7 +30,12 @@ artist_edit_alias.py
     check for existing artist by alias first. Ask if you want to merge records into artist
 
 artist_edit_basic.py
+    thread error when wikipedia search result is selected for artist
+        QObject::moveToThread: Current thread (0x2a13ce80) is not the object's thread (0x0).
+        Cannot move to target thread (0x358c2ac0)
 
+        QObject::moveToThread: Current thread (0x2a13ce80) is not the object's thread (0x0).
+        Cannot move to target thread (0x364147e0)
 
 artist_edit_discography
     Lots of wasted space
