@@ -37,15 +37,13 @@ def get_valid_parents(controller, genre):
         if g.genre_id == genre.genre_id:
             continue
 
-        # Exclude the current parent (if any)
-        if genre.parent_id and g.genre_id == genre.parent_id:
-            continue
-
         # Exclude any children of the current genre
         if g.genre_id in children_ids:
             continue
 
         valid_parents.append(g)
+
+    valid_parents.sort(key=lambda g: g.genre_name.lower())
 
     logger.debug(
         f"Manual filtering: Found {len(valid_parents)} valid parents for genre {genre.genre_name}"

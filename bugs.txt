@@ -100,8 +100,7 @@ duplicate_finder.py
     ability to play tracks with double click
 
 genre_edit.py
-    does not populate current parent
-    sort parent selection alphabetically
+
 
 genre_view.py
     expand all/contract all
@@ -115,7 +114,6 @@ influences_view.py
 
 
 library_import.py
-    the only date that is ever imported is year. Month and day are never imported correctly.
     discs are not being loaded properly. Discs should be created automatically.
 
 menu_bar.py
@@ -145,8 +143,8 @@ player_settings.py
 
 
 player_utility.py
-    tracks sometimes don't start at the very beginning
-    tracks sometimes don't progress
+    tracks sometimes don't start at the very beginning, especially when skipping through them
+    tracks sometimes don't progress. They hang at the very end. Maybe 1/15 times. Probably due to overengineered end detection.
     playback code is probably way overengineered for starting and progressing queue
 
 playlist_view.py
@@ -193,5 +191,6 @@ track_view.py
     add entire library to queue redundant with shuffle library to queue
 
 wikipedia search
+    Sometimes erorrs out with this error.
     Error fetching details:
     Error fetching page details: Expecting value: line 1 column 1 (char 0)
