@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QTabWidget,
@@ -205,23 +204,15 @@ class AlbumEditor(QDialog):
         main_layout.setContentsMargins(15, 15, 15, 15)
         main_layout.setSpacing(12)
 
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QScrollArea.NoFrame)
-
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setSpacing(16)
-
-        content_layout.addWidget(self._build_collapsible_header())
-
         self.tabs = QTabWidget()
+        self.tabs.setTabPosition(QTabWidget.West)
         self._details_tab = DetailsTab(self)
         self._tracks_tab = TracksTab(self)
         self._artwork_tab = ArtworkTab(self)
         self._aliases_tab = AliasesTab(self)
         self._advanced_tab = AdvancedTab(self)
 
+        self.tabs.addTab(self._build_header_section(), "Overview")
         self.tabs.addTab(self._details_tab.build(), "Details")
         self.tabs.addTab(self._tracks_tab.build(), "Tracks")
         self.tabs.addTab(self._artwork_tab.build(), "Artwork")
@@ -233,11 +224,7 @@ class AlbumEditor(QDialog):
         self.tabs.addTab(self.tab_builder.build_awards_tab(), "Awards")
         self.tabs.addTab(self._advanced_tab.build(), "Advanced")
 
-        content_layout.addWidget(self.tabs)
-        content_layout.addStretch()
-
-        scroll_area.setWidget(content_widget)
-        main_layout.addWidget(scroll_area)
+        main_layout.addWidget(self.tabs)
 
         self._add_dialog_buttons(main_layout)
 
@@ -346,24 +333,27 @@ class AlbumEditor(QDialog):
             artist_label.setToolTip(all_names)
             layout.addWidget(artist_label)
 
-        # Release date row
-        date_row = QHBoxLayout()
-        date_row.setSpacing(6)
-        date_row.addWidget(QLabel("Released:"))
-        for field in ("release_year", "release_month", "release_day"):
+        # Release date — labelled spinboxes stacked as a form group
+        date_group = QHBoxLayout()
+        date_group.setSpacing(12)
+        date_group.addWidget(QLabel("Released:"))
+        for field, label_text in (
+            ("release_year", "Year"),
+            ("release_month", "Month"),
+            ("release_day", "Day"),
+        ):
             w = self.field_widgets.get(field)
             if w:
+                col = QVBoxLayout()
+                col.setSpacing(2)
+                lbl = QLabel(label_text)
+                lbl.setStyleSheet("color: #aaa; font-size: 10px;")
                 w.setFixedWidth(70)
-                date_row.addWidget(w)
-                date_row.addWidget(
-                    QLabel(
-                        {"release_year": "Y", "release_month": "M", "release_day": "D"}[
-                            field
-                        ]
-                    )
-                )
-        date_row.addStretch()
-        layout.addLayout(date_row)
+                col.addWidget(lbl)
+                col.addWidget(w)
+                date_group.addLayout(col)
+        date_group.addStretch()
+        layout.addLayout(date_group)
 
         # Description
         desc_label = QLabel("Description:")
@@ -1019,6 +1009,7 @@ class AlbumEditor(QDialog):
     def _get_tab_rebuild_map(self) -> dict:
         """Return a mapping of tab title → builder callable."""
         return {
+            "Overview": self._build_header_section,
             "Details": lambda: DetailsTab(self).build(),
             "Tracks": lambda: TracksTab(self).build(),
             "Artwork": lambda: ArtworkTab(self).build(),

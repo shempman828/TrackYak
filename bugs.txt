@@ -57,8 +57,6 @@ award_view.py
 
 
 base_album_edit.py
-    year MYD is awkward and unintuitive
-    Change to vertical tab layout. Make header a tab.
 
 
 base_merge_dialog
@@ -66,7 +64,6 @@ base_merge_dialog
 
 base_track_view
     add editing single and multiple context menu (track_edit pattern)
-    remove shuffle qmessageboxes
 
 config_setup.py
     make sure debugging level is a setting
@@ -84,9 +81,11 @@ db_tables.py
 
 disc management
 
+
+
 display_settings.py
-    auto preview scale setting
-    auto preview font setting
+    auto /apply scale setting changes
+    auto preview/apply font setting changes
     does not load which theme is currently active
 
 duplicate_finder.py
