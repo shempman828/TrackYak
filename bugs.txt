@@ -57,7 +57,8 @@ award_view.py
 
 
 base_album_edit.py
-
+    overview tab awkward spacing
+    tab names text wrong direction, uses too much space.
 
 base_merge_dialog
 
@@ -161,8 +162,16 @@ publisher_view.py
 queue_utility.py
 
 
-roles_view.py
-
+role_view.py
+    2026-04-29 08:20:04,439 - INFO - role_view.py:320 - _on_roles_loaded() - Loaded 39 roles into unified tree with hierarchy (39 root items)
+    Traceback (most recent call last):
+    File "/home/babs/PycharmProjects/MusicLibrary/src/main_window.py", line 264, in _switch_view
+        getattr(current_widget, method_name)()
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+    File "/home/babs/PycharmProjects/MusicLibrary/src/role_view.py", line 224, in load_roles
+        if self._loader_thread and self._loader_thread.isRunning():
+                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+    RuntimeError: Internal C++ object (PySide6.QtCore.QThread) already deleted.
 
 statistics_dialog.py
 
@@ -193,3 +202,19 @@ wikipedia search
     Sometimes erorrs out with this error.
     Error fetching details:
     Error fetching page details: Expecting value: line 1 column 1 (char 0)
+    During handling of the above exception, another exception occurred:
+
+    Traceback (most recent call last):
+    File "/home/babs/PycharmProjects/MusicLibrary/src/wikipedia_seach.py", line 54, in search
+        search_results = wikipedia.search(self.query, results=10)
+    File "/home/babs/PycharmProjects/MusicLibrary/.venv/lib/python3.13/site-packages/wikipedia/util.py", line 28, in __call__
+        ret = self._cache[key] = self.fn(*args, **kwargs)
+                                ~~~~~~~^^^^^^^^^^^^^^^^^
+    File "/home/babs/PycharmProjects/MusicLibrary/.venv/lib/python3.13/site-packages/wikipedia/wikipedia.py", line 103, in search
+        raw_results = _wiki_request(search_params)
+    File "/home/babs/PycharmProjects/MusicLibrary/.venv/lib/python3.13/site-packages/wikipedia/wikipedia.py", line 742, in _wiki_request
+        return r.json()
+            ~~~~~~^^
+    File "/home/babs/PycharmProjects/MusicLibrary/.venv/lib/python3.13/site-packages/requests/models.py", line 978, in json
+        raise RequestsJSONDecodeError(e.msg, e.doc, e.pos)
+    requests.exceptions.JSONDecodeError: Expecting value: line 1 column 1 (char 0)

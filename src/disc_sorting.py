@@ -23,6 +23,9 @@ class TrackSortingDisplay(QTreeWidget):
     # The parent DiscManagementView connects to this to trigger a full reload.
     track_edited = Signal()
 
+    # Emitted after tracks are deleted so the parent view can reload.
+    track_deleted = Signal()
+
     def __init__(
         self, tracks, discs=None, virtual_links=None, controller=None, parent=None
     ):
@@ -165,6 +168,16 @@ class TrackSortingDisplay(QTreeWidget):
             note.setEnabled(False)
             menu.addAction(note)
 
+        if physical_ids:
+            menu.addSeparator()
+            count = len(physical_ids)
+            del_label = "🗑️  Delete Track" if count == 1 else f"🗑️  Delete {count} Tracks"
+            delete_action = QAction(del_label, self)
+            delete_action.triggered.connect(
+                lambda checked=False, ids=physical_ids: self._delete_tracks(ids)
+            )
+            menu.addAction(delete_action)
+
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def _edit_track(self, track_ids):
@@ -215,6 +228,103 @@ class TrackSortingDisplay(QTreeWidget):
         except Exception as e:
             logger.error(f"Error opening track editor from disc view: {e}")
             QMessageBox.warning(self, "Error", f"Could not open track editor:\n{e}")
+
+    # -------------------------------------------------------------------------
+    # Track deletion
+    # -------------------------------------------------------------------------
+
+    def _delete_tracks(self, track_ids):
+        """
+        Delete one or more physical tracks after user confirmation.
+
+        Offers two choices: remove from the library (DB only) or also delete
+        the audio file(s) from disk.  Emits track_deleted on success so the
+        parent view can reload.
+        """
+        controller = self.controller
+        if controller is None:
+            parent = self.parent()
+            while parent and not hasattr(parent, "controller"):
+                parent = parent.parent()
+            if parent:
+                controller = parent.controller
+
+        if controller is None:
+            logger.error("Cannot delete tracks: no controller found")
+            QMessageBox.warning(self, "Error", "Could not delete tracks.")
+            return
+
+        # Resolve track objects so we have names and file paths.
+        tracks = []
+        for tid in track_ids:
+            track = controller.get.get_entity_object("Track", track_id=tid)
+            if track:
+                tracks.append(track)
+            else:
+                logger.warning(f"Track ID {tid} not found — skipping.")
+
+        if not tracks:
+            QMessageBox.warning(self, "Not Found", "No tracks could be loaded.")
+            return
+
+        count = len(tracks)
+        names = ", ".join(
+            getattr(t, "track_name", None) or f"ID {t.track_id}" for t in tracks[:3]
+        )
+        if count > 3:
+            names += f" … and {count - 3} more"
+
+        # --- Confirmation dialog: DB only / also delete file(s) / cancel ---
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Delete Tracks")
+        msg.setText(f"Delete {count} track(s)?\n\n{names}")
+        msg.setInformativeText(
+            "Remove from Library deletes the DB entry only.\n"
+            "Delete File(s) Too also removes the audio file(s) from disk."
+        )
+        msg.setIcon(QMessageBox.Warning)
+        btn_db_only = msg.addButton("Remove from Library", QMessageBox.AcceptRole)
+        btn_and_file = msg.addButton("Delete File(s) Too", QMessageBox.DestructiveRole)
+        msg.addButton("Cancel", QMessageBox.RejectRole)
+        msg.setDefaultButton(btn_db_only)
+        msg.exec_()
+
+        clicked = msg.clickedButton()
+        if clicked is None or clicked.text() == "Cancel":
+            return
+
+        delete_files = clicked is btn_and_file
+
+        # Collect file paths BEFORE the DB delete — ORM objects may go stale.
+        file_paths = []
+        if delete_files:
+            for track in tracks:
+                fp = getattr(track, "track_file_path", None)
+                if fp:
+                    file_paths.append(fp)
+
+        # --- Batch delete from DB ---
+        entity_ids = [track.track_id for track in tracks]
+        ok = controller.delete.delete_entity("Track", entity_ids=entity_ids)
+        if ok:
+            logger.info(f"Batch-deleted {count} track(s) from DB")
+        else:
+            logger.error(
+                "Batch delete returned False — some tracks may not have been removed"
+            )
+
+        # --- Optionally remove files from disk ---
+        if delete_files and file_paths:
+            removed = 0
+            for fp in file_paths:
+                try:
+                    if controller.delete.delete_file(file_path=fp):
+                        removed += 1
+                except Exception as e:
+                    logger.error(f"Error deleting file {fp}: {e}")
+            logger.info(f"Removed {removed}/{len(file_paths)} file(s) from disk")
+
+        self.track_deleted.emit()
 
     # -------------------------------------------------------------------------
     # Tree population

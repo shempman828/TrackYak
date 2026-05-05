@@ -200,6 +200,7 @@ class DiscManagementView(QWidget):
 
         # Reload the whole view whenever a track edit dialog is saved and closed
         self.track_display.track_edited.connect(self.refresh_view)
+        self.track_display.track_deleted.connect(self.refresh_view)
 
         self.track_layout.addWidget(self.track_display)
 

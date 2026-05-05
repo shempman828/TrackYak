@@ -205,7 +205,7 @@ class AlbumEditor(QDialog):
         main_layout.setSpacing(12)
 
         self.tabs = QTabWidget()
-        self.tabs.setTabPosition(QTabWidget.West)
+        self.tabs.setTabPosition(QTabWidget.North)
         self._details_tab = DetailsTab(self)
         self._tracks_tab = TracksTab(self)
         self._artwork_tab = ArtworkTab(self)
@@ -232,75 +232,41 @@ class AlbumEditor(QDialog):
     # Header section  (cover thumbnail + editable info — collapsible)
     # =========================================================================
 
-    def _build_collapsible_header(self) -> QWidget:
-        """A slim toggle bar + the full header content underneath.
-
-        The toggle bar is always visible and shows the album name so you always
-        know what you are editing. Clicking the ▼/▶ arrow shows or hides the
-        full header (cover image, description, links) so that tab space is not
-        wasted while you are deep-editing tracks or relationships.
-        """
+    def _build_header_section(self):
+        """Cover image on the left; editable album info on the right. Pinned to top."""
+        # Create a container that fills the tab and pushes content up
         container = QWidget()
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(0)
 
-        # ── Always-visible toggle bar ──────────────────────────────────────
-        toggle_bar = QWidget()
-        toggle_bar.setStyleSheet(
-            "background: #1e1e2e; border-radius: 4px; padding: 2px 4px;"
-        )
-        bar_row = QHBoxLayout(toggle_bar)
-        bar_row.setContentsMargins(8, 4, 8, 4)
-        bar_row.setSpacing(10)
-
-        self._header_toggle_btn = QPushButton("▼")
-        self._header_toggle_btn.setFixedSize(24, 24)
-        self._header_toggle_btn.setToolTip("Show / hide the album header panel")
-        self._header_toggle_btn.setStyleSheet(
-            "QPushButton { border: none; color: #aaa; font-size: 12px; }"
-            "QPushButton:hover { color: #fff; }"
-        )
-        self._header_toggle_btn.clicked.connect(self._toggle_header)
-        bar_row.addWidget(self._header_toggle_btn)
-
-        album_name_lbl = QLabel(f"<b>{self.album.album_name}</b>")
-        album_name_lbl.setStyleSheet("color: #ddd; font-size: 13px;")
-        bar_row.addWidget(album_name_lbl, 1)
-
-        container_layout.addWidget(toggle_bar)
-
-        # ── Collapsible header content ─────────────────────────────────────
-        self._header_content = self._build_header_section()
-        container_layout.addWidget(self._header_content)
-
-        return container
-
-    def _toggle_header(self):
-        """Show or hide the full header panel and flip the arrow."""
-        visible = self._header_content.isVisible()
-        self._header_content.setVisible(not visible)
-        self._header_toggle_btn.setText("▶" if visible else "▼")
-
-    def _build_header_section(self):
-        """Cover image on the left; editable album info on the right."""
+        # Your original header content (unchanged)
         header = QWidget()
+        header.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         row = QHBoxLayout(header)
         row.setSpacing(20)
 
         row.addWidget(self._build_cover_widget())
         row.addWidget(self._build_info_section(), 1)
-        return header
+
+        # Add the header at the top, then a stretch to push it up
+        container_layout.addWidget(header, 0, Qt.AlignTop)
+        container_layout.addStretch()
+
+        return container
 
     def _build_cover_widget(self):
         """Cover thumbnail only — no Change Cover button (use Artwork tab)."""
         widget = QWidget()
+        widget.setSizePolicy(
+            QSizePolicy.Fixed, QSizePolicy.Fixed
+        )  # FIX: prevent horizontal stretch
         layout = QVBoxLayout(widget)
         layout.setAlignment(Qt.AlignTop)
 
         self.cover_label = QLabel()
         self.cover_label.setAlignment(Qt.AlignCenter)
-        self.cover_label.setFixedSize(200, 200)
+        self.cover_label.setFixedSize(150, 150)  # FIX: smaller, was 200
         self.cover_label.setStyleSheet("border: 1px solid #555; background: #2a2a2a;")
         self._load_album_cover()
         layout.addWidget(self.cover_label)
@@ -310,6 +276,9 @@ class AlbumEditor(QDialog):
     def _build_info_section(self):
         """Right-hand side of the header: title, subtitle, artists, date, description, links."""
         widget = QWidget()
+        widget.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Fixed
+        )  # FIX: prevent vertical stretch
         layout = QVBoxLayout(widget)
         layout.setSpacing(6)
 
@@ -365,13 +334,13 @@ class AlbumEditor(QDialog):
             self.desc_widget = QTextEdit()
             self.desc_widget.setPlainText(self.album.album_description or "")
 
-        self.desc_widget.setMinimumHeight(60)
-        self.desc_widget.setMaximumHeight(120)
+        self.desc_widget.setMinimumHeight(100)  # FIX: taller (was 60)
+        self.desc_widget.setMaximumHeight(200)  # FIX: taller (was 120)
         self.desc_widget.setStyleSheet("padding: 2px 4px;")
         self.desc_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout.addWidget(self.desc_widget)
 
-        # External links
+        # External links (buttons remain here, unchanged)
         self._links_row = QHBoxLayout()
         self._links_row.setSpacing(8)
 
