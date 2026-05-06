@@ -254,11 +254,56 @@ class DiscManagementView(QWidget):
 
     def remove_disc(self):
         """Remove selected disc"""
-        # TODO: Implement disc selection and removal
-        # For now, show message
-        QMessageBox.information(
-            self, "Info", "Select a disc to remove (not yet implemented)"
+        if not self.discs:
+            QMessageBox.information(self, "Info", "No discs to remove.")
+            return
+
+        # Build a list of disc choices for the user
+        disc_labels = []
+        for d in self.discs:
+            label = f"Disc {d.disc_number}"
+            if d.disc_title:
+                label += f": {d.disc_title}"
+            disc_labels.append(label)
+
+        # Use a simple input dialog to pick a disc
+        from PySide6.QtWidgets import QInputDialog
+
+        choice, ok = QInputDialog.getItem(
+            self,
+            "Remove Disc",
+            "Select a disc to remove:",
+            disc_labels,
+            editable=False,
         )
+        if not ok:
+            return
+
+        disc = self.discs[disc_labels.index(choice)]
+
+        # Warn if the disc has tracks assigned to it
+        assigned_tracks = [t for t in self.physical_tracks if t.disc_id == disc.disc_id]
+        if assigned_tracks:
+            confirm = QMessageBox.warning(
+                self,
+                "Disc Has Tracks",
+                f"{choice} has {len(assigned_tracks)} track(s) assigned to it. "
+                "Removing it will unassign those tracks. Continue?",
+                QMessageBox.Yes | QMessageBox.Cancel,
+            )
+            if confirm != QMessageBox.Yes:
+                return
+
+        try:
+            success = self.controller.delete.delete_entity("Disc", disc.disc_id)
+            if success:
+                self.status_label.setText(f"Removed {choice}")
+                self.refresh_view()
+            else:
+                QMessageBox.warning(self, "Error", f"Failed to remove {choice}.")
+        except Exception as e:
+            logger.error(f"Error removing disc: {e}")
+            QMessageBox.warning(self, "Error", f"Could not remove disc: {str(e)}")
 
     def refresh_view(self):
         """Refresh all data and UI"""

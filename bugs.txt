@@ -59,8 +59,8 @@ award_view.py
 
 
 base_album_edit.py
-    overview tab awkward spacing
-    tab names text wrong direction, uses too much space.
+    overview tab artist name tiny and not prominent.
+    Description box not tall enough, only a single line tall
 
 base_merge_dialog
 
@@ -85,6 +85,8 @@ db_tables.py
 disc management
 
 
+disc_view.py
+    implement disc removal
 
 display_settings.py
     auto /apply scale setting changes
@@ -189,6 +191,7 @@ track_edit_lyrics
 
 
 track_edit_roles
+    combine like artists into one section.
 
 
 track_editing
