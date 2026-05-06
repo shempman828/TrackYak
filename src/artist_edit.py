@@ -79,7 +79,7 @@ class ArtistEditor(QDialog):
         tabs.addTab(self.tab_aliases, "Aliases")
         tabs.addTab(self.tab_members, "Members")
         tabs.addTab(self.tab_influences, "Influences")
-        tabs.addTab(self.tab_places_awards, "Places & Awards")
+        tabs.addTab(self.tab_places_awards, "Places && Awards")
         tabs.addTab(self.tab_discography, "Discography")
         tabs.addTab(self.tab_advanced, "Advanced")
         root.addWidget(tabs)
