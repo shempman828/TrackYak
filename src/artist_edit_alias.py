@@ -4,8 +4,8 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
     QHeaderView,
-    QLabel,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.artist_alias_dialog import AliasEditDialog
+from src.logger_config import logger
 
 
 class AliasesTab(QWidget):
@@ -40,13 +41,6 @@ class AliasesTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        info = QLabel(
-            "Aliases let an artist be discovered under multiple names. "
-            "Changes are saved immediately."
-        )
-        info.setWordWrap(True)
-        layout.addWidget(info)
-
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Alias Name", "Type", ""])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
@@ -60,10 +54,6 @@ class AliasesTab(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
-        self.table.setStyleSheet("""
-            QTableWidget { border: 1px solid palette(mid); border-radius: 4px; }
-            QTableWidget::item { padding: 4px 6px; }
-        """)
         layout.addWidget(self.table)
 
         add_btn = QPushButton("＋  Add Alias")
@@ -77,6 +67,11 @@ class AliasesTab(QWidget):
     # ------------------------------------------------------------------
 
     def load(self, artist):
+        logger.debug(
+            "AliasesTab.load: artist_id=%s name=%r",
+            artist.artist_id,
+            artist.artist_name,
+        )
         self.artist = artist
         self._reload_table()
 
@@ -90,7 +85,16 @@ class AliasesTab(QWidget):
             aliases = self.controller.get.get_all_entities(
                 "ArtistAlias", artist_id=self.artist.artist_id
             )
+            logger.debug(
+                "AliasesTab._reload_table: fetched %d aliases for artist_id=%s",
+                len(aliases),
+                self.artist.artist_id,
+            )
         except Exception:
+            logger.exception(
+                "AliasesTab._reload_table: failed to fetch aliases for artist_id=%s",
+                self.artist.artist_id,
+            )
             aliases = []
 
         for alias in aliases:
@@ -132,9 +136,20 @@ class AliasesTab(QWidget):
     # ------------------------------------------------------------------
 
     def _add_alias(self):
+        logger.debug(
+            "AliasesTab._add_alias: opening dialog for artist_id=%s",
+            self.artist.artist_id,
+        )
         dlg = AliasEditDialog(extra_types=self._existing_types(), parent=self)
-        if dlg.exec() != dlg.accepted:
+        # FIX: was `dlg.accepted` (always int 1) — must use QDialog.Accepted
+        if dlg.exec() != QDialog.Accepted:
+            logger.debug("AliasesTab._add_alias: dialog cancelled")
             return
+        logger.debug(
+            "AliasesTab._add_alias: accepted name=%r type=%r",
+            dlg.alias_name,
+            dlg.alias_type,
+        )
         try:
             self.controller.add.add_entity(
                 "ArtistAlias",
@@ -142,21 +157,47 @@ class AliasesTab(QWidget):
                 alias_name=dlg.alias_name,
                 alias_type=dlg.alias_type or None,
             )
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Could not add alias:\n{e}")
+            logger.info(
+                "AliasesTab._add_alias: added alias %r for artist_id=%s",
+                dlg.alias_name,
+                self.artist.artist_id,
+            )
+        except Exception as exc:
+            logger.exception(
+                "AliasesTab._add_alias: failed to add alias %r", dlg.alias_name
+            )
+            QMessageBox.critical(self, "Error", f"Could not add alias:\n{exc}")
             return
         self._reload_table()
 
     def _edit_alias(self, row: int):
         alias_id = self._row_alias_id(row)
+        alias_name = self.table.item(row, 0).text()
+        alias_type = self.table.item(row, 1).text()
+        logger.debug(
+            "AliasesTab._edit_alias: row=%d alias_id=%s name=%r type=%r",
+            row,
+            alias_id,
+            alias_name,
+            alias_type,
+        )
         dlg = AliasEditDialog(
-            alias_name=self.table.item(row, 0).text(),
-            alias_type=self.table.item(row, 1).text(),
+            alias_name=alias_name,
+            alias_type=alias_type,
             extra_types=self._existing_types(),
             parent=self,
         )
-        if dlg.exec() != dlg.accepted:
+        # FIX: was `dlg.accepted` (always int 1) — must use QDialog.Accepted
+        if dlg.exec() != QDialog.Accepted:
+            logger.debug(
+                "AliasesTab._edit_alias: dialog cancelled for alias_id=%s", alias_id
+            )
             return
+        logger.debug(
+            "AliasesTab._edit_alias: accepted new name=%r type=%r",
+            dlg.alias_name,
+            dlg.alias_type,
+        )
         try:
             self.controller.update.update_entity(
                 "ArtistAlias",
@@ -164,14 +205,29 @@ class AliasesTab(QWidget):
                 alias_name=dlg.alias_name,
                 alias_type=dlg.alias_type or None,
             )
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Could not update alias:\n{e}")
+            logger.info(
+                "AliasesTab._edit_alias: updated alias_id=%s to name=%r type=%r",
+                alias_id,
+                dlg.alias_name,
+                dlg.alias_type,
+            )
+        except Exception as exc:
+            logger.exception(
+                "AliasesTab._edit_alias: failed to update alias_id=%s", alias_id
+            )
+            QMessageBox.critical(self, "Error", f"Could not update alias:\n{exc}")
             return
         self._reload_table()
 
     def _delete_alias(self, row: int):
         alias_id = self._row_alias_id(row)
         alias_name = self.table.item(row, 0).text()
+        logger.debug(
+            "AliasesTab._delete_alias: row=%d alias_id=%s name=%r",
+            row,
+            alias_id,
+            alias_name,
+        )
         reply = QMessageBox.question(
             self,
             "Delete Alias",
@@ -180,11 +236,22 @@ class AliasesTab(QWidget):
             QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
+            logger.debug(
+                "AliasesTab._delete_alias: cancelled for alias_id=%s", alias_id
+            )
             return
         try:
             self.controller.delete.delete_entity("ArtistAlias", alias_id)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Could not delete alias:\n{e}")
+            logger.info(
+                "AliasesTab._delete_alias: deleted alias_id=%s name=%r",
+                alias_id,
+                alias_name,
+            )
+        except Exception as exc:
+            logger.exception(
+                "AliasesTab._delete_alias: failed to delete alias_id=%s", alias_id
+            )
+            QMessageBox.critical(self, "Error", f"Could not delete alias:\n{exc}")
             return
         self._reload_table()
 
@@ -193,8 +260,18 @@ class AliasesTab(QWidget):
         new_primary = self.table.item(row, 0).text()
         alias_type = self.table.item(row, 1).text()
         old_primary = self.artist.artist_name
+        logger.debug(
+            "AliasesTab._swap_alias: row=%d alias_id=%s old=%r new=%r",
+            row,
+            alias_id,
+            old_primary,
+            new_primary,
+        )
 
         if new_primary == old_primary:
+            logger.debug(
+                "AliasesTab._swap_alias: no-op, alias already matches primary name"
+            )
             QMessageBox.information(
                 self, "No Change", "That alias is already the primary name."
             )
@@ -209,6 +286,7 @@ class AliasesTab(QWidget):
             QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
+            logger.debug("AliasesTab._swap_alias: cancelled")
             return
 
         try:
@@ -224,8 +302,19 @@ class AliasesTab(QWidget):
                 alias_name=old_primary,
                 alias_type=save_type,
             )
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Could not swap name:\n{e}")
+            logger.info(
+                "AliasesTab._swap_alias: swapped artist_id=%s primary %r -> %r (old saved as type=%r)",
+                self.artist.artist_id,
+                old_primary,
+                new_primary,
+                save_type,
+            )
+        except Exception as exc:
+            logger.exception(
+                "AliasesTab._swap_alias: failed during swap for artist_id=%s",
+                self.artist.artist_id,
+            )
+            QMessageBox.critical(self, "Error", f"Could not swap name:\n{exc}")
             return
 
         self._reload_table()

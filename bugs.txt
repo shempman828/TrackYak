@@ -23,7 +23,7 @@ artist_detail_credits
 
 
 artist_edit.py
-    Places && Awards
+
 
 artist_edit_alias.py
     add does not seem to work
