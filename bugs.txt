@@ -26,7 +26,6 @@ artist_edit.py
 
 
 artist_edit_alias.py
-    add does not seem to work
     check for existing artist by alias first. Ask if you want to merge records into artist
 
 artist_edit_basic.py
@@ -40,6 +39,9 @@ artist_edit_discography
 
 artist_edit_influences
     Lots of space feels wasted.
+
+arist_edit_member.py
+    broken logic? It should show members if a group or groups if not a group. Maybe we need two classes, one for group one for not group?
 
 
 artist_view.py
