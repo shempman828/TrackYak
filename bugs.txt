@@ -36,6 +36,7 @@ artist_edit_discography
     Do not show track credit "Primary Artist" if artist is "Album Artist" on Track's Album
     allow credit filter by role names
     show role count by name with total
+    Show album artist and year in table
 
 artist_edit_influences
     Lots of space feels wasted.
