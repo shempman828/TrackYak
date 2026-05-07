@@ -1,8 +1,10 @@
 import inspect
 import os
 
-from sqlalchemy import create_engine, select, update
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import create_engine
+from sqlalchemy import delete as sql_delete
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import scoped_session, sessionmaker
 
 import src.db_tables
@@ -438,6 +440,32 @@ class DeleteDB(BaseDBHelper):
         return db_deleted and file_deleted
 
 
+# Reuse the same _safe_add helper concept, but for execute:
+def _safe_execute(self, stmt) -> int:
+    """
+    Execute a statement inside a savepoint.
+    Returns rowcount on success, -1 if a unique/integrity constraint fired.
+    Any other SQLAlchemyError is re-raised.
+    """
+    try:
+        with self.session.begin_nested():
+            result = self.session.execute(stmt)
+            return result.rowcount
+    except IntegrityError:
+        logger.debug("Skipping statement due to unique constraint violation.")
+        return -1
+
+
+# Model registry — safer than globals()
+_MERGE_MODEL_REGISTRY: dict = {
+    "Artist": src.db_tables.Artist,
+    "Publisher": src.db_tables.Publisher,
+    "Genre": src.db_tables.Genre,
+    "Mood": src.db_tables.Mood,
+    "Role": src.db_tables.Role,
+}
+
+
 class MergeDB(BaseDBHelper):
     """Class for merging database entries."""
 
@@ -445,90 +473,81 @@ class MergeDB(BaseDBHelper):
         """Merge two entities of the same type across all relationship tables."""
         logger.debug(f"Merging {model_name} ID {source_id} -> {target_id}")
 
-        try:
-            entity_class = globals()[model_name]
-        except KeyError:
-            logger.error(f"Entity '{model_name}' not found in globals()")
+        entity_class = _MERGE_MODEL_REGISTRY.get(model_name)
+        if entity_class is None:
+            logger.error(f"Entity '{model_name}' not found in merge registry.")
             return False
 
         source_entity = self.session.get(entity_class, source_id)
         target_entity = self.session.get(entity_class, target_id)
         if not source_entity or not target_entity:
-            logger.error(f"Source or target {model_name} not found")
+            logger.error(f"Source or target {model_name} not found.")
             return False
 
         try:
-            # Get the primary key column name for the entity
             pk_columns = [
                 col.name for col in entity_class.__table__.primary_key.columns
             ]
             if not pk_columns:
-                logger.error(f"No primary key found for {model_name}")
+                logger.error(f"No primary key found for {model_name}.")
                 return False
 
-            # Use the first primary key column (most common case)
             pk_column = pk_columns[0]
-
-            # Get all tables that might reference this entity
             metadata = entity_class.metadata
             updated_tables = set()
+            skipped_tables = set()
 
             for table in metadata.tables.values():
-                # Skip the entity's own table
                 if table.name == entity_class.__table__.name:
                     continue
 
-                # Check each column for foreign keys pointing to our entity table
                 for column in table.columns:
                     for fk in column.foreign_keys:
-                        # Check if this FK points to our entity's primary key
                         if (
                             fk.column.table.name == entity_class.__table__.name
                             and fk.column.name == pk_column
                         ):
                             logger.debug(
-                                f"Found FK: {table.name}.{column.name} -> {entity_class.__table__.name}.{pk_column}"
+                                f"Found FK: {table.name}.{column.name} -> "
+                                f"{entity_class.__table__.name}.{pk_column}"
                             )
 
-                            # Update references from source to target
                             update_stmt = (
                                 update(table)
                                 .where(column == source_id)
                                 .values({column.name: target_id})
                             )
 
-                            # Check for unique constraint violations before updating
-                            try:
-                                result = self.session.execute(update_stmt)
-                                if result.rowcount > 0:
-                                    logger.info(
-                                        f"Updated {result.rowcount} rows in {table.name}.{column.name}"
-                                    )
-                                    updated_tables.add(table.name)
-                            except SQLAlchemyError as e:
-                                logger.warning(
-                                    f"Could not update {table.name}.{column.name}: {e}. "
-                                    f"This may be due to unique constraints."
+                            rowcount = self._safe_execute(update_stmt)
+                            if rowcount > 0:
+                                logger.info(
+                                    f"Updated {rowcount} rows in "
+                                    f"{table.name}.{column.name}"
                                 )
-                                # Continue with other tables rather than failing completely
+                                updated_tables.add(table.name)
+                            elif rowcount == -1:
+                                # Constraint fired: target already owns these rows,
+                                # so we delete the conflicting source rows instead.
+                                delete_stmt = sql_delete(table).where(
+                                    column == source_id
+                                )
+                                del_rowcount = self._safe_execute(delete_stmt)
+                                logger.info(
+                                    f"Constraint on {table.name}.{column.name}: "
+                                    f"deleted {del_rowcount} duplicate source rows "
+                                    f"(target already has them)."
+                                )
+                                skipped_tables.add(table.name)
 
-            # Delete old entity only if we're confident about the merge
-            from sqlalchemy import delete as sql_delete
-
-            pk_val = getattr(source_entity, pk_column)
-            self.session.execute(
-                sql_delete(entity_class.__table__).where(
-                    entity_class.__table__.c[pk_column] == pk_val
-                )
-            )
-            # Expunge the ORM object so SQLAlchemy doesn't try to DELETE it again
-            self.session.expunge(source_entity)
+            # Delete via ORM so cascade rules are respected
+            self.session.delete(source_entity)
 
             self.session.commit()
 
             logger.info(
-                f"✅ Merge complete for {model_name} {source_id} -> {target_id}. "
-                f"Updated {len(updated_tables)} tables: {sorted(updated_tables)}"
+                f"Merge complete: {model_name} {source_id} -> {target_id}. "
+                f"Updated tables: {sorted(updated_tables)}. "
+                f"Constraint-skipped tables: {sorted(skipped_tables)}."
             )
             return True
 
@@ -540,6 +559,32 @@ class MergeDB(BaseDBHelper):
 
 class SplitDB(BaseDBHelper):
     """Class for splitting different database models."""
+
+    # ------------------------------------------------------------------
+    # Internal helper
+    # ------------------------------------------------------------------
+
+    def _safe_add(self, obj) -> bool:
+        """
+        Add a single ORM object inside a savepoint.
+        Returns True on success, False if a unique/integrity constraint fired.
+        Any other exception is re-raised so the outer try/except still sees it.
+        """
+        try:
+            with self.session.begin_nested():
+                self.session.add(obj)
+            return True
+        except IntegrityError:
+            # Constraint violation — row already exists or PK collision.
+            # The savepoint is automatically rolled back; session stays usable.
+            logger.debug(
+                f"Skipping duplicate {type(obj).__name__}: constraint violation"
+            )
+            return False
+
+    # ------------------------------------------------------------------
+    # split_publisher
+    # ------------------------------------------------------------------
 
     def split_publisher(self, publisher_id: int, new_names: list):
         """Split one publisher into N publishers, matching to existing when possible."""
@@ -553,23 +598,18 @@ class SplitDB(BaseDBHelper):
         try:
             new_publishers = []
 
-            # Create or find publishers
             for name in new_names:
-                # Check if publisher with this name already exists
-                existing_publisher = self.session.scalar(
+                existing = self.session.scalar(
                     select(src.db_tables.Publisher).where(
                         src.db_tables.Publisher.publisher_name == name
                     )
                 )
-
-                if existing_publisher:
-                    # Use existing publisher
+                if existing:
                     logger.debug(
-                        f"Using existing publisher: {name} (ID: {existing_publisher.publisher_id})"
+                        f"Using existing publisher: {name} (ID: {existing.publisher_id})"
                     )
-                    new_publishers.append(existing_publisher)
+                    new_publishers.append(existing)
                 else:
-                    # Create new publisher
                     new_pub = src.db_tables.Publisher(
                         publisher_name=name,
                         description=original_publisher.description,
@@ -580,51 +620,58 @@ class SplitDB(BaseDBHelper):
                         is_active=original_publisher.is_active,
                         wikipedia_link=original_publisher.wikipedia_link,
                     )
-                    self.session.add(new_pub)
-                    new_publishers.append(new_pub)
-                    logger.debug(f"Creating new publisher: {name}")
+                    if self._safe_add(new_pub):
+                        new_publishers.append(new_pub)
+                    else:
+                        # Race condition: someone inserted the same name between
+                        # our SELECT and our INSERT — re-fetch and reuse.
+                        refetched = self.session.scalar(
+                            select(src.db_tables.Publisher).where(
+                                src.db_tables.Publisher.publisher_name == name
+                            )
+                        )
+                        if refetched:
+                            new_publishers.append(refetched)
 
-            self.session.flush()
+            if not new_publishers:
+                logger.error("No publishers were created or found; aborting split.")
+                return False
 
-            # Duplicate album associations only to NEW publishers (not existing ones)
             album_ids = [
                 assoc.album_id for assoc in original_publisher.album_associations
             ]
 
             for new_pub in new_publishers:
-                # Skip if this is an existing publisher that already has associations
-                # (we don't want to duplicate existing associations)
-                existing_album_ids = (
-                    [assoc.album_id for assoc in new_pub.album_associations]
-                    if hasattr(new_pub, "album_associations")
-                    else []
-                )
-
+                existing_album_ids = {
+                    assoc.album_id for assoc in new_pub.album_associations
+                }
                 for album_id in album_ids:
                     if album_id not in existing_album_ids:
-                        # Create association only if it doesn't already exist
-                        new_assoc = src.db_tables.AlbumPublisher(
-                            album_id=album_id, publisher_id=new_pub.publisher_id
+                        self._safe_add(
+                            src.db_tables.AlbumPublisher(
+                                album_id=album_id,
+                                publisher_id=new_pub.publisher_id,
+                            )
                         )
-                        self.session.add(new_assoc)
 
-            # Delete original publisher (but not if it's the same as one of the new ones)
             if original_publisher not in new_publishers:
                 self.session.delete(original_publisher)
 
             self.session.commit()
-
             logger.info(
-                f"Successfully split publisher {publisher_id}. "
-                f"Created {len([p for p in new_publishers if p.publisher_id != publisher_id])} new publishers, "
-                f"used {len([p for p in new_publishers if p.publisher_id == publisher_id])} existing publishers."
+                f"Successfully split publisher {publisher_id} into "
+                f"{len(new_publishers)} publishers."
             )
             return True
 
         except SQLAlchemyError as e:
             logger.error(f"Error splitting publisher: {e}")
             self.session.rollback()
-        return False
+            return False
+
+    # ------------------------------------------------------------------
+    # split_artist
+    # ------------------------------------------------------------------
 
     def split_artist(self, artist_id: int, new_names: list):
         """Split one artist into N artists, duplicating relationships."""
@@ -638,40 +685,46 @@ class SplitDB(BaseDBHelper):
         try:
             new_artists = []
 
-            # Create or find artists for each name
             for name in new_names:
-                # Check if an artist with this name already exists
-                existing_artist = self.session.scalar(
+                existing = self.session.scalar(
                     select(src.db_tables.Artist).where(
                         src.db_tables.Artist.artist_name == name
                     )
                 )
-
-                if existing_artist:
-                    # Use the existing artist instead of creating a duplicate
+                if existing:
                     logger.debug(
-                        f"Using existing artist: {name} (ID: {existing_artist.artist_id})"
+                        f"Using existing artist: {name} (ID: {existing.artist_id})"
                     )
-                    new_artists.append(existing_artist)
+                    new_artists.append(existing)
                 else:
-                    # Create a brand new artist
-                    new_artist = src.db_tables.Artist(
-                        artist_name=name,
-                    )
-                    self.session.add(new_artist)
-                    new_artists.append(new_artist)
-                    logger.debug(f"Creating new artist: {name}")
+                    new_artist = src.db_tables.Artist(artist_name=name)
+                    if self._safe_add(new_artist):
+                        new_artists.append(new_artist)
+                    else:
+                        refetched = self.session.scalar(
+                            select(src.db_tables.Artist).where(
+                                src.db_tables.Artist.artist_name == name
+                            )
+                        )
+                        if refetched:
+                            new_artists.append(refetched)
 
-            self.session.flush()
+            if not new_artists:
+                logger.error("No artists were created or found; aborting split.")
+                return False
 
-            # Collect existing track role combos to avoid duplicate primary key errors
+            # Pre-collect existing combos across all new artists to skip dupes
             existing_track_roles = {
                 (tr.track_id, tr.artist_id, tr.role_id)
-                for new_artist in new_artists
-                for tr in new_artist.track_roles
+                for a in new_artists
+                for tr in a.track_roles
+            }
+            existing_album_roles = {
+                (ar.album_id, ar.artist_id, ar.role_id)
+                for a in new_artists
+                for ar in a.album_roles
             }
 
-            # Duplicate track artist roles
             for track_role in original_artist.track_roles:
                 for new_artist in new_artists:
                     combo = (
@@ -680,35 +733,40 @@ class SplitDB(BaseDBHelper):
                         track_role.role_id,
                     )
                     if combo not in existing_track_roles:
-                        new_role = src.db_tables.TrackArtistRole(
-                            track_id=track_role.track_id,
-                            artist_id=new_artist.artist_id,
-                            role_id=track_role.role_id,
+                        added = self._safe_add(
+                            src.db_tables.TrackArtistRole(
+                                track_id=track_role.track_id,
+                                artist_id=new_artist.artist_id,
+                                role_id=track_role.role_id,
+                            )
                         )
-                        self.session.add(new_role)
-                        existing_track_roles.add(combo)
+                        if added:
+                            existing_track_roles.add(combo)
 
-            # Duplicate album roles
             for album_role in original_artist.album_roles:
                 for new_artist in new_artists:
-                    new_album_role = src.db_tables.AlbumRoleAssociation(
-                        album_id=album_role.album_id,
-                        artist_id=new_artist.artist_id,
-                        role_id=album_role.role_id,
+                    combo = (
+                        album_role.album_id,
+                        new_artist.artist_id,
+                        album_role.role_id,
                     )
-                    self.session.add(new_album_role)
+                    if combo not in existing_album_roles:
+                        added = self._safe_add(
+                            src.db_tables.AlbumRoleAssociation(
+                                album_id=album_role.album_id,
+                                artist_id=new_artist.artist_id,
+                                role_id=album_role.role_id,
+                            )
+                        )
+                        if added:
+                            existing_album_roles.add(combo)
 
-            # Delete the original artist - cascades handle relationship cleanup
-            # (but only if it's not one of the artists we're keeping)
             if original_artist not in new_artists:
                 self.session.delete(original_artist)
 
             self.session.commit()
-
             logger.info(
-                f"Successfully split artist {artist_id} into {len(new_artists)} artists. "
-                f"Created {len([a for a in new_artists if a.artist_id != artist_id])} new, "
-                f"used {len([a for a in new_artists if a.artist_id == artist_id])} existing."
+                f"Successfully split artist {artist_id} into {len(new_artists)} artists."
             )
             return True
 
@@ -716,6 +774,10 @@ class SplitDB(BaseDBHelper):
             logger.error(f"Error splitting artist: {e}")
             self.session.rollback()
             return False
+
+    # ------------------------------------------------------------------
+    # split_genre
+    # ------------------------------------------------------------------
 
     def split_genre(self, genre_id: int, new_names: list):
         """Split one genre into N genres, duplicating relationships."""
@@ -729,66 +791,66 @@ class SplitDB(BaseDBHelper):
         try:
             new_genres = []
 
-            # Create new genres, or reuse existing ones if the name already exists
             for name in new_names:
-                existing_genre = (
+                existing = (
                     self.session.query(src.db_tables.Genre)
                     .filter(src.db_tables.Genre.genre_name == name)
                     .first()
                 )
-                if existing_genre and existing_genre.genre_id != genre_id:
-                    # A genre with this name already exists — reuse it
+                if existing and existing.genre_id != genre_id:
                     logger.info(
-                        f"Reusing existing genre '{name}' (ID: {existing_genre.genre_id})"
+                        f"Reusing existing genre '{name}' (ID: {existing.genre_id})"
                     )
-                    new_genres.append(existing_genre)
+                    new_genres.append(existing)
                 else:
-                    # No match found — create a brand new genre
                     new_genre = src.db_tables.Genre(
                         genre_name=name,
                         description=original_genre.description,
                         parent_id=original_genre.parent_id,
                     )
-                    self.session.add(new_genre)
-                    new_genres.append(new_genre)
+                    if self._safe_add(new_genre):
+                        new_genres.append(new_genre)
+                    else:
+                        refetched = (
+                            self.session.query(src.db_tables.Genre)
+                            .filter(src.db_tables.Genre.genre_name == name)
+                            .first()
+                        )
+                        if refetched:
+                            new_genres.append(refetched)
 
-            self.session.flush()
+            if not new_genres:
+                logger.error("No genres were created or found; aborting split.")
+                return False
 
-            # Duplicate track genre associations, skipping any that already exist
+            existing_track_genres = {
+                (tg.track_id, tg.genre_id) for g in new_genres for tg in g.tracks
+            }
+
             for track_genre in original_genre.tracks:
                 for new_genre in new_genres:
-                    already_exists = (
-                        self.session.query(src.db_tables.TrackGenre)
-                        .filter_by(
-                            track_id=track_genre.track_id,
-                            genre_id=new_genre.genre_id,
+                    combo = (track_genre.track_id, new_genre.genre_id)
+                    if combo not in existing_track_genres:
+                        added = self._safe_add(
+                            src.db_tables.TrackGenre(
+                                track_id=track_genre.track_id,
+                                genre_id=new_genre.genre_id,
+                            )
                         )
-                        .first()
-                    )
-                    if already_exists:
-                        logger.info(
-                            f"Skipping duplicate TrackGenre: track {track_genre.track_id} "
-                            f"already has genre '{new_genre.genre_name}'"
-                        )
-                        continue
-                    assoc = src.db_tables.TrackGenre(
-                        track_id=track_genre.track_id, genre_id=new_genre.genre_id
-                    )
-                    self.session.add(assoc)
+                        if added:
+                            existing_track_genres.add(combo)
 
-            # Update children genres to point to first new genre as parent
             if original_genre.children:
                 first_new_genre_id = new_genres[0].genre_id
                 for child_genre in original_genre.children:
                     child_genre.parent_id = first_new_genre_id
 
-            # Delete original genre (only if it isn't one of the reused targets)
             if original_genre not in new_genres:
                 self.session.delete(original_genre)
-            self.session.commit()
 
+            self.session.commit()
             logger.info(
-                f"Successfully split genre {genre_id} into {len(new_genres)} genres"
+                f"Successfully split genre {genre_id} into {len(new_genres)} genres."
             )
             return True
 
@@ -796,6 +858,10 @@ class SplitDB(BaseDBHelper):
             logger.error(f"Error splitting genre: {e}")
             self.session.rollback()
             return False
+
+    # ------------------------------------------------------------------
+    # split_mood
+    # ------------------------------------------------------------------
 
     def split_mood(self, mood_id: int, new_names: list):
         """Split one mood into N moods, duplicating relationships."""
@@ -809,58 +875,61 @@ class SplitDB(BaseDBHelper):
         try:
             new_moods = []
 
-            # Create new moods, or reuse existing ones if the name already exists
             for name in new_names:
-                existing_mood = (
+                existing = (
                     self.session.query(src.db_tables.Mood)
                     .filter(src.db_tables.Mood.mood_name == name)
                     .first()
                 )
-                if existing_mood and existing_mood.mood_id != mood_id:
+                if existing and existing.mood_id != mood_id:
                     logger.info(
-                        f"Reusing existing mood '{name}' (ID: {existing_mood.mood_id})"
+                        f"Reusing existing mood '{name}' (ID: {existing.mood_id})"
                     )
-                    new_moods.append(existing_mood)
+                    new_moods.append(existing)
                 else:
                     new_mood = src.db_tables.Mood(
                         mood_name=name,
                         mood_description=original_mood.mood_description,
                         parent_id=original_mood.parent_id,
                     )
-                    self.session.add(new_mood)
-                    new_moods.append(new_mood)
+                    if self._safe_add(new_mood):
+                        new_moods.append(new_mood)
+                    else:
+                        refetched = (
+                            self.session.query(src.db_tables.Mood)
+                            .filter(src.db_tables.Mood.mood_name == name)
+                            .first()
+                        )
+                        if refetched:
+                            new_moods.append(refetched)
 
-            self.session.flush()
+            if not new_moods:
+                logger.error("No moods were created or found; aborting split.")
+                return False
 
-            # Duplicate mood-track associations, skipping any that already exist
+            existing_mood_tracks = {
+                (mt.mood_id, mt.track_id) for m in new_moods for mt in m.mood_tracks
+            }
+
             for mood_track in original_mood.mood_tracks:
                 for new_mood in new_moods:
-                    already_exists = (
-                        self.session.query(src.db_tables.MoodTrackAssociation)
-                        .filter_by(
-                            mood_id=new_mood.mood_id,
-                            track_id=mood_track.track_id,
+                    combo = (new_mood.mood_id, mood_track.track_id)
+                    if combo not in existing_mood_tracks:
+                        added = self._safe_add(
+                            src.db_tables.MoodTrackAssociation(
+                                mood_id=new_mood.mood_id,
+                                track_id=mood_track.track_id,
+                            )
                         )
-                        .first()
-                    )
-                    if already_exists:
-                        logger.info(
-                            f"Skipping duplicate MoodTrackAssociation: track "
-                            f"{mood_track.track_id} already has mood '{new_mood.mood_name}'"
-                        )
-                        continue
-                    new_assoc = src.db_tables.MoodTrackAssociation(
-                        mood_id=new_mood.mood_id, track_id=mood_track.track_id
-                    )
-                    self.session.add(new_assoc)
+                        if added:
+                            existing_mood_tracks.add(combo)
 
-            # Delete original mood (only if it isn't one of the reused targets)
             if original_mood not in new_moods:
                 self.session.delete(original_mood)
-            self.session.commit()
 
+            self.session.commit()
             logger.info(
-                f"Successfully split mood {mood_id} into {len(new_moods)} moods"
+                f"Successfully split mood {mood_id} into {len(new_moods)} moods."
             )
             return True
 
@@ -868,6 +937,10 @@ class SplitDB(BaseDBHelper):
             logger.error(f"Error splitting mood: {e}")
             self.session.rollback()
             return False
+
+    # ------------------------------------------------------------------
+    # split_role
+    # ------------------------------------------------------------------
 
     def split_role(self, role_id: int, new_names: list):
         """Split one role into N roles, duplicating relationships."""
@@ -881,18 +954,17 @@ class SplitDB(BaseDBHelper):
         try:
             new_roles = []
 
-            # Create new roles, or reuse existing ones if the name already exists
             for name in new_names:
-                existing_role = (
+                existing = (
                     self.session.query(src.db_tables.Role)
                     .filter(src.db_tables.Role.role_name == name)
                     .first()
                 )
-                if existing_role and existing_role.role_id != role_id:
+                if existing and existing.role_id != role_id:
                     logger.info(
-                        f"Reusing existing role '{name}' (ID: {existing_role.role_id})"
+                        f"Reusing existing role '{name}' (ID: {existing.role_id})"
                     )
-                    new_roles.append(existing_role)
+                    new_roles.append(existing)
                 else:
                     new_role = src.db_tables.Role(
                         role_name=name,
@@ -901,19 +973,32 @@ class SplitDB(BaseDBHelper):
                         parent_id=original_role.parent_id,
                         _artist_count=original_role._artist_count,
                     )
-                    self.session.add(new_role)
-                    new_roles.append(new_role)
+                    if self._safe_add(new_role):
+                        new_roles.append(new_role)
+                    else:
+                        refetched = (
+                            self.session.query(src.db_tables.Role)
+                            .filter(src.db_tables.Role.role_name == name)
+                            .first()
+                        )
+                        if refetched:
+                            new_roles.append(refetched)
 
-            self.session.flush()
+            if not new_roles:
+                logger.error("No roles were created or found; aborting split.")
+                return False
 
-            # Collect existing track-role combos to avoid duplicate primary key errors
             existing_track_roles = {
                 (tr.track_id, tr.artist_id, tr.role_id)
-                for new_role in new_roles
-                for tr in new_role.track_roles
+                for r in new_roles
+                for tr in r.track_roles
+            }
+            existing_album_roles = {
+                (ar.album_id, ar.artist_id, ar.role_id)
+                for r in new_roles
+                for ar in r.album_roles
             }
 
-            # Duplicate track artist roles, skipping any that already exist
             for track_role in original_role.track_roles:
                 for new_role in new_roles:
                     combo = (
@@ -921,28 +1006,17 @@ class SplitDB(BaseDBHelper):
                         track_role.artist_id,
                         new_role.role_id,
                     )
-                    if combo in existing_track_roles:
-                        logger.info(
-                            f"Skipping duplicate TrackArtistRole: track {track_role.track_id} "
-                            f"artist {track_role.artist_id} already has role '{new_role.role_name}'"
+                    if combo not in existing_track_roles:
+                        added = self._safe_add(
+                            src.db_tables.TrackArtistRole(
+                                track_id=track_role.track_id,
+                                artist_id=track_role.artist_id,
+                                role_id=new_role.role_id,
+                            )
                         )
-                        continue
-                    new_track_role = src.db_tables.TrackArtistRole(
-                        track_id=track_role.track_id,
-                        artist_id=track_role.artist_id,
-                        role_id=new_role.role_id,
-                    )
-                    self.session.add(new_track_role)
-                    existing_track_roles.add(combo)
+                        if added:
+                            existing_track_roles.add(combo)
 
-            # Collect existing album-role combos to avoid duplicate primary key errors
-            existing_album_roles = {
-                (ar.album_id, ar.artist_id, ar.role_id)
-                for new_role in new_roles
-                for ar in new_role.album_roles
-            }
-
-            # Duplicate album role associations, skipping any that already exist
             for album_role in original_role.album_roles:
                 for new_role in new_roles:
                     combo = (
@@ -950,27 +1024,23 @@ class SplitDB(BaseDBHelper):
                         album_role.artist_id,
                         new_role.role_id,
                     )
-                    if combo in existing_album_roles:
-                        logger.info(
-                            f"Skipping duplicate AlbumRoleAssociation: album {album_role.album_id} "
-                            f"artist {album_role.artist_id} already has role '{new_role.role_name}'"
+                    if combo not in existing_album_roles:
+                        added = self._safe_add(
+                            src.db_tables.AlbumRoleAssociation(
+                                album_id=album_role.album_id,
+                                artist_id=album_role.artist_id,
+                                role_id=new_role.role_id,
+                            )
                         )
-                        continue
-                    new_album_role = src.db_tables.AlbumRoleAssociation(
-                        album_id=album_role.album_id,
-                        artist_id=album_role.artist_id,
-                        role_id=new_role.role_id,
-                    )
-                    self.session.add(new_album_role)
-                    existing_album_roles.add(combo)
+                        if added:
+                            existing_album_roles.add(combo)
 
-            # Delete original role (only if it isn't one of the reused targets)
             if original_role not in new_roles:
                 self.session.delete(original_role)
-            self.session.commit()
 
+            self.session.commit()
             logger.info(
-                f"Successfully split role {role_id} into {len(new_roles)} roles"
+                f"Successfully split role {role_id} into {len(new_roles)} roles."
             )
             return True
 
@@ -979,19 +1049,19 @@ class SplitDB(BaseDBHelper):
             self.session.rollback()
             return False
 
-    # Generic method that routes to specific implementations
+    # ------------------------------------------------------------------
+    # split_entity  (router — unchanged)
+    # ------------------------------------------------------------------
+
     def split_entity(self, model_name: str, entity_id: int, split_attributes: list):
         """Generic split method that routes to specific implementations."""
-        # Extract names from split_attributes
         new_names = [
             attrs.get("name", "") for attrs in split_attributes if attrs.get("name")
         ]
-
         if not new_names:
             logger.error("No valid names provided for split")
             return False
 
-        # Route to specific split method based on model_name
         split_methods = {
             "Publisher": self.split_publisher,
             "Artist": self.split_artist,
@@ -1004,4 +1074,5 @@ class SplitDB(BaseDBHelper):
             return split_methods[model_name](entity_id, new_names)
         else:
             logger.error(f"Split not implemented for model: {model_name}")
+            return False
             return False
