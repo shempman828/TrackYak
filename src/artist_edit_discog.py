@@ -134,7 +134,7 @@ class DiscographyTab(QWidget):
             role_name = assoc.role.role_name if assoc.role else ""
             if role_name == "Primary Artist" and assoc.album_id in album_artist_ids:
                 continue
-            album_artist = _primary_artist_name(assoc.album)
+            album_artist = assoc.album.album_artist_names
             self._album_rows.append(
                 (
                     role_name,
@@ -156,9 +156,9 @@ class DiscographyTab(QWidget):
             track = assoc.track
             album = track.album
             album_name = album.album_name if album else ""
-            album_artist = _primary_artist_name(album) if album else ""
+            album_artist = album.album_artist_names if album else ""
             year = (album.release_year or "") if album else ""
-            album_id = album.id if album else None
+            album_id = album.album_id if album else None
             if role_name == "Primary Artist" and album_id in album_artist_ids:
                 continue
             self._track_rows.append(
@@ -264,16 +264,6 @@ class _FilterBar(QScrollArea):
 # ══════════════════════════════════════════════════════════════════════════════
 # Helpers
 # ══════════════════════════════════════════════════════════════════════════════
-
-
-def _primary_artist_name(album) -> str:
-    """Return the Album Artist name for an album, or '' if none."""
-    if album is None:
-        return ""
-    for assoc in getattr(album, "artist_roles", []):
-        if assoc.role and getattr(assoc.role, "role_name", "") == "Album Artist":
-            return assoc.artist.artist_name if assoc.artist else ""
-    return ""
 
 
 def _role_summary(counts: dict[str, int], total: int) -> str:

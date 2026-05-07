@@ -32,11 +32,7 @@ artist_edit_basic.py
 
 
 artist_edit_discography
-    Lots of wasted space
-    Do not show track credit "Primary Artist" if artist is "Album Artist" on Track's Album
-    allow credit filter by role names
-    show role count by name with total
-    Show album artist and year in table
+    role count and filtering is awkward and busy
 
 artist_edit_influences
     Lots of space feels wasted.
