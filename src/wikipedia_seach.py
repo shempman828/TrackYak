@@ -1,6 +1,7 @@
 """This code searches Wikipedia for a given query and returns the choices for user selection.
 Then, it fetches the summary and link of the selected choice."""
 
+import time
 from typing import List, Optional, Tuple
 
 import requests
@@ -46,36 +47,65 @@ class WikipediaSearch:
     def search(self) -> List[str]:
         """
         Search Wikipedia for the query and store matching pages.
+        Retries up to 3 times on transient network/JSON errors.
 
         Returns:
             A list of page titles for possible matches, or an empty list if none found.
         """
-        try:
-            search_results = wikipedia.search(self.query, results=10)
-            self.choices.clear()
+        max_retries = 3
+        backoff = 1.5  # seconds
 
-            for title in search_results:
-                try:
-                    page = wikipedia.page(title, auto_suggest=False)
-                    self.choices.append(page)
-                except wikipedia.exceptions.DisambiguationError as e:
-                    # Attempt first disambiguation option
+        for attempt in range(max_retries):
+            try:
+                search_results = wikipedia.search(self.query, results=10)
+                self.choices.clear()
+
+                for title in search_results:
                     try:
-                        page = wikipedia.page(e.options[0], auto_suggest=False)
+                        page = wikipedia.page(title, auto_suggest=False)
                         self.choices.append(page)
+                    except wikipedia.exceptions.DisambiguationError as e:
+                        try:
+                            page = wikipedia.page(e.options[0], auto_suggest=False)
+                            self.choices.append(page)
+                        except Exception:
+                            logger.debug(f"Skipped disambiguation: {title}")
                     except Exception:
-                        logger.debug(f"Skipped disambiguation: {title}")
-                except Exception:
-                    logger.debug(f"Skipped result: {title}")
+                        logger.debug(f"Skipped result: {title}")
 
-            return [p.title for p in self.choices]
+                return [p.title for p in self.choices]
 
-        except wikipedia.exceptions.WikipediaException as e:
-            self.error = f"Wikipedia search error: {e}"
-            logger.exception(f"Wikipedia search error for '{self.query}': {e}")
-        except Exception as e:
-            self.error = f"Unexpected error: {e}"
-            logger.exception(f"Unexpected error during search for '{self.query}': {e}")
+            except requests.exceptions.JSONDecodeError as e:
+                # Empty/malformed response from Wikipedia API — transient, worth retrying
+                wait = backoff * (2**attempt)
+                logger.warning(
+                    f"Wikipedia returned empty response for '{self.query}' "
+                    f"(attempt {attempt + 1}/{max_retries}). "
+                    f"Retrying in {wait:.1f}s..."
+                )
+                if attempt < max_retries - 1:
+                    time.sleep(wait)
+                else:
+                    self.error = (
+                        "Wikipedia is temporarily unavailable. "
+                        "Please check your connection and try again."
+                    )
+                    logger.exception(
+                        f"Wikipedia empty response after {max_retries} attempts: {e}"
+                    )
+
+            except wikipedia.exceptions.WikipediaException as e:
+                self.error = f"Wikipedia search error: {e}"
+                logger.exception(f"Wikipedia search error for '{self.query}': {e}")
+                break  # Non-transient Wikipedia error, don't retry
+
+            except Exception as e:
+                self.error = f"Unexpected error: {e}"
+                logger.exception(
+                    f"Unexpected error during search for '{self.query}': {e}"
+                )
+                break  # Unknown error, don't retry
+
         return []
 
     def select_choice(self, index: int) -> bool:

@@ -184,11 +184,15 @@ sync_view.py
     Add moods to sync selection
     Better display playlist selection
 
+track_edit_album
+    allow editing albums when multiple tracks are selected
+
 track_edit_lyrics
 
 
 track_edit_roles
     combine like artists into one section.
+    mutiple editing can take a while since only one track is processed at a time
 
 
 track_editing
@@ -201,22 +205,4 @@ track_view.py
     add entire library to queue redundant with shuffle library to queue
 
 wikipedia search
-    Sometimes erorrs out with this error.
-    Error fetching details:
-    Error fetching page details: Expecting value: line 1 column 1 (char 0)
-    During handling of the above exception, another exception occurred:
 
-    Traceback (most recent call last):
-    File "/home/babs/PycharmProjects/MusicLibrary/src/wikipedia_seach.py", line 54, in search
-        search_results = wikipedia.search(self.query, results=10)
-    File "/home/babs/PycharmProjects/MusicLibrary/.venv/lib/python3.13/site-packages/wikipedia/util.py", line 28, in __call__
-        ret = self._cache[key] = self.fn(*args, **kwargs)
-                                ~~~~~~~^^^^^^^^^^^^^^^^^
-    File "/home/babs/PycharmProjects/MusicLibrary/.venv/lib/python3.13/site-packages/wikipedia/wikipedia.py", line 103, in search
-        raw_results = _wiki_request(search_params)
-    File "/home/babs/PycharmProjects/MusicLibrary/.venv/lib/python3.13/site-packages/wikipedia/wikipedia.py", line 742, in _wiki_request
-        return r.json()
-            ~~~~~~^^
-    File "/home/babs/PycharmProjects/MusicLibrary/.venv/lib/python3.13/site-packages/requests/models.py", line 978, in json
-        raise RequestsJSONDecodeError(e.msg, e.doc, e.pos)
-    requests.exceptions.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
