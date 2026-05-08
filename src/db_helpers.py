@@ -440,22 +440,6 @@ class DeleteDB(BaseDBHelper):
         return db_deleted and file_deleted
 
 
-# Reuse the same _safe_add helper concept, but for execute:
-def _safe_execute(self, stmt) -> int:
-    """
-    Execute a statement inside a savepoint.
-    Returns rowcount on success, -1 if a unique/integrity constraint fired.
-    Any other SQLAlchemyError is re-raised.
-    """
-    try:
-        with self.session.begin_nested():
-            result = self.session.execute(stmt)
-            return result.rowcount
-    except IntegrityError:
-        logger.debug("Skipping statement due to unique constraint violation.")
-        return -1
-
-
 # Model registry — safer than globals()
 _MERGE_MODEL_REGISTRY: dict = {
     "Artist": src.db_tables.Artist,
@@ -555,6 +539,20 @@ class MergeDB(BaseDBHelper):
             logger.error(f"Error merging {model_name}: {e}")
             self.session.rollback()
             return False
+
+    def _safe_execute(self, stmt) -> int:
+        """
+        Execute a statement inside a savepoint.
+        Returns rowcount on success, -1 if a unique/integrity constraint fired.
+        Any other SQLAlchemyError is re-raised.
+        """
+        try:
+            with self.session.begin_nested():
+                result = self.session.execute(stmt)
+                return result.rowcount
+        except IntegrityError:
+            logger.debug("Skipping statement due to unique constraint violation.")
+            return -1
 
 
 class SplitDB(BaseDBHelper):
