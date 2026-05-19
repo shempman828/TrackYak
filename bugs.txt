@@ -15,6 +15,7 @@ album_view.py
 
 artist alias management
 
+
 artist_detail.py
     completely broken
     showing and hiding tabs completely broken
@@ -200,7 +201,7 @@ track_editing
 
 track_view.py
     sorting by column freezes ui. Needs threaded with spinner and faster lookups
-    only lookup on "enter"
+    only search on "enter"
     appending when sorted on_scroll crashes
     add entire library to queue redundant with shuffle library to queue
 

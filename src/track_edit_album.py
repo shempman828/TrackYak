@@ -24,24 +24,6 @@ from src.track_edit_basetab import _BaseTab
 
 
 class AlbumsTab(_BaseTab):
-    """
-    Lets the user:
-      • See and remove the track's primary album relationship.
-      • Add the track as a virtual (borrowed) appearance on an existing OR new album.
-      • Remove a virtual appearance.
-      • Set track-number / disc metadata for each virtual appearance.
-      • Open the album editor for any album listed.
-
-    Design notes
-    ─────────────
-    - Primary album is the Album FK on the Track row itself.
-      Changing it is done via controller.update ("album_id").
-    - Virtual appearances live in AlbumVirtualTrack.
-      They are written directly to the DB (no deferred save).
-    - This tab is single-track only — multi-track editing of album
-      relationships is too ambiguous to be safe.
-    """
-
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
         self._build_ui()
