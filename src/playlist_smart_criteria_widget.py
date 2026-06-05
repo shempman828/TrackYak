@@ -2,12 +2,6 @@
 playlist_smart_criteria_widget.py
 
 Widget for a single smart playlist criteria row.
-
-Key improvement: instead of maintaining a separate TRACK_MAPPINGS list
-that duplicated (and often disagreed with) TRACK_FIELDS in db_mapping_tracks.py,
-we now import TRACK_FIELDS directly and derive everything from it — display names,
-tooltips, types, min/max ranges. Any future changes to field definitions in
-db_mapping_tracks.py automatically flow through to the smart playlist UI for free.
 """
 
 from datetime import datetime
