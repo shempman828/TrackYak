@@ -13,7 +13,7 @@ album_view.py
     add ability to sort by album art dimensions.
     refresh button not necessary, delete.
     editing an album resets to top of scroll. If the widget is redrawn due to album edit, it should remember last location.
-    add ability to add album to queue in context menu.
+    add ability to add album to queue in context menu. (let me know what code you need to see to make that happen)
 
 artist alias management
 

@@ -2,6 +2,7 @@
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
     QHBoxLayout,
@@ -50,6 +51,8 @@ class AlbumView(QWidget):
         ("Lowest Rated", "rating", False),
         ("Duration (Longest First)", "length", True),
         ("Duration (Shortest First)", "length", False),
+        ("Art Size (Largest First)", "art_dimensions", True),
+        ("Art Size (Smallest First)", "art_dimensions", False),
     ]
 
     def __init__(self, controller):
@@ -65,6 +68,9 @@ class AlbumView(QWidget):
         # Sorting state – defaults to "Title (A–Z)"
         self._sort_criteria = "title"
         self._sort_descending = False
+
+        # Filter row visibility
+        self._filter_row_visible = True
 
         # Debounce timer for cover size slider
         self._resize_timer = QTimer(self)
@@ -91,7 +97,13 @@ class AlbumView(QWidget):
         main_layout.setSpacing(8)
 
         main_layout.addLayout(self._build_top_controls())
-        main_layout.addLayout(self._build_filter_bar())
+
+        # Filter bar is a QWidget so we can show/hide it cleanly
+        self._filter_row_widget = QWidget()
+        filter_layout = self._build_filter_bar()
+        self._filter_row_widget.setLayout(filter_layout)
+        main_layout.addWidget(self._filter_row_widget)
+
         main_layout.addWidget(self._build_scroll_area())
 
     def _build_top_controls(self) -> QHBoxLayout:
@@ -121,11 +133,13 @@ class AlbumView(QWidget):
         self.size_slider.valueChanged.connect(self._resize_art)
         row.addWidget(self.size_slider)
 
-        # Refresh
-        refresh_btn = QPushButton("↻ Refresh")
-        refresh_btn.setToolTip("Reload albums from library")
-        refresh_btn.clicked.connect(self.load_albums)
-        row.addWidget(refresh_btn)
+        # Filter row toggle
+        self._filter_toggle_btn = QPushButton("▾ Filters")
+        self._filter_toggle_btn.setCheckable(True)
+        self._filter_toggle_btn.setChecked(True)
+        self._filter_toggle_btn.setToolTip("Show/hide filter row")
+        self._filter_toggle_btn.toggled.connect(self._toggle_filter_row)
+        row.addWidget(self._filter_toggle_btn)
 
         return row
 
@@ -133,31 +147,23 @@ class AlbumView(QWidget):
         """Secondary row with advanced filter chips."""
         row = QHBoxLayout()
         row.setSpacing(12)
+        row.setContentsMargins(0, 0, 0, 0)
 
         # Year range
         row.addWidget(QLabel("Year:"))
-        self.year_from = QSpinBox()
-        self.year_from.setRange(0, 9999)
-        self.year_from.setValue(0)
-        self.year_from.setSpecialValueText("Any")
+        self.year_from = _AnySpinBox()
         self.year_from.setFixedWidth(70)
         self.year_from.valueChanged.connect(self._apply_filters)
         row.addWidget(self.year_from)
         row.addWidget(QLabel("–"))
-        self.year_to = QSpinBox()
-        self.year_to.setRange(0, 9999)
-        self.year_to.setValue(0)
-        self.year_to.setSpecialValueText("Any")
+        self.year_to = _AnySpinBox()
         self.year_to.setFixedWidth(70)
         self.year_to.valueChanged.connect(self._apply_filters)
         row.addWidget(self.year_to)
 
         # Min track count
         row.addWidget(QLabel("Min tracks:"))
-        self.min_tracks = QSpinBox()
-        self.min_tracks.setRange(0, 9999)
-        self.min_tracks.setValue(0)
-        self.min_tracks.setSpecialValueText("Any")
+        self.min_tracks = _AnySpinBox()
         self.min_tracks.setFixedWidth(65)
         self.min_tracks.valueChanged.connect(self._apply_filters)
         row.addWidget(self.min_tracks)
@@ -215,6 +221,10 @@ class AlbumView(QWidget):
 
         return self.scroll_area
 
+    def _toggle_filter_row(self, visible: bool):
+        self._filter_row_widget.setVisible(visible)
+        self._filter_toggle_btn.setText("▾ Filters" if visible else "▸ Filters")
+
     # =========================================================================
     # Context Menu
     # =========================================================================
@@ -236,6 +246,14 @@ class AlbumView(QWidget):
 
         if target_album_widget is not None:
             album = target_album_widget.album
+
+            queue_action = menu.addAction(
+                f"▶ Add to Queue: {getattr(album, 'album_name', 'Album')}"
+            )
+            queue_action.triggered.connect(lambda: self._add_album_to_queue(album))
+
+            menu.addSeparator()
+
             delete_action = menu.addAction(
                 f"🗑 Delete {getattr(album, 'album_name', 'Album')}"
             )
@@ -246,6 +264,53 @@ class AlbumView(QWidget):
         del_empty_action.triggered.connect(self._delete_empty_albums)
 
         menu.exec_(self.scroll_area.mapToGlobal(position))
+
+    def _add_album_to_queue(self, album):
+        """Add all tracks of the given album to the playback queue."""
+        qm = self._get_queue_manager()
+        if not qm:
+            return
+
+        tracks = self._get_album_tracks(album)
+        if not tracks:
+            logger.warning(
+                f"No tracks found for album '{getattr(album, 'album_name', '?')}'"
+            )
+            return
+
+        qm.add_tracks_to_queue(tracks)
+        logger.info(
+            f"Added {len(tracks)} tracks from album '{album.album_name}' to queue"
+        )
+
+    def _get_queue_manager(self):
+        """Retrieve the queue manager from the controller or media player."""
+        if hasattr(self.controller, "queue_manager"):
+            return self.controller.queue_manager
+        if hasattr(self.controller, "mediaplayer") and hasattr(
+            self.controller.mediaplayer, "queue_manager"
+        ):
+            return self.controller.mediaplayer.queue_manager
+        logger.warning("Queue manager not found in controller")
+        return None
+
+    def _get_album_tracks(self, album):
+        """
+        Get all tracks belonging to an album.
+        Tries album.tracks, album.track_set, and finally a direct DB query."""
+
+        if hasattr(album, "tracks") and album.tracks is not None:
+            return list(album.tracks)
+
+        # Last resort: query all tracks and filter by album_id
+        try:
+            all_tracks = self.controller.get.get_all_entities("Track") or []
+            return [
+                t for t in all_tracks if getattr(t, "album_id", None) == album.album_id
+            ]
+        except Exception as e:
+            logger.error(f"Failed to fetch tracks for album {album.album_id}: {e}")
+            return []
 
     @staticmethod
     def _find_album_widget_ancestor(widget) -> "AlbumWidget | None":
@@ -374,7 +439,6 @@ class AlbumView(QWidget):
             self.all_albums = self.controller.get.get_all_entities("Album") or []
             self._restore_sort_combo()
             self._apply_filters()
-            # _apply_filters schedules _check_viewport_fill — no second call needed
         except Exception as e:
             logger.exception("Failed to load albums")
             QMessageBox.critical(self, "Error", f"Failed to load albums:\n{e}")
@@ -472,11 +536,9 @@ class AlbumView(QWidget):
         self.incomplete_combo.setCurrentIndex(0)
         self.fixed_combo.setCurrentIndex(0)
         self.art_combo.setCurrentIndex(0)
-        # Reset sort to default (Title A–Z) without double-triggering
         self._sort_criteria = "title"
         self._sort_descending = False
         self._restore_sort_combo()
-        # _apply_filters called via signal chain from the spinbox/search resets above
 
     def _update_stats(self):
         total = len(self.all_albums)
@@ -494,9 +556,6 @@ class AlbumView(QWidget):
         _, criteria, descending = self._SORT_OPTIONS[index]
         self._sort_criteria = criteria
         self._sort_descending = descending
-        # Let _apply_filters own the single rebuild; calling _refresh_album_widgets
-        # here as well causes a double-build while deleteLater() widgets are still
-        # live, placing two albums in the first grid slot.
         self._apply_filters()
 
     def _restore_sort_combo(self):
@@ -565,6 +624,21 @@ class AlbumView(QWidget):
             elif c == "length":
                 return getattr(album, "total_duration", 0) or 0
 
+            elif c == "art_dimensions":
+                # Sort by pixel area of the front cover image.
+                path = getattr(album, "front_cover_path", None)
+                if path:
+                    try:
+                        from PySide6.QtGui import QImageReader
+
+                        reader = QImageReader(path)
+                        sz = reader.size()
+                        if sz.isValid():
+                            return sz.width() * sz.height()
+                    except Exception:
+                        pass
+                return 0
+
             return getattr(album, "album_name", "").lower()
 
         except Exception as e:
@@ -580,10 +654,8 @@ class AlbumView(QWidget):
 
     def _refresh_album_widgets(self):
         """Rebuild the grid from scratch up to display_count."""
-        self.scroll_content.setUpdatesEnabled(False)
         self._clear_layout(self.grid_layout)
-        self.grid_layout.invalidate()
-        self.scroll_content.setUpdatesEnabled(True)
+        QApplication.processEvents()
         for album in self.filtered_albums[: self.display_count]:
             self._add_album_widget(album)
         self.scroll_content.updateGeometry()
@@ -636,8 +708,6 @@ class AlbumView(QWidget):
 
     def _show_album_details(self, album):
         """Open the AlbumEditor directly as a standalone dialog."""
-        # Fetch a fresh copy from the DB so we always show current data,
-        # including any cover art that was set in a previous session.
         try:
             fresh = self.controller.get.get_entity_object(
                 "Album", album_id=album.album_id
@@ -645,21 +715,158 @@ class AlbumView(QWidget):
             if fresh:
                 album = fresh
         except Exception:
-            pass  # Non-fatal — use the album object we already have
+            pass
 
         dialog = AlbumEditor(self.controller, album)
 
         def _on_editor_closed(_):
-            # Capture scroll position before the grid rebuild discards it.
-            saved_scroll = self.scroll_area.verticalScrollBar().value()
-            self.load_albums()
-            # Restore after the layout has had a chance to settle.
-            QTimer.singleShot(
-                0, lambda: self.scroll_area.verticalScrollBar().setValue(saved_scroll)
-            )
+            self._patch_album_after_edit(album.album_id)
 
         dialog.finished.connect(_on_editor_closed)
         dialog.exec()
+
+    def _patch_album_after_edit(self, album_id):
+        """Refresh a single album in-place after editing.
+
+        Fetches a fresh copy from the DB, swaps it into all_albums and
+        filtered_albums, then re-sorts and repaints only the affected widget —
+        preserving scroll position and lazy-load progress entirely.
+        If the album is no longer retrievable (deleted externally, etc.) we
+        fall back to a full reload.
+        """
+        try:
+            fresh = self.controller.get.get_entity_object("Album", album_id=album_id)
+        except Exception:
+            fresh = None
+
+        if fresh is None:
+            # Album gone — full reload is the safest fallback
+            self.load_albums()
+            return
+
+        # --- Patch all_albums list ---
+        for i, a in enumerate(self.all_albums):
+            if getattr(a, "album_id", None) == album_id:
+                self.all_albums[i] = fresh
+                break
+
+        # --- Patch filtered_albums list ---
+        patched_idx = None
+        for i, a in enumerate(self.filtered_albums):
+            if getattr(a, "album_id", None) == album_id:
+                self.filtered_albums[i] = fresh
+                patched_idx = i
+                break
+
+        if patched_idx is None:
+            # Album was filtered out before; it may now match — re-filter
+            # from scratch but without touching the scroll position.
+            self._apply_filters_preserve_scroll()
+            return
+
+        # Re-sort in place and find where the patched album landed
+        self._sort_filtered()
+        new_idx = next(
+            (
+                i
+                for i, a in enumerate(self.filtered_albums)
+                if getattr(a, "album_id", None) == album_id
+            ),
+            None,
+        )
+        if patched_idx < self.display_count:
+            widget = self.grid_layout.itemAt(patched_idx)
+            if widget is not None:
+                w = widget.widget()
+                if w is not None and hasattr(w, "refresh_album"):
+                    # Best case: widget supports in-place refresh
+                    w.refresh_album(fresh)
+                    return
+
+        self._apply_filters_preserve_scroll()
+
+    def _apply_filters_preserve_scroll(self):
+        """Re-run filters and rebuild the grid while preserving scroll position
+        and the current display_count (lazy-load progress)."""
+        saved_scroll = self.scroll_area.verticalScrollBar().value()
+        saved_display = self.display_count
+
+        text = self.search_bar.text().strip().lower()
+        year_from = self.year_from.value()
+        year_to = self.year_to.value()
+        min_tracks = self.min_tracks.value()
+        incomplete_mode = self.incomplete_combo.currentText()
+        fixed_mode = self.fixed_combo.currentText()
+        art_mode = self.art_combo.currentText()
+
+        results = []
+        for album in self.all_albums:
+            if text:
+                title = getattr(album, "album_name", "").lower()
+                year_str = str(getattr(album, "release_year", "")).lower()
+                artist_names = self._get_artist_names(album)
+                genre_names = self._get_genre_names(album)
+                if not (
+                    text in title
+                    or text in year_str
+                    or any(text in a for a in artist_names)
+                    or any(text in g for g in genre_names)
+                ):
+                    continue
+
+            album_year = getattr(album, "release_year", None)
+            if album_year:
+                try:
+                    yr = int(album_year)
+                    if year_from > 0 and yr < year_from:
+                        continue
+                    if year_to > 0 and yr > year_to:
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            else:
+                if year_from > 0 or year_to > 0:
+                    continue
+
+            if min_tracks > 0 and self._get_track_count(album) < min_tracks:
+                continue
+
+            if incomplete_mode != "Any":
+                is_incomplete = bool(getattr(album, "possibly_incomplete", False))
+                if incomplete_mode == "Possibly Incomplete" and not is_incomplete:
+                    continue
+                if incomplete_mode == "Complete" and is_incomplete:
+                    continue
+
+            if fixed_mode != "Any":
+                is_fixed = bool(getattr(album, "is_fixed", False))
+                if fixed_mode == "Fixed Only" and not is_fixed:
+                    continue
+                if fixed_mode == "Not Fixed" and is_fixed:
+                    continue
+
+            if art_mode != "Any":
+                has_art = bool(getattr(album, "front_cover_path", None))
+                if art_mode == "No Art" and has_art:
+                    continue
+                if art_mode == "Has Art" and not has_art:
+                    continue
+
+            results.append(album)
+
+        self.filtered_albums = results
+        self._sort_filtered()
+        self._update_stats()
+
+        # Clamp display_count to the new result set size, but don't shrink below
+        # what we were already showing — the user's lazy-load progress is preserved.
+        self.display_count = min(
+            max(saved_display, self.load_chunk), len(self.filtered_albums)
+        )
+        self._refresh_album_widgets()
+        QTimer.singleShot(
+            0, lambda: self.scroll_area.verticalScrollBar().setValue(saved_scroll)
+        )
 
     # =========================================================================
     # Helpers
@@ -716,3 +923,29 @@ class AlbumView(QWidget):
                 widget.deleteLater()
             elif item.layout():
                 AlbumView._clear_layout(item.layout())
+
+
+class _AnySpinBox(QSpinBox):
+    """SpinBox that shows 'Any' when value is 0 and accepts direct number entry
+    without requiring the user to clear the placeholder text first."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setRange(0, 9999)
+        self.setValue(0)
+        self.setSpecialValueText("Any")
+
+    def textFromValue(self, value: int) -> str:
+        return "" if value == 0 else str(value)
+
+    def valueFromText(self, text: str) -> int:
+        text = text.strip()
+        if not text:
+            return 0
+        try:
+            return int(text)
+        except ValueError:
+            return 0
+
+    def fixup(self, text: str) -> str:
+        return text.strip() or "0"
