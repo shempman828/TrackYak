@@ -12,6 +12,7 @@ from src.duplicate_finder import DuplicateFinderDialog
 from src.equalizer_dialog import EqualizerDialog
 from src.file_manager_dialog import FileManager
 from src.import_dialog import ImportDialog
+from src.missing_tracks import MissingTracks
 from src.player_mini import MiniPlayerWindow
 from src.player_settings import show_audio_settings_dialog
 from src.statistics_dialog import MusicStatsDialog
@@ -44,6 +45,11 @@ class MenuBar:
         duplicate_action.setToolTip("Scan library for possible duplicate tracks")
         duplicate_action.triggered.connect(self.show_duplicate_finder)
         file_menu.addAction(duplicate_action)
+
+        missing_action = QAction("Find Missing Tracks", self)
+        missing_action.setToolTip("Scan library for missing tracks")
+        missing_action.triggered.connect(self.show_missing_tracks)
+        file_menu.addAction(missing_action)
 
         file_menu.addSeparator()
 
@@ -434,3 +440,6 @@ class MenuBar:
             )
         except RuntimeError:
             pass  # Signal was already disconnected
+
+    def show_missing_tracks(self):
+        self._missing_tracks = MissingTracks(self.controller)

@@ -1,6 +1,7 @@
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.logger_config import logger
 from src.metadata_mapping import (
     ID3_ALBUM_MAPPINGS,
     ID3_ARTIST_MAPPINGS,
@@ -21,7 +22,6 @@ from src.metadata_mapping import (
     VORBIS_SPECIAL_MAPPINGS,
     VORBIS_TRACK_MAPPINGS,
 )
-from src.logger_config import logger
 
 
 class TextMetadataExtractor:
