@@ -25,7 +25,14 @@ from src.logger_config import logger
 class MergeDBDialog(QDialog):
     """Integrated dialog for searching, selecting, and resolving merge conflicts."""
 
-    def __init__(self, controller, model_name, parent=None):
+    def __init__(
+        self,
+        controller,
+        model_name,
+        parent=None,
+        preload_source=None,
+        preload_target=None,
+    ):
         super().__init__(parent)
         self.controller = controller
         self.merge_helper = controller.merge
@@ -35,22 +42,27 @@ class MergeDBDialog(QDialog):
         self.id_attr = f"{self.model_name.lower()}_id"
         self.name_attr = f"{self.model_name.lower()}_name"
 
-        self.source_entity = None
-        self.target_entity = None
+        self.source_entity = preload_source
+        self.target_entity = preload_target
         self.all_entities_cache = None
 
         self.setWindowTitle(f"Merge {model_name} Entries")
-        self.resize(900, 700)  # Slightly larger for enhanced features
+        self.resize(900, 700)
 
         # Use a StackedWidget to switch between 'Search' and 'Resolve' views
         self.stack = QStackedWidget(self)
         layout = QVBoxLayout(self)
         layout.addWidget(self.stack)
 
-        self._init_search_ui()
-        # The conflict UI is built dynamically after selection
+        if preload_source and preload_target:
+            # Both entities known — skip search page, go straight to conflict resolution
+            self._init_search_ui()  # still build it so the stack index is consistent
+            self.stack.widget(0).hide()
+            self._build_conflict_ui()
+        else:
+            self._init_search_ui()
 
-    # --- SEARCH & SELECTION FEATURES (Enhanced from Publisher Dialog) ---
+    # --- SEARCH & SELECTION FEATURES ---
 
     def _init_search_ui(self):
         """Initialize the search and selection UI with enhanced features."""

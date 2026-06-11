@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from src.album_delete_dialog import DeleteEmptyAlbumsDialog
 from src.album_flowlayout import FlowLayout
+from src.album_merge import AlbumMerge
 from src.album_new import NewAlbumDialog
 from src.base_album_edit import AlbumEditor
 from src.base_album_widget import AlbumWidget
@@ -237,7 +238,6 @@ class AlbumView(QWidget):
 
         menu.addSeparator()
 
-        # Delete album only shown when right-clicking directly over a widget
         global_pos = self.scroll_area.mapToGlobal(position)
         widget_at = self.scroll_content.childAt(
             self.scroll_content.mapFromGlobal(global_pos)
@@ -254,6 +254,15 @@ class AlbumView(QWidget):
 
             menu.addSeparator()
 
+            # --- Merge submenu ---
+            merge_menu = menu.addMenu(
+                f"🔀 Merge {getattr(album, 'album_name', 'Album')}…"
+            )
+            merge_this_action = merge_menu.addAction("Merge this album into another…")
+            merge_this_action.triggered.connect(lambda: self._merge_album(album))
+
+            menu.addSeparator()
+
             delete_action = menu.addAction(
                 f"🗑 Delete {getattr(album, 'album_name', 'Album')}"
             )
@@ -263,7 +272,23 @@ class AlbumView(QWidget):
         del_empty_action = menu.addAction("🧹 Delete Empty Albums…")
         del_empty_action.triggered.connect(self._delete_empty_albums)
 
+        find_dupes_action = menu.addAction("🔀 Find Duplicate Albums…")
+        find_dupes_action.triggered.connect(self._find_duplicate_albums)
+
         menu.exec_(self.scroll_area.mapToGlobal(position))
+
+    def _merge_album(self, album):
+        """Open the merge dialog with this album pre-loaded as source."""
+        engine = AlbumMerge(self.controller)
+        merged = engine.merge_known(album, parent=self)
+        if merged:
+            self.load_albums()
+
+    def _find_duplicate_albums(self):
+        """Open the duplicate-finder list."""
+        engine = AlbumMerge(self.controller)
+        engine.open_list(parent=self)
+        self.load_albums()
 
     def _add_album_to_queue(self, album):
         """Add all tracks of the given album to the playback queue."""

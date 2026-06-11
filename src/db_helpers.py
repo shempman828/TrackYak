@@ -447,6 +447,7 @@ _MERGE_MODEL_REGISTRY: dict = {
     "Genre": src.db_tables.Genre,
     "Mood": src.db_tables.Mood,
     "Role": src.db_tables.Role,
+    "Album": src.db_tables.Album,
 }
 
 
