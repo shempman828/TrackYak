@@ -570,8 +570,10 @@ class MusicPlayer(QObject):
             self.current_format = file_path.suffix.lower()
             self.current_bit_depth = 32
             self._duration = int(new_frames / new_sr * 1000)
+            self._position_timer.stop()
             self._position = 0
             self._frames_played = 0
+            self.position_changed.emit(0)
 
             self.equalizer.set_sample_rate(new_sr)
             self._gain_factor = self._calculate_gain_factor()
@@ -876,6 +878,11 @@ class MusicPlayer(QObject):
         if len(chunk) < frames:
             outdata[len(chunk) :] = 0
             self._emit_track_finished_once()
+        elif self._total_frames > 0 and self._current_frame >= self._total_frames:
+            with self._buffer_lock:
+                buffer_empty = len(self._audio_buffer) == 0
+            if buffer_empty:
+                self._emit_track_finished_once()
 
     # =========================================================================
     #  Internal — playback finished handler (runs on the main thread)
