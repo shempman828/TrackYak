@@ -1,7 +1,7 @@
 from collections import defaultdict
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal, QThread, QObject
+from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QDialog,
@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
 from src.logger_config import logger
 from src.role_detail_tab import RoleDetailTab
 from src.role_edit_dialog import RoleEditDialog
-
 
 # ---------------------------------------------------------------------------
 # Background worker — does ALL the expensive database work on a separate thread
@@ -221,8 +220,11 @@ class RoleView(QWidget):
            to safely update the UI.
         """
         # If a load is already in progress, don't start another one.
-        if self._loader_thread and self._loader_thread.isRunning():
-            return
+        try:
+            if self._loader_thread and self._loader_thread.isRunning():
+                return
+        except RuntimeError:
+            self._loader_thread = None
 
         # Show spinner, disable interaction
         self._set_loading_state(True)
