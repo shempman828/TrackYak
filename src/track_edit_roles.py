@@ -14,10 +14,13 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 from src.logger_config import logger
 from src.track_edit_basetab import _BaseTab
+
+PRIMARY_ARTIST_ROLE = "Primary Artist"
 
 
 class RolesTab(_BaseTab):
@@ -53,17 +56,23 @@ class RolesTab(_BaseTab):
         layout.addLayout(search_row)
 
         # ── Current roles table ───────────────────────────────────────────
+        # One row per artist. Roles for that artist are listed in column 1
+        # as removable chips; "Add role…" lets you append another role to
+        # the same artist without re-searching for them.
         self._table = QTableWidget(0, 3)
-        self._table.setHorizontalHeaderLabels(["Artist", "Role", ""])
-        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self._table.setHorizontalHeaderLabels(["Artist", "Roles", ""])
+        self._table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeToContents
+        )
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeToContents
         )
-        self._table.horizontalHeader().setToolTip(
-            "Double-click a role to edit it inline"
+        self._table.verticalHeader().setVisible(False)
+        self._table.setToolTip(
+            "Each artist gets one row; their roles are shown as chips with "
+            "individual remove (×) buttons."
         )
-        self._table.cellChanged.connect(self._on_role_cell_changed)
         layout.addWidget(self._table)
 
     # ── Loading ───────────────────────────────────────────────────────────
@@ -71,23 +80,31 @@ class RolesTab(_BaseTab):
     def load(self, tracks: list) -> None:
         self.tracks = tracks
         self._table.setRowCount(0)
+
+        # artist_id -> {"artist_name": str, "roles": {role_id: role_name}}
+        grouped: dict[int | None, dict] = {}
+
         if self.is_multi:
-            self._load_common_roles()
+            self._collect_common_roles(grouped)
         else:
             for role_assoc in self.track.artist_roles:
-                self._add_table_row(
-                    artist_name=role_assoc.artist.artist_name
-                    if role_assoc.artist
-                    else "?",
-                    role_name=role_assoc.role.role_name if role_assoc.role else "?",
-                    artist_id=role_assoc.artist.artist_id
-                    if role_assoc.artist
-                    else None,
-                    role_id=role_assoc.role.role_id if role_assoc.role else None,
-                )
+                artist = role_assoc.artist
+                role = role_assoc.role
+                artist_id = artist.artist_id if artist else None
+                artist_name = artist.artist_name if artist else "?"
+                role_id = role.role_id if role else None
+                role_name = role.role_name if role else "?"
 
-    def _load_common_roles(self):
-        """Show only roles shared by every track in the selection."""
+                entry = grouped.setdefault(
+                    artist_id, {"artist_name": artist_name, "roles": {}}
+                )
+                entry["roles"][role_id] = role_name
+
+        for artist_id, entry in self._sorted_groups(grouped):
+            self._add_artist_row(artist_id, entry["artist_name"], entry["roles"])
+
+    def _collect_common_roles(self, grouped: dict) -> None:
+        """Populate `grouped` with artist/role pairs shared by every track."""
         all_sets = []
         for t in self.tracks:
             s = set()
@@ -102,29 +119,93 @@ class RolesTab(_BaseTab):
                         )
                     )
             all_sets.append(s)
-        common = all_sets[0]
+
+        common = all_sets[0] if all_sets else set()
         for s in all_sets[1:]:
             common &= s
-        for artist_id, role_id, artist_name, role_name in common:
-            self._add_table_row(artist_name, role_name, artist_id, role_id)
 
-    def _add_table_row(self, artist_name, role_name, artist_id, role_id):
+        for artist_id, role_id, artist_name, role_name in common:
+            entry = grouped.setdefault(
+                artist_id, {"artist_name": artist_name, "roles": {}}
+            )
+            entry["roles"][role_id] = role_name
+
+    @staticmethod
+    def _sorted_groups(grouped: dict) -> list:
+        """Sort artists, putting anyone with a Primary Artist role first,
+        then alphabetically by artist name."""
+
+        def sort_key(item):
+            _artist_id, entry = item
+            has_primary = PRIMARY_ARTIST_ROLE in entry["roles"].values()
+            return (0 if has_primary else 1, entry["artist_name"].lower())
+
+        return sorted(grouped.items(), key=sort_key)
+
+    @staticmethod
+    def _sorted_roles(roles: dict[int | None, str]) -> list[tuple]:
+        """Sort an artist's roles, Primary Artist first, then alphabetical."""
+
+        def sort_key(item):
+            _role_id, role_name = item
+            return (0 if role_name == PRIMARY_ARTIST_ROLE else 1, role_name.lower())
+
+        return sorted(roles.items(), key=sort_key)
+
+    def _add_artist_row(self, artist_id, artist_name, roles: dict):
         row = self._table.rowCount()
         self._table.insertRow(row)
 
         artist_item = QTableWidgetItem(artist_name)
         artist_item.setData(Qt.UserRole, artist_id)
-        artist_item.setFlags(artist_item.flags() & ~Qt.ItemIsEditable)  # read-only
+        artist_item.setFlags(artist_item.flags() & ~Qt.ItemIsEditable)
         self._table.setItem(row, 0, artist_item)
 
-        role_item = QTableWidgetItem(role_name)
-        role_item.setData(Qt.UserRole, role_id)
-        role_item.setData(Qt.UserRole + 1, role_name)  # stash original name for revert
-        self._table.setItem(row, 1, role_item)
+        roles_widget = self._build_roles_cell(artist_id, artist_name, roles)
+        self._table.setCellWidget(row, 1, roles_widget)
 
-        btn = QPushButton("Remove")
-        btn.clicked.connect(lambda _checked, r=row: self._remove_role(r))
-        self._table.setCellWidget(row, 2, btn)
+        remove_artist_btn = QPushButton("Remove All")
+        remove_artist_btn.setToolTip(f"Remove every role for {artist_name}")
+        remove_artist_btn.clicked.connect(
+            lambda _checked, aid=artist_id: self._remove_all_roles_for_artist(aid)
+        )
+        self._table.setCellWidget(row, 2, remove_artist_btn)
+
+        self._table.resizeRowToContents(row)
+
+    def _build_roles_cell(self, artist_id, artist_name, roles: dict) -> QWidget:
+        cell = QWidget()
+        row_layout = QHBoxLayout(cell)
+        row_layout.setContentsMargins(4, 2, 4, 2)
+        row_layout.setSpacing(6)
+
+        for role_id, role_name in self._sorted_roles(roles):
+            chip = QPushButton(f"{role_name}  ×")
+            chip.setFlat(True)
+            chip.setStyleSheet(
+                "QPushButton {"
+                "  border: 1px solid #888;"
+                "  border-radius: 10px;"
+                "  padding: 2px 8px;"
+                "}"
+                "QPushButton:hover { background-color: #444; }"
+            )
+            chip.setToolTip(f"Remove '{role_name}' from {artist_name}")
+            chip.clicked.connect(
+                lambda _checked, aid=artist_id, rid=role_id: self._remove_role(aid, rid)
+            )
+            row_layout.addWidget(chip)
+
+        add_role_btn = QPushButton("+ Add role…")
+        add_role_btn.setFlat(True)
+        add_role_btn.clicked.connect(
+            lambda _checked, aid=artist_id, name=artist_name: (
+                self._prompt_add_role_for_artist(aid, name)
+            )
+        )
+        row_layout.addWidget(add_role_btn)
+        row_layout.addStretch()
+        return cell
 
     # ── Search ────────────────────────────────────────────────────────────
 
@@ -161,6 +242,34 @@ class RolesTab(_BaseTab):
         role_ok = len(self._role_edit.text().strip()) >= 2
         self._add_btn.setEnabled(artist_ok and role_ok)
 
+    # ── Resolution helpers ────────────────────────────────────────────────
+
+    def _resolve_artist(self, artist_name: str):
+        combo_data = (
+            self._artist_combo.currentData() if self._artist_combo.isVisible() else None
+        )
+        if combo_data and combo_data != "new":
+            return self.controller.get.get_entity_object("Artist", artist_id=combo_data)
+
+        existing = self.controller.get.get_entity_object(
+            "Artist", artist_name=artist_name
+        )
+        if existing:
+            return existing if not isinstance(existing, list) else existing[0]
+        return self.controller.add.add_entity("Artist", artist_name=artist_name)
+
+    def _resolve_role(self, role_name: str):
+        existing_role = self.controller.get.get_entity_object(
+            "Role", role_name=role_name
+        )
+        if existing_role:
+            return (
+                existing_role
+                if not isinstance(existing_role, list)
+                else existing_role[0]
+            )
+        return self.controller.add.add_entity("Role", role_name=role_name)
+
     # ── Add / Remove ──────────────────────────────────────────────────────
 
     def _add_role(self):
@@ -169,132 +278,88 @@ class RolesTab(_BaseTab):
         if not artist_name or not role_name:
             return
 
-        # Resolve or create artist
-        combo_data = (
-            self._artist_combo.currentData() if self._artist_combo.isVisible() else None
-        )
-        if combo_data and combo_data != "new":
-            artist = self.controller.get.get_entity_object(
-                "Artist", artist_id=combo_data
-            )
-        else:
-            existing = self.controller.get.get_entity_object(
-                "Artist", artist_name=artist_name
-            )
-            if existing:
-                artist = existing if not isinstance(existing, list) else existing[0]
-            else:
-                artist = self.controller.add.add_entity(
-                    "Artist", artist_name=artist_name
-                )
-
-        # Resolve or create role
-        existing_role = self.controller.get.get_entity_object(
-            "Role", role_name=role_name
-        )
-        if existing_role:
-            role = (
-                existing_role
-                if not isinstance(existing_role, list)
-                else existing_role[0]
-            )
-        else:
-            role = self.controller.add.add_entity("Role", role_name=role_name)
+        artist = self._resolve_artist(artist_name)
+        role = self._resolve_role(role_name)
 
         if not artist or not role:
             QMessageBox.warning(self, "Error", "Could not resolve artist or role.")
             return
 
-        for track in self.tracks:
-            try:
-                self.controller.add.add_entity(
-                    "TrackArtistRole",
-                    track_id=track.track_id,
-                    artist_id=artist.artist_id,
-                    role_id=role.role_id,
-                )
-            except Exception as e:
-                logger.error(f"Failed to add role to track {track.track_id}: {e}")
+        self._batch_add_track_artist_role(artist.artist_id, role.role_id)
 
         self._artist_search.clear()
         self._role_edit.clear()
         self._artist_combo.setVisible(False)
         self.load(self.tracks)
 
-    def _on_role_cell_changed(self, row: int, col: int):
-        # Only care about the Role column (col 1)
-        if col != 1:
-            return
-
-        role_item = self._table.item(row, 1)
-        artist_item = self._table.item(row, 0)
-        if not role_item or not artist_item:
-            return
-
-        new_role_name = role_item.text().strip()
-        original_role_name = role_item.data(Qt.UserRole + 1)  # what we stashed on load
-        old_role_id = role_item.data(Qt.UserRole)
-        artist_id = artist_item.data(Qt.UserRole)
-
-        # Nothing actually changed — ignore
-        if new_role_name == original_role_name:
-            return
-
-        # Empty input — revert silently
-        if not new_role_name:
-            self._table.blockSignals(True)
-            role_item.setText(original_role_name)
-            self._table.blockSignals(False)
-            return
-
-        # Resolve or create the new role (same logic as _add_role)
-        existing_role = self.controller.get.get_entity_object(
-            "Role", role_name=new_role_name
-        )
-        if existing_role:
-            new_role = (
-                existing_role
-                if not isinstance(existing_role, list)
-                else existing_role[0]
+    def _prompt_add_role_for_artist(self, artist_id, artist_name):
+        """Add another role to an artist already shown in the table, via
+        the existing role input field (reused as a quick prompt)."""
+        role_name = self._role_edit.text().strip()
+        if len(role_name) < 2:
+            QMessageBox.information(
+                self,
+                "Add Role",
+                f"Type a role name (min 2 chars) in the role field, then click "
+                f"'+ Add role…' next to {artist_name}.",
             )
-        else:
-            new_role = self.controller.add.add_entity("Role", role_name=new_role_name)
-
-        if not new_role:
-            logger.error(f"Could not resolve or create role '{new_role_name}'")
-            self._table.blockSignals(True)
-            role_item.setText(original_role_name)
-            self._table.blockSignals(False)
+            self._role_edit.setFocus()
             return
 
-        # For every track: delete the old TrackArtistRole, add the new one
+        role = self._resolve_role(role_name)
+        if not role:
+            QMessageBox.warning(self, "Error", "Could not resolve role.")
+            return
+
+        self._batch_add_track_artist_role(artist_id, role.role_id)
+        self._role_edit.clear()
+        self.load(self.tracks)
+
+    def _remove_role(self, artist_id, role_id):
+        self._batch_delete_track_artist_role(artist_id, role_id)
+        self.load(self.tracks)
+
+    def _remove_all_roles_for_artist(self, artist_id):
+        # Gather every role_id this artist currently holds across the
+        # selected tracks, then remove each.
+        role_ids: set = set()
+        for t in self.tracks:
+            for ra in t.artist_roles:
+                if ra.artist and ra.artist.artist_id == artist_id and ra.role:
+                    role_ids.add(ra.role.role_id)
+
+        for role_id in role_ids:
+            self._batch_delete_track_artist_role(artist_id, role_id)
+
+        self.load(self.tracks)
+
+    # ── Batch helpers ─────────────────────────────────────────────────────
+    #
+    # NOTE on performance: the controller currently exposes only
+    # single-row add_entity/delete_entity calls, so a multi-track edit
+    # still issues one DB call per track. These helpers at least avoid
+    # redundant table reloads (load() is called once per user action,
+    # not once per track) and centralize error handling. If add_entity /
+    # delete_entity ever grow bulk variants (e.g. add_entities(list[dict]))
+    # or the controller exposes a transaction/session context manager,
+    # swap the loop body below for a single bulk call — that's the real
+    # fix for "multi-edit takes a while". A QThread/QtConcurrent worker
+    # could also run this loop off the UI thread and call self.load()
+    # via a signal on completion, if these stay single-row.
+
+    def _batch_add_track_artist_role(self, artist_id, role_id):
         for track in self.tracks:
             try:
-                self.controller.delete.delete_entity(
-                    "TrackArtistRole",
-                    track_id=track.track_id,
-                    artist_id=artist_id,
-                    role_id=old_role_id,
-                )
                 self.controller.add.add_entity(
                     "TrackArtistRole",
                     track_id=track.track_id,
                     artist_id=artist_id,
-                    role_id=new_role.role_id,
+                    role_id=role_id,
                 )
             except Exception as e:
-                logger.error(f"Failed to update role on track {track.track_id}: {e}")
+                logger.error(f"Failed to add role to track {track.track_id}: {e}")
 
-        # Reload the table to reflect the final state cleanly
-        self.load(self.tracks)
-
-    def _remove_role(self, row: int):
-        artist_item = self._table.item(row, 0)
-        role_item = self._table.item(row, 1)
-        if not artist_item or not role_item:
-            return
-        artist_id = artist_item.data(Qt.UserRole)
-        role_id = role_item.data(Qt.UserRole)
+    def _batch_delete_track_artist_role(self, artist_id, role_id):
         for track in self.tracks:
             try:
                 self.controller.delete.delete_entity(
@@ -305,4 +370,3 @@ class RolesTab(_BaseTab):
                 )
             except Exception as e:
                 logger.error(f"Failed to remove role from track {track.track_id}: {e}")
-        self.load(self.tracks)

@@ -164,15 +164,7 @@ queue_utility.py
 
 
 role_view.py
-    2026-04-29 08:20:04,439 - INFO - role_view.py:320 - _on_roles_loaded() - Loaded 39 roles into unified tree with hierarchy (39 root items)
-    Traceback (most recent call last):
-    File "/home/babs/PycharmProjects/MusicLibrary/src/main_window.py", line 264, in _switch_view
-        getattr(current_widget, method_name)()
-        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
-    File "/home/babs/PycharmProjects/MusicLibrary/src/role_view.py", line 224, in load_roles
-        if self._loader_thread and self._loader_thread.isRunning():
-                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
-    RuntimeError: Internal C++ object (PySide6.QtCore.QThread) already deleted.
+
 
 statistics_dialog.py
 
@@ -191,8 +183,7 @@ track_edit_lyrics
 
 
 track_edit_roles
-    combine like artists into one section.
-    mutiple editing can take a while since only one track is processed at a time
+    mutiple editing can take a while since only one track is processed at a time. Batch? Concurrent edit?
 
 
 track_editing
@@ -200,9 +191,9 @@ track_editing
 
 track_view.py
     sorting by column freezes ui. Needs threaded with spinner and faster lookups
-    only search on "enter"
+    only activate a search on "enter" in the search bar
     appending when sorted on_scroll crashes
     add entire library to queue redundant with shuffle library to queue
 
 wikipedia search
-
+    remove
