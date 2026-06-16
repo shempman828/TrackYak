@@ -124,7 +124,7 @@ moods_view.py
 
 
 navigation_dock.py
-    better right border
+
 
 nowplaying_view.py
 

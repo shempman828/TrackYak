@@ -39,6 +39,11 @@ class NavigationDock(QDockWidget):
         # Create all the UI components
         nav_container = QWidget()
         nav_container.setObjectName("NavContainer")
+        nav_container.setStyleSheet("""
+            #NavContainer {
+                border-right: 1px solid rgba(255, 255, 255, 0.10);
+            }
+        """)
         nav_layout = QVBoxLayout(nav_container)
         nav_layout.setContentsMargins(0, 0, 0, 0)
         nav_layout.setSpacing(0)
@@ -83,11 +88,6 @@ class NavigationDock(QDockWidget):
         self.app_name_label = QLabel("TrackYak")
         self.app_name_label.setObjectName("NavAppName")
         self.app_name_label.setAlignment(Qt.AlignCenter)
-        self.app_name_label.setStyleSheet("""
-            font-size: 22pt;
-            font-weight: 800;
-            color: #8599ea
-        """)
 
         # Add widgets to header
         header_layout.addWidget(logo_container)
@@ -120,29 +120,27 @@ class NavigationDock(QDockWidget):
         self.setMaximumWidth(400)
         self.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetClosable)
 
-        # Store reference for animation methods
-        self.nav_dock = self
-
         # Add to main window
         self.gui.addDockWidget(Qt.LeftDockWidgetArea, self)
+        self.installEventFilter(self)
 
     def size_navigation_to_content(self):
         """Size the navigation dock to fit its content."""
-        if not hasattr(self, "nav_tree") or not self.nav_tree or self.nav_collapsed:
+        if self.nav_collapsed or self._nav_tree.topLevelItemCount() == 0:
             return
 
         # Calculate ideal width based on content
-        self.nav_tree.resizeColumnToContents(0)
-        content_width = self.nav_tree.sizeHintForColumn(0) + 40  # Padding
+        self._nav_tree.resizeColumnToContents(0)
+        content_width = self._nav_tree.sizeHintForColumn(0) + 40  # Padding
 
         # Constrain within reasonable limits
         ideal_width = max(200, min(350, content_width))
 
-        if hasattr(self, "nav_dock"):
-            self.nav_dock.resize(ideal_width, self.nav_dock.height())
+        self.resize(ideal_width, self.height())
 
     def _set_initial_navigation_size(self):
-        """Set initial navigation size based on screen size."""
+        """Set initial navigation size based on screen size.
+        Call this after the main window is shown, not during construction."""
         screen = QApplication.primaryScreen()
         screen_width = screen.availableGeometry().width()
 
@@ -172,23 +170,12 @@ class NavigationDock(QDockWidget):
         self.logo_button.setToolTip("Expand navigation")
 
         # Animate dock width (smooth collapse)
-        current_width = self.nav_dock.width()
+        current_width = self.width()
         target_width = 60
 
         self._animate_navigation_width(current_width, target_width)
 
         logger.debug("Navigation collapsed")
-
-    def _update_collapse_button_icon(self):
-        """Update the collapse button icon based on current state."""
-        if self.nav_collapsed:
-            # Show right arrow when collapsed (indicating expansion)
-            self.collapse_button.setText("→")
-            self.collapse_button.setToolTip("Expand navigation")
-        else:
-            # Show left arrow when expanded (indicating collapse)
-            self.collapse_button.setText("←")
-            self.collapse_button.setToolTip("Collapse navigation")
 
     def expand_navigation(self):
         """Expand the navigation to show full content with animation."""
@@ -201,7 +188,7 @@ class NavigationDock(QDockWidget):
         self.logo_button.setToolTip("Collapse navigation")
 
         # Animate dock width (smooth expand)
-        current_width = self.nav_dock.width()
+        current_width = self.width()
         target_width = 240  # feels good visually, not too wide
 
         self._animate_navigation_width(current_width, target_width)
@@ -210,9 +197,7 @@ class NavigationDock(QDockWidget):
 
     def eventFilter(self, obj, event):
         """Handle resize events for responsive navigation."""
-        if (
-            obj == self.nav_dock and event.type() == QEvent.Resize
-        ):  # Fixed: QEvent.Resize instead of event.Resize
+        if obj == self and event.type() == QEvent.Resize:
             # Auto-collapse/expand based on available width
             if not self.nav_auto_collapse:
                 return False
@@ -227,38 +212,42 @@ class NavigationDock(QDockWidget):
 
     def ensure_proper_navigation_size(self):
         """Ensure navigation dock has reasonable size after state restoration."""
-        if hasattr(self, "nav_dock"):
-            if self.nav_collapsed:
-                # Ensure collapsed state is maintained
-                self.nav_dock.resize(20, self.nav_dock.height())
-            else:
-                # Normal size constraints for expanded state
-                current_width = self.nav_dock.width()
-                if current_width > 500:
-                    self.nav_dock.resize(300, self.nav_dock.height())
-                elif current_width < 150:
-                    self.nav_dock.resize(200, self.nav_dock.height())
+        if self.nav_collapsed:
+            # Ensure collapsed state is maintained
+            self.resize(60, self.height())
+        else:
+            # Normal size constraints for expanded state
+            current_width = self.width()
+            if current_width > 500:
+                self.resize(300, self.height())
+            elif current_width < 150:
+                self.resize(200, self.height())
 
     def _animate_navigation_width(self, start_width, end_width, duration=180):
         """Animate dock width smoothly and ensure it resizes to final width."""
-        animation = QPropertyAnimation(self.nav_dock, b"maximumWidth")
+        animation = QPropertyAnimation(self, b"maximumWidth")
         animation.setStartValue(start_width)
         animation.setEndValue(end_width)
         animation.setDuration(duration)
         animation.setEasingCurve(QEasingCurve.InOutQuad)
 
-        # Optionally animate minimumWidth too for tighter layout binding
-        min_anim = QPropertyAnimation(self.nav_dock, b"minimumWidth")
+        # Animate minimumWidth too for tighter layout binding
+        min_anim = QPropertyAnimation(self, b"minimumWidth")
         min_anim.setStartValue(start_width)
         min_anim.setEndValue(end_width)
         min_anim.setDuration(duration)
         min_anim.setEasingCurve(QEasingCurve.InOutQuad)
 
-        # When finished, enforce final width
+        # When finished, restore proper min/max constraints rather than
+        # pinning both to end_width (which would prevent manual resizing).
         def finalize_size():
-            self.nav_dock.setMinimumWidth(end_width)
-            self.nav_dock.setMaximumWidth(end_width)
-            self.nav_dock.resize(end_width, self.nav_dock.height())
+            if self.nav_collapsed:
+                self.setMinimumWidth(60)
+                self.setMaximumWidth(60)
+            else:
+                self.setMinimumWidth(60)
+                self.setMaximumWidth(400)
+            self.resize(end_width, self.height())
 
         animation.finished.connect(finalize_size)
 
