@@ -1,13 +1,13 @@
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QToolButton,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve
 
 
 class SectionContainer(QWidget):
@@ -117,17 +117,21 @@ class SectionContainer(QWidget):
         end = self._content_height() if expanded else 0
 
         self.animation.stop()
+        # Disconnect any previous finished handler before adding a new one
+        try:
+            self.animation.finished.disconnect()
+        except RuntimeError:
+            pass  # No connections, nothing to do
+
         self.animation.setStartValue(start)
         self.animation.setEndValue(end)
 
         if expanded:
             self.content_area.setVisible(True)
+        else:
+            self.animation.finished.connect(lambda: self.content_area.setVisible(False))
 
         self.animation.start()
-
-        if not expanded:
-            # Hide at the end to avoid tab focus issues
-            self.animation.finished.connect(lambda: self.content_area.setVisible(False))
 
     def _content_height(self) -> int:
         """Calculate the natural height of the content."""
@@ -137,4 +141,9 @@ class SectionContainer(QWidget):
 
     def _refresh_height(self):
         if self.toggle_button.isChecked():
+            self.content_area.setVisible(True)
             self.content_area.setMaximumHeight(self._content_height())
+        else:
+            # Keep it hidden; height stays 0
+            self.content_area.setMaximumHeight(0)
+            self.content_area.setVisible(False)

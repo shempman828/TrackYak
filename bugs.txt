@@ -15,8 +15,7 @@ artist alias management
 
 
 artist_detail.py
-    completely broken
-    showing and hiding tabs completely broken
+
 
 artist_detail_credits
 
@@ -114,7 +113,7 @@ influences_view.py
 
 
 library_import.py
-    discs are not being loaded properly. Discs should be created automatically.
+    discs are not being loaded properly. Discs should be created automatically. It looks like separate discs are made into separate albums?
 
 menu_bar.py
     implement project support links in "about"
@@ -188,6 +187,7 @@ track_edit_roles
 
 track_editing
     make advanced tab able to copy to clipboard
+    advanced tab trigger audio analysis
 
 track_view.py
     sorting by column freezes ui. Needs threaded with spinner and faster lookups
