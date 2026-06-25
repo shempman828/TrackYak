@@ -34,7 +34,6 @@ QWidget {
     color: #b8c0f0;
     selection-background-color: #8599ea;
     selection-color: #0b0c10;
-    padding: 2px;
 }
 
 /* ── MAIN WINDOW ─────────────────────────────────────────────────────────────── */
@@ -118,12 +117,20 @@ NavigationDock QTreeWidget#NavTree::item:hover {
     border-left: 3px solid #EA8599;
 }
 
-NavigationDock QTreeWidget#NavTree::item:selected {
+NavigationDock QTreeWidget#NavTree::item:selected:active {
     background-color: rgba(133, 153, 234, 0.15);
     color: #b8c0f0;
     border-left: 3px solid #8599ea;
     outline: none;
 }
+
+NavigationDock QTreeWidget#NavTree::item:selected:!active {
+    background-color: rgba(133, 153, 234, 0.10);
+    color: #7a82a8;
+    border-left: 3px solid rgba(133, 153, 234, 0.4);
+    outline: none;
+}
+
 
 NavigationDock QTreeWidget#NavTree::item:focus {
     outline: none;
@@ -179,10 +186,28 @@ QTreeView::item:hover {
     background-color: rgba(234, 133, 153, 0.12);
     color: #EA8599;
 }
-
-QTreeView::item:selected,
-QTreeWidget::item:selected {
+/* FIXED: same split for QListWidget */
+QListWidget::item:selected:active {
     background-color: rgba(133, 153, 234, 0.22);
+    color: #b8c0f0;
+}
+
+QListWidget::item:selected:!active {
+    background-color: rgba(133, 153, 234, 0.08);
+    color: #7a82a8;
+}
+
+
+QTreeView::item:selected:active,
+QTreeWidget::item:selected:active {
+    background-color: rgba(133, 153, 234, 0.22);
+    color: #b8c0f0;
+    border: none;
+}
+
+QTreeView::item:selected:!active,
+QTreeWidget::item:selected:!active {
+    background-color: transparent;
     color: #b8c0f0;
     border: none;
 }
@@ -218,11 +243,18 @@ QTableWidget::item:hover {
     color: #EA8599;
 }
 
-QTableView::item:selected,
-QTableWidget::item:selected {
+QTableView::item:selected:active,
+QTableWidget::item:selected:active {
     background-color: rgba(133, 153, 234, 0.25);
     color: #b8c0f0;
 }
+
+QTableView::item:selected:!active,
+QTableWidget::item:selected:!active {
+    background-color: rgba(133, 153, 234, 0.08);
+    color: #7a82a8;
+}
+
 
 /* ── BUTTONS ─────────────────────────────────────────────────────────────────── */
 QPushButton {
@@ -894,11 +926,18 @@ QListWidget#placeList::item:hover {
     color: #EA8599;
 }
 
-QListWidget#placeList::item:selected {
+QListWidget#placeList::item:selected:active {
     background-color: rgba(133, 153, 234, 0.22);
     color: #b8c0f0;
     border: 1px solid rgba(133, 153, 234, 0.5);
 }
+
+QListWidget#placeList::item:selected:!active {
+    background-color: rgba(133, 153, 234, 0.08);
+    color: #7a82a8;
+    border: 1px solid rgba(133, 153, 234, 0.2);
+}
+
 
 QListWidget#placeList:focus {
     border: 1px solid rgba(133, 153, 234, 0.5);
