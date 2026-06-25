@@ -143,7 +143,7 @@ player_utility.py
 
 
 playlist_smart_criteria_widget.py
-    datetime needs exact timestamp, not just day. I can't say tracks added on 6/5/2011 it has to have a timestamp too. Between does not work. Also add last x days option.
+    datetime needs exact timestamp, not just day. I can't say tracks added on 6/5/2011 it has to have a specific time too. Between does not work. Also add last x days option.
 
 playlist_view.py
     Sort alphabetically within tree hierarchy
@@ -184,12 +184,11 @@ track_edit_roles
 
 
 track_editing
-    make advanced tab able to copy to clipboard
-    advanced tab trigger audio analysis button
+
 
 track_view.py
     sorting by column freezes ui. Needs threaded with spinner and faster lookups
-    only activate a search on "enter" in the search bar
+    only activate a search on "enter" in the search bar instead of debounce timer
     appending when sorted on_scroll crashes
     add entire library to queue redundant with shuffle library to queue
 

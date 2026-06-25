@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.logger_config import logger
+from src.track_edit_advanced import AdvancedTab
 from src.track_edit_album import AlbumsTab
 from src.track_edit_awards import AwardsTab
 from src.track_edit_basetab import _BaseTab
@@ -132,9 +133,7 @@ class TrackEditDialog(QDialog):
         self._add_tab("Samples", SamplesTab(self.tracks, self.controller))
         self._add_tab("Albums", AlbumsTab(self.tracks, self.controller))
         self._add_tab("Used In", UsedInTab(self.tracks, self.controller))
-        self._add_tab(
-            "Advanced", FieldFormTab("Advanced", self.tracks, self.controller)
-        )
+        self._add_tab("Advanced", AdvancedTab(self.tracks, self.controller))
 
         # Keyboard shortcuts Ctrl+1 … Ctrl+9 for first 9 tabs
         for i in range(min(9, len(self._tabs))):
