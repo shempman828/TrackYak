@@ -36,7 +36,9 @@ class DisplaySettings(QObject):
             self.ui_scale = float(config.get_ui_scale())
             self.font_family = config.get_font_family()
             self.font_size = int(config.get_font_size())
-            self.theme_name = config.get_display_theme()
+            # Normalize falsy values (None, "") to None so callers can rely on truthiness
+            theme = config.get_display_theme()
+            self.theme_name: str | None = theme if theme else None
             self.theme_dir = Path(config.themes_dir)
 
             # Load menu bar auto-hide from config (defaults to False = always visible)
@@ -51,6 +53,11 @@ class DisplaySettings(QObject):
             self.font_family: str = "Inter"
             self.font_size: int = 10
             self.menu_bar_auto_hide: bool = False
+
+        # ----- preview state -----
+        # Snapshot of committed values, populated when a preview is started.
+        # None means no preview is in progress.
+        self._pre_preview: dict | None = None
 
     # ---------------------------------------------------------
     # Theme handling
@@ -79,7 +86,7 @@ class DisplaySettings(QObject):
     # ---------------------------------------------------------
 
     def set_ui_scale(self, scale: float):
-        """Set UI scale factor. Typical values: 0.9, 1.0, 1.1, 1.25"""
+        """Set UI scale factor and persist immediately. Typical values: 0.9, 1.0, 1.1, 1.25"""
         self.ui_scale = scale
 
         if self.config:
@@ -89,11 +96,24 @@ class DisplaySettings(QObject):
         self._apply_font()
         self.display_changed.emit()
 
+    def preview_ui_scale(self, scale: float):
+        """Apply a scale change live without persisting it.
+
+        Call commit_preview() to save or revert_preview() to undo.
+        Multiple preview_* calls in sequence are all reverted together by
+        a single revert_preview().
+        """
+        self._snapshot_for_preview()
+        self.ui_scale = scale
+        self._apply_font()
+        self.display_changed.emit()
+
     # ---------------------------------------------------------
     # Font handling
     # ---------------------------------------------------------
 
     def set_font_family(self, family: str):
+        """Set font family and persist immediately."""
         self.font_family = family
 
         if self.config:
@@ -104,6 +124,7 @@ class DisplaySettings(QObject):
         self.display_changed.emit()
 
     def set_font_size(self, size: int):
+        """Set font size and persist immediately."""
         self.font_size = size
 
         if self.config:
@@ -113,12 +134,82 @@ class DisplaySettings(QObject):
         self._apply_font()
         self.display_changed.emit()
 
+    def preview_font_family(self, family: str):
+        """Apply a font-family change live without persisting it.
+
+        Call commit_preview() to save or revert_preview() to undo.
+        """
+        self._snapshot_for_preview()
+        self.font_family = family
+        self._apply_font()
+        self.display_changed.emit()
+
+    def preview_font_size(self, size: int):
+        """Apply a font-size change live without persisting it.
+
+        Call commit_preview() to save or revert_preview() to undo.
+        """
+        self._snapshot_for_preview()
+        self.font_size = size
+        self._apply_font()
+        self.display_changed.emit()
+
     def _apply_font(self):
         """Apply scaled font globally."""
-        scaled_size = int(self.font_size * self.ui_scale)
+        scaled_size = max(1, int(self.font_size * self.ui_scale))
         font = QFont(self.font_family)
         font.setPointSize(scaled_size)
         self.app.setFont(font)
+
+    # ---------------------------------------------------------
+    # Preview commit / revert
+    # ---------------------------------------------------------
+
+    def _snapshot_for_preview(self):
+        """Record current committed values the first time a preview begins."""
+        if self._pre_preview is None:
+            self._pre_preview = {
+                "ui_scale": self.ui_scale,
+                "font_family": self.font_family,
+                "font_size": self.font_size,
+            }
+
+    def commit_preview(self):
+        """Persist whatever font/scale values are currently live to config.
+
+        No-op if no preview is in progress.
+        """
+        if self._pre_preview is None:
+            return
+
+        self._pre_preview = None
+
+        if self.config:
+            self.config.set_ui_scale(self.ui_scale)
+            self.config.set_font_family(self.font_family)
+            self.config.set_font_size(self.font_size)
+            self.config.save()
+
+    def revert_preview(self):
+        """Restore font/scale to their last committed values and re-apply.
+
+        No-op if no preview is in progress.
+        """
+        if self._pre_preview is None:
+            return
+
+        self.ui_scale = self._pre_preview["ui_scale"]
+        self.font_family = self._pre_preview["font_family"]
+        self.font_size = self._pre_preview["font_size"]
+        self._pre_preview = None
+
+        self._apply_font()
+        self.display_changed.emit()
+
+    @property
+    def preview_pending(self) -> bool:
+        """True while a preview is in progress (i.e. commit_preview / revert_preview expected)."""
+        return self._pre_preview is not None
 
     # ---------------------------------------------------------
     # Menu bar auto-hide
@@ -156,11 +247,15 @@ class DisplaySettings(QObject):
             try:
                 self.set_theme(self.theme_name)
             except FileNotFoundError:
-                default_theme = "dark" if self.config else "default"
-                if default_theme:
-                    self.set_theme(default_theme)
-        else:
-            self._apply_font()
+                # Stored theme is gone — fall back gracefully and clear the
+                # stale name so we don't retry it on the next startup.
+                self.theme_name = None
+                if self.config:
+                    self.config.set_display_theme("")
+                    self.config.save()
+
+        # Always apply the font: the QSS theme does not set the app font.
+        self._apply_font()
 
     # ---------------------------------------------------------
     # Getters
@@ -173,14 +268,12 @@ class DisplaySettings(QObject):
             "ui_scale": self.ui_scale,
             "font_family": self.font_family,
             "font_size": self.font_size,
-            "scaled_font_size": int(self.font_size * self.ui_scale),
+            "scaled_font_size": max(1, int(self.font_size * self.ui_scale)),
             "menu_bar_auto_hide": self.menu_bar_auto_hide,
         }
 
-    def get_available_themes(self):
-        """Get list of available theme files."""
-        theme_files = []
-        if self.theme_dir.exists():
-            for file in self.theme_dir.glob("*.qss"):
-                theme_files.append(file.stem)
-        return theme_files
+    def get_available_themes(self) -> list[str]:
+        """Get sorted list of available theme names (stems of *.qss files)."""
+        if not self.theme_dir.exists():
+            return []
+        return sorted(f.stem for f in self.theme_dir.glob("*.qss"))
