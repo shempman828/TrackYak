@@ -191,6 +191,3 @@ track_view.py
     only activate a search on "enter" in the search bar instead of debounce timer
     appending when sorted on_scroll crashes
     add entire library to queue redundant with shuffle library to queue
-
-wikipedia search
-    remove

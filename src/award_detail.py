@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
 
 from src.award_relationship_dialog import AwardRelationshipDialog
 from src.logger_config import logger
-from src.wikipedia_seach import search_wikipedia
 
 
 class AwardDetailTab(QWidget):
@@ -290,36 +289,6 @@ class AwardDetailTab(QWidget):
 
         action_group.setLayout(layout)
         self.layout.addWidget(action_group)
-
-    def _search_wikipedia(self) -> None:
-        """Search Wikipedia for award description."""
-        try:
-            # Get all return values from the search
-            title, summary, full_content, link, images = search_wikipedia(
-                self.award.award_name, parent=self
-            )
-
-            if summary:
-                # Update the description field with the summary
-                self.description_edit.setPlainText(full_content)
-                self._enable_save()  # Enable save since we modified content
-
-                # Show success message
-                QMessageBox.information(
-                    self,
-                    "Wikipedia Search Complete",
-                    f"Found Wikipedia article: {title}\n\nDescription has been populated. Click 'Save Changes' to persist it to the database.",
-                )
-            else:
-                QMessageBox.information(
-                    self,
-                    "No Results Found",
-                    "No Wikipedia article found for this award name. You can manually enter the description.",
-                )
-
-        except Exception as e:
-            logger.error(f"Error searching Wikipedia: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to search Wikipedia: {e}")
 
     def _populate_parent_combo(self) -> None:
         """Populate parent award combo box, excluding current award."""
