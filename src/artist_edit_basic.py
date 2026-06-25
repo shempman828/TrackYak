@@ -1,8 +1,6 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # Tab: Basic
 # ══════════════════════════════════════════════════════════════════════════════
-import os
-import tempfile
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIntValidator, QPixmap
@@ -16,17 +14,11 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from src.wikipedia_seach import (
-    download_wikipedia_image,
-    search_wikipedia,
-    select_wikipedia_image,
-)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -282,91 +274,6 @@ class BasicTab(QWidget):
                 px.scaled(
                     self.pic_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
                 )
-            )
-
-    # ── Wikipedia ──────────────────────────────────────────────────────────
-
-    def _get_search_query(self) -> str:
-        """Use the artist name as the search query, falling back to a prompt."""
-        return self.name_edit.text().strip() or ""
-
-    def _search_wikipedia(self):
-        """Open Wikipedia search dialog and store the resulting link."""
-        query = self._get_search_query()
-        if not query:
-            QMessageBox.information(
-                self, "Wikipedia Search", "Please enter an artist name first."
-            )
-            return
-
-        title, summary, full_content, link, images = search_wikipedia(query, self)
-
-        if not link:
-            return  # User cancelled or no result
-
-        self._wiki_link = link
-        self.wiki_open_btn.setEnabled(True)
-        self.wiki_open_btn.setToolTip(link)
-
-    def _open_wiki_link(self):
-        """Open the stored Wikipedia link in the default browser."""
-        if self._wiki_link:
-            import webbrowser
-
-            webbrowser.open(self._wiki_link)
-
-    def _import_wikipedia_image(self):
-        """Search Wikipedia and let the user pick an image to use as the profile picture."""
-        query = self._get_search_query()
-        if not query:
-            QMessageBox.information(
-                self, "Wikipedia Image Import", "Please enter an artist name first."
-            )
-            return
-
-        title, summary, full_content, link, images = search_wikipedia(query, self)
-
-        if not images:
-            if link:
-                QMessageBox.information(
-                    self,
-                    "Wikipedia Image Import",
-                    "No images found on the selected Wikipedia page.",
-                )
-            return
-
-        # Store the link as a side-effect if we got one
-        if link:
-            self._wiki_link = link
-            self.wiki_open_btn.setEnabled(True)
-            self.wiki_open_btn.setToolTip(link)
-
-        selected_url = select_wikipedia_image(images, self)
-        if not selected_url:
-            return
-
-        image_bytes = download_wikipedia_image(selected_url)
-        if not image_bytes:
-            QMessageBox.warning(
-                self,
-                "Download Failed",
-                "Could not download the selected image. Please try another.",
-            )
-            return
-
-        # Save to a temp file so QPixmap can load it
-        ext = os.path.splitext(selected_url.split("?")[0])[-1] or ".jpg"
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-        try:
-            tmp.write(image_bytes)
-            tmp.flush()
-            tmp.close()
-            self._set_pic_path(tmp.name)
-        except OSError as e:
-            QMessageBox.warning(
-                self,
-                "Save Failed",
-                f"Could not save the downloaded image:\n{e}",
             )
 
 

@@ -1,6 +1,5 @@
 """Artist management view handling both individuals and groups."""
 
-import urllib.parse
 import webbrowser
 
 from PySide6.QtCore import Qt
@@ -22,7 +21,6 @@ from PySide6.QtWidgets import (
 )
 
 from src.artist_detail import ArtistDetailTab
-from src.artist_detail_wiki import WikipediaImportDialog
 from src.artist_edit import ArtistEditor
 from src.artist_fuzzy_match import FuzzyMatchDialog
 from src.artist_group_dialog import AddGroupDialog, AddMemberDialog
@@ -708,30 +706,8 @@ class ArtistView(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to add place: {e}")
 
     # ----------------------------
-    # Wikipedia / Influences / Image
+    # Influences / Image
     # ----------------------------
-
-    def search_wikipedia(self):
-        """Open a Wikipedia search in the browser for the currently selected artist."""
-        selected = self.artist_list.currentItem()
-        if not selected:
-            return
-        artist_id = selected.data(Qt.UserRole)
-        artist = self.controller.get.get_entity_object("Artist", artist_id=artist_id)
-        if artist:
-            query = urllib.parse.quote_plus(artist.artist_name)
-            webbrowser.open(f"https://en.wikipedia.org/w/index.php?search={query}")
-
-    def import_from_wikipedia(self):
-        """Open the Wikipedia import dialog for the currently selected artist."""
-        selected = self.artist_list.currentItem()
-        if not selected:
-            return
-        artist_id = selected.data(Qt.UserRole)
-        artist = self.controller.get.get_entity_object("Artist", artist_id=artist_id)
-        if artist:
-            dialog = WikipediaImportDialog(self.controller, artist, self)
-            dialog.exec_()
 
     def edit_influences(self):
         """Open the influence editor for the currently selected artist."""

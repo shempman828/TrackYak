@@ -2,7 +2,6 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
-import requests
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -23,7 +22,6 @@ from src.base_track_view import BaseTrackView
 from src.logger_config import logger
 from src.publisher_albums import PublisherAlbumsWindow
 from src.publisher_association_dialog import PublisherAssociationDialog
-from src.wikipedia_seach import search_wikipedia
 
 
 class PublisherDetailTab(QWidget):
@@ -349,71 +347,6 @@ class PublisherDetailTab(QWidget):
 
         except Exception as e:
             logger.error(f"Failed to save logo: {str(e)}")
-
-    def _search_wikipedia(self):
-        """Search Wikipedia for publisher description and images."""
-        if not self.current_publisher:
-            return
-
-        try:
-            # Get search results including images
-            title, summary, full_content, link, images = search_wikipedia(
-                self.current_publisher.publisher_name, parent=self
-            )
-
-            if title:  # Only update if we got a valid result
-                # Update description
-                self.description_label.setText(summary)
-                self.controller.update.update_entity(
-                    "Publisher",
-                    self.current_publisher.publisher_id,
-                    description=summary,
-                    wikipedia_link=link,
-                )
-
-                # Show image selection dialog if images are available
-                if images:
-                    # Let user select an image to use as logo
-                    selected_image = self._select_wikipedia_image(images)
-                    if selected_image:
-                        self._download_and_save_logo(selected_image)
-
-        except Exception as e:
-            logger.error(f"Wikipedia search failed: {str(e)}")
-
-    def _select_wikipedia_image(self, images):
-        """Open dialog to select a Wikipedia image."""
-        from src.wikipedia_seach import select_wikipedia_image
-
-        return select_wikipedia_image(images, parent=self)
-
-    def _download_and_save_logo(self, image_url):
-        """Download and save the selected Wikipedia image as publisher logo."""
-        if not self.current_publisher:
-            return
-
-        try:
-            # Download the image
-            response = requests.get(image_url, timeout=10)
-            response.raise_for_status()
-
-            # Get image data as bytes
-            image_bytes = response.content
-
-            # Call existing save method with the image data
-            self.save_publisher_logo(self.current_publisher, (image_url, image_bytes))
-
-            logger.info("Successfully downloaded logo from Wikipedia")
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to download image: {str(e)}")
-            QMessageBox.warning(
-                self,
-                "Download Failed",
-                f"Could not download image from Wikipedia:\n{str(e)}",
-            )
-        except Exception as e:
-            logger.error(f"Error saving logo: {str(e)}")
 
     def show_associations(self):
         """Show association dialog for publisher."""

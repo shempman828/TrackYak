@@ -11,9 +11,8 @@ from PySide6.QtWidgets import (
     QPushButton,
 )
 
-from src.place_search_dialog import SearchResultsDialog
 from src.logger_config import logger
-from src.wikipedia_seach import search_wikipedia
+from src.place_search_dialog import SearchResultsDialog
 
 
 class PlaceEditDialog(QDialog):
@@ -83,55 +82,12 @@ class PlaceEditDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
 
-    def search_wikipedia(self):
-        """Search Wikipedia for place information and populate description."""
-        place_name = self.name_edit.text().strip()
-        region = self.region_edit.text().strip()
-
-        if not place_name:
-            QMessageBox.warning(
-                self, "Search Error", "Please enter a place name to search Wikipedia."
-            )
-            return
-
-        try:
-            # Build search query
-            search_query = f"{place_name}"
-            if region:
-                search_query += f", {region}"
-
-            # Show Wikipedia search dialog
-            title, summary, full_content, link, images = search_wikipedia(
-                search_query, self
-            )
-
-            if title and summary:
-                # Populate the description field with Wikipedia summary
-                current_desc = self.desc_edit.text().strip()
-                new_desc = (
-                    f"{current_desc}\n\nWikipedia: {summary[:500]}..."
-                    if current_desc
-                    else f"Wikipedia: {summary[:500]}..."
-                )
-                self.desc_edit.setText(new_desc)
-
-                # Show success message
-                QMessageBox.information(
-                    self,
-                    "Wikipedia Search",
-                    f"Found Wikipedia article: {title}\n\nFirst 500 characters of summary added to description.",
-                )
-
-        except Exception as e:
-            logger.error(f"Wikipedia search failed: {str(e)}", exc_info=True)
-            QMessageBox.critical(
-                self, "Wikipedia Error", f"Failed to search Wikipedia: {str(e)}"
-            )
-
     def search_coordinates(self):
         """Fetch latitude and longitude using the place name and region."""
+
         place_name = self.name_edit.text().strip()
         region = self.region_edit.text().strip()
+        logger.debug("Searching for place {place_name} in region {region}")
 
         if not place_name:
             QMessageBox.warning(
