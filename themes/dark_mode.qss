@@ -212,11 +212,6 @@ QTreeWidget::item:selected:!active {
     border: none;
 }
 
-QListWidget::item:selected {
-    background-color: rgba(133, 153, 234, 0.22);
-    color: #b8c0f0;
-}
-
 /* ── TABLE VIEW ──────────────────────────────────────────────────────────────── */
 QTableView,
 QTableWidget {
