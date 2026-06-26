@@ -109,14 +109,11 @@ class PublisherDetailTab(QWidget):
 
         # Action buttons
         button_layout = QHBoxLayout()
-        self.wiki_btn = QPushButton("Wikipedia Search")
-        self.wiki_btn.clicked.connect(self._search_wikipedia)
         self.associations_btn = QPushButton("View Albums")
         self.associations_btn.clicked.connect(self._open_albums_window)
         self.tracks_button = QPushButton("View Tracks")
         self.tracks_button.clicked.connect(self.show_tracks)
 
-        button_layout.addWidget(self.wiki_btn)
         button_layout.addWidget(self.associations_btn)
         button_layout.addWidget(self.tracks_button)
         button_layout.addStretch()
