@@ -113,6 +113,9 @@ influences_view.py
 library_import.py
     discs are not being loaded properly. Discs should be created automatically. It looks like separate discs are made into separate albums?
 
+lyrics_search.py
+
+
 menu_bar.py
     implement project support links in "about"
     mousing over the hidden bar does not show it. We should probably remove this feature.
@@ -124,7 +127,8 @@ navigation_dock.py
 
 
 nowplaying_view.py
-
+    key chip sometimes shows weird key (G# Major?)
+    Text alignment for song title, artist, and album name feels off
 
 places_view.py
 
