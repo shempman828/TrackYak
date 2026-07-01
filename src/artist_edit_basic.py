@@ -2,8 +2,8 @@
 # Tab: Basic
 # ══════════════════════════════════════════════════════════════════════════════
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIntValidator, QPixmap
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QIntValidator, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -265,6 +265,10 @@ class BasicTab(QWidget):
                     self.pic_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
                 )
             )
+
+    def open_wiki_link(self):
+        if self._wiki_link:
+            QDesktopServices.openUrl(QUrl(self._wiki_link))
 
 
 class OptionalIntEdit(QLineEdit):
