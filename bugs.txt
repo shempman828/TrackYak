@@ -27,8 +27,8 @@ artist_edit_alias.py
 
 artist_edit_basic.py
     open wikipedia link should not exist if null
-    Items need better organization
-    remember last path used for image browser
+    Items need better organization and more pleasant display
+    remember last path used for image browser for easier editing.
 
 artist_edit_discography
     role count and filtering is awkward and busy
@@ -179,7 +179,7 @@ role_view.py
     add "New Role" button by search
     add sorting (alphabetical and count)
     Use tree style from genres
-    Something about album roles versus track roles is funky
+    Something about album roles versus track roles is funky. The distinction is not very important.
     cannot multi-select and drag to change parent
     add ability to merge roles
 

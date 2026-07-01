@@ -2,27 +2,41 @@
 # Tab: Basic
 # ══════════════════════════════════════════════════════════════════════════════
 
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QIntValidator, QPixmap
+import os
+
+from PySide6.QtCore import QSettings, Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QIntValidator, QPainter, QPixmap
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QCompleter,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
+# Fallback suggestions used if the controller can't supply distinct values
+# already present in the database.
 ARTIST_TYPE_SUGGESTIONS = ["Person", "Band", "Orchestra", "Choir", "Ensemble"]
 GENDERS = ["", "Male", "Female", "Other"]
+
+# QSettings key for remembering the last directory used in the picture browser
+_SETTINGS_LAST_PIC_DIR = "artist_editor/last_pic_dir"
+
+# Placeholder shown in the picture preview when no profile picture is set
+_DEFAULT_ARTIST_PIC = "/assets/default_artist.svg"
 
 
 class BasicTab(QWidget):
@@ -34,22 +48,47 @@ class BasicTab(QWidget):
     MembersTab visibility in sync.
     """
 
+    # Cache shared across all BasicTab instances/openings so the (expensive)
+    # full artist-table scan only happens once per app session, not once per
+    # artist edit dialog.
+    _artist_type_cache = None
+
     def __init__(self, controller, artist, parent=None):
         super().__init__(parent)
         self.controller = controller
         self.artist = artist
-        self._wiki_link = ""  # Stores the last fetched Wikipedia URL
+        self._wiki_link = ""  # Read from the artist record; never set from here
         self._pic_path = ""  # Stores the current profile picture path
+        self._settings = QSettings()
         self._build_ui()
 
     def _build_ui(self):
-        layout = QHBoxLayout(self)
+        outer = QHBoxLayout(self)
+        outer.setSpacing(16)
 
-        # ── Left: form ──────────────────────────────────────────────────────
-        form_widget = QWidget()
-        form = QFormLayout(form_widget)
+        # ── Left: form, organized into logical sections ─────────────────────
+        left_col = QVBoxLayout()
+        left_col.setSpacing(12)
+
+        left_col.addWidget(self._build_identity_group())
+        left_col.addWidget(self._build_dates_group())
+        left_col.addWidget(self._build_links_group())
+        left_col.addStretch()
+
+        outer.addLayout(left_col, 1)
+
+        # ── Right: profile picture ───────────────────────────────────────────
+        outer.addWidget(self._build_picture_group())
+
+    # ── Group builders ───────────────────────────────────────────────────────
+
+    def _build_identity_group(self):
+        grp = QGroupBox("Identity")
+        form = QFormLayout(grp)
         form.setLabelAlignment(Qt.AlignRight)
         form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(8)
 
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("Artist name")
@@ -58,17 +97,15 @@ class BasicTab(QWidget):
         self.artist_type_edit = QLineEdit()
         self.artist_type_edit.setPlaceholderText("e.g. Person, Band, Orchestra...")
         self.artist_type_edit.setToolTip(
-            "Type any value. Common types are suggested as you type."
+            "Type any value. Types already used in your library are suggested "
+            "as you type."
         )
-        completer = QCompleter(ARTIST_TYPE_SUGGESTIONS, self)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-        completer.setCompletionMode(QCompleter.PopupCompletion)
-        self.artist_type_edit.setCompleter(completer)
+        self.artist_type_edit.setCompleter(self._build_artist_type_completer())
         form.addRow("Type:", self.artist_type_edit)
 
-        self.isgroup_check = QCheckBox("This name represents a group / band")
-        self.isgroup_check.toggled.connect(self._on_isgroup_changed)
+        self.isgroup_check = SegmentedToggle("Person", "Group")
         form.addRow("Is Group:", self.isgroup_check)
+        self.isgroup_check.toggled.connect(self._on_isgroup_changed)
 
         # Gender row — hidden when isgroup is checked
         self.gender_combo = QComboBox()
@@ -76,23 +113,63 @@ class BasicTab(QWidget):
         self._gender_label = QLabel("Gender:")
         form.addRow(self._gender_label, self.gender_combo)
 
+        return grp
+
+    def _build_artist_type_completer(self):
+        """Build the artist-type completer from types already used in the
+        library, falling back to a small generic list if lookup fails.
+        Results are cached at the class level (see _artist_type_cache) so
+        the underlying full-table scan only runs once per session."""
+        completer = QCompleter(self._get_artist_type_suggestions(), self)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        return completer
+
+    def _get_artist_type_suggestions(self):
+        if BasicTab._artist_type_cache is None:
+            BasicTab._artist_type_cache = self._fetch_artist_type_suggestions()
+        return BasicTab._artist_type_cache
+
+    def _fetch_artist_type_suggestions(self):
+        suggestions = set(ARTIST_TYPE_SUGGESTIONS)
+        try:
+            artists = self.controller.get.get_all_entities("Artist")
+            for a in artists:
+                value = (getattr(a, "artist_type", None) or "").strip()
+                if value:
+                    suggestions.add(value)
+        except Exception:
+            pass
+        return sorted(suggestions, key=str.lower)
+
+    @classmethod
+    def invalidate_artist_type_cache(cls):
+        """Call this after adding/renaming an artist type elsewhere so the
+        next editor opened picks up the change instead of using the cache."""
+        cls._artist_type_cache = None
+
+    def _build_dates_group(self):
+        grp = QGroupBox("Dates")
+        form = QFormLayout(grp)
+        form.setLabelAlignment(Qt.AlignRight)
+        form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(8)
+
         # Begin date
-        begin_box = QHBoxLayout()
         self.begin_year_edit = OptionalIntEdit("YYYY")
         self.begin_year_edit.setToolTip("Year born / founded")
         self.begin_month_edit = OptionalIntEdit("MM")
         self.begin_month_edit.setToolTip("Month (1-12)")
         self.begin_day_edit = OptionalIntEdit("DD")
         self.begin_day_edit.setToolTip("Day (1-31)")
-        begin_box.addWidget(QLabel("Year"))
-        begin_box.addWidget(self.begin_year_edit)
-        begin_box.addWidget(QLabel("Month"))
-        begin_box.addWidget(self.begin_month_edit)
-        begin_box.addWidget(QLabel("Day"))
-        begin_box.addWidget(self.begin_day_edit)
-        begin_box.addStretch()
         self.begin_date_label = QLabel("Born / Founded:")
-        form.addRow(self.begin_date_label, begin_box)
+        form.addRow(
+            self.begin_date_label,
+            self._build_date_row(
+                self.begin_year_edit, self.begin_month_edit, self.begin_day_edit
+            ),
+        )
 
         # Active status toggle
         self.is_active_check = QCheckBox("Alive / Active")
@@ -104,56 +181,103 @@ class BasicTab(QWidget):
         form.addRow("Status:", self.is_active_check)
 
         # End date
-        end_box = QHBoxLayout()
         self.end_year_edit = OptionalIntEdit("YYYY")
         self.end_year_edit.setToolTip("Year died / disbanded")
         self.end_month_edit = OptionalIntEdit("MM")
         self.end_day_edit = OptionalIntEdit("DD")
-        end_box.addWidget(QLabel("Year"))
-        end_box.addWidget(self.end_year_edit)
-        end_box.addWidget(QLabel("Month"))
-        end_box.addWidget(self.end_month_edit)
-        end_box.addWidget(QLabel("Day"))
-        end_box.addWidget(self.end_day_edit)
-        end_box.addStretch()
         self.end_date_label = QLabel("Died / Disbanded:")
-        form.addRow(self.end_date_label, end_box)
+        form.addRow(
+            self.end_date_label,
+            self._build_date_row(
+                self.end_year_edit, self.end_month_edit, self.end_day_edit
+            ),
+        )
 
-        # Wikipedia buttons
+        # Read-only computed stats: age, career span, track count
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(14)
+        self.age_label = QLabel("—")
+        self.career_span_label = QLabel("—")
+        self.track_count_label = QLabel("—")
+        for label in (self.age_label, self.career_span_label, self.track_count_label):
+            label.setStyleSheet("color: palette(mid);")
+        stats_row.addWidget(self.age_label)
+        stats_row.addWidget(self._stat_separator())
+        stats_row.addWidget(self.career_span_label)
+        stats_row.addWidget(self._stat_separator())
+        stats_row.addWidget(self.track_count_label)
+        stats_row.addStretch()
+        form.addRow("Stats:", stats_row)
+
+        return grp
+
+    def _stat_separator(self):
+        sep = QLabel("·")
+        sep.setStyleSheet("color: palette(mid);")
+        return sep
+
+    def _build_date_row(self, year_edit, month_edit, day_edit):
+        """A compact Year/Month/Day cluster with small captions above each field."""
+        row = QWidget()
+        grid = QGridLayout(row)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(2)
+
+        for col, (caption, edit) in enumerate(
+            (("Year", year_edit), ("Month", month_edit), ("Day", day_edit))
+        ):
+            caption_label = QLabel(caption)
+            caption_label.setStyleSheet("color: palette(mid); font-size: 10px;")
+            grid.addWidget(caption_label, 0, col, Qt.AlignHCenter)
+            grid.addWidget(edit, 1, col)
+
+        grid.setColumnStretch(3, 1)
+        return row
+
+    def _build_links_group(self):
+        grp = QGroupBox("Links")
+        self._links_group = grp
+        v = QVBoxLayout(grp)
+
         wiki_box = QHBoxLayout()
-
         self.wiki_open_btn = QPushButton("🌐 Open Wikipedia Page")
         self.wiki_open_btn.setToolTip("Open the Wikipedia page in your browser")
-        self.wiki_open_btn.setEnabled(False)
         self.wiki_open_btn.clicked.connect(self._open_wiki_link)
         wiki_box.addWidget(self.wiki_open_btn)
-
         wiki_box.addStretch()
-        form.addRow("Wikipedia:", wiki_box)
 
-        layout.addWidget(form_widget, 1)
+        v.addLayout(wiki_box)
 
-        # ── Right: profile picture ───────────────────────────────────────────
+        # Hidden entirely until load() finds a link on the artist record
+        grp.setVisible(False)
+        return grp
+
+    def _build_picture_group(self):
         pic_grp = QGroupBox("Profile Picture")
+        pic_grp.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         pic_layout = QVBoxLayout(pic_grp)
 
         self.pic_label = QLabel()
         self.pic_label.setFixedSize(180, 180)
         self.pic_label.setAlignment(Qt.AlignCenter)
-        self.pic_label.setStyleSheet("border: 1px solid #888; background: #222;")
-        self.pic_label.setText("No Image")
-        self.pic_label.setToolTip("No image set")
+        self.pic_label.setStyleSheet(
+            "border: 1px solid #888; border-radius: 4px; background: #222;"
+        )
         pic_layout.addWidget(self.pic_label)
 
+        btn_row = QHBoxLayout()
         browse_btn = QPushButton("Browse...")
         browse_btn.clicked.connect(self._browse_pic)
-        pic_layout.addWidget(browse_btn)
+        btn_row.addWidget(browse_btn)
 
         clear_pic_btn = QPushButton("Clear")
         clear_pic_btn.clicked.connect(self._clear_pic)
-        pic_layout.addWidget(clear_pic_btn)
+        btn_row.addWidget(clear_pic_btn)
 
-        layout.addWidget(pic_grp)
+        pic_layout.addLayout(btn_row)
+        pic_layout.addStretch()
+        return pic_grp
 
     def load(self, artist):
         self.artist = artist
@@ -186,9 +310,24 @@ class BasicTab(QWidget):
 
         self._set_pic_path(artist.profile_pic_path or "")
 
-        # Reset Wikipedia link when loading a new artist
-        self._wiki_link = ""
-        self.wiki_open_btn.setEnabled(False)
+        # Read-only computed stats
+        age = getattr(artist, "age", None)
+        self.age_label.setText(f"Age: {age}" if age is not None else "Age: —")
+
+        career_span = getattr(artist, "career_span", None)
+        self.career_span_label.setText(
+            f"Career: {career_span}" if career_span else "Career: —"
+        )
+
+        track_count = getattr(artist, "track_count", None)
+        self.track_count_label.setText(
+            f"Tracks: {track_count}" if track_count is not None else "Tracks: —"
+        )
+
+        # Wikipedia link is read-only here: display if present, otherwise
+        # hide the section entirely. Nothing in this tab ever writes it.
+        self._wiki_link = getattr(artist, "wikipedia_url", None) or ""
+        self._links_group.setVisible(bool(self._wiki_link))
 
     def collect_changes(self):
         """Return a dict of basic field values for update_entity."""
@@ -232,13 +371,22 @@ class BasicTab(QWidget):
             self.end_day_edit.clear()
 
     def _browse_pic(self):
+        # Always start from wherever the user last browsed to for a picture,
+        # regardless of which artist/picture is currently loaded. This keeps
+        # repeated edits within a session (or across restarts) pointed at
+        # the same folder, e.g. a shared "artist pictures" directory.
+        start_dir = self._settings.value(_SETTINGS_LAST_PIC_DIR, "", type=str)
+        if not start_dir or not os.path.isdir(start_dir):
+            start_dir = ""
+
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Select Profile Picture",
-            "",
+            start_dir,
             "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)",
         )
         if path:
+            self._settings.setValue(_SETTINGS_LAST_PIC_DIR, os.path.dirname(path))
             self._set_pic_path(path)
 
     def _clear_pic(self):
@@ -252,23 +400,128 @@ class BasicTab(QWidget):
 
     def _refresh_pic_preview(self, path: str):
         if not path:
-            self.pic_label.setPixmap(QPixmap())
-            self.pic_label.setText("No Image")
+            self._show_default_pic_preview()
             return
         px = QPixmap(path)
         if px.isNull():
             self.pic_label.setPixmap(QPixmap())
             self.pic_label.setText("Invalid image")
         else:
+            self.pic_label.setText("")
             self.pic_label.setPixmap(
                 px.scaled(
                     self.pic_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
                 )
             )
 
+    def _show_default_pic_preview(self):
+        """Render the default artist silhouette into the preview label."""
+        self.pic_label.setText("")
+        if os.path.exists(_DEFAULT_ARTIST_PIC):
+            renderer = QSvgRenderer(_DEFAULT_ARTIST_PIC)
+            if renderer.isValid():
+                pix = QPixmap(self.pic_label.size())
+                pix.fill(Qt.transparent)
+                painter = QPainter(pix)
+                renderer.render(painter)
+                painter.end()
+                self.pic_label.setPixmap(pix)
+                return
+        # Fall back to plain text if the asset is missing or invalid
+        self.pic_label.setPixmap(QPixmap())
+        self.pic_label.setText("No Image")
+
     def _open_wiki_link(self):
         if self._wiki_link:
             QDesktopServices.openUrl(QUrl(self._wiki_link))
+
+
+class SegmentedToggle(QWidget):
+    """A two-option Person/Group segmented control that mimics enough of the
+    QCheckBox interface (toggled signal, isChecked/setChecked, blockSignals)
+    to be a drop-in replacement wherever the old checkbox was used."""
+
+    toggled = Signal(bool)
+
+    def __init__(self, left_text: str, right_text: str, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self._left_btn = QPushButton(left_text)
+        self._right_btn = QPushButton(right_text)
+        for btn in (self._left_btn, self._right_btn):
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setMinimumWidth(70)
+
+        self._group = QButtonGroup(self)
+        self._group.setExclusive(True)
+        self._group.addButton(self._left_btn)
+        self._group.addButton(self._right_btn)
+        self._left_btn.setChecked(True)
+
+        layout.addWidget(self._left_btn)
+        layout.addWidget(self._right_btn)
+        layout.addStretch()
+
+        self._apply_style()
+        self._right_btn.toggled.connect(self._on_right_toggled)
+
+    def _apply_style(self):
+        self._left_btn.setStyleSheet(
+            """
+            QPushButton {
+                border: 1px solid palette(mid);
+                border-top-left-radius: 4px;
+                border-bottom-left-radius: 4px;
+                border-top-right-radius: 0px;
+                border-bottom-right-radius: 0px;
+                padding: 4px 12px;
+            }
+            QPushButton:checked {
+                background: palette(highlight);
+                color: palette(highlighted-text);
+                font-weight: 600;
+            }
+            """
+        )
+        self._right_btn.setStyleSheet(
+            """
+            QPushButton {
+                border: 1px solid palette(mid);
+                border-left: none;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+                border-top-left-radius: 0px;
+                border-bottom-left-radius: 0px;
+                padding: 4px 12px;
+            }
+            QPushButton:checked {
+                background: palette(highlight);
+                color: palette(highlighted-text);
+                font-weight: 600;
+            }
+            """
+        )
+
+    def _on_right_toggled(self, checked: bool):
+        self.toggled.emit(checked)
+
+    def isChecked(self) -> bool:
+        return self._right_btn.isChecked()
+
+    def setChecked(self, checked: bool):
+        if checked:
+            self._right_btn.setChecked(True)
+        else:
+            self._left_btn.setChecked(True)
+
+    def blockSignals(self, block: bool):
+        self._left_btn.blockSignals(block)
+        self._right_btn.blockSignals(block)
+        return super().blockSignals(block)
 
 
 class OptionalIntEdit(QLineEdit):
@@ -277,7 +530,8 @@ class OptionalIntEdit(QLineEdit):
     def __init__(self, placeholder="", parent=None):
         super().__init__(parent)
         self.setPlaceholderText(placeholder)
-        self.setFixedWidth(70)
+        self.setFixedWidth(60)
+        self.setAlignment(Qt.AlignCenter)
         self.setValidator(QIntValidator(0, 9999, self))
 
     def get_value_or_none(self):
