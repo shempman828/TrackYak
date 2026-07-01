@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 ARTIST_TYPE_SUGGESTIONS = ["Person", "Band", "Orchestra", "Choir", "Ensemble"]
@@ -122,10 +121,6 @@ class BasicTab(QWidget):
 
         # Wikipedia buttons
         wiki_box = QHBoxLayout()
-        self.wiki_search_btn = QPushButton("🔍 Search Wikipedia")
-        self.wiki_search_btn.setToolTip("Search Wikipedia for this artist")
-        self.wiki_search_btn.clicked.connect(self._search_wikipedia)
-        wiki_box.addWidget(self.wiki_search_btn)
 
         self.wiki_open_btn = QPushButton("🌐 Open Wikipedia Page")
         self.wiki_open_btn.setToolTip("Open the Wikipedia page in your browser")
@@ -153,11 +148,6 @@ class BasicTab(QWidget):
         browse_btn = QPushButton("Browse...")
         browse_btn.clicked.connect(self._browse_pic)
         pic_layout.addWidget(browse_btn)
-
-        self.wiki_pic_btn = QPushButton("Import from Wikipedia")
-        self.wiki_pic_btn.setToolTip("Search Wikipedia and import a profile picture")
-        self.wiki_pic_btn.clicked.connect(self._import_wikipedia_image)
-        pic_layout.addWidget(self.wiki_pic_btn)
 
         clear_pic_btn = QPushButton("Clear")
         clear_pic_btn.clicked.connect(self._clear_pic)

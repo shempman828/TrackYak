@@ -414,11 +414,6 @@ class ArtistView(QWidget):
                 open_wiki_action.triggered.connect(
                     lambda checked=False, url=wiki_link: webbrowser.open(url)
                 )
-            search_wiki_action = menu.addAction("🔍 Search Wikipedia…")
-            search_wiki_action.triggered.connect(self.search_wikipedia)
-
-            import_wiki_action = menu.addAction("⬇️ Import from Wikipedia…")
-            import_wiki_action.triggered.connect(self.import_from_wikipedia)
 
             influences_action = menu.addAction("🔗 Edit Influences")
             influences_action.triggered.connect(self.edit_influences)

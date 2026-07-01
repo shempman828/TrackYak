@@ -7,9 +7,8 @@ album_editing_relationship_helpers.py
 
 
 album_view.py
-    two albums being drawn into first slot on redraw.
-    min tracks filter must user must delete placeholder "any" before typing number. processing is slow.
     editing an album resets to top of scroll. If the widget is redrawn due to album edit, it should remember last location.
+
 
 artist alias management
 
@@ -40,7 +39,7 @@ arist_edit_member.py
 
 
 artist_view.py
-
+    "An metadata" language is confusing"
 
 audio_analysis.py
     spectral flatness:ratio of geometric mean / arithmetic mean of the FFT magnitude
@@ -67,9 +66,11 @@ config_setup.py
     make sure debugging level is a setting
 
 dates_calendar.py
-    show better information in calendar date listing
+    show better information in calendar date listing: label date type and combine like types. For examples: Album Releases: x Artist Born: y Artist Died: z
     make qdialog to show full date information
     add filter by date type (album release, artist birth, etc)
+    month selection dropdown is too wide
+    Maybe months without events should be greyed out from selection?
 
 dates_view.py
 
@@ -129,6 +130,7 @@ navigation_dock.py
 nowplaying_view.py
     key chip sometimes shows weird key (G# Major?)
     Text alignment for song title, artist, and album name feels off
+    add artist image as possible background
 
 places_view.py
 
@@ -147,7 +149,7 @@ player_utility.py
 
 
 playlist_smart_criteria_widget.py
-    datetime needs exact timestamp, not just day. I can't say tracks added on 6/5/2011 it has to have a specific time too. Between does not work. Also add last x days option.
+    datetime needs exact timestamp, not just day. I can't just filter tracks added on 6/5/2011 it has to have a specific time too. Between does not work. Also add last x days option.
 
 playlist_view.py
     Sort alphabetically within tree hierarchy
@@ -159,12 +161,20 @@ publisher_merge.py
 
 
 publisher_view.py
+    new class to find potential merge matches and queue merges (A la artists)
 
 
 queue_utility.py
 
 
 role_view.py
+    Show role count in parentheses by role name.
+    add "New Role" button by search
+    add sorting (alphabetical and count)
+    Use tree style from genres
+    Something about album roles versus track roles is funky
+    cannot multi-select and drag to change parent
+    add ability to merge roles
 
 
 statistics_dialog.py
@@ -188,7 +198,7 @@ track_edit_roles
 
 
 track_edit
-
+    multiple editing can capture variables that were not edited. Example: You are editing ten tracks. One track has a BPM of 120, the other nine are null. When saving the edits, it will try to apply 120bpm to all tracks even if I did not edit bpm.
 
 track_view.py
     sorting by column freezes ui. Needs threaded with spinner and faster lookups
