@@ -41,11 +41,8 @@ class PlaceEditDialog(QDialog):
         # Add search buttons
         search_layout = QHBoxLayout()
         self.search_coord_button = QPushButton("Search Coordinates")
-        self.search_wiki_button = QPushButton("Search Wikipedia")
         self.search_coord_button.clicked.connect(self.search_coordinates)
-        self.search_wiki_button.clicked.connect(self.search_wikipedia)
         search_layout.addWidget(self.search_coord_button)
-        search_layout.addWidget(self.search_wiki_button)
 
         # Setup autocompletion for parent_edit
         places = self.controller.get.get_all_entities("Place")

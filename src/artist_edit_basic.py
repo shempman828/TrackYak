@@ -266,7 +266,7 @@ class BasicTab(QWidget):
                 )
             )
 
-    def open_wiki_link(self):
+    def _open_wiki_link(self):
         if self._wiki_link:
             QDesktopServices.openUrl(QUrl(self._wiki_link))
 
