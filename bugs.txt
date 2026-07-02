@@ -26,13 +26,11 @@ artist_edit_alias.py
     check for existing artist by alias first. Ask if you want to merge records into artist
 
 artist_edit_basic.py
-    open wikipedia link should not exist if null
-    Items need better organization and more pleasant display
-    remember last path used for image browser for easier editing.
+
 
 artist_edit_discography
     role count and filtering is awkward and busy
-    giving half to albums and half to tracks is inefficient
+    giving half space to albums and half to tracks is inefficient
     change album credits to an album flow with a hover label of roles
     track credits count is too busy.
 
