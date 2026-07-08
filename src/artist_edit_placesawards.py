@@ -2,8 +2,10 @@
 # Tab: Places & Awards
 # ══════════════════════════════════════════════════════════════════════════════
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCompleter,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -67,6 +69,34 @@ def _parent_place_name(place):
     return ""
 
 
+def _build_place_completer(controller):
+    """Build a QCompleter over existing places, disambiguated by type/region."""
+    model = QStandardItemModel()
+    try:
+        places = controller.get.get_all_entities("Place") or []
+    except Exception as e:
+        logger.debug(f"Could not load places for autocomplete: {e}")
+        places = []
+
+    for place in places:
+        region = _parent_place_name(place)
+        ptype = place.place_type or ""
+        detail_parts = [p for p in (ptype, region) if p]
+        detail = f" ({', '.join(detail_parts)})" if detail_parts else ""
+        display = f"{place.place_name}{detail}"
+        item = QStandardItem(display)
+        item.setData(place.place_id, Qt.UserRole)
+        item.setData(place.place_name, Qt.UserRole + 1)
+        model.appendRow(item)
+
+    completer = QCompleter()
+    completer.setModel(model)
+    completer.setCaseSensitivity(Qt.CaseInsensitive)
+    completer.setFilterMode(Qt.MatchContains)
+    completer.setCompletionMode(QCompleter.PopupCompletion)
+    return completer
+
+
 class PlacesAwardsTab(QWidget):
     def __init__(self, controller, artist, parent=None):
         super().__init__(parent)
@@ -111,7 +141,13 @@ class PlacesAwardsTab(QWidget):
         pl_add_row.addWidget(rm_place_btn)
         pl_layout.addLayout(pl_add_row)
         splitter.addWidget(places_grp)
-
+        self.new_place_edit = QLineEdit()
+        self.new_place_edit.setPlaceholderText("Place name (new or existing)...")
+        self._selected_place_id = None
+        self._place_completer = _build_place_completer(self.controller)
+        self._place_completer.activated[str].connect(self._on_place_completion_selected)
+        self.new_place_edit.setCompleter(self._place_completer)
+        self.new_place_edit.textEdited.connect(self._on_place_text_edited)
         # ── Awards ──────────────────────────────────────────────────────────
         awards_grp = QGroupBox("Awards")
         aw_layout = QVBoxLayout(awards_grp)
@@ -247,15 +283,22 @@ class PlacesAwardsTab(QWidget):
                 "Please enter the relationship type (e.g. Birthplace, Hometown).",
             )
             return
+
         try:
-            place = self.controller.get.get_entity_object("Place", place_name=name)
-            if isinstance(place, list):
-                place = place[0] if place else None
-            if place is None:
-                place = self.controller.add.add_entity("Place", place_name=name)
+            if self._selected_place_id is not None:
+                place = self.controller.get.get_entity_object(
+                    "Place", place_id=self._selected_place_id
+                )
+            else:
+                place = self.controller.get.get_entity_object("Place", place_name=name)
+                if isinstance(place, list):
+                    place = place[0] if place else None
+                if place is None:
+                    place = self.controller.add.add_entity("Place", place_name=name)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Could not find/create place:\n{e}")
             return
+
         try:
             self.controller.add.add_entity(
                 "PlaceAssociation",
@@ -267,9 +310,11 @@ class PlacesAwardsTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Could not link place:\n{e}")
             return
+
         self._reload_and_refresh()
         self.new_place_edit.clear()
         self.new_place_assoc_edit.clear()
+        self._selected_place_id = None
 
     def _remove_place(self, row):
         assoc_id = self.places_table.item(row, 0).data(Qt.UserRole)
@@ -336,3 +381,33 @@ class PlacesAwardsTab(QWidget):
                 QMessageBox.critical(self, "Error", f"Could not unlink award:\n{e}")
                 return
         self._reload_and_refresh()
+
+    def _on_place_text_edited(self, _text):
+        # Any manual edit invalidates a previously-selected existing place;
+        # fall back to name-based lookup/create in _add_place.
+        self._selected_place_id = None
+
+    def _on_place_completion_selected(self, text):
+        model = self._place_completer.model()
+        for row in range(model.rowCount()):
+            item = model.item(row)
+            if item.text() == text:
+                self._selected_place_id = item.data(Qt.UserRole)
+                # Show the clean place name in the box, not the "(type, region)" suffix
+                self.new_place_edit.setText(item.data(Qt.UserRole + 1))
+                return
+        self._selected_place_id = None
+
+    def _reload_and_refresh(self):
+        try:
+            refreshed = self.controller.get.get_entity_object(
+                "Artist", artist_id=self.artist.artist_id
+            )
+            if refreshed:
+                self.artist = refreshed
+        except Exception as e:
+            logger.warning(f"Could not reload artist: {e}")
+        self.load(self.artist)
+        self._place_completer = _build_place_completer(self.controller)
+        self.new_place_edit.setCompleter(self._place_completer)
+        self._place_completer.activated[str].connect(self._on_place_completion_selected)

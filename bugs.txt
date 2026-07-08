@@ -10,6 +10,7 @@ album_view.py
     editing an album resets to top of scroll. If the widget is redrawn due to album edit, it should remember last location.
 
 
+6
 artist alias management
 
 
@@ -29,19 +30,16 @@ artist_edit_basic.py
 
 
 artist_edit_discography
-    role count and filtering is awkward and busy
-    giving half space to albums and half to tracks is inefficient
-    change album credits to an album flow with a hover label of roles
-    track credits count is too busy.
+    change album flow to prebuilt class.
 
 artist_edit_influences
     Lots of space feels wasted.
 
 arist_edit_member.py
-    broken logic? It should show members if a group or groups if not a group. Maybe we need two classes, one for group one for not group?
+
 
 artist_edit_places
-    Existing places should autocomplete with info so users can select the correct one. (London England vs London Ohio for example)
+
 
 artist_view.py
     "An metadata" language is confusing"
@@ -108,7 +106,6 @@ genre_edit.py
 genre_view.py
     expand all/contract all
     fix merge logic to skip if existing instead of failing everything
-    add tracks to parent context option
 
 influences_graph.py
     louvain color coding doesn't seem to work?
