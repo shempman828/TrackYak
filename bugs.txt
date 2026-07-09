@@ -9,8 +9,6 @@ album_editing_relationship_helpers.py
 album_view.py
     editing an album resets to top of scroll. If the widget is redrawn due to album edit, it should remember last location.
 
-
-6
 artist alias management
 
 
@@ -21,7 +19,7 @@ artist_detail_credits
 
 
 artist_edit.py
-    ability to delete artists with no roles, influences, or any links
+
 
 artist_edit_alias.py
     check for existing artist by alias first. Ask if you want to merge records into artist
@@ -30,7 +28,7 @@ artist_edit_basic.py
 
 
 artist_edit_discography
-    change album flow to prebuilt class.
+
 
 artist_edit_influences
     Lots of space feels wasted.
@@ -42,7 +40,8 @@ artist_edit_places
 
 
 artist_view.py
-    "An metadata" language is confusing"
+    "Any metadata" language is confusing"
+    ability to delete artists with no roles, influences, or any links
 
 audio_analysis.py
     spectral flatness:ratio of geometric mean / arithmetic mean of the FFT magnitude
