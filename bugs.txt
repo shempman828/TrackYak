@@ -34,10 +34,10 @@ artist_edit_influences
 
 
 arist_edit_member.py
-
+    Cannot edit membership information once created
 
 artist_edit_places
-
+    You can no longer create new places, it must match to existing. The goal is to match to existing OR create new easily with qcompleter
 
 artist_view.py
     "Any metadata" language is confusing"
@@ -123,7 +123,7 @@ menu_bar.py
     mousing over the hidden bar does not show it. We should probably remove this feature.
 
 moods_view.py
-
+    adding a mood resets which tree items were expanded
 
 navigation_dock.py
 
@@ -206,3 +206,8 @@ track_view.py
     only activate a search on "enter" in the search bar instead of debounce timer
     appending when sorted on_scroll crashes
     add entire library to queue redundant with shuffle library to queue
+    Exception has occurred: DetachedInstanceError       (note: full exception trace is shown but execution is paused at: run)
+Parent instance <Track at 0x7f2f3fb75f90> is not bound to a Session; lazy load operation of attribute 'album' cannot proceed (Background on this error at: https://sqlalche.me/e/20/bhk3)
+  File "/home/babs/PycharmProjects/MusicLibrary/src/track_view.py", line 84, in run (Current frame)
+    album_obj = getattr(t, "album", None)
+sqlalchemy.orm.exc.DetachedInstanceError: Parent instance <Track at 0x7f2f3fb75f90> is not bound to a Session; lazy load operation of attribute 'album' cannot proceed (Background on this error at: https://sqlalche.me/e/20/bhk3)

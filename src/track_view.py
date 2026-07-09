@@ -416,7 +416,7 @@ class TrackView(QWidget):
     def show_column_menu(self):
         """Toggle Columns menu, grouped by TrackField category into submenus."""
         menu = QMenu(self)
-        col_keys = list(self.columns.keys())
+        list(self.columns.keys())
 
         # Build a dict of  category → list of (index, field_name, label)
         category_groups: dict[str, list] = {}
@@ -677,7 +677,7 @@ class TrackView(QWidget):
         if not selected:
             return
 
-        col_keys = list(self.columns.keys())
+        list(self.columns.keys())
         header = self.table.horizontalHeader()
 
         # Build the visual column order (only visible columns)
