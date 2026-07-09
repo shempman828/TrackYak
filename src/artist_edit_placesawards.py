@@ -122,32 +122,40 @@ class PlacesAwardsTab(QWidget):
         place_help.setWordWrap(True)
         place_help.setStyleSheet("color: #888; font-size: 11px;")
         pl_layout.addWidget(place_help)
+
+        # ---- Place input row ----
         pl_add_row = QHBoxLayout()
+
+        # Visible line edit for place name – this is the one we keep
         self.new_place_edit = QLineEdit()
         self.new_place_edit.setPlaceholderText("Place name (new or existing)...")
+        self._selected_place_id = None
+
+        # Build and attach completer to this visible edit
+        self._place_completer = _build_place_completer(self.controller)
+        self._place_completer.activated[str].connect(self._on_place_completion_selected)
+        self.new_place_edit.setCompleter(self._place_completer)
+        self.new_place_edit.textEdited.connect(self._on_place_text_edited)
+
         self.new_place_assoc_edit = QLineEdit()
         self.new_place_assoc_edit.setPlaceholderText(
-            "Relationship (e.g. Birthplace, Hometown)..."
+            "Relationship (e.g. Birthplace, Hometown)"
         )
+
         add_place_btn = QPushButton("Link Place")
         add_place_btn.clicked.connect(self._add_place)
         rm_place_btn = QPushButton("Unlink Selected")
         rm_place_btn.clicked.connect(
             lambda: _remove_selected_row(self, self.places_table, self._remove_place)
         )
+
         pl_add_row.addWidget(self.new_place_edit, 3)
         pl_add_row.addWidget(self.new_place_assoc_edit, 2)
         pl_add_row.addWidget(add_place_btn)
         pl_add_row.addWidget(rm_place_btn)
         pl_layout.addLayout(pl_add_row)
         splitter.addWidget(places_grp)
-        self.new_place_edit = QLineEdit()
-        self.new_place_edit.setPlaceholderText("Place name (new or existing)...")
-        self._selected_place_id = None
-        self._place_completer = _build_place_completer(self.controller)
-        self._place_completer.activated[str].connect(self._on_place_completion_selected)
-        self.new_place_edit.setCompleter(self._place_completer)
-        self.new_place_edit.textEdited.connect(self._on_place_text_edited)
+
         # ── Awards ──────────────────────────────────────────────────────────
         awards_grp = QGroupBox("Awards")
         aw_layout = QVBoxLayout(awards_grp)
@@ -161,6 +169,7 @@ class PlacesAwardsTab(QWidget):
         award_help.setWordWrap(True)
         award_help.setStyleSheet("color: #888; font-size: 11px;")
         aw_layout.addWidget(award_help)
+
         aw_add_row = QHBoxLayout()
         self.new_award_edit = QLineEdit()
         self.new_award_edit.setPlaceholderText("Award name (new or existing)...")
