@@ -31,7 +31,7 @@ artist_edit_discography
 
 
 artist_edit_influences
-    Lots of space feels wasted.
+
 
 arist_edit_member.py
 

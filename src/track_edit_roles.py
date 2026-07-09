@@ -3,11 +3,12 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QHeaderView,
+    QLayout,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -21,6 +22,112 @@ from src.logger_config import logger
 from src.track_edit_basetab import _BaseTab
 
 PRIMARY_ARTIST_ROLE = "Primary Artist"
+
+
+class _FlowLayout(QLayout):
+    """Lays out child widgets left-to-right, wrapping to a new line when the
+    current line runs out of horizontal space.
+
+    Used for the role-chip cell so an artist with many roles expands the
+    row vertically to fit every chip, instead of squeezing/truncating them
+    onto a single line.
+    """
+
+    def __init__(
+        self, parent=None, margin: int = 0, h_spacing: int = 6, v_spacing: int = 4
+    ):
+        super().__init__(parent)
+        self._h_spacing = h_spacing
+        self._v_spacing = v_spacing
+        self._items: list = []
+        self.setContentsMargins(margin, margin, margin, margin)
+
+    def __del__(self):
+        while self.count():
+            self.takeAt(0)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int):
+        if 0 <= index < len(self._items):
+            return self._items[index]
+        return None
+
+    def takeAt(self, index: int):
+        if 0 <= index < len(self._items):
+            return self._items.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientations(Qt.Orientation(0))
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        margins = self.contentsMargins()
+        size += QSize(
+            margins.left() + margins.right(), margins.top() + margins.bottom()
+        )
+        return size
+
+    def _do_layout(self, rect, test_only: bool) -> int:
+        left, top, right, bottom = self.getContentsMargins()
+        effective_rect = rect.adjusted(left, top, -right, -bottom)
+        x = effective_rect.x()
+        y = effective_rect.y()
+        line_height = 0
+
+        for item in self._items:
+            hint = item.sizeHint()
+            next_x = x + hint.width() + self._h_spacing
+
+            # Wrap to a new line once the current one is full, unless this
+            # is the first item on the line (nothing left to shrink).
+            if next_x - self._h_spacing > effective_rect.right() and line_height > 0:
+                x = effective_rect.x()
+                y = y + line_height + self._v_spacing
+                next_x = x + hint.width() + self._h_spacing
+                line_height = 0
+
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+
+            x = next_x
+            line_height = max(line_height, hint.height())
+
+        return y + line_height - rect.y() + bottom
+
+
+class _RolesTable(QTableWidget):
+    """QTableWidget that keeps row heights matched to wrapped chip content.
+
+    Column 1 stretches to fill available width, so how many chip lines fit
+    per row changes whenever the widget is resized. Qt doesn't recompute
+    row heights on its own when a stretched column's width changes, so we
+    do it explicitly here.
+    """
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.resizeRowsToContents()
 
 
 class RolesTab(_BaseTab):
@@ -59,7 +166,7 @@ class RolesTab(_BaseTab):
         # One row per artist. Roles for that artist are listed in column 1
         # as removable chips; "Add role…" lets you append another role to
         # the same artist without re-searching for them.
-        self._table = QTableWidget(0, 3)
+        self._table = _RolesTable(0, 3)
         self._table.setHorizontalHeaderLabels(["Artist", "Roles", ""])
         self._table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeToContents
@@ -67,6 +174,9 @@ class RolesTab(_BaseTab):
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeToContents
+        )
+        self._table.horizontalHeader().sectionResized.connect(
+            lambda *_args: self._table.resizeRowsToContents()
         )
         self._table.verticalHeader().setVisible(False)
         self._table.setToolTip(
@@ -175,9 +285,7 @@ class RolesTab(_BaseTab):
 
     def _build_roles_cell(self, artist_id, artist_name, roles: dict) -> QWidget:
         cell = QWidget()
-        row_layout = QHBoxLayout(cell)
-        row_layout.setContentsMargins(4, 2, 4, 2)
-        row_layout.setSpacing(6)
+        row_layout = _FlowLayout(cell, margin=4, h_spacing=6, v_spacing=4)
 
         for role_id, role_name in self._sorted_roles(roles):
             chip = QPushButton(f"{role_name}  ×")
@@ -204,7 +312,6 @@ class RolesTab(_BaseTab):
             )
         )
         row_layout.addWidget(add_role_btn)
-        row_layout.addStretch()
         return cell
 
     # ── Search ────────────────────────────────────────────────────────────
