@@ -37,11 +37,11 @@ arist_edit_member.py
     Cannot edit membership information once created
 
 artist_edit_places
-    You can no longer create new places, it must match to existing. The goal is to match to existing OR create new easily with qcompleter
+
 
 artist_view.py
     "Any metadata" language is confusing"
-    ability to delete artists with no roles, influences, or any links
+    ability to delete artists with no roles, influences, or any links whatsoever
 
 audio_analysis.py
     spectral flatness:ratio of geometric mean / arithmetic mean of the FFT magnitude
