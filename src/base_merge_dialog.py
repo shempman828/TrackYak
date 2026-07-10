@@ -618,7 +618,6 @@ class MergeDBDialog(QDialog):
                 card_layout.setSpacing(4)
                 card_layout.setContentsMargins(8, 6, 8, 6)
 
-                # Field name label
                 field_label = QLabel(f"<b>{field}</b>")
                 card_layout.addWidget(field_label)
 
@@ -630,12 +629,11 @@ class MergeDBDialog(QDialog):
                 source_name = getattr(self.source_entity, self.name_attr, "Source")
                 target_name = getattr(self.target_entity, self.name_attr, "Target")
 
-                # Radio buttons stacked vertically — much easier to read
-                s_radio = QRadioButton(f"Keep Source ({source_name}):  {s_display}")
-                t_radio = QRadioButton(f"Keep Target ({target_name}):  {t_display}")
+                s_radio = QRadioButton(f"Keep Source ({source_name}): {s_display}")
+                t_radio = QRadioButton(f"Keep Target ({target_name}): {t_display}")
 
-                group.addButton(s_radio)
-                group.addButton(t_radio)
+                group.addButton(s_radio, 0)
+                group.addButton(t_radio, 1)
                 card_layout.addWidget(s_radio)
                 card_layout.addWidget(t_radio)
 
@@ -733,13 +731,16 @@ class MergeDBDialog(QDialog):
 
     def _on_merge(self):
         """Final execution of the merge with confirmation."""
-        # Final confirmation
+
         reply = QMessageBox.question(
             self,
             "Final Confirmation",
-            f"Are you sure you want to merge '{getattr(self.source_entity, self.name_attr)}' "
-            f"into '{getattr(self.target_entity, self.name_attr)}'?\n\n"
-            f"This action cannot be undone.",
+            (
+                f"Are you sure you want to merge "
+                f"'{getattr(self.source_entity, self.name_attr)}' "
+                f"into '{getattr(self.target_entity, self.name_attr)}'?\n\n"
+                "This action cannot be undone."
+            ),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -748,21 +749,25 @@ class MergeDBDialog(QDialog):
             return
 
         try:
-            # Apply conflict resolutions if any
+            # Build a dictionary of the user's chosen values.
+            # Do NOT modify the ORM objects here.
+            resolved_fields = {}
+
             if hasattr(self, "radio_groups"):
                 for field, group in self.radio_groups.items():
-                    if group.checkedButton():
-                        if "Source" in group.checkedButton().text():
-                            val = getattr(self.source_entity, field)
-                        else:
-                            val = getattr(self.target_entity, field)
-                        setattr(self.target_entity, field, val)
+                    checked = group.checkedId()
 
-            # Perform the merge
+                    if checked == 0:  # Source selected
+                        resolved_fields[field] = getattr(self.source_entity, field)
+
+                    elif checked == 1:  # Target selected
+                        resolved_fields[field] = getattr(self.target_entity, field)
+
             success = self.merge_helper.merge_entities(
                 self.model_name,
                 getattr(self.source_entity, self.id_attr),
                 getattr(self.target_entity, self.id_attr),
+                resolved_fields,
             )
 
             if success:
@@ -775,7 +780,10 @@ class MergeDBDialog(QDialog):
                 )
 
         except Exception as e:
-            logger.error(f"Error during merge: {str(e)}")
+            logger.exception("Error during merge")
+
             QMessageBox.critical(
-                self, "Merge Error", f"An error occurred during merge: {str(e)}"
+                self,
+                "Merge Error",
+                f"An error occurred during merge:\n\n{e}",
             )

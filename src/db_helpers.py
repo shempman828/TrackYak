@@ -1,9 +1,8 @@
 import inspect
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select, update
 from sqlalchemy import delete as sql_delete
-from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import scoped_session, sessionmaker
 
@@ -454,7 +453,13 @@ _MERGE_MODEL_REGISTRY: dict = {
 class MergeDB(BaseDBHelper):
     """Class for merging database entries."""
 
-    def merge_entities(self, model_name: str, source_id: int, target_id: int):
+    def merge_entities(
+        self,
+        model_name: str,
+        source_id: int,
+        target_id: int,
+        resolved_fields: dict | None = None,
+    ):
         """Merge two entities of the same type across all relationship tables."""
         logger.debug(f"Merging {model_name} ID {source_id} -> {target_id}")
 
@@ -526,7 +531,21 @@ class MergeDB(BaseDBHelper):
 
             # Delete via ORM so cascade rules are respected
             self.session.delete(source_entity)
+            self.session.flush()
+            # Apply resolved field values now that the source is scheduled for deletion.
+            if resolved_fields:
+                {col.name for col in entity_class.__table__.columns if col.unique}
 
+                for field, value in resolved_fields.items():
+                    if not hasattr(target_entity, field):
+                        continue
+
+                    # Skip unchanged values
+                    if getattr(target_entity, field) == value:
+                        continue
+
+                    # Unique columns are now safe because the source row is being deleted.
+                    setattr(target_entity, field, value)
             self.session.commit()
 
             logger.info(

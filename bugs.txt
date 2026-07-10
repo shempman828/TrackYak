@@ -2,6 +2,21 @@ NEW IDEAS
     add family relationships to artists
     ability to reorder artists?
 
+    2026-07-10 11:52:10,183 - INFO - main_window.py:205 - _ensure_view_built() - Building view on first visit: Artists
+2026-07-10 11:52:10,189 - DEBUG - db_helpers.py:40 - query_entities() - Querying Artist (multiple=True) with filters: {}
+2026-07-10 11:52:16,100 - DEBUG - db_helpers.py:40 - query_entities() - Querying Artist (multiple=False) with filters: {'artist_id': 14088}
+2026-07-10 11:52:16,138 - INFO - artist_detail.py:96 - __init__() - Initialized ArtistDetailTab for artist: Linda Solomon
+2026-07-10 11:52:16,145 - DEBUG - db_helpers.py:40 - query_entities() - Querying Artist (multiple=False) with filters: {'artist_id': 14088}
+2026-07-10 11:52:18,440 - DEBUG - db_helpers.py:40 - query_entities() - Querying Artist (multiple=True) with filters: {}
+2026-07-10 11:52:19,835 - DEBUG - db_helpers.py:40 - query_entities() - Querying Artist (multiple=False) with filters: {'artist_id': 2196}
+2026-07-10 11:52:32,354 - DEBUG - db_helpers.py:459 - merge_entities() - Merging Artist ID 14088 -> 2196
+2026-07-10 11:52:32,354 - DEBUG - db_helpers.py:495 - merge_entities() - Found FK: artist_alias.artist_id -> artists.artist_id
+2026-07-10 11:52:33,016 - DEBUG - db_helpers.py:555 - _safe_execute() - Skipping statement due to unique constraint violation.
+2026-07-10 11:52:33,017 - ERROR - db_helpers.py:540 - merge_entities() - Error merging Artist: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (sqlite3.IntegrityError) UNIQUE constraint failed: artists.artist_name
+[SQL: UPDATE artists SET artist_name=?, begin_year=?, gender=?, end_year=?, is_fixed=?, end_month=?, end_day=?, biography=?, "MBID"=?, profile_pic_path=?, wikipedia_link=?, artist_type=? WHERE artists.artist_id = ?]
+[parameters: ('Linda Solomon', 1909, 'Male', 1962, 1, 9, 8, 'Solomon Popoli Linda (1909 – 8 September 1962), also known as Solomon Ntsele,[a] was a South African musician, singer, and performer. He composed "Mb ... (67 characters truncated) ... genre and spawned a distinct genre of choral music. "Mbube" would evolve into "The Lion Sleeps Tonight" when it was reimagined by the Tokens in 1961.', '746e59cc-37d8-4152-abff-6569d209c3c6', '/music/Artist Images/Solomon-linda.jpg', 'https://en.wikipedia.org/wiki/Solomon_Linda', 'Person', 2196)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+
 album_editing_relationship_helpers.py
     changing a relationship does not update tab
 
