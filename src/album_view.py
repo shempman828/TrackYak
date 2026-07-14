@@ -1,6 +1,9 @@
 """UI view for albums in music library"""
 
+import random
+
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -36,24 +39,51 @@ class AlbumView(QWidget):
     search/filter functionality, and lazy loading.
     """
 
-    # Sort option label → (criteria_key, descending)
-    _SORT_OPTIONS: list[tuple[str, str, bool]] = [
-        ("Title (A–Z)", "title", False),
-        ("Title (Z–A)", "title", True),
-        ("Artist (A–Z)", "artist", False),
-        ("Artist (Z–A)", "artist", True),
-        ("Year (Newest First)", "year", True),
-        ("Year (Oldest First)", "year", False),
-        ("Track Count (Most First)", "track_count", True),
-        ("Track Count (Fewest First)", "track_count", False),
-        ("Most Played", "play_count", True),
-        ("Least Played", "play_count", False),
-        ("Highest Rated", "rating", True),
-        ("Lowest Rated", "rating", False),
-        ("Duration (Longest First)", "length", True),
-        ("Duration (Shortest First)", "length", False),
-        ("Art Size (Largest First)", "art_dimensions", True),
-        ("Art Size (Smallest First)", "art_dimensions", False),
+    # Sort options grouped under a category header for a friendlier combo box.
+    # Each group: (group_label, [(item_label, criteria_key, descending), ...])
+    _SORT_GROUPS: list[tuple[str, list[tuple[str, str, bool]]]] = [
+        (
+            "Name",
+            [
+                ("Title (A–Z)", "title", False),
+                ("Title (Z–A)", "title", True),
+                ("Artist (A–Z)", "artist", False),
+                ("Artist (Z–A)", "artist", True),
+            ],
+        ),
+        (
+            "Release Date",
+            [
+                ("Year (Newest First)", "year", True),
+                ("Year (Oldest First)", "year", False),
+            ],
+        ),
+        (
+            "Popularity",
+            [
+                ("Most Played", "play_count", True),
+                ("Least Played", "play_count", False),
+                ("Highest Rated", "rating", True),
+                ("Lowest Rated", "rating", False),
+            ],
+        ),
+        (
+            "Size",
+            [
+                ("Track Count (Most First)", "track_count", True),
+                ("Track Count (Fewest First)", "track_count", False),
+                ("Duration (Longest First)", "length", True),
+                ("Duration (Shortest First)", "length", False),
+                ("Art Size (Largest First)", "art_dimensions", True),
+                ("Art Size (Smallest First)", "art_dimensions", False),
+            ],
+        ),
+        (
+            "Random",
+            [
+                ("Shuffle", "random", False),
+            ],
+        ),
     ]
 
     def __init__(self, controller):
@@ -69,6 +99,10 @@ class AlbumView(QWidget):
         # Sorting state – defaults to "Title (A–Z)"
         self._sort_criteria = "title"
         self._sort_descending = False
+        # Stable per-album random keys, used by the "Random" sort so the
+        # shuffle order doesn't change on every filter/search re-apply —
+        # only when the user (re-)selects the Random option.
+        self._random_keys: dict = {}
 
         # Filter row visibility
         self._filter_row_visible = True
@@ -117,11 +151,22 @@ class AlbumView(QWidget):
         self.search_bar.textChanged.connect(self._on_search_changed)
         row.addWidget(self.search_bar, stretch=3)
 
-        # Sort combo
+        # Sort combo — grouped under bold, unselectable category headers
         row.addWidget(QLabel("Sort:"))
         self.sort_combo = QComboBox()
-        for label, _, _ in self._SORT_OPTIONS:
-            self.sort_combo.addItem(label)
+        model = QStandardItemModel(self.sort_combo)
+        for group_label, options in self._SORT_GROUPS:
+            header = QStandardItem(group_label)
+            header.setFlags(Qt.NoItemFlags)
+            font = header.font()
+            font.setBold(True)
+            header.setFont(font)
+            model.appendRow(header)
+            for label, criteria, descending in options:
+                item = QStandardItem(f"    {label}")
+                item.setData((criteria, descending), Qt.UserRole)
+                model.appendRow(item)
+        self.sort_combo.setModel(model)
         self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         row.addWidget(self.sort_combo, stretch=2)
 
@@ -578,15 +623,24 @@ class AlbumView(QWidget):
     # =========================================================================
 
     def _on_sort_changed(self, index: int):
-        _, criteria, descending = self._SORT_OPTIONS[index]
+        data = self.sort_combo.itemData(index, Qt.UserRole)
+        if not data:
+            # Group header row — not selectable, ignore.
+            return
+        criteria, descending = data
+        if criteria == "random":
+            # Re-roll the shuffle order each time Random is (re-)selected.
+            self._random_keys = {}
         self._sort_criteria = criteria
         self._sort_descending = descending
         self._apply_filters()
 
     def _restore_sort_combo(self):
         """Set the sort combo to match the current internal sort state, without triggering a re-sort."""
-        for i, (_, criteria, descending) in enumerate(self._SORT_OPTIONS):
-            if criteria == self._sort_criteria and descending == self._sort_descending:
+        model = self.sort_combo.model()
+        for i in range(model.rowCount()):
+            data = model.item(i).data(Qt.UserRole)
+            if data == (self._sort_criteria, self._sort_descending):
                 self.sort_combo.blockSignals(True)
                 self.sort_combo.setCurrentIndex(i)
                 self.sort_combo.blockSignals(False)
@@ -648,6 +702,12 @@ class AlbumView(QWidget):
 
             elif c == "length":
                 return getattr(album, "total_duration", 0) or 0
+
+            elif c == "random":
+                key = getattr(album, "album_id", None)
+                if key is None:
+                    key = id(album)
+                return self._random_keys.setdefault(key, random.random())
 
             elif c == "art_dimensions":
                 # Sort by pixel area of the front cover image.
@@ -799,14 +859,16 @@ class AlbumView(QWidget):
             ),
             None,
         )
-        if patched_idx < self.display_count:
-            widget = self.grid_layout.itemAt(patched_idx)
-            if widget is not None:
-                w = widget.widget()
-                if w is not None and hasattr(w, "refresh_album"):
-                    # Best case: widget supports in-place refresh
-                    w.refresh_album(fresh)
-                    return
+
+        # Only patch the single widget in place when the edit didn't change
+        # its position in the (possibly re-sorted) list — if the order
+        # changed, a full rebuild is required to reflect the new positions.
+        if new_idx == patched_idx and new_idx is not None and new_idx < self.display_count:
+            item = self.grid_layout.itemAt(new_idx)
+            w = item.widget() if item is not None else None
+            if w is not None and hasattr(w, "refresh_album"):
+                w.refresh_album(fresh)
+                return
 
         self._apply_filters_preserve_scroll()
 

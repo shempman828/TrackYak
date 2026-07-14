@@ -120,6 +120,11 @@ class AlbumWidget(QWidget):
         self.size = new_size
         self.refresh_display()
 
+    def refresh_album(self, album):
+        """Update this widget in place to reflect fresh album data (e.g. after editing)."""
+        self.album = album
+        self.refresh_display()
+
     # --- Mouse Events ---
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:

@@ -17,9 +17,6 @@ album_editing_relationship_helpers.py
 
 
 album_view.py
-    editing an album resets to top of scroll. If the widget is redrawn due to album edit, it should now redraw on an album edit.
-    Add random sort option
-    There are lots of sorting options. I like the options but it needs better organization
 
 
 artist alias management
