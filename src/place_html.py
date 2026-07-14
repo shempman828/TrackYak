@@ -1,9 +1,6 @@
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAbstractTextDocumentLayout, QColor, QTextDocument
-from PySide6.QtWidgets import (
-    QStyle,
-    QStyledItemDelegate,
-)
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QTextDocument
+from PySide6.QtWidgets import QStyle, QStyledItemDelegate
 
 
 class HtmlDelegate(QStyledItemDelegate):
@@ -36,6 +33,7 @@ class HtmlDelegate(QStyledItemDelegate):
 
         doc.setDefaultStyleSheet(css)
         doc.setHtml(text)
+        doc.setTextWidth(option.rect.width())
 
         # Handle selection highlighting
         if option.state & QStyle.StateFlag.State_Selected:
@@ -45,15 +43,19 @@ class HtmlDelegate(QStyledItemDelegate):
 
         painter.save()
         painter.translate(option.rect.topLeft())
+        painter.setClipRect(QRectF(0, 0, option.rect.width(), option.rect.height()))
 
-        # Clip and draw
-        context = QAbstractTextDocumentLayout.PaintContext()
-        doc.documentLayout().draw(painter, context)
+        doc.drawContents(painter)
 
         painter.restore()
 
     def sizeHint(self, option, index):
         """Return the correct height for the HTML-rendered content."""
+        text = index.data(Qt.DisplayRole)
+        if not text:
+            return super().sizeHint(option, index)
         doc = QTextDocument()
-        doc.setHtml(index.data(Qt.DisplayRole))
+        doc.setHtml(text)
+        if option.rect.width() > 0:
+            doc.setTextWidth(option.rect.width())
         return doc.size().toSize()
