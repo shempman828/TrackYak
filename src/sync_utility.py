@@ -478,6 +478,7 @@ class SyncProfile:
     name: str
     path: str
     playlist_ids: List[int] = field(default_factory=list)
+    mood_ids: List[int] = field(default_factory=list)
     clear_before_sync: bool = False
     device_uri: str = ""
     device_name: str = ""
@@ -493,6 +494,7 @@ class SyncProfile:
             "name": self.name,
             "path": self.path,
             "playlist_ids": self.playlist_ids,
+            "mood_ids": self.mood_ids,
             "clear_before_sync": self.clear_before_sync,
             "device_uri": self.device_uri,
             "device_name": self.device_name,
@@ -505,6 +507,7 @@ class SyncProfile:
             name=data.get("name", "Unnamed"),
             path=data.get("path", ""),
             playlist_ids=data.get("playlist_ids", []),
+            mood_ids=data.get("mood_ids", []),
             clear_before_sync=data.get("clear_before_sync", False),
             device_uri=data.get("device_uri", ""),
             device_name=data.get("device_name", ""),
@@ -578,6 +581,7 @@ class SyncManager:
         playlists = self.get_db.get_all_entities("Playlist")
         return [
             {
+                "kind": "playlist",
                 "playlist_id": pl.playlist_id,
                 "name": pl.playlist_name,
                 "description": pl.playlist_description,
@@ -588,27 +592,50 @@ class SyncManager:
             for pl in playlists
         ]
 
+    def get_moods(self) -> List[Dict]:
+        moods = self.get_db.get_all_entities("Mood")
+        return [
+            {
+                "kind": "mood",
+                "mood_id": mood.mood_id,
+                "name": mood.mood_name,
+                "description": mood.mood_description,
+                "track_count": mood.track_count,
+                "parent_id": mood.parent_id,
+            }
+            for mood in moods
+        ]
+
+    def _track_to_dict(self, track) -> Dict:
+        artists = track.primary_artists
+        artist_name = "Various Artists"
+        if artists:
+            artist_name = " & ".join([a.artist_name for a in artists])
+        return {
+            "track_id": track.track_id,
+            "file_path": track.track_file_path,
+            "title": track.track_name,
+            "artist": artist_name,
+            "duration": track.duration,
+        }
+
     def get_playlist_tracks(self, playlist_id: int) -> List[Dict]:
         playlist_tracks = self.get_db.get_all_entities(
             "PlaylistTracks", playlist_id=playlist_id
         )
-        tracks = []
-        for pt in playlist_tracks:
-            track = pt.track
-            artists = track.primary_artists
-            artist_name = "Various Artists"
-            if artists:
-                artist_name = " & ".join([a.artist_name for a in artists])
-            tracks.append(
-                {
-                    "track_id": track.track_id,
-                    "file_path": track.track_file_path,
-                    "title": track.track_name,
-                    "artist": artist_name,
-                    "duration": track.duration,
-                }
-            )
-        return tracks
+        return [self._track_to_dict(pt.track) for pt in playlist_tracks]
+
+    def get_mood_tracks(self, mood_id: int) -> List[Dict]:
+        associations = self.get_db.get_all_entities(
+            "MoodTrackAssociation", mood_id=mood_id
+        )
+        return [self._track_to_dict(assoc.track) for assoc in associations]
+
+    def get_item_tracks(self, item_data: Dict) -> List[Dict]:
+        """Dispatch to the right track lookup based on item_data['kind']."""
+        if item_data.get("kind") == "mood":
+            return self.get_mood_tracks(item_data["mood_id"])
+        return self.get_playlist_tracks(item_data["playlist_id"])
 
     # ------------------------------------------------------------------
     # Shared helpers
@@ -720,8 +747,7 @@ class SyncManager:
         device_path: str,
         progress_callback=None,
     ) -> Dict:
-        """Sync a single playlist to a local folder path."""
-        playlist_id = playlist_data["playlist_id"]
+        """Sync a single playlist or mood to a local folder path."""
         playlist_name = playlist_data["name"]
 
         music_dir = os.path.join(device_path, "music")
@@ -729,7 +755,7 @@ class SyncManager:
         os.makedirs(music_dir, exist_ok=True)
         os.makedirs(playlists_dir, exist_ok=True)
 
-        tracks = self.get_playlist_tracks(playlist_id)
+        tracks = self.get_item_tracks(playlist_data)
         if not tracks:
             return {
                 "playlist_name": playlist_name,
@@ -828,7 +854,7 @@ class SyncManager:
         progress_callback=None,
     ) -> Dict:
         """
-        Sync a single playlist to a connected Android device via MTP.
+        Sync a single playlist or mood to a connected Android device via MTP.
 
         Track files land in:   {device_uri}/{music_path}/
         M3U playlist lands in: {device_uri}/{music_path}_Playlists/
@@ -836,7 +862,6 @@ class SyncManager:
         Returns the same result-dict shape as sync_playlist_to_device()
         so SyncWorker and the UI don't need to know which method ran.
         """
-        playlist_id = playlist_data["playlist_id"]
         playlist_name = playlist_data["name"]
 
         device = self._get_mtp_device(device_uri)
@@ -856,7 +881,7 @@ class SyncManager:
             device, self.mtp.build_playlists_dir_uri(device, music_path)
         )
 
-        tracks = self.get_playlist_tracks(playlist_id)
+        tracks = self.get_item_tracks(playlist_data)
         if not tracks:
             return {
                 "playlist_name": playlist_name,
