@@ -364,7 +364,14 @@ class AudioCalculations:
         if not self._ensure_loaded():
             return "C", "major", 0.0
 
-        CHROMA_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        # Conventional enharmonic spelling per mode (circle-of-fifths preference),
+        # not a fixed sharps-only table — e.g. "Ab major" rather than "G# major".
+        MAJOR_KEY_NAMES = [
+            "C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B",
+        ]
+        MINOR_KEY_NAMES = [
+            "C", "C#", "D", "Eb", "E", "F", "F#", "G", "G#", "A", "Bb", "B",
+        ]
 
         # Krumhansl-Schmuckler profiles (normalised later)
         KS_MAJOR = np.array(
@@ -416,7 +423,7 @@ class AudioCalculations:
                 r_min = np.corrcoef(rotated, KS_MINOR)[0, 1]
 
                 # Note: shift=0 means the chromagram's root is at C
-                # rolling by +shift means key = CHROMA_NAMES[shift]
+                # rolling by +shift means key = MAJOR_KEY_NAMES[shift] / MINOR_KEY_NAMES[shift]
                 if not np.isnan(r_maj) and r_maj > best_corr:
                     best_corr = r_maj
                     best_key = shift
@@ -427,7 +434,8 @@ class AudioCalculations:
                     best_mode = "minor"
 
             confidence = float(np.clip((best_corr + 1.0) / 2.0, 0.0, 1.0))
-            return CHROMA_NAMES[best_key], best_mode, confidence
+            names = MAJOR_KEY_NAMES if best_mode == "major" else MINOR_KEY_NAMES
+            return names[best_key], best_mode, confidence
 
         except Exception as e:
             logger.error(f"Key calculation failed: {e}")
