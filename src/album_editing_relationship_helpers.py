@@ -160,7 +160,7 @@ class RelationshipHelpers:
         """Remove an artist credit from the album."""
         try:
             self.controller.delete.delete_entity(
-                "AlbumRoleAssociation", role_assoc.album_role_id
+                "AlbumRoleAssociation", role_assoc.association_id
             )
             self.show_updated_view()
         except Exception as e:
@@ -198,6 +198,30 @@ class RelationshipHelpers:
 
         if not result or not result["place_name"]:
             QMessageBox.warning(None, "Warning", "Place name is required.")
+            return
+
+        try:
+            place = self.controller.get.get_entity_object(
+                "Place", place_name=result["place_name"]
+            )
+            if not place:
+                place = self.controller.add.add_entity(
+                    "Place", place_name=result["place_name"]
+                )
+
+            self.controller.add.add_entity(
+                "PlaceAssociation",
+                place_id=place.place_id,
+                entity_id=self.album.album_id,
+                entity_type="Album",
+                association_type=result["association_type"] or None,
+            )
+
+            self.show_updated_view()
+
+        except Exception as e:
+            logger.exception("Failed to add place")
+            QMessageBox.critical(None, "Error", f"Failed to add place: {str(e)}")
 
     def remove_place(self, association):
         """Remove a place association from the album."""
