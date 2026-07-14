@@ -12,8 +12,6 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -22,6 +20,8 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTabWidget,
     QTextEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -191,12 +191,12 @@ class SyncView(QWidget):
 
         self._init_ui()
         self._load_profiles()
-        self._refresh_playlists()
+        self._refresh_sync_items()
 
     def showEvent(self, event):
-        """Refresh playlists every time this view is shown — catches new playlists."""
+        """Refresh playlists/moods every time this view is shown — catches new ones."""
         super().showEvent(event)
-        self._refresh_playlists()
+        self._refresh_sync_items()
 
     # -----------------------------------------------------------------------
     # UI construction
@@ -308,14 +308,14 @@ class SyncView(QWidget):
         # Tab widget (hidden until a profile is selected)
         self.tabs = QTabWidget()
         self.tabs.setVisible(False)
-        self.tabs.addTab(self._build_playlists_tab(), "Playlists")
+        self.tabs.addTab(self._build_selection_tab(), "Playlists && Moods")
         self.tabs.addTab(self._build_settings_tab(), "Settings")
         self.tabs.addTab(self._build_log_tab(), "Log")
         layout.addWidget(self.tabs, 1)
 
         return self.detail_panel
 
-    def _build_playlists_tab(self) -> QWidget:
+    def _build_selection_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setContentsMargins(0, 12, 0, 0)
@@ -325,11 +325,11 @@ class SyncView(QWidget):
         toolbar = QHBoxLayout()
         self.select_all_btn = QPushButton("Select All")
         self.select_all_btn.setFixedWidth(90)
-        self.select_all_btn.clicked.connect(self._select_all_playlists)
+        self.select_all_btn.clicked.connect(self._select_all_items)
 
         self.select_none_btn = QPushButton("Select None")
         self.select_none_btn.setFixedWidth(90)
-        self.select_none_btn.clicked.connect(self._select_no_playlists)
+        self.select_none_btn.clicked.connect(self._select_no_items)
 
         self.track_count_label = QLabel("")
         self.track_count_label.setStyleSheet("color:#555e7a; font-size:11px;")
@@ -340,11 +340,13 @@ class SyncView(QWidget):
         toolbar.addWidget(self.track_count_label)
         layout.addLayout(toolbar)
 
-        # Playlist checklist
-        self.playlist_list = QListWidget()
-        self.playlist_list.setAlternatingRowColors(False)
-        self.playlist_list.itemChanged.connect(self._on_playlist_item_changed)
-        layout.addWidget(self.playlist_list, 1)
+        # Playlists + Moods checklist tree
+        self.sync_tree = QTreeWidget()
+        self.sync_tree.setHeaderHidden(True)
+        self.sync_tree.setColumnCount(1)
+        self.sync_tree.setAlternatingRowColors(False)
+        self.sync_tree.itemChanged.connect(self._on_sync_item_changed)
+        layout.addWidget(self.sync_tree, 1)
 
         return w
 
@@ -661,8 +663,8 @@ class SyncView(QWidget):
 
         self._refresh_device_label()
 
-        # Playlists tab
-        self._apply_profile_playlist_selection()
+        # Playlists & Moods tab
+        self._apply_profile_selection()
 
     def _refresh_device_label(self):
         """Update the linked device label in the Settings tab."""
@@ -875,111 +877,153 @@ class SyncView(QWidget):
             pass
 
     # -----------------------------------------------------------------------
-    # Playlist helpers
+    # Playlist / mood selection tree
     # -----------------------------------------------------------------------
 
-    def _refresh_playlists(self):
-        """Reload the full playlist list from the database, organised as a hierarchy."""
-        self.playlist_list.blockSignals(True)
-        self.playlist_list.clear()
+    def _add_hierarchy(self, parent_item: QTreeWidgetItem, items: List[Dict], id_key: str):
+        """Recursively add items under parent_item, following each item's parent_id."""
+        children_map: dict = {}
+        for it in items:
+            children_map.setdefault(it.get("parent_id"), []).append(it)
+        for siblings in children_map.values():
+            siblings.sort(key=lambda it: it["name"].lower())
+
+        def add_level(parent_id, node: QTreeWidgetItem):
+            for it in children_map.get(parent_id, []):
+                tree_item = QTreeWidgetItem(
+                    node, [f"{it['name']}  ({it['track_count']} tracks)"]
+                )
+                tree_item.setFlags(tree_item.flags() | Qt.ItemIsUserCheckable)
+                tree_item.setCheckState(0, Qt.Unchecked)
+                tree_item.setToolTip(0, it.get("description") or "")
+                tree_item.setData(0, Qt.UserRole, it)
+                add_level(it[id_key], tree_item)
+
+        add_level(None, parent_item)
+
+    def _iter_sync_items(self):
+        """Yield every checkable (playlist/mood) QTreeWidgetItem in the tree."""
+
+        def walk(item):
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child.data(0, Qt.UserRole) is not None:
+                    yield child
+                yield from walk(child)
+
+        yield from walk(self.sync_tree.invisibleRootItem())
+
+    def _refresh_sync_items(self):
+        """Reload playlists and moods from the database into the sync tree."""
+        self.sync_tree.blockSignals(True)
+        self.sync_tree.clear()
+
+        header_font = QFont()
+        header_font.setBold(True)
 
         playlists = self.sync_manager.get_playlists()
+        playlists_header = QTreeWidgetItem(
+            self.sync_tree, [f"PLAYLISTS  ({len(playlists)})"]
+        )
+        playlists_header.setFlags(Qt.ItemIsEnabled)
+        playlists_header.setFont(0, header_font)
+        self._add_hierarchy(playlists_header, playlists, "playlist_id")
 
-        # Build a map of parent_id → [child playlists], sorted alphabetically
-        children_map: dict = {}
-        for pl in playlists:
-            parent_id = pl.get("parent_id")
-            children_map.setdefault(parent_id, []).append(pl)
-        for siblings in children_map.values():
-            siblings.sort(key=lambda p: p["name"].lower())
+        moods = self.sync_manager.get_moods()
+        moods_header = QTreeWidgetItem(self.sync_tree, [f"MOODS  ({len(moods)})"])
+        moods_header.setFlags(Qt.ItemIsEnabled)
+        moods_header.setFont(0, header_font)
+        self._add_hierarchy(moods_header, moods, "mood_id")
 
-        # Recursively add items, indenting each level with spaces
-        def add_level(parent_id, depth):
-            indent = "    " * depth  # 4 spaces per level
-            for pl in children_map.get(parent_id, []):
-                item = QListWidgetItem()
-                display = f"{indent}{pl['name']}  ({pl['track_count']} tracks)"
-                item.setText(display)
-                item.setToolTip(pl.get("description") or "")
-                item.setData(Qt.UserRole, pl)
-                item.setCheckState(Qt.Unchecked)
-                self.playlist_list.addItem(item)
-                # Add any children of this playlist beneath it
-                add_level(pl["playlist_id"], depth + 1)
-
-        add_level(None, 0)  # Start from root playlists (no parent)
-
-        self.playlist_list.blockSignals(False)
+        self.sync_tree.expandAll()
+        self.sync_tree.blockSignals(False)
 
         if self.current_profile:
-            self._apply_profile_playlist_selection()
+            self._apply_profile_selection()
 
-    def _apply_profile_playlist_selection(self):
-        """Tick the checkboxes that match the current profile's saved playlist IDs."""
+    def _apply_profile_selection(self):
+        """Tick the checkboxes that match the current profile's saved playlist/mood IDs."""
         if not self.current_profile:
             return
-        saved_ids = set(self.current_profile.playlist_ids)
-        self.playlist_list.blockSignals(True)
-        for i in range(self.playlist_list.count()):
-            item = self.playlist_list.item(i)
-            pid = item.data(Qt.UserRole)["playlist_id"]
-            item.setCheckState(Qt.Checked if pid in saved_ids else Qt.Unchecked)
-        self.playlist_list.blockSignals(False)
-        self._update_selected_playlists()
+        saved_playlist_ids = set(self.current_profile.playlist_ids)
+        saved_mood_ids = set(self.current_profile.mood_ids)
+        self.sync_tree.blockSignals(True)
+        for item in self._iter_sync_items():
+            data = item.data(0, Qt.UserRole)
+            if data["kind"] == "mood":
+                checked = data["mood_id"] in saved_mood_ids
+            else:
+                checked = data["playlist_id"] in saved_playlist_ids
+            item.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
+        self.sync_tree.blockSignals(False)
+        self._update_selected_items()
 
     def _save_current_profile_selections(self):
         """Write current checkbox state back into the active profile and persist."""
         if not self.current_profile:
             return
-        ids = []
-        for i in range(self.playlist_list.count()):
-            item = self.playlist_list.item(i)
-            if item.checkState() == Qt.Checked:
-                ids.append(item.data(Qt.UserRole)["playlist_id"])
-        self.current_profile.playlist_ids = ids
+        playlist_ids = []
+        mood_ids = []
+        for item in self._iter_sync_items():
+            if item.checkState(0) == Qt.Checked:
+                data = item.data(0, Qt.UserRole)
+                if data["kind"] == "mood":
+                    mood_ids.append(data["mood_id"])
+                else:
+                    playlist_ids.append(data["playlist_id"])
+        self.current_profile.playlist_ids = playlist_ids
+        self.current_profile.mood_ids = mood_ids
         self.current_profile.clear_before_sync = (
             self.clear_before_sync_check.isChecked()
         )
         self.profile_store.save(self.profiles)
 
-    def _update_selected_playlists(self):
-        """Rebuild self.selected_playlists and update the track count label."""
-        self.selected_playlists = []
+    def _update_selected_items(self):
+        """Rebuild self.selected_items and update the track count label."""
+        self.selected_items = []
         total_tracks = 0
-        for i in range(self.playlist_list.count()):
-            item = self.playlist_list.item(i)
-            if item.checkState() == Qt.Checked:
-                pl = item.data(Qt.UserRole)
-                self.selected_playlists.append(pl)
-                total_tracks += pl.get("track_count", 0)
+        for item in self._iter_sync_items():
+            if item.checkState(0) == Qt.Checked:
+                data = item.data(0, Qt.UserRole)
+                self.selected_items.append(data)
+                total_tracks += data.get("track_count", 0)
 
-        if self.selected_playlists:
+        if self.selected_items:
+            n_playlists = sum(1 for it in self.selected_items if it["kind"] == "playlist")
+            n_moods = sum(1 for it in self.selected_items if it["kind"] == "mood")
+            parts = []
+            if n_playlists:
+                parts.append(f"{n_playlists} playlist(s)")
+            if n_moods:
+                parts.append(f"{n_moods} mood(s)")
             self.track_count_label.setText(
-                f"{len(self.selected_playlists)} playlist(s)  ·  {total_tracks} tracks"
+                f"{' + '.join(parts)}  ·  {total_tracks} tracks"
             )
         else:
             self.track_count_label.setText("")
 
         self._update_sync_button_state()
 
-    def _on_playlist_item_changed(self, item: QListWidgetItem):
-        self._update_selected_playlists()
+    def _on_sync_item_changed(self, item: QTreeWidgetItem, column: int):
+        if item.data(0, Qt.UserRole) is None:
+            return  # category header — not selectable
+        self._update_selected_items()
         self._save_current_profile_selections()
 
-    def _select_all_playlists(self):
-        self.playlist_list.blockSignals(True)
-        for i in range(self.playlist_list.count()):
-            self.playlist_list.item(i).setCheckState(Qt.Checked)
-        self.playlist_list.blockSignals(False)
-        self._update_selected_playlists()
+    def _select_all_items(self):
+        self.sync_tree.blockSignals(True)
+        for item in self._iter_sync_items():
+            item.setCheckState(0, Qt.Checked)
+        self.sync_tree.blockSignals(False)
+        self._update_selected_items()
         self._save_current_profile_selections()
 
-    def _select_no_playlists(self):
-        self.playlist_list.blockSignals(True)
-        for i in range(self.playlist_list.count()):
-            self.playlist_list.item(i).setCheckState(Qt.Unchecked)
-        self.playlist_list.blockSignals(False)
-        self._update_selected_playlists()
+    def _select_no_items(self):
+        self.sync_tree.blockSignals(True)
+        for item in self._iter_sync_items():
+            item.setCheckState(0, Qt.Unchecked)
+        self.sync_tree.blockSignals(False)
+        self._update_selected_items()
         self._save_current_profile_selections()
 
     # -----------------------------------------------------------------------
@@ -987,8 +1031,8 @@ class SyncView(QWidget):
     # -----------------------------------------------------------------------
 
     def _update_sync_button_state(self):
-        """Enable the sync button only when a valid destination and playlists exist."""
-        if not self.current_profile or not self.selected_playlists:
+        """Enable the sync button only when a valid destination and selection exist."""
+        if not self.current_profile or not self.selected_items:
             self.sync_btn.setEnabled(False)
             return
 
@@ -1002,7 +1046,7 @@ class SyncView(QWidget):
     # -----------------------------------------------------------------------
 
     def _start_sync(self):
-        if not self.current_profile or not self.selected_playlists:
+        if not self.current_profile or not self.selected_items:
             return
 
         # Validate destination
@@ -1020,11 +1064,18 @@ class SyncView(QWidget):
                 return
             dest_desc = f"Folder: {self.current_profile.path}"
 
-        total_tracks = sum(p["track_count"] for p in self.selected_playlists)
+        total_tracks = sum(p["track_count"] for p in self.selected_items)
+        n_playlists = sum(1 for it in self.selected_items if it["kind"] == "playlist")
+        n_moods = sum(1 for it in self.selected_items if it["kind"] == "mood")
+        selection_parts = []
+        if n_playlists:
+            selection_parts.append(f"{n_playlists} playlist(s)")
+        if n_moods:
+            selection_parts.append(f"{n_moods} mood(s)")
         clear = self.current_profile.clear_before_sync
 
         confirm_msg = (
-            f"Sync {len(self.selected_playlists)} playlist(s) "
+            f"Sync {' + '.join(selection_parts)} "
             f"({total_tracks} tracks) to:\n\n"
             f"{dest_desc}"
         )
@@ -1050,7 +1101,7 @@ class SyncView(QWidget):
 
         self.sync_worker = SyncWorker(
             self.sync_manager,
-            self.selected_playlists,
+            self.selected_items,
             self.current_profile,
         )
         self.sync_worker.progress.connect(self._on_sync_progress)
