@@ -6,15 +6,125 @@ import networkx as nx
 from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
+    QFrame,
     QGraphicsLineItem,
     QGraphicsPolygonItem,
     QGraphicsScene,
     QGraphicsView,
+    QHBoxLayout,
+    QLabel,
     QMessageBox,
+    QVBoxLayout,
+    QWidget,
 )
 
+from src.config_setup import app_config
 from src.influence_artist_node import ArtistNode
 from src.logger_config import logger
+
+
+class _GraphScene(QGraphicsScene):
+    """Scene background: a theme-matched flat fill plus a faint dot grid.
+
+    Replaces the previous default white canvas, which stayed white regardless
+    of the app's active theme.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.base_color = QColor("#0b0c10")
+        self.dot_color = QColor(133, 153, 234, 26)
+        self.grid_spacing = 42
+
+    def set_palette(self, base_color, dot_color):
+        self.base_color = base_color
+        self.dot_color = dot_color
+        self.update()
+
+    def drawBackground(self, painter, rect):
+        painter.fillRect(rect, self.base_color)
+
+        # Skip the dot grid when zoomed out far enough that dots would either
+        # be denser than the eye can resolve or require drawing an impractical
+        # number of points (the scene rect is effectively unbounded).
+        scale = painter.worldTransform().m11()
+        spacing = self.grid_spacing
+        if scale * spacing < 8:
+            return
+
+        estimated_dots = (rect.width() / spacing) * (rect.height() / spacing)
+        if estimated_dots > 20000:
+            return
+
+        painter.setPen(QPen(self.dot_color, 1.6))
+        left = int(rect.left()) - (int(rect.left()) % spacing)
+        top = int(rect.top()) - (int(rect.top()) % spacing)
+
+        y = top
+        while y < rect.bottom():
+            x = left
+            while x < rect.right():
+                painter.drawPoint(QPointF(x, y))
+                x += spacing
+            y += spacing
+
+
+class _LegendPanel(QFrame):
+    """Small floating overlay explaining what the node colors mean."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setStyleSheet(
+            "_LegendPanel { background-color: rgba(17, 18, 26, 205);"
+            " border: 1px solid rgba(133, 153, 234, 90); border-radius: 8px; }"
+            " QLabel { color: #b8c0f0; background: transparent; font-size: 11px; }"
+        )
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(10, 8, 10, 8)
+        self._layout.setSpacing(4)
+        self.hide()
+
+    def set_communities(self, sized_colors, max_rows=8):
+        while self._layout.count():
+            item = self._layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if len(sized_colors) <= 1:
+            self.hide()
+            return
+
+        title = QLabel("Clusters")
+        title.setStyleSheet("font-weight: 600; font-size: 11px;")
+        self._layout.addWidget(title)
+
+        shown = sized_colors[:max_rows]
+        for color, count in shown:
+            row_widget = QWidget()
+            row = QHBoxLayout(row_widget)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(6)
+
+            swatch = QLabel()
+            swatch.setFixedSize(10, 10)
+            swatch.setStyleSheet(
+                f"background-color: {color.name()}; border-radius: 3px;"
+            )
+            row.addWidget(swatch)
+            row.addWidget(QLabel(f"{count} artist{'s' if count != 1 else ''}"))
+            row.addStretch()
+            self._layout.addWidget(row_widget)
+
+        remaining = len(sized_colors) - len(shown)
+        if remaining > 0:
+            more = QLabel(f"+{remaining} more")
+            more.setStyleSheet("color: #7a82a8;")
+            self._layout.addWidget(more)
+
+        self.adjustSize()
+        self.show()
 
 
 class InfluenceGraphView(QGraphicsView):
@@ -25,11 +135,28 @@ class InfluenceGraphView(QGraphicsView):
 
     ARROW_ZOOM_THRESHOLD = 0.35
 
+    # Canvas base/dot-grid colors per app theme, so the graph doesn't stay a
+    # hardcoded white rectangle inside a dark/colorful/accessibility theme.
+    _THEME_CANVAS = {
+        "dark_mode": (QColor("#0b0c10"), QColor(133, 153, 234, 26)),
+        "light_mode": (QColor("#f5f6fa"), QColor(43, 44, 54, 20)),
+        "colorful_mode": (QColor("#ffffff"), QColor(133, 153, 234, 24)),
+        "accessibility_mode": (QColor("#ffffff"), QColor(28, 28, 33, 32)),
+    }
+
+    # On-brand palette (matches the accent/pink/green/gold/accent-soft swatches
+    # used across all app themes) so Louvain communities read as part of the
+    # same visual system instead of an arbitrary rainbow.
+    _COMMUNITY_PALETTE = ["#8599ea", "#EA8599", "#99EA85", "#EAD685", "#9385ea"]
+
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
-        self.scene = QGraphicsScene()
+        self.scene = _GraphScene()
         self.setScene(self.scene)
+        self._apply_theme_palette()
+
+        self._legend = _LegendPanel(self)
 
         # Force-directed layout timer
         self.force_layout_timer = QTimer()
@@ -81,6 +208,58 @@ class InfluenceGraphView(QGraphicsView):
         self._pan_start_pos = QPointF()
 
     # -----------------------
+    # Theming
+    # -----------------------
+    def _apply_theme_palette(self):
+        """Match the canvas background/dot-grid to the app's active theme."""
+        theme_name = None
+        try:
+            theme_name = app_config.get_display_theme()
+        except Exception:
+            pass
+        base_color, dot_color = self._THEME_CANVAS.get(
+            theme_name, self._THEME_CANVAS["dark_mode"]
+        )
+        self.scene.set_palette(base_color, dot_color)
+
+    def get_community_color(self, community_index):
+        """Map a Louvain community id to an on-brand, stable color.
+
+        Cycles through the app's accent/pink/green/gold/accent-soft palette.
+        Communities beyond the base 5 reuse it at alternating lighter/darker
+        strengths rather than falling back to arbitrary hues.
+        """
+        palette = self._COMMUNITY_PALETTE
+        lap, idx = divmod(community_index, len(palette))
+        color = QColor(palette[idx])
+        if lap == 1:
+            color = color.lighter(122)
+        elif lap >= 2:
+            factor = 115 + 12 * (lap - 1)
+            color = color.darker(factor) if lap % 2 == 0 else color.lighter(factor)
+        return color
+
+    def _update_legend(self):
+        counts = {}
+        for community_index in self.community_id.values():
+            counts[community_index] = counts.get(community_index, 0) + 1
+        sized = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+        sized_colors = [
+            (self.get_community_color(community_index), count)
+            for community_index, count in sized
+        ]
+        self._legend.set_communities(sized_colors)
+        self._reposition_legend()
+
+    def _reposition_legend(self):
+        margin = 14
+        self._legend.move(margin, self.height() - self._legend.height() - margin)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._reposition_legend()
+
+    # -----------------------
     # Interaction / zoom
     # -----------------------
     def wheelEvent(self, event):
@@ -88,6 +267,18 @@ class InfluenceGraphView(QGraphicsView):
             self.scale(self.zoom_factor, self.zoom_factor)
         else:
             self.scale(1 / self.zoom_factor, 1 / self.zoom_factor)
+        self._sync_arrow_visibility()
+
+    def fit_to_view(self):
+        """Zoom/pan so the whole graph is visible at once."""
+        if not self.positions:
+            return
+        rect = self.scene.itemsBoundingRect()
+        if rect.isEmpty():
+            return
+        margin = 60
+        rect = rect.adjusted(-margin, -margin, margin, margin)
+        self.fitInView(rect, Qt.KeepAspectRatio)
         self._sync_arrow_visibility()
 
     def zoom_in(self):
@@ -142,6 +333,7 @@ class InfluenceGraphView(QGraphicsView):
     def display_global_network(self):
         self.stop_force_layout()
         self.clear_scene()
+        self._apply_theme_palette()
         nodes, edges = self.extract_global_graph()
 
         # Add this check
@@ -170,6 +362,7 @@ class InfluenceGraphView(QGraphicsView):
 
         self.initialize_random_layout(node_ids)
         self.assign_louvain_communities(node_ids, self.edges)
+        self._update_legend()
         self.render_graph()
         self.debug_size_distribution()
         self.start_force_layout()
@@ -325,13 +518,6 @@ class InfluenceGraphView(QGraphicsView):
         except Exception as e:
             logger.error(f"Error computing Louvain communities: {e}")
             self.community_id = {nid: 0 for nid in node_ids}
-
-    def get_community_color(self, community_index):
-        """Map a Louvain community id to a distinct, stable color."""
-        # Golden-angle hue rotation gives well-separated colors for an
-        # arbitrary, unknown-in-advance number of communities.
-        hue = (community_index * 137.508) % 360
-        return QColor.fromHsv(int(hue), 160, 235)
 
     # -----------------------
     # Force layout
@@ -611,10 +797,12 @@ class InfluenceGraphView(QGraphicsView):
             edge_alpha = int(MIN_ALPHA + t * (MAX_ALPHA - MIN_ALPHA))
 
             # --- Line ---
+            # Accent-tinted rather than a plain unrelated gray, so edges read
+            # as part of the same palette as the nodes across every theme.
             line = QGraphicsLineItem(
                 start_pos.x(), start_pos.y(), end_pos.x(), end_pos.y()
             )
-            pen = QPen(QColor(160, 160, 175, edge_alpha), 1.2)
+            pen = QPen(QColor(133, 153, 234, edge_alpha), 1.2)
             pen.setCapStyle(Qt.RoundCap)
             line.setPen(pen)
 
@@ -657,8 +845,11 @@ class InfluenceGraphView(QGraphicsView):
                 ]
             )
 
+            # Arrow tinted by the community it's flowing into, reinforcing the
+            # cluster coloring instead of a fixed, unrelated green.
             arrow = QGraphicsPolygonItem(arrow_polygon)
-            arrow_color = QColor(153, 234, 133, edge_alpha)
+            arrow_color = self.get_community_color(self.community_id.get(target_id, 0))
+            arrow_color.setAlpha(edge_alpha)
             arrow.setBrush(QBrush(arrow_color))
             arrow.setPen(QPen(Qt.NoPen))
             arrow.setPos(arrow_x, arrow_y)
@@ -832,6 +1023,7 @@ class InfluenceGraphView(QGraphicsView):
         self.velocities.clear()
         self.node_mass.clear()
         self.community_id.clear()
+        self._legend.hide()
 
     def debug_graph_structure(self):
         """Log summary info about the graph"""
@@ -1057,6 +1249,9 @@ class InfluenceGraphView(QGraphicsView):
                 self.positions[artist_id].y(),
                 width,
                 height,
+            )
+            node_item.set_community_color(
+                self.get_community_color(self.community_id.get(artist_id, 0))
             )
             self.nodes[artist_id] = node_item
             node_item.setZValue(0)

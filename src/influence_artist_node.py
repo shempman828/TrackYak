@@ -1,6 +1,17 @@
 from PySide6.QtCore import QRectF
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, Qt
+from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen, Qt
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem
+
+# Matches the "Cambria, Georgia, serif" stack the app's QSS themes apply to
+# every widget. QGraphicsTextItem isn't a QWidget, so it never picks that up
+# automatically and previously fell back to a hardcoded Arial.
+_LABEL_FONT_FAMILIES = ["Cambria", "Georgia", "serif"]
+
+
+def _make_label_font(size):
+    font = QFont(_LABEL_FONT_FAMILIES[0], size, QFont.Medium)
+    font.setFamilies(_LABEL_FONT_FAMILIES)
+    return font
 
 
 class ArtistNode(QGraphicsRectItem):
@@ -67,14 +78,40 @@ class ArtistNode(QGraphicsRectItem):
             border = self.border_color
             border_width = 1.5
 
-        painter.setBrush(QBrush(fill))
+        # Soft manual drop shadow — a single extra rounded-rect fill rather
+        # than a QGraphicsDropShadowEffect, which is too costly to apply
+        # per-node across graphs with hundreds/thousands of nodes.
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(0, 0, 0, 60)))
+        painter.drawRoundedRect(
+            r.translated(0, 2), self.corner_radius, self.corner_radius
+        )
+
+        # Hover glow ring, cheap to draw alongside the shadow above.
+        if self._hovered and not self._selected_highlight:
+            glow = QColor(fill)
+            glow.setAlpha(70)
+            painter.setBrush(QBrush(glow))
+            painter.drawRoundedRect(
+                r.adjusted(-4, -4, 4, 4),
+                self.corner_radius + 3,
+                self.corner_radius + 3,
+            )
+
+        # Glassy vertical gradient fill instead of a flat color.
+        gradient = QLinearGradient(r.topLeft(), r.bottomLeft())
+        gradient.setColorAt(0.0, fill.lighter(122))
+        gradient.setColorAt(1.0, fill)
+
+        painter.setBrush(QBrush(gradient))
         painter.setPen(QPen(border, border_width))
         painter.drawRoundedRect(r, self.corner_radius, self.corner_radius)
 
     def boundingRect(self):
-        # Add a small margin so the border isn't clipped
+        # Margin covers the shadow offset, hover glow expansion, and AA edges.
         r = self.rect()
-        return QRectF(r.x() - 2, r.y() - 2, r.width() + 4, r.height() + 4)
+        m = 8
+        return QRectF(r.x() - m, r.y() - m, r.width() + m * 2, r.height() + m * 2)
 
     # ------------------------------------------------------------------
     # Size helpers
@@ -97,7 +134,7 @@ class ArtistNode(QGraphicsRectItem):
         font_size = min(16, int(self.node_height * 0.7))
 
         for test_size in range(font_size, 10, -1):
-            test_font = QFont("Arial", test_size, QFont.Medium)
+            test_font = _make_label_font(test_size)
             temp_text = QGraphicsTextItem(text)
             temp_text.setFont(test_font)
             text_rect = temp_text.boundingRect()
@@ -139,7 +176,7 @@ class ArtistNode(QGraphicsRectItem):
             return
 
         font_size = self.calculate_optimal_font_size(new_name)
-        font = QFont("Arial", font_size, QFont.Medium)
+        font = _make_label_font(font_size)
         self.text.setFont(font)
         self.text.setPlainText(new_name)
         self.center_text()

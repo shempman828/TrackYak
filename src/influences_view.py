@@ -47,9 +47,14 @@ class InfluencesView(QWidget):
         self.remove_influence_button.clicked.connect(self.show_remove_influence_dialog)
         self.remove_influence_button.setToolTip("Remove an influence relationship")
 
+        self.fit_view_button = QPushButton("Fit to View")
+        self.fit_view_button.clicked.connect(lambda: self.graph_view.fit_to_view())
+        self.fit_view_button.setToolTip("Zoom to fit the whole graph on screen")
+
         button_layout.addWidget(self.refresh_button)
         button_layout.addWidget(self.add_influence_button)
         button_layout.addWidget(self.remove_influence_button)
+        button_layout.addWidget(self.fit_view_button)
 
         button_layout.addStretch()
 
@@ -140,7 +145,7 @@ class InfluencesView(QWidget):
                             target_pos.x(),
                             target_pos.y(),
                         )
-                        line.setPen(QPen(QColor(100, 100, 100, 150), 1))
+                        line.setPen(QPen(QColor(133, 153, 234, 150), 1.2))
                         line.setZValue(-1)
                         self.graph_view.scene.addItem(line)
                         self.graph_view.edge_lines[edge_key] = line
