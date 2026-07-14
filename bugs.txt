@@ -109,7 +109,7 @@ influences_view.py
 
 
 library_import.py
-    discs are not being loaded properly. Discs should be created automatically. It looks like separate discs are made into separate albums?
+    discs are not being loaded properly. Discs should be created automatically based on metadata disc number. It looks like separate discs are made into separate albums?
 
 lyrics_search.py
 
@@ -127,7 +127,7 @@ navigation_dock.py
 nowplaying_view.py
     key chip sometimes shows weird key (G# Major?)
     Text alignment for song title, artist, and album name feels off
-    add artist image as possible background
+    add artist image as possible background on rotation
 
 places_view.py
 
@@ -137,7 +137,7 @@ place_map_filter.py
 
 
 player_dock.py
-    shortcut for increase and decrease rating by 0.5
+    create shortcut for increase and decrease rating by 0.5
 
 player_settings.py
 
@@ -165,13 +165,6 @@ queue_utility.py
 
 
 role_view.py
-    Show role count in parentheses by role name.
-    add "New Role" button by search
-    add sorting (alphabetical and count)
-    Use tree style from genres
-    Something about album roles versus track roles is funky. The distinction is not very important.
-    cannot multi-select and drag to change parent
-    add ability to merge roles
 
 
 statistics_dialog.py

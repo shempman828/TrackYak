@@ -16,17 +16,21 @@ from src.logger_config import logger
 
 
 class RoleDetailTab(QWidget):
-    """Detailed view for a specific role's artist relationships."""
+    """Detailed view for a specific role's artist relationships.
 
-    def __init__(self, controller, role_id, role_type="Album"):
+    Roles can be assigned to albums (AlbumRoleAssociation) and/or tracks
+    (TrackArtistRole) independently, so both are always loaded and merged
+    per-artist rather than picking one based on a "role type".
+    """
+
+    def __init__(self, controller, role_id):
         super().__init__()
         self.controller = controller
         self.role_id = role_id
-        self.role_type = role_type
         self.artist_data_map = {}
         self._setup_ui()
         self._load_data()
-        logger.info(f"Detail tab created for {role_type} role {role_id}")
+        logger.info(f"Detail tab created for role {role_id}")
 
     def _setup_ui(self):
         """Initialize UI components for the detail view."""
@@ -105,51 +109,56 @@ class RoleDetailTab(QWidget):
             )
 
     def _get_artist_tracks_for_role(self, artist_id):
-        """Get all tracks for an artist in the current role."""
+        """Get all tracks for an artist in the current role, from both album and track assignments."""
         tracks = []
+        seen_track_ids = set()
 
         try:
-            if self.role_type == "Album":
-                # For album roles: Get albums where artist has this role, then get tracks from those albums
-                album_links = (
-                    self.controller.get.get_all_entities(
-                        "AlbumRoleAssociation",
-                        role_id=self.role_id,
-                        artist_id=artist_id,
+            # Album roles: get albums where artist has this role, then get tracks from those albums
+            album_links = (
+                self.controller.get.get_all_entities(
+                    "AlbumRoleAssociation",
+                    role_id=self.role_id,
+                    artist_id=artist_id,
+                )
+                or []
+            )
+
+            for link in album_links:
+                album_tracks = (
+                    self.controller.get.get_entity_links(
+                        "AlbumTracks", album_id=link.album_id
                     )
                     or []
                 )
 
-                for link in album_links:
-                    album_tracks = (
-                        self.controller.get.get_entity_links(
-                            "AlbumTracks", album_id=link.album_id
-                        )
-                        or []
-                    )
-
-                    for album_track in album_tracks:
-                        track = self.controller.get.get_entity_object(
-                            "Track", track_id=album_track.track_id
-                        )
-                        if track:
-                            tracks.append(track)
-
-            else:  # Track role
-                # For track roles: Directly get tracks where artist has this role
-                track_links = (
-                    self.controller.get.get_all_entities(
-                        "TrackArtistRole", role_id=self.role_id, artist_id=artist_id
-                    )
-                    or []
-                )
-
-                for link in track_links:
+                for album_track in album_tracks:
+                    if album_track.track_id in seen_track_ids:
+                        continue
                     track = self.controller.get.get_entity_object(
-                        "Track", track_id=link.track_id
+                        "Track", track_id=album_track.track_id
                     )
                     if track:
                         tracks.append(track)
+                        seen_track_ids.add(album_track.track_id)
+
+            # Track roles: directly get tracks where artist has this role
+            track_links = (
+                self.controller.get.get_all_entities(
+                    "TrackArtistRole", role_id=self.role_id, artist_id=artist_id
+                )
+                or []
+            )
+
+            for link in track_links:
+                if link.track_id in seen_track_ids:
+                    continue
+                track = self.controller.get.get_entity_object(
+                    "Track", track_id=link.track_id
+                )
+                if track:
+                    tracks.append(track)
+                    seen_track_ids.add(link.track_id)
 
         except Exception as e:
             logger.error(f"Error getting tracks for artist {artist_id}: {e}")
@@ -166,41 +175,34 @@ class RoleDetailTab(QWidget):
             return f"Role {self.role_id}"
 
     def _load_data(self):
-        """Load and display artist data based on role type."""
+        """Load and display artist data from both album and track role assignments."""
         self.artist_list.clear()
         self.artist_data_map.clear()
 
         try:
-            if self.role_type == "Album":
-                links = (
-                    self.controller.get.get_all_entities(
-                        "AlbumRoleAssociation", role_id=self.role_id
-                    )
-                    or []
+            album_links = (
+                self.controller.get.get_all_entities(
+                    "AlbumRoleAssociation", role_id=self.role_id
                 )
-                entity_type = "albums"
-                link_entity_id_attr = "album_id"
-            else:  # Track role
-                links = (
-                    self.controller.get.get_all_entities(
-                        "TrackArtistRole", role_id=self.role_id
-                    )
-                    or []
+                or []
+            )
+            track_links = (
+                self.controller.get.get_all_entities(
+                    "TrackArtistRole", role_id=self.role_id
                 )
-                entity_type = "tracks"
-                link_entity_id_attr = "track_id"  # noqa: F841
+                or []
+            )
 
-            if not links:
-                self.artist_list.addItem(f"No {entity_type} found for this role.")
+            if not album_links and not track_links:
+                self.artist_list.addItem("No albums or tracks found for this role.")
                 return
 
-            # Group by artist and count appearances
-            artist_counts = defaultdict(int)
+            # Group by artist, counting album and track appearances separately
+            album_counts = defaultdict(int)
+            track_counts = defaultdict(int)
             artist_entities = {}  # Store artist objects for display
 
-            for link in links:
-                artist_id = link.artist_id
-                artist_counts[artist_id] += 1
+            def _note_artist(artist_id):
                 if artist_id not in artist_entities:
                     artist = self.controller.get.get_entity_object(
                         "Artist", artist_id=artist_id
@@ -208,25 +210,48 @@ class RoleDetailTab(QWidget):
                     if artist:
                         artist_entities[artist_id] = artist
 
+            for link in album_links:
+                album_counts[link.artist_id] += 1
+                _note_artist(link.artist_id)
+
+            for link in track_links:
+                track_counts[link.artist_id] += 1
+                _note_artist(link.artist_id)
+
             # Prepare display data
+            artist_ids = set(album_counts) | set(track_counts)
             artists_display = []
-            for artist_id, count in artist_counts.items():
+            for artist_id in artist_ids:
                 artist = artist_entities.get(artist_id)
                 if artist:
+                    album_count = album_counts.get(artist_id, 0)
+                    track_count = track_counts.get(artist_id, 0)
                     artists_display.append(
-                        {"artist": artist, "count": count, "artist_id": artist_id}
+                        {
+                            "artist": artist,
+                            "artist_id": artist_id,
+                            "album_count": album_count,
+                            "track_count": track_count,
+                            "total": album_count + track_count,
+                        }
                     )
 
-            # Sort by count descending
+            # Sort by total appearances descending
             sorted_artists = sorted(
-                artists_display, key=lambda x: x["count"], reverse=True
+                artists_display, key=lambda x: x["total"], reverse=True
             )
 
-            # Display with appropriate icon
+            # Display
             for data in sorted_artists:
                 artist = data["artist"]
                 name = getattr(artist, "artist_name", "Unknown Artist")
-                item_text = f"{name} ({data['count']} {entity_type})"
+
+                parts = []
+                if data["track_count"] > 0:
+                    parts.append(f"{data['track_count']} tracks")
+                if data["album_count"] > 0:
+                    parts.append(f"{data['album_count']} albums")
+                item_text = f"{name} ({', '.join(parts)})"
 
                 # Create list item with artist ID stored as data
                 item = QListWidgetItem(item_text)
@@ -239,12 +264,12 @@ class RoleDetailTab(QWidget):
                 self.artist_data_map[data["artist_id"]] = data
 
             logger.info(
-                f"Loaded {len(sorted_artists)} artists for {self.role_type.lower()} role {self.role_id}"
+                f"Loaded {len(sorted_artists)} artists for role {self.role_id}"
             )
 
         except Exception as e:
             logger.error(
-                f"Failed to load artist data for {self.role_type.lower()} role {self.role_id}: {e}",
+                f"Failed to load artist data for role {self.role_id}: {e}",
                 exc_info=True,
             )
             self.artist_list.addItem("Error loading data.")

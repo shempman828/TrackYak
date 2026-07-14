@@ -2,14 +2,16 @@ from collections import defaultdict
 from typing import Optional
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal
-from PySide6.QtGui import QBrush, QColor
+from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMenu,
     QMessageBox,
+    QPushButton,
     QSplitter,
     QTreeWidget,
     QTreeWidgetItem,
@@ -20,6 +22,7 @@ from PySide6.QtWidgets import (
 from src.logger_config import logger
 from src.role_detail_tab import RoleDetailTab
 from src.role_edit_dialog import RoleEditDialog
+from src.role_merge import RoleMergeDialog
 
 # ---------------------------------------------------------------------------
 # Background worker — does ALL the expensive database work on a separate thread
@@ -97,6 +100,10 @@ class RoleView(QWidget):
         # without hitting the database again.
         self._album_counts: dict[int, int] = {}
         self._track_counts: dict[int, int] = {}
+        self._all_roles: list = []
+
+        # "name" (alphabetical) or "count" (total assignments, descending)
+        self.sort_mode = "name"
 
         # Keep a reference to the running thread so it isn't garbage-collected.
         self._loader_thread: Optional[QThread] = None
@@ -111,7 +118,7 @@ class RoleView(QWidget):
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(5, 5, 5, 5)
 
-        # Top row: Search bar
+        # Top row: Search bar + New Role + Sort + Expand/Collapse
         top_row = QHBoxLayout()
 
         # Search bar with clear button
@@ -119,6 +126,27 @@ class RoleView(QWidget):
         self.search_field.setPlaceholderText("Filter roles...")
         self.search_field.setClearButtonEnabled(True)
         top_row.addWidget(self.search_field)
+
+        # New Role button
+        self.new_role_button = QPushButton("New Role")
+        self.new_role_button.clicked.connect(self.create_role)
+        top_row.addWidget(self.new_role_button)
+
+        # Sort mode selector
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItem("Sort: Name (A-Z)", "name")
+        self.sort_combo.addItem("Sort: Count", "count")
+        self.sort_combo.currentIndexChanged.connect(self._on_sort_mode_changed)
+        top_row.addWidget(self.sort_combo)
+
+        # Expand All / Collapse All buttons
+        self.expand_all_button = QPushButton("Expand All")
+        self.expand_all_button.clicked.connect(lambda: self.role_tree.expandAll())
+        top_row.addWidget(self.expand_all_button)
+
+        self.collapse_all_button = QPushButton("Collapse All")
+        self.collapse_all_button.clicked.connect(lambda: self.role_tree.collapseAll())
+        top_row.addWidget(self.collapse_all_button)
 
         self.main_layout.addLayout(top_row)
 
@@ -201,10 +229,44 @@ class RoleView(QWidget):
 
         return tree
 
+    def create_colored_icon(self, color, size=16):
+        """Create a colored circle icon for hierarchy levels (matches genre tree style)."""
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setBrush(QBrush(color))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(2, 2, size - 4, size - 4)
+        painter.end()
+        return QIcon(pixmap)
+
+    # Depth -> color, matching GenreView's hierarchy palette
+    _DEPTH_COLORS = [
+        QColor(70, 130, 180),  # Steel Blue
+        QColor(46, 139, 87),  # Sea Green
+        QColor(218, 165, 32),  # Goldenrod
+        QColor(178, 34, 34),  # Firebrick
+        QColor(138, 43, 226),  # Blue Violet
+        QColor(255, 140, 0),  # Dark Orange
+        QColor(199, 21, 133),  # Medium Violet Red
+        QColor(0, 191, 255),  # Deep Sky Blue
+    ]
+
+    def _icon_for_depth(self, depth):
+        color = self._DEPTH_COLORS[depth % len(self._DEPTH_COLORS)]
+        return self.create_colored_icon(color)
+
     def _connect_signals(self):
         """Connect UI signals to their handlers."""
         self.search_field.textChanged.connect(self._filter_roles)
         self.role_tree.itemSelectionChanged.connect(self._on_role_selected)
+
+    def _on_sort_mode_changed(self, index):
+        """Re-render the tree in the newly selected sort order without re-querying the DB."""
+        self.sort_mode = self.sort_combo.itemData(index)
+        if self._all_roles:
+            self._rebuild_tree()
 
     # -----------------------------------------------------------------------
     # Loading — runs database work on a background thread
@@ -260,72 +322,17 @@ class RoleView(QWidget):
         Safe to update UI here.
         """
         try:
-            # Store counts for use in _on_role_selected (avoids re-querying)
+            # Store data for use in _on_role_selected and sort-mode changes
+            # (avoids re-querying the DB)
             self._album_counts = album_counts
             self._track_counts = track_counts
+            self._all_roles = all_roles
 
-            self.role_tree.clear()
-
-            if not all_roles:
-                logger.warning("No roles found in the database")
-                placeholder = QTreeWidgetItem(["No roles found"])
-                placeholder.setFlags(placeholder.flags() & ~Qt.ItemIsEditable)
-                placeholder.setData(0, Qt.UserRole, None)
-                self.role_tree.addTopLevelItem(placeholder)
-                self._set_loading_state(False)
-                return
-
-            # Build lookup structures
-            role_map = {role.role_id: role for role in all_roles}
-
-            children_map: dict = defaultdict(list)
-            for role in all_roles:
-                if role.parent_id in role_map:
-                    children_map[role.parent_id].append(role)
-                elif role.parent_id is None:
-                    children_map[None].append(role)
-
-            # Build the tree — now uses pre-fetched counts, zero extra queries
-            root_count = self._build_role_tree(
-                None,
-                children_map,
-                role_map,
-                0,
-                self.role_tree,
-                album_counts,
-                track_counts,
-            )
-
-            # Build status bar summary from the cached counts (no DB calls)
-            total = len(all_roles)
-            unassigned = track_only = album_only = mixed = 0
-
-            for role in all_roles:
-                has_album = album_counts.get(role.role_id, 0) > 0
-                has_track = track_counts.get(role.role_id, 0) > 0
-
-                if not has_album and not has_track:
-                    unassigned += 1
-                elif has_track and not has_album:
-                    track_only += 1
-                elif has_album and not has_track:
-                    album_only += 1
-                else:
-                    mixed += 1
-
-            self.status_bar.setText(
-                f"Showing {total} roles total: "
-                f"{mixed} mixed, {track_only} track-only, "
-                f"{album_only} album-only, {unassigned} unassigned"
-            )
-
-            logger.info(
-                f"Loaded {total} roles into unified tree with hierarchy "
-                f"({root_count} root items)"
-            )
+            self._rebuild_tree()
 
         except Exception as e:
             logger.error(f"Failed to populate role tree: {str(e)}", exc_info=True)
+            self.role_tree.clear()
             error_item = QTreeWidgetItem(["Error loading roles"])
             error_item.setFlags(error_item.flags() & ~Qt.ItemIsEditable)
             error_item.setData(0, Qt.UserRole, None)
@@ -334,6 +341,107 @@ class RoleView(QWidget):
         finally:
             # Always hide the spinner when we're done, success or failure
             self._set_loading_state(False)
+
+    def _rebuild_tree(self):
+        """
+        Rebuild the tree widget from cached role/count data (no DB calls).
+        Used both after loading and when the sort mode changes.
+        Preserves which items were expanded across the rebuild.
+        """
+        all_roles = self._all_roles
+        album_counts = self._album_counts
+        track_counts = self._track_counts
+
+        # Remember which roles were expanded so the rebuild doesn't collapse
+        # everything the user had opened.
+        expanded_ids = set()
+
+        def collect_expanded(item):
+            if item.isExpanded():
+                role_id = item.data(0, Qt.UserRole)
+                if role_id is not None:
+                    expanded_ids.add(role_id)
+            for i in range(item.childCount()):
+                collect_expanded(item.child(i))
+
+        root = self.role_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            collect_expanded(root.child(i))
+
+        self.role_tree.clear()
+
+        if not all_roles:
+            logger.warning("No roles found in the database")
+            placeholder = QTreeWidgetItem(["No roles found"])
+            placeholder.setFlags(placeholder.flags() & ~Qt.ItemIsEditable)
+            placeholder.setData(0, Qt.UserRole, None)
+            self.role_tree.addTopLevelItem(placeholder)
+            return
+
+        # Build lookup structures
+        role_map = {role.role_id: role for role in all_roles}
+
+        children_map: dict = defaultdict(list)
+        for role in all_roles:
+            if role.parent_id in role_map:
+                children_map[role.parent_id].append(role)
+            elif role.parent_id is None:
+                children_map[None].append(role)
+
+        # Build the tree — uses pre-fetched counts, zero extra queries
+        root_count = self._build_role_tree(
+            None,
+            children_map,
+            role_map,
+            0,
+            self.role_tree,
+            album_counts,
+            track_counts,
+        )
+
+        # Restore expansion state, or expand everything on first build
+        if expanded_ids:
+
+            def restore_expanded(item):
+                role_id = item.data(0, Qt.UserRole)
+                if role_id in expanded_ids:
+                    item.setExpanded(True)
+                for i in range(item.childCount()):
+                    restore_expanded(item.child(i))
+
+            root = self.role_tree.invisibleRootItem()
+            for i in range(root.childCount()):
+                restore_expanded(root.child(i))
+        else:
+            self.role_tree.expandAll()
+
+        # Build status bar summary from the cached counts (no DB calls)
+        total = len(all_roles)
+        unassigned = track_only = album_only = mixed = 0
+
+        for role in all_roles:
+            has_album = album_counts.get(role.role_id, 0) > 0
+            has_track = track_counts.get(role.role_id, 0) > 0
+
+            if not has_album and not has_track:
+                unassigned += 1
+            elif has_track and not has_album:
+                track_only += 1
+            elif has_album and not has_track:
+                album_only += 1
+            else:
+                mixed += 1
+
+        self.status_bar.setText(
+            f"Showing {total} roles total: "
+            f"{mixed} mixed, {track_only} track-only, "
+            f"{album_only} album-only, {unassigned} unassigned"
+        )
+
+        logger.info(
+            f"Loaded {total} roles into unified tree with hierarchy "
+            f"({root_count} root items)"
+        )
 
     def _on_roles_load_error(self, error_message: str):
         """Called on the main thread if the background worker hits an exception."""
@@ -366,22 +474,22 @@ class RoleView(QWidget):
         parent_id = parent_item.data(0, Qt.UserRole) if parent_item else None
         roles = children_map.get(parent_id, [])
 
-        for role in roles:
+        def _total(role):
+            return album_counts.get(role.role_id, 0) + track_counts.get(role.role_id, 0)
+
+        if self.sort_mode == "count":
+            sorted_roles = sorted(roles, key=_total, reverse=True)
+        else:
+            sorted_roles = sorted(roles, key=lambda r: r.role_name.lower())
+
+        for role in sorted_roles:
             # Look up counts from the pre-fetched dicts (O(1), no DB call)
             album_count = album_counts.get(role.role_id, 0)
             track_count = track_counts.get(role.role_id, 0)
+            total_count = album_count + track_count
 
-            # Build display text with counts (only show if > 0)
-            display_parts = [role.role_name]
-
-            if track_count > 0 and album_count > 0:
-                display_parts.append(f"({track_count} tracks, {album_count} albums)")
-            elif track_count > 0:
-                display_parts.append(f"({track_count} tracks)")
-            elif album_count > 0:
-                display_parts.append(f"({album_count} albums)")
-
-            display_text = " ".join(display_parts)
+            # Display text mirrors the genre tree's "Name (count)" style
+            display_text = f"{role.role_name} ({total_count})"
 
             # Apply indentation for hierarchy
             if depth > 0:
@@ -391,15 +499,18 @@ class RoleView(QWidget):
             item.setData(0, Qt.UserRole, role.role_id)
             item.setFlags(item.flags() | Qt.ItemIsEditable)
 
-            # Store counts for potential future use
+            # Store original name and counts for editing / potential future use
+            item.setData(1, Qt.UserRole, role.role_name)
             item.setData(0, Qt.UserRole + 1, track_count)
             item.setData(0, Qt.UserRole + 2, album_count)
 
+            item.setIcon(0, self._icon_for_depth(depth))
+
             # Gray out unassigned roles
-            if track_count == 0 and album_count == 0:
+            if total_count == 0:
                 item.setForeground(0, QBrush(QColor(128, 128, 128)))
 
-            # Tooltip with detailed information
+            # Tooltip with detailed information (album/track breakdown kept here)
             tooltip = f"ID: {role.role_id}"
             if role.role_description:
                 tooltip += f"\nDescription: {role.role_description}"
@@ -416,7 +527,6 @@ class RoleView(QWidget):
 
             if parent_item:
                 parent_item.addChild(item)
-                parent_item.setExpanded(True)
             else:
                 tree_widget.addTopLevelItem(item)
 
@@ -461,23 +571,10 @@ class RoleView(QWidget):
                 self.detail_placeholder.setParent(None)
                 self.detail_placeholder = None
 
-            # Use the cached counts (populated during load_roles) — no DB calls
-            album_count = self._album_counts.get(role_id, 0)
-            track_count = self._track_counts.get(role_id, 0)
-
-            role_type = "Mixed"
-            if album_count > 0 and track_count == 0:
-                role_type = "Album"
-            elif track_count > 0 and album_count == 0:
-                role_type = "Track"
-            elif album_count == 0 and track_count == 0:
-                role_type = "Unassigned"
-
-            # Create or update the detail tab
+            # Create or update the detail tab. It always loads both album and
+            # track assignments for the role, regardless of which are present.
             if not self.detail_tab:
-                self.detail_tab = RoleDetailTab(
-                    self.controller, role.role_id, role_type
-                )
+                self.detail_tab = RoleDetailTab(self.controller, role.role_id)
                 self.right_layout.addWidget(self.detail_tab)
             else:
                 # If detail tab exists but is in wrong parent, move it
@@ -486,7 +583,6 @@ class RoleView(QWidget):
                     self.right_layout.addWidget(self.detail_tab)
 
                 self.detail_tab.role_id = role.role_id
-                self.detail_tab.role_type = role_type
                 self.detail_tab._load_data()
 
         except Exception as e:
@@ -598,34 +694,45 @@ class RoleView(QWidget):
             item.setText(0, old_text)  # Revert to old text
 
     def on_drop_event(self, event):
-        """Handle parent changes through drag-and-drop."""
-        child_item = self.role_tree.currentItem()
+        """Handle parent changes through drag-and-drop, supporting multi-selection."""
+        selected_items = self.role_tree.selectedItems()
+
+        if not selected_items:
+            event.ignore()
+            return
+
         parent_item = self.role_tree.itemAt(event.pos())
+        parent_id = parent_item.data(0, Qt.UserRole) if parent_item else None
 
         try:
-            if not child_item:
-                event.ignore()
-                return
+            moved_any = False
+            for child_item in selected_items:
+                child_id = child_item.data(0, Qt.UserRole)
+                if child_id is None or child_id == parent_id:
+                    continue
 
-            child_id = child_item.data(0, Qt.UserRole)
-            parent_id = parent_item.data(0, Qt.UserRole) if parent_item else None
+                # Prevent circular references
+                if self._would_create_circular_reference(child_id, parent_id):
+                    QMessageBox.warning(
+                        self,
+                        "Invalid Operation",
+                        f"Moving '{child_item.text(0)}' there would create a "
+                        "circular reference in the hierarchy.",
+                    )
+                    continue
 
-            # Prevent circular references
-            if self._would_create_circular_reference(child_id, parent_id):
-                QMessageBox.warning(
-                    self,
-                    "Invalid Operation",
-                    "This operation would create a circular reference in the hierarchy.",
+                logger.info(f"Moving role {child_id} to parent {parent_id}")
+                self.controller.update.update_entity(
+                    "Role", child_id, parent_id=parent_id
                 )
+                moved_any = True
+
+            if moved_any:
+                self.load_roles()  # Refresh tree
+                self.role_updated.emit()
+                event.accept()
+            else:
                 event.ignore()
-                return
-
-            logger.info(f"Moving role {child_id} to parent {parent_id}")
-            self.controller.update.update_entity("Role", child_id, parent_id=parent_id)
-
-            self.load_roles()  # Refresh tree
-            self.role_updated.emit()
-            event.accept()
 
         except Exception as e:
             logger.error(f"Error moving role: {str(e)}")
@@ -664,6 +771,7 @@ class RoleView(QWidget):
         # If clicking on a valid role item, show role operations
         menu.addAction("Rename", lambda: self.role_tree.editItem(item, 0))
         menu.addAction("Edit", lambda: self.edit_role(self.current_role_id))
+        menu.addAction("Merge…", lambda: self.merge_role(self.current_role_id))
         menu.addSeparator()
         menu.addAction("Delete", lambda: self.delete_role(self.current_role_id))
 
@@ -696,6 +804,29 @@ class RoleView(QWidget):
         except Exception as e:
             logger.error(f"Error editing role: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to edit role")
+
+    def merge_role(self, source_role_id):
+        """Open the merge dialog for the selected role (e.g. combine 'Guitar' and 'Guitarist')."""
+        try:
+            role_obj = self.controller.get.get_entity_object(
+                "Role", role_id=source_role_id
+            )
+            if not role_obj:
+                QMessageBox.warning(
+                    self, "Not Found", "The selected role no longer exists."
+                )
+                return
+
+            merge_dialog = RoleMergeDialog(self.controller, self, role_obj=role_obj)
+
+            if merge_dialog.exec_() == QDialog.Accepted:
+                self.load_roles()
+                self.role_updated.emit()
+                self.status_bar.setText("Role merge completed successfully")
+
+        except Exception as e:
+            logger.error(f"Error merging role: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to merge role: {str(e)}")
 
     def delete_role(self, role_id):
         """Delete selected role after confirmation."""
