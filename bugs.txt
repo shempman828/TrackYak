@@ -4,13 +4,10 @@ NEW IDEAS
 
 
 album_edit_overview.py
-    Description box is only one space tall
-    Remove search Wikipedia button
-    album artist name is too small
+
 
 album_edit_details.py
-    qcompleter on language, release type
-    move metadata complete to advanced
+
 
 album_edit_publisher&Places
     making an edit changes tab, probably because of redrawing crash

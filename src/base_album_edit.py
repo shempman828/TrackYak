@@ -11,11 +11,13 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QCompleter,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -55,6 +57,37 @@ def _sanitize_filename(name: str) -> str:
         name = name.replace(ch, "_")
     name = name.strip(" .")
     return name[:100]
+
+
+# Fallback suggestions used if the controller can't supply distinct values
+# already present in the database.
+ALBUM_LANGUAGE_SUGGESTIONS = [
+    "English",
+    "French",
+    "German",
+    "Italian",
+    "Spanish",
+    "Portuguese",
+    "Japanese",
+    "Korean",
+    "Chinese",
+    "Russian",
+    "Instrumental",
+    "Multiple",
+]
+RELEASE_TYPE_SUGGESTIONS = [
+    "Album",
+    "Single",
+    "EP",
+    "Compilation",
+    "Soundtrack",
+    "Live",
+    "Remix",
+    "Mixtape",
+    "Bootleg",
+    "Broadcast",
+    "Demo",
+]
 
 
 # =============================================================================
@@ -116,15 +149,21 @@ class AlbumEditor(QDialog):
 
     Tabs
     ────
-    Details          – core metadata (language, type, catalog #, flags, sales, MBID)
+    Details          – core metadata (language, type, catalog #, live/compilation flags, sales, MBID)
     Tracks           – DiscManagementView for disc / track structure
     Artwork          – front cover, rear cover, liner art with pickers
     Aliases          – add / remove / type album aliases
     Artist Credits   – relationship helpers (built by AlbumTabBuilder)
     Publishers & Places – relationship helpers (built by AlbumTabBuilder)
     Awards           – relationship helpers (built by AlbumTabBuilder)
-    Advanced         – ReplayGain, Wikipedia link, library stats
+    Advanced         – metadata-complete flag, ReplayGain, Wikipedia link, library stats
     """
+
+    # Caches shared across all AlbumEditor instances/openings so the (expensive)
+    # full album-table scan for completer suggestions only happens once per
+    # app session, not once per album edit dialog.
+    _album_language_cache = None
+    _release_type_cache = None
 
     def __init__(self, controller, album, parent=None):
         super().__init__(parent)
@@ -193,6 +232,47 @@ class AlbumEditor(QDialog):
                     field_config, current_value
                 )
             self.field_widgets[field_name] = widget
+
+        self._attach_completer("album_language", self._get_album_language_suggestions())
+        self._attach_completer("release_type", self._get_release_type_suggestions())
+
+    def _attach_completer(self, field_name, suggestions):
+        """Wire a popup QCompleter onto a QLineEdit field widget."""
+        widget = self.field_widgets.get(field_name)
+        if not isinstance(widget, QLineEdit):
+            return
+        completer = QCompleter(suggestions, self)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        widget.setCompleter(completer)
+
+    def _get_album_language_suggestions(self):
+        if AlbumEditor._album_language_cache is None:
+            AlbumEditor._album_language_cache = self._fetch_field_suggestions(
+                "album_language", ALBUM_LANGUAGE_SUGGESTIONS
+            )
+        return AlbumEditor._album_language_cache
+
+    def _get_release_type_suggestions(self):
+        if AlbumEditor._release_type_cache is None:
+            AlbumEditor._release_type_cache = self._fetch_field_suggestions(
+                "release_type", RELEASE_TYPE_SUGGESTIONS
+            )
+        return AlbumEditor._release_type_cache
+
+    def _fetch_field_suggestions(self, field_name, fallback):
+        """Distinct values already used for `field_name` across the library,
+        merged with a small generic fallback list in case lookup fails."""
+        suggestions = set(fallback)
+        try:
+            albums = self.controller.get.get_all_entities("Album") or []
+            for a in albums:
+                value = (getattr(a, field_name, None) or "").strip()
+                if value:
+                    suggestions.add(value)
+        except Exception:
+            pass
+        return sorted(suggestions, key=str.lower)
 
     # =========================================================================
     # Main UI layout

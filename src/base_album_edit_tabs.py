@@ -20,7 +20,7 @@ from src.disc_view import DiscManagementView
 
 
 class DetailsTab:
-    """Core metadata: language, type, catalog #, flags, sales, MBID."""
+    """Core metadata: language, type, catalog #, live/compilation flags, sales, MBID."""
 
     def __init__(self, editor: "AlbumEditor"):
         self.editor = editor
@@ -54,7 +54,7 @@ class DetailsTab:
 
         right = QVBoxLayout()
         right.setSpacing(10)
-        for field_name in ("is_fixed", "is_live", "is_compilation"):
+        for field_name in ("is_live", "is_compilation"):
             w = self.editor.field_widgets.get(field_name)
             if w:
                 right.addWidget(w)
@@ -203,7 +203,7 @@ class AliasesTab:
 
 
 class AdvancedTab:
-    """ReplayGain, Wikipedia link, and read-only library stats."""
+    """Metadata-complete flag, ReplayGain, Wikipedia link, and read-only library stats."""
 
     def __init__(self, editor: "AlbumEditor"):
         self.editor = editor
@@ -223,6 +223,10 @@ class AdvancedTab:
             if w:
                 row.addWidget(w, 1)
             layout.addLayout(row)
+
+        is_fixed_widget = self.editor.field_widgets.get("is_fixed")
+        if is_fixed_widget:
+            layout.addWidget(is_fixed_widget)
 
         _row("Wikipedia Link:", "album_wikipedia_link")
 
