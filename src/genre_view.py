@@ -57,6 +57,15 @@ class GenreView(QWidget):
         self.new_genre_button.clicked.connect(lambda: self.edit_genre(None))
         top_row.addWidget(self.new_genre_button)
 
+        # Expand All / Collapse All buttons
+        self.expand_all_button = QPushButton("Expand All")
+        self.expand_all_button.clicked.connect(self.tree.expandAll)
+        top_row.addWidget(self.expand_all_button)
+
+        self.collapse_all_button = QPushButton("Collapse All")
+        self.collapse_all_button.clicked.connect(self.tree.collapseAll)
+        top_row.addWidget(self.collapse_all_button)
+
         # Add horizontal layout to the main vertical layout
         layout.addLayout(top_row)
 

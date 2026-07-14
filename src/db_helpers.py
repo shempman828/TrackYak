@@ -516,18 +516,27 @@ class MergeDB(BaseDBHelper):
                                 )
                                 updated_tables.add(table.name)
                             elif rowcount == -1:
-                                # Constraint fired: target already owns these rows,
-                                # so we delete the conflicting source rows instead.
-                                delete_stmt = sql_delete(table).where(
-                                    column == source_id
+                                # Bulk UPDATE hit a unique constraint on at least one
+                                # row, so the whole statement rolled back. Fall back
+                                # to a row-by-row pass so only rows that truly
+                                # collide with an existing target row get dropped —
+                                # the rest are still migrated to the target.
+                                moved, dropped = self._migrate_fk_rows_individually(
+                                    table, column, source_id, target_id
                                 )
-                                del_rowcount = self._safe_execute(delete_stmt)
-                                logger.info(
-                                    f"Constraint on {table.name}.{column.name}: "
-                                    f"deleted {del_rowcount} duplicate source rows "
-                                    f"(target already has them)."
-                                )
-                                skipped_tables.add(table.name)
+                                if moved:
+                                    logger.info(
+                                        f"Row-by-row updated {moved} rows in "
+                                        f"{table.name}.{column.name}"
+                                    )
+                                    updated_tables.add(table.name)
+                                if dropped:
+                                    logger.info(
+                                        f"Constraint on {table.name}.{column.name}: "
+                                        f"deleted {dropped} duplicate source rows "
+                                        f"(target already has them)."
+                                    )
+                                    skipped_tables.add(table.name)
 
             # Delete via ORM so cascade rules are respected
             self.session.delete(source_entity)
@@ -573,6 +582,36 @@ class MergeDB(BaseDBHelper):
         except IntegrityError:
             logger.debug("Skipping statement due to unique constraint violation.")
             return -1
+
+    def _migrate_fk_rows_individually(self, table, fk_column, source_id, target_id):
+        """Move rows referencing source_id to target_id one row at a time.
+
+        Used as a fallback when a bulk UPDATE fails because at least one row
+        would collide with a unique constraint (the target already has an
+        equivalent row). Handling rows individually ensures non-conflicting
+        rows are still migrated instead of being dropped along with the
+        genuine duplicates.
+        """
+        pk_columns = list(table.primary_key.columns)
+        select_stmt = select(*pk_columns).where(fk_column == source_id)
+        rows = self.session.execute(select_stmt).fetchall()
+
+        moved = 0
+        dropped = 0
+        for row in rows:
+            row_filter = [col == val for col, val in zip(pk_columns, row)]
+            update_stmt = (
+                update(table).where(*row_filter).values({fk_column.name: target_id})
+            )
+            rowcount = self._safe_execute(update_stmt)
+            if rowcount > 0:
+                moved += 1
+            elif rowcount == -1:
+                delete_stmt = sql_delete(table).where(*row_filter)
+                self._safe_execute(delete_stmt)
+                dropped += 1
+
+        return moved, dropped
 
 
 class SplitDB(BaseDBHelper):

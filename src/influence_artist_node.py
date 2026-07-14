@@ -110,6 +110,13 @@ class ArtistNode(QGraphicsRectItem):
 
         return 10
 
+    def set_community_color(self, base_color: QColor):
+        """Recolor the node to match its Louvain community."""
+        self.box_color = base_color
+        self.hover_color = base_color.lighter(115)
+        self.border_color = base_color.darker(140)
+        self.update()
+
     def update_size(self, new_width, new_height):
         """Update the node size and reposition text"""
         self.node_width = new_width

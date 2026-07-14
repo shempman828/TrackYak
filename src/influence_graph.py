@@ -326,6 +326,13 @@ class InfluenceGraphView(QGraphicsView):
             logger.error(f"Error computing Louvain communities: {e}")
             self.community_id = {nid: 0 for nid in node_ids}
 
+    def get_community_color(self, community_index):
+        """Map a Louvain community id to a distinct, stable color."""
+        # Golden-angle hue rotation gives well-separated colors for an
+        # arbitrary, unknown-in-advance number of communities.
+        hue = (community_index * 137.508) % 360
+        return QColor.fromHsv(int(hue), 160, 235)
+
     # -----------------------
     # Force layout
     # -----------------------
@@ -459,6 +466,10 @@ class InfluenceGraphView(QGraphicsView):
                 width = node_size
                 height = node_size * 0.5  # Maintain aspect ratio
 
+                community_color = self.get_community_color(
+                    self.community_id.get(node_id, 0)
+                )
+
                 if node_id in self.nodes:
                     # Update existing node size
                     node_item = self.nodes[node_id]
@@ -471,6 +482,7 @@ class InfluenceGraphView(QGraphicsView):
                         except Exception:
                             pass
 
+                    node_item.set_community_color(community_color)
                     node_item.setPos(pos)
                     if node_item.scene() is None:
                         self.scene.addItem(node_item)
@@ -479,6 +491,7 @@ class InfluenceGraphView(QGraphicsView):
                     node_item = ArtistNode(
                         node_id, name, pos.x(), pos.y(), width, height
                     )
+                    node_item.set_community_color(community_color)
                     self.nodes[node_id] = node_item
                     node_item.setZValue(1)  # Nodes above edges
                     self.scene.addItem(node_item)

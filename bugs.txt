@@ -44,8 +44,7 @@ artist_edit_influences
 
 
 arist_edit_member.py
-    Cannot edit membership information once created
-    group add member needs qcompleter
+
 
 artist_edit_places
 
@@ -66,8 +65,7 @@ award_view.py
 
 
 base_album_edit.py
-    overview tab artist name tiny and not prominent.
-    Description box not tall enough, only a single line tall
+
 
 base_merge_dialog
 
@@ -76,14 +74,10 @@ base_track_view
     add editing single and multiple context menu (track_edit pattern)
 
 config_setup.py
-    make sure debugging level is a setting
+
 
 dates_calendar.py
-    show better information in calendar date listing: label date type and combine like types. For examples: Album Releases: x Artist Born: y Artist Died: z
-    make qdialog to show full date information
-    add filter by date type (album release, artist birth, etc)
-    month selection dropdown is too wide
-    Maybe months without events should be greyed out from selection?
+
 
 dates_view.py
 
@@ -101,24 +95,15 @@ display_settings.py
 
 
 duplicate_finder.py
-    stopping does not work
-    duplicate calculation feels off
-    compare fields doesn't really feel like it works
-    add estimated time remaining
-    threshold should increase speed. Calculating 98% similar should be easier than 60% right?
-    can't do anything in app when this window is open
-    show bitrate in table
-    ability to play tracks with double click
+
 
 genre_edit.py
 
 
 genre_view.py
-    expand all/contract all
-    fix merge logic to skip if existing instead of failing everything
 
 influences_graph.py
-    louvain color coding doesn't seem to work?
+
 
 influences_view.py
 

@@ -73,6 +73,7 @@ class BaseTrackView(QDialog):
             "track_number": "#",
             "duration": "Duration",
             "year": "Year",
+            "bit_rate": "Bit Rate",
         }
         self.column_keys = list(self.columns.keys())
 
@@ -120,6 +121,9 @@ class BaseTrackView(QDialog):
         self.table.customContextMenuRequested.connect(self.show_context_menu)
         self.setup_context_menu()
 
+        # Double-click a row to preview-play that track
+        self.table.doubleClicked.connect(self._on_row_double_clicked)
+
         # Set up drag and drop if enabled - MOVED TO AFTER TABLE CREATION
         if self.enable_drag:
             self.setup_drag_support()
@@ -139,6 +143,7 @@ class BaseTrackView(QDialog):
             "track_number": "#",
             "duration": "Duration",
             "year": "Year",
+            "bit_rate": "Bit Rate",
         }
 
         # Set up the model (self.model already initialized)
@@ -238,6 +243,29 @@ class BaseTrackView(QDialog):
                 selected_tracks.append(track_list[row])
 
         return selected_tracks
+
+    def _on_row_double_clicked(self, index):
+        """Play a short preview of the double-clicked track."""
+        source_index = self.proxy_model.mapToSource(index)
+        row = source_index.row()
+        track_list = self._filtered_tracks if self._filter_active else self._all_tracks
+        if not (0 <= row < len(track_list)):
+            return
+
+        track = track_list[row]
+        file_path = getattr(track, "track_file_path", None)
+        if not file_path or not hasattr(self.controller, "mediaplayer"):
+            return
+
+        try:
+            from pathlib import Path
+
+            if self.controller.mediaplayer.load_track(Path(file_path)):
+                self.controller.mediaplayer.play()
+            else:
+                logger.warning(f"Failed to load track for preview: {file_path}")
+        except Exception as e:
+            logger.error(f"Error previewing track: {e}")
 
     def add_selected_to_queue(self, insert_next=False):
         """Add selected tracks to the playback queue."""
@@ -461,7 +489,7 @@ class BaseTrackView(QDialog):
                 first_track = tracks_to_shuffle[0]
                 track_path = Path(first_track.track_file_path)
                 if self.controller.mediaplayer.load_track(track_path):
-                    self.controller.mediaplayer.player.play()
+                    self.controller.mediaplayer.play()
                     logger.info(
                         f"Started shuffled playback: {len(tracks_to_shuffle)} tracks"
                     )
@@ -728,6 +756,9 @@ class BaseTrackView(QDialog):
             elif db_field == "duration":
                 # Return raw duration for sorting, formatted in display
                 return getattr(track, "duration", 0)
+            elif db_field == "bit_rate":
+                value = getattr(track, "bit_rate", None)
+                return f"{value} kbps" if value else ""
             else:
                 # Direct attribute access
                 value = getattr(track, db_field, "")

@@ -16,10 +16,12 @@ Palette reference (dark_mode.qss):
 
 from datetime import date
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -46,6 +48,61 @@ _TEXT_DIM = "#555e7a"
 _TEXT_DARK = "#0b0c10"
 _BORDER_SUBTLE = "#1e1f2b"
 
+_MONTH_NAMES = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+]
+
+# ── Date-type labels ──────────────────────────────────────────────────────────
+# Maps an event's "type" field to a human-readable (singular, plural) label pair.
+_TYPE_LABELS = {
+    "album_release": ("Album Release", "Album Releases"),
+    "artist_begin": ("Artist Born", "Artists Born"),
+    "artist_end": ("Artist Died", "Artists Died"),
+    "track_recorded": ("Track Recorded", "Tracks Recorded"),
+    "track_composed": ("Track Composed", "Tracks Composed"),
+    "track_first_performed": ("Track First Performed", "Tracks First Performed"),
+    "track_remastered": ("Track Remastered", "Tracks Remastered"),
+    "publisher_begin": ("Publisher Founded", "Publishers Founded"),
+    "publisher_end": ("Publisher Closed", "Publishers Closed"),
+    "award": ("Award Given", "Awards Given"),
+}
+
+
+def _type_label(type_key: str, count: int = 1) -> str:
+    """Human-readable label for a date "type", pluralized when count != 1."""
+    fallback = (type_key or "other").replace("_", " ").title()
+    singular, plural = _TYPE_LABELS.get(type_key, (fallback, fallback))
+    return singular if count == 1 else plural
+
+
+def _entity_color(entity: str) -> str:
+    entity = (entity or "").lower()
+    if "album" in entity:
+        return _ACCENT
+    if "artist" in entity:
+        return _PINK
+    if "track" in entity:
+        return _GREEN
+    return _GOLD
+
+
+def _group_events_by_type(events: list) -> dict:
+    groups = {}
+    for event in events:
+        groups.setdefault(event.get("type", "other"), []).append(event)
+    return groups
+
 
 class CalendarDayWidget(QFrame):
     """
@@ -53,12 +110,23 @@ class CalendarDayWidget(QFrame):
     Styled entirely within the dark_mode.qss palette.
     """
 
+    day_clicked = Signal(int, list)  # day_number, events
+
     def __init__(self, day_number: int, events: list, is_current_month: bool = True):
         super().__init__()
         self.day_number = day_number
         self.events = events
         self.is_current_month = is_current_month
         self._init_ui()
+
+    def mousePressEvent(self, event):
+        if (
+            event.button() == Qt.LeftButton
+            and self.is_current_month
+            and self.events
+        ):
+            self.day_clicked.emit(self.day_number, self.events)
+        super().mousePressEvent(event)
 
     def _init_ui(self):
         self.setFrameStyle(QFrame.NoFrame)
@@ -90,6 +158,8 @@ class CalendarDayWidget(QFrame):
                     border: 1px solid {_ACCENT};
                 }}
             """)
+            self.setCursor(Qt.PointingHandCursor)
+            self.setToolTip("Click for full details")
         else:
             # Normal day — slightly elevated from base
             self.setStyleSheet(f"""
@@ -121,24 +191,22 @@ class CalendarDayWidget(QFrame):
 
             layout.addWidget(day_label)
 
-        # ── Event chips ───────────────────────────────────────────────────────
+        # ── Event type chips (grouped, e.g. "Album Releases: 2") ──────────────
         if self.events and self.is_current_month:
-            for event in self.events[:3]:
-                chip = QLabel(f"· {event['entity_name']}")
+            groups = _group_events_by_type(self.events)
+            sorted_types = sorted(groups.keys(), key=lambda t: _type_label(t))
+            max_lines = 3
+
+            for type_key in sorted_types[:max_lines]:
+                group_events = groups[type_key]
+                count = len(group_events)
+                label_text = _type_label(type_key, count)
+
+                chip = QLabel(f"{label_text}: {count}")
                 chip.setWordWrap(False)
                 chip.setMaximumWidth(120)
 
-                # Colour-code by entity type
-                entity = event.get("entity", "").lower()
-                if "album" in entity:
-                    chip_color = _ACCENT
-                elif "artist" in entity:
-                    chip_color = _PINK
-                elif "track" in entity:
-                    chip_color = _GREEN
-                else:
-                    chip_color = _GOLD
-
+                chip_color = _entity_color(group_events[0].get("entity", ""))
                 chip.setStyleSheet(f"""
                     QLabel {{
                         font-size: 8px;
@@ -148,17 +216,14 @@ class CalendarDayWidget(QFrame):
                     }}
                 """)
 
-                # Full tooltip
-                tooltip = (
-                    f"{event['entity_name']} ({event['entity']})\n"
-                    f"Date: {event.get('month', '?')}/{event.get('day', '?')}/{event.get('year', '?')}\n"
-                    f"Description: {event.get('description', '—')}"
-                )
-                chip.setToolTip(tooltip)
+                names = "\n".join(f"• {e.get('entity_name', '?')}" for e in group_events[:8])
+                if count > 8:
+                    names += f"\n… and {count - 8} more"
+                chip.setToolTip(f"{label_text}\n{names}")
                 layout.addWidget(chip)
 
-            if len(self.events) > 3:
-                more = QLabel(f"+{len(self.events) - 3} more")
+            if len(sorted_types) > max_lines:
+                more = QLabel(f"+{len(sorted_types) - max_lines} more type(s)")
                 more.setStyleSheet(
                     f"font-size: 8px; color: {_TEXT_DIM}; background: transparent;"
                 )
@@ -170,6 +235,89 @@ class CalendarDayWidget(QFrame):
         self.setMaximumHeight(115)
 
 
+class DateDetailDialog(QDialog):
+    """Shows full details for every event on a single calendar day."""
+
+    def __init__(self, year: int, month: int, day: int, events: list, parent=None):
+        super().__init__(parent)
+        month_name = _MONTH_NAMES[month - 1] if 1 <= month <= 12 else str(month)
+        self.setWindowTitle(f"{month_name} {day}, {year}")
+        self.setMinimumSize(420, 320)
+        self._init_ui(month_name, day, year, events)
+
+    def _init_ui(self, month_name, day, year, events):
+        layout = QVBoxLayout(self)
+
+        header = QLabel(f"{month_name} {day}, {year}")
+        header_font = QFont("Cambria", 14)
+        header_font.setBold(True)
+        header.setFont(header_font)
+        header.setStyleSheet(f"color: {_GOLD};")
+        layout.addWidget(header)
+
+        count_label = QLabel(f"{len(events)} event{'s' if len(events) != 1 else ''}")
+        count_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+        layout.addWidget(count_label)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setSpacing(8)
+
+        sorted_events = sorted(
+            events,
+            key=lambda e: (_type_label(e.get("type", "")), e.get("entity_name", "")),
+        )
+        for event in sorted_events:
+            container_layout.addWidget(self._build_event_row(event))
+        container_layout.addStretch()
+
+        scroll.setWidget(container)
+        layout.addWidget(scroll, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self.reject)
+        buttons.button(QDialogButtonBox.Close).clicked.connect(self.accept)
+        layout.addWidget(buttons)
+
+    def _build_event_row(self, event: dict) -> QFrame:
+        frame = QFrame()
+        frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {_BG_CARD};
+                border: 1px solid {_BORDER_SUBTLE};
+                border-radius: 4px;
+            }}
+        """)
+        row_layout = QVBoxLayout(frame)
+        row_layout.setContentsMargins(8, 6, 8, 6)
+        row_layout.setSpacing(2)
+
+        color = _entity_color(event.get("entity", ""))
+
+        name_label = QLabel(event.get("entity_name", "Unknown"))
+        name_font = QFont("Cambria", 11)
+        name_font.setBold(True)
+        name_label.setFont(name_font)
+        name_label.setStyleSheet(f"color: {color}; background: transparent;")
+        row_layout.addWidget(name_label)
+
+        type_label = QLabel(_type_label(event.get("type", "")))
+        type_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
+        row_layout.addWidget(type_label)
+
+        if event.get("description"):
+            desc_label = QLabel(event["description"])
+            desc_label.setWordWrap(True)
+            desc_label.setStyleSheet(f"color: {_TEXT}; font-size: 10px; background: transparent;")
+            row_layout.addWidget(desc_label)
+
+        return frame
+
+
 class CalendarWidget(QWidget):
     """
     A full monthly calendar view.
@@ -179,26 +327,30 @@ class CalendarWidget(QWidget):
     def __init__(self, year: int, events_data: list = None, parent=None):
         super().__init__(parent)
         self.year = year
-        self.events_data = events_data or []
+        self.all_events = events_data or []
+        self.events_data = list(self.all_events)
         self.current_month = 1
 
         self.events_by_date = self._organize_events_by_date()
         self._init_ui()
+        self._populate_type_filter()
+        self._refresh_month_availability()
         self.update_calendar()
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def set_events(self, events_data: list):
         """Replace events and redraw."""
-        self.events_data = events_data
-        self.events_by_date = self._organize_events_by_date()
-        self.update_calendar()
+        self.all_events = events_data or []
+        self._populate_type_filter()
+        self._apply_filter()
 
     def set_year(self, year: int):
         """Change the year and redraw."""
         self.year = year
         self._year_label.setText(str(year))
         self.events_by_date = self._organize_events_by_date()
+        self._refresh_month_availability()
         self.update_calendar()
 
     def go_to_month(self, month: int):
@@ -230,6 +382,49 @@ class CalendarWidget(QWidget):
         """0 = Monday … 6 = Sunday"""
         return date(year, month, 1).weekday()
 
+    def _populate_type_filter(self):
+        """Refresh the filter dropdown's options to match the currently loaded events."""
+        types_present = sorted(
+            {e.get("type") for e in self.all_events if e.get("type")},
+            key=lambda t: _type_label(t),
+        )
+        previous_selection = (
+            self.type_filter_combo.currentData() if self.type_filter_combo.count() else None
+        )
+
+        self.type_filter_combo.blockSignals(True)
+        self.type_filter_combo.clear()
+        self.type_filter_combo.addItem("All Event Types", None)
+        for type_key in types_present:
+            self.type_filter_combo.addItem(_type_label(type_key), type_key)
+
+        restored_index = (
+            self.type_filter_combo.findData(previous_selection) if previous_selection else 0
+        )
+        self.type_filter_combo.setCurrentIndex(restored_index if restored_index >= 0 else 0)
+        self.type_filter_combo.blockSignals(False)
+
+    def _apply_filter(self):
+        """Rebuild events_data/events_by_date based on the active type filter."""
+        active_type = self.type_filter_combo.currentData() if self.type_filter_combo.count() else None
+        if active_type:
+            self.events_data = [e for e in self.all_events if e.get("type") == active_type]
+        else:
+            self.events_data = list(self.all_events)
+
+        self.events_by_date = self._organize_events_by_date()
+        self._refresh_month_availability()
+        self.update_calendar()
+
+    def _refresh_month_availability(self):
+        """Grey out (disable) months in the dropdown that have no events."""
+        months_with_events = {e.get("month") for e in self.events_data if e.get("month")}
+        model = self.month_combo.model()
+        for month in range(1, 13):
+            item = model.item(month - 1)
+            if item is not None:
+                item.setEnabled(month in months_with_events)
+
     # ── UI construction ─────────────────────────────────────────────────────────
 
     def _init_ui(self):
@@ -247,22 +442,10 @@ class CalendarWidget(QWidget):
         self.prev_button.clicked.connect(self.previous_month)
 
         self.month_combo = QComboBox()
-        self.month_combo.addItems(
-            [
-                "January",
-                "February",
-                "March",
-                "April",
-                "May",
-                "June",
-                "July",
-                "August",
-                "September",
-                "October",
-                "November",
-                "December",
-            ]
-        )
+        self.month_combo.addItems(_MONTH_NAMES)
+        self.month_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.month_combo.setMinimumContentsLength(10)
+        self.month_combo.setMaximumWidth(150)
         self.month_combo.setCurrentIndex(self.current_month - 1)
         self.month_combo.currentIndexChanged.connect(self._on_month_changed)
 
@@ -288,13 +471,29 @@ class CalendarWidget(QWidget):
         )
 
         header.addWidget(self.prev_button)
-        header.addWidget(self.month_combo, 2)
+        header.addWidget(self.month_combo)
         header.addWidget(self.next_button)
         header.addSpacing(8)
         header.addWidget(self._year_label)
         header.addStretch()
         header.addWidget(self.summary_label)
         root.addLayout(header)
+
+        # ── Filter row ──────────────────────────────────────────────────────
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(6)
+
+        filter_label = QLabel("Filter:")
+        filter_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px;")
+
+        self.type_filter_combo = QComboBox()
+        self.type_filter_combo.addItem("All Event Types", None)
+        self.type_filter_combo.currentIndexChanged.connect(self._on_filter_changed)
+
+        filter_row.addWidget(filter_label)
+        filter_row.addWidget(self.type_filter_combo, 1)
+        filter_row.addStretch(2)
+        root.addLayout(filter_row)
 
         # ── Weekday name row ─────────────────────────────────────────────────
         weekday_row = QGridLayout()
@@ -361,6 +560,8 @@ class CalendarWidget(QWidget):
                     cell = CalendarDayWidget(
                         day_counter, day_events, is_current_month=True
                     )
+                    if day_events:
+                        cell.day_clicked.connect(self._show_day_detail)
                     day_counter += 1
                 else:
                     cell = CalendarDayWidget(0, [], is_current_month=False)
@@ -383,11 +584,18 @@ class CalendarWidget(QWidget):
         else:
             self.summary_label.setText(f"{month_name} {self.year} — no events")
 
+    def _show_day_detail(self, day_number: int, events: list):
+        dialog = DateDetailDialog(self.year, self.current_month, day_number, events, parent=self)
+        dialog.exec()
+
     # ── Navigation ──────────────────────────────────────────────────────────────
 
     def _on_month_changed(self, index: int):
         self.current_month = index + 1
         self.update_calendar()
+
+    def _on_filter_changed(self, index: int):
+        self._apply_filter()
 
     def previous_month(self):
         if self.current_month > 1:

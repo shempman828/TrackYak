@@ -22,6 +22,7 @@ Architecture:
 """
 
 import re
+import time
 from collections import defaultdict
 from difflib import SequenceMatcher
 from typing import Dict, List
@@ -88,7 +89,9 @@ def _get_primary_artist_string(track) -> str:
     val = getattr(track, "primary_artist_names", None)
     if val and val != "Unknown Artist":
         return str(val)
-    artist_roles = getattr(track, "artist_roles", None)
+    # Some rows have a stray None entry in artist_roles (orphaned
+    # association) — filter those out before searching.
+    artist_roles = [ar for ar in (getattr(track, "artist_roles", None) or []) if ar]
     if artist_roles:
         primary = next(
             (
@@ -98,9 +101,8 @@ def _get_primary_artist_string(track) -> str:
             ),
             None,
         )
-        if primary:
-            return getattr(primary.artist, "artist_name", "") or ""
-        return getattr(artist_roles[0].artist, "artist_name", "") or ""
+        chosen = primary or artist_roles[0]
+        return getattr(chosen.artist, "artist_name", "") or ""
     return ""
 
 
@@ -124,13 +126,15 @@ class DuplicateScanWorker(QThread):
     Signals:
         progress(current, total)  - for the progress bar
         status(message)           - human-readable status string
-        finished(groups)          - list[list[track]], one inner list per group
+        finished(groups, stopped_early) - list[list[track]], one inner list
+                                    per group, plus whether the user stopped
+                                    the scan before it finished
         error(message)
     """
 
     progress = Signal(int, int)
     status = Signal(str)
-    finished = Signal(list)
+    finished = Signal(list, bool)  # groups, stopped_early
     error = Signal(str)
 
     def __init__(
@@ -149,6 +153,7 @@ class DuplicateScanWorker(QThread):
         self._use_album = use_album
         self._use_year = use_year
         self._stop_requested = False
+        self._stopped_early = False
 
     def stop(self):
         self._stop_requested = True
@@ -156,7 +161,7 @@ class DuplicateScanWorker(QThread):
     def run(self):
         try:
             groups = self._find_duplicates()
-            self.finished.emit(groups)
+            self.finished.emit(groups, self._stopped_early)
         except Exception as e:
             logger.error(f"DuplicateScanWorker error: {e}", exc_info=True)
             self.error.emit(str(e))
@@ -184,16 +189,49 @@ class DuplicateScanWorker(QThread):
         track_name always contributes (weight 2).
         Optional fields each have weight 1, and are skipped when either
         track has no value for that field.
+
+        Two cheap, always-on signals guard against the classic false-positive
+        case of classical music movements ("Symphony No. 5: I. Allegro" vs
+        "...: II. Andante") which have near-identical track names but are
+        clearly different tracks:
+          - movement_number: if both tracks have one and they differ, the
+            pair can never be a duplicate — short-circuit immediately.
+          - duration: real duplicates of the same recording have very
+            similar lengths; different movements/tracks usually don't.
         """
-        weighted_sum = 0.0
-        weight_total = 0.0
+        mv_a = getattr(a, "movement_number", None)
+        mv_b = getattr(b, "movement_number", None)
+        if mv_a is not None and mv_b is not None and mv_a != mv_b:
+            return 0.0
 
         name_score = _similarity(
             getattr(a, "track_name", "") or "",
             getattr(b, "track_name", "") or "",
         )
-        weighted_sum += name_score * 2
-        weight_total += 2
+        weighted_sum = name_score * 2
+        weight_total = 2.0
+
+        dur_a = getattr(a, "duration", None)
+        dur_b = getattr(b, "duration", None)
+        if dur_a and dur_b:
+            diff_ratio = abs(dur_a - dur_b) / max(dur_a, dur_b)
+            weighted_sum += max(0.0, 1.0 - diff_ratio)
+            weight_total += 1
+
+        # Early exit: the remaining optional fields (artist/album/year) each
+        # add at most weight 1. If even a perfect score on all of them
+        # couldn't reach the threshold, skip the relationship lookups
+        # (artist/album require walking ORM relationships) entirely. This is
+        # what makes high thresholds noticeably faster than low ones.
+        remaining = (
+            (1 if self._use_artist else 0)
+            + (1 if self._use_album else 0)
+            + (1 if self._use_year else 0)
+        )
+        if remaining:
+            best_possible = (weighted_sum + remaining) / (weight_total + remaining)
+            if best_possible < self._threshold:
+                return weighted_sum / weight_total
 
         if self._use_artist:
             sa, sb = _get_primary_artist_string(a), _get_primary_artist_string(b)
@@ -256,14 +294,18 @@ class DuplicateScanWorker(QThread):
 
         checked = 0
         last_emitted = 0
+        stopped = False
 
         for block_tracks in blocks.values():
             if self._stop_requested:
-                logger.info("Duplicate scan stopped by user")
+                stopped = True
                 break
 
             m = len(block_tracks)
             for i in range(m):
+                if self._stop_requested:
+                    stopped = True
+                    break
                 for j in range(i + 1, m):
                     score = self._score_pair(block_tracks[i], block_tracks[j])
                     if score >= self._threshold:
@@ -275,8 +317,18 @@ class DuplicateScanWorker(QThread):
                     if checked - last_emitted >= 500:
                         self.progress.emit(checked, total_pairs)
                         last_emitted = checked
+                        if self._stop_requested:
+                            stopped = True
+                            break
+                if stopped:
+                    break
+            if stopped:
+                break
 
-        self.progress.emit(total_pairs, total_pairs)
+        self._stopped_early = stopped
+        if stopped:
+            logger.info(f"Duplicate scan stopped by user after {checked:,} pairs")
+        self.progress.emit(checked if stopped else total_pairs, total_pairs)
 
         # Collect groups of size >= 2
         buckets: Dict[int, list] = defaultdict(list)
@@ -309,6 +361,7 @@ class DuplicateFinderDialog(QDialog):
         self._worker: DuplicateScanWorker | None = None
         self._groups: List[List] = []
         self._current_group_tracks: List = []
+        self._scan_start_time: float | None = None
 
         self.setWindowTitle("Duplicate Track Finder")
         self.setMinimumSize(1100, 700)
@@ -345,23 +398,31 @@ class DuplicateFinderDialog(QDialog):
 
         self.chk_artist = QCheckBox("Artist")
         self.chk_artist.setChecked(True)
-        self.chk_artist.setToolTip("Include primary artist in similarity scoring")
+        self.chk_artist.setToolTip(
+            "Include primary artist in similarity scoring. Only takes effect "
+            "on the next scan — click Scan Library to apply."
+        )
+        self.chk_artist.toggled.connect(self._on_settings_changed)
         layout.addWidget(self.chk_artist)
 
         self.chk_album = QCheckBox("Album")
         self.chk_album.setChecked(False)
         self.chk_album.setToolTip(
             "Include album name — useful if the same song appears on "
-            "multiple albums and you want to keep both"
+            "multiple albums and you want to keep both. Only takes effect "
+            "on the next scan — click Scan Library to apply."
         )
+        self.chk_album.toggled.connect(self._on_settings_changed)
         layout.addWidget(self.chk_album)
 
         self.chk_year = QCheckBox("Year")
         self.chk_year.setChecked(False)
         self.chk_year.setToolTip(
             "Require matching release year — reduces false positives "
-            "for covers and remasters"
+            "for covers and remasters. Only takes effect on the next scan "
+            "— click Scan Library to apply."
         )
+        self.chk_year.toggled.connect(self._on_settings_changed)
         layout.addWidget(self.chk_year)
 
         layout.addSpacing(16)
@@ -374,6 +435,7 @@ class DuplicateFinderDialog(QDialog):
         self.threshold_slider.setTickPosition(QSlider.TicksBelow)
         self.threshold_slider.setFixedWidth(180)
         self.threshold_slider.valueChanged.connect(self._on_threshold_changed)
+        self.threshold_slider.valueChanged.connect(self._on_settings_changed)
         layout.addWidget(self.threshold_slider)
 
         self.threshold_label = QLabel("85%")
@@ -462,6 +524,7 @@ class DuplicateFinderDialog(QDialog):
         self.track_view.load_data([])
         self.group_title_label.setText("Scan in progress...")
         self.status_label.setText(f"Preparing to scan {len(all_tracks):,} tracks...")
+        self._scan_start_time = time.monotonic()
 
         # Indeterminate bar while building blocks
         self.progress_bar.setRange(0, 0)
@@ -495,22 +558,52 @@ class DuplicateFinderDialog(QDialog):
     def _on_progress(self, current: int, total: int):
         self.progress_bar.setRange(0, total)
         self.progress_bar.setValue(current)
-        self.progress_bar.setFormat(f"Comparing pairs: {current:,} / {total:,}")
 
-    def _on_scan_finished(self, groups: list):
+        eta = self._estimate_remaining(current, total)
+        if eta:
+            self.progress_bar.setFormat(
+                f"Comparing pairs: {current:,} / {total:,}  (ETA: {eta})"
+            )
+        else:
+            self.progress_bar.setFormat(f"Comparing pairs: {current:,} / {total:,}")
+
+    def _estimate_remaining(self, current: int, total: int) -> str | None:
+        """Return a human-readable ETA string, or None if not enough data yet."""
+        if not self._scan_start_time or current <= 0 or current >= total:
+            return None
+
+        elapsed = time.monotonic() - self._scan_start_time
+        if elapsed < 1.0:
+            return None
+
+        rate = current / elapsed
+        if rate <= 0:
+            return None
+
+        remaining_seconds = int((total - current) / rate)
+        if remaining_seconds < 60:
+            return f"{remaining_seconds}s"
+        minutes, seconds = divmod(remaining_seconds, 60)
+        return f"{minutes}m {seconds:02d}s"
+
+    def _on_scan_finished(self, groups: list, stopped_early: bool = False):
         self._groups = groups
         self.progress_bar.hide()
         self.scan_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self._populate_group_list()
 
+        prefix = "Stopped early - partial results. " if stopped_early else ""
+
         if not groups:
-            self.status_label.setText("No duplicates found with the current settings.")
+            self.status_label.setText(
+                f"{prefix}No duplicates found with the current settings."
+            )
             self.group_title_label.setText("No duplicate groups found.")
         else:
             total_tracks = sum(len(g) for g in groups)
             self.status_label.setText(
-                f"Found {len(groups):,} duplicate group(s) involving "
+                f"{prefix}Found {len(groups):,} duplicate group(s) involving "
                 f"{total_tracks:,} tracks."
             )
             self.group_title_label.setText(
@@ -589,6 +682,15 @@ class DuplicateFinderDialog(QDialog):
 
     def _on_threshold_changed(self, value: int):
         self.threshold_label.setText(f"{value}%")
+
+    def _on_settings_changed(self):
+        """Remind the user that scan settings only apply on the next scan."""
+        if self._worker and self._worker.isRunning():
+            return
+        if self._groups:
+            self.status_label.setText(
+                "Settings changed — click Scan Library to apply them."
+            )
 
     def closeEvent(self, event):
         if self._worker and self._worker.isRunning():

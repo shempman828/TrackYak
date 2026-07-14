@@ -315,8 +315,11 @@ class MenuBar:
 
     def show_duplicate_finder(self):
         """Open the Duplicate Track Finder dialog."""
-        dialog = DuplicateFinderDialog(self.controller)
-        dialog.exec_()
+        if not hasattr(self, "duplicate_finder_dialog"):
+            self.duplicate_finder_dialog = DuplicateFinderDialog(self.controller, self)
+        self.duplicate_finder_dialog.show()
+        self.duplicate_finder_dialog.raise_()
+        self.duplicate_finder_dialog.activateWindow()
 
     def show_about_dialog(self):
         description = """TrackYak is a powerful application for tracking and managing your music library."""
