@@ -125,7 +125,7 @@ class TrackViewDataMixin:
 
     @staticmethod
     def _format_primary_artist_names(names: list) -> str:
-        """Oxford-comma join, mirroring Track.primary_artist_names in db_tables.py."""
+        """Oxford-comma join, mirroring Track.primary_artist_names in src/db_tables/track.py."""
         names = [n.strip() for n in names if n and n.strip()]
         if not names:
             return "Unknown Artist"
