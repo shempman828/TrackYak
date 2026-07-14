@@ -139,19 +139,16 @@ class TrackViewActionsMixin:
         logger.warning("Queue manager not found in controller")
         return None
 
-    def _add_all_to_queue(self, shuffle: bool = False):
+    def _add_all_to_queue(self):
         qm = self._get_queue_manager()
         if not qm:
             return
         tracks = list(self._all_tracks)
-        logger.info(
-            f"{'Shuffling' if shuffle else 'Adding'} {len(tracks):,} tracks to queue"
-        )
+        logger.info(f"Shuffling {len(tracks):,} tracks to queue")
         if len(tracks) > 500:
-            qm.add_tracks_async(tracks, shuffle=shuffle)
+            qm.add_tracks_async(tracks, shuffle=True)
         else:
-            if shuffle:
-                random.shuffle(tracks)
+            random.shuffle(tracks)
             qm.add_tracks_to_queue(tracks)
 
     def _add_filtered_to_queue(self, shuffle: bool = False):

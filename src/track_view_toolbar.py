@@ -57,10 +57,7 @@ class TrackViewToolbarMixin:
             lambda: self._add_filtered_to_queue(shuffle=True),
         )
         queue_menu.addSeparator()
-        queue_menu.addAction("Add Entire Library to Queue", self._add_all_to_queue)
-        queue_menu.addAction(
-            "Shuffle Entire Library", lambda: self._add_all_to_queue(shuffle=True)
-        )
+        queue_menu.addAction("Shuffle Entire Library", self._add_all_to_queue)
         queue_btn.setMenu(queue_menu)
 
         # ── "⋮ View" drop-down button ─────────────────────────────────────

@@ -222,12 +222,20 @@ track_edit
     multiple editing can capture variables that were not edited. Example: You are editing ten tracks. One track has a BPM of 120, the other nine are null. When saving the edits, it will try to apply 120bpm to all tracks even if I did not edit bpm.
 
 track_view.py
-    sorting by column freezes ui. Needs threaded with spinner and faster lookups
-    only activate a search on "enter" in the search bar instead of debounce timer
+
+
+track_view_actions.py
+
+track_view_data.py
     appending when sorted on_scroll crashes
-    add entire library to queue redundant with shuffle library to queue
-    Exception has occurred: DetachedInstanceError       (note: full exception trace is shown but execution is paused at: run)
+        Exception has occurred: DetachedInstanceError       (note: full exception trace is shown but execution is paused at: run)
 Parent instance <Track at 0x7f2f3fb75f90> is not bound to a Session; lazy load operation of attribute 'album' cannot proceed (Background on this error at: https://sqlalche.me/e/20/bhk3)
   File "/home/babs/PycharmProjects/MusicLibrary/src/track_view.py", line 84, in run (Current frame)
     album_obj = getattr(t, "album", None)
 sqlalchemy.orm.exc.DetachedInstanceError: Parent instance <Track at 0x7f2f3fb75f90> is not bound to a Session; lazy load operation of attribute 'album' cannot proceed (Background on this error at: https://sqlalche.me/e/20/bhk3)
+
+track_view_search.py
+    only activate a search on "enter" in the search bar instead of debounce timer
+
+track_view_filter.py
+    sorting by column freezes ui. Needs threaded with spinner and faster lookups
