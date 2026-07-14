@@ -3,12 +3,27 @@ NEW IDEAS
     ability to reorder artists?
 
 
+album_edit_overview.py
+    Description box is only one space tall
+    Remove search Wikipedia button
+    album artist name is too small
+
+album_edit_details.py
+    qcompleter on language, release type
+    move metadata complete to advanced
+
+album_edit_publisher&Places
+    making an edit changes tab, probably because of redrawing crash
+
 album_editing_relationship_helpers.py
     changing a relationship does not update tab
 
 
 album_view.py
-    editing an album resets to top of scroll. If the widget is redrawn due to album edit, it should remember last location.
+    editing an album resets to top of scroll. If the widget is redrawn due to album edit, it should now redraw on an album edit.
+    Add random sort option
+    There are lots of sorting options. I like the options but it needs better organization
+
 
 artist alias management
 
@@ -26,6 +41,9 @@ artist_edit_alias.py
     check for existing artist by alias first. Ask if you want to merge records into artist
 
 artist_edit_basic.py
+    Profile picture does not need label
+    Do not force profile pic aspect ratio
+    Hide "disbanded" when current is selected
 
 
 artist_edit_discography
@@ -36,6 +54,7 @@ artist_edit_influences
 
 arist_edit_member.py
     Cannot edit membership information once created
+    group add member needs qcompleter
 
 artist_edit_places
 
