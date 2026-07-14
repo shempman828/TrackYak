@@ -250,7 +250,7 @@ class PlaylistView(QWidget):
 
         children = sorted(
             children_map.get(parent_id, []),
-            key=lambda x: getattr(x, "created_date", getattr(x, "playlist_name", "")),
+            key=lambda x: getattr(x, "playlist_name", "").lower(),
         )
 
         for child in children:
