@@ -9,9 +9,6 @@ from src.db_mapping_tracks import TRACK_FIELDS
 # How many rows to load into the Qt model in each batch.
 LAZY_BATCH_SIZE = 200
 
-# Search debounce delay in ms — prevents filtering on every keystroke.
-SEARCH_DEBOUNCE_MS = 300
-
 # Sentinel value for the "All Columns" search option.
 SEARCH_ALL = "__all__"
 
@@ -69,3 +66,36 @@ class FilterWorker(QThread):
                     results.append(t)
 
         self.finished.emit(results)
+
+
+class SortWorker(QThread):
+    """
+    Runs a column sort on a background thread so large libraries don't
+    freeze the UI while sorting.
+
+    `field_value_fn` must only read already-loaded scalar data (plain Column
+    attributes or precomputed lookup caches) — never touch a lazy-loaded ORM
+    relationship, since the DB session is main-thread-only.
+    """
+
+    finished = Signal(list)
+
+    def __init__(self, tracks: list, field_value_fn, field_name: str, ascending: bool):
+        super().__init__()
+        self._tracks = tracks
+        self._field_value = field_value_fn
+        self._field_name = field_name
+        self._ascending = ascending
+
+    def run(self):
+        def sort_key(track):
+            raw = self._field_value(track, self._field_name)
+            if raw is None:
+                # Put missing values at the end regardless of direction
+                return (1, "")
+            if isinstance(raw, (int, float)):
+                return (0, raw)
+            return (0, str(raw).lower())
+
+        result = sorted(self._tracks, key=sort_key, reverse=not self._ascending)
+        self.finished.emit(result)

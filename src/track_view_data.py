@@ -3,11 +3,20 @@ track_view_data.py — lazy DB loading, batch pagination, sorting, and status
 text for TrackView.
 """
 
+from sqlalchemy import select
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QStandardItem
 
+from src.db_tables import Album, Artist, Disc, Role, TrackArtistRole
 from src.logger_config import logger
-from src.track_view_filter import LAZY_BATCH_SIZE
+from src.track_view_filter import LAZY_BATCH_SIZE, SortWorker
+
+# Track fields whose value comes from a relationship rather than a plain
+# Column. Reading these lazily (`getattr(track, field_name)`) triggers a
+# separate DB query per track — fine for one row, ruinous for a full-library
+# sort. `_build_lookup_caches` fetches all of them in a few bulk queries.
+_ALBUM_DERIVED_FIELDS = ("album_name", "release_year", "release_month", "release_day")
 
 
 class TrackViewDataMixin:
@@ -30,6 +39,7 @@ class TrackViewDataMixin:
                 logger.error(f"Error fetching tracks: {e}")
                 self._all_tracks = []
 
+        self._build_lookup_caches()
         self._filter_active = False
         self._filtered_tracks = []
         self._loaded_count = 0
@@ -46,12 +56,99 @@ class TrackViewDataMixin:
         """External callers (e.g. main_window refresh) can push a new track list."""
         self._all_tracks = tracks or []
         self._tracks_loaded = True
+        self._build_lookup_caches()
         self._filter_active = False
         self._filtered_tracks = []
         self._loaded_count = 0
         self.model.setRowCount(0)
         self._append_next_batch(self._all_tracks)
         self._update_status()
+
+    def _build_lookup_caches(self):
+        """
+        Bulk-fetch every relationship-derived value (album info, disc number,
+        primary artist names) in a handful of JOIN queries, keyed by the
+        already-loaded FK/PK columns (album_id, disc_id, track_id).
+
+        This is what makes sorting fast: `_field_value` below never has to
+        lazy-load a relationship per track, so sort_key() is a pure in-memory
+        dict lookup and is safe to run on the background SortWorker thread
+        (the ORM session itself is main-thread-only).
+        """
+        session = self.controller.get.session
+
+        self._album_cache = {
+            album_id: {
+                "album_name": name,
+                "release_year": year,
+                "release_month": month,
+                "release_day": day,
+            }
+            for album_id, name, year, month, day in session.execute(
+                select(
+                    Album.album_id,
+                    Album.album_name,
+                    Album.release_year,
+                    Album.release_month,
+                    Album.release_day,
+                )
+            )
+        }
+
+        self._disc_number_cache = dict(
+            session.execute(select(Disc.disc_id, Disc.disc_number)).all()
+        )
+
+        by_track: dict[int, list[tuple[str, str]]] = {}
+        rows = session.execute(
+            select(TrackArtistRole.track_id, Artist.artist_name, Role.role_name)
+            .join(Artist, TrackArtistRole.artist_id == Artist.artist_id)
+            .join(Role, TrackArtistRole.role_id == Role.role_id)
+            # Match the (track_id, artist_id, role_id) composite PK index
+            # order that a per-track lazy load would return, so cached names
+            # come out in the same order as Track.primary_artist_names.
+            .order_by(
+                TrackArtistRole.track_id,
+                TrackArtistRole.artist_id,
+                TrackArtistRole.role_id,
+            )
+        ).all()
+        for track_id, artist_name, role_name in rows:
+            by_track.setdefault(track_id, []).append((artist_name, role_name))
+
+        self._artist_name_cache = {
+            track_id: self._format_primary_artist_names(
+                [name for name, role_name in entries if role_name == "Primary Artist"]
+            )
+            for track_id, entries in by_track.items()
+        }
+
+    @staticmethod
+    def _format_primary_artist_names(names: list) -> str:
+        """Oxford-comma join, mirroring Track.primary_artist_names in db_tables.py."""
+        names = [n.strip() for n in names if n and n.strip()]
+        if not names:
+            return "Unknown Artist"
+        if len(names) == 1:
+            return names[0]
+        if len(names) == 2:
+            return f"{names[0]} & {names[1]}"
+        return f"{', '.join(names[:-1])}, & {names[-1]}"
+
+    def _field_value(self, track, field_name: str):
+        """
+        Return the raw value for `field_name`, using the precomputed caches
+        for relationship-derived fields instead of touching the ORM
+        relationship directly.
+        """
+        if field_name == "primary_artist_names":
+            return self._artist_name_cache.get(track.track_id, "Unknown Artist")
+        if field_name == "disc_number":
+            return self._disc_number_cache.get(track.disc_id)
+        if field_name in _ALBUM_DERIVED_FIELDS:
+            album = self._album_cache.get(track.album_id)
+            return album.get(field_name) if album else None
+        return getattr(track, field_name, None)
 
     def _append_next_batch(self, source_list: list):
         """Push the next LAZY_BATCH_SIZE rows from source_list into the Qt model."""
@@ -65,10 +162,7 @@ class TrackViewDataMixin:
             row_items = []
             for field_name in column_keys:
                 field_config = self.track_fields.get(field_name)
-                value = getattr(track, field_name, None)
-
-                if field_name == "artist_name":
-                    value = self._get_artist_name(track)
+                value = self._field_value(track, field_name)
 
                 display_value = self._format_value(value, field_name, field_config)
                 item = QStandardItem(display_value)
@@ -92,7 +186,18 @@ class TrackViewDataMixin:
         - Clicking the same column again flips between ascending and descending.
         - If a search/filter is active we sort only the filtered results.
         - Sorting always resets lazy loading so you see the top of the sorted list first.
+        - The actual sort runs on a background SortWorker so a large library
+          doesn't freeze the UI; the table is disabled and the status label
+          shows "Sorting…" until it finishes.
         """
+        if self._sort_worker and self._sort_worker.isRunning():
+            self._sort_worker.quit()
+            self._sort_worker.wait()
+
+        column_keys = list(self.columns.keys())
+        if logical_index < 0 or logical_index >= len(column_keys):
+            return
+
         if self._sort_column_index == logical_index:
             self._sort_ascending = not self._sort_ascending
         else:
@@ -105,46 +210,31 @@ class TrackViewDataMixin:
             Qt.AscendingOrder if self._sort_ascending else Qt.DescendingOrder,
         )
 
-        # Pick the right source list: filtered results or everything
-        if self._filter_active:
-            self._filtered_tracks = self._sorted(self._filtered_tracks, logical_index)
-        else:
-            self._all_tracks = self._sorted(self._all_tracks, logical_index)
+        field_name = column_keys[logical_index]
+        source = self._filtered_tracks if self._filter_active else self._all_tracks
 
-        # Reset lazy loading and repopulate from the now-sorted list
+        self.table.setEnabled(False)
+        self.status_label.setText("Sorting…")
+
+        self._sort_worker = SortWorker(
+            source, self._field_value, field_name, self._sort_ascending
+        )
+        self._sort_worker.finished.connect(self._on_sort_done)
+        self._sort_worker.start()
+
+    def _on_sort_done(self, sorted_tracks: list):
+        """Called on the main thread once the background SortWorker finishes."""
+        if self._filter_active:
+            self._filtered_tracks = sorted_tracks
+        else:
+            self._all_tracks = sorted_tracks
+
         self._loaded_count = 0
         self.model.setRowCount(0)
         source = self._filtered_tracks if self._filter_active else self._all_tracks
         self._append_next_batch(source)
+        self.table.setEnabled(True)
         self._update_status()
-
-    def _sorted(self, track_list: list, logical_index: int) -> list:
-        """
-        Return a new list sorted by the column at `logical_index`.
-
-        Uses the same numeric UserRole data that _append_next_batch stores,
-        so numeric fields (duration, file_size, …) sort as numbers.
-        """
-        column_keys = list(self.columns.keys())
-        if logical_index < 0 or logical_index >= len(column_keys):
-            return track_list
-
-        field_name = column_keys[logical_index]
-
-        def sort_key(track):
-            if field_name == "artist_name":
-                raw = self._get_artist_name(track)
-            else:
-                raw = getattr(track, field_name, None)
-
-            if raw is None:
-                # Put missing values at the end regardless of direction
-                return (1, "")
-            if isinstance(raw, (int, float)):
-                return (0, raw)
-            return (0, str(raw).lower())
-
-        return sorted(track_list, key=sort_key, reverse=not self._sort_ascending)
 
     def _on_scroll(self, value: int):
         scrollbar = self.table.verticalScrollBar()

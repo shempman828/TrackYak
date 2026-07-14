@@ -55,6 +55,13 @@ class TrackViewActionsMixin:
     # =========================================================================
 
     def _get_artist_name(self, track) -> str:
+        # Prefer the bulk-fetched cache (built in track_view_data.py) — a
+        # plain dict lookup instead of a per-track relationship lazy-load.
+        # This also makes it safe to call from the background search/sort
+        # worker threads, since it never touches the ORM session.
+        cache = getattr(self, "_artist_name_cache", None)
+        if cache is not None:
+            return cache.get(track.track_id, "Unknown Artist")
         try:
             name = getattr(track, "primary_artist_names", None)
             if name:

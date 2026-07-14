@@ -9,6 +9,15 @@ from src.track_view_filter import FilterWorker
 class TrackViewSearchMixin:
     """Kicks off and consumes results from the background FilterWorker."""
 
+    def _on_search_text_changed(self, text: str):
+        """
+        Search only runs on Enter (see _build_toolbar's returnPressed wiring).
+        The exception is clearing the field, which restores the full list
+        immediately rather than leaving a stale filtered view on screen.
+        """
+        if not text.strip():
+            self._apply_search_filter()
+
     def _apply_search_filter(self):
         """
         Kicks off a background worker to filter tracks without blocking the UI.

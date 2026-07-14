@@ -2,11 +2,10 @@
 track_view_toolbar.py — toolbar construction and column-search picker for TrackView.
 """
 
-from PySide6.QtCore import QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QMenu, QToolButton
 
-from src.track_view_filter import SEARCH_ALL, SEARCH_DEBOUNCE_MS
+from src.track_view_filter import SEARCH_ALL
 
 
 class TrackViewToolbarMixin:
@@ -22,11 +21,8 @@ class TrackViewToolbarMixin:
         self.search_bar.setPlaceholderText("Search tracks…")
         self.search_bar.setClearButtonEnabled(True)
 
-        self._search_timer = QTimer(self)
-        self._search_timer.setSingleShot(True)
-        self._search_timer.setInterval(SEARCH_DEBOUNCE_MS)
-        self._search_timer.timeout.connect(self._apply_search_filter)
-        self.search_bar.textChanged.connect(self._search_timer.start)
+        self.search_bar.returnPressed.connect(self._apply_search_filter)
+        self.search_bar.textChanged.connect(self._on_search_text_changed)
 
         # Column selector for targeted search — shown as a drop-down button with
         # category submenus (populated after _initialize_columns() via _populate_search_combo).
