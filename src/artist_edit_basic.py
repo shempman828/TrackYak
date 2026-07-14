@@ -186,12 +186,10 @@ class BasicTab(QWidget):
         self.end_month_edit = OptionalIntEdit("MM")
         self.end_day_edit = OptionalIntEdit("DD")
         self.end_date_label = QLabel("Died / Disbanded:")
-        form.addRow(
-            self.end_date_label,
-            self._build_date_row(
-                self.end_year_edit, self.end_month_edit, self.end_day_edit
-            ),
+        self.end_date_row = self._build_date_row(
+            self.end_year_edit, self.end_month_edit, self.end_day_edit
         )
+        form.addRow(self.end_date_label, self.end_date_row)
 
         # Read-only computed stats: age, career span, track count
         stats_row = QHBoxLayout()
@@ -254,7 +252,7 @@ class BasicTab(QWidget):
         return grp
 
     def _build_picture_group(self):
-        pic_grp = QGroupBox("Profile Picture")
+        pic_grp = QGroupBox()
         pic_grp.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         pic_layout = QVBoxLayout(pic_grp)
 
@@ -365,6 +363,8 @@ class BasicTab(QWidget):
         self.end_year_edit.setEnabled(not is_active)
         self.end_month_edit.setEnabled(not is_active)
         self.end_day_edit.setEnabled(not is_active)
+        self.end_date_label.setVisible(not is_active)
+        self.end_date_row.setVisible(not is_active)
         if is_active:
             self.end_year_edit.clear()
             self.end_month_edit.clear()
@@ -410,7 +410,7 @@ class BasicTab(QWidget):
             self.pic_label.setText("")
             self.pic_label.setPixmap(
                 px.scaled(
-                    self.pic_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                    self.pic_label.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation
                 )
             )
 
