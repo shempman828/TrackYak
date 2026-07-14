@@ -144,12 +144,21 @@ class AlbumsTab(_BaseTab):
         self.tracks = tracks
 
         if self.is_multi:
-            self._primary_label.setText(
-                "(Select a single track to manage album relationships)"
-            )
+            track_albums = [getattr(t, "album", None) for t in self.tracks]
+            album_ids = {a.album_id if a else None for a in track_albums}
+            if len(album_ids) == 1:
+                album = track_albums[0]
+                self._primary_label.setText(
+                    album.album_name if album else "— (none)"
+                )
+                self._remove_primary_btn.setEnabled(bool(album))
+            else:
+                self._primary_label.setText(
+                    f"(multiple albums across {len(self.tracks)} tracks)"
+                )
+                self._remove_primary_btn.setEnabled(True)
             self._open_primary_btn.setEnabled(False)
-            self._remove_primary_btn.setEnabled(False)
-            self._set_primary_btn.setEnabled(False)
+            self._set_primary_btn.setEnabled(len(self._album_search.text().strip()) >= 2)
             self._virt_add_btn.setEnabled(False)
             self._virtual_table.setRowCount(0)
             return
@@ -258,48 +267,109 @@ class AlbumsTab(_BaseTab):
         if not album:
             QMessageBox.warning(self, "Error", "Could not resolve or create album.")
             return
-        try:
-            self.controller.update.update_entity(
-                "Track", self.track.track_id, album_id=album.album_id
+
+        if self.is_multi:
+            confirm = QMessageBox.question(
+                self,
+                "Set Primary Album",
+                f"Set '{album.album_name}' as the primary album for all "
+                f"{len(self.tracks)} selected tracks?",
+                QMessageBox.Yes | QMessageBox.No,
             )
-        except Exception as e:
-            logger.error(f"Failed to set primary album: {e}")
-            QMessageBox.warning(self, "Error", f"Failed to set album:\n{e}")
-            return
+            if confirm != QMessageBox.Yes:
+                return
+            errors = []
+            for track in self.tracks:
+                try:
+                    self.controller.update.update_entity(
+                        "Track", track.track_id, album_id=album.album_id
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to set primary album for track {track.track_id}: {e}"
+                    )
+                    errors.append(str(track.track_id))
+            if errors:
+                QMessageBox.warning(
+                    self,
+                    "Error",
+                    "Failed to set album for track(s): " + ", ".join(errors),
+                )
+        else:
+            try:
+                self.controller.update.update_entity(
+                    "Track", self.track.track_id, album_id=album.album_id
+                )
+            except Exception as e:
+                logger.error(f"Failed to set primary album: {e}")
+                QMessageBox.warning(self, "Error", f"Failed to set album:\n{e}")
+                return
+
         self._album_search.clear()
         self._album_combo.setVisible(False)
-        # Reload track object and refresh
-        updated = self.controller.get.get_entity_object(
-            "Track", track_id=self.track.track_id
-        )
-        if updated:
-            self.tracks = [updated]
+        self._refresh_tracks()
         self.load(self.tracks)
 
     def _remove_primary_album(self):
+        if self.is_multi:
+            question = (
+                f"Detach all {len(self.tracks)} selected tracks from their "
+                "primary album?\nThe tracks will remain in the library but "
+                "will have no album."
+            )
+        else:
+            question = (
+                "Detach this track from its primary album?\n"
+                "The track will remain in the library but will have no album."
+            )
         confirm = QMessageBox.question(
             self,
             "Remove Album Relationship",
-            "Detach this track from its primary album?\n"
-            "The track will remain in the library but will have no album.",
+            question,
             QMessageBox.Yes | QMessageBox.No,
         )
         if confirm != QMessageBox.Yes:
             return
-        try:
-            self.controller.update.update_entity(
-                "Track", self.track.track_id, album_id=None
-            )
-        except Exception as e:
-            logger.error(f"Failed to remove primary album: {e}")
-            QMessageBox.warning(self, "Error", f"Failed to remove album:\n{e}")
-            return
-        updated = self.controller.get.get_entity_object(
-            "Track", track_id=self.track.track_id
-        )
-        if updated:
-            self.tracks = [updated]
+
+        if self.is_multi:
+            errors = []
+            for track in self.tracks:
+                try:
+                    self.controller.update.update_entity(
+                        "Track", track.track_id, album_id=None
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to remove primary album for track {track.track_id}: {e}"
+                    )
+                    errors.append(str(track.track_id))
+            if errors:
+                QMessageBox.warning(
+                    self,
+                    "Error",
+                    "Failed to remove album for track(s): " + ", ".join(errors),
+                )
+        else:
+            try:
+                self.controller.update.update_entity(
+                    "Track", self.track.track_id, album_id=None
+                )
+            except Exception as e:
+                logger.error(f"Failed to remove primary album: {e}")
+                QMessageBox.warning(self, "Error", f"Failed to remove album:\n{e}")
+                return
+
+        self._refresh_tracks()
         self.load(self.tracks)
+
+    def _refresh_tracks(self):
+        updated_tracks = []
+        for track in self.tracks:
+            updated = self.controller.get.get_entity_object(
+                "Track", track_id=track.track_id
+            )
+            updated_tracks.append(updated if updated else track)
+        self.tracks = updated_tracks
 
     def _open_primary_album(self):
         album = getattr(self.track, "album", None)
