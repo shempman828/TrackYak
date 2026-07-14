@@ -6,13 +6,15 @@ Widget for a single smart playlist criteria row.
 
 from datetime import datetime
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QDate, QDateTime, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDateEdit,
     QDateTimeEdit,
     QDoubleSpinBox,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPushButton,
     QSpinBox,
@@ -21,6 +23,20 @@ from PySide6.QtWidgets import (
 )
 
 from src.db_mapping_tracks import TRACK_FIELDS, TrackField
+
+# Storage/display format for exact-moment datetime values. Must use a space
+# separator (not Qt.ISODate's "T") to match the "yyyy-MM-dd HH:MM:SS[.ffffff]"
+# strings SQLAlchemy/SQLite actually store for DATETIME columns — comparing
+# a "T"-separated string against those sorts incorrectly for same-day values.
+DATETIME_DISPLAY_FORMAT = "yyyy-MM-dd HH:mm:ss"
+
+
+def _parse_datetime(text: str) -> QDateTime:
+    """Parse a stored datetime string, tolerating the legacy Qt.ISODate ('T') format."""
+    dt = QDateTime.fromString(text, DATETIME_DISPLAY_FORMAT)
+    if not dt.isValid():
+        dt = QDateTime.fromString(text, Qt.ISODate)
+    return dt
 
 # ---------------------------------------------------------------------------
 # Fields to exclude from smart playlist filtering (internal / not filterable)
@@ -159,8 +175,9 @@ OPERATORS_BY_GROUP = {
         ("lt", "before"),
         ("gte", "on or after"),
         ("lte", "on or before"),
-        ("eq", "exactly"),
+        ("eq", "on this day"),
         ("range", "between (inclusive)"),
+        ("last_n_days", "in the last N days"),
         ("isnull", "is empty"),
         ("notnull", "has a value"),
     ],
@@ -175,6 +192,56 @@ OPERATORS_BY_GROUP = {
 
 # Operators that require no value input from the user
 NO_VALUE_OPERATORS = {"isnull", "notnull"}
+
+
+# ---------------------------------------------------------------------------
+# _DateRangeEdit — compound value widget for the Datetime "between" operator.
+#
+# Uses two date-only pickers (no time-of-day input) so users can just pick
+# calendar days. The range is expanded internally to cover the full first
+# day through the full last day (00:00:00 .. 23:59:59), inclusive.
+# ---------------------------------------------------------------------------
+class _DateRangeEdit(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        self.start_edit = QDateEdit()
+        self.start_edit.setCalendarPopup(True)
+        self.start_edit.setDisplayFormat("yyyy-MM-dd")
+        self.start_edit.setDate(QDate.currentDate().addDays(-7))
+
+        self.end_edit = QDateEdit()
+        self.end_edit.setCalendarPopup(True)
+        self.end_edit.setDisplayFormat("yyyy-MM-dd")
+        self.end_edit.setDate(QDate.currentDate())
+
+        layout.addWidget(self.start_edit)
+        layout.addWidget(QLabel("to"))
+        layout.addWidget(self.end_edit)
+
+    def get_value(self) -> str:
+        """Return 'start|end' with the range widened to whole-day bounds."""
+        start = self.start_edit.date().toString("yyyy-MM-dd") + " 00:00:00"
+        end = self.end_edit.date().toString("yyyy-MM-dd") + " 23:59:59"
+        return f"{start}|{end}"
+
+    def set_value(self, value):
+        if not value:
+            return
+        parts = str(value).split("|", 1)
+        if len(parts) != 2:
+            return
+        start_day = parts[0].strip().split(" ")[0].split("T")[0]
+        end_day = parts[1].strip().split(" ")[0].split("T")[0]
+        start_date = QDate.fromString(start_day, "yyyy-MM-dd")
+        end_date = QDate.fromString(end_day, "yyyy-MM-dd")
+        if start_date.isValid():
+            self.start_edit.setDate(start_date)
+        if end_date.isValid():
+            self.end_edit.setDate(end_date)
 
 
 # ---------------------------------------------------------------------------
@@ -309,9 +376,25 @@ class CriteriaWidget(QWidget):
             widget.addItem("No", False)
 
         elif op_group == "Datetime":
-            widget = QDateTimeEdit()
-            widget.setCalendarPopup(True)
-            widget.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
+            operator = self.operator_combo.currentData()
+            if operator == "range":
+                widget = _DateRangeEdit()
+            elif operator == "eq":
+                # "On this day" — date only, matched as a whole-day range
+                widget = QDateEdit()
+                widget.setCalendarPopup(True)
+                widget.setDisplayFormat("yyyy-MM-dd")
+                widget.setDate(QDate.currentDate())
+            elif operator == "last_n_days":
+                widget = QSpinBox()
+                widget.setRange(1, 3650)
+                widget.setValue(7)
+                widget.setSuffix(" day(s) ago")
+            else:
+                widget = QDateTimeEdit()
+                widget.setCalendarPopup(True)
+                widget.setDisplayFormat(DATETIME_DISPLAY_FORMAT)
+                widget.setDateTime(QDateTime.currentDateTime())
 
         elif op_group == "List":
             widget = QLineEdit()
@@ -327,7 +410,12 @@ class CriteriaWidget(QWidget):
         self.value_widget = widget
         # Position 2 = after field combo and operator combo, before delete btn
         self.layout().insertWidget(2, widget, 3)
-        self._on_operator_changed()
+        self._apply_value_widget_visibility()
+
+    def _apply_value_widget_visibility(self):
+        """Hide value input for operators that don't need a value."""
+        op = self.operator_combo.currentData()
+        self.value_widget.setVisible(op not in NO_VALUE_OPERATORS)
 
     # ------------------------------------------------------------------
     # Slots
@@ -340,9 +428,13 @@ class CriteriaWidget(QWidget):
         self._rebuild_value_widget()
 
     def _on_operator_changed(self, index=None):
-        """Hide value input for operators that don't need a value."""
-        op = self.operator_combo.currentData()
-        self.value_widget.setVisible(op not in NO_VALUE_OPERATORS)
+        # Datetime operators each need a differently-shaped value widget
+        # (a moment picker, a date-only picker, two date pickers, or a
+        # day-count spinner), so rebuild rather than just toggling visibility.
+        if self._current_meta()[0] == "Datetime":
+            self._rebuild_value_widget()
+        else:
+            self._apply_value_widget_visibility()
 
     # ------------------------------------------------------------------
     # Public API
@@ -359,6 +451,8 @@ class CriteriaWidget(QWidget):
 
         if operator in NO_VALUE_OPERATORS:
             value = None
+        elif isinstance(self.value_widget, _DateRangeEdit):
+            value = self.value_widget.get_value()
         elif isinstance(self.value_widget, QComboBox):
             value = self.value_widget.currentData()  # Bool: True/False
         elif isinstance(self.value_widget, QLineEdit):
@@ -371,8 +465,11 @@ class CriteriaWidget(QWidget):
                 value = text if text else None
         elif isinstance(self.value_widget, (QSpinBox, QDoubleSpinBox)):
             value = self.value_widget.value()
+        elif isinstance(self.value_widget, QDateEdit):
+            # "On this day" — date only, no time component
+            value = self.value_widget.date().toString("yyyy-MM-dd")
         elif isinstance(self.value_widget, QDateTimeEdit):
-            value = self.value_widget.dateTime().toString(Qt.ISODate)
+            value = self.value_widget.dateTime().toString(DATETIME_DISPLAY_FORMAT)
         else:
             value = None
 
@@ -410,7 +507,9 @@ class CriteriaWidget(QWidget):
 
         op_group = self._current_meta()[0]
 
-        if isinstance(self.value_widget, QComboBox):
+        if isinstance(self.value_widget, _DateRangeEdit):
+            self.value_widget.set_value(value)
+        elif isinstance(self.value_widget, QComboBox):
             for i in range(self.value_widget.count()):
                 if str(self.value_widget.itemData(i)) == str(value):
                     self.value_widget.setCurrentIndex(i)
@@ -425,9 +524,13 @@ class CriteriaWidget(QWidget):
                 self.value_widget.setValue(float(value))
             except (ValueError, TypeError):
                 pass
+        elif isinstance(self.value_widget, QDateEdit):
+            # "On this day" — date only, tolerate a full datetime string too
+            day_text = str(value).strip().split(" ")[0].split("T")[0]
+            d = QDate.fromString(day_text, "yyyy-MM-dd")
+            if d.isValid():
+                self.value_widget.setDate(d)
         elif isinstance(self.value_widget, QDateTimeEdit):
-            from PySide6.QtCore import QDateTime
-
-            dt = QDateTime.fromString(str(value), Qt.ISODate)
+            dt = _parse_datetime(str(value))
             if dt.isValid():
                 self.value_widget.setDateTime(dt)
