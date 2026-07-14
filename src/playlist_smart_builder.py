@@ -144,14 +144,20 @@ class SmartPlaylistBuilder:
         if not field or not comparison:
             return {}
 
-        # Cast the stored string value to the correct Python type
-        cast_value = self._cast_value(value, data_type, comparison)
-
         # Operators that use a boolean flag instead of a real value
         if comparison == "isnull":
             return {f"{field}__isnull": True}
         if comparison == "notnull":
             return {f"{field}__isnull": False}
+
+        # Datetime comparisons ("on this day", "between", "last N days") don't
+        # map to a single cast value — they expand into one or more filters
+        # computed relative to the stored string(s) or the current time.
+        if data_type == "Datetime":
+            return self._datetime_condition_to_kwargs(field, comparison, value)
+
+        # Cast the stored string value to the correct Python type
+        cast_value = self._cast_value(value, data_type, comparison)
 
         if cast_value is None:
             # Don't add a condition with a None value (would match everything)
@@ -159,6 +165,62 @@ class SmartPlaylistBuilder:
             return {}
 
         return {f"{field}__{comparison}": cast_value}
+
+    # Matches the space-separated format SQLAlchemy/SQLite store DATETIME
+    # columns in, and the format CriteriaWidget now writes (see
+    # playlist_smart_criteria_widget.DATETIME_DISPLAY_FORMAT).
+    _DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+    def _datetime_condition_to_kwargs(
+        self, field: str, comparison: str, value: Any
+    ) -> Dict[str, Any]:
+        """
+        Translate a Datetime condition into query kwargs.
+
+        - "range": value is "start|end" (already whole-day-widened by the
+          widget) → a single between() filter.
+        - "last_n_days": value is an integer day count → a rolling "on or
+          after (now - N days)" filter, recomputed each refresh.
+        - "eq" ("on this day"): value is a "yyyy-MM-dd" date → widened to a
+          [start of day, start of next day) range, since comparing against
+          an exact stored timestamp would almost never match.
+        - everything else (gt/lt/gte/lte): plain string comparison against
+          the stored value.
+        """
+        if value is None or value == "":
+            logger.warning(f"Skipping datetime condition with no value: {field}")
+            return {}
+
+        if comparison == "range":
+            parts = str(value).split("|", 1)
+            if len(parts) != 2:
+                logger.warning(f"Malformed datetime range value for {field}: {value}")
+                return {}
+            return {f"{field}__range": (parts[0], parts[1])}
+
+        if comparison == "last_n_days":
+            try:
+                days = int(float(value))
+            except (TypeError, ValueError):
+                logger.warning(f"Invalid 'last N days' value for {field}: {value}")
+                return {}
+            cutoff = datetime.datetime.now() - datetime.timedelta(days=days)
+            return {f"{field}__gte": cutoff.strftime(self._DATETIME_FORMAT)}
+
+        if comparison == "eq":
+            day_text = str(value).strip().split(" ")[0].split("T")[0]
+            try:
+                day_start = datetime.datetime.strptime(day_text, "%Y-%m-%d")
+            except ValueError:
+                logger.warning(f"Invalid 'on this day' value for {field}: {value}")
+                return {}
+            day_end = day_start + datetime.timedelta(days=1)
+            return {
+                f"{field}__gte": day_start.strftime(self._DATETIME_FORMAT),
+                f"{field}__lt": day_end.strftime(self._DATETIME_FORMAT),
+            }
+
+        return {f"{field}__{comparison}": str(value)}
 
     def _cast_value(self, value: Any, data_type: str, comparison: str) -> Any:
         """
@@ -181,7 +243,8 @@ class SmartPlaylistBuilder:
                     return value
                 return [v.strip() for v in str(value).split(",") if v.strip()]
             else:
-                # String, Text, Datetime — keep as string
+                # String, Text — keep as string (Datetime is handled separately
+                # by _datetime_condition_to_kwargs before this is ever called)
                 return str(value) if value != "" else None
         except (ValueError, TypeError) as e:
             logger.warning(f"Could not cast value '{value}' as {data_type}: {e}")
