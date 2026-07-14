@@ -297,7 +297,7 @@ class AlbumEditor(QDialog):
             if len(self.album.album_artists) > 4:
                 names += "…"
             artist_label = QLabel(f"by {names}")
-            artist_label.setStyleSheet("color: #aaa; font-size: 11px;")
+            artist_label.setStyleSheet("color: #aaa; font-size: 14px;")
             all_names = ", ".join(a.artist_name for a in self.album.album_artists)
             artist_label.setToolTip(all_names)
             layout.addWidget(artist_label)
@@ -349,9 +349,6 @@ class AlbumEditor(QDialog):
 
         self._rebuild_link_buttons()
 
-        wiki_search_btn = QPushButton("🔍 Search Wikipedia…")
-        wiki_search_btn.clicked.connect(self._search_wikipedia)
-        self._links_row.addWidget(wiki_search_btn)
         self._links_row.addStretch()
         layout.addLayout(self._links_row)
 

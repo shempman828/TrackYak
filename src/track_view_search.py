@@ -47,6 +47,7 @@ class TrackViewSearchMixin:
             field_name,
             self._get_artist_name,
             self._format_value,
+            self._field_value,
         )
         self._filter_worker.finished.connect(self._on_filter_done)
         self._filter_worker.start()

@@ -54,6 +54,7 @@ ALBUM_FIELDS = {
         friendly="Album Description",
         short="Description",
         tooltip="A detailed overview of the album, typically summarizing its background, themes, and notable information.",
+        longtext=True,
     ),
     "release_year": AlbumField(
         type=int,

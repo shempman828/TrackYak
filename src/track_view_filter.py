@@ -17,12 +17,25 @@ class FilterWorker(QThread):
     """
     Runs the track-filter loop on a background thread.
     Emits `finished` with the matching subset when done.
+
+    `field_value_fn` must only read already-loaded scalar data (plain Column
+    attributes or precomputed lookup caches) — never touch a lazy-loaded ORM
+    relationship, since the DB session is main-thread-only. Fields like
+    `album_name` / `release_year` are SQLAlchemy association_proxy's onto
+    `Track.album`, so a raw `getattr(track, field_name)` here would trigger a
+    lazy load off the main thread and raise DetachedInstanceError.
     """
 
     finished = Signal(list)
 
     def __init__(
-        self, tracks: list, search_text: str, field_name: str, get_artist_fn, format_fn
+        self,
+        tracks: list,
+        search_text: str,
+        field_name: str,
+        get_artist_fn,
+        format_fn,
+        field_value_fn,
     ):
         super().__init__()
         self._tracks = tracks
@@ -30,6 +43,7 @@ class FilterWorker(QThread):
         self._field_name = field_name  # "__all__" → search every column
         self._get_artist = get_artist_fn
         self._format = format_fn
+        self._field_value = field_value_fn
 
     def run(self):
         text = self._search_text
@@ -41,14 +55,12 @@ class FilterWorker(QThread):
                 values = [
                     (getattr(t, "track_name", "") or "").lower(),
                     (self._get_artist(t) or "").lower(),
+                    (self._field_value(t, "album_name") or "").lower(),
                 ]
-                album_obj = getattr(t, "album", None)
-                if album_obj:
-                    values.append((getattr(album_obj, "album_name", "") or "").lower())
                 # Also check all other string-like track fields
                 for field_name in TRACK_FIELDS:
                     if field_name not in ("track_name", "artist_name", "album_name"):
-                        val = getattr(t, field_name, None)
+                        val = self._field_value(t, field_name)
                         if val is not None:
                             values.append(str(val).lower())
                 if any(text in v for v in values):
@@ -58,7 +70,7 @@ class FilterWorker(QThread):
                 if self._field_name == "artist_name":
                     val = (self._get_artist(t) or "").lower()
                 else:
-                    raw = getattr(t, self._field_name, None)
+                    raw = self._field_value(t, self._field_name)
                     val = self._format(
                         raw, self._field_name, TRACK_FIELDS.get(self._field_name)
                     ).lower()
