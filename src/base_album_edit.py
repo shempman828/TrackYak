@@ -1089,10 +1089,15 @@ class AlbumEditor(QDialog):
                 return
             for idx in range(self.tabs.count()):
                 if self.tabs.tabText(idx) == title:
+                    was_current = self.tabs.currentIndex() == idx
                     new_tab = builder()
                     self.tabs.removeTab(idx)
                     self.tabs.insertTab(idx, new_tab, title)
-                    # Don't change the active tab — just silently update it
+                    # Don't change the active tab — just silently update it.
+                    # removeTab() auto-advances the selection if the removed
+                    # tab was the current one, so restore it explicitly.
+                    if was_current:
+                        self.tabs.setCurrentIndex(idx)
                     return
         except Exception as e:
             logger.error(f"Error rebuilding tab '{title}': {e}")

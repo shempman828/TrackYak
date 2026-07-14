@@ -10,7 +10,7 @@ album_edit_details.py
 
 
 album_edit_publisher&Places
-    making an edit changes tab, probably because of redrawing crash
+
 
 album_editing_relationship_helpers.py
     changing a relationship does not update tab
