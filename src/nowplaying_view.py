@@ -232,6 +232,9 @@ class _MarqueeLabel(QWidget):
         self._direction = 1
         self._pause_remaining = self._PAUSE_TICKS
         self._timer.stop()
+        # Update width immediately so the new text isn't clipped against the
+        # previous string's stale width before the deferred check below runs.
+        self._text_width = self.fontMetrics().horizontalAdvance(self._text)
         self.update()
         # Defer scroll check until after first paint gives us real geometry
         QTimer.singleShot(200, self._check_scroll_needed)
@@ -476,7 +479,9 @@ class NowPlayingView(QWidget):
         self._artist_marquee = _MarqueeLabel(
             "—", self._ARTIST_FONT, "rgba(180,190,240,0.70)"
         )
-        self._artist_marquee.setFixedHeight(28)
+        # Match the title/album labels' natural line height instead of a
+        # hardcoded value, so vertical spacing between the three lines is even.
+        self._artist_marquee.setFixedHeight(QFontMetrics(self._ARTIST_FONT).height())
         right_layout.addWidget(self._artist_marquee)
 
         # Album
@@ -1060,16 +1065,15 @@ class NowPlayingView(QWidget):
         if album:
             for attr in (
                 "front_cover_path",
-                "back_cover_path",
-                "liner_path",
-                "artist_image_path",
+                "rear_cover_path",
+                "album_liner_path",
             ):
                 p = getattr(album, attr, None) or ""
                 if p:
                     paths.append(p)
         # Also try artist-level image
         for artist in getattr(track, "artists", None) or []:
-            p = getattr(artist, "image_path", None) or ""
+            p = getattr(artist, "profile_pic_path", None) or ""
             if p and p not in paths:
                 paths.append(p)
 
