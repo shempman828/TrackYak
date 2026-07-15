@@ -345,6 +345,8 @@ class GUI(QMainWindow, MenuBar):
         logger.info("Player dock created")
 
     def _ensure_player_dock_visible(self):
+        if getattr(self.now_playing, "cinema_mode", False):
+            return
         if hasattr(self, "player_dock") and not self.player_dock.isVisible():
             self.player_dock.show()
             self.player_dock.raise_()
