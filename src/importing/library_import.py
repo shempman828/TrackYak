@@ -4,15 +4,30 @@ library_import.py
 This code handles importing audio files into a music library database and parsing very robust metadata.
 """
 
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List
 
 import psutil
 from PySide6.QtCore import QThread, Signal
 
-import src.metadata.metadata_controller
+from src.metadata.metadata_extraction import MetadataExtractor
+from src.importing.artist_field_extraction import (
+    ALBUM_ARTIST_FIELDS,
+    TRACK_ARTIST_FIELDS,
+    extract_artists_from_metadata,
+)
 from src.importing.library_import_album import AlbumImporter
 from src.core.logger_config import logger
+
+
+class ImportResult(Enum):
+    """Outcome of TrackImporter.add_track — a self-documenting replacement
+    for an easily-misread True/False/None tri-state return."""
+
+    IMPORTED = "imported"
+    SKIPPED = "skipped"
+    FAILED = "failed"
 
 
 class TrackImporter:
@@ -26,70 +41,89 @@ class TrackImporter:
     """
 
     SUPPORTED_EXTENSIONS = {".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".opus"}
-    MAX_FILE_SIZE_ART_EXTRACTION = 500 * 1024 * 1024  # 500MB
-    SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp"}
 
     def __init__(self, controller):
         self.controller = controller
-        self._metadata_cache = {}
 
-    def add_track(self, file_path: str) -> bool:
+    def add_track(self, file_path: str) -> ImportResult:
         """
         Main method to add a track with full metadata extraction and relationship mapping.
+
+        All database writes for this track (album, disc, artists, the track
+        itself, and every relationship) are one transaction: they're
+        committed together at the end, or rolled back together if any step
+        fails, instead of each individual insert committing on its own as
+        soon as it happens.
 
         Args:
             file_path: Path to the audio file
 
         Returns:
-            bool: True if successful, False otherwise
+            ImportResult: IMPORTED, SKIPPED (already in the library), or FAILED.
         """
         try:
+            # Normalize once so the dedup check and the stored
+            # track_file_path always agree, regardless of how the caller
+            # spelled the path (relative, symlinked, trailing slash, ...).
+            file_path = str(Path(file_path).resolve())
+
             # Check first — no point doing any work if this file is already in the library
             if self._track_exists(file_path):
-                return None  # None = skipped (not an error, not a new import)
+                return ImportResult.SKIPPED
 
             logger.info(f"Processing track: {file_path}")
 
-            # Extract metadata using metadata_controller
-            metadata_extractor = src.metadata.metadata_controller.ExtractMetadata()
+            # Extract metadata using metadata_extraction
+            metadata_extractor = MetadataExtractor()
             metadata = metadata_extractor.extract_metadata(file_path)
             if not metadata:
                 logger.error(f"Failed to extract metadata for: {file_path}")
-                return False
+                return ImportResult.FAILED
             logger.debug(f"Metadata keys: {list(metadata.keys())}")
             self._log_metadata_debug(metadata, file_path)
             self._debug_metadata_types(metadata)
 
-            # Process entities in correct order
-            album_extractor = AlbumImporter(self.controller)
-            album = album_extractor._get_or_create_album(metadata)
-            disc = (
-                album_extractor._get_or_create_disc(album.album_id, metadata)
-                if album
-                else None
-            )
-            artists = self._process_artists(metadata, album)
-            track = self._create_track(metadata, album, file_path, disc)
+            session = self.controller.add.session
+            try:
+                # Process entities in correct order. commit=False throughout:
+                # this whole block is one transaction, committed once at the
+                # end (or rolled back together on any failure) rather than
+                # each insert committing as soon as it happens.
+                album_extractor = AlbumImporter(self.controller)
+                album = album_extractor._get_or_create_album(metadata, commit=False)
+                disc = album_extractor._get_or_create_disc(
+                    album.album_id, metadata, commit=False
+                )
+                artists = self._process_artists(metadata, album)
+                track = self._create_track(metadata, album, file_path, disc)
 
-            # FIX: Check if track creation was successful
-            if not track:
-                logger.error(f"Failed to create track entity for: {file_path}")
-                return False
+                if not track:
+                    raise RuntimeError(
+                        f"Failed to create track entity for: {file_path}"
+                    )
 
-            # Create relationships
-            self._create_track_artist_relationships(track, artists, metadata)
-            self._create_track_genre_relationships(track, metadata)
-            album_extractor._create_album_artist_relationships(
-                album.album_id, [a.artist_id for a in artists.get("album", [])]
-            )
+                # Create relationships
+                self._create_track_artist_relationships(track, artists, metadata)
+                self._create_track_genre_relationships(track, metadata)
+                album_extractor._create_album_artist_relationships(
+                    album.album_id,
+                    [a.artist_id for a in artists.get("Album Artist", [])],
+                    commit=False,
+                )
 
-            self._process_playlist_tags(track, metadata)
+                self._process_playlist_tags(track, metadata)
+
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+
             logger.info(f"Successfully imported track: {track.track_name}")
-            return True
+            return ImportResult.IMPORTED
 
         except Exception as e:
             logger.error(f"Error importing track {file_path}: {str(e)}", exc_info=True)
-            return False
+            return ImportResult.FAILED
 
     def _process_artists(self, metadata: Dict[str, Any], album) -> Dict[str, List]:
         """Process all artist types and return organized dictionary."""
@@ -115,130 +149,44 @@ class TrackImporter:
             "Other": [],
         }
 
-        try:
-            # Process primary artists
-            primary_artists = self._extract_artists_from_metadata(
-                metadata, ["artist_name", "artist_primary_artist"]
-            )
-            artists_dict["Primary Artist"] = self._create_artists_list(primary_artists)
+        # Process primary artists
+        primary_artists = extract_artists_from_metadata(
+            metadata, TRACK_ARTIST_FIELDS
+        )
+        artists_dict["Primary Artist"] = self._create_artists_list(primary_artists)
 
-            # Process album artists - REORDERED to check artist_album_artist first
-            album_artists = self._extract_artists_from_metadata(
-                metadata,
-                ["artist_album_artist", "album_artist_name"],  # Changed order
-            )
-            artists_dict["Album Artist"] = self._create_artists_list(album_artists)
+        # Process album artists (same field priority AlbumImporter uses when
+        # resolving the album itself, so the two stay consistent)
+        album_artists = extract_artists_from_metadata(metadata, ALBUM_ARTIST_FIELDS)
+        artists_dict["Album Artist"] = self._create_artists_list(album_artists)
 
-            # Map metadata keys to display role names
-            role_mappings = {
-                "artist_composer": "Composer",
-                "artist_conductor": "Conductor",
-                "artist_producer": "Producer",
-                "artist_engineer": "Engineer",
-                "artist_remixer": "Remixer",
-                "artist_lyricist": "Lyricist",
-                "artist_arranger": "Arranger",
-                "artist_mixer": "Mixer",
-                "artist_writer": "Writer",
-                "artist_vocalist": "Vocalist",
-                "artist_narrator": "Narrator",
-                "artist_orchestra": "Orchestra",
-                "artist_choir": "Choir",
-                "artist_dj": "DJ",
-                "artist_mastering_engineer": "Mastering Engineer",
-            }
+        # Map metadata keys to display role names
+        role_mappings = {
+            "artist_composer": "Composer",
+            "artist_conductor": "Conductor",
+            "artist_producer": "Producer",
+            "artist_engineer": "Engineer",
+            "artist_remixer": "Remixer",
+            "artist_lyricist": "Lyricist",
+            "artist_arranger": "Arranger",
+            "artist_mixer": "Mixer",
+            "artist_writer": "Writer",
+            "artist_vocalist": "Vocalist",
+            "artist_narrator": "Narrator",
+            "artist_orchestra": "Orchestra",
+            "artist_choir": "Choir",
+            "artist_dj": "DJ",
+            "artist_mastering_engineer": "Mastering Engineer",
+        }
 
-            for metadata_key, role_name in role_mappings.items():
-                role_artists = self._extract_artists_from_metadata(
-                    metadata, [metadata_key]
-                )
-                artists_dict[role_name] = self._create_artists_list(role_artists)
-
-        except Exception as e:
-            logger.error(f"Error processing artists: {e}", exc_info=True)
+        for metadata_key, role_name in role_mappings.items():
+            role_artists = extract_artists_from_metadata(metadata, [metadata_key])
+            artists_dict[role_name] = self._create_artists_list(role_artists)
 
         # Log the results for debugging
         self._log_artist_processing_results(artists_dict)
 
         return artists_dict
-
-    def _extract_artists_from_metadata(
-        self, metadata: Dict[str, Any], field_names: List[str]
-    ) -> List[str]:
-        """
-        Extract artist names from metadata fields with support for multiple values.
-
-        Args:
-            metadata: The metadata dictionary
-            field_names: List of field names to check (in order of priority)
-
-        Returns:
-            List of artist names
-        """
-        # Try each field name in order until we find valid data
-        for field_name in field_names:
-            artists_data = metadata.get(field_name)
-
-            # DEBUG logging
-            logger.debug(
-                f"Checking field '{field_name}': {artists_data} (type: {type(artists_data)})"
-            )
-
-            if artists_data is not None:
-                # Check if it's an empty list - if so, continue to next field
-                if isinstance(artists_data, list) and len(artists_data) == 0:
-                    logger.debug(
-                        f"Field '{field_name}' is empty list, trying next field"
-                    )
-                    continue
-
-                normalized = self._normalize_artists_data(artists_data)
-                if normalized:  # Only return if we actually got artists
-                    logger.debug(f"Using field '{field_name}': {normalized}")
-                    return normalized
-
-        logger.debug(f"No valid artists found in fields: {field_names}")
-        return []  # No artists found in any specified fields
-
-    def _normalize_artists_data(self, artists_data: Any) -> List[str]:
-        """
-        Normalize artists data from various formats to a consistent list.
-
-        Handles:
-        - String: "Artist1; Artist2" or "Artist1, Artist2"
-        - List: ["Artist1", "Artist2"]
-        - None: returns empty list
-        """
-        if artists_data is None:
-            return []
-
-        if isinstance(artists_data, str):
-            # Split by common delimiters and clean up
-            artists = []
-            for delimiter in [";", ",", "/", "|"]:
-                if delimiter in artists_data:
-                    artists = [
-                        artist.strip()
-                        for artist in artists_data.split(delimiter)
-                        if artist.strip()
-                    ]
-                    break
-
-            # If no delimiters found, use the whole string
-            if not artists:
-                artists = [artists_data.strip()] if artists_data.strip() else []
-
-            return artists
-
-        elif isinstance(artists_data, list):
-            # Clean list: remove empty strings and strip whitespace
-            return [
-                artist.strip() for artist in artists_data if artist and artist.strip()
-            ]
-
-        else:
-            # Convert other types to string and try again
-            return self._normalize_artists_data(str(artists_data))
 
     def _create_artists_list(self, artist_names: List[str]) -> List[Any]:
         """
@@ -290,7 +238,9 @@ class TrackImporter:
                 "isgroup": 0,  # Default to individual artist
             }
 
-            new_artist = self.controller.add.add_entity("Artist", **artist_data)
+            new_artist = self.controller.add.add_entity(
+                "Artist", commit=False, **artist_data
+            )
             logger.debug(f"Created new artist: {artist_name}")
             return new_artist
 
@@ -375,7 +325,7 @@ class TrackImporter:
                 if field in track_data and isinstance(track_data[field], (list, dict)):
                     track_data[field] = str(track_data[field])
 
-            track = self.controller.add.add_entity("Track", **track_data)
+            track = self.controller.add.add_entity("Track", commit=False, **track_data)
 
             if not track:
                 logger.error(f"Failed to create track entity for: {file_path}")
@@ -390,28 +340,38 @@ class TrackImporter:
     def _create_track_artist_relationships(
         self, track, artists_dict: Dict, metadata: Dict[str, Any]
     ):
-        """Create TrackArtistRole relationships for all artist types."""
-        try:
-            role_cache = {}  # Cache role lookups
+        """Create TrackArtistRole relationships for all artist types.
 
-            for (
-                role_name,
-                artists,
-            ) in artists_dict.items():  # role_name is already correct!
-                if role_name == "Album Artist":  # Album artists handled separately
+        Each (role, artist) pair is isolated: one bad relationship is
+        logged and skipped rather than aborting every relationship still
+        left in the loop (the previous behavior, since a single wrapping
+        try/except meant one failure silently dropped all credits after
+        it).
+        """
+        role_cache = {}  # Cache role lookups
+
+        for (
+            role_name,
+            artists,
+        ) in artists_dict.items():  # role_name is already correct!
+            if role_name == "Album Artist":  # Album artists handled separately
+                continue
+
+            for artist in artists:
+                if not artist:
                     continue
 
-                for artist in artists:
-                    if not artist:
-                        continue
-
+                try:
                     if role_name not in role_cache:
                         role = self.controller.get.get_entity_object(
                             "Role", role_name=role_name
                         )
                         if not role:
                             role = self.controller.add.add_entity(
-                                "Role", role_name=role_name, role_type="credits"
+                                "Role",
+                                commit=False,
+                                role_name=role_name,
+                                role_type="credits",
                             )
                         role_cache[role_name] = role
                     else:
@@ -425,14 +385,16 @@ class TrackImporter:
                     }
 
                     self.controller.add.add_entity(
-                        "TrackArtistRole", **relationship_data
+                        "TrackArtistRole", commit=False, **relationship_data
                     )
                     logger.debug(
                         f"Created {role_name} relationship: {artist.artist_name} -> {track.track_name}"
                     )
-
-        except Exception as e:
-            logger.error(f"Error creating track artist relationships: {e}")
+                except Exception as e:
+                    logger.error(
+                        f"Error creating {role_name} relationship for "
+                        f"{artist.artist_name}: {e}"
+                    )
 
     def _process_playlist_tags(self, track, metadata: dict):
         """Read PLAYLIST tags from metadata and add the track to those playlists.
@@ -451,7 +413,7 @@ class TrackImporter:
 
         Args:
             track:    The newly created Track ORM object.
-            metadata: The full metadata dict from ExtractMetadata.
+            metadata: The full metadata dict from MetadataExtractor.
         """
         try:
             # ── 1. Collect playlist name(s) from metadata ──────────────
@@ -529,6 +491,7 @@ class TrackImporter:
                 logger.info(f"Creating new playlist from tag: '{playlist_name}'")
                 playlist = self.controller.add.add_entity(
                     "Playlist",
+                    commit=False,
                     playlist_name=playlist_name,
                     is_smart=0,
                 )
@@ -560,6 +523,7 @@ class TrackImporter:
 
             self.controller.add.add_entity(
                 "PlaylistTracks",
+                commit=False,
                 playlist_id=playlist.playlist_id,
                 track_id=track.track_id,
                 position=next_position,
@@ -577,33 +541,37 @@ class TrackImporter:
             )
 
     def _create_track_genre_relationships(self, track, metadata: Dict[str, Any]):
-        """Create TrackGenre relationships with better multi-value support."""
-        try:
-            genres = metadata.get("genre_name", [])
+        """Create TrackGenre relationships with better multi-value support.
 
-            # Handle multiple genres in various formats
-            if isinstance(genres, str):
-                # Split by common delimiters
-                genres = [genre.strip() for genre in genres.split(";") if genre.strip()]
-            elif genres is None:
-                genres = []
-            else:
-                # Ensure no empty values
-                genres = [genre for genre in genres if genre and genre.strip()]
+        Each genre is isolated: one bad genre is logged and skipped
+        rather than aborting every genre still left in the loop.
+        """
+        genres = metadata.get("genre_name", [])
 
-            logger.debug(f"Processing {len(genres)} genres for track: {genres}")
+        # Handle multiple genres in various formats
+        if isinstance(genres, str):
+            # Split by common delimiters
+            genres = [genre.strip() for genre in genres.split(";") if genre.strip()]
+        elif genres is None:
+            genres = []
+        else:
+            # Ensure no empty values
+            genres = [genre for genre in genres if genre and genre.strip()]
 
-            for genre_name in genres:
-                if not genre_name:
-                    continue
+        logger.debug(f"Processing {len(genres)} genres for track: {genres}")
 
+        for genre_name in genres:
+            if not genre_name:
+                continue
+
+            try:
                 # Get or create genre
                 genre = self.controller.get.get_entity_object(
                     "Genre", genre_name=genre_name
                 )
                 if not genre:
                     genre = self.controller.add.add_entity(
-                        "Genre", genre_name=genre_name
+                        "Genre", commit=False, genre_name=genre_name
                     )
 
                 # Create relationship
@@ -612,13 +580,16 @@ class TrackImporter:
                     "genre_id": genre.genre_id,
                 }
 
-                self.controller.add.add_entity("TrackGenre", **relationship_data)
+                self.controller.add.add_entity(
+                    "TrackGenre", commit=False, **relationship_data
+                )
                 logger.debug(
                     f"Created genre relationship: {genre_name} -> {track.track_name}"
                 )
-
-        except Exception as e:
-            logger.error(f"Error creating genre relationships: {e}", exc_info=True)
+            except Exception as e:
+                logger.error(
+                    f"Error creating genre relationship for '{genre_name}': {e}"
+                )
 
     def process_path(self, path: str) -> List[str]:
         """
@@ -788,19 +759,14 @@ class ImportWorker(QThread):
             # session's identity map. Every add_entity()/get_entity_object()
             # call during import leaves its object cached in the session, and
             # since the session lives for the whole import (and beyond), that
-            # map grows without bound over a large library — clearing
-            # _metadata_cache alone never freed anything, as nothing ever
-            # populated it.
+            # map grows without bound over a large library.
             if index % self._clear_cache_interval == 0:
-                self.importer._metadata_cache.clear()
                 self.controller.get.session.expunge_all()
                 logger.debug("Expunged ORM session cache to free memory")
 
-            # True = newly imported, None = skipped (already exists), False = failed
-            return 1 if result is True else 0
+            return 1 if result is ImportResult.IMPORTED else 0
         except MemoryError:
-            # Clear cache and try to continue
-            self.importer._metadata_cache.clear()
+            # Clear the session's identity map and try to continue
             self.controller.get.session.expunge_all()
             error_msg = f"Memory error processing file {index + 1}/{total}: {file_path}"
             logger.error(error_msg)
