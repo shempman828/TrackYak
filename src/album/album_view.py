@@ -28,6 +28,7 @@ from src.album.album_new import NewAlbumDialog
 from src.album.base_album_edit import AlbumEditor
 from src.album.base_album_widget import AlbumWidget
 from src.core.logger_config import logger
+from src.image.artwork_cache import get_artwork_cache
 
 # ---------------------------------------------------------------------------
 # Main view
@@ -582,7 +583,8 @@ class AlbumView(QWidget):
             # ── Album Art filter ──────────────────────────────────────────
             art_mode = self.art_combo.currentText()
             if art_mode != "Any":
-                has_art = bool(getattr(album, "front_cover_path", None))
+                cache = get_artwork_cache()
+                has_art = bool(cache.has_art(album, "front")) if cache else False
                 if art_mode == "No Art" and has_art:
                     continue
                 if art_mode == "Has Art" and not has_art:
@@ -711,17 +713,10 @@ class AlbumView(QWidget):
 
             elif c == "art_dimensions":
                 # Sort by pixel area of the front cover image.
-                path = getattr(album, "front_cover_path", None)
-                if path:
-                    try:
-                        from PySide6.QtGui import QImageReader
-
-                        reader = QImageReader(path)
-                        sz = reader.size()
-                        if sz.isValid():
-                            return sz.width() * sz.height()
-                    except Exception:
-                        pass
+                cache = get_artwork_cache()
+                dims = cache.get_dimensions(album, "front") if cache else None
+                if dims:
+                    return dims[0] * dims[1]
                 return 0
 
             return getattr(album, "album_name", "").lower()
@@ -933,7 +928,8 @@ class AlbumView(QWidget):
                     continue
 
             if art_mode != "Any":
-                has_art = bool(getattr(album, "front_cover_path", None))
+                cache = get_artwork_cache()
+                has_art = bool(cache.has_art(album, "front")) if cache else False
                 if art_mode == "No Art" and has_art:
                     continue
                 if art_mode == "Has Art" and not has_art:
