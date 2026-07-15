@@ -109,11 +109,17 @@ class FuzzyMatchDialog(QDialog):
                 logger.info(
                     f"Merging {old_artist.artist_name} (ID: {old_artist.artist_id}) into {new_artist.artist_name} (ID: {new_artist.artist_id})"
                 )
-                self.controller.merge.merge_entities(
+                merged = self.controller.merge.merge_entities(
                     "Artist",
                     old_artist.artist_id,
                     new_artist.artist_id,
                 )
+                if not merged:
+                    logger.error(
+                        f"Failed to merge {old_artist.artist_name} → "
+                        f"{new_artist.artist_name}: merge_entities returned False"
+                    )
+                    continue
                 logger.info(
                     f"adding alias for {old_artist.artist_name} to {new_artist.artist_name}"
                 )
