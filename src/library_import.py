@@ -63,8 +63,13 @@ class TrackImporter:
             # Process entities in correct order
             album_extractor = AlbumImporter(self.controller)
             album = album_extractor._get_or_create_album(metadata)
+            disc = (
+                album_extractor._get_or_create_disc(album.album_id, metadata)
+                if album
+                else None
+            )
             artists = self._process_artists(metadata, album)
-            track = self._create_track(metadata, album, file_path)
+            track = self._create_track(metadata, album, file_path, disc)
 
             # FIX: Check if track creation was successful
             if not track:
@@ -293,7 +298,7 @@ class TrackImporter:
             logger.error(f"Error creating artist {artist_name}: {e}")
             return None
 
-    def _create_track(self, metadata: Dict[str, Any], album, file_path: str):
+    def _create_track(self, metadata: Dict[str, Any], album, file_path: str, disc=None):
         """Create track entity with comprehensive metadata."""
         try:
             # Extract and clean metadata values
@@ -358,6 +363,7 @@ class TrackImporter:
                 "key_confidence": clean_value(metadata.get("key_confidence")),
                 "tempo_confidence": clean_value(metadata.get("tempo_confidence")),
                 "album_id": album.album_id if album else None,
+                "disc_id": disc.disc_id if disc else None,
             }
 
             # Remove None values and ensure all values are database-compatible
@@ -778,16 +784,24 @@ class ImportWorker(QThread):
             result = self.importer.add_track(str(file_path))
             self.progress.emit(index + 1, total)
 
-            # Clear metadata cache periodically to manage memory
+            # Periodically detach committed entities from the SQLAlchemy
+            # session's identity map. Every add_entity()/get_entity_object()
+            # call during import leaves its object cached in the session, and
+            # since the session lives for the whole import (and beyond), that
+            # map grows without bound over a large library — clearing
+            # _metadata_cache alone never freed anything, as nothing ever
+            # populated it.
             if index % self._clear_cache_interval == 0:
                 self.importer._metadata_cache.clear()
-                logger.debug("Cleared metadata cache to free memory")
+                self.controller.get.session.expunge_all()
+                logger.debug("Expunged ORM session cache to free memory")
 
             # True = newly imported, None = skipped (already exists), False = failed
             return 1 if result is True else 0
         except MemoryError:
             # Clear cache and try to continue
             self.importer._metadata_cache.clear()
+            self.controller.get.session.expunge_all()
             error_msg = f"Memory error processing file {index + 1}/{total}: {file_path}"
             logger.error(error_msg)
             self.error_occurred.emit(error_msg)
