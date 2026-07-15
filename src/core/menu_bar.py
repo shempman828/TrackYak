@@ -1,7 +1,7 @@
 import os
 
 from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence
+from PySide6.QtGui import QAction, QCursor, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from src.statistics.analysis_dialog import AudioAnalysisDialog
@@ -142,6 +142,15 @@ class MenuBar:
         self._menu_bar_hide_timer.setInterval(300)  # 300 ms grace period
         self._menu_bar_hide_timer.timeout.connect(self._hide_menu_bar_if_mouse_gone)
 
+        # Polls the global cursor position rather than relying on mouse-move
+        # events: Qt only delivers QEvent.MouseMove when the widget under the
+        # cursor has mouse tracking enabled (or a button is held), and most
+        # widgets in this window don't opt into that. Polling has no such
+        # blind spot regardless of what widget is under the cursor.
+        self._menu_bar_poll_timer = QTimer(self)
+        self._menu_bar_poll_timer.setInterval(100)
+        self._menu_bar_poll_timer.timeout.connect(self._check_mouse_for_menu_bar)
+
         # Store the known height of the menu bar so we can use it even when
         # the bar is hidden (sizeHint returns 0 when hidden).
         self._menu_bar_known_height = self.menuBar().sizeHint().height() or 25
@@ -170,20 +179,18 @@ class MenuBar:
 
     def _resolve_display_settings(self):
         """Return the DisplaySettings instance, or None if unavailable."""
-        if hasattr(self, "display_settings"):
-            return self.display_settings
-        if hasattr(self, "controller") and hasattr(self.controller, "display_settings"):
-            return self.controller.display_settings
-        if hasattr(app_config, "display_settings"):
-            return app_config.display_settings
+        app = QApplication.instance()
+        if app is not None and hasattr(app, "display_settings"):
+            return app.display_settings
         return None
 
     def _apply_menu_bar_auto_hide(self, enabled: bool):
         """
         Turn auto-hide on or off.
-        When ON:  the menu bar is hidden and a QApplication-level event filter
-                  is installed so we catch mouse moves anywhere in the window,
-                  including the area where the hidden menu bar used to be.
+        When ON:  the menu bar is hidden and a polling timer watches the
+                  global cursor position so we know when it's near the top
+                  of the window, including the area where the hidden menu
+                  bar used to be.
         When OFF: the menu bar is always visible (normal behaviour).
         """
         menu_bar = self.menuBar()
@@ -196,68 +203,57 @@ class MenuBar:
                 self._menu_bar_known_height = h
 
             menu_bar.hide()
-
-            # Install a QApplication-level event filter.
-            # This is the key fix: a plain mouseMoveEvent on the main window
-            # is NOT delivered when the mouse is over the hidden menu bar area,
-            # but an app-level filter sees every mouse move in the process.
-            QApplication.instance().installEventFilter(self)
+            self._menu_bar_poll_timer.start()
         else:
-            # Stop the hide timer and make sure the bar is visible
+            # Stop both timers and make sure the bar is visible
             self._menu_bar_hide_timer.stop()
+            self._menu_bar_poll_timer.stop()
             menu_bar.show()
-            QApplication.instance().removeEventFilter(self)
 
     def _hide_menu_bar_if_mouse_gone(self):
         """Called by the timer — hides the bar only if auto-hide is still on."""
         if self._get_display_settings_auto_hide():
             self.menuBar().hide()
 
-    def eventFilter(self, watched, event):
+    def _check_mouse_for_menu_bar(self):
         """
-        App-level event filter used for menu bar auto-show on hover.
+        Polls the global cursor position for menu bar auto-show on hover.
 
-        We listen for MouseMove events on any widget that belongs to this
-        window. When the mouse is near the top of the window the bar appears;
-        moving away starts the hide timer.
-
-        This replaces the old mouseMoveEvent override because mouseMoveEvent
-        is NOT reliably delivered over the region where a hidden menu bar
-        used to be — the app-level filter has no such blind spot.
+        Polling avoids relying on QEvent.MouseMove, which Qt only delivers to
+        a widget when that widget has mouse tracking enabled (or a mouse
+        button is held) — most widgets in this window don't opt into that,
+        so an event-based approach misses most cursor movement.
         """
-        from PySide6.QtCore import QEvent
+        if not self._get_display_settings_auto_hide():
+            return
 
-        if event.type() == QEvent.MouseMove and self._get_display_settings_auto_hide():
-            # Only act on events that belong to widgets inside this window.
-            if isinstance(watched, QApplication.__class__):
-                pass  # should not happen, but guard anyway
-            widget = watched if hasattr(watched, "window") else None
-            if widget is not None and widget.window() is not self:
-                return super().eventFilter(watched, event)
+        # Only react while this window is the one actually on screen under
+        # the cursor — otherwise another window overlapping the same screen
+        # coordinates would spuriously pop the bar open.
+        if not self.isActiveWindow():
+            return
 
-            menu_bar = self.menuBar()
-            # Use the stored height — sizeHint() returns 0 when the bar is hidden.
-            trigger_height = self._menu_bar_known_height + 5
+        menu_bar = self.menuBar()
+        # Use the stored height — sizeHint() returns 0 when the bar is hidden.
+        trigger_height = self._menu_bar_known_height + 5
 
-            # Map the mouse position to this window's coordinate system.
-            try:
-                global_pos = event.globalPosition().toPoint()
-            except AttributeError:
-                global_pos = event.globalPos()
-            local_pos = self.mapFromGlobal(global_pos)
-            y = local_pos.y()
+        local_pos = self.mapFromGlobal(QCursor.pos())
+        x, y = local_pos.x(), local_pos.y()
+        inside_top_region = 0 <= x <= self.width() and 0 <= y <= trigger_height
 
-            if y <= trigger_height:
-                # Mouse is near the top — show the bar and cancel any pending hide.
-                self._menu_bar_hide_timer.stop()
-                if not menu_bar.isVisible():
-                    menu_bar.show()
-            else:
-                # Mouse moved away — start the grace-period timer.
-                if menu_bar.isVisible() and not menu_bar.activeAction():
-                    self._menu_bar_hide_timer.start()
-
-        return super().eventFilter(watched, event)
+        if inside_top_region:
+            # Mouse is near the top — show the bar and cancel any pending hide.
+            self._menu_bar_hide_timer.stop()
+            if not menu_bar.isVisible():
+                menu_bar.show()
+        else:
+            # Mouse moved away — start the grace-period timer.
+            if (
+                menu_bar.isVisible()
+                and not menu_bar.activeAction()
+                and not self._menu_bar_hide_timer.isActive()
+            ):
+                self._menu_bar_hide_timer.start()
 
     # ------------------------------------------------------------------
     # Audio settings
