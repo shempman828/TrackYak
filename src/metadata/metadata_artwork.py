@@ -4,7 +4,9 @@ import struct
 from PIL import Image
 
 from src.core.logger_config import logger
+from src.metadata.metadata_byte_utils import syncsafe_to_int
 from src.metadata.metadata_image_utils import determine_image_format
+from src.metadata.metadata_mp4_atoms import find_atom
 
 
 class ArtworkExtractor:
@@ -27,27 +29,22 @@ class ArtworkExtractor:
             ".mp4": self._extract_alac_artwork,
         }
 
-    def extract_artwork(self, file_path, file_ext):
+    def extract_artwork(self, data, file_ext):
         """
-        Extract artwork from audio file.
+        Extract artwork from audio file bytes already read by the caller.
 
         Args:
-            file_path: Path to the audio file
+            data: Full file contents
             file_ext: File extension (.mp3, .flac, etc.)
 
         Returns:
             Dictionary with artwork data or None if no artwork found
         """
         try:
-            logger.debug(f"Attempting to extract artwork from {file_path}")
-
             handler = self.format_handlers.get(file_ext.lower())
             if not handler:
                 logger.debug(f"No artwork handler for format: {file_ext}")
                 return None
-
-            with open(file_path, "rb") as f:
-                data = f.read()
 
             artwork = handler(data)
 
@@ -56,12 +53,12 @@ class ArtworkExtractor:
                     f"Successfully extracted artwork: {len(artwork.get('data', []))} bytes"
                 )
             else:
-                logger.debug(f"No artwork found in {file_path}")
+                logger.debug("No artwork found")
 
             return artwork
 
         except Exception as e:
-            logger.warning(f"Error extracting artwork from {file_path}: {e}")
+            logger.warning(f"Error extracting artwork: {e}")
             return None
 
     def _extract_mp3_artwork(self, data):
@@ -71,7 +68,7 @@ class ArtworkExtractor:
                 return None
 
             version_major = data[3]
-            size = self._syncsafe_to_int(data[6:10])
+            size = syncsafe_to_int(data[6:10])
             pos = 10
             end_pos = min(pos + size, len(data))
 
@@ -85,7 +82,7 @@ class ArtworkExtractor:
                 else:  # ID3v2.3/2.4
                     frame_id = data[pos : pos + 4].decode("ascii", errors="ignore")
                     frame_size = (
-                        self._syncsafe_to_int(data[pos + 4 : pos + 8])
+                        syncsafe_to_int(data[pos + 4 : pos + 8])
                         if version_major == 4
                         else struct.unpack(">I", data[pos + 4 : pos + 8])[0]
                     )
@@ -114,7 +111,7 @@ class ArtworkExtractor:
                 return pictures
 
             version_major = data[3]
-            size = self._syncsafe_to_int(data[6:10])
+            size = syncsafe_to_int(data[6:10])
             pos = 10
             end_pos = min(pos + size, len(data))
 
@@ -128,7 +125,7 @@ class ArtworkExtractor:
                 else:  # ID3v2.3/2.4
                     frame_id = data[pos : pos + 4].decode("ascii", errors="ignore")
                     frame_size = (
-                        self._syncsafe_to_int(data[pos + 4 : pos + 8])
+                        syncsafe_to_int(data[pos + 4 : pos + 8])
                         if version_major == 4
                         else struct.unpack(">I", data[pos + 4 : pos + 8])[0]
                     )
@@ -169,7 +166,7 @@ class ArtworkExtractor:
         if data[0:4] == b"fLaC":
             return 4
         if data[0:3] == b"ID3" and len(data) >= 10:
-            id3_end = 10 + self._syncsafe_to_int(data[6:10])
+            id3_end = 10 + syncsafe_to_int(data[6:10])
             if data[id3_end : id3_end + 4] == b"fLaC":
                 return id3_end + 4
         return None
@@ -316,26 +313,44 @@ class ArtworkExtractor:
         return by_role
 
     def _extract_alac_artwork(self, data):
-        """Extract artwork from ALAC/M4A files (covr atom)."""
+        """Extract artwork from ALAC/M4A files: moov/udta/meta/ilst/covr."""
         try:
-            pos = 0
-            while pos < len(data) - 8:
-                atom_size = struct.unpack(">I", data[pos : pos + 4])[0]
-                atom_type = data[pos + 4 : pos + 8]
+            end = len(data)
+            moov = find_atom(data, b"moov", 0, end)
+            if not moov:
+                return None
+            udta = find_atom(data, b"udta", *moov)
+            if not udta:
+                return None
+            meta = find_atom(data, b"meta", *udta)
+            if not meta:
+                return None
+            meta_start, meta_end = meta
 
-                if atom_size < 8 or pos + atom_size > len(data):
-                    break
+            # 'meta' is a full box: 1-byte version + 3-byte flags precede
+            # its children.
+            ilst = find_atom(data, b"ilst", meta_start + 4, meta_end)
+            if not ilst:
+                return None
 
-                if atom_type == b"covr":
-                    return self._parse_covr_atom(data[pos + 8 : pos + atom_size])
-                elif atom_type == b"moov":
-                    cover_data = self._find_alac_coverart(
-                        data[pos + 8 : pos + atom_size]
-                    )
-                    if cover_data:
-                        return self._process_image_data(cover_data, "JPEG")
+            covr = find_atom(data, b"covr", *ilst)
+            if not covr:
+                return None
 
-                pos += atom_size
+            data_atom = find_atom(data, b"data", *covr)
+            if not data_atom:
+                return None
+            d_start, d_end = data_atom
+            if d_end - d_start < 8:
+                return None
+
+            # data atom payload: type indicator(4) + locale/reserved(4),
+            # then the raw image bytes.
+            image_bytes = data[d_start + 8 : d_end]
+            if image_bytes.startswith(b"\xff\xd8"):
+                return self._process_image_data(image_bytes, "JPEG")
+            elif image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+                return self._process_image_data(image_bytes, "PNG")
 
         except Exception as e:
             logger.warning(f"Error extracting ALAC artwork: {e}")
@@ -468,24 +483,6 @@ class ArtworkExtractor:
 
         return None
 
-    def _parse_covr_atom(self, covr_data):
-        """Parse ALAC covr atom."""
-        try:
-            # Look for image magic bytes
-            if covr_data.startswith(b"\xff\xd8"):
-                jpeg_end = self._find_jpeg_end(covr_data)
-                if jpeg_end:
-                    return self._process_image_data(covr_data[:jpeg_end], "JPEG")
-            elif covr_data.startswith(b"\x89PNG\r\n\x1a\n"):
-                png_end = self._find_png_end(covr_data)
-                if png_end:
-                    return self._process_image_data(covr_data[:png_end], "PNG")
-
-        except Exception as e:
-            logger.warning(f"Error parsing covr atom: {e}")
-
-        return None
-
     def _process_image_data(self, image_data, format_type):
         """Process and validate image data."""
         try:
@@ -514,34 +511,3 @@ class ArtworkExtractor:
     def _determine_image_format(self, image_data, mime_type):
         """Determine image format from magic bytes or MIME type."""
         return determine_image_format(image_data, mime_type)
-
-    def _find_jpeg_end(self, data):
-        """Find JPEG end marker."""
-        pos = 0
-        while pos < len(data) - 1:
-            if data[pos : pos + 2] == b"\xff\xd9":
-                return pos + 2
-            pos += 1
-        return None
-
-    def _find_png_end(self, data):
-        """Find PNG IEND chunk."""
-        pos = 0
-        while pos < len(data) - 8:
-            if data[pos : pos + 8] == b"IEND\xae\x42\x60\x82":
-                return pos + 8
-            pos += 1
-        return None
-
-    def _syncsafe_to_int(self, data):
-        """Convert syncsafe integer to normal integer."""
-        result = 0
-        for byte in data:
-            result = (result << 7) | (byte & 0x7F)
-        return result
-
-    def _find_alac_coverart(self, data):
-        """Find cover art in ALAC metadata (helper for complex structures)."""
-        # Implementation similar to your existing _find_alac_coverart method
-        # but focused solely on artwork extraction
-        pass
