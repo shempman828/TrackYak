@@ -79,6 +79,26 @@ class DisplaySettingsDialog(QDialog):
         )
         form.addRow("", self.auto_hide_check)
 
+        # ---- Explicit content ----
+        content_label = QLabel("Explicit Content")
+        content_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
+        form.addRow(content_label)
+
+        self.blur_art_check = QCheckBox("Blur album art marked explicit")
+        self.blur_art_check.setToolTip(
+            "When enabled, cover/liner art for albums marked as having "
+            "explicit art is shown blurred until you choose to reveal it."
+        )
+        form.addRow("", self.blur_art_check)
+
+        self.censor_words_check = QCheckBox("Censor explicit words")
+        self.censor_words_check.setToolTip(
+            "When enabled, words listed in assets/explicit_words.txt are "
+            "masked with asterisks wherever text is displayed (lyrics, "
+            "album titles, track titles, etc.)."
+        )
+        form.addRow("", self.censor_words_check)
+
         layout.addLayout(form)
 
         # Buttons
@@ -118,6 +138,10 @@ class DisplaySettingsDialog(QDialog):
         # Menu bar auto-hide — read current value from DisplaySettings
         self.auto_hide_check.setChecked(self.display.get_menu_bar_auto_hide())
 
+        # Explicit content options
+        self.blur_art_check.setChecked(self.display.get_blur_explicit_art())
+        self.censor_words_check.setChecked(self.display.get_censor_explicit_words())
+
     # ---------------------------------------------------------
     # Signal wiring
     # ---------------------------------------------------------
@@ -130,6 +154,9 @@ class DisplaySettingsDialog(QDialog):
 
         # Auto-hide: call DisplaySettings which saves to config and emits signal
         self.auto_hide_check.toggled.connect(self.display.set_menu_bar_auto_hide)
+
+        self.blur_art_check.toggled.connect(self.display.set_blur_explicit_art)
+        self.censor_words_check.toggled.connect(self.display.set_censor_explicit_words)
 
         self.buttons.rejected.connect(self.close)
 
