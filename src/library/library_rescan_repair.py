@@ -15,7 +15,11 @@ Safe to run multiple times — it will simply find nothing left to fix.
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import src.metadata.metadata_controller
+from src.metadata.metadata_extraction import MetadataExtractor
+from src.importing.artist_field_extraction import (
+    ALBUM_ARTIST_FIELDS,
+    extract_artists_from_metadata,
+)
 from src.importing.library_import_album import AlbumImporter
 from src.core.logger_config import logger
 
@@ -156,7 +160,7 @@ class LibraryRepair:
         metadata that do not already exist in the database.
         Returns True if at least one new relationship was created.
         """
-        artist_names = self._album_importer._extract_album_artists_list(metadata)
+        artist_names = extract_artists_from_metadata(metadata, ALBUM_ARTIST_FIELDS)
         if not artist_names:
             logger.debug(
                 f"LibraryRepair: no album artists in metadata for "
@@ -192,7 +196,7 @@ class LibraryRepair:
     def _extract_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Run the standard metadata extractor on a file path."""
         try:
-            extractor = src.metadata.metadata_controller.ExtractMetadata()
+            extractor = MetadataExtractor()
             metadata = extractor.extract_metadata(file_path)
             if not metadata:
                 logger.warning(
