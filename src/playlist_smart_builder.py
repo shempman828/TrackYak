@@ -115,6 +115,15 @@ class SmartPlaylistBuilder:
             combined_kwargs = {}
             for condition in conditions:
                 kwargs = self._condition_to_kwargs(condition)
+                if kwargs is None:
+                    # Condition couldn't be validated (bad/malformed value).
+                    # It must not silently drop out of an AND — an empty
+                    # kwargs dict would query with no filter at all and
+                    # match every track. Treat it as "matches nothing".
+                    logger.warning(
+                        f"Invalid condition excluded all tracks from AND match: {condition}"
+                    )
+                    return []
                 combined_kwargs.update(kwargs)
 
             tracks = self.controller.get.get_all_entities("Track", **combined_kwargs)
@@ -124,13 +133,23 @@ class SmartPlaylistBuilder:
             seen: Set[int] = set()
             for condition in conditions:
                 kwargs = self._condition_to_kwargs(condition)
+                if kwargs is None:
+                    # Invalid condition contributes no matches — must not
+                    # be queried with empty kwargs, which would match
+                    # every track.
+                    continue
                 tracks = self.controller.get.get_all_entities("Track", **kwargs)
                 seen.update(t.track_id for t in tracks)
             return list(seen)
 
-    def _condition_to_kwargs(self, condition: Dict[str, Any]) -> Dict[str, Any]:
+    def _condition_to_kwargs(self, condition: Dict[str, Any]) -> Dict[str, Any] | None:
         """
         Turn one condition dict into a **kwargs dict for get_all_entities.
+
+        Returns None if the condition is invalid/unusable — callers must
+        NOT treat that the same as an empty-but-valid kwargs dict, since
+        an empty dict passed to get_all_entities means "no filter" and
+        would match every track.
 
         Example:
             {"field": "user_rating", "comparison": "gt", "value": "5.5"}
@@ -142,7 +161,7 @@ class SmartPlaylistBuilder:
         data_type = condition.get("type", "String")
 
         if not field or not comparison:
-            return {}
+            return None
 
         # Operators that use a boolean flag instead of a real value
         if comparison == "isnull":
@@ -162,7 +181,7 @@ class SmartPlaylistBuilder:
         if cast_value is None:
             # Don't add a condition with a None value (would match everything)
             logger.warning(f"Skipping condition with None value: {condition}")
-            return {}
+            return None
 
         return {f"{field}__{comparison}": cast_value}
 
@@ -173,7 +192,7 @@ class SmartPlaylistBuilder:
 
     def _datetime_condition_to_kwargs(
         self, field: str, comparison: str, value: Any
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Any] | None:
         """
         Translate a Datetime condition into query kwargs.
 
@@ -186,16 +205,20 @@ class SmartPlaylistBuilder:
           an exact stored timestamp would almost never match.
         - everything else (gt/lt/gte/lte): plain string comparison against
           the stored value.
+
+        Returns None (not {}) when the value fails validation — an empty
+        dict would be interpreted by the caller as "no filter", which
+        matches every track instead of rejecting the bad criterion.
         """
         if value is None or value == "":
             logger.warning(f"Skipping datetime condition with no value: {field}")
-            return {}
+            return None
 
         if comparison == "range":
             parts = str(value).split("|", 1)
             if len(parts) != 2:
                 logger.warning(f"Malformed datetime range value for {field}: {value}")
-                return {}
+                return None
             return {f"{field}__range": (parts[0], parts[1])}
 
         if comparison == "last_n_days":
@@ -203,7 +226,7 @@ class SmartPlaylistBuilder:
                 days = int(float(value))
             except (TypeError, ValueError):
                 logger.warning(f"Invalid 'last N days' value for {field}: {value}")
-                return {}
+                return None
             cutoff = datetime.datetime.now() - datetime.timedelta(days=days)
             return {f"{field}__gte": cutoff.strftime(self._DATETIME_FORMAT)}
 
@@ -213,7 +236,7 @@ class SmartPlaylistBuilder:
                 day_start = datetime.datetime.strptime(day_text, "%Y-%m-%d")
             except ValueError:
                 logger.warning(f"Invalid 'on this day' value for {field}: {value}")
-                return {}
+                return None
             day_end = day_start + datetime.timedelta(days=1)
             return {
                 f"{field}__gte": day_start.strftime(self._DATETIME_FORMAT),
@@ -278,8 +301,15 @@ class SmartPlaylistBuilder:
                 "PlaylistTracks", playlist_id__eq=playlist_id
             )
 
-            # Create sets for comparison
+            # Create sets for comparison. Capture positions as plain values
+            # now — the ORM objects get expired by the commit() in STEP 3,
+            # and any that were bulk-deleted (synchronize_session=False, so
+            # the session doesn't know) would raise ObjectDeletedError if
+            # touched again afterward.
             existing_track_ids = set(pt.track_id for pt in existing_tracks)
+            existing_positions = [
+                getattr(pt, "position", 0) for pt in existing_tracks
+            ]
             new_track_ids = set(track_ids)
 
             # ═══════════════════════════════════════════════════════════════
@@ -317,10 +347,7 @@ class SmartPlaylistBuilder:
 
             if tracks_to_add:
                 # Get current max position
-                current_positions = [
-                    getattr(pt, "position", 0) for pt in existing_tracks
-                ]
-                next_position = max(current_positions, default=0) + 1
+                next_position = max(existing_positions, default=0) + 1
 
                 # Create a list of PlaylistTracks objects to insert
                 new_entries = []
