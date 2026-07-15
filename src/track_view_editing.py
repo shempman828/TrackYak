@@ -95,13 +95,26 @@ class TrackViewEditingMixin:
         # --- Optionally delete files from disk via the existing delete_file helper ---
         if delete_files and file_paths:
             removed = 0
+            failed_paths = []
             for fp in file_paths:
                 try:
                     if self.controller.delete.delete_file(file_path=fp):
                         removed += 1
+                    else:
+                        failed_paths.append(fp)
                 except Exception as e:
                     logger.error(f"Error deleting file {fp}: {e}")
+                    failed_paths.append(fp)
             logger.info(f"Removed {removed}/{len(file_paths)} file(s) from disk")
+            if failed_paths:
+                QMessageBox.warning(
+                    self,
+                    "Some Files Not Deleted",
+                    f"{len(failed_paths)} of {len(file_paths)} file(s) could not be "
+                    "deleted from disk (e.g. permission denied or already removed). "
+                    "The library entries were still removed.\n\n"
+                    + "\n".join(failed_paths),
+                )
 
         self._force_reload()
 
