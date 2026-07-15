@@ -57,7 +57,7 @@ class InfluencesWidget(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
 
         title_label = QLabel(f"<b>{title}</b>")
-        title_label.setStyleSheet("font-size: 12pt; margin-bottom: 5px;")
+        title_label.setProperty("title", True)
         layout.addWidget(title_label)
 
         return section

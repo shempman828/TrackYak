@@ -334,7 +334,7 @@ class AlbumEditor(QDialog):
         self.cover_label = QLabel()
         self.cover_label.setAlignment(Qt.AlignCenter)
         self.cover_label.setFixedSize(150, 150)  # FIX: smaller, was 200
-        self.cover_label.setStyleSheet("border: 1px solid #555; background: #2a2a2a;")
+        self.cover_label.setProperty("coverPlaceholder", True)
         self._load_album_cover()
         layout.addWidget(self.cover_label)
 
@@ -364,7 +364,7 @@ class AlbumEditor(QDialog):
             if len(self.album.album_artists) > 4:
                 names += "…"
             artist_label = QLabel(f"by {names}")
-            artist_label.setStyleSheet("color: #aaa; font-size: 14px;")
+            artist_label.setObjectName("albumByline")
             all_names = ", ".join(a.artist_name for a in self.album.album_artists)
             artist_label.setToolTip(all_names)
             layout.addWidget(artist_label)
@@ -383,7 +383,7 @@ class AlbumEditor(QDialog):
                 col = QVBoxLayout()
                 col.setSpacing(2)
                 lbl = QLabel(label_text)
-                lbl.setStyleSheet("color: #aaa; font-size: 10px;")
+                lbl.setProperty("textRole", "muted")
                 w.setFixedWidth(70)
                 col.addWidget(lbl)
                 col.addWidget(w)
@@ -485,10 +485,10 @@ class AlbumEditor(QDialog):
             row.setContentsMargins(0, 0, 0, 0)
             name_lbl = QLabel(f"<b>{alias.alias_name}</b>")
             type_lbl = QLabel(alias.alias_type or "—")
-            type_lbl.setStyleSheet("color: #aaa;")
+            type_lbl.setProperty("textRole", "muted")
             remove_btn = QPushButton("✕ Remove")
             remove_btn.setFixedWidth(90)
-            remove_btn.setStyleSheet("color: #cc4444;")
+            remove_btn.setProperty("danger", True)
             remove_btn.clicked.connect(
                 lambda checked=False, a=alias: self._remove_alias(a)
             )
@@ -617,9 +617,6 @@ class AlbumEditor(QDialog):
             )
             return
         self.cover_label.setText("No Cover\nImage")
-        self.cover_label.setStyleSheet(
-            "border: 1px solid #555; background: #2a2a2a; color: #666;"
-        )
 
     def _load_artwork_previews(self):
         """Populate all three artwork displays from the current album object."""

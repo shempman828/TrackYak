@@ -222,7 +222,6 @@ class EqualizerDialog(QDialog):
             # Band name label (optional, below frequency)
             name_label = QLabel(band["label"])
             name_label.setAlignment(Qt.AlignCenter)
-            name_label.setStyleSheet("font-size: 7px;")
             name_label.setFixedHeight(15)
             name_label.setStyleSheet("font-size: 9px;")
             vbox.addWidget(name_label)

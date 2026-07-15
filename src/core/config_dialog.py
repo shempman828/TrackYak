@@ -186,7 +186,7 @@ class ConfigDialog(QDialog):
             "are available in the Audio menu → Manage Audio Settings."
         )
         note.setWordWrap(True)
-        note.setStyleSheet("color: #888; font-size: 11px;")
+        note.setProperty("textRole", "muted")
         layout.addRow(note)
 
         # Sample rate

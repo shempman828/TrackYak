@@ -69,7 +69,7 @@ class DisplaySettingsDialog(QDialog):
         # ---- Menu Bar behaviour ----
         # A small separator label makes the section feel distinct
         separator_label = QLabel("Menu Bar")
-        separator_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
+        separator_label.setProperty("title", True)
         form.addRow(separator_label)
 
         self.auto_hide_check = QCheckBox("Auto-hide menu bar (shows on mouse-over)")
@@ -81,7 +81,7 @@ class DisplaySettingsDialog(QDialog):
 
         # ---- Explicit content ----
         content_label = QLabel("Explicit Content")
-        content_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
+        content_label.setProperty("title", True)
         form.addRow(content_label)
 
         self.blur_art_check = QCheckBox("Blur album art marked explicit")

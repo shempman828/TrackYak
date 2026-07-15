@@ -163,7 +163,7 @@ class MetadataWriteDialog(QDialog):
 
         # Header
         header_label = QLabel("Sync all audio files with database metadata")
-        header_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        header_label.setProperty("title", True)
         layout.addWidget(header_label)
 
         # Write mode selection

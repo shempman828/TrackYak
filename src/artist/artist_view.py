@@ -118,7 +118,7 @@ class ArtistView(QWidget):
 
         # Count label — shows "Showing X of Y"
         self.count_label = QLabel()
-        self.count_label.setStyleSheet("color: grey; font-size: 11px;")
+        self.count_label.setProperty("textRole", "muted")
         filter_bar.addWidget(self.count_label)
 
         layout.addLayout(filter_bar)
@@ -144,7 +144,7 @@ class ArtistView(QWidget):
 
         self._placeholder = QLabel("Select an artist to view details")
         self._placeholder.setAlignment(Qt.AlignCenter)
-        self._placeholder.setStyleSheet("color: grey; font-style: italic;")
+        self._placeholder.setProperty("textRole", "note")
         self.detail_layout.addWidget(self._placeholder)
 
         self._current_detail = None  # track which widget is currently shown

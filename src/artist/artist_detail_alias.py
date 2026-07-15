@@ -42,7 +42,6 @@ class AliasesCarousel(QWidget):
             self._set_alias_text(self.aliases[0])
         else:
             self.alias_label.setText("No aliases")
-            self.alias_label.setStyleSheet("color: gray;")
 
     def _set_alias_text(self, text: str):
         """Set alias text with fade animation"""

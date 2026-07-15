@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.db.db_helpers import Session
+from src.common.style_utils import set_style_property
 from src.core.status_utility import StatusManager
 from src.sync.sync_utility import (
     MtpManager,
@@ -104,38 +105,19 @@ class DeviceCard(QFrame):
         if self.profile.is_mtp:
             if self._connected:
                 self.badge.setText("● USB")
-                self.badge.setStyleSheet(
-                    "background:#1a3a1a; color:#99EA85; border-radius:9px;"
-                    "padding:0 7px; font-size:10px; font-weight:bold;"
-                )
+                set_style_property(self.badge, "state", "connected")
             else:
                 self.badge.setText("○ USB")
-                self.badge.setStyleSheet(
-                    "background:#2a2c3e; color:#555e7a; border-radius:9px;"
-                    "padding:0 7px; font-size:10px; font-weight:bold;"
-                )
+                set_style_property(self.badge, "state", "disconnected")
             self.sub_label.setText(self.profile.music_path or "No path set")
         else:
             self.badge.setText("📁 Folder")
-            self.badge.setStyleSheet(
-                "background:#1a1b2a; color:#8599ea; border-radius:9px;"
-                "padding:0 7px; font-size:10px; font-weight:bold;"
-            )
+            set_style_property(self.badge, "state", "folder")
             self.sub_label.setText(self.profile.path or "No folder set")
-
-        self.sub_label.setStyleSheet("color:#555e7a; font-size:11px;")
 
     def set_selected(self, selected: bool):
         self._selected = selected
-        self.setStyleSheet(
-            "DeviceCard { background: rgba(133,153,234,0.15);"
-            "border: 1px solid rgba(133,153,234,0.5); border-radius:8px; }"
-            if selected
-            else "DeviceCard { background: rgba(17,18,26,0.6);"
-            "border: 1px solid #1e1f2b; border-radius:8px; }"
-            "DeviceCard:hover { background: rgba(133,153,234,0.07);"
-            "border-color: rgba(133,153,234,0.3); }"
-        )
+        set_style_property(self, "selected", selected)
 
     def set_connected(self, connected: bool):
         self._connected = connected
@@ -387,7 +369,7 @@ class SyncView(QWidget):
         # Connected device indicator
         device_row = QHBoxLayout()
         self.device_label = QLabel("No device linked")
-        self.device_label.setStyleSheet("color:#555e7a;")
+        self.device_label.setProperty("linkState", "idle")
         device_row.addWidget(self.device_label, 1)
 
         self.link_device_btn = QPushButton("Link Device…")
@@ -423,7 +405,7 @@ class SyncView(QWidget):
         folder_layout = QHBoxLayout(self.folder_group)
 
         self.folder_label = QLabel("No folder set")
-        self.folder_label.setStyleSheet("color:#555e7a;")
+        self.folder_label.setProperty("textRole", "muted")
         self.folder_label.setWordWrap(True)
         folder_layout.addWidget(self.folder_label, 1)
 
@@ -653,9 +635,7 @@ class SyncView(QWidget):
         self.music_path_edit.blockSignals(False)
 
         self.folder_label.setText(p.path or "No folder set")
-        self.folder_label.setStyleSheet(
-            "color:#b8c0f0;" if p.path else "color:#555e7a;"
-        )
+        set_style_property(self.folder_label, "textRole", None if p.path else "muted")
 
         self.clear_before_sync_check.blockSignals(True)
         self.clear_before_sync_check.setChecked(p.clear_before_sync)
@@ -679,17 +659,17 @@ class SyncView(QWidget):
             )
             if match:
                 self.device_label.setText(match.display_name)
-                self.device_label.setStyleSheet("color:#99EA85; font-weight:bold;")
+                set_style_property(self.device_label, "linkState", "connected")
             else:
                 name = (
                     self.current_profile.device_name or self.current_profile.device_uri
                 )
                 self.device_label.setText(f"{name}  (not connected)")
-                self.device_label.setStyleSheet("color:#555e7a;")
+                set_style_property(self.device_label, "linkState", "idle")
             self.unlink_device_btn.setVisible(True)
         else:
             self.device_label.setText("No device linked — using folder sync")
-            self.device_label.setStyleSheet("color:#555e7a;")
+            set_style_property(self.device_label, "linkState", "idle")
             self.unlink_device_btn.setVisible(False)
 
     # -----------------------------------------------------------------------
@@ -744,7 +724,7 @@ class SyncView(QWidget):
         if folder:
             self.current_profile.path = folder
             self.folder_label.setText(folder)
-            self.folder_label.setStyleSheet("color:#b8c0f0;")
+            set_style_property(self.folder_label, "textRole", None)
             card = self._find_card_for_profile(self.current_profile)
             if card:
                 card.update_profile(self.current_profile)

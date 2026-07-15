@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.style_utils import set_style_property
 from src.disc.disc_edit import DiscEditDialog
 from src.disc.disc_sorting import TrackSortingDisplay
 from src.core.logger_config import logger
@@ -43,7 +44,7 @@ class DiscManagementView(QWidget):
 
         # Header
         header = QLabel(f"Disc Management: {self.album.album_name}")
-        header.setStyleSheet("font-size: 16px; font-weight: bold;")
+        header.setProperty("title", True)
         main_layout.addWidget(header)
 
         # Statistics bar
@@ -53,7 +54,6 @@ class DiscManagementView(QWidget):
         # Divider
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("color: #ccc;")
         main_layout.addWidget(line)
 
         # Action buttons
@@ -96,7 +96,7 @@ class DiscManagementView(QWidget):
 
         # Status bar
         self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("color: #666; font-size: 11px;")
+        self.status_label.setProperty("textRole", "muted")
         main_layout.addWidget(self.status_label)
 
     def create_stats_bar(self):
@@ -115,7 +115,7 @@ class DiscManagementView(QWidget):
             self.disc_count_label,
             self.unassigned_label,
         ]:
-            label.setStyleSheet("color: #444; font-size: 12px;")
+            label.setProperty("textRole", "muted")
             stats_layout.addWidget(label)
 
         stats_layout.addStretch()
@@ -208,7 +208,7 @@ class DiscManagementView(QWidget):
         if not self.physical_tracks and not self.virtual_tracks:
             placeholder = QLabel("No tracks found for this album.")
             placeholder.setAlignment(Qt.AlignCenter)
-            placeholder.setStyleSheet("color: #999; font-style: italic; padding: 20px;")
+            placeholder.setProperty("textRole", "placeholder")
             self.track_layout.addWidget(placeholder)
 
     def add_disc(self):
@@ -321,6 +321,7 @@ class DiscManagementView(QWidget):
 
     def show_message(self, message, is_error=False):
         """Show status message"""
-        style = "color: #d00;" if is_error else "color: #090;"
-        self.status_label.setStyleSheet(f"font-size: 11px; {style}")
+        set_style_property(
+            self.status_label, "statusState", "error" if is_error else "ok"
+        )
         self.status_label.setText(message)

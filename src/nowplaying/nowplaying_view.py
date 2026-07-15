@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.style_utils import set_style_property
 from src.core.asset_paths import asset
 from src.core.censor import censor_text
 from src.core.config_setup import app_config
@@ -128,71 +129,8 @@ class _FadedScrollArea(QScrollArea):
         self.setWidgetResizable(True)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-#  Tab button styles
-# ──────────────────────────────────────────────────────────────────────────────
-
-_TAB_ACTIVE = """
-    QPushButton {
-        background: rgba(133, 153, 234, 0.20);
-        border: 1px solid rgba(133, 153, 234, 0.55);
-        border-bottom: none;
-        border-radius: 0px;
-        color: rgba(230, 235, 255, 0.92);
-        font-size: 10px;
-        font-weight: bold;
-        letter-spacing: 2px;
-        padding: 5px 22px;
-    }
-"""
-
-_TAB_INACTIVE = """
-    QPushButton {
-        background: transparent;
-        border: 1px solid rgba(133, 153, 234, 0.14);
-        border-bottom: none;
-        border-radius: 0px;
-        color: rgba(133, 153, 234, 0.42);
-        font-size: 10px;
-        font-weight: bold;
-        letter-spacing: 2px;
-        padding: 5px 22px;
-    }
-    QPushButton:hover {
-        background: rgba(133, 153, 234, 0.09);
-        color: rgba(200, 208, 244, 0.70);
-    }
-"""
-
-_TOGGLE_ACTIVE = """
-    QPushButton {
-        background: rgba(133, 153, 234, 0.22);
-        border: 1px solid rgba(133, 153, 234, 0.50);
-        border-radius: 8px;
-        color: rgba(230, 235, 255, 0.90);
-        font-size: 9px;
-        font-weight: bold;
-        letter-spacing: 1px;
-        padding: 2px 8px;
-    }
-"""
-
-_TOGGLE_INACTIVE = """
-    QPushButton {
-        background: transparent;
-        border: 1px solid rgba(133, 153, 234, 0.22);
-        border-radius: 8px;
-        color: rgba(133, 153, 234, 0.45);
-        font-size: 9px;
-        font-weight: bold;
-        letter-spacing: 1px;
-        padding: 2px 8px;
-    }
-    QPushButton:hover {
-        background: rgba(133, 153, 234, 0.10);
-        color: rgba(200, 208, 244, 0.70);
-    }
-"""
+# Tab and toggle button visuals live in themes/dark_mode.qss under the
+# [npTab="true"] / [npToggle="true"] / [active=...] selectors — see _set_active().
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -523,9 +461,10 @@ class NowPlayingView(QWidget):
         for btn in (self._tab_lyrics, self._tab_credits):
             btn.setFixedHeight(28)
             btn.setCursor(Qt.PointingHandCursor)
+            btn.setProperty("npTab", True)
 
-        self._tab_lyrics.setStyleSheet(_TAB_ACTIVE)
-        self._tab_credits.setStyleSheet(_TAB_INACTIVE)
+        self._set_active(self._tab_lyrics, True)
+        self._set_active(self._tab_credits, False)
 
         self._tab_lyrics.clicked.connect(lambda: self._switch_tab(self._PAGE_LYRICS))
         self._tab_credits.clicked.connect(lambda: self._switch_tab(self._PAGE_CREDITS))
@@ -539,7 +478,8 @@ class NowPlayingView(QWidget):
         self._sync_toggle_btn.setFixedSize(24, 24)
         self._sync_toggle_btn.setCursor(Qt.PointingHandCursor)
         self._sync_toggle_btn.setToolTip("Toggle lyric sync slider")
-        self._sync_toggle_btn.setStyleSheet(_TOGGLE_INACTIVE)
+        self._sync_toggle_btn.setProperty("npToggle", True)
+        self._set_active(self._sync_toggle_btn, False)
         self._sync_toggle_btn.clicked.connect(self._on_toggle_sync_slider)
         tab_bar.addWidget(self._sync_toggle_btn)
 
@@ -655,7 +595,8 @@ class NowPlayingView(QWidget):
         self._toggle_mode_btn = QPushButton("SHOW ALL")
         self._toggle_mode_btn.setFixedHeight(20)
         self._toggle_mode_btn.setCursor(Qt.PointingHandCursor)
-        self._toggle_mode_btn.setStyleSheet(_TOGGLE_INACTIVE)
+        self._toggle_mode_btn.setProperty("npToggle", True)
+        self._set_active(self._toggle_mode_btn, False)
         self._toggle_mode_btn.clicked.connect(self._on_toggle_lyrics_mode)
 
         off_lay.addWidget(self._offset_lbl)
@@ -676,15 +617,20 @@ class NowPlayingView(QWidget):
 
     # ── tab switching ──────────────────────────────────────────────────────
 
+    @staticmethod
+    def _set_active(button: QPushButton, active: bool) -> None:
+        """Flip a [npTab]/[npToggle] button between its QSS active/inactive states."""
+        set_style_property(button, "active", active)
+
     def _switch_tab(self, page: int):
         self._stack.setCurrentIndex(page)
         if page == self._PAGE_LYRICS:
-            self._tab_lyrics.setStyleSheet(_TAB_ACTIVE)
-            self._tab_credits.setStyleSheet(_TAB_INACTIVE)
+            self._set_active(self._tab_lyrics, True)
+            self._set_active(self._tab_credits, False)
             self._credits_panel.stop()
         else:
-            self._tab_lyrics.setStyleSheet(_TAB_INACTIVE)
-            self._tab_credits.setStyleSheet(_TAB_ACTIVE)
+            self._set_active(self._tab_lyrics, False)
+            self._set_active(self._tab_credits, True)
             self._credits_panel.load_credits(self.track)
 
     # ── lyrics mode toggle ─────────────────────────────────────────────────
@@ -694,7 +640,7 @@ class NowPlayingView(QWidget):
         self._show_all_lyrics = not self._show_all_lyrics
         if self._show_all_lyrics:
             self._toggle_mode_btn.setText("KARAOKE")
-            self._toggle_mode_btn.setStyleSheet(_TOGGLE_ACTIVE)
+            self._set_active(self._toggle_mode_btn, True)
             # Show full plain text from the synced lines
             text = "\n".join(t for _, t in self._lyrics_lines)
             self._karaoke_lbl.setVisible(False)
@@ -706,7 +652,7 @@ class NowPlayingView(QWidget):
             self._plain_area.verticalScrollBar().setValue(0)
         else:
             self._toggle_mode_btn.setText("SHOW ALL")
-            self._toggle_mode_btn.setStyleSheet(_TOGGLE_INACTIVE)
+            self._set_active(self._toggle_mode_btn, False)
             self._plain_area.setVisible(False)
             self._karaoke_lbl.setVisible(True)
             # Re-trigger display at current position
@@ -836,7 +782,7 @@ class NowPlayingView(QWidget):
         # Slider row stays hidden until user clicks the ⏱ toggle
         # Reset toggle button label
         self._toggle_mode_btn.setText("SHOW ALL")
-        self._toggle_mode_btn.setStyleSheet(_TOGGLE_INACTIVE)
+        self._set_active(self._toggle_mode_btn, False)
         # Switch to lyrics tab
         self._switch_tab(self._PAGE_LYRICS)
 
@@ -919,9 +865,7 @@ class NowPlayingView(QWidget):
         """Show/hide the sync offset slider row."""
         visible = self._offset_row.isVisible()
         self._offset_row.setVisible(not visible)
-        self._sync_toggle_btn.setStyleSheet(
-            _TOGGLE_ACTIVE if not visible else _TOGGLE_INACTIVE
-        )
+        self._set_active(self._sync_toggle_btn, not visible)
 
     def _find_next_lyric_ts(self, effective_ms: int) -> int:
         """Return timestamp of the next lyric line after effective_ms, or -1."""

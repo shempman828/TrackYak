@@ -115,7 +115,7 @@ class ArtworkTab:
             display = QLabel()
             display.setAlignment(Qt.AlignCenter)
             display.setFixedSize(250, 250)
-            display.setStyleSheet("border: 1px solid #555; background: #2a2a2a;")
+            display.setProperty("coverPlaceholder", True)
             display.setWordWrap(True)
             # Store on the editor so _pick_cover / _clear_cover can reach them
             setattr(self.editor, f"{cover_type}_cover_display", display)
@@ -136,7 +136,7 @@ class ArtworkTab:
 
             path_label = QLabel()
             path_label.setWordWrap(True)
-            path_label.setStyleSheet("color: #888; font-size: 10px;")
+            path_label.setProperty("textRole", "muted")
             setattr(self.editor, f"{cover_type}_path_label", path_label)
             g_layout.addWidget(path_label)
 
@@ -231,13 +231,13 @@ class AdvancedTab:
         _row("Wikipedia Link:", "album_wikipedia_link")
 
         rg_label = QLabel("ReplayGain")
-        rg_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
+        rg_label.setProperty("title", True)
         layout.addWidget(rg_label)
         _row("Album Gain (dB):", "album_gain")
         _row("Album Peak:", "album_peak")
 
         stats_label = QLabel("Library Stats")
-        stats_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
+        stats_label.setProperty("title", True)
         layout.addWidget(stats_label)
 
         def _read_only_row(label_text, value_text):

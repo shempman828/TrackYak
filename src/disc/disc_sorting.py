@@ -107,11 +107,6 @@ class TrackSortingDisplay(QTreeWidget):
         self.setIndentation(20)
         self.setAlternatingRowColors(True)
 
-        self.setStyleSheet("""
-                QTreeWidget::item { padding: 4px; }
-                QTreeWidget::item:selected { background: #3498db; color: white; }
-            """)
-
         # 3. Enable right-click context menu
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)

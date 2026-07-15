@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.style_utils import set_style_property
 from src.core.censor import censor_text
 from src.image.artwork_cache import get_artwork_cache
 
@@ -44,14 +45,14 @@ class AlbumWidget(QWidget):
         self.art_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.art_label)
 
+        self.title_label.setObjectName("AlbumTitleLabel")
         self.title_label.setAlignment(Qt.AlignCenter)
-        self.title_label.setStyleSheet("font-weight: bold; font-size: 1.1em;")
         self.title_label.setWordWrap(True)
         layout.addWidget(self.title_label)
 
+        self.artist_label.setObjectName("AlbumArtistLabel")
         self.artist_label.setAlignment(Qt.AlignCenter)
         self.artist_label.setWordWrap(True)
-        self.artist_label.setStyleSheet("color: #555;")
         layout.addWidget(self.artist_label)
 
         # Ensure the widget doesn't expand weirdly in a grid
@@ -110,12 +111,7 @@ class AlbumWidget(QWidget):
 
     def set_selected(self, selected):
         self.is_selected = selected
-        if selected:
-            self.setStyleSheet(
-                "border: 2px solid #0078d7; background-color: #f0f8ff; border-radius: 4px;"
-            )
-        else:
-            self.setStyleSheet("")
+        set_style_property(self, "selected", selected)
 
     def update_size(self, new_size):
         self.size = new_size

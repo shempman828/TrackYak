@@ -153,9 +153,7 @@ class RoleView(QWidget):
         # Loading indicator — shown while the background thread is running
         self.loading_label = QLabel("Loading roles…")
         self.loading_label.setAlignment(Qt.AlignCenter)
-        self.loading_label.setStyleSheet(
-            "QLabel { color: gray; font-style: italic; padding: 8px; }"
-        )
+        self.loading_label.setProperty("textRole", "note")
         self.loading_label.hide()  # Hidden by default
         self.main_layout.addWidget(self.loading_label)
 
@@ -182,13 +180,7 @@ class RoleView(QWidget):
         # Placeholder shown when no role is selected
         self.detail_placeholder = QLabel("Select a role to view details")
         self.detail_placeholder.setAlignment(Qt.AlignCenter)
-        self.detail_placeholder.setStyleSheet("""
-            QLabel {
-                color: gray;
-                font-style: italic;
-                padding: 20px;
-            }
-        """)
+        self.detail_placeholder.setProperty("textRole", "placeholder")
         self.right_layout.addWidget(self.detail_placeholder)
 
         self.splitter.addWidget(self.right_panel)
@@ -620,13 +612,7 @@ class RoleView(QWidget):
         if not self.detail_placeholder:
             self.detail_placeholder = QLabel("Select a role to view details")
             self.detail_placeholder.setAlignment(Qt.AlignCenter)
-            self.detail_placeholder.setStyleSheet("""
-                QLabel {
-                    color: gray;
-                    font-style: italic;
-                    padding: 20px;
-                }
-            """)
+            self.detail_placeholder.setProperty("textRole", "placeholder")
             self.right_layout.addWidget(self.detail_placeholder)
 
     # -----------------------------------------------------------------------

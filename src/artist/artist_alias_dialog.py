@@ -66,29 +66,21 @@ class AliasRowWidget(QWidget):
         btn_edit = QPushButton("Edit")
         btn_edit.setFixedWidth(46)
         btn_edit.setFlat(True)
-        btn_edit.setStyleSheet(
-            "QPushButton { border: 1px solid palette(mid); border-radius: 3px; padding: 1px 4px; }"
-            "QPushButton:hover { background: palette(highlight); color: palette(highlighted-text); }"
-        )
+        btn_edit.setProperty("rowAction", True)
         btn_edit.clicked.connect(edit_cb)
 
         btn_swap = QPushButton("↕ Use as Name")
         btn_swap.setFlat(True)
         btn_swap.setToolTip("Promote this alias to the artist's primary name")
-        btn_swap.setStyleSheet(
-            "QPushButton { border: 1px solid palette(mid); border-radius: 3px; padding: 1px 6px; }"
-            "QPushButton:hover { background: palette(highlight); color: palette(highlighted-text); }"
-        )
+        btn_swap.setProperty("rowAction", True)
         btn_swap.clicked.connect(swap_cb)
 
         btn_delete = QPushButton("✕")
         btn_delete.setFixedWidth(26)
         btn_delete.setFlat(True)
         btn_delete.setToolTip("Delete this alias")
-        btn_delete.setStyleSheet(
-            "QPushButton { border: 1px solid transparent; border-radius: 3px; color: #cc4444; }"
-            "QPushButton:hover { border-color: #cc4444; background: #fff0f0; }"
-        )
+        btn_delete.setProperty("rowAction", True)
+        btn_delete.setProperty("danger", True)
         btn_delete.clicked.connect(delete_cb)
 
         layout.addWidget(btn_edit)

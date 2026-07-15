@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.album.album_flowlayout import FlowLayout
+from src.common.style_utils import set_style_property
 
 
 def _make_table(headers, editable=False):
@@ -355,7 +356,6 @@ class _AlbumChip(QFrame):
         title = QLabel(name or "Untitled")
         title.setObjectName("albumChipTitle")
         title.setWordWrap(True)
-        title.setStyleSheet("font-weight: 600;")
         lay.addWidget(title)
 
         sub_bits = [str(year)] if year else []
@@ -366,8 +366,6 @@ class _AlbumChip(QFrame):
         sub.setWordWrap(True)
         lay.addWidget(sub)
 
-        self._apply_style()
-
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.clicked.emit(self.album_id)
@@ -377,23 +375,10 @@ class _AlbumChip(QFrame):
         if selected == self._selected:
             return
         self._selected = selected
-        self._apply_style()
+        set_style_property(self, "selected", selected)
 
     def matches_roles(self, active_roles: set) -> bool:
         return bool(self.roles & active_roles)
-
-    def _apply_style(self):
-        if self._selected:
-            self.setStyleSheet(
-                "#albumChip { background: palette(highlight); border: 1px solid palette(highlight); border-radius: 6px; }"
-                "#albumChipTitle, #albumChipSub { color: palette(highlighted-text); }"
-                "#albumChipSub { font-size: 11px; }"
-            )
-        else:
-            self.setStyleSheet(
-                "#albumChip { background: palette(base); border: 1px solid palette(mid); border-radius: 6px; }"
-                "#albumChipSub { color: palette(mid); font-size: 11px; }"
-            )
 
 
 class _AlbumFlowArea(QScrollArea):

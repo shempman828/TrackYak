@@ -479,7 +479,7 @@ class DuplicateFinderDialog(QDialog):
         right_layout.setContentsMargins(0, 0, 0, 0)
 
         self.group_title_label = QLabel("Select a group on the left to inspect tracks.")
-        self.group_title_label.setStyleSheet("font-weight: bold; padding: 4px;")
+        self.group_title_label.setProperty("title", True)
         right_layout.addWidget(self.group_title_label)
 
         self.track_view = BaseTrackView(

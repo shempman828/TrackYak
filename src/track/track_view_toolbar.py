@@ -76,7 +76,7 @@ class TrackViewToolbarMixin:
 
         # Status label sits right-aligned after the buttons
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: grey; font-size: 11px;")
+        self.status_label.setProperty("textRole", "muted")
         toolbar_row.addWidget(self.status_label)
 
         self.layout.addLayout(toolbar_row)

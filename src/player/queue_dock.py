@@ -566,28 +566,6 @@ class QueueDockWidget(QWidget):
             return
 
         menu = QMenu(self)
-        menu.setStyleSheet(f"""
-            QMenu {{
-                background: {_C_ELEVATED};
-                border: 1px solid rgba(133,153,234,0.3);
-                border-radius: 8px;
-                padding: 4px;
-                color: {_C_TEXT};
-            }}
-            QMenu::item {{
-                padding: 7px 20px;
-                border-radius: 4px;
-            }}
-            QMenu::item:selected {{
-                background: rgba(133,153,234,0.2);
-                color: {_C_TEXT};
-            }}
-            QMenu::separator {{
-                height: 1px;
-                background: rgba(133,153,234,0.15);
-                margin: 3px 8px;
-            }}
-        """)
 
         count = len({idx.row() for idx in indexes})
         if count == 1:

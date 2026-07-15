@@ -38,7 +38,7 @@ class RoleDetailTab(QWidget):
 
         # Add role type indicator
         self.type_label = QLabel("Role Details")
-        self.type_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self.type_label.setProperty("title", True)
         layout.addWidget(self.type_label)
 
         self.artist_list = QListWidget()

@@ -3,6 +3,7 @@ from PySide6.QtCore import QRect, Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QPushButton, QWidget
 
+from src.common.style_utils import set_style_property
 from src.core.asset_paths import icon
 from src.core.logger_config import logger
 
@@ -162,37 +163,7 @@ class StatusBarWidget(QWidget):
 
     def _apply_mode_style(self):
         """Apply the correct stylesheet for the current mode."""
-        if self._mode == "float":
-            self.setStyleSheet("""
-                StatusBarWidget {
-                    background-color: palette(window);
-                    border: 1px solid palette(mid);
-                    border-radius: 8px;
-                    min-height: 36px;
-                    max-height: 36px;
-                }
-                QLabel {
-                    color: palette(window-text);
-                    font-size: 12px;
-                }
-                QPushButton {
-                    color: palette(window-text);
-                }
-            """)
-        else:  # bar
-            self.setStyleSheet("""
-                StatusBarWidget {
-                    background-color: palette(mid);
-                    border-top: 1px solid palette(shadow);
-                    border-radius: 0px;
-                    min-height: 24px;
-                    max-height: 30px;
-                }
-                QLabel {
-                    color: palette(window-text);
-                    font-size: 12px;
-                }
-            """)
+        set_style_property(self, "mode", self._mode)
 
     def _show_widget(self):
         """Make the widget visible using the correct geometry for the mode."""

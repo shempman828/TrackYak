@@ -94,7 +94,6 @@ class HeaderWidget(QWidget):
         self.artist = artist
         self.controller = controller
         self.init_ui()
-        self.apply_styles()
 
     def init_ui(self):
         main_layout = QVBoxLayout(self)
@@ -184,69 +183,6 @@ class HeaderWidget(QWidget):
             info_row.addWidget(tracks_label)
 
         main_layout.addLayout(info_row)
-
-    def apply_styles(self):
-        """Apply custom styles to the header"""
-        self.setStyleSheet("""
-            #ArtistName {
-                font-size: 28px;
-                font-weight: bold;
-                color: #333333;
-            }
-
-            #TypeBadge {
-                background-color: #e0e0e0;
-                color: #666666;
-                padding: 2px 8px;
-                border-radius: 12px;
-                font-size: 12px;
-                font-weight: 500;
-                margin-left: 8px;
-            }
-
-            #AliasLabel {
-                font-size: 14px;
-                color: #666666;
-                font-style: italic;
-            }
-
-            #DateLabel {
-                font-size: 14px;
-                color: #444444;
-            }
-
-            #AgeLabel {
-                font-size: 13px;
-                color: #666666;
-                font-weight: 500;
-            }
-
-            #PlaceLabel {
-                font-size: 13px;
-                color: #555555;
-            }
-
-            #InfoLabel {
-                font-size: 12px;
-                color: #666666;
-                padding: 2px 6px;
-                background-color: #f5f5f5;
-                border-radius: 4px;
-            }
-
-            #GroupLabel {
-                font-size: 12px;
-                color: #ffffff;
-                background-color: #4a6fa5;
-                padding: 2px 8px;
-                border-radius: 4px;
-                font-weight: 500;
-            }
-
-            QFrame {
-                color: #dddddd;
-            }
-        """)
 
     def cleanup(self):
         """Clean up resources when widget is destroyed"""

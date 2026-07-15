@@ -56,7 +56,7 @@ class EditPlaylist(QDialog):
             warning_label = QLabel(
                 "⚠️ Smart playlists can only be edited in Smart Playlist Editor"
             )
-            warning_label.setStyleSheet("color: #ff6b6b; font-weight: bold;")
+            warning_label.setProperty("danger", True)
             layout.addWidget(warning_label)
             self.name_edit.setEnabled(False)
             self.desc_edit.setEnabled(False)

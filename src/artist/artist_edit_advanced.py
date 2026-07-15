@@ -31,7 +31,7 @@ class AdvancedTab(QWidget):
         form.addRow("Metadata Complete:", self.is_fixed_check)
 
         self.artist_id_label = QLabel()
-        self.artist_id_label.setStyleSheet("color: grey;")
+        self.artist_id_label.setProperty("textRole", "muted")
         form.addRow("Artist ID (read-only):", self.artist_id_label)
 
     def load(self, artist):

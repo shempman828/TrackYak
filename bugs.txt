@@ -1,6 +1,7 @@
 NEW IDEAS
     add family relationships to artists in database schema
-    ability to reorder artists in roles? For example, if Paul Simon and Art Garfunkel are album artists but it shows Garfunkel & Simon instead of the more conventional order
+
+/assets
 
 
 album_edit_overview.py
@@ -49,8 +50,7 @@ artist_edit_places
 
 
 artist_view.py
-    "Any metadata" language is confusing"
-    ability to delete artists with no roles, influences, or any links whatsoever
+
 
 audio_analysis.py
 
@@ -65,6 +65,7 @@ base_merge_dialog
 
 
 base_track_view
+
 
 config_setup.py
 
@@ -97,6 +98,7 @@ genre_edit.py
 
 genre_view.py
 
+
 influences_graph.py
 
 
@@ -109,12 +111,12 @@ library_import.py
 
 lyrics_search.py
 
+
 main_window.py
 
 
 menu_bar.py
-    implement project support links in "about"
-    mousing over the hidden bar does not show it. We should probably remove this feature.
+
 
 metadata_text.py
 
@@ -140,7 +142,8 @@ player_dock.py
 player_settings.py
 
 
-player_utility.py (player_util.py)
+player_util.py
+
 
 playlist_smart_builder.py
 
@@ -182,7 +185,7 @@ track_edit_lyrics
 
 
 track_edit_roles
-    mutiple editing can take a while since only one track is processed at a time. We probably need a new db_helper in update that can batch edit entitites and wire it into track editing.
+
 
 track_edit
 

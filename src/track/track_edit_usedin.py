@@ -93,7 +93,7 @@ class UsedInTab(_BaseTab):
         layout.addWidget(self._table)
 
         self._status_label = QLabel("")
-        self._status_label.setStyleSheet("color: #888; font-style: italic;")
+        self._status_label.setProperty("textRole", "note")
         layout.addWidget(self._status_label)
 
     def load(self, tracks: list) -> None:

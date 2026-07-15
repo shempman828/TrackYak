@@ -120,7 +120,7 @@ class PlacesAwardsTab(QWidget):
             "You can type a new place name — it will be created automatically if it doesn't exist yet."
         )
         place_help.setWordWrap(True)
-        place_help.setStyleSheet("color: #888; font-size: 11px;")
+        place_help.setProperty("textRole", "muted")
         pl_layout.addWidget(place_help)
 
         # ---- Place input row ----
@@ -167,7 +167,7 @@ class PlacesAwardsTab(QWidget):
             "You can type a new award name — it will be created automatically if it doesn't exist yet."
         )
         award_help.setWordWrap(True)
-        award_help.setStyleSheet("color: #888; font-size: 11px;")
+        award_help.setProperty("textRole", "muted")
         aw_layout.addWidget(award_help)
 
         aw_add_row = QHBoxLayout()

@@ -238,7 +238,7 @@ class AlbumView(QWidget):
 
         # Stats label
         self.stats_label = QLabel()
-        self.stats_label.setStyleSheet("color: gray; font-size: 11px;")
+        self.stats_label.setProperty("textRole", "muted")
         row.addWidget(self.stats_label)
 
         row.addStretch()

@@ -39,7 +39,7 @@ class AlbumsTab(_BaseTab):
 
         primary_row = QHBoxLayout()
         self._primary_label = QLabel("—")
-        self._primary_label.setStyleSheet("color: #666; font-style: italic;")
+        self._primary_label.setProperty("textRole", "note")
         primary_row.addWidget(self._primary_label, stretch=1)
 
         self._open_primary_btn = QPushButton("Edit Album")

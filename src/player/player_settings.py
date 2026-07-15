@@ -110,7 +110,7 @@ class AudioSettingsDialog(QDialog):
             "Uses ReplayGain metadata when available."
         )
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #666; font-size: 11px;")
+        info_label.setProperty("textRole", "muted")
         normalization_layout.addWidget(info_label)
 
         layout.addWidget(normalization_group)

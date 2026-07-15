@@ -180,7 +180,7 @@ class FieldFormTab(_BaseTab):
 
         if self.is_multi:
             note = QLabel("⚠  Changes will apply to all selected tracks.")
-            note.setStyleSheet("color: #888; font-style: italic;")
+            note.setProperty("textRole", "note")
             layout.addRow(note)
 
         for field_name, cfg in fields.items():
@@ -194,7 +194,7 @@ class FieldFormTab(_BaseTab):
                 # Read-only display label
                 val_lbl = QLabel("—")
                 val_lbl.setWordWrap(True)
-                val_lbl.setStyleSheet("color: #666; font-style: italic;")
+                val_lbl.setProperty("textRole", "note")
                 val_lbl.setFocusPolicy(Qt.NoFocus)
                 val_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
                 self._labels[field_name] = val_lbl
