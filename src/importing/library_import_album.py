@@ -1,32 +1,44 @@
 from typing import Any, Dict, List, Optional
 
+from src.importing.artist_field_extraction import (
+    ALBUM_ARTIST_FIELDS,
+    extract_artists_from_metadata,
+)
 from src.core.logger_config import logger
 
 
 class AlbumImporter:
+    """Used by two independent callers with different transaction needs:
+    TrackImporter (one all-or-nothing transaction per track — passes
+    commit=False and commits/rolls back itself) and LibraryRepair (no
+    wrapping transaction of its own — relies on the commit=True default
+    below, same as before this class supported deferred commits)."""
+
     def __init__(self, controller):
         self.controller = controller
 
-    def _get_or_create_album(self, metadata: Dict[str, Any]):
-        """Get existing album or create new one with comprehensive metadata."""
-        try:
-            album_name = self._extract_album_name(metadata)
-            release_year = self._extract_release_year(metadata)
-            artist_ids = self._process_album_artists(metadata)
+    def _get_or_create_album(self, metadata: Dict[str, Any], commit: bool = True):
+        """Get existing album or create new one with comprehensive metadata.
 
-            existing_album = self._find_existing_album(
-                album_name, release_year, artist_ids
-            )
-            if existing_album:
-                return existing_album
+        Raises on failure rather than swallowing: the album is required by
+        the track/disc/relationship rows created after it, so a caller
+        batching all of it into one transaction (commit=False) needs to see
+        the failure and roll back the whole thing instead of silently
+        proceeding without an album.
+        """
+        album_name = self._extract_album_name(metadata)
+        release_year = self._extract_release_year(metadata)
+        artist_ids = self._process_album_artists(metadata, commit=commit)
 
-            return self._create_new_album(
-                album_name, release_year, artist_ids, metadata
-            )
+        existing_album = self._find_existing_album(
+            album_name, release_year, artist_ids
+        )
+        if existing_album:
+            return existing_album
 
-        except Exception as e:
-            logger.error(f"Error in album processing: {e}", exc_info=True)
-            return self._create_fallback_album(metadata)
+        return self._create_new_album(
+            album_name, release_year, artist_ids, metadata, commit=commit
+        )
 
     def _extract_album_name(self, metadata: Dict[str, Any]) -> str:
         """Extract album name from metadata with fallback."""
@@ -37,31 +49,21 @@ class AlbumImporter:
         """Extract release year from metadata."""
         return metadata.get("album_release_year") or metadata.get("release_year")
 
-    def _extract_album_artists_list(self, metadata: Dict[str, Any]) -> List[str]:
-        """Extract and normalize album artists list from metadata."""
-        album_artists = (
-            metadata.get(
-                "artist_album_artist"
-            )  # Check this key first, matching library_import.py
-            or metadata.get("album_artist_name")
-            or []
-        )
-
-        if isinstance(album_artists, str):
-            return [album_artists]
-        elif album_artists is None:
-            return []
-        return album_artists
-
-    def _process_album_artists(self, metadata: Dict[str, Any]) -> List[int]:
+    def _process_album_artists(
+        self, metadata: Dict[str, Any], commit: bool = True
+    ) -> List[int]:
         """Process album artists only, with proper role handling."""
         processed_artist_names = set()
         artist_ids = []
 
-        # Process ONLY album artists - don't fall back to track artists
-        album_artists = self._extract_album_artists_list(metadata)
+        # Process ONLY album artists - don't fall back to track artists.
+        # Same field-priority/normalization TrackImporter uses for the
+        # "Album Artist" role, so the two can't drift out of sync.
+        album_artists = extract_artists_from_metadata(metadata, ALBUM_ARTIST_FIELDS)
         for artist_name in album_artists:
-            artist_id = self._process_artist_name(artist_name, processed_artist_names)
+            artist_id = self._process_artist_name(
+                artist_name, processed_artist_names, commit=commit
+            )
             if artist_id:
                 artist_ids.append(artist_id)
 
@@ -122,7 +124,9 @@ class AlbumImporter:
         # Remove None values
         return {k: v for k, v in album_data.items() if v is not None}
 
-    def _create_album_artist_relationships(self, album_id: int, artist_ids: List[int]):
+    def _create_album_artist_relationships(
+        self, album_id: int, artist_ids: List[int], commit: bool = True
+    ):
         """Create album-artist relationships for all artists."""
         # Get existing relationships first
         existing_associations = self.controller.get.get_all_entities(
@@ -143,6 +147,7 @@ class AlbumImporter:
 
             self.controller.add.add_entity(
                 "AlbumRoleAssociation",
+                commit=commit,
                 album_id=album_id,
                 artist_id=artist_id,
                 role_id=1,  # Assuming 1 is the role ID for "Album Artist"
@@ -157,22 +162,33 @@ class AlbumImporter:
         release_year: Optional[str],
         artist_ids: List[int],
         metadata: Dict[str, Any],
+        commit: bool = True,
     ):
         """Create a new album with all associated data and relationships."""
         album_data = self._prepare_album_data(album_name, release_year, metadata)
 
-        new_album = self.controller.add.add_entity("Album", **album_data)
+        new_album = self.controller.add.add_entity(
+            "Album", commit=commit, **album_data
+        )
+        if not new_album:
+            raise RuntimeError(f"Failed to create album: {album_name}")
 
         # Create relationships ONLY if we have album artists
         if artist_ids:
-            self._create_album_artist_relationships(new_album.album_id, artist_ids)
+            self._create_album_artist_relationships(
+                new_album.album_id, artist_ids, commit=commit
+            )
 
-        self._create_album_publisher_relationships(new_album.album_id, metadata)
+        self._create_album_publisher_relationships(
+            new_album.album_id, metadata, commit=commit
+        )
 
         logger.debug(f"Created new album: {album_name} (ID: {new_album.album_id})")
         return new_album
 
-    def _get_or_create_disc(self, album_id: int, metadata: Dict[str, Any]):
+    def _get_or_create_disc(
+        self, album_id: int, metadata: Dict[str, Any], commit: bool = True
+    ):
         """Get existing disc or create a new one based on the track's disc number.
 
         Returns None if the metadata has no disc number, in which case the
@@ -183,29 +199,25 @@ class AlbumImporter:
         if disc_number is None:
             return None
 
-        try:
-            existing_disc = self.controller.get.get_entity_object(
-                "Disc", album_id=album_id, disc_number=disc_number
-            )
-            if existing_disc:
-                return existing_disc
+        existing_disc = self.controller.get.get_entity_object(
+            "Disc", album_id=album_id, disc_number=disc_number
+        )
+        if existing_disc:
+            return existing_disc
 
-            disc_data = {
-                "album_id": album_id,
-                "disc_number": disc_number,
-                "disc_title": metadata.get("disc_title"),
-                "media_type": metadata.get("media_type"),
-            }
-            disc_data = {k: v for k, v in disc_data.items() if v is not None}
+        disc_data = {
+            "album_id": album_id,
+            "disc_number": disc_number,
+            "disc_title": metadata.get("disc_title"),
+            "media_type": metadata.get("media_type"),
+        }
+        disc_data = {k: v for k, v in disc_data.items() if v is not None}
 
-            new_disc = self.controller.add.add_entity("Disc", **disc_data)
-            logger.debug(
-                f"Created new disc: album_id={album_id}, disc_number={disc_number}"
-            )
-            return new_disc
-        except Exception as e:
-            logger.error(f"Error getting or creating disc for album {album_id}: {e}")
-            return None
+        new_disc = self.controller.add.add_entity("Disc", commit=commit, **disc_data)
+        logger.debug(
+            f"Created new disc: album_id={album_id}, disc_number={disc_number}"
+        )
+        return new_disc
 
     def _get_album_artists(self, album_id: int) -> List[int]:
         """Get all artist IDs associated with an album."""
@@ -219,7 +231,7 @@ class AlbumImporter:
             return []
 
     def _create_album_publisher_relationships(
-        self, album_id: int, metadata: Dict[str, Any]
+        self, album_id: int, metadata: Dict[str, Any], commit: bool = True
     ):
         """Create publisher relationships for an album."""
         publisher_names = metadata.get("publisher_name")
@@ -240,19 +252,26 @@ class AlbumImporter:
             )
             if not publisher:
                 publisher = self.controller.add.add_entity(
-                    "Publisher", publisher_name=publisher_name.strip()
+                    "Publisher", commit=commit, publisher_name=publisher_name.strip()
                 )
 
             # Create album-publisher relationship
             self.controller.add.add_entity(
-                "AlbumPublisher", album_id=album_id, publisher_id=publisher.publisher_id
+                "AlbumPublisher",
+                commit=commit,
+                album_id=album_id,
+                publisher_id=publisher.publisher_id,
             )
             logger.debug(
                 f"Created publisher relationship: {publisher_name} -> album {album_id}"
             )
 
     def _process_artist_name(
-        self, artist_name: str, processed_names: set, is_group: Optional[int] = None
+        self,
+        artist_name: str,
+        processed_names: set,
+        is_group: Optional[int] = None,
+        commit: bool = True,
     ) -> Optional[int]:
         """Process individual artist name and return artist ID."""
         if not artist_name or not artist_name.strip():
@@ -278,13 +297,7 @@ class AlbumImporter:
             if is_group is not None:
                 create_kwargs["isgroup"] = is_group
 
-            new_artist = self.controller.add.add_entity("Artist", **create_kwargs)
+            new_artist = self.controller.add.add_entity(
+                "Artist", commit=commit, **create_kwargs
+            )
             return new_artist.artist_id
-
-    def _extract_track_artists_list(self, metadata: Dict[str, Any]) -> List[str]:
-        """Extract and normalize track artists list from metadata."""
-        track_artists = metadata.get("artist_name") or []
-
-        if isinstance(track_artists, str):
-            return [track_artists]
-        return track_artists
