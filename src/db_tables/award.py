@@ -17,7 +17,7 @@ class Award(Base):
     award_category = Column(String(100))
     award_description = Column(Text)
     wikipedia_link = Column(String)
-    parent_id = Column(Integer, ForeignKey("awards.award_id", ondelete="CASCADE"))
+    parent_id = Column(Integer, ForeignKey("awards.award_id", ondelete="SET NULL"))
 
     parent = relationship("Award", remote_side=[award_id], backref="children")
     associations = relationship(
