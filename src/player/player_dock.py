@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 from src.artist.artist_edit import ArtistEditor
 from src.core.asset_paths import icon
 from src.album.base_album_edit import AlbumEditor
+from src.core.censor import censor_text
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
 from src.common.rating_widget import RatingStarsWidget
@@ -178,7 +179,7 @@ class _TrackInfoWidget(QWidget):
             return
 
         title = getattr(track, "track_name", "") or "Unknown Title"
-        self.title_label.setText(title)
+        self.title_label.setText(censor_text(title))
 
         # Artist
         artist_name = ""
@@ -197,10 +198,11 @@ class _TrackInfoWidget(QWidget):
         # Album (with release year in parentheses if available)
         album_name = getattr(track, "album_name", "") or ""
         release_year = getattr(track, "release_year", None)
+        censored_album_name = censor_text(album_name)
         if album_name and release_year:
-            album_display = f"{album_name} ({release_year})"
+            album_display = f"{censored_album_name} ({release_year})"
         else:
-            album_display = album_name
+            album_display = censored_album_name
         self.album_label.setText(album_display)
         self.album_label.setVisible(bool(album_name))
 
