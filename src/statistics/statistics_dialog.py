@@ -1,6 +1,6 @@
 from typing import Any
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QGridLayout,
@@ -16,11 +16,36 @@ from PySide6.QtWidgets import (
 from src.core.logger_config import logger
 
 
+class StatisticsWorker(QThread):
+    """Runs get_comprehensive_statistics() off the main thread.
+
+    The stats query does ~20 sequential SQL queries with joins/group-bys;
+    running it on the GUI thread froze the whole app (not just this dialog)
+    every time the dialog opened and on every 30s auto-refresh.
+    """
+
+    finished = Signal(dict)
+    error = Signal(str)
+
+    def __init__(self, statistics, parent=None):
+        super().__init__(parent)
+        self.statistics = statistics
+
+    def run(self):
+        try:
+            stats = self.statistics.get_comprehensive_statistics()
+            self.finished.emit(stats)
+        except Exception as e:
+            logger.error(f"Error loading statistics: {e}")
+            self.error.emit(str(e))
+
+
 class MusicStatsDialog(QDialog):
     def __init__(self, controller: Any, parent=None):
         super().__init__(parent)
         self.controller = controller
         self.stats = None
+        self.worker = None
         self.setWindowTitle("Music Library Statistics")
         self.setMinimumSize(1000, 700)
         self.setup_ui()
@@ -282,16 +307,31 @@ class MusicStatsDialog(QDialog):
     # ------------------------------------------------------------------ #
 
     def load_data(self):
-        """Load all statistics data from the MusicStatistics utility."""
+        """Kick off a background fetch of all statistics data. No-op if a
+        previous fetch (e.g. from the auto-refresh timer) is still running.
+        """
+        if self.worker is not None and self.worker.isRunning():
+            return
+
+        self.worker = StatisticsWorker(self.controller.statistics)
+        self.worker.finished.connect(self.on_stats_loaded)
+        self.worker.error.connect(self.on_stats_error)
+        self.worker.start()
+
+    def on_stats_loaded(self, stats):
+        """Populate the UI once the background worker has fetched the stats."""
+        self.stats = stats
         try:
-            self.stats = self.controller.statistics.get_comprehensive_statistics()
             self.load_overview_data()
             self.load_artists_albums_data()
             self.load_genres_moods_data()
             self.load_quality_data()
             self.load_ratings_data()
         except Exception as e:
-            logger.error(f"Error loading statistics: {e}")
+            logger.error(f"Error updating statistics UI: {e}")
+
+    def on_stats_error(self, message):
+        pass
 
     def load_overview_data(self):
         """Load overview tab data."""
@@ -513,9 +553,9 @@ class MusicStatsDialog(QDialog):
         self.load_file_format_data()
 
     def load_file_format_data(self):
-        """Load file format distribution data."""
+        """Load file format distribution data (already fetched in self.stats)."""
         try:
-            format_stats = self.controller.statistics.get_file_format_distribution()
+            format_stats = self.stats.get("file_format_distribution", {})
 
             for label in self.format_labels:
                 label.setText("")
@@ -540,8 +580,8 @@ class MusicStatsDialog(QDialog):
             self.format_labels[0].setText("Error loading file format data")
 
     def load_ratings_data(self):
-        """Load ratings tab data."""
-        ratings_data = self.controller.statistics.get_ratings_distribution()
+        """Load ratings tab data (already fetched in self.stats)."""
+        ratings_data = self.stats.get("ratings_distribution", {})
         distribution = ratings_data.get("distribution", {})
 
         sorted_ratings = sorted(distribution.items(), key=lambda x: float(x[0]))
@@ -630,6 +670,20 @@ class MusicStatsDialog(QDialog):
         return f"{bytes_size:.2f} PB"
 
     def closeEvent(self, event):
-        """Stop the refresh timer when the dialog is closed."""
+        """Stop the refresh timer when the dialog is closed.
+
+        If a background stats fetch is still in flight, detach its signals
+        instead of blocking on it — the worker finishes on its own and this
+        (soon-destroyed) dialog just won't hear about it.
+        """
         self.refresh_timer.stop()
+        if self.worker is not None and self.worker.isRunning():
+            try:
+                self.worker.finished.disconnect(self.on_stats_loaded)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self.worker.error.disconnect(self.on_stats_error)
+            except (TypeError, RuntimeError):
+                pass
         super().closeEvent(event)
