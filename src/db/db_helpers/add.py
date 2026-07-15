@@ -66,3 +66,58 @@ class AddToDB(BaseDBHelper):
         self.session.add(new_link)
         self.session.commit()
         return new_link
+
+    def add_entities(self, model_name: str, rows: list):
+        """Add many entities of the same type in a single transaction.
+
+        Args:
+            model_name (str): The class name of the entity (e.g., 'TrackArtistRole').
+            rows (list[dict]): One kwargs-dict of attribute values per row to create.
+
+        Returns:
+            list: The newly created entity instances (rows that already existed,
+            for entities keyed entirely by primary-key columns, are skipped
+            rather than raising -- a single duplicate would otherwise roll
+            back the whole batch).
+        """
+        if not rows:
+            return []
+
+        try:
+            entity_class = MODEL_REGISTRY[model_name]
+        except KeyError:
+            logger.error(f"Entity class {model_name} not found")
+            return []
+
+        pk_cols = [c.name for c in entity_class.__table__.primary_key.columns]
+        rows_to_add = rows
+        if pk_cols and all(col in row for row in rows for col in pk_cols):
+            existing = set(
+                self.session.query(
+                    *[getattr(entity_class, c) for c in pk_cols]
+                ).all()
+            )
+            rows_to_add = [
+                row
+                for row in rows
+                if tuple(row[c] for c in pk_cols) not in existing
+            ]
+            skipped = len(rows) - len(rows_to_add)
+            if skipped:
+                logger.debug(f"Skipped {skipped} duplicate {model_name} row(s)")
+
+        if not rows_to_add:
+            return []
+
+        logger.debug(f"Batch-adding {len(rows_to_add)} {model_name} row(s)")
+        new_entities = [entity_class(**row) for row in rows_to_add]
+        self.session.add_all(new_entities)
+
+        try:
+            self.session.commit()
+            logger.info(f"Batch-added {len(new_entities)} {model_name} row(s)")
+            return new_entities
+        except SQLAlchemyError as e:
+            self.session.rollback()
+            logger.error(f"Failed to batch-add {model_name} entities: {e}")
+            return []

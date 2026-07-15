@@ -442,38 +442,28 @@ class RolesTab(_BaseTab):
 
     # ── Batch helpers ─────────────────────────────────────────────────────
     #
-    # NOTE on performance: the controller currently exposes only
-    # single-row add_entity/delete_entity calls, so a multi-track edit
-    # still issues one DB call per track. These helpers at least avoid
-    # redundant table reloads (load() is called once per user action,
-    # not once per track) and centralize error handling. If add_entity /
-    # delete_entity ever grow bulk variants (e.g. add_entities(list[dict]))
-    # or the controller exposes a transaction/session context manager,
-    # swap the loop body below for a single bulk call — that's the real
-    # fix for "multi-edit takes a while". A QThread/QtConcurrent worker
-    # could also run this loop off the UI thread and call self.load()
-    # via a signal on completion, if these stay single-row.
+    # Both calls below issue a single DB statement covering every selected
+    # track (a bulk INSERT and a single DELETE ... WHERE track_id IN (...)
+    # respectively), instead of one round-trip per track.
 
     def _batch_add_track_artist_role(self, artist_id, role_id):
-        for track in self.tracks:
-            try:
-                self.controller.add.add_entity(
-                    "TrackArtistRole",
-                    track_id=track.track_id,
-                    artist_id=artist_id,
-                    role_id=role_id,
-                )
-            except Exception as e:
-                logger.error(f"Failed to add role to track {track.track_id}: {e}")
+        rows = [
+            {"track_id": track.track_id, "artist_id": artist_id, "role_id": role_id}
+            for track in self.tracks
+        ]
+        try:
+            self.controller.add.add_entities("TrackArtistRole", rows)
+        except Exception as e:
+            logger.error(f"Failed to add role to tracks: {e}")
 
     def _batch_delete_track_artist_role(self, artist_id, role_id):
-        for track in self.tracks:
-            try:
-                self.controller.delete.delete_entity(
-                    "TrackArtistRole",
-                    track_id=track.track_id,
-                    artist_id=artist_id,
-                    role_id=role_id,
-                )
-            except Exception as e:
-                logger.error(f"Failed to remove role from track {track.track_id}: {e}")
+        track_ids = [track.track_id for track in self.tracks]
+        try:
+            self.controller.delete.delete_entity(
+                "TrackArtistRole",
+                track_id=track_ids,
+                artist_id=artist_id,
+                role_id=role_id,
+            )
+        except Exception as e:
+            logger.error(f"Failed to remove role from tracks: {e}")

@@ -47,3 +47,27 @@ class BaseDBHelper:
                 return column.name, value, getattr(conflict, pk_col)
 
         return None
+
+    def _find_unique_conflict_bulk(
+        self, entity_class, pk_col, entity_ids: list, values: dict
+    ):
+        """Same as ``_find_unique_conflict``, but for a batch update covering
+        several rows at once: a collision only counts if it belongs to a row
+        *outside* ``entity_ids`` (rows being updated together are allowed to
+        end up sharing the same new value only if that value isn't unique).
+        """
+        for column in entity_class.__table__.columns:
+            if not column.unique or column.name not in values:
+                continue
+
+            value = values[column.name]
+            conflict = self.session.scalar(
+                select(entity_class).where(
+                    column == value,
+                    getattr(entity_class, pk_col).notin_(entity_ids),
+                )
+            )
+            if conflict is not None:
+                return column.name, value, getattr(conflict, pk_col)
+
+        return None

@@ -98,7 +98,6 @@ genre_edit.py
 genre_view.py
 
 influences_graph.py
-    assign_louvain_communities() fails with "module 'community' has no attribute 'best_partition'" - the wrong "community" package is installed (a package literally called "community" on PyPI) instead of "python-louvain", which is what actually provides best_partition. Community detection is completely broken until the right package is installed.
 
 
 influences_view.py
@@ -183,8 +182,7 @@ track_edit_lyrics
 
 
 track_edit_roles
-    mutiple editing can take a while since only one track is processed at a time. Batch? Concurrent edit?
-
+    mutiple editing can take a while since only one track is processed at a time. We probably need a new db_helper in update that can batch edit entitites and wire it into track editing.
 
 track_edit
 

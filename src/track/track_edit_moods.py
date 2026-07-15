@@ -124,15 +124,14 @@ class MoodsTab(_BaseTab):
                 mood = self.controller.add.add_entity("Mood", mood_name=mood_name)
         if not mood:
             return
-        for track in self.tracks:
-            try:
-                self.controller.add.add_entity_link(
-                    "MoodTrackAssociation",
-                    track_id=track.track_id,
-                    mood_id=mood.mood_id,
-                )
-            except Exception as e:
-                logger.error(f"Failed to add mood to track {track.track_id}: {e}")
+        rows = [
+            {"track_id": track.track_id, "mood_id": mood.mood_id}
+            for track in self.tracks
+        ]
+        try:
+            self.controller.add.add_entities("MoodTrackAssociation", rows)
+        except Exception as e:
+            logger.error(f"Failed to add mood to tracks: {e}")
         self._search.clear()
         self._combo.setVisible(False)
         self.load(self.tracks)
@@ -142,13 +141,13 @@ class MoodsTab(_BaseTab):
         if not item:
             return
         mood_id = item.data(Qt.UserRole)
-        for track in self.tracks:
-            try:
-                self.controller.delete.delete_entity(
-                    "MoodTrackAssociation", track_id=track.track_id, mood_id=mood_id
-                )
-            except Exception as e:
-                logger.error(f"Failed to remove mood from track {track.track_id}: {e}")
+        track_ids = [track.track_id for track in self.tracks]
+        try:
+            self.controller.delete.delete_entity(
+                "MoodTrackAssociation", track_id=track_ids, mood_id=mood_id
+            )
+        except Exception as e:
+            logger.error(f"Failed to remove mood from tracks: {e}")
         self.load(self.tracks)
 
     def contextMenuEvent(self, event):

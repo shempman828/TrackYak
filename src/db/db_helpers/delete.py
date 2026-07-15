@@ -25,8 +25,10 @@ class DeleteDB(BaseDBHelper):
             # Many items in one query -- new batch path
             delete_entity("Track", entity_ids=[1, 2, 3, 99])
 
-            # Filter-based deletion (original behaviour, unchanged)
+            # Filter-based deletion (original behaviour, unchanged); any
+            # filter value that is a list/tuple/set is matched with IN(...)
             delete_entity("Track", track_name="Unknown")
+            delete_entity("TrackArtistRole", track_id=[1, 2, 3], artist_id=5, role_id=2)
         """
         entity_class = MODEL_REGISTRY.get(model_name)
         if not entity_class:
@@ -75,11 +77,14 @@ class DeleteDB(BaseDBHelper):
             elif filters:
                 query = self.session.query(entity_class)
                 for attr, value in filters.items():
-                    if hasattr(entity_class, attr):
-                        query = query.filter(getattr(entity_class, attr) == value)
-                    else:
+                    if not hasattr(entity_class, attr):
                         logger.warning(f"{model_name} has no attribute '{attr}'")
                         return False
+                    column = getattr(entity_class, attr)
+                    if isinstance(value, (list, tuple, set)):
+                        query = query.filter(column.in_(value))
+                    else:
+                        query = query.filter(column == value)
                 entities = query.all()
                 for entity in entities:
                     self.session.delete(entity)

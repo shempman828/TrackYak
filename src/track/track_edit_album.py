@@ -278,22 +278,12 @@ class AlbumsTab(_BaseTab):
             )
             if confirm != QMessageBox.Yes:
                 return
-            errors = []
-            for track in self.tracks:
-                try:
-                    self.controller.update.update_entity(
-                        "Track", track.track_id, album_id=album.album_id
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to set primary album for track {track.track_id}: {e}"
-                    )
-                    errors.append(str(track.track_id))
-            if errors:
+            track_ids = [track.track_id for track in self.tracks]
+            if not self.controller.update.update_entities(
+                "Track", track_ids, album_id=album.album_id
+            ):
                 QMessageBox.warning(
-                    self,
-                    "Error",
-                    "Failed to set album for track(s): " + ", ".join(errors),
+                    self, "Error", "Failed to set album for the selected tracks."
                 )
         else:
             try:
@@ -332,22 +322,12 @@ class AlbumsTab(_BaseTab):
             return
 
         if self.is_multi:
-            errors = []
-            for track in self.tracks:
-                try:
-                    self.controller.update.update_entity(
-                        "Track", track.track_id, album_id=None
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to remove primary album for track {track.track_id}: {e}"
-                    )
-                    errors.append(str(track.track_id))
-            if errors:
+            track_ids = [track.track_id for track in self.tracks]
+            if not self.controller.update.update_entities(
+                "Track", track_ids, album_id=None
+            ):
                 QMessageBox.warning(
-                    self,
-                    "Error",
-                    "Failed to remove album for track(s): " + ", ".join(errors),
+                    self, "Error", "Failed to remove album for the selected tracks."
                 )
         else:
             try:

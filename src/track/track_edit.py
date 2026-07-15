@@ -177,10 +177,10 @@ class TrackEditDialog(QDialog):
                     )
 
             if all_changes:
-                for track in self.tracks:
-                    self.controller.update.update_entity(
-                        "Track", track.track_id, **all_changes
-                    )
+                track_ids = [track.track_id for track in self.tracks]
+                self.controller.update.update_entities(
+                    "Track", track_ids, **all_changes
+                )
                 logger.info(
                     f"Saved {len(self.tracks)} track(s), "
                     f"fields: {list(all_changes.keys())}"

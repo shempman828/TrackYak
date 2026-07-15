@@ -150,17 +150,19 @@ class PlacesTab(_BaseTab):
                 place = self.controller.add.add_entity("Place", place_name=place_name)
         if not place:
             return
-        for track in self.tracks:
-            try:
-                self.controller.add.add_entity(
-                    "PlaceAssociation",
-                    entity_id=track.track_id,
-                    entity_type="Track",
-                    place_id=place.place_id,
-                    association_type=assoc_type,
-                )
-            except Exception as e:
-                logger.error(f"Failed to add place to track {track.track_id}: {e}")
+        rows = [
+            {
+                "entity_id": track.track_id,
+                "entity_type": "Track",
+                "place_id": place.place_id,
+                "association_type": assoc_type,
+            }
+            for track in self.tracks
+        ]
+        try:
+            self.controller.add.add_entities("PlaceAssociation", rows)
+        except Exception as e:
+            logger.error(f"Failed to add place to tracks: {e}")
         self._search.clear()
         self._type_edit.clear()
         self._combo.setVisible(False)
@@ -171,14 +173,14 @@ class PlacesTab(_BaseTab):
         if not place_item:
             return
         place_id = place_item.data(Qt.UserRole)
-        for track in self.tracks:
-            try:
-                self.controller.delete.delete_entity(
-                    "PlaceAssociation",
-                    entity_id=track.track_id,
-                    entity_type="Track",
-                    place_id=place_id,
-                )
-            except Exception as e:
-                logger.error(f"Failed to remove place from track {track.track_id}: {e}")
+        track_ids = [track.track_id for track in self.tracks]
+        try:
+            self.controller.delete.delete_entity(
+                "PlaceAssociation",
+                entity_id=track_ids,
+                entity_type="Track",
+                place_id=place_id,
+            )
+        except Exception as e:
+            logger.error(f"Failed to remove place from tracks: {e}")
         self.load(self.tracks)

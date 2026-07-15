@@ -170,18 +170,20 @@ class AwardsTab(_BaseTab):
                 award = self.controller.add.add_entity("Award", award_name=award_name)
         if not award:
             return
-        for track in self.tracks:
-            try:
-                self.controller.add.add_entity(
-                    "AwardAssociation",
-                    entity_id=track.track_id,
-                    entity_type="Track",
-                    award_id=award.award_id,
-                    category=category,
-                    year=year,
-                )
-            except Exception as e:
-                logger.error(f"Failed to add award to track {track.track_id}: {e}")
+        rows = [
+            {
+                "entity_id": track.track_id,
+                "entity_type": "Track",
+                "award_id": award.award_id,
+                "category": category,
+                "year": year,
+            }
+            for track in self.tracks
+        ]
+        try:
+            self.controller.add.add_entities("AwardAssociation", rows)
+        except Exception as e:
+            logger.error(f"Failed to add award to tracks: {e}")
         self._search.clear()
         self._cat_edit.clear()
         self._year_spin.setValue(0)
@@ -193,14 +195,14 @@ class AwardsTab(_BaseTab):
         if not award_item:
             return
         award_id = award_item.data(Qt.UserRole)
-        for track in self.tracks:
-            try:
-                self.controller.delete.delete_entity(
-                    "AwardAssociation",
-                    entity_id=track.track_id,
-                    entity_type="Track",
-                    award_id=award_id,
-                )
-            except Exception as e:
-                logger.error(f"Failed to remove award from track {track.track_id}: {e}")
+        track_ids = [track.track_id for track in self.tracks]
+        try:
+            self.controller.delete.delete_entity(
+                "AwardAssociation",
+                entity_id=track_ids,
+                entity_type="Track",
+                award_id=award_id,
+            )
+        except Exception as e:
+            logger.error(f"Failed to remove award from tracks: {e}")
         self.load(self.tracks)

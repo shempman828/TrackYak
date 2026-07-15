@@ -108,13 +108,14 @@ class GenresTab(_BaseTab):
                 genre = self.controller.add.add_entity("Genre", genre_name=genre_name)
         if not genre:
             return
-        for track in self.tracks:
-            try:
-                self.controller.add.add_entity(
-                    "TrackGenre", track_id=track.track_id, genre_id=genre.genre_id
-                )
-            except Exception as e:
-                logger.error(f"Failed to add genre to track {track.track_id}: {e}")
+        rows = [
+            {"track_id": track.track_id, "genre_id": genre.genre_id}
+            for track in self.tracks
+        ]
+        try:
+            self.controller.add.add_entities("TrackGenre", rows)
+        except Exception as e:
+            logger.error(f"Failed to add genre to tracks: {e}")
         self._search.clear()
         self._combo.setVisible(False)
         self.load(self.tracks)
@@ -124,13 +125,13 @@ class GenresTab(_BaseTab):
         if not item:
             return
         genre_id = item.data(Qt.UserRole)
-        for track in self.tracks:
-            try:
-                self.controller.delete.delete_entity(
-                    "TrackGenre", track_id=track.track_id, genre_id=genre_id
-                )
-            except Exception as e:
-                logger.error(f"Failed to remove genre from track {track.track_id}: {e}")
+        track_ids = [track.track_id for track in self.tracks]
+        try:
+            self.controller.delete.delete_entity(
+                "TrackGenre", track_id=track_ids, genre_id=genre_id
+            )
+        except Exception as e:
+            logger.error(f"Failed to remove genre from tracks: {e}")
         self.load(self.tracks)
 
     def contextMenuEvent(self, event):
