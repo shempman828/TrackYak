@@ -33,6 +33,9 @@ class Album(Base):
     album_wikipedia_link = Column(String)
     is_live = Column(Integer, CheckConstraint("is_live IN (0, 1)"))
     is_compilation = Column(Integer, CheckConstraint("is_compilation IN (0, 1)"))
+    art_is_explicit = Column(
+        Integer, CheckConstraint("art_is_explicit IN (0, 1)")
+    )  # Cover/liner art contains explicit imagery
     estimated_sales = Column(Integer)
     status = Column(
         String
