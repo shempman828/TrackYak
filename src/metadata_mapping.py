@@ -20,7 +20,7 @@ ID3_ALBUM_MAPPINGS = {
     "TLAN": {"field": "album_language", "type": str, "entity": "Album"},
 }
 ID3_PUBLISHER_MAPPINGS = {
-    "TPUB": "publisher_name",
+    "TPUB": {"field": "publisher_name", "type": str, "entity": "Publisher"},
 }
 ID3_DISC_MAPPINGS = {"TPOS": {"field": "disc_number", "type": int, "entity": "Disc"}}
 ID3_ARTIST_MAPPINGS = {
