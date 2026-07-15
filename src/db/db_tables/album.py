@@ -43,6 +43,7 @@ class Album(Base):
         back_populates="album",
         cascade="all, delete-orphan",
         passive_deletes=True,
+        order_by="AlbumRoleAssociation.sort_order, AlbumRoleAssociation.association_id",
     )
     tracks = relationship("Track", back_populates="album")
     publisher_associations = relationship(
