@@ -30,6 +30,31 @@ class BaseDBHelper:
         """Initialize with a database session."""
         self.session = session
 
+    def _find_unique_conflict(self, entity_class, pk_col, entity_id, values: dict):
+        """Check whether any of ``values`` would collide with a unique column
+        on some *other* row of ``entity_class``.
+
+        Returns a ``(field_name, value, conflicting_id)`` tuple for the first
+        collision found, or ``None`` if there is no conflict. Checking this
+        up front lets callers avoid ever issuing a write that the database
+        would reject with a UNIQUE constraint failure.
+        """
+        for column in entity_class.__table__.columns:
+            if not column.unique or column.name not in values:
+                continue
+
+            value = values[column.name]
+            conflict = self.session.scalar(
+                select(entity_class).where(
+                    column == value,
+                    getattr(entity_class, pk_col) != entity_id,
+                )
+            )
+            if conflict is not None:
+                return column.name, value, getattr(conflict, pk_col)
+
+        return None
+
 
 class GetFromDB(BaseDBHelper):
     """Class for retrieving data from the database"""
@@ -294,20 +319,22 @@ class UpdateDB(BaseDBHelper):
 
         # Attempt to determine the primary key column name for this model
         pk_cols = list(entity_class.__table__.primary_key.columns)
-        if pk_cols:
-            pk_col = pk_cols[0].name
-            stmt = (
-                update(entity_class)
-                .where(getattr(entity_class, pk_col) == entity_id)
-                .values(**kwargs)
+        pk_col = pk_cols[0].name if pk_cols else "id"
+
+        conflict = self._find_unique_conflict(entity_class, pk_col, entity_id, kwargs)
+        if conflict is not None:
+            field, value, other_id = conflict
+            logger.error(
+                f"Cannot update {model_name} {entity_id}: '{field}' value "
+                f"{value!r} is already used by {model_name} {other_id}"
             )
-        else:
-            # fallback to generic 'id'
-            stmt = (
-                update(entity_class)
-                .where(getattr(entity_class, "id") == entity_id)
-                .values(**kwargs)
-            )
+            return False
+
+        stmt = (
+            update(entity_class)
+            .where(getattr(entity_class, pk_col) == entity_id)
+            .values(**kwargs)
+        )
 
         try:
             self.session.execute(stmt)
@@ -432,6 +459,9 @@ class DeleteDB(BaseDBHelper):
                 else:
                     logger.warning(f"File not found: {file_path}")
                     file_deleted = False
+            except PermissionError as e:
+                logger.error(f"Permission denied deleting file {file_path}: {e}")
+                file_deleted = False
             except OSError as e:
                 logger.error(f"Error deleting file {file_path}: {e}")
                 file_deleted = False
@@ -543,8 +573,6 @@ class MergeDB(BaseDBHelper):
             self.session.flush()
             # Apply resolved field values now that the source is scheduled for deletion.
             if resolved_fields:
-                {col.name for col in entity_class.__table__.columns if col.unique}
-
                 for field, value in resolved_fields.items():
                     if not hasattr(target_entity, field):
                         continue
@@ -553,7 +581,24 @@ class MergeDB(BaseDBHelper):
                     if getattr(target_entity, field) == value:
                         continue
 
-                    # Unique columns are now safe because the source row is being deleted.
+                    # The source row is already flushed for deletion, but a
+                    # *third*, unrelated row could still hold this value —
+                    # check for that before assigning so a collision doesn't
+                    # blow up the commit below and force a rollback of the
+                    # whole merge.
+                    conflict = self._find_unique_conflict(
+                        entity_class, pk_column, target_id, {field: value}
+                    )
+                    if conflict is not None:
+                        _, conflict_value, other_id = conflict
+                        logger.error(
+                            f"Cannot merge {model_name} {source_id} -> {target_id}: "
+                            f"resolved '{field}' value {conflict_value!r} is already "
+                            f"used by {model_name} {other_id}"
+                        )
+                        self.session.rollback()
+                        return False
+
                     setattr(target_entity, field, value)
             self.session.commit()
 
