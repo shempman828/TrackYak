@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Optional
 
-from src.core.asset_paths import ALBUM_ART_DIR
 from src.core.logger_config import logger
 
 
@@ -19,10 +18,6 @@ class AlbumImporter:
                 album_name, release_year, artist_ids
             )
             if existing_album:
-                # Still try to save artwork if it's missing on an existing album
-                if "album_art_data" in metadata and not existing_album.front_cover_path:
-                    album_artists = self._extract_album_artists_list(metadata)
-                    self._save_album_artwork(existing_album, metadata, album_artists)
                 return existing_album
 
             return self._create_new_album(
@@ -174,12 +169,7 @@ class AlbumImporter:
 
         self._create_album_publisher_relationships(new_album.album_id, metadata)
 
-        # Handle artwork
         logger.debug(f"Created new album: {album_name} (ID: {new_album.album_id})")
-        if "album_art_data" in metadata:
-            album_artists = self._extract_album_artists_list(metadata)
-            self._save_album_artwork(new_album, metadata, album_artists)
-
         return new_album
 
     def _get_or_create_disc(self, album_id: int, metadata: Dict[str, Any]):
@@ -260,78 +250,6 @@ class AlbumImporter:
             logger.debug(
                 f"Created publisher relationship: {publisher_name} -> album {album_id}"
             )
-
-    def _save_album_artwork(
-        self, album, metadata: Dict[str, Any], album_artists: List[str]
-    ):
-        """Save album artwork to file system and update album record."""
-        try:
-            album_art_data = metadata.get("album_art_data")
-            if not album_art_data:
-                logger.debug(f"No album art data found for album: {album.album_name}")
-                return
-
-            # Safely get album artist name for directory structure
-            if album_artists:
-                first_artist = album_artists[0]
-                album_artist_name = (
-                    first_artist
-                    if isinstance(first_artist, str)
-                    else first_artist.artist_name
-                )
-            else:
-                album_artist_name = "Unknown Artist"
-                logger.debug(
-                    f"No album artists found for {album.album_name}, using 'Unknown Artist'"
-                )
-
-            # Sanitize names for filesystem
-            safe_artist_name = self._sanitize_filename(album_artist_name)
-            safe_album_name = self._sanitize_filename(album.album_name)
-
-            # Create directory structure: ALBUM_ART_DIR/artist/album/
-            art_dir = ALBUM_ART_DIR / safe_artist_name / safe_album_name
-            art_dir.mkdir(parents=True, exist_ok=True)
-
-            # Determine file extension from image format
-            image_format = album_art_data.get("format", "jpg").lower()
-            if image_format == "jpeg":
-                image_format = "jpg"
-            ext = f".{image_format}"
-
-            # Save front cover
-            front_cover_path = art_dir / f"frontcover{ext}"
-            with open(front_cover_path, "wb") as f:
-                f.write(album_art_data["data"])
-
-            # Update album record with front cover path
-            self.controller.update.update_entity(
-                "Album", album.album_id, front_cover_path=str(front_cover_path)
-            )
-
-            logger.debug(f"Saved album art: {front_cover_path}")
-
-        except Exception as e:
-            logger.error(f"Error saving album artwork for {album.album_name}: {e}")
-
-    def _sanitize_filename(self, name: str) -> str:
-        """Sanitize filename for filesystem use."""
-        if not name:
-            return "Unknown"
-
-        # Replace problematic characters
-        invalid_chars = '<>:"/\\|?*'
-        for char in invalid_chars:
-            name = name.replace(char, "_")
-
-        # Remove leading/trailing spaces and dots
-        name = name.strip(" .")
-
-        # Limit length
-        if len(name) > 100:
-            name = name[:100]
-
-        return name
 
     def _process_artist_name(
         self, artist_name: str, processed_names: set, is_group: Optional[int] = None

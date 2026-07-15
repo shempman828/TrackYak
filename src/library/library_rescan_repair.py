@@ -7,7 +7,6 @@ backfills only the fields that are currently empty:
 
     - Album  : release_month, release_day
     - Album  : album-artist relationships (AlbumRoleAssociation)
-    - Album  : front_cover_path / artwork file
 
 Nothing is overwritten if a value already exists.
 Safe to run multiple times — it will simply find nothing left to fix.
@@ -17,7 +16,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import src.metadata.metadata_controller
-from src.core.asset_paths import ALBUM_ART_DIR
 from src.importing.library_import_album import AlbumImporter
 from src.core.logger_config import logger
 
@@ -46,7 +44,6 @@ class LibraryRepair:
                 "tracks_skipped": 120,      # file missing / unreadable
                 "albums_patched_date": 812,
                 "albums_patched_artists": 340,
-                "albums_patched_artwork": 275,
             }
         """
         summary = {
@@ -54,7 +51,6 @@ class LibraryRepair:
             "tracks_skipped": 0,
             "albums_patched_date": 0,
             "albums_patched_artists": 0,
-            "albums_patched_artwork": 0,
         }
 
         # Keep a per-run cache so we only re-examine each album once
@@ -95,9 +91,8 @@ class LibraryRepair:
             # ── 4. Decide whether this album needs anything ────────────────
             needs_date = not album.release_month or not album.release_day
             needs_artists = not self._album_has_artists(album_id)
-            needs_artwork = not album.front_cover_path
 
-            if not any([needs_date, needs_artists, needs_artwork]):
+            if not any([needs_date, needs_artists]):
                 visited_album_ids.add(album_id)
                 continue  # Album is already complete — nothing to do
 
@@ -118,11 +113,6 @@ class LibraryRepair:
                 patched = self._patch_album_artists(album, metadata)
                 if patched:
                     summary["albums_patched_artists"] += 1
-
-            if needs_artwork:
-                patched = self._patch_artwork(album, metadata)
-                if patched:
-                    summary["albums_patched_artwork"] += 1
 
             visited_album_ids.add(album_id)
 
@@ -195,61 +185,6 @@ class LibraryRepair:
         )
         return True
 
-    def _patch_artwork(self, album, metadata: Dict[str, Any]) -> bool:
-        """
-        Extract artwork from the audio file and save it if the album record
-        has no front_cover_path.
-        Returns True if artwork was successfully saved.
-        """
-        if "album_art_data" not in metadata:
-            logger.debug(
-                f"LibraryRepair: no artwork in metadata for '{album.album_name}'."
-            )
-            return False
-
-        album_artists = self._album_importer._extract_album_artists_list(metadata)
-
-        # Resolve artist name for the folder path
-        if album_artists:
-            first = album_artists[0]
-            artist_name = first if isinstance(first, str) else first.artist_name
-        else:
-            # Fall back to the database association if metadata has no artist
-            artist_name = self._get_artist_name_from_db(album.album_id)
-
-        album_art_data = metadata["album_art_data"]
-
-        try:
-            safe_artist = self._album_importer._sanitize_filename(artist_name)
-            safe_album = self._album_importer._sanitize_filename(album.album_name)
-
-            art_dir = ALBUM_ART_DIR / safe_artist / safe_album
-            art_dir.mkdir(parents=True, exist_ok=True)
-
-            image_format = album_art_data.get("format", "jpg").lower()
-            if image_format == "jpeg":
-                image_format = "jpg"
-
-            front_cover_path = art_dir / f"frontcover.{image_format}"
-            with open(front_cover_path, "wb") as f:
-                f.write(album_art_data["data"])
-
-            self.controller.update.update_entity(
-                "Album", album.album_id, front_cover_path=str(front_cover_path)
-            )
-
-            logger.debug(
-                f"LibraryRepair: saved artwork for '{album.album_name}' "
-                f"-> {front_cover_path}"
-            )
-            return True
-
-        except Exception as e:
-            logger.error(
-                f"LibraryRepair: failed to save artwork for '{album.album_name}': {e}"
-            )
-            return False
-
     # ------------------------------------------------------------------ #
     #  Internal utilities                                                  #
     # ------------------------------------------------------------------ #
@@ -277,22 +212,3 @@ class LibraryRepair:
         )
         return bool(associations)
 
-    def _get_artist_name_from_db(self, album_id: int) -> str:
-        """
-        Look up the first artist associated with this album in the database.
-        Used as a fallback folder name when metadata carries no artist.
-        """
-        try:
-            associations = self.controller.get.get_all_entities(
-                "AlbumRoleAssociation", album_id=album_id
-            )
-            if associations:
-                artist = self.controller.get.get_entity_object(
-                    "Artist", artist_id=associations[0].artist_id
-                )
-                if artist:
-                    return artist.artist_name
-        except Exception as e:
-            logger.debug(f"LibraryRepair: could not resolve artist from DB: {e}")
-
-        return "Unknown Artist"
