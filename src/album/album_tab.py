@@ -326,11 +326,39 @@ class AlbumTabBuilder:
             role_layout.setContentsMargins(6, 4, 6, 4)
             role_layout.setSpacing(2)
 
-            for artist_name, role_assoc in sorted(artist_tuples, key=lambda x: x[0]):
+            # artist_tuples is already in credit order (Album.album_roles is
+            # ordered by sort_order) — no alphabetical re-sort here, since
+            # that would defeat the whole point of letting it be reordered.
+            last_index = len(artist_tuples) - 1
+            for index, (artist_name, role_assoc) in enumerate(artist_tuples):
                 artist_widget = QWidget()
                 artist_layout = QHBoxLayout(artist_widget)
                 artist_layout.setContentsMargins(0, 0, 0, 0)
                 artist_layout.setSpacing(6)
+
+                up_btn = QPushButton("▲")
+                up_btn.setFixedSize(20, 22)
+                up_btn.setStyleSheet("font-size: 10px; padding: 0px;")
+                up_btn.setEnabled(index > 0)
+                up_btn.setToolTip(f"Move {artist_name} up")
+                up_btn.clicked.connect(
+                    lambda checked, ra=role_assoc: self.helper.move_artist_credit(
+                        ra, -1
+                    )
+                )
+                artist_layout.addWidget(up_btn)
+
+                down_btn = QPushButton("▼")
+                down_btn.setFixedSize(20, 22)
+                down_btn.setStyleSheet("font-size: 10px; padding: 0px;")
+                down_btn.setEnabled(index < last_index)
+                down_btn.setToolTip(f"Move {artist_name} down")
+                down_btn.clicked.connect(
+                    lambda checked, ra=role_assoc: self.helper.move_artist_credit(
+                        ra, 1
+                    )
+                )
+                artist_layout.addWidget(down_btn)
 
                 name_label = QLabel(artist_name)
                 name_label.setStyleSheet("font-size: 11px;")  # ← smaller text
