@@ -199,17 +199,11 @@ class AliasesTab(QWidget):
             dlg.alias_type,
         )
         try:
-            self.controller.update.update_entity(
+            success = self.controller.update.update_entity(
                 "ArtistAlias",
                 alias_id,
                 alias_name=dlg.alias_name,
                 alias_type=dlg.alias_type or None,
-            )
-            logger.info(
-                "AliasesTab._edit_alias: updated alias_id=%s to name=%r type=%r",
-                alias_id,
-                dlg.alias_name,
-                dlg.alias_type,
             )
         except Exception as exc:
             logger.exception(
@@ -217,6 +211,25 @@ class AliasesTab(QWidget):
             )
             QMessageBox.critical(self, "Error", f"Could not update alias:\n{exc}")
             return
+        if not success:
+            logger.warning(
+                "AliasesTab._edit_alias: update rejected for alias_id=%s (likely a "
+                "duplicate alias name)",
+                alias_id,
+            )
+            QMessageBox.warning(
+                self,
+                "Could Not Update Alias",
+                f"Could not rename alias to '{dlg.alias_name}'. "
+                "That name may already be in use.",
+            )
+            return
+        logger.info(
+            "AliasesTab._edit_alias: updated alias_id=%s to name=%r type=%r",
+            alias_id,
+            dlg.alias_name,
+            dlg.alias_type,
+        )
         self._reload_table()
 
     def _delete_alias(self, row: int):
@@ -290,10 +303,28 @@ class AliasesTab(QWidget):
             return
 
         try:
-            self.controller.delete.delete_entity("ArtistAlias", alias_id)
-            self.controller.update.update_entity(
+            # Attempt the rename first, before touching the alias row: if the
+            # new name collides with another artist we want to fail loudly
+            # and leave both the alias and the primary name untouched.
+            success = self.controller.update.update_entity(
                 "Artist", self.artist.artist_id, artist_name=new_primary
             )
+            if not success:
+                logger.warning(
+                    "AliasesTab._swap_alias: rename rejected for artist_id=%s -> %r "
+                    "(likely a duplicate artist name)",
+                    self.artist.artist_id,
+                    new_primary,
+                )
+                QMessageBox.warning(
+                    self,
+                    "Could Not Swap Name",
+                    f"Could not set primary name to '{new_primary}'. "
+                    "Another artist may already have that name.",
+                )
+                return
+
+            self.controller.delete.delete_entity("ArtistAlias", alias_id)
             self.artist.artist_name = new_primary
             save_type = alias_type or "Former Name"
             self.controller.add.add_entity(
