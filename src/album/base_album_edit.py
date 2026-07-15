@@ -2,7 +2,6 @@
 base_album_edit.py
 """
 
-import shutil
 import webbrowser
 from pathlib import Path
 
@@ -31,7 +30,6 @@ from PySide6.QtWidgets import (
 from src.album.album_components import AlbumUIComponents
 from src.album.album_editing_relationship_helpers import RelationshipHelpers
 from src.album.album_tab import AlbumTabBuilder
-from src.core.asset_paths import ALBUM_ART_DIR
 from src.album.base_album_edit_tabs import (
     AdvancedTab,
     AliasesTab,
@@ -42,22 +40,9 @@ from src.album.base_album_edit_tabs import (
 from src.core.config_setup import Config
 from src.db.db_mapping_albums import ALBUM_FIELDS
 from src.core.logger_config import logger
+from src.image.artwork_cache import get_artwork_cache
+from src.metadata.metadata_artwork import ArtworkExtractor
 from src.metadata.metadata_writer import MetadataWriter
-
-
-def _sanitize_filename(name: str) -> str:
-    """Strip characters that are illegal in file/folder names.
-
-    Kept as a module-level helper so it can be imported by other modules
-    (e.g. library_import_album.py) without instantiating AlbumEditor.
-    AlbumEditor also exposes it as a @staticmethod for internal use.
-    """
-    if not name:
-        return "Unknown"
-    for ch in '<>:"/\\|?*':
-        name = name.replace(ch, "_")
-    name = name.strip(" .")
-    return name[:100]
 
 
 # Fallback suggestions used if the controller can't supply distinct values
@@ -623,17 +608,14 @@ class AlbumEditor(QDialog):
 
     def _load_album_cover(self):
         """Load the front cover thumbnail into the header label."""
-        path = getattr(self.album, "front_cover_path", None)
-        if path:
-            px = QPixmap()
-            loaded = (
-                px.loadFromData(path) if isinstance(path, bytes) else px.load(str(path))
+        cache = get_artwork_cache()
+        is_explicit = bool(getattr(self.album, "art_is_explicit", False))
+        px = cache.get_pixmap(self.album, "front", is_explicit) if cache else None
+        if px and not px.isNull():
+            self.cover_label.setPixmap(
+                px.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
-            if loaded and not px.isNull():
-                self.cover_label.setPixmap(
-                    px.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                )
-                return
+            return
         self.cover_label.setText("No Cover\nImage")
         self.cover_label.setStyleSheet(
             "border: 1px solid #555; background: #2a2a2a; color: #666;"
@@ -641,40 +623,25 @@ class AlbumEditor(QDialog):
 
     def _load_artwork_previews(self):
         """Populate all three artwork displays from the current album object."""
-        for cover_type, attr in (
-            ("front", "front_cover_path"),
-            ("rear", "rear_cover_path"),
-            ("liner", "album_liner_path"),
-        ):
+        cache = get_artwork_cache()
+        is_explicit = bool(getattr(self.album, "art_is_explicit", False))
+        for cover_type in ("front", "rear", "liner"):
             display = getattr(self, f"{cover_type}_cover_display", None)
             path_label = getattr(self, f"{cover_type}_path_label", None)
             if display is None:
                 continue
-            path = getattr(self.album, attr, None)
-            if path:
-                px = QPixmap()
-                loaded = (
-                    px.loadFromData(path)
-                    if isinstance(path, bytes)
-                    else px.load(str(path))
+            px = cache.get_pixmap(self.album, cover_type, is_explicit) if cache else None
+            if px and not px.isNull():
+                display.setPixmap(
+                    px.scaled(250, 250, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 )
-                if loaded and not px.isNull():
-                    display.setPixmap(
-                        px.scaled(250, 250, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    )
-                    if path_label:
-                        info_parts = [
-                            str(path) if isinstance(path, str) else "(binary)"
-                        ]
-                        info_parts.append(f"{px.width()} × {px.height()} px")
-                        if isinstance(path, str):
-                            try:
-                                size_mb = Path(path).stat().st_size / (1024 * 1024)
-                                info_parts.append(f"{size_mb:.2f} MB")
-                            except OSError:
-                                pass
-                        path_label.setText("  |  ".join(info_parts))
-                    continue
+                if path_label:
+                    dims = cache.get_dimensions(self.album, cover_type) if cache else None
+                    info_parts = ["Embedded in track file(s)"]
+                    if dims:
+                        info_parts.append(f"{dims[0]} × {dims[1]} px")
+                    path_label.setText("  |  ".join(info_parts))
+                continue
             display.setText(f"No {cover_type.title()} Cover")
             if path_label:
                 path_label.setText("")
@@ -705,7 +672,7 @@ class AlbumEditor(QDialog):
         self._pick_cover("rear")
 
     def _pick_cover(self, cover_type: str):
-        """Open a file dialog, copy the image to ALBUM_ART_DIR, update the album."""
+        """Open a file dialog and embed the picked image into every track."""
         try:
             last_dir = self._config.get_last_art_dir()
         except AttributeError:
@@ -727,37 +694,25 @@ class AlbumEditor(QDialog):
             pass
 
         try:
-            dest = self._copy_cover_to_album_dir(path, cover_type)
+            image_bytes = Path(path).read_bytes()
 
-            attr_map = {
-                "front": "front_cover_path",
-                "rear": "rear_cover_path",
-                "liner": "album_liner_path",
-            }
-            attr = attr_map[cover_type]
-            setattr(self.album, attr, str(dest))
-            self.controller.update.update_entity(
-                "Album", self.album.album_id, **{attr: str(dest)}
-            )
-
-            failed = self._embed_cover_to_flac_tracks(cover_type, dest.read_bytes())
+            failed = self._embed_cover_to_tracks(cover_type, image_bytes)
             self._warn_if_embed_failures(cover_type, failed)
+
+            cache = get_artwork_cache()
+            if cache:
+                cache.store(self.album, cover_type, image_bytes)
 
             # Update the Artwork tab preview
             display = getattr(self, f"{cover_type}_cover_display", None)
             path_label = getattr(self, f"{cover_type}_path_label", None)
             if display:
-                self._load_image_to_label(str(dest), display, 250)
+                self._load_image_to_label(image_bytes, display, 250)
             if path_label:
-                px_check = QPixmap(str(dest))
-                info_parts = [str(dest)]
-                if not px_check.isNull():
-                    info_parts.append(f"{px_check.width()} × {px_check.height()} px")
-                try:
-                    size_mb = dest.stat().st_size / (1024 * 1024)
-                    info_parts.append(f"{size_mb:.2f} MB")
-                except OSError:
-                    pass
+                dims = cache.get_dimensions(self.album, cover_type) if cache else None
+                info_parts = ["Embedded in track file(s)"]
+                if dims:
+                    info_parts.append(f"{dims[0]} × {dims[1]} px")
                 path_label.setText("  |  ".join(info_parts))
 
             # IMPORTANT: always refresh the header thumbnail when front cover changes
@@ -768,19 +723,17 @@ class AlbumEditor(QDialog):
             logger.error(f"Error saving {cover_type} cover: {e}")
             QMessageBox.critical(self, "Error", f"Could not save cover art:\n{e}")
 
-    @staticmethod
-    def _sanitize_filename(name: str) -> str:
-        """Strip characters that are illegal in file/folder names."""
-        return _sanitize_filename(name)
+    _EMBEDDABLE_EXTENSIONS = ArtworkExtractor.SUPPORTED_EXTENSIONS
 
-    def _embed_cover_to_flac_tracks(self, cover_type: str, image_bytes):
+    def _embed_cover_to_tracks(self, cover_type: str, image_bytes):
         """Embed (image_bytes given) or strip (image_bytes=None) the given
-        cover role into every FLAC track of this album. Returns the list of
-        track file paths that failed, so callers can surface one warning."""
+        cover role into every FLAC/MP3 track of this album. Returns the
+        list of track file paths that failed, so callers can surface one
+        warning."""
         failed = []
         for track in getattr(self.album, "tracks", None) or []:
             file_path = getattr(track, "track_file_path", None)
-            if not file_path or Path(file_path).suffix.lower() != ".flac":
+            if not file_path or Path(file_path).suffix.lower() not in self._EMBEDDABLE_EXTENSIONS:
                 continue
             try:
                 success = self._metadata_writer.write_artwork_to_file(
@@ -806,50 +759,13 @@ class AlbumEditor(QDialog):
             f"{len(failed_paths)} track file(s):\n\n{preview}",
         )
 
-    def _copy_cover_to_album_dir(self, source_path: str, cover_type: str) -> Path:
-        """Copy cover art into ALBUM_ART_DIR/artist/album/ and return the destination path."""
-        source = Path(source_path)
-        ext = source.suffix.lower() or ".jpg"
-
-        artist_name = "Unknown Artist"
-        if hasattr(self.album, "album_artists") and self.album.album_artists:
-            artist_name = self.album.album_artists[0].artist_name
-
-        safe_artist = _sanitize_filename(artist_name)
-        safe_album = _sanitize_filename(self.album.album_name or "Unknown Album")
-
-        art_dir = ALBUM_ART_DIR / safe_artist / safe_album
-        art_dir.mkdir(parents=True, exist_ok=True)
-
-        filename_map = {
-            "front": f"frontcover{ext}",
-            "rear": f"rearcover{ext}",
-            "liner": f"liner{ext}",
-        }
-        dest = art_dir / filename_map.get(cover_type, f"{cover_type}{ext}")
-
-        shutil.copy2(source_path, dest)
-        logger.info(f"Copied cover art: {source_path} → {dest}")
-        return dest
-
     def _clear_cover(self, cover_type: str):
-        attr_map = {
-            "front": "front_cover_path",
-            "rear": "rear_cover_path",
-            "liner": "album_liner_path",
-        }
-        attr = attr_map[cover_type]
-        setattr(self.album, attr, None)
-
-        try:
-            self.controller.update.update_entity(
-                "Album", self.album.album_id, **{attr: None}
-            )
-        except Exception as e:
-            logger.error(f"DB clear failed for cover: {e}")
-
-        failed = self._embed_cover_to_flac_tracks(cover_type, None)
+        failed = self._embed_cover_to_tracks(cover_type, None)
         self._warn_if_embed_failures(cover_type, failed)
+
+        cache = get_artwork_cache()
+        if cache:
+            cache.store(self.album, cover_type, None)
 
         display = getattr(self, f"{cover_type}_cover_display", None)
         path_label = getattr(self, f"{cover_type}_path_label", None)
@@ -936,63 +852,22 @@ class AlbumEditor(QDialog):
             )
             return
 
-        url_path = url.split("?")[0]
-        ext = Path(url_path).suffix.lower()
-        if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
-            ext = ".jpg"
-
-        safe_artist = _sanitize_filename(
-            self.album.album_artists[0].artist_name
-            if getattr(self.album, "album_artists", None)
-            else "Unknown Artist"
-        )
-        safe_album = _sanitize_filename(self.album.album_name or "Unknown Album")
-        art_dir = ALBUM_ART_DIR / safe_artist / safe_album
-        art_dir.mkdir(parents=True, exist_ok=True)
-
-        filename_map = {
-            "front": f"frontcover{ext}",
-            "rear": f"rearcover{ext}",
-            "liner": f"liner{ext}",
-        }
-        dest = art_dir / filename_map.get(cover_type, f"{cover_type}{ext}")
-
-        with open(dest, "wb") as f:
-            f.write(image_bytes)
-        logger.info(f"Saved Wikipedia cover ({cover_type}): {dest}")
-
-        attr_map = {
-            "front": "front_cover_path",
-            "rear": "rear_cover_path",
-            "liner": "album_liner_path",
-        }
-        attr = attr_map[cover_type]
-        setattr(self.album, attr, str(dest))
-
-        try:
-            self.controller.update.update_entity(
-                "Album", self.album.album_id, **{attr: str(dest)}
-            )
-        except Exception as e:
-            logger.error(f"DB update for Wikipedia cover failed: {e}")
-
-        failed = self._embed_cover_to_flac_tracks(cover_type, image_bytes)
+        failed = self._embed_cover_to_tracks(cover_type, image_bytes)
         self._warn_if_embed_failures(cover_type, failed)
+
+        cache = get_artwork_cache()
+        if cache:
+            cache.store(self.album, cover_type, image_bytes)
 
         display = getattr(self, f"{cover_type}_cover_display", None)
         path_label = getattr(self, f"{cover_type}_path_label", None)
         if display:
-            self._load_image_to_label(str(dest), display, 250)
+            self._load_image_to_label(image_bytes, display, 250)
         if path_label:
-            px_check = QPixmap(str(dest))
-            info_parts = [str(dest)]
-            if not px_check.isNull():
-                info_parts.append(f"{px_check.width()} × {px_check.height()} px")
-            try:
-                size_mb = dest.stat().st_size / (1024 * 1024)
-                info_parts.append(f"{size_mb:.2f} MB")
-            except OSError:
-                pass
+            dims = cache.get_dimensions(self.album, cover_type) if cache else None
+            info_parts = ["Embedded in track file(s)"]
+            if dims:
+                info_parts.append(f"{dims[0]} × {dims[1]} px")
             path_label.setText("  |  ".join(info_parts))
 
         if cover_type == "front":
@@ -1003,18 +878,10 @@ class AlbumEditor(QDialog):
     # =========================================================================
 
     def save_changes(self):
-        # These fields are written to the DB immediately when the user picks a
-        # cover via _pick_cover() / _copy_cover_to_album_dir().  They are NOT
-        # backed by a real input widget in field_widgets, so reading them here
-        # would yield None and silently overwrite the path that was just saved.
-        _COVER_FIELDS = {"front_cover_path", "rear_cover_path", "album_liner_path"}
-
         try:
             kwargs = {}
             for field_name, widget in self.field_widgets.items():
                 if field_name == "album_description":
-                    continue
-                if field_name in _COVER_FIELDS:
                     continue
                 field_config = ALBUM_FIELDS.get(field_name)
                 if not (field_config and field_config.editable):

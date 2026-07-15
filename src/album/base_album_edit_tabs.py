@@ -104,10 +104,10 @@ class ArtworkTab:
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(16)
 
-        for cover_type, attr, label in (
-            ("front", "front_cover_path", "Front Cover"),
-            ("rear", "rear_cover_path", "Rear Cover"),
-            ("liner", "album_liner_path", "Liner Art"),
+        for cover_type, label in (
+            ("front", "Front Cover"),
+            ("rear", "Rear Cover"),
+            ("liner", "Liner Art"),
         ):
             group = QGroupBox(label)
             g_layout = QVBoxLayout(group)

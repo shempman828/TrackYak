@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.censor import censor_text
-from src.image.image_blur import load_art_pixmap
+from src.image.artwork_cache import get_artwork_cache
 
 
 class AlbumWidget(QWidget):
@@ -82,10 +82,10 @@ class AlbumWidget(QWidget):
         self.setFixedSize(self.size + 20, self.size + 90)
 
     def _load_art(self):
-        path = getattr(self.album, "front_cover_path", None)
         is_explicit = bool(getattr(self.album, "art_is_explicit", False))
-        pixmap = load_art_pixmap(path, is_explicit)
-        if not pixmap.isNull():
+        cache = get_artwork_cache()
+        pixmap = cache.get_pixmap(self.album, "front", is_explicit) if cache else None
+        if pixmap and not pixmap.isNull():
             return pixmap
         return self._create_placeholder()
 
