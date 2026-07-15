@@ -1,0 +1,39 @@
+# Explicit word list used by the "Censor explicit words" display option.
+# One word or phrase per line, case-insensitive. Lines starting with # are ignored.
+# Matches are whole-word only and are masked as: first letter + asterisks.
+# Edit this list to add or remove words — changes are picked up automatically,
+# no restart required.
+
+fuck
+fucking
+fucker
+fucked
+motherfucker
+shit
+shitty
+bullshit
+bitch
+bitches
+asshole
+ass
+dick
+piss
+pussy
+cunt
+cock
+whore
+slut
+nigger
+nigga
+faggot
+fag
+retard
+damn
+goddamn
+hell
+bastard
+douchebag
+twat
+wanker
+prick
+skank
