@@ -36,7 +36,7 @@ from src.core.asset_paths import asset
 from src.core.censor import censor_text
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
-from src.image.image_blur import load_art_pixmap
+from src.image.artwork_cache import get_artwork_cache
 from src.nowplaying.nowplaying_art import _ArtCard
 from src.nowplaying.nowplaying_backdrop import _BlurredBackdrop
 from src.nowplaying.nowplaying_chip import _Chip, _ScrollingChipRow
@@ -1064,31 +1064,19 @@ class NowPlayingView(QWidget):
         """Build slideshow from all available art images for this track."""
         album = getattr(track, "album", None)
         is_explicit = bool(getattr(album, "art_is_explicit", False)) if album else False
-        cover_paths: List[str] = []
-        if album:
-            for attr in (
-                "front_cover_path",
-                "rear_cover_path",
-                "album_liner_path",
-            ):
-                p = getattr(album, attr, None) or ""
-                if p:
-                    cover_paths.append(p)
+        cache = get_artwork_cache()
 
-        other_paths: List[str] = []
+        pixmaps: List[QPixmap] = []
+        if album and cache:
+            for role in ("front", "rear", "liner"):
+                px = cache.get_pixmap(album, role, is_explicit)
+                if not px.isNull():
+                    pixmaps.append(px)
+
         # Also try artist-level image
         for artist in getattr(track, "artists", None) or []:
             p = getattr(artist, "profile_pic_path", None) or ""
-            if p and p not in cover_paths and p not in other_paths:
-                other_paths.append(p)
-
-        pixmaps: List[QPixmap] = []
-        for p in cover_paths:
-            px = load_art_pixmap(p, is_explicit)
-            if not px.isNull():
-                pixmaps.append(px)
-        for p in other_paths:
-            if Path(p).exists():
+            if p and Path(p).exists():
                 px = QPixmap(str(p))
                 if not px.isNull():
                     pixmaps.append(px)
