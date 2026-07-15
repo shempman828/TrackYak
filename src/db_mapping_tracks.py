@@ -617,6 +617,6 @@ TRACK_FIELDS = {
         friendly="Disc Number",
         short="Disc #",
         tooltip="The disc number within a multi-disc album.",
-        multiple=True,
+        editable=False,
     ),
 }
