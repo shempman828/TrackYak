@@ -1000,3 +1000,359 @@ QListWidget::item[text="Now Playing"] {
     border-left: 3px solid #8599ea;
     border-radius: 4px;
 }
+
+/* =============================================================================
+   DYNAMIC PROPERTY-DRIVEN RULES
+   Widgets set these via widget.setProperty("name", value) instead of calling
+   setStyleSheet() directly. For properties that change after a widget is first
+   shown, call widget.style().unpolish(widget); widget.style().polish(widget)
+   after setProperty() to force Qt to re-evaluate the stylesheet.
+============================================================================= */
+
+/* ── TEXT ROLES: secondary/dim labels (notes, hints, status, placeholders) ──── */
+QLabel[textRole="muted"] {
+    color: #555e7a;
+}
+
+QLabel[textRole="note"] {
+    color: #555e7a;
+    font-style: italic;
+}
+
+QLabel[textRole="placeholder"] {
+    color: #555e7a;
+    font-style: italic;
+    padding: 20px;
+}
+
+/* ── DESTRUCTIVE / WARNING ACTIONS ───────────────────────────────────────────── */
+QPushButton[danger="true"] {
+    color: #EA8599;
+    border-color: transparent;
+}
+
+QPushButton[danger="true"]:hover {
+    border-color: #EA8599;
+    background-color: rgba(234, 133, 153, 0.12);
+}
+
+QLabel[danger="true"] {
+    color: #EA8599;
+    font-weight: bold;
+}
+
+/* ── COMPACT ROW-LEVEL ACTION BUTTONS (Edit / Swap / Delete style rows) ──────── */
+QPushButton[rowAction="true"] {
+    border: 1px solid palette(mid);
+    border-radius: 3px;
+    padding: 1px 6px;
+}
+
+QPushButton[rowAction="true"]:hover {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+}
+
+/* ── CHIP / SEGMENTED TOGGLE BUTTONS (checkable QPushButtons) ───────────────── */
+QPushButton[chip="true"] {
+    border: 1px solid rgba(133, 153, 234, 0.5);
+    border-radius: 11px;
+    padding: 3px 12px;
+    background: transparent;
+    color: #b8c0f0;
+}
+
+QPushButton[chip="true"]:checked {
+    background: #8599ea;
+    color: #0b0c10;
+    border-color: #8599ea;
+}
+
+QPushButton[chip="true"]:hover:!checked {
+    background: rgba(133, 153, 234, 0.15);
+}
+
+QPushButton[segment="true"] {
+    border: 1px solid rgba(133, 153, 234, 0.5);
+    padding: 4px 12px;
+    background: transparent;
+    color: #b8c0f0;
+}
+
+QPushButton[segment="true"]:checked {
+    background: #8599ea;
+    color: #0b0c10;
+    font-weight: 600;
+}
+
+QPushButton[segment="left"] {
+    border-top-left-radius: 4px;
+    border-bottom-left-radius: 4px;
+}
+
+QPushButton[segment="right"] {
+    border-left: none;
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
+}
+
+/* ── "NOW PLAYING" TAB BAR (lyrics/credits) ──────────────────────────────────── */
+QPushButton[npTab="true"] {
+    background: transparent;
+    border: 1px solid rgba(133, 153, 234, 0.14);
+    border-bottom: none;
+    border-radius: 0px;
+    color: rgba(133, 153, 234, 0.42);
+    font-size: 10px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    padding: 5px 22px;
+}
+
+QPushButton[npTab="true"]:hover {
+    background: rgba(133, 153, 234, 0.09);
+    color: rgba(200, 208, 244, 0.70);
+}
+
+QPushButton[npTab="true"][active="true"] {
+    background: rgba(133, 153, 234, 0.20);
+    border: 1px solid rgba(133, 153, 234, 0.55);
+    border-bottom: none;
+    color: rgba(230, 235, 255, 0.92);
+}
+
+/* ── "NOW PLAYING" small pill toggles (sync/mode) ────────────────────────────── */
+QPushButton[npToggle="true"] {
+    background: transparent;
+    border: 1px solid rgba(133, 153, 234, 0.22);
+    border-radius: 8px;
+    color: rgba(133, 153, 234, 0.45);
+    font-size: 9px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    padding: 2px 8px;
+}
+
+QPushButton[npToggle="true"]:hover {
+    background: rgba(133, 153, 234, 0.10);
+    color: rgba(200, 208, 244, 0.70);
+}
+
+QPushButton[npToggle="true"][active="true"] {
+    background: rgba(133, 153, 234, 0.22);
+    border: 1px solid rgba(133, 153, 234, 0.50);
+    color: rgba(230, 235, 255, 0.90);
+}
+
+/* ── SPECIAL: Album edit header byline ("by Artist Name") ────────────────────── */
+QLabel#albumByline {
+    color: #555e7a;
+    font-size: 14px;
+}
+
+/* ── SPECIAL: Album cover placeholder (no art set) ───────────────────────────── */
+QLabel[coverPlaceholder="true"] {
+    border: 1px solid #2a2c3e;
+    background: #1a1b26;
+    color: #555e7a;
+}
+
+/* ── SPECIAL: SyncView DeviceCard ────────────────────────────────────────────── */
+DeviceCard {
+    background: rgba(17, 18, 26, 0.6);
+    border: 1px solid #1e1f2b;
+    border-radius: 8px;
+}
+
+DeviceCard:hover {
+    background: rgba(133, 153, 234, 0.07);
+    border-color: rgba(133, 153, 234, 0.3);
+}
+
+DeviceCard[selected="true"] {
+    background: rgba(133, 153, 234, 0.15);
+    border: 1px solid rgba(133, 153, 234, 0.5);
+}
+
+/* SyncView DeviceCard subtitle — always dim */
+QLabel#CardSub {
+    color: #555e7a;
+    font-size: 11px;
+}
+
+/* USB/folder connection badge — state: "connected" | "disconnected" | "folder" */
+QLabel#CardBadge {
+    border-radius: 9px;
+    padding: 0 7px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+QLabel#CardBadge[state="connected"] {
+    background: #1a3a1a;
+    color: #99EA85;
+}
+
+QLabel#CardBadge[state="disconnected"] {
+    background: #2a2c3e;
+    color: #555e7a;
+}
+
+QLabel#CardBadge[state="folder"] {
+    background: #1a1b2a;
+    color: #8599ea;
+}
+
+/* SyncView linked-device label — "connected" | "idle" (linked-but-offline / none) */
+QLabel[linkState="connected"] {
+    color: #99EA85;
+    font-weight: bold;
+}
+
+QLabel[linkState="idle"] {
+    color: #555e7a;
+}
+
+/* ── SPECIAL: Album/AlbumChip selection ──────────────────────────────────────── */
+QFrame#albumChip {
+    background: rgba(17, 18, 26, 0.6);
+    border: 1px solid #1e1f2b;
+    border-radius: 6px;
+}
+
+QFrame#albumChip[selected="true"] {
+    background: #8599ea;
+    border: 1px solid #8599ea;
+}
+
+QLabel#albumChipTitle {
+    font-weight: 600;
+}
+
+QLabel#albumChipSub {
+    color: #555e7a;
+    font-size: 11px;
+}
+
+QFrame#albumChip[selected="true"] QLabel#albumChipTitle,
+QFrame#albumChip[selected="true"] QLabel#albumChipSub {
+    color: #0b0c10;
+}
+
+/* ── SPECIAL: Album grid item (AlbumWidget) ──────────────────────────────────── */
+AlbumWidget QLabel#AlbumTitleLabel {
+    font-weight: bold;
+    font-size: 1.1em;
+}
+
+AlbumWidget QLabel#AlbumArtistLabel {
+    color: #555e7a;
+}
+
+AlbumWidget[selected="true"] {
+    border: 2px solid #8599ea;
+    background-color: rgba(133, 153, 234, 0.15);
+    border-radius: 4px;
+}
+
+/* ── SPECIAL: StatusBarWidget mode ("float" | "bar") ─────────────────────────── */
+StatusBarWidget[mode="float"] {
+    background-color: palette(window);
+    border: 1px solid palette(mid);
+    border-radius: 8px;
+    min-height: 36px;
+    max-height: 36px;
+}
+
+StatusBarWidget[mode="float"] QLabel {
+    color: palette(window-text);
+    font-size: 12px;
+}
+
+StatusBarWidget[mode="float"] QPushButton {
+    color: palette(window-text);
+}
+
+StatusBarWidget[mode="bar"] {
+    background-color: palette(mid);
+    border-top: 1px solid palette(shadow);
+    border-radius: 0px;
+    min-height: 24px;
+    max-height: 30px;
+}
+
+StatusBarWidget[mode="bar"] QLabel {
+    color: palette(window-text);
+    font-size: 12px;
+}
+
+/* ── SPECIAL: Disc management status message ─────────────────────────────────── */
+QLabel[statusState="ok"] {
+    color: #99EA85;
+    font-size: 11px;
+}
+
+QLabel[statusState="error"] {
+    color: #EA8599;
+    font-size: 11px;
+}
+
+/* ── SPECIAL: Artist detail header (HeaderWidget) ────────────────────────────── */
+HeaderWidget QLabel#ArtistName {
+    font-size: 28px;
+    font-weight: bold;
+    color: #b8c0f0;
+}
+
+HeaderWidget QLabel#TypeBadge {
+    background-color: #1a1b26;
+    color: #8599ea;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    margin-left: 8px;
+}
+
+HeaderWidget QLabel#AliasLabel {
+    font-size: 14px;
+    color: #555e7a;
+    font-style: italic;
+}
+
+HeaderWidget QLabel#DateLabel {
+    font-size: 14px;
+    color: #b8c0f0;
+}
+
+HeaderWidget QLabel#AgeLabel {
+    font-size: 13px;
+    color: #555e7a;
+    font-weight: 500;
+}
+
+HeaderWidget QLabel#PlaceLabel {
+    font-size: 13px;
+    color: #7a82a8;
+}
+
+HeaderWidget QLabel#InfoLabel {
+    font-size: 12px;
+    color: #b8c0f0;
+    padding: 2px 6px;
+    background-color: #1a1b26;
+    border-radius: 4px;
+}
+
+HeaderWidget QLabel#GroupLabel {
+    font-size: 12px;
+    color: #0b0c10;
+    background-color: #8599ea;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+}
+
+HeaderWidget QFrame {
+    color: #1e1f2b;
+}
