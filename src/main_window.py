@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 #    one entry to _VIEW_FACTORIES inside _create_views(). ─────────────────
 from src.album_view import AlbumView
 from src.artist_view import ArtistView
-from src.asset_paths import icon, theme
+from src.asset_paths import ASSETS_DIR, icon, theme
 from src.award_view import AwardView
 from src.config_setup import app_config
 from src.dates_view import TimelineView
@@ -402,13 +402,13 @@ class GUI(QMainWindow, MenuBar):
             theme_path = app_config.get_theme_path(theme_file)
             if theme_path.exists():
                 with open(theme_path, "r", encoding="utf-8") as f:
-                    QApplication.instance().setStyleSheet(f.read())
+                    QApplication.instance().setStyleSheet(self._resolve_theme_assets(f.read()))
                 logger.debug(f"Theme applied: {theme_file}")
             else:
                 default_theme = theme("dark_mode.qss")
                 if Path(default_theme).exists():
                     with open(default_theme, "r", encoding="utf-8") as f:
-                        QApplication.instance().setStyleSheet(f.read())
+                        QApplication.instance().setStyleSheet(self._resolve_theme_assets(f.read()))
                     logger.debug("Fallback theme applied")
                 else:
                     logger.warning("No theme file found")
@@ -416,6 +416,18 @@ class GUI(QMainWindow, MenuBar):
         except Exception as e:
             logger.error(f"Error loading theme: {e}")
             QApplication.instance().setStyleSheet("")
+
+    @staticmethod
+    def _resolve_theme_assets(stylesheet: str) -> str:
+        """Substitute asset path placeholders with the real assets directory.
+
+        Qt resolves relative url() paths in a stylesheet against the process's
+        working directory, which breaks in packaged/frozen builds or when the
+        app is launched from elsewhere. ASSETS_DIR already accounts for that.
+        """
+        return stylesheet.replace(
+            "ASSETS_DIR_PLACEHOLDER", ASSETS_DIR.as_posix()
+        )
 
     def _add_navigation_menu_actions(self):
         toggle_nav_action = QAction("Toggle Navigation", self)
