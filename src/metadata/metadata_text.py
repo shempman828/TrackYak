@@ -12,6 +12,15 @@ from src.metadata.metadata_mapping import (
     ID3_PUBLISHER_MAPPINGS,
     ID3_SPECIAL_MAPPINGS,
     ID3_TRACK_MAPPINGS,
+    MP4_ALBUM_MAPPINGS,
+    MP4_ARTIST_MAPPINGS,
+    MP4_DATE_MAPPINGS,
+    MP4_DISC_MAPPINGS,
+    MP4_GENRE_MAPPINGS,
+    MP4_MOOD_MAPPINGS,
+    MP4_PUBLISHER_MAPPINGS,
+    MP4_SPECIAL_MAPPINGS,
+    MP4_TRACK_MAPPINGS,
     VORBIS_ALBUM_MAPPINGS,
     VORBIS_ARTIST_MAPPINGS,
     VORBIS_DATE_MAPPINGS,
@@ -21,6 +30,15 @@ from src.metadata.metadata_mapping import (
     VORBIS_PUBLISHER_MAPPINGS,
     VORBIS_SPECIAL_MAPPINGS,
     VORBIS_TRACK_MAPPINGS,
+    WAV_ALBUM_MAPPINGS,
+    WAV_ARTIST_MAPPINGS,
+    WAV_DATE_MAPPINGS,
+    WAV_DISC_MAPPINGS,
+    WAV_GENRE_MAPPINGS,
+    WAV_MOOD_MAPPINGS,
+    WAV_PUBLISHER_MAPPINGS,
+    WAV_SPECIAL_MAPPINGS,
+    WAV_TRACK_MAPPINGS,
 )
 
 
@@ -39,7 +57,70 @@ class TextMetadataExtractor:
         "oga": "vorbis",
         "opus": "vorbis",
         "spx": "vorbis",
-        # Add more as needed
+        # MP4 atom formats
+        "m4a": "mp4",
+        "m4b": "mp4",
+        "mp4": "mp4",
+        "aac": "mp4",
+        # RIFF WAV INFO chunk
+        "wav": "wav",
+    }
+
+    # Per-format-type mapping-set lookups, replacing a growing id3/vorbis
+    # ternary as more container formats are supported.
+    TRACK_MAPPINGS_BY_FORMAT = {
+        "id3": ID3_TRACK_MAPPINGS,
+        "vorbis": VORBIS_TRACK_MAPPINGS,
+        "mp4": MP4_TRACK_MAPPINGS,
+        "wav": WAV_TRACK_MAPPINGS,
+    }
+    ALBUM_MAPPINGS_BY_FORMAT = {
+        "id3": ID3_ALBUM_MAPPINGS,
+        "vorbis": VORBIS_ALBUM_MAPPINGS,
+        "mp4": MP4_ALBUM_MAPPINGS,
+        "wav": WAV_ALBUM_MAPPINGS,
+    }
+    DISC_MAPPINGS_BY_FORMAT = {
+        "id3": ID3_DISC_MAPPINGS,
+        "vorbis": VORBIS_DISC_MAPPINGS,
+        "mp4": MP4_DISC_MAPPINGS,
+        "wav": WAV_DISC_MAPPINGS,
+    }
+    PUBLISHER_MAPPINGS_BY_FORMAT = {
+        "id3": ID3_PUBLISHER_MAPPINGS,
+        "vorbis": VORBIS_PUBLISHER_MAPPINGS,
+        "mp4": MP4_PUBLISHER_MAPPINGS,
+        "wav": WAV_PUBLISHER_MAPPINGS,
+    }
+    GENRE_MAPPINGS_BY_FORMAT = {
+        "id3": ID3_GENRE_MAPPINGS,
+        "vorbis": VORBIS_GENRE_MAPPINGS,
+        "mp4": MP4_GENRE_MAPPINGS,
+        "wav": WAV_GENRE_MAPPINGS,
+    }
+    MOOD_MAPPINGS_BY_FORMAT = {
+        "id3": ID3_MOOD_MAPPINGS,
+        "vorbis": VORBIS_MOOD_MAPPINGS,
+        "mp4": MP4_MOOD_MAPPINGS,
+        "wav": WAV_MOOD_MAPPINGS,
+    }
+    ARTIST_MAPPINGS_BY_FORMAT = {
+        "id3": ID3_ARTIST_MAPPINGS,
+        "vorbis": VORBIS_ARTIST_MAPPINGS,
+        "mp4": MP4_ARTIST_MAPPINGS,
+        "wav": WAV_ARTIST_MAPPINGS,
+    }
+    SPECIAL_MAPPINGS_BY_FORMAT = {
+        "id3": ID3_SPECIAL_MAPPINGS,
+        "vorbis": VORBIS_SPECIAL_MAPPINGS,
+        "mp4": MP4_SPECIAL_MAPPINGS,
+        "wav": WAV_SPECIAL_MAPPINGS,
+    }
+    DATE_MAPPINGS_BY_FORMAT = {
+        "id3": ID3_DATE_MAPPINGS,
+        "vorbis": VORBIS_DATE_MAPPINGS,
+        "mp4": MP4_DATE_MAPPINGS,
+        "wav": WAV_DATE_MAPPINGS,
     }
 
     def __init__(self, filepath: str, file_extension: str, raw_tags: Dict[str, Any]):
@@ -56,7 +137,7 @@ class TextMetadataExtractor:
         """
         Extract and normalize metadata from raw tags.
         """
-        if self.format_type not in ["id3", "vorbis"]:
+        if self.format_type not in self.TRACK_MAPPINGS_BY_FORMAT:
             logger.warning(
                 f"Unsupported file format: {self.format_type} for {self.filepath}"
             )
@@ -97,14 +178,12 @@ class TextMetadataExtractor:
     ):
         """Process simple mappings but filter out already-processed PERFORMER tags."""
         mapping_sets = [
-            ID3_TRACK_MAPPINGS if self.format_type == "id3" else VORBIS_TRACK_MAPPINGS,
-            ID3_ALBUM_MAPPINGS if self.format_type == "id3" else VORBIS_ALBUM_MAPPINGS,
-            ID3_DISC_MAPPINGS if self.format_type == "id3" else VORBIS_DISC_MAPPINGS,
-            ID3_PUBLISHER_MAPPINGS
-            if self.format_type == "id3"
-            else VORBIS_PUBLISHER_MAPPINGS,
-            ID3_GENRE_MAPPINGS if self.format_type == "id3" else VORBIS_GENRE_MAPPINGS,
-            ID3_MOOD_MAPPINGS if self.format_type == "id3" else VORBIS_MOOD_MAPPINGS,
+            self.TRACK_MAPPINGS_BY_FORMAT[self.format_type],
+            self.ALBUM_MAPPINGS_BY_FORMAT[self.format_type],
+            self.DISC_MAPPINGS_BY_FORMAT[self.format_type],
+            self.PUBLISHER_MAPPINGS_BY_FORMAT[self.format_type],
+            self.GENRE_MAPPINGS_BY_FORMAT[self.format_type],
+            self.MOOD_MAPPINGS_BY_FORMAT[self.format_type],
         ]
 
         for mapping_set in mapping_sets:
@@ -122,9 +201,7 @@ class TextMetadataExtractor:
         self, normalized_data: Dict[str, List[Dict[str, Any]]]
     ):
         """Process artist mappings but filter out already-processed PERFORMER tags."""
-        artist_mappings = (
-            ID3_ARTIST_MAPPINGS if self.format_type == "id3" else VORBIS_ARTIST_MAPPINGS
-        )
+        artist_mappings = self.ARTIST_MAPPINGS_BY_FORMAT[self.format_type]
 
         for tag_key, mapping in artist_mappings.items():
             # Skip PERFORMER if we already processed it specially
@@ -170,11 +247,7 @@ class TextMetadataExtractor:
         self, normalized_data: Dict[str, List[Dict[str, Any]]]
     ):
         """Process special mappings that require custom parsing."""
-        special_mappings = (
-            ID3_SPECIAL_MAPPINGS
-            if self.format_type == "id3"
-            else VORBIS_SPECIAL_MAPPINGS
-        )
+        special_mappings = self.SPECIAL_MAPPINGS_BY_FORMAT[self.format_type]
 
         for tag_key, mapping in special_mappings.items():
             if tag_key in self.raw_tags:
@@ -189,9 +262,7 @@ class TextMetadataExtractor:
 
     def _process_date_mappings(self, normalized_data: Dict[str, List[Dict[str, Any]]]):
         """Process date mappings with proper splitting."""
-        date_mappings = (
-            ID3_DATE_MAPPINGS if self.format_type == "id3" else VORBIS_DATE_MAPPINGS
-        )
+        date_mappings = self.DATE_MAPPINGS_BY_FORMAT[self.format_type]
 
         for tag_key, mapping in date_mappings.items():
             if tag_key in self.raw_tags:
@@ -502,3 +573,131 @@ class TextMetadataExtractor:
             "eng": "Engineer",
         }
         return expansions.get(abbr.lower(), abbr.title())
+
+
+def flatten_text_metadata(
+    text_metadata: Dict[str, List[Dict[str, Any]]],
+) -> Dict[str, Any]:
+    """
+    Convert TextMetadataExtractor.extract_metadata()'s grouped-by-entity
+    structure into the flat field-name dict the rest of the app (import
+    mapping, track/album creation) works with.
+    """
+    flattened = {}
+
+    for entity_type, fields_list in text_metadata.items():
+        for field_data in fields_list:
+            field_name = field_data["field"]
+            entity = field_data["entity"]
+            value = field_data["value"]
+
+            # Handle different entity types with proper list management
+            if entity == "Track":
+                # For track fields, use lists for multi-value capable fields
+                multi_value_track_fields = {
+                    "comment",
+                    "lyrics",
+                }  # Add others as needed
+                if field_name in multi_value_track_fields:
+                    if field_name not in flattened:
+                        flattened[field_name] = []
+                    if not isinstance(flattened[field_name], list):
+                        flattened[field_name] = [flattened[field_name]]
+                    flattened[field_name].append(value)
+                else:
+                    flattened[field_name] = value  # Single value for most track fields
+
+            elif entity == "Album":
+                # For album fields, use lists for multi-value capable fields
+                multi_value_album_fields = {"album_description"}  # Add others as needed
+                album_field_name = f"album_{field_name}"
+                if field_name in multi_value_album_fields:
+                    if album_field_name not in flattened:
+                        flattened[album_field_name] = []
+                    if not isinstance(flattened[album_field_name], list):
+                        flattened[album_field_name] = [flattened[album_field_name]]
+                    flattened[album_field_name].append(value)
+                else:
+                    flattened[album_field_name] = (
+                        value  # Single value for most album fields
+                    )
+
+            elif entity == "Artist":
+                # For artists, handle roles properly
+                role = field_data.get("role", "primary").lower().replace(" ", "_")
+                role_key = f"artist_{role}"
+
+                if role_key not in flattened:
+                    flattened[role_key] = []
+
+                # Ensure we're working with a list
+                if not isinstance(flattened[role_key], list):
+                    flattened[role_key] = [flattened[role_key]]
+
+                flattened[role_key].append(value)
+
+                # Also populate the main artist_name for primary artists
+                if role == "primary_artist":
+                    if "artist_name" not in flattened:
+                        flattened["artist_name"] = []
+                    if not isinstance(flattened["artist_name"], list):
+                        flattened["artist_name"] = [flattened["artist_name"]]
+                    flattened["artist_name"].append(value)
+
+            elif entity == "Genre":
+                if "genre_name" not in flattened:
+                    flattened["genre_name"] = []
+                if not isinstance(flattened["genre_name"], list):
+                    flattened["genre_name"] = [flattened["genre_name"]]
+                flattened["genre_name"].append(value)
+
+            elif entity == "Publisher":
+                # Handle multiple publishers
+                if "publisher_name" not in flattened:
+                    flattened["publisher_name"] = []
+                if not isinstance(flattened["publisher_name"], list):
+                    flattened["publisher_name"] = [flattened["publisher_name"]]
+                flattened["publisher_name"].append(value)
+
+            elif entity == "Disc":
+                flattened[field_name] = value  # Usually single values
+
+            elif entity == "Mood":
+                if "mood_name" not in flattened:
+                    flattened["mood_name"] = []
+                if not isinstance(flattened["mood_name"], list):
+                    flattened["mood_name"] = [flattened["mood_name"]]
+                flattened["mood_name"].append(value)
+
+            elif entity == "Place":
+                if "place_name" not in flattened:
+                    flattened["place_name"] = []
+                if not isinstance(flattened["place_name"], list):
+                    flattened["place_name"] = [flattened["place_name"]]
+                flattened["place_name"].append(value)
+
+            else:
+                # For any other entity, use the field name directly
+                flattened[field_name] = value
+
+    # Ensure critical fields exist and are lists where expected
+    list_fields = [
+        "artist_name",
+        "album_artist_name",
+        "genre_name",
+        "mood_name",
+        "place_name",
+        "publisher_name",
+    ]
+
+    # Also add any artist role fields that should be lists
+    artist_role_fields = [key for key in flattened.keys() if key.startswith("artist_")]
+    list_fields.extend(artist_role_fields)
+
+    for field in list_fields:
+        if field in flattened and not isinstance(flattened[field], list):
+            flattened[field] = [flattened[field]]
+        elif field not in flattened:
+            flattened[field] = []
+
+    return flattened
