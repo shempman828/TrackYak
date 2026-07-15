@@ -11,10 +11,10 @@ Usage:
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
 
-from src.db_helpers import AddToDB, DeleteDB, GetFromDB, MergeDB, SplitDB, UpdateDB
-from src.db_tables import Base
-from src.library_rescan_repair import LibraryRepair
-from src.logger_config import logger
+from src.db.db_helpers import AddToDB, DeleteDB, GetFromDB, MergeDB, SplitDB, UpdateDB
+from src.db.db_tables import Base
+from src.library.library_rescan_repair import LibraryRepair
+from src.core.logger_config import logger
 
 
 class _MinimalController:

@@ -1,0 +1,1 @@
+"""Mood views and editors."""
