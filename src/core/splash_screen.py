@@ -15,6 +15,13 @@ from PySide6.QtWidgets import QApplication, QWidget
 from src.core.asset_paths import ASSETS_DIR
 from src.core.logger_config import logger
 
+# Matches themes/dark_mode.qss so the splash doesn't look like a different app.
+_COLOR_SURFACE = QColor("#11121a")
+_COLOR_FALLBACK_BG = QColor("#0b0c10")
+_COLOR_TEXT = QColor("#b8c0f0")
+_COLOR_TEXT_DIM = QColor("#555e7a")
+_COLOR_ACCENT_GREEN = QColor("#99EA85")
+
 
 class StartupSplash(QWidget):
     """Wayland-friendly splash screen with fade/scale animations and status messages."""
@@ -30,7 +37,7 @@ class StartupSplash(QWidget):
 
         # Load splash image
         self.pixmap = self._load_splash_image()
-        self.resize(self.pixmap.size())
+        self.resize(self.pixmap.deviceIndependentSize().toSize())
 
         # Animation state
         self._opacity = 0.0
@@ -41,6 +48,7 @@ class StartupSplash(QWidget):
         # Minimum duration
         self.min_duration_ms = min_duration_ms
         self.finish_requested = False
+        self._min_duration_elapsed = False
 
         # Center splash using full pixmap size so position never shifts
         # during the scale animation. The window stays fixed; only the
@@ -105,13 +113,8 @@ class StartupSplash(QWidget):
     opacity = Property(float, get_opacity, set_opacity)
 
     # --- Core Behavior ---
-    def finish(self, widget: Optional[QWidget] = None) -> None:
+    def finish(self) -> None:
         """Request splash finish respecting minimum duration."""
-        if not hasattr(self, "_min_duration_elapsed"):
-            # Safety fallback if the timer hasn't fired yet
-            self.finish_requested = True
-            return
-
         if not self._min_duration_elapsed:
             self.finish_requested = True
         else:
@@ -136,8 +139,9 @@ class StartupSplash(QWidget):
         of 50%) which feels more balanced to the human eye.
         """
         screen_geom = QApplication.primaryScreen().availableGeometry()
-        w = self.pixmap.width()
-        h = self.pixmap.height()
+        logical_size = self.pixmap.deviceIndependentSize().toSize()
+        w = logical_size.width()
+        h = logical_size.height()
 
         x = (screen_geom.width() - w) // 2 + screen_geom.x()
 
@@ -151,17 +155,26 @@ class StartupSplash(QWidget):
 
     def _load_splash_image(self) -> QPixmap:
         screen = QApplication.primaryScreen()
+        dpr = screen.devicePixelRatio()
         size = screen.availableSize()
+        # Logical (device-independent) target size, then scale the source
+        # image to the device-pixel equivalent so it stays crisp on HiDPI
+        # screens. setDevicePixelRatio makes deviceIndependentSize() report
+        # the logical target back to callers positioning/resizing the window.
         target = QSize(int(size.width() * 0.6), int(size.height() * 0.6))
+        target_device = QSize(int(target.width() * dpr), int(target.height() * dpr))
 
         path = ASSETS_DIR / "splash.png"
         pixmap = QPixmap(str(path))
         if pixmap.isNull():
             logger.warning("Splash image not found, using fallback")
-            pixmap = QPixmap(target)
-            pixmap.fill(QColor(43, 43, 43))
+            pixmap = QPixmap(target_device)
+            pixmap.fill(_COLOR_FALLBACK_BG)
         else:
-            pixmap = pixmap.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pixmap = pixmap.scaled(
+                target_device, Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+        pixmap.setDevicePixelRatio(dpr)
         return pixmap
 
     # --- Painting ---
@@ -171,8 +184,9 @@ class StartupSplash(QWidget):
 
         # The window is always full-size. We draw the content scaled and
         # centered within it so the animation looks like it's growing in place.
-        full_w = self.pixmap.width()
-        full_h = self.pixmap.height()
+        logical_size = self.pixmap.deviceIndependentSize().toSize()
+        full_w = logical_size.width()
+        full_h = logical_size.height()
         scaled_w = int(full_w * self._scale)
         scaled_h = int(full_h * self._scale)
 
@@ -193,17 +207,26 @@ class StartupSplash(QWidget):
                 scaled_w,
                 int(scaled_h / 3),
             )
-            painter.fillRect(status_rect, QColor(43, 43, 43, 220))
+            surface = QColor(_COLOR_SURFACE)
+            surface.setAlpha(220)
+            painter.fillRect(status_rect, surface)
+
+            base_font = QFont()
 
             # Title
-            painter.setFont(QFont("Arial", 16, QFont.Bold))
-            painter.setPen(Qt.white)
+            title_font = QFont(base_font)
+            title_font.setPointSize(16)
+            title_font.setBold(True)
+            painter.setFont(title_font)
+            painter.setPen(_COLOR_TEXT)
             painter.drawText(
                 status_rect.adjusted(0, 10, 0, -40), Qt.AlignCenter, "Baby Yak Studios"
             )
 
             # Message
-            painter.setFont(QFont("Arial", 12))
+            message_font = QFont(base_font)
+            message_font.setPointSize(12)
+            painter.setFont(message_font)
             painter.drawText(
                 status_rect.adjusted(20, 40, -20, -40),
                 Qt.AlignCenter | Qt.TextWordWrap,
@@ -220,12 +243,12 @@ class StartupSplash(QWidget):
                     status_rect.width() - bar_margin_sides * 2,
                     bar_height,
                 )
-                painter.fillRect(bar_rect, QColor(85, 85, 85))
+                painter.fillRect(bar_rect, _COLOR_TEXT_DIM)
                 if self._progress > 0:
                     fill_width = max(1, int(bar_rect.width() * self._progress / 100))
                     painter.fillRect(
                         bar_rect.adjusted(0, 0, fill_width - bar_rect.width(), 0),
-                        QColor(76, 175, 80),
+                        _COLOR_ACCENT_GREEN,
                     )
 
         painter.end()
