@@ -33,8 +33,10 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.asset_paths import asset
+from src.core.censor import censor_text
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
+from src.image.image_blur import load_art_pixmap
 from src.nowplaying.nowplaying_art import _ArtCard
 from src.nowplaying.nowplaying_backdrop import _BlurredBackdrop
 from src.nowplaying.nowplaying_chip import _Chip, _ScrollingChipRow
@@ -726,7 +728,7 @@ class NowPlayingView(QWidget):
             self.track = track
 
             self._title_lbl.setText(
-                getattr(track, "track_name", None) or "Unknown Title"
+                censor_text(getattr(track, "track_name", None) or "Unknown Title")
             )
 
             # Use primary_artist_names property (Oxford-comma formatted)
@@ -739,7 +741,7 @@ class NowPlayingView(QWidget):
 
             album = getattr(track, "album", None)
             if album:
-                name = getattr(album, "album_name", "") or "—"
+                name = censor_text(getattr(album, "album_name", "") or "—")
                 year = getattr(album, "release_year", None)
                 self._album_lbl.setText(f"{name}  ({year})" if year else name)
             else:
@@ -777,7 +779,7 @@ class NowPlayingView(QWidget):
     # ── lyrics ────────────────────────────────────────────────────────────
 
     def _update_lyrics(self, track):
-        raw = getattr(track, "lyrics", None)
+        raw = censor_text(getattr(track, "lyrics", None))
 
         # Reset state
         self._is_synced = False
@@ -1061,7 +1063,8 @@ class NowPlayingView(QWidget):
     def _load_art_from_track(self, track):
         """Build slideshow from all available art images for this track."""
         album = getattr(track, "album", None)
-        paths: List[Optional[str]] = []
+        is_explicit = bool(getattr(album, "art_is_explicit", False)) if album else False
+        cover_paths: List[str] = []
         if album:
             for attr in (
                 "front_cover_path",
@@ -1070,15 +1073,21 @@ class NowPlayingView(QWidget):
             ):
                 p = getattr(album, attr, None) or ""
                 if p:
-                    paths.append(p)
+                    cover_paths.append(p)
+
+        other_paths: List[str] = []
         # Also try artist-level image
         for artist in getattr(track, "artists", None) or []:
             p = getattr(artist, "profile_pic_path", None) or ""
-            if p and p not in paths:
-                paths.append(p)
+            if p and p not in cover_paths and p not in other_paths:
+                other_paths.append(p)
 
         pixmaps: List[QPixmap] = []
-        for p in paths:
+        for p in cover_paths:
+            px = load_art_pixmap(p, is_explicit)
+            if not px.isNull():
+                pixmaps.append(px)
+        for p in other_paths:
             if Path(p).exists():
                 px = QPixmap(str(p))
                 if not px.isNull():
