@@ -66,6 +66,10 @@ class AlbumRoleAssociation(Base):
     album_id = Column(Integer, ForeignKey("albums.album_id", ondelete="CASCADE"))
     artist_id = Column(Integer, ForeignKey("artists.artist_id", ondelete="CASCADE"))
     role_id = Column(Integer, ForeignKey("roles.role_id", ondelete="CASCADE"))
+    # Position of this artist among others sharing the same (album_id, role_id)
+    # group -- lets "Duke Ellington & John Coltrane" be reordered to
+    # "John Coltrane & Duke Ellington" without changing who's credited.
+    sort_order = Column(Integer, nullable=False, default=0)
 
     # Relationships
     album = relationship("Album", back_populates="album_roles")
