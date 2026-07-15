@@ -25,7 +25,6 @@ from src.core.logger_config import logger
 from src.core.status_utility import StatusManager
 
 CONFIG_FILE = config("import_paths.json")
-SUPPORTED_FORMATS = {".mp3", ".flac", ".wav", ".aac", ".ogg", ".m4a"}
 
 
 class ImportDialog(QDialog):
