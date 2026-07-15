@@ -4,10 +4,16 @@ import struct
 from PIL import Image
 
 from src.core.logger_config import logger
+from src.metadata.metadata_image_utils import determine_image_format
 
 
 class ArtworkExtractor:
     """Dedicated album art extraction separate from text metadata."""
+
+    # MusicBrainz/ID3-APIC picture-type convention used to assign a role to
+    # each embedded picture. Picard uses type 5 ("Leaflet page") for
+    # liner/booklet art.
+    PICTURE_TYPE_ROLES = {3: "front", 4: "rear", 5: "liner"}
 
     def __init__(self):
         self.format_handlers = {
@@ -132,6 +138,94 @@ class ArtworkExtractor:
 
         return None
 
+    def _extract_flac_artwork_all(self, data):
+        """Extract every PICTURE block from a FLAC file, keyed by raw picture type."""
+        pictures = {}
+        try:
+            if data[0:4] != b"fLaC":
+                return pictures
+
+            pos = 4
+            while pos < len(data) - 4:
+                header = struct.unpack(">I", data[pos : pos + 4])[0]
+                pos += 4
+
+                is_last = (header >> 31) & 1
+                block_type = (header >> 24) & 0x7F
+                block_size = header & 0xFFFFFF  # 24-bit size
+
+                if block_size == 0 or pos + block_size > len(data):
+                    break
+
+                if block_type == 6:  # PICTURE block
+                    picture_data = data[pos : pos + block_size]
+                    parsed_picture = self._parse_flac_picture_block(picture_data)
+                    if parsed_picture:
+                        picture_type = parsed_picture["picture_type"]
+                        if picture_type in pictures:
+                            logger.warning(
+                                f"Duplicate FLAC picture type {picture_type} found; "
+                                "keeping first occurrence"
+                            )
+                        else:
+                            pictures[picture_type] = parsed_picture
+
+                if is_last:
+                    break
+
+                pos += block_size
+
+        except Exception as e:
+            logger.warning(f"Error extracting FLAC artwork: {e}")
+
+        return pictures
+
+    def extract_artwork_by_role(self, file_path, file_ext):
+        """
+        Extract embedded artwork keyed by role ("front"/"rear"/"liner").
+
+        Only FLAC is supported today; other formats return an empty dict.
+        Returns a dict containing only the roles that were found - callers
+        should use .get(role) rather than assuming all three keys exist.
+        """
+        if file_ext.lower() != ".flac":
+            return {}
+
+        try:
+            with open(file_path, "rb") as f:
+                data = f.read()
+        except Exception as e:
+            logger.warning(f"Error reading {file_path} for role-based artwork: {e}")
+            return {}
+
+        all_pictures = self._extract_flac_artwork_all(data)
+
+        by_role = {}
+        leftovers = {}
+        for picture_type, picture in all_pictures.items():
+            role = self.PICTURE_TYPE_ROLES.get(picture_type)
+            if role:
+                by_role[role] = picture
+            else:
+                leftovers[picture_type] = picture
+
+        if "front" not in by_role and len(leftovers) == 1:
+            fallback_type, fallback_picture = next(iter(leftovers.items()))
+            logger.debug(
+                f"No typed front cover in {file_path}; treating untyped picture "
+                f"(type {fallback_type}) as front cover"
+            )
+            by_role["front"] = fallback_picture
+            del leftovers[fallback_type]
+
+        for leftover_type in leftovers:
+            logger.debug(
+                f"Unmapped FLAC picture type {leftover_type} in {file_path} "
+                "left unassigned"
+            )
+
+        return by_role
+
     def _extract_alac_artwork(self, data):
         """Extract artwork from ALAC/M4A files (covr atom)."""
         try:
@@ -200,10 +294,11 @@ class ArtworkExtractor:
         try:
             pos = 0
 
-            # Picture type (32 bits) - read but not used for artwork extraction
+            # Picture type (32 bits)
             if pos + 4 > len(data):
                 return None
-            pos += 4  # Skip picture type
+            picture_type = struct.unpack(">I", data[pos : pos + 4])[0]
+            pos += 4
 
             # MIME type string
             if pos + 4 > len(data):
@@ -266,6 +361,7 @@ class ArtworkExtractor:
             # Process the image to validate it and get dimensions
             processed_image = self._process_image_data(picture_data, format_type)
             if processed_image:
+                processed_image["picture_type"] = picture_type
                 return processed_image
 
         except Exception as e:
@@ -318,22 +414,7 @@ class ArtworkExtractor:
 
     def _determine_image_format(self, image_data, mime_type):
         """Determine image format from magic bytes or MIME type."""
-        if image_data.startswith(b"\xff\xd8\xff"):
-            return "JPEG"
-        elif image_data.startswith(b"\x89PNG\r\n\x1a\n"):
-            return "PNG"
-        elif image_data.startswith(b"GIF8"):
-            return "GIF"
-        elif image_data.startswith(b"BM"):
-            return "BMP"
-
-        # Fall back to MIME type
-        if "jpeg" in mime_type.lower() or "jpg" in mime_type.lower():
-            return "JPEG"
-        elif "png" in mime_type.lower():
-            return "PNG"
-
-        return None
+        return determine_image_format(image_data, mime_type)
 
     def _find_jpeg_end(self, data):
         """Find JPEG end marker."""
