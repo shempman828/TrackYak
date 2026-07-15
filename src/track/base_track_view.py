@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from src.playlist.base_track_playlist_dialog import PlaylistSelectionDialog
 from src.db.db_mapping_tracks import TRACK_FIELDS
+from src.core.censor import censor_text
 from src.core.logger_config import logger
 from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
 
@@ -413,7 +414,8 @@ class BaseTrackView(QDialog):
         """Get formatted value for a track field."""
         # Handle special relationship fields
         if db_field == "album_name":
-            return track.album.album_name if track.album else "Unknown Album"
+            name = track.album.album_name if track.album else "Unknown Album"
+            return censor_text(name)
         elif db_field == "artist_name":
             return self._get_artist_name(track)
 
@@ -454,6 +456,9 @@ class BaseTrackView(QDialog):
                 return f"{minutes}:{seconds:02d}"
             except (TypeError, ValueError):
                 return "0:00"
+
+        if db_field in ("track_name", "album_name", "lyrics"):
+            return censor_text(str(value))
 
         return str(value)
 
