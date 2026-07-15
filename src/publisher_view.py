@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from src.base_split_dialog import SplitDBDialog
 from src.logger_config import logger
 from src.publisher_detail import PublisherDetailTab
+from src.publisher_fuzzy_match import PublisherFuzzyMatchDialog
 from src.publisher_merge_dialog import PublisherMergeDialog
 from src.publisher_tree import PublisherTreeWidget
 
@@ -113,6 +114,11 @@ class PublisherView(QWidget):
             merge_action = QAction("Merge Publishers...", self)
             merge_action.triggered.connect(self.initiate_merge)
             menu.addAction(merge_action)
+
+        menu.addSeparator()
+        fuzzy_action = QAction("🔎 Find Duplicate Publishers…", self)
+        fuzzy_action.triggered.connect(self.find_fuzzy_matches)
+        menu.addAction(fuzzy_action)
 
         menu.exec_(self.publishers_tree.mapToGlobal(position))
 
@@ -248,6 +254,133 @@ class PublisherView(QWidget):
         if merge_dialog.exec_() == QDialog.Accepted:
             self.load_publishers()
             logger.info("Publishers merged successfully.")
+
+    def find_fuzzy_matches(self):
+        """Generate fuzzy duplicate candidates and open the review dialog.
+
+        Uses a blocking strategy (first 3 chars of normalised name) to avoid
+        comparing every publisher against each other. Blocking reduces the
+        number of comparisons by only comparing publishers that share the
+        same name prefix.
+
+        The scan runs in a background thread so the UI stays responsive.
+        """
+        import re
+        from collections import defaultdict
+        from difflib import SequenceMatcher
+
+        from PySide6.QtCore import QThread, Signal
+        from PySide6.QtWidgets import QProgressDialog
+
+        THRESHOLD = 0.85  # 85% similarity required to flag as a duplicate
+
+        # --- Load publishers up front (fast DB call) ---
+        try:
+            publishers = self.controller.get.get_all_entities("Publisher")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load publishers: {e}")
+            return
+
+        if not publishers:
+            QMessageBox.information(
+                self, "No Publishers", "No publishers found in database."
+            )
+            return
+
+        # --- Show a progress dialog so the user knows work is happening ---
+        progress = QProgressDialog(
+            "Scanning for duplicate publishers…", "Cancel", 0, 0, self
+        )
+        progress.setWindowTitle("Duplicate Scan")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        progress.show()
+
+        # --- Background worker ---
+        class _ScanWorker(QThread):
+            finished = Signal(list)
+            error = Signal(str)
+
+            def __init__(self, publishers, threshold):
+                super().__init__()
+                self._publishers = publishers
+                self._threshold = threshold
+                self._punct_re = re.compile(r"[^\w\s]")
+
+            def _normalise(self, text):
+                text = (text or "").lower()
+                text = self._punct_re.sub("", text)
+                return " ".join(text.split())
+
+            def run(self):
+                try:
+                    matches = []
+                    seen_pairs = set()
+
+                    # Build blocks keyed on first 3 chars of normalised name
+                    blocks = defaultdict(list)
+                    for publisher in self._publishers:
+                        key = self._normalise(publisher.publisher_name)[:3]
+                        if key:
+                            blocks[key].append(publisher)
+
+                    # Only compare within each block
+                    for block in blocks.values():
+                        if len(block) < 2:
+                            continue
+                        for i, a in enumerate(block):
+                            for b in block[i + 1 :]:
+                                pair_key = (
+                                    min(a.publisher_id, b.publisher_id),
+                                    max(a.publisher_id, b.publisher_id),
+                                )
+                                if pair_key in seen_pairs:
+                                    continue
+                                seen_pairs.add(pair_key)
+
+                                ratio = SequenceMatcher(
+                                    None,
+                                    self._normalise(a.publisher_name),
+                                    self._normalise(b.publisher_name),
+                                ).ratio()
+
+                                if ratio >= self._threshold:
+                                    matches.append((a, b, round(ratio * 100)))
+
+                    self.finished.emit(matches)
+                except Exception as e:
+                    self.error.emit(str(e))
+
+        worker = _ScanWorker(publishers, THRESHOLD)
+
+        def _on_finished(matches):
+            progress.close()
+            if not matches:
+                QMessageBox.information(
+                    self,
+                    "No Duplicates Found",
+                    f"No similar publisher names found (threshold: {int(THRESHOLD * 100)}% similarity).",
+                )
+                return
+            dialog = PublisherFuzzyMatchDialog(matches, self.controller, self)
+            if dialog.exec_() == QDialog.Accepted:
+                self.load_publishers()
+
+        def _on_error(msg):
+            progress.close()
+            QMessageBox.critical(self, "Scan Error", f"Duplicate scan failed:\n{msg}")
+
+        def _on_cancelled():
+            worker.quit()
+
+        worker.finished.connect(_on_finished)
+        worker.error.connect(_on_error)
+        progress.canceled.connect(_on_cancelled)
+
+        # Keep a reference so the worker isn't garbage collected
+        self._fuzzy_worker = worker
+        worker.start()
 
     def load_publishers(self):
         """Load publishers into the hierarchical tree."""
