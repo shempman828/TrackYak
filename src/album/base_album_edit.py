@@ -42,6 +42,7 @@ from src.album.base_album_edit_tabs import (
 from src.core.config_setup import Config
 from src.db.db_mapping_albums import ALBUM_FIELDS
 from src.core.logger_config import logger
+from src.metadata.metadata_writer import MetadataWriter
 
 
 def _sanitize_filename(name: str) -> str:
@@ -173,6 +174,7 @@ class AlbumEditor(QDialog):
 
         self.controller = controller
         self._config = Config()
+        self._metadata_writer = MetadataWriter(controller)
 
         # Always reload the album from DB on open — avoids stale cover paths
         # when the editor is reopened after a previous cover change.
@@ -738,6 +740,9 @@ class AlbumEditor(QDialog):
                 "Album", self.album.album_id, **{attr: str(dest)}
             )
 
+            failed = self._embed_cover_to_flac_tracks(cover_type, dest.read_bytes())
+            self._warn_if_embed_failures(cover_type, failed)
+
             # Update the Artwork tab preview
             display = getattr(self, f"{cover_type}_cover_display", None)
             path_label = getattr(self, f"{cover_type}_path_label", None)
@@ -767,6 +772,39 @@ class AlbumEditor(QDialog):
     def _sanitize_filename(name: str) -> str:
         """Strip characters that are illegal in file/folder names."""
         return _sanitize_filename(name)
+
+    def _embed_cover_to_flac_tracks(self, cover_type: str, image_bytes):
+        """Embed (image_bytes given) or strip (image_bytes=None) the given
+        cover role into every FLAC track of this album. Returns the list of
+        track file paths that failed, so callers can surface one warning."""
+        failed = []
+        for track in getattr(self.album, "tracks", None) or []:
+            file_path = getattr(track, "track_file_path", None)
+            if not file_path or Path(file_path).suffix.lower() != ".flac":
+                continue
+            try:
+                success = self._metadata_writer.write_artwork_to_file(
+                    file_path, cover_type, image_bytes
+                )
+            except Exception as e:
+                logger.error(f"Error embedding {cover_type} cover into {file_path}: {e}")
+                success = False
+            if not success:
+                failed.append(file_path)
+        return failed
+
+    def _warn_if_embed_failures(self, cover_type: str, failed_paths):
+        if not failed_paths:
+            return
+        preview = "\n".join(failed_paths[:10])
+        if len(failed_paths) > 10:
+            preview += f"\n… and {len(failed_paths) - 10} more"
+        QMessageBox.warning(
+            self,
+            "Some Files Not Updated",
+            f"The {cover_type} cover was saved, but could not be embedded into "
+            f"{len(failed_paths)} track file(s):\n\n{preview}",
+        )
 
     def _copy_cover_to_album_dir(self, source_path: str, cover_type: str) -> Path:
         """Copy cover art into ALBUM_ART_DIR/artist/album/ and return the destination path."""
@@ -809,6 +847,9 @@ class AlbumEditor(QDialog):
             )
         except Exception as e:
             logger.error(f"DB clear failed for cover: {e}")
+
+        failed = self._embed_cover_to_flac_tracks(cover_type, None)
+        self._warn_if_embed_failures(cover_type, failed)
 
         display = getattr(self, f"{cover_type}_cover_display", None)
         path_label = getattr(self, f"{cover_type}_path_label", None)
@@ -934,6 +975,9 @@ class AlbumEditor(QDialog):
             )
         except Exception as e:
             logger.error(f"DB update for Wikipedia cover failed: {e}")
+
+        failed = self._embed_cover_to_flac_tracks(cover_type, image_bytes)
+        self._warn_if_embed_failures(cover_type, failed)
 
         display = getattr(self, f"{cover_type}_cover_display", None)
         path_label = getattr(self, f"{cover_type}_path_label", None)
