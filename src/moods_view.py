@@ -222,6 +222,7 @@ class MoodView(QWidget):
                 collect_expanded(item.child(i))
 
         root = self.mood_tree.invisibleRootItem()
+        had_items = root.childCount() > 0
         for i in range(root.childCount()):
             collect_expanded(root.child(i))
         self.mood_tree.clear()
@@ -317,8 +318,8 @@ class MoodView(QWidget):
             for i in range(item.childCount()):
                 restore_expanded(item.child(i))
 
-        if expanded_ids:
-            # We had a previous state — restore it
+        if had_items:
+            # We had a previous state — restore it, even if everything was collapsed
             root = self.mood_tree.invisibleRootItem()
             for i in range(root.childCount()):
                 restore_expanded(root.child(i))
