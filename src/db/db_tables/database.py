@@ -2,7 +2,7 @@
 MusicDatabase: engine/session setup plus schema and integrity verification.
 """
 
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from src.db.db_tables.base import Base
@@ -85,7 +85,10 @@ class MusicDatabase:
 
             # ── Step 2: Column check ─────────────────────────────────────────
             # For every ORM model, compare the columns defined in Python against
-            # the columns that actually exist in the database file.
+            # the columns that actually exist in the database file. Simple
+            # additive columns (nullable, or NOT NULL with a constant default)
+            # are added automatically via ALTER TABLE; anything else is just
+            # logged, since SQLite's ADD COLUMN can't express it safely.
             missing_columns = []
             for table_name, table in Base.metadata.tables.items():
                 if table_name not in existing_tables:
@@ -95,7 +98,14 @@ class MusicDatabase:
                     col["name"] for col in inspector.get_columns(table_name)
                 }
                 for column in table.columns:
-                    if column.name not in existing_columns:
+                    if column.name in existing_columns:
+                        continue
+                    if self._try_add_column(table_name, column):
+                        logger.info(
+                            f"Added missing column {table_name}.{column.name} "
+                            f"via ALTER TABLE."
+                        )
+                    else:
                         missing_columns.append(f"{table_name}.{column.name}")
 
             if missing_columns:
@@ -110,3 +120,36 @@ class MusicDatabase:
         except Exception as e:
             logger.error(f"Integrity check failed: {e}")
             raise
+
+    def _try_add_column(self, table_name: str, column) -> bool:
+        """Attempt to add a missing column to an existing table via ALTER TABLE.
+
+        Only safe, additive cases are handled: SQLite's ADD COLUMN can't
+        attach a PRIMARY KEY, UNIQUE, or FOREIGN KEY constraint, and a NOT
+        NULL column requires a constant DEFAULT. Anything outside that
+        (composite keys, unique columns, NOT NULL with no default) is left
+        for the caller to report instead of guessing at a migration.
+        """
+        if column.primary_key or column.foreign_keys or column.unique:
+            return False
+
+        has_scalar_default = column.default is not None and getattr(
+            column.default, "is_scalar", False
+        )
+        if not column.nullable and not has_scalar_default:
+            return False
+
+        col_type = column.type.compile(dialect=self.engine.dialect)
+        ddl = f'ALTER TABLE "{table_name}" ADD COLUMN "{column.name}" {col_type}'
+        if not column.nullable:
+            ddl += " NOT NULL"
+        if has_scalar_default:
+            ddl += f" DEFAULT {column.default.arg!r}"
+
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(text(ddl))
+            return True
+        except Exception as e:
+            logger.error(f"Failed to auto-add column {table_name}.{column.name}: {e}")
+            return False
