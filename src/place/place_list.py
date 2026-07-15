@@ -2,6 +2,7 @@ import html as html_escape
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QDialog,
     QHBoxLayout,
     QMenu,
@@ -38,16 +39,30 @@ class DraggableTreeWidget(QTreeWidget):
 
         # The item the user is hovering over when they release the mouse
         target_item = self.itemAt(event.pos())
+        # Whether the drop landed squarely on target_item (nest under it) or
+        # above/below it (become a sibling) — Qt's own drop indicator already
+        # shows the user which of these will happen, so honor it instead of
+        # always nesting under whatever item happens to be under the cursor.
+        indicator = self.dropIndicatorPosition()
 
         try:
             moved_place = dragged_item.data(0, Qt.UserRole)
 
-            # If target_item is the same as dragged_item, the user dropped on itself — ignore
             if target_item is None or target_item is dragged_item:
+                # Dropped on empty space or on itself — ignore, becomes top-level
                 new_parent_id = None
-            else:
+            elif indicator == QAbstractItemView.OnItem:
+                # Dropped directly onto an item — nest under it
                 parent_place = target_item.data(0, Qt.UserRole)
                 new_parent_id = parent_place.place_id
+            else:
+                # Dropped above/below an item — become a sibling of that item
+                sibling_parent_item = target_item.parent()
+                if sibling_parent_item is None:
+                    new_parent_id = None
+                else:
+                    parent_place = sibling_parent_item.data(0, Qt.UserRole)
+                    new_parent_id = parent_place.place_id
 
             # Now let Qt handle the visual repositioning
             super().dropEvent(event)
@@ -146,13 +161,17 @@ class ListView(QWidget):
         menu.exec_(self.tree_widget.viewport().mapToGlobal(position))
 
     def _build_hierarchy(self, places):
-        """Build a dictionary of parent-child relationships."""
+        """Build a dictionary of parent-child relationships, each level sorted alphabetically."""
         hierarchy = {}
         for place in places:
             parent_id = place.parent_id
             if parent_id not in hierarchy:
                 hierarchy[parent_id] = []
             hierarchy[parent_id].append(place)
+
+        for children in hierarchy.values():
+            children.sort(key=lambda p: (p.place_name or "").lower())
+
         return hierarchy
 
     def _add_places_to_tree(self, hierarchy, parent_id, parent_tree_item):
