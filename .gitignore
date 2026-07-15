@@ -10,3 +10,4 @@ playlists/
 publisher_logos/
 *.db
 *.db-journal
+*.bak
