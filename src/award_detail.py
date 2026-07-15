@@ -376,17 +376,32 @@ class AwardDetailTab(QWidget):
 
     def _delete_award(self) -> None:
         """Delete the current award after confirmation."""
+        children = (
+            self.controller.get.get_all_entities(
+                "Award", parent_id=self.award.award_id
+            )
+            or []
+        )
+
+        message = f"Are you sure you want to delete the award '{self.award.award_name}'?"
+        if children:
+            message += (
+                f"\n\nIt has {len(children)} child award(s). They will not be "
+                "deleted -- they will become top-level awards."
+            )
+
         reply = QMessageBox.question(
             self,
             "Confirm Delete",
-            f"Are you sure you want to delete the award '{self.award.award_name}'?",
+            message,
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
             try:
-                # Delete the award - associations will be automatically deleted by ORM cascade
+                # Delete the award - associations will be automatically deleted by ORM cascade,
+                # and child awards' parent_id will be set to NULL (they become top-level)
                 self.controller.delete.delete_entity("Award", self.award.award_id)
                 QMessageBox.information(self, "Deleted", "Award deleted successfully")
                 logger.info(f"Deleted award {self.award.award_id}")
