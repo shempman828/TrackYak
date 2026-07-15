@@ -68,6 +68,8 @@ class Config:
             "ui_scale": "1.0",
             "font_family": "Inter",
             "font_size": "10",
+            "blur_explicit_art": "false",
+            "censor_explicit_words": "false",
         }
         # App section
         self.config["app"] = {
@@ -481,6 +483,24 @@ class Config:
     def set_font_size(self, size: int):
         """Set font size"""
         self.config.set("display", "font_size", str(size))
+
+    def get_blur_explicit_art(self):
+        """Get whether album art marked explicit should be shown blurred"""
+        return self.config.getboolean("display", "blur_explicit_art", fallback=False)
+
+    def set_blur_explicit_art(self, enabled: bool):
+        """Set whether album art marked explicit should be shown blurred"""
+        self.config.set("display", "blur_explicit_art", str(enabled).lower())
+
+    def get_censor_explicit_words(self):
+        """Get whether explicit words should be censored throughout the app"""
+        return self.config.getboolean(
+            "display", "censor_explicit_words", fallback=False
+        )
+
+    def set_censor_explicit_words(self, enabled: bool):
+        """Set whether explicit words should be censored throughout the app"""
+        self.config.set("display", "censor_explicit_words", str(enabled).lower())
 
     # Queue properties
     def get_queue_track_ids(self):
