@@ -97,21 +97,6 @@ ALBUM_FIELDS = {
         short="Peak",
         tooltip="The largest amplitude in the album",
     ),
-    "front_cover_path": AlbumField(
-        friendly="Front Cover Path",
-        short="Front Cover",
-        tooltip="The file path to the album's front cover.",
-    ),
-    "rear_cover_path": AlbumField(
-        friendly="Rear Cover Path",
-        short="Rear Cover",
-        tooltip="The path to the album's rear cover.",
-    ),
-    "album_liner_path": AlbumField(
-        friendly="Album Liner Path",
-        short="Liner Path",
-        tooltip="The path to the album's liner art",
-    ),
     "album_wikipedia_link": AlbumField(
         friendly="Album Wikipedia Link",
         short="Wikipedia Link",
