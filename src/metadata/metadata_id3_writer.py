@@ -15,7 +15,7 @@ class ID3TagWriter:
             return b""
 
         # Encode text with BOM for unicode
-        encoded_text = text.encode("utf-16be")
+        encoded_text = text.encode("utf-16")
         frame_data = struct.pack(">B", 0x01) + encoded_text  # Unicode with BOM
 
         # Frame header: ID (4 bytes) + size (4 bytes) + flags (2 bytes)
@@ -31,7 +31,7 @@ class ID3TagWriter:
         if not text:
             return b""
 
-        encoded_text = text.encode("utf-16be")
+        encoded_text = text.encode("utf-16")
         frame_data = (
             language.encode("iso-8859-1") + struct.pack(">B", 0x01) + encoded_text
         )
@@ -62,7 +62,7 @@ class ID3TagWriter:
         if not lyrics:
             return b""
 
-        encoded_text = lyrics.encode("utf-16be")
+        encoded_text = lyrics.encode("utf-16")
         frame_data = (
             language.encode("iso-8859-1") + struct.pack(">B", 0x01) + encoded_text
         )
@@ -93,8 +93,8 @@ class ID3TagWriter:
             return b""
 
         # Encode as UTF-16BE (encoding byte 0x01)
-        encoded_description = description.encode("utf-16be")
-        encoded_value = value.encode("utf-16be")
+        encoded_description = description.encode("utf-16")
+        encoded_value = value.encode("utf-16")
 
         # UTF-16 null terminator (2 bytes) separates description from value
         null_terminator = b"\x00\x00"
