@@ -1,0 +1,176 @@
+"""Class for retrieving data from the database."""
+
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+
+from src.core.logger_config import logger
+from src.db.db_helpers.registry import MODEL_REGISTRY, BaseDBHelper
+from src.db.db_tables import AlbumRoleAssociation, Album
+
+
+class GetFromDB(BaseDBHelper):
+    """Class for retrieving data from the database"""
+
+    def query_entities(self, entity_class: str, multiple: bool = True, **filters):
+        """Generic entity query supporting simple and advanced filtering."""
+        logger.debug(
+            f"Querying {entity_class} (multiple={multiple}) with filters: {filters}"
+        )
+
+        try:
+            entity_class_obj = MODEL_REGISTRY[entity_class]
+        except KeyError:
+            logger.error(f"Entity class '{entity_class}' not found in globals()")
+            return [] if multiple else None
+
+        try:
+            stmt = select(entity_class_obj)
+
+            # Check for direct filter_expression
+            filter_expression = filters.pop("filter_expression", None)
+            if filter_expression is not None:
+                stmt = stmt.where(filter_expression)
+
+            # Process other filters
+            for key, value in filters.items():
+                if "__" in key:
+                    field, op = key.split("__", 1)
+                else:
+                    field, op = key, "eq"
+
+                # Validate that the field exists on the entity class
+                if not hasattr(entity_class_obj, field):
+                    logger.error(f"Field '{field}' not found on entity {entity_class}")
+                    continue
+
+                column = getattr(entity_class_obj, field)
+
+                match op:
+                    case "eq":
+                        stmt = stmt.where(column == value)
+                    case "not":
+                        stmt = stmt.where(
+                            ~column.in_(value)
+                            if isinstance(value, (list, tuple, set))
+                            else column != value
+                        )
+                    case "in":
+                        if not isinstance(value, (list, tuple, set)):
+                            logger.warning(
+                                f"Filter 'in' requires iterable, got {type(value)}"
+                            )
+                            continue
+                        stmt = stmt.where(column.in_(value))
+                    case "not_in":
+                        if not isinstance(value, (list, tuple, set)):
+                            logger.warning(
+                                f"Filter 'not_in' requires iterable, got {type(value)}"
+                            )
+                            continue
+                        stmt = stmt.where(~column.in_(value))
+                    case "contains":
+                        stmt = stmt.where(column.contains(value))
+                    case "startswith":
+                        stmt = stmt.where(column.startswith(value))
+                    case "endswith":
+                        stmt = stmt.where(column.endswith(value))
+                    case "gt":
+                        stmt = stmt.where(column > value)
+                    case "lt":
+                        stmt = stmt.where(column < value)
+                    case "gte":
+                        stmt = stmt.where(column >= value)
+                    case "isnull":
+                        stmt = stmt.where(
+                            column.is_(None) if value else column.is_not(None)
+                        )
+                    case "notnull":
+                        stmt = stmt.where(column.is_not(None))
+                    case "lte":
+                        stmt = stmt.where(column <= value)
+                    case "range":
+                        if isinstance(value, (list, tuple)) and len(value) == 2:
+                            stmt = stmt.where(column.between(value[0], value[1]))
+                        else:
+                            logger.warning(
+                                f"Filter 'range' requires tuple/list of length 2, got {value}"
+                            )
+                    case _:
+                        logger.error(f"Unsupported filter operation: {op}")
+                        continue
+
+            if multiple:
+                return self.session.scalars(stmt).all()
+            else:
+                return self.session.scalar(stmt)
+
+        except SQLAlchemyError as e:
+            logger.error(f"Database error querying {entity_class}: {e}")
+            return [] if multiple else None
+
+    def get_all_entities(self, model_name: str, **kwargs):
+        return self.query_entities(model_name, multiple=True, **kwargs)
+
+    def get_entity_object(self, model_name: str, **kwargs):
+        return self.query_entities(model_name, multiple=False, **kwargs)
+
+    def get_album_exists(self, album_name, release_year, artist_ids):
+        """
+        Check whether an album exists with the given title, release year,
+        and exact set of artist IDs (for Album Artist role only).
+        """
+        if not artist_ids:
+            logger.debug(
+                f"No artist IDs provided for album check: '{album_name}' ({release_year})"
+            )
+            return None
+
+        logger.debug(
+            f"Checking if album exists: '{album_name}' ({release_year}), Album Artists: {artist_ids}"
+        )
+        expected_artist_ids = sorted(artist_ids)
+
+        try:
+            # Find albums with matching name and year
+            base_albums_stmt = select(Album.album_id, Album.album_name).where(
+                Album.album_name == album_name,
+                Album.release_year == release_year,
+            )
+            candidate_albums = self.session.execute(base_albums_stmt).all()
+
+            if not candidate_albums:
+                logger.debug("No albums found with matching name and year")
+                return None
+
+            # For each candidate album, check if it has exactly the expected album artists
+            for album_id, album_name in candidate_albums:
+                # Get all album artists (role_id=1) for this album
+                artist_stmt = select(AlbumRoleAssociation.artist_id).where(
+                    AlbumRoleAssociation.album_id == album_id,
+                    AlbumRoleAssociation.role_id == 1,  # Album Artist role
+                )
+                album_artist_ids = sorted(
+                    [row[0] for row in self.session.execute(artist_stmt).all()]
+                )
+
+                logger.debug(
+                    f"Album '{album_name}' (ID: {album_id}) has album artists: {album_artist_ids}"
+                )
+
+                if album_artist_ids == expected_artist_ids:
+                    # Found exact match, return the album
+                    album = self.session.get(Album, album_id)
+                    logger.debug(
+                        f"Found matching album: {album.album_id} - {album.album_name}"
+                    )
+                    return album
+
+        except Exception as e:
+            logger.error(f"Error in album existence check: {e}")
+            return None
+
+        logger.debug("No matching album found.")
+        return None
+
+    def get_entity_links(self, link_type: str, **kwargs):
+        return self.query_entities(link_type, multiple=True, **kwargs)

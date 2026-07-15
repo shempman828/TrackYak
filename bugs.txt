@@ -1,6 +1,6 @@
 NEW IDEAS
-    add family relationships to artists
-    ability to reorder artists?
+    add family relationships to artists in database schema
+    ability to reorder artists in roles? For example, if Paul Simon and Art Garfunkel are album artists but it shows Garfunkel & Simon instead of the more conventional order
 
 
 album_edit_overview.py
@@ -13,7 +13,6 @@ album_edit_publisher&Places
 
 
 album_editing_relationship_helpers.py
-    changing a relationship does not update tab
 
 
 album_view.py
@@ -32,7 +31,7 @@ artist_edit.py
 
 
 artist_edit_alias.py
-    check for existing artist by alias first. Ask if you want to merge records into artist
+
 
 artist_edit_basic.py
 
@@ -54,12 +53,7 @@ artist_view.py
     ability to delete artists with no roles, influences, or any links whatsoever
 
 audio_analysis.py
-    spectral flatness:ratio of geometric mean / arithmetic mean of the FFT magnitude
-    Inter-channel Coherence / Correlation:Measures how similar the left and right channels are.
-    MS (Mid/Side) Energy Ratio
-    Loudness & Crest Factor (LUFS vs Peaks)
-    Spectral Flux
-    Check stereo width calculation
+
 
 award_view.py
 
@@ -71,7 +65,6 @@ base_merge_dialog
 
 
 base_track_view
-    add editing single and multiple context menu (track_edit pattern)
 
 config_setup.py
 
@@ -82,6 +75,9 @@ dates_calendar.py
 dates_view.py
 
 
+db_helpers.py
+
+
 db_tables.py
 
 
@@ -89,7 +85,6 @@ disc management
 
 
 disc_view.py
-    implement disc removal
 
 display_settings.py
 
@@ -103,53 +98,59 @@ genre_edit.py
 genre_view.py
 
 influences_graph.py
+    assign_louvain_communities() fails with "module 'community' has no attribute 'best_partition'" - the wrong "community" package is installed (a package literally called "community" on PyPI) instead of "python-louvain", which is what actually provides best_partition. Community detection is completely broken until the right package is installed.
 
 
 influences_view.py
 
 
 library_import.py
-    discs are not being loaded properly. Discs should be created automatically based on metadata disc number. It looks like separate discs are made into separate albums?
+
+
 
 lyrics_search.py
+
+main_window.py
 
 
 menu_bar.py
     implement project support links in "about"
     mousing over the hidden bar does not show it. We should probably remove this feature.
 
+metadata_text.py
+
+
 moods_view.py
-    adding a mood resets which tree items were expanded
+
 
 navigation_dock.py
 
 
 nowplaying_view.py
-    key chip sometimes shows weird key (G# Major?)
-    Text alignment for song title, artist, and album name feels off
-    add artist image as possible background on rotation
+
 
 places_view.py
 
 
 place_map_filter.py
-    make filter dropdown
 
 
 player_dock.py
-    create shortcut for increase and decrease rating by 0.5
+
 
 player_settings.py
 
 
-player_utility.py
+player_utility.py (player_util.py)
+
+playlist_smart_builder.py
 
 
 playlist_smart_criteria_widget.py
-    datetime needs exact timestamp, not just day. I can't just filter tracks added on 6/5/2011 it has to have a specific time too. Between does not work. Also add last x days option.
+
 
 playlist_view.py
-    Sort alphabetically within tree hierarchy
+
 
 publisher_detail.py
 
@@ -158,7 +159,6 @@ publisher_merge.py
 
 
 publisher_view.py
-    new class to find potential merge matches and queue merges (A la artists)
 
 
 queue_utility.py
@@ -174,11 +174,10 @@ status_widget.py
 
 
 sync_view.py
-    Add moods to sync selection
-    Better display playlist selection
+
 
 track_edit_album
-    allow editing albums when multiple tracks are selected
+
 
 track_edit_lyrics
 
@@ -188,7 +187,7 @@ track_edit_roles
 
 
 track_edit
-    multiple editing can capture variables that were not edited. Example: You are editing ten tracks. One track has a BPM of 120, the other nine are null. When saving the edits, it will try to apply 120bpm to all tracks even if I did not edit bpm.
+
 
 track_view.py
 

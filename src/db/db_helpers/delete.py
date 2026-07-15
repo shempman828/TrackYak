@@ -1,0 +1,131 @@
+"""Minimal class for deleting database entities and associated files."""
+
+import os
+
+from sqlalchemy.exc import SQLAlchemyError
+
+from src.core.logger_config import logger
+from src.db.db_helpers.registry import MODEL_REGISTRY, BaseDBHelper
+
+
+class DeleteDB(BaseDBHelper):
+    """Minimal class for deleting database entities and associated files."""
+
+    def delete_entity(
+        self, model_name: str, entity_id: int = None, entity_ids: list = None, **filters
+    ):
+        """
+        Delete one or many database entities.
+
+        Three ways to call this:
+
+            # Single item by primary key (original behaviour, unchanged)
+            delete_entity("Track", entity_id=42)
+
+            # Many items in one query -- new batch path
+            delete_entity("Track", entity_ids=[1, 2, 3, 99])
+
+            # Filter-based deletion (original behaviour, unchanged)
+            delete_entity("Track", track_name="Unknown")
+        """
+        entity_class = MODEL_REGISTRY.get(model_name)
+        if not entity_class:
+            logger.error(f"Entity type '{model_name}' not found")
+            return False
+
+        try:
+            # ------------------------------------------------------------------
+            # BATCH path -- new: delete many rows in a single WHERE id IN query
+            # ------------------------------------------------------------------
+            if entity_ids is not None:
+                if not entity_ids:
+                    logger.warning("delete_entity called with an empty entity_ids list")
+                    return True  # Nothing to do -- not an error
+
+                self.session.query(entity_class).filter(
+                    entity_class.track_id.in_(
+                        entity_ids
+                    )  # <-- change track_id to match your model's actual PK field name
+                ).delete(synchronize_session="fetch")
+                # "fetch" tells SQLAlchemy to load the objects first so that
+                # cascade rules (e.g. deleting related join rows) fire correctly.
+                self.session.commit()
+                logger.info(
+                    f"Batch-deleted {len(entity_ids)} {model_name} row(s) "
+                    f"(ids={entity_ids})"
+                )
+                return True
+
+            # ------------------------------------------------------------------
+            # SINGLE item path -- original behaviour, unchanged
+            # ------------------------------------------------------------------
+            elif entity_id is not None:
+                entity = self.session.get(entity_class, entity_id)
+                if not entity:
+                    logger.warning(f"{model_name} with ID {entity_id} not found")
+                    return False
+                self.session.delete(entity)
+                self.session.commit()
+                logger.info(f"Deleted {model_name} with ID {entity_id}")
+                return True
+
+            # ------------------------------------------------------------------
+            # FILTER path -- original behaviour, unchanged
+            # ------------------------------------------------------------------
+            elif filters:
+                query = self.session.query(entity_class)
+                for attr, value in filters.items():
+                    if hasattr(entity_class, attr):
+                        query = query.filter(getattr(entity_class, attr) == value)
+                    else:
+                        logger.warning(f"{model_name} has no attribute '{attr}'")
+                        return False
+                entities = query.all()
+                for entity in entities:
+                    self.session.delete(entity)
+                self.session.commit()
+                logger.info(
+                    f"Deleted {len(entities)} {model_name} entities matching {filters}"
+                )
+                return True
+
+            else:
+                logger.error(
+                    "Either entity_id, entity_ids, or filters must be provided"
+                )
+                return False
+
+        except SQLAlchemyError as e:
+            logger.error(f"Error deleting {model_name}: {e}")
+            self.session.rollback()
+            return False
+
+    def delete_file(
+        self,
+        file_path: str = None,
+        model_name: str = None,
+        entity_id: int = None,
+        **filters,
+    ):
+        """Delete a file from disk after deleting its database entry."""
+        db_deleted = True
+        if model_name:
+            db_deleted = self.delete_entity(model_name, entity_id=entity_id, **filters)
+
+        file_deleted = True
+        if file_path:
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    logger.info(f"Deleted file: {file_path}")
+                else:
+                    logger.warning(f"File not found: {file_path}")
+                    file_deleted = False
+            except PermissionError as e:
+                logger.error(f"Permission denied deleting file {file_path}: {e}")
+                file_deleted = False
+            except OSError as e:
+                logger.error(f"Error deleting file {file_path}: {e}")
+                file_deleted = False
+
+        return db_deleted and file_deleted
