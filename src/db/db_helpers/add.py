@@ -9,7 +9,21 @@ from src.db.db_helpers.registry import MODEL_REGISTRY, BaseDBHelper
 class AddToDB(BaseDBHelper):
     """Class for adding data to the database"""
 
-    def add_entity(self, model_name: str, **kwargs):
+    def add_entity(self, model_name: str, commit: bool = True, **kwargs):
+        """Create and persist a new entity.
+
+        Args:
+            model_name: The class name of the entity (e.g., 'Track').
+            commit: When True (the default, used by every non-import call
+                site), each call is its own transaction: added, committed
+                immediately, and rolled back on failure.
+                When False, the row is flushed (so its primary key and
+                server-side defaults are populated) but the transaction is
+                left open and exceptions propagate instead of being caught
+                here — for a caller (e.g. the library importer) that's
+                batching several related inserts into a single
+                all-or-nothing transaction it commits/rolls back itself.
+        """
         logger.debug(
             f"Adding new entity of type: {model_name} with attributes: {kwargs}"
         )
@@ -22,6 +36,11 @@ class AddToDB(BaseDBHelper):
 
         new_entity = entity_class(**kwargs)
         self.session.add(new_entity)
+
+        if not commit:
+            self.session.flush()
+            self.session.refresh(new_entity)
+            return new_entity
 
         try:
             self.session.commit()
