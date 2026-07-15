@@ -13,7 +13,6 @@ from src.core.asset_paths import config
 from src.core.logger_config import logger
 
 CONFIG_FILE = config("import_paths.json")
-SUPPORTED_FORMATS = {".mp3", ".flac", ".wav", ".aac", ".ogg", ".m4a"}
 
 
 class FileOrganizer(QThread):
