@@ -398,6 +398,10 @@ class NowPlayingView(QWidget):
 
     # ── cinema mode ──────────────────────────────────────────────────────
 
+    @property
+    def cinema_mode(self) -> bool:
+        return self._cinema_mode
+
     def _setup_cinema_shortcut(self):
         """Register Ctrl+Shift+F to toggle cinema (immersive) mode."""
         self._cinema_shortcut = QShortcut(QKeySequence("Ctrl+Shift+F"), self)
