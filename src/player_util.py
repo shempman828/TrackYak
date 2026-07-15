@@ -747,12 +747,6 @@ class MusicPlayer(QObject):
         self._save_volume_to_config()
         logger.info("MusicPlayer cleanup complete")
 
-    def __del__(self):
-        try:
-            self.cleanup()
-        except Exception:
-            pass
-
     # =========================================================================
     #  Internal — audio backend
     # =========================================================================
