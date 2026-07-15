@@ -22,7 +22,6 @@ CONFIG_DIR = BASE_DIR / "config"
 
 # --- Subdirectories ----------------------------------------------------------
 
-ALBUM_ART_DIR = IMAGES_DIR / "album_art"
 ARTIST_IMAGES_DIR = IMAGES_DIR / "artist_images"
 PUBLISHER_LOGOS_DIR = IMAGES_DIR / "publisher_logos"
 IMAGECACHE_DIR = IMAGES_DIR / "imagecache"
@@ -72,7 +71,6 @@ def ensure_directories_exist():
         IMAGES_DIR,
         LOGS_DIR,
         PLAYLISTS_DIR,
-        ALBUM_ART_DIR,
         ARTIST_IMAGES_DIR,
         PUBLISHER_LOGOS_DIR,
         IMAGECACHE_DIR,
