@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from src.base_track_playlist_dialog import PlaylistSelectionDialog
 from src.db_mapping_tracks import TRACK_FIELDS
 from src.logger_config import logger
+from src.track_edit import MultiTrackEditDialog, TrackEditDialog
 
 
 class BaseTrackView(QDialog):
@@ -186,9 +187,15 @@ class BaseTrackView(QDialog):
             lambda: self.add_selected_to_queue(insert_next=True)
         )
 
+        # Edit action - label/enabled state set per-selection in show_context_menu
+        self.edit_action = QAction("✏️ Edit Track", self)
+        self.edit_action.triggered.connect(self.edit_selected_tracks)
+
         # Add separator and menu items
         self.context_menu.addAction(self.add_to_queue_action)
         self.context_menu.addAction(self.add_to_queue_next_action)
+        self.context_menu.addSeparator()
+        self.context_menu.addAction(self.edit_action)
         self.context_menu.addSeparator()
         self.context_menu.addMenu(self.add_to_playlist_menu)
         self.context_menu.addMenu(self.add_to_mood_menu)
@@ -217,6 +224,12 @@ class BaseTrackView(QDialog):
         has_selection = len(selected_indexes) > 0
         self.add_to_queue_action.setEnabled(has_selection)
         self.add_to_queue_next_action.setEnabled(has_selection)
+
+        count = len(selected_tracks)
+        self.edit_action.setText(
+            f"✏️ Edit {count} Tracks" if count > 1 else "✏️ Edit Track"
+        )
+        self.edit_action.setEnabled(has_selection)
 
         # Clear previous menu items
         self.add_to_playlist_menu.clear()
@@ -292,6 +305,23 @@ class BaseTrackView(QDialog):
             queue_manager.add_tracks_to_queue(selected_tracks)
 
         logger.info(f"Added {len(selected_tracks)} track(s) to queue")
+
+    def edit_selected_tracks(self):
+        """Open the track edit dialog for the current selection (single or multi)."""
+        tracks = self.get_selected_tracks()
+        if not tracks:
+            return
+
+        try:
+            if len(tracks) == 1:
+                dialog = TrackEditDialog(tracks[0], self.controller, self)
+            else:
+                dialog = MultiTrackEditDialog(tracks, self.controller, self)
+            if dialog.exec_() == QDialog.Accepted:
+                self.load_data(self._all_tracks)
+        except Exception as e:
+            logger.error(f"Error opening track edit dialog: {e}")
+            QMessageBox.warning(self, "Error", f"Failed to open track editor: {str(e)}")
 
     def show_playlist_selection_dialog(self):
         """Show dialog to select a playlist to add tracks to."""
