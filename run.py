@@ -127,6 +127,10 @@ def initialize_application(splash, app, config: Config):
     show_status(splash, "Configuring display...")
     display_settings = DisplaySettings(app, config)
     display_settings.apply_all()
+    # Attach to the QApplication instance before the window is built so
+    # GUI._init_menu_bar() can resolve it (it reads app.display_settings
+    # to apply the saved menu-bar auto-hide preference on startup).
+    app.display_settings = display_settings
     show_status(splash, random.choice(_FUN_MESSAGES), delay=0.3)
 
     # Build GUI controller
@@ -182,9 +186,6 @@ def main() -> None:
         splash.update_status("Ready!")
 
         window.show()
-
-        # Store display_settings on the app instance for global access if needed
-        app.display_settings = display_settings
 
         # Start application loop
         sys.exit(app.exec())
