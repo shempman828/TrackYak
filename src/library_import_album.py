@@ -182,6 +182,41 @@ class AlbumImporter:
 
         return new_album
 
+    def _get_or_create_disc(self, album_id: int, metadata: Dict[str, Any]):
+        """Get existing disc or create a new one based on the track's disc number.
+
+        Returns None if the metadata has no disc number, in which case the
+        track is simply left unassigned to any disc (matches prior behavior
+        for single-disc releases with no DISCNUMBER/TPOS tag).
+        """
+        disc_number = metadata.get("disc_number")
+        if disc_number is None:
+            return None
+
+        try:
+            existing_disc = self.controller.get.get_entity_object(
+                "Disc", album_id=album_id, disc_number=disc_number
+            )
+            if existing_disc:
+                return existing_disc
+
+            disc_data = {
+                "album_id": album_id,
+                "disc_number": disc_number,
+                "disc_title": metadata.get("disc_title"),
+                "media_type": metadata.get("media_type"),
+            }
+            disc_data = {k: v for k, v in disc_data.items() if v is not None}
+
+            new_disc = self.controller.add.add_entity("Disc", **disc_data)
+            logger.debug(
+                f"Created new disc: album_id={album_id}, disc_number={disc_number}"
+            )
+            return new_disc
+        except Exception as e:
+            logger.error(f"Error getting or creating disc for album {album_id}: {e}")
+            return None
+
     def _get_album_artists(self, album_id: int) -> List[int]:
         """Get all artist IDs associated with an album."""
         try:
