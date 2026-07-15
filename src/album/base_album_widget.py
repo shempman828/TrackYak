@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
 from PySide6.QtWidgets import (
@@ -10,6 +8,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from src.core.censor import censor_text
+from src.image.image_blur import load_art_pixmap
 
 
 class AlbumWidget(QWidget):
@@ -66,7 +67,7 @@ class AlbumWidget(QWidget):
         self.art_label.setPixmap(scaled_pixmap)
 
         # 2. Set Text
-        album_name = str(getattr(self.album, "album_name", "Unknown Album"))
+        album_name = censor_text(str(getattr(self.album, "album_name", "Unknown Album")))
         release_year = getattr(self.album, "release_year", "")
         year_str = f" ({release_year})" if release_year else ""
 
@@ -82,10 +83,10 @@ class AlbumWidget(QWidget):
 
     def _load_art(self):
         path = getattr(self.album, "front_cover_path", None)
-        if path and Path(path).exists():
-            pixmap = QPixmap(str(path))
-            if not pixmap.isNull():
-                return pixmap
+        is_explicit = bool(getattr(self.album, "art_is_explicit", False))
+        pixmap = load_art_pixmap(path, is_explicit)
+        if not pixmap.isNull():
+            return pixmap
         return self._create_placeholder()
 
     def _create_placeholder(self):
