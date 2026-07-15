@@ -141,11 +141,21 @@ class RelationshipHelpers:
                     "Role", role_name=result["role_name"]
                 )
 
+            # New credits go to the end of their role group rather than
+            # defaulting to sort_order 0, which would jump them to the front.
+            siblings = [
+                ra for ra in self.album.album_roles if ra.role_id == role.role_id
+            ]
+            next_sort_order = (
+                max(ra.sort_order for ra in siblings) + 1 if siblings else 0
+            )
+
             self.controller.add.add_entity(
                 "AlbumRoleAssociation",
                 album_id=self.album.album_id,
                 artist_id=artist.artist_id,
                 role_id=role.role_id,
+                sort_order=next_sort_order,
             )
 
             self.show_updated_view()
@@ -167,6 +177,44 @@ class RelationshipHelpers:
             QMessageBox.critical(
                 None, "Error", f"Failed to remove artist credit: {str(e)}"
             )
+
+    def move_artist_credit(self, role_assoc, direction: int):
+        """Move an artist credit up (-1) or down (+1) within its role group.
+
+        Legacy rows all default to sort_order 0, so a plain swap between two
+        tied values would be a no-op. Siblings are renumbered to distinct,
+        sequential values (in their current effective order) before the swap,
+        which makes the very first move on a legacy album meaningful too.
+        """
+        siblings = sorted(
+            (ra for ra in self.album.album_roles if ra.role_id == role_assoc.role_id),
+            key=lambda ra: (ra.sort_order, ra.association_id),
+        )
+
+        for position, ra in enumerate(siblings):
+            if ra.sort_order != position:
+                ra.sort_order = position
+                self.controller.update.update_entity(
+                    "AlbumRoleAssociation", ra.association_id, sort_order=position
+                )
+
+        idx = siblings.index(role_assoc)
+        new_idx = idx + direction
+        if new_idx < 0 or new_idx >= len(siblings):
+            return  # Already at the edge of its role group
+
+        other = siblings[new_idx]
+        role_assoc.sort_order, other.sort_order = other.sort_order, role_assoc.sort_order
+        self.controller.update.update_entity(
+            "AlbumRoleAssociation",
+            role_assoc.association_id,
+            sort_order=role_assoc.sort_order,
+        )
+        self.controller.update.update_entity(
+            "AlbumRoleAssociation", other.association_id, sort_order=other.sort_order
+        )
+
+        self.show_updated_view()
 
     # =========================================================================
     # Place management
