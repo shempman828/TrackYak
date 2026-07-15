@@ -15,6 +15,10 @@ class ArtworkExtractor:
     # liner/booklet art.
     PICTURE_TYPE_ROLES = {3: "front", 4: "rear", 5: "liner"}
 
+    # Formats supported by extract_artwork_by_role / write_artwork_to_file's
+    # role-based (front/rear/liner) read+write path.
+    SUPPORTED_EXTENSIONS = {".flac", ".mp3"}
+
     def __init__(self):
         self.format_handlers = {
             ".mp3": self._extract_mp3_artwork,
@@ -102,13 +106,80 @@ class ArtworkExtractor:
 
         return None
 
+    def _extract_mp3_artwork_all(self, data):
+        """Extract every APIC/PIC frame from an MP3's ID3 tag, keyed by raw picture type."""
+        pictures = {}
+        try:
+            if len(data) < 10 or data[0:3] != b"ID3":
+                return pictures
+
+            version_major = data[3]
+            size = self._syncsafe_to_int(data[6:10])
+            pos = 10
+            end_pos = min(pos + size, len(data))
+
+            while pos < end_pos - 10:
+                if version_major == 2:  # ID3v2.2
+                    frame_id = data[pos : pos + 3].decode("ascii", errors="ignore")
+                    frame_size = struct.unpack(">I", b"\x00" + data[pos + 3 : pos + 6])[
+                        0
+                    ]
+                    frame_start = pos + 6
+                else:  # ID3v2.3/2.4
+                    frame_id = data[pos : pos + 4].decode("ascii", errors="ignore")
+                    frame_size = (
+                        self._syncsafe_to_int(data[pos + 4 : pos + 8])
+                        if version_major == 4
+                        else struct.unpack(">I", data[pos + 4 : pos + 8])[0]
+                    )
+                    frame_start = pos + 10
+
+                if frame_size == 0:
+                    break
+
+                if frame_id in ["APIC", "PIC"]:
+                    parsed_picture = self._parse_id3_apic_frame(
+                        data[frame_start : frame_start + frame_size], version_major
+                    )
+                    if parsed_picture:
+                        picture_type = parsed_picture["picture_type"]
+                        if picture_type in pictures:
+                            logger.warning(
+                                f"Duplicate ID3 picture type {picture_type} found; "
+                                "keeping first occurrence"
+                            )
+                        else:
+                            pictures[picture_type] = parsed_picture
+
+                pos = frame_start + frame_size
+
+        except Exception as e:
+            logger.warning(f"Error extracting MP3 artwork: {e}")
+
+        return pictures
+
+    def _flac_metadata_start(self, data):
+        """
+        Return the byte offset right after the "fLaC" marker, tolerating an
+        optional leading ID3v2 tag. Native FLAC doesn't use ID3, but some
+        tools prepend one anyway; lenient decoders (ffmpeg, foobar2000, etc.)
+        skip over it, so real playable files in the wild have this shape.
+        Returns None if no "fLaC" marker can be found either way.
+        """
+        if data[0:4] == b"fLaC":
+            return 4
+        if data[0:3] == b"ID3" and len(data) >= 10:
+            id3_end = 10 + self._syncsafe_to_int(data[6:10])
+            if data[id3_end : id3_end + 4] == b"fLaC":
+                return id3_end + 4
+        return None
+
     def _extract_flac_artwork(self, data):
         """Extract artwork from FLAC files (PICTURE block)."""
         try:
-            if data[0:4] != b"fLaC":
+            pos = self._flac_metadata_start(data)
+            if pos is None:
                 return None
-
-            pos = 4
             while pos < len(data) - 4:
                 # Read block header as big-endian
                 header = struct.unpack(">I", data[pos : pos + 4])[0]
@@ -118,11 +189,14 @@ class ArtworkExtractor:
                 block_type = (header >> 24) & 0x7F
                 block_size = header & 0xFFFFFF  # 24-bit size
 
-                # Safety check
-                if block_size == 0 or pos + block_size > len(data):
+                # Safety check: a zero-size block is legitimate (e.g. an
+                # empty SEEKTABLE placeholder some encoders write) and must
+                # not be treated as corruption - only an actual overrun means
+                # the file is malformed/truncated.
+                if pos + block_size > len(data):
                     break
 
-                if block_type == 6:  # PICTURE block
+                if block_type == 6 and block_size > 0:  # PICTURE block
                     picture_data = data[pos : pos + block_size]
                     parsed_picture = self._parse_flac_picture_block(picture_data)
                     if parsed_picture:
@@ -142,10 +216,9 @@ class ArtworkExtractor:
         """Extract every PICTURE block from a FLAC file, keyed by raw picture type."""
         pictures = {}
         try:
-            if data[0:4] != b"fLaC":
+            pos = self._flac_metadata_start(data)
+            if pos is None:
                 return pictures
-
-            pos = 4
             while pos < len(data) - 4:
                 header = struct.unpack(">I", data[pos : pos + 4])[0]
                 pos += 4
@@ -154,10 +227,13 @@ class ArtworkExtractor:
                 block_type = (header >> 24) & 0x7F
                 block_size = header & 0xFFFFFF  # 24-bit size
 
-                if block_size == 0 or pos + block_size > len(data):
+                # A zero-size block (e.g. an empty SEEKTABLE placeholder) is
+                # legitimate and must not abort the scan - only an actual
+                # overrun means the file is malformed/truncated.
+                if pos + block_size > len(data):
                     break
 
-                if block_type == 6:  # PICTURE block
+                if block_type == 6 and block_size > 0:  # PICTURE block
                     picture_data = data[pos : pos + block_size]
                     parsed_picture = self._parse_flac_picture_block(picture_data)
                     if parsed_picture:
@@ -184,11 +260,13 @@ class ArtworkExtractor:
         """
         Extract embedded artwork keyed by role ("front"/"rear"/"liner").
 
-        Only FLAC is supported today; other formats return an empty dict.
-        Returns a dict containing only the roles that were found - callers
-        should use .get(role) rather than assuming all three keys exist.
+        Only FLAC and MP3 are supported today; other formats return an
+        empty dict. Returns a dict containing only the roles that were
+        found - callers should use .get(role) rather than assuming all
+        three keys exist.
         """
-        if file_ext.lower() != ".flac":
+        ext = file_ext.lower()
+        if ext not in self.SUPPORTED_EXTENSIONS:
             return {}
 
         try:
@@ -198,8 +276,20 @@ class ArtworkExtractor:
             logger.warning(f"Error reading {file_path} for role-based artwork: {e}")
             return {}
 
-        all_pictures = self._extract_flac_artwork_all(data)
+        if ext == ".flac":
+            all_pictures = self._extract_flac_artwork_all(data)
+        else:
+            all_pictures = self._extract_mp3_artwork_all(data)
 
+        return self._pictures_to_roles(all_pictures, file_path)
+
+    def _pictures_to_roles(self, all_pictures, file_path):
+        """
+        Map a {picture_type: picture} dict (as produced by either the FLAC
+        or MP3 "extract all pictures" scan) to {role: picture}, applying
+        the shared MusicBrainz/ID3-APIC type convention and the
+        untyped-single-picture-is-front fallback rule.
+        """
         by_role = {}
         leftovers = {}
         for picture_type, picture in all_pictures.items():
@@ -220,8 +310,7 @@ class ArtworkExtractor:
 
         for leftover_type in leftovers:
             logger.debug(
-                f"Unmapped FLAC picture type {leftover_type} in {file_path} "
-                "left unassigned"
+                f"Unmapped picture type {leftover_type} in {file_path} left unassigned"
             )
 
         return by_role
@@ -254,7 +343,7 @@ class ArtworkExtractor:
         return None
 
     def _parse_id3_apic_frame(self, frame_data, version_major):
-        """Parse ID3v2 APIC frame."""
+        """Parse ID3v2 APIC (v2.3/2.4) or PIC (v2.2) frame."""
         try:
             if len(frame_data) < 2:
                 return None
@@ -262,15 +351,22 @@ class ArtworkExtractor:
             # Skip encoding byte
             current_pos = 1
 
-            # Skip MIME type (null-terminated string)
-            if version_major != 2:
+            if version_major == 2:
+                # v2.2 PIC: fixed 3-byte image format code (e.g. "JPG"), not
+                # a null-terminated MIME string.
+                if current_pos + 3 > len(frame_data):
+                    return None
+                current_pos += 3
+            else:
+                # v2.3/2.4 APIC: null-terminated MIME type string.
                 while current_pos < len(frame_data) and frame_data[current_pos] != 0:
                     current_pos += 1
                 current_pos += 1
 
-            # Skip picture type
+            # Picture type (1 byte)
             if current_pos >= len(frame_data):
                 return None
+            picture_type = frame_data[current_pos]
             current_pos += 1
 
             # Skip description (null-terminated string)
@@ -282,7 +378,10 @@ class ArtworkExtractor:
             if current_pos < len(frame_data):
                 image_data = frame_data[current_pos:]
                 format_type = self._determine_image_format(image_data, "")
-                return self._process_image_data(image_data, format_type)
+                processed_image = self._process_image_data(image_data, format_type)
+                if processed_image:
+                    processed_image["picture_type"] = picture_type
+                    return processed_image
 
         except Exception as e:
             logger.warning(f"Error parsing ID3 APIC frame: {e}")

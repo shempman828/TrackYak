@@ -21,7 +21,7 @@ class ID3TagWriter:
         # Frame header: ID (4 bytes) + size (4 bytes) + flags (2 bytes)
         frame_size = len(frame_data)
         frame_header = (
-            frame_id.encode("ascii") + struct.pack(">I", frame_size)[1:] + b"\x00\x00"
+            frame_id.encode("ascii") + struct.pack(">I", frame_size) + b"\x00\x00"
         )
 
         return frame_header + frame_data
@@ -37,7 +37,7 @@ class ID3TagWriter:
         )
 
         frame_size = len(frame_data)
-        frame_header = b"COMM" + struct.pack(">I", frame_size)[1:] + b"\x00\x00"
+        frame_header = b"COMM" + struct.pack(">I", frame_size) + b"\x00\x00"
 
         return frame_header + frame_data
 
@@ -68,7 +68,7 @@ class ID3TagWriter:
         )
 
         frame_size = len(frame_data)
-        frame_header = b"USLT" + struct.pack(">I", frame_size)[1:] + b"\x00\x00"
+        frame_header = b"USLT" + struct.pack(">I", frame_size) + b"\x00\x00"
 
         return frame_header + frame_data
 
@@ -106,15 +106,23 @@ class ID3TagWriter:
             + encoded_value
         )
 
-        # Frame header: "TXXX" (4 bytes) + size (3 bytes) + flags (2 bytes)
+        # Frame header: "TXXX" (4 bytes) + size (4 bytes) + flags (2 bytes)
         frame_size = len(frame_data)
-        frame_header = b"TXXX" + struct.pack(">I", frame_size)[1:] + b"\x00\x00"
+        frame_header = b"TXXX" + struct.pack(">I", frame_size) + b"\x00\x00"
 
         return frame_header + frame_data
 
     def sync_safe_int(self, value: int) -> bytes:
-        """Convert integer to sync-safe format (7 bits per byte)."""
-        return struct.pack(">I", value)[1:]  # Simple sync-safe for ID3v2.3/2.4
+        """Convert a 28-bit integer to a proper 4-byte sync-safe encoding
+        (7 significant bits per byte, matching the ID3v2 header size field)."""
+        return bytes(
+            [
+                (value >> 21) & 0x7F,
+                (value >> 14) & 0x7F,
+                (value >> 7) & 0x7F,
+                value & 0x7F,
+            ]
+        )
 
     def build_id3_tag(self, frames: List[bytes]) -> bytes:
         """Build complete ID3 tag from frames."""
@@ -124,7 +132,12 @@ class ID3TagWriter:
         tag_data = b"".join(frames)
         tag_size = len(tag_data)
 
-        # ID3 header: "ID3" + version + flags + size
-        header = b"ID3" + struct.pack(">BB", 3, 0) + self.sync_safe_int(tag_size)
+        # ID3 header: "ID3"(3) + major+revision(2) + flags(1) + size(4) = 10 bytes
+        header = (
+            b"ID3"
+            + struct.pack(">BB", 3, 0)
+            + b"\x00"
+            + self.sync_safe_int(tag_size)
+        )
 
         return header + tag_data
