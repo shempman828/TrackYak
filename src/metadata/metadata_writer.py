@@ -20,6 +20,7 @@ from src.metadata.metadata_mapping import (
     ID3_TRACK_MAPPINGS,
 )
 from src.metadata.metadata_writer_vorbis import VorbisCommentWriter
+from src.metadata.metadata_writer_flac_picture import FlacPictureWriter
 from src.core.logger_config import logger
 from src.core.status_utility import StatusManager
 
@@ -48,6 +49,7 @@ class MetadataWriter:
         self.controller = controller
         self.id3_writer = ID3TagWriter()
         self.vorbis_writer = VorbisCommentWriter()
+        self.flac_picture_writer = FlacPictureWriter()
         self.status_manager = StatusManager
 
     def detect_audio_format(self, file_path: str) -> AudioFormat:
@@ -940,6 +942,36 @@ class MetadataWriter:
                 os.remove(backup_path)
             return False
 
+    def _flac_audio_tail(
+        self, file_data: bytes, blocks: List[Tuple[int, int, int]]
+    ) -> bytes:
+        """Bytes after the last metadata block - the actual audio frames,
+        which must always be carried through untouched on any FLAC write."""
+        if not blocks:
+            return b""
+        last_type, last_pos, last_size = blocks[-1]
+        return file_data[last_pos + last_size :]
+
+    def _serialize_flac_blocks(
+        self, ordered_blocks: List[Tuple[int, bytes]], audio_tail: bytes
+    ) -> bytes:
+        """
+        Given an ordered list of (block_type, payload_bytes) - not including
+        the "fLaC" magic - serialize a complete FLAC metadata-block stream
+        followed by audio_tail (the untouched audio frame bytes). Recomputes
+        the is_last bit on the final metadata block only; every block's own
+        payload bytes are written through unchanged.
+        """
+        out = bytearray(b"fLaC")
+        for i, (block_type, payload) in enumerate(ordered_blocks):
+            is_last = 1 if i == len(ordered_blocks) - 1 else 0
+            block_header = struct.pack(">B", (is_last << 7) | (block_type & 0x7F))
+            block_header += struct.pack(">I", len(payload))[1:]  # 3-byte size
+            out += block_header
+            out += payload
+        out += audio_tail
+        return bytes(out)
+
     def _write_flac_metadata(self, file_path: str, new_comment_block: bytes) -> bool:
         """Replace Vorbis comment block in FLAC file."""
         try:
@@ -947,54 +979,155 @@ class MetadataWriter:
             if not blocks:
                 return False
 
-            # Find the Vorbis comment block (type 4)
-            comment_block_info = None
-            other_blocks = []
-            for block_type, pos, size in blocks:
-                if block_type == 4:  # VORBIS_COMMENT
-                    comment_block_info = (block_type, pos, size)
-                else:
-                    other_blocks.append((block_type, pos, size))
-
             # Read the entire file
             with open(file_path, "rb") as f:
                 file_data = f.read()
 
-            # Reconstruct file with new comment block
+            audio_tail = self._flac_audio_tail(file_data, blocks)
+
+            # Keep every block except the existing Vorbis comment (type 4),
+            # then append the new comment block last.
+            ordered_blocks = []
+            for block_type, pos, size in blocks:
+                if block_type == 4:  # VORBIS_COMMENT - replaced below
+                    continue
+                ordered_blocks.append((block_type, file_data[pos : pos + size]))
+
+            if new_comment_block:
+                ordered_blocks.append((4, new_comment_block))
+
+            new_data = self._serialize_flac_blocks(ordered_blocks, audio_tail)
+
             with open(file_path, "wb") as f:
-                # Write FLAC signature
-                f.write(b"fLaC")
-
-                # Write other blocks (except the last one flag)
-                for i, (block_type, pos, size) in enumerate(other_blocks):
-                    is_last = (
-                        1
-                        if (i == len(other_blocks) - 1 and not comment_block_info)
-                        else 0
-                    )
-                    block_header = struct.pack(">B", (is_last << 7) | block_type)
-                    block_header += struct.pack(">I", size)[1:]  # 3-byte size
-                    f.write(block_header)
-
-                    # Write block data
-                    block_data = file_data[pos : pos + size]
-                    f.write(block_data)
-
-                # Write new comment block
-                if new_comment_block:
-                    is_last = 1
-                    block_header = struct.pack(
-                        ">B", (is_last << 7) | 4
-                    )  # VORBIS_COMMENT
-                    block_header += struct.pack(">I", len(new_comment_block))[1:]
-                    f.write(block_header)
-                    f.write(new_comment_block)
+                f.write(new_data)
 
             return True
 
         except Exception as e:
             logger.debug(f"Error writing FLAC metadata: {e}")
             return False
+
+    def write_artwork_to_file(
+        self, file_path: str, role: str, image_bytes: Any
+    ) -> bool:
+        """
+        Add/replace (image_bytes given) or remove (image_bytes=None) the
+        PICTURE block for `role` ("front"/"rear"/"liner") in a FLAC file.
+        PICTURE blocks for other roles, and all non-PICTURE blocks, pass
+        through byte-for-byte unchanged.
+        """
+        if role not in FlacPictureWriter.ROLE_TO_TYPE:
+            raise ValueError(f"Unknown artwork role: {role}")
+
+        import shutil
+
+        backup_path = file_path + ".bak"
+        try:
+            shutil.copy2(file_path, backup_path)
+
+            blocks = self._find_flac_metadata_blocks(file_path)
+            if not blocks:
+                os.remove(backup_path)
+                return False
+
+            with open(file_path, "rb") as f:
+                file_data = f.read()
+
+            audio_tail = self._flac_audio_tail(file_data, blocks)
+
+            # Offsets are only valid against the original file, so slice out
+            # every block's payload up front.
+            raw_blocks = [
+                (block_type, file_data[pos : pos + size])
+                for block_type, pos, size in blocks
+            ]
+
+            target_idx = self._find_flac_picture_index_for_role(raw_blocks, role)
+
+            new_blocks = [
+                (block_type, payload)
+                for idx, (block_type, payload) in enumerate(raw_blocks)
+                if idx != target_idx
+            ]
+
+            if image_bytes is not None:
+                new_picture_payload = self.flac_picture_writer.build_picture_block(
+                    role, image_bytes
+                )
+                new_blocks.append((6, new_picture_payload))
+
+            new_data = self._serialize_flac_blocks(new_blocks, audio_tail)
+
+            with open(file_path, "wb") as f:
+                f.write(new_data)
+
+            if not self._verify_artwork_write(file_path, role, image_bytes):
+                shutil.copy2(backup_path, file_path)
+                os.remove(backup_path)
+                logger.error(
+                    f"Artwork write verification failed for {file_path} "
+                    f"(role={role}); restored backup"
+                )
+                return False
+
+            os.remove(backup_path)
+            return True
+
+        except Exception as e:
+            logger.debug(f"Error writing artwork to {file_path}: {e}")
+            if os.path.exists(backup_path):
+                shutil.copy2(backup_path, file_path)
+                os.remove(backup_path)
+            return False
+
+    def _find_flac_picture_index_for_role(
+        self, raw_blocks: List[Tuple[int, bytes]], role: str
+    ):
+        """
+        Find the index of the existing PICTURE block that currently
+        represents `role`, using the same typed + untyped-fallback-to-front
+        rule as ArtworkExtractor.extract_artwork_by_role, so the writer and
+        reader agree on which picture "is" the front/rear/liner cover.
+        """
+        typed_indices: Dict[str, int] = {}
+        untyped_indices = []
+
+        for idx, (block_type, payload) in enumerate(raw_blocks):
+            if block_type != 6 or len(payload) < 4:  # PICTURE block, has a type field
+                continue
+            picture_type = struct.unpack(">I", payload[:4])[0]
+            mapped_role = FlacPictureWriter.TYPE_TO_ROLE.get(picture_type)
+            if mapped_role:
+                typed_indices.setdefault(mapped_role, idx)
+            else:
+                untyped_indices.append(idx)
+
+        if role in typed_indices:
+            return typed_indices[role]
+
+        if role == "front" and "front" not in typed_indices and len(untyped_indices) == 1:
+            return untyped_indices[0]
+
+        return None
+
+    def _verify_artwork_write(self, file_path: str, role: str, image_bytes: Any) -> bool:
+        """Re-read the file and confirm the write did what it was meant to do."""
+        import hashlib
+
+        from src.metadata.metadata_artwork import ArtworkExtractor
+
+        result = ArtworkExtractor().extract_artwork_by_role(file_path, ".flac")
+
+        if image_bytes is None:
+            return role not in result
+
+        picture = result.get(role)
+        if not picture:
+            return False
+
+        return hashlib.sha256(picture["data"]).digest() == hashlib.sha256(
+            image_bytes
+        ).digest()
 
     def _write_ogg_metadata(self, file_path: str, new_comment_block: bytes) -> bool:
         """Replace Vorbis comment block in OGG file."""
