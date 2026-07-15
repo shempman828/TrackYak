@@ -15,6 +15,7 @@ from src.core.config_setup import Config
 from src.db.db_defaults import Defaults
 from src.db.db_tables import MusicDatabase
 from src.display.display_settings import DisplaySettings
+from src.image.artwork_cache import ArtworkCache
 from src.core.logger_config import logger
 from src.player.music_controller import MusicController
 from src.player.player_mpris2 import MPRIS2Player
@@ -132,6 +133,10 @@ def initialize_application(splash, app, config: Config):
     # to apply the saved menu-bar auto-hide preference on startup).
     app.display_settings = display_settings
     show_status(splash, random.choice(_FUN_MESSAGES), delay=0.3)
+
+    # Album art thumbnail cache - attach before the window is built so
+    # widgets can resolve it (get_artwork_cache()) while rendering album art.
+    app.artwork_cache = ArtworkCache()
 
     # Build GUI controller
     show_status(splash, "Building interface...")
