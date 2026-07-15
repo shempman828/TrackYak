@@ -19,6 +19,9 @@ class PlaceView(QWidget):
         super().__init__()
         self.controller = controller
         self.current_places = []
+        # MapView already loads itself once during construction (see init_ui),
+        # so nothing is dirty yet — avoids a redundant redraw on startup.
+        self._map_dirty = False
 
         self.init_ui()
         self.load_places()
@@ -55,6 +58,10 @@ class PlaceView(QWidget):
         self.stacked_widget.setCurrentIndex(0)
         self.map_button.setEnabled(False)
         self.list_button.setEnabled(True)
+        if self._map_dirty:
+            self.map_view.load_places()
+            self.map_view.refresh_place_types()
+            self._map_dirty = False
 
     def show_list_view(self):
         self.stacked_widget.setCurrentIndex(1)
@@ -62,12 +69,18 @@ class PlaceView(QWidget):
         self.map_button.setEnabled(True)
 
     def load_places(self):
-        """Refresh data for both views."""
+        """Refresh data. The list is always redrawn; the map is only
+        redrawn immediately if it's the visible view, otherwise it's
+        marked dirty and rebuilt the next time it's opened."""
         self.current_places = self.controller.get.get_all_entities("Place")
-        self.map_view.load_places()
-        self.map_view.refresh_place_types()
         self.list_view.load_places()
+        if self.stacked_widget.currentIndex() == 0:
+            self.map_view.load_places()
+            self.map_view.refresh_place_types()
+            self._map_dirty = False
+        else:
+            self._map_dirty = True
 
     def refresh_views(self):
-        """Alias for load_places — refreshes both map and list views."""
+        """Alias for load_places — refreshes list data; map lazily on next open."""
         self.load_places()
