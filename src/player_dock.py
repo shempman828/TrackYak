@@ -411,6 +411,12 @@ class PlayerUI(QWidget):
         self.vol_down_shortcut = _shortcut("Ctrl+Down", player.decrease_volume)
         self.seek_forward_shortcut = _shortcut("Shift+Right", player.seek_forward)
         self.seek_backward_shortcut = _shortcut("Shift+Left", player.seek_backward)
+        self.rating_up_shortcut = _shortcut(
+            "Ctrl+Shift+Up", lambda: self._adjust_rating(0.5)
+        )
+        self.rating_down_shortcut = _shortcut(
+            "Ctrl+Shift+Down", lambda: self._adjust_rating(-0.5)
+        )
 
         # ── System media keys (application-wide) ─────────────────────────────
         self.media_play_shortcut = _shortcut(
@@ -758,6 +764,15 @@ class PlayerUI(QWidget):
             self.hide_timer.stop()
             self.show_player()
 
+    def _adjust_rating(self, delta: float):
+        """Increase or decrease the current track's rating by `delta` (0.5 steps)."""
+        current_file = getattr(self.player, "current_file", None)
+        if not current_file:
+            return
+        new_rating = max(0.0, min(10.0, self.rating_stars.rating + delta))
+        self.rating_stars.set_rating(new_rating)
+        self.on_rating_changed(new_rating)
+
     def on_rating_changed(self, rating: float):
         """Handle user rating with debounce."""
         current_file = getattr(self.player, "current_file", None)
@@ -790,7 +805,7 @@ class PlayerUI(QWidget):
             logger.warning("No pending rating to commit")
             return
 
-        if not (self.pending_rating_update and self.pending_track_file):
+        if self.pending_rating_update is None or self.pending_track_file is None:
             logger.warning("Pending rating or track file is None")
             return
 
@@ -811,8 +826,12 @@ class PlayerUI(QWidget):
                 )
             else:
                 logger.warning("Track not found or has no track_id")
+                StatusManager.show_message(
+                    "Could not save rating: track not found in library.", 5000
+                )
         except Exception as e:
             logger.error(f"Error updating track rating: {e}")
+            StatusManager.show_message(f"Could not save rating: {e}", 5000)
         finally:
             self.pending_rating_update = None
             self.pending_track_file = None
