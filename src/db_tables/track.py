@@ -47,7 +47,7 @@ class Track(Base):
     duration = Column(Float)
     file_size = Column(Float)
     file_extension = Column(String)
-    disc_id = Column(Integer, ForeignKey("discs.disc_id", ondelete="CASCADE"))
+    disc_id = Column(Integer, ForeignKey("discs.disc_id", ondelete="SET NULL"))
     album_id = Column(Integer, ForeignKey("albums.album_id", ondelete="SET NULL"))
 
     # Expanded Names
