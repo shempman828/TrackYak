@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- General Settings Icon – unified color (#99ea85), matches File menu family -->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 64 64"
+     width="800"
+     height="800"
+     fill="none"
+     stroke="#99ea85"
+     stroke-width="3"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+
+  <!-- Gear -->
+  <circle cx="32" cy="32" r="8"/>
+  <path d="M32 10v6 M32 48v6 M54 32h-6 M16 32h-6
+           M46.5 17.5l-4.2 4.2 M21.7 42.3l-4.2 4.2
+           M46.5 46.5l-4.2-4.2 M21.7 21.7l-4.2-4.2"/>
+</svg>

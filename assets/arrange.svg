@@ -1,0 +1,9 @@
+<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="#EAD685" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Bars of varying length representing an organized list -->
+  <line x1="15" y1="25" x2="65" y2="25"/>
+  <line x1="15" y1="50" x2="50" y2="50"/>
+  <line x1="15" y1="75" x2="35" y2="75"/>
+
+  <!-- Sort arrow -->
+  <path d="M85 20 L85 80 M75 30 L85 20 L95 30 M75 70 L85 80 L95 70"/>
+</svg>
