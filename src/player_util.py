@@ -29,7 +29,6 @@ POSITION_INTERVAL_MS = 50  # UI position update interval (20 fps).
 PLAY_COUNT_THRESHOLD = 0.90
 RESTART_THRESHOLD_MS = 10_000
 BUFFER_QUEUE_SIZE = 20
-PREFILL_BLOCKS = 8  # blocks to decode ahead of the callback
 
 SUPPORTED_FORMATS = {".wav", ".flac", ".mp3", ".aiff", ".aif", ".ogg"}
 
@@ -202,7 +201,7 @@ class MusicPlayer(QObject):
             with self._buffer_lock:
                 buf_len = len(self._audio_buffer)
 
-            if buf_len >= PREFILL_BLOCKS:
+            if buf_len >= READ_AHEAD_BLOCKS:
                 self._reader_stop.wait(timeout=0.02)
                 continue
 
@@ -220,8 +219,24 @@ class MusicPlayer(QObject):
                     chunk = reader.read(to_read, dtype="float32", always_2d=True)
                     self._current_frame += len(chunk)
                 except Exception as exc:
-                    logger.error(f"Reader thread read error: {exc}")
-                    break
+                    logger.error(
+                        f"Reader thread decode error, attempting to resync: {exc}"
+                    )
+                    try:
+                        skip_to = min(self._current_frame + BLOCKSIZE, self._total_frames)
+                        reader.seek(skip_to)
+                        self._current_frame = skip_to
+                    except Exception as seek_exc:
+                        logger.error(
+                            f"Reader thread could not resync after decode error, "
+                            f"ending track: {seek_exc}"
+                        )
+                        # Can't recover — mark the file exhausted so the callback
+                        # signals track-finished once the buffer drains, instead
+                        # of hanging silently forever.
+                        self._current_frame = self._total_frames
+                        break
+                    continue
 
             with self._buffer_lock:
                 self._audio_buffer.append(chunk)
@@ -289,17 +304,35 @@ class MusicPlayer(QObject):
             def _stamped_callback(outdata, frames, time, status, _gen=my_generation):
                 self._audio_callback(outdata, frames, time, status, _gen)
 
-            self.audio_stream = self.sd.OutputStream(
-                samplerate=self.current_sample_rate,
-                channels=self.current_channels,
-                dtype="float32",
-                device=device_config["device"],
-                latency=device_config.get("latency", "high"),
-                blocksize=BLOCKSIZE,
-                callback=_stamped_callback,
-            )
+            def _open_stream(device):
+                stream = self.sd.OutputStream(
+                    samplerate=self.current_sample_rate,
+                    channels=self.current_channels,
+                    dtype="float32",
+                    device=device,
+                    latency=device_config.get("latency", "high"),
+                    blocksize=BLOCKSIZE,
+                    callback=_stamped_callback,
+                )
+                stream.start()
+                return stream
+
+            try:
+                self.audio_stream = _open_stream(device_config["device"])
+            except Exception as exc:
+                if device_config["device"] is not None:
+                    # The configured/previous device likely disconnected mid-session
+                    # (e.g. PortAudio "Device unavailable"). Fall back to whatever the
+                    # system now considers the default output device.
+                    logger.warning(
+                        f"Output device unavailable ({exc}); falling back to default device"
+                    )
+                    self.current_device = None
+                    fallback_config = self._get_device_config()
+                    self.audio_stream = _open_stream(fallback_config["device"])
+                else:
+                    raise
             self._start_reader_thread()
-            self.audio_stream.start()
 
             self.playing = True
             self.paused = False
@@ -776,7 +809,11 @@ class MusicPlayer(QObject):
 
     def _get_device_config(self) -> dict:
         try:
-            if self.current_device is None:
+            # An empty string ("Default Output Device" in the settings UI) or None
+            # both mean "use the system default" — PortAudio treats an empty-string
+            # device name as a substring match against every device, which raises
+            # "Multiple output devices found for ''" when there's more than one.
+            if self.current_device is None or self.current_device == "":
                 info = self.sd.default.device
                 if info is not None:
                     self.current_device = info[1]
