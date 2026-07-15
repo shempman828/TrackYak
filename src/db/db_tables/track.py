@@ -136,7 +136,6 @@ class Track(Base):
 
     album = relationship("Album", back_populates="tracks")
     album_name = association_proxy("album", "album_name")
-    album_art = association_proxy("album", "front_cover_path")
     release_year = association_proxy("album", "release_year")
     release_month = association_proxy("album", "release_month")
     release_day = association_proxy("album", "release_day")
