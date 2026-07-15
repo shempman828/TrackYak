@@ -455,3 +455,99 @@ VORBIS_SPECIAL_MAPPINGS = {
         "priority": "high",
     },
 }
+
+# MP4/M4A atom names ("©nam", "trkn", etc.) as found under moov/udta/meta/ilst.
+MP4_TRACK_MAPPINGS = {
+    "\xa9nam": {"field": "track_name", "type": str, "entity": "Track"},
+    "\xa9cmt": {"field": "comment", "type": str, "entity": "Track"},
+    "\xa9lyr": {"field": "lyrics", "type": str, "entity": "Track"},
+    "\xa9wrk": {"field": "work_name", "type": str, "entity": "Track"},
+    "trkn": {"field": "track_number", "type": int, "entity": "Track"},
+    "tmpo": {"field": "bpm", "type": float, "entity": "Track"},
+    "cprt": {"field": "track_copyright", "type": str, "entity": "Track"},
+}
+MP4_ALBUM_MAPPINGS = {
+    "\xa9alb": {"field": "album_name", "type": str, "entity": "Album"},
+}
+MP4_DISC_MAPPINGS = {
+    "disk": {"field": "disc_number", "type": int, "entity": "Disc"},
+}
+MP4_PUBLISHER_MAPPINGS: dict = {}
+MP4_GENRE_MAPPINGS = {
+    "\xa9gen": {"field": "genre_name", "type": str, "entity": "Genre"},
+    "gnre": {"field": "genre_name", "type": str, "entity": "Genre"},
+}
+MP4_MOOD_MAPPINGS: dict = {}
+MP4_ARTIST_MAPPINGS = {
+    "\xa9ART": {
+        "field": "artist_name",
+        "type": str,
+        "entity": "Artist",
+        "role_name": "Primary Artist",
+    },
+    "aART": {
+        "field": "artist_name",
+        "type": str,
+        "entity": "Artist",
+        "role_name": "Album Artist",
+    },
+    "\xa9wrt": {
+        "field": "artist_name",
+        "type": str,
+        "entity": "Artist",
+        "role_name": "Composer",
+    },
+    "cond": {
+        "field": "artist_name",
+        "type": str,
+        "entity": "Artist",
+        "role_name": "Conductor",
+    },
+}
+MP4_SPECIAL_MAPPINGS: dict = {}
+MP4_DATE_MAPPINGS = {
+    "\xa9day": {
+        "target": "album",
+        "fields": ["release_year", "release_month", "release_day"],
+        "type": "date",
+        "format": "auto",
+        "entity": "Album",
+    },
+}
+
+# WAV RIFF LIST/INFO chunk IDs (INAM, IART, etc).
+WAV_TRACK_MAPPINGS = {
+    "INAM": {"field": "track_name", "type": str, "entity": "Track"},
+    "ICMT": {"field": "comment", "type": str, "entity": "Track"},
+    "IPRT": {"field": "track_number", "type": int, "entity": "Track"},
+    "ITRK": {"field": "track_number", "type": int, "entity": "Track"},
+}
+WAV_ALBUM_MAPPINGS = {
+    "IPRD": {"field": "album_name", "type": str, "entity": "Album"},
+}
+WAV_DISC_MAPPINGS: dict = {}
+WAV_PUBLISHER_MAPPINGS = {
+    "ICMS": {"field": "publisher_name", "type": str, "entity": "Publisher"},
+}
+WAV_GENRE_MAPPINGS = {
+    "IGNR": {"field": "genre_name", "type": str, "entity": "Genre"},
+}
+WAV_MOOD_MAPPINGS: dict = {}
+WAV_ARTIST_MAPPINGS = {
+    "IART": {
+        "field": "artist_name",
+        "type": str,
+        "entity": "Artist",
+        "role_name": "Primary Artist",
+    },
+}
+WAV_SPECIAL_MAPPINGS: dict = {}
+WAV_DATE_MAPPINGS = {
+    "ICRD": {
+        "target": "album",
+        "fields": ["release_year", "release_month", "release_day"],
+        "type": "date",
+        "format": "auto",
+        "entity": "Album",
+    },
+}
