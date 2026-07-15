@@ -45,6 +45,10 @@ class DisplaySettings(QObject):
             self.menu_bar_auto_hide: bool = config.config.getboolean(
                 "display", "menu_bar_auto_hide", fallback=False
             )
+
+            # Explicit-content display options
+            self.blur_explicit_art: bool = config.get_blur_explicit_art()
+            self.censor_explicit_words: bool = config.get_censor_explicit_words()
         else:
             # Default settings
             self.theme_dir = Path("themes")
@@ -53,6 +57,8 @@ class DisplaySettings(QObject):
             self.font_family: str = "Inter"
             self.font_size: int = 10
             self.menu_bar_auto_hide: bool = False
+            self.blur_explicit_art: bool = False
+            self.censor_explicit_words: bool = False
 
         # ----- preview state -----
         # Snapshot of committed values, populated when a preview is started.
@@ -238,6 +244,38 @@ class DisplaySettings(QObject):
         return self.menu_bar_auto_hide
 
     # ---------------------------------------------------------
+    # Explicit-content display options
+    # ---------------------------------------------------------
+
+    def set_blur_explicit_art(self, enabled: bool):
+        """Enable or disable blurring of album art marked explicit."""
+        self.blur_explicit_art = enabled
+
+        if self.config:
+            self.config.set_blur_explicit_art(enabled)
+            self.config.save()
+
+        self.display_changed.emit()
+
+    def get_blur_explicit_art(self) -> bool:
+        """Return whether explicit album art should be shown blurred."""
+        return self.blur_explicit_art
+
+    def set_censor_explicit_words(self, enabled: bool):
+        """Enable or disable censoring of explicit words throughout the app."""
+        self.censor_explicit_words = enabled
+
+        if self.config:
+            self.config.set_censor_explicit_words(enabled)
+            self.config.save()
+
+        self.display_changed.emit()
+
+    def get_censor_explicit_words(self) -> bool:
+        """Return whether explicit words should be censored throughout the app."""
+        return self.censor_explicit_words
+
+    # ---------------------------------------------------------
     # Bulk apply (useful on startup)
     # ---------------------------------------------------------
 
@@ -270,6 +308,8 @@ class DisplaySettings(QObject):
             "font_size": self.font_size,
             "scaled_font_size": max(1, int(self.font_size * self.ui_scale)),
             "menu_bar_auto_hide": self.menu_bar_auto_hide,
+            "blur_explicit_art": self.blur_explicit_art,
+            "censor_explicit_words": self.censor_explicit_words,
         }
 
     def get_available_themes(self) -> list[str]:
