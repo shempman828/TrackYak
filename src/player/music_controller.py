@@ -15,12 +15,19 @@ class MusicController:
     """Mediates between modules and database"""
 
     def __init__(self):
-        self.engine = create_engine("sqlite:///music_library.db", echo=False)
+        self.engine = create_engine(
+            "sqlite:///music_library.db",
+            echo=False,
+            connect_args={"check_same_thread": False},
+        )
         Base.metadata.create_all(self.engine)
 
         self.SessionFactory = scoped_session(sessionmaker(bind=self.engine))
 
-        # Direct instances — no proxy needed, all calls are on the main thread
+        # Direct instances — no proxy needed. Most calls are on the main thread;
+        # self.statistics is also called from a background QThread (scoped_session
+        # gives that thread its own Session, and check_same_thread=False above lets
+        # pooled connections move between threads safely).
         self.get = GetFromDB(self.SessionFactory)
         self.add = AddToDB(self.SessionFactory)
         self.update = UpdateDB(self.SessionFactory)
