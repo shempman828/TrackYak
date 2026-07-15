@@ -54,7 +54,7 @@ class DetailsTab:
 
         right = QVBoxLayout()
         right.setSpacing(10)
-        for field_name in ("is_live", "is_compilation"):
+        for field_name in ("is_live", "is_compilation", "art_is_explicit"):
             w = self.editor.field_widgets.get(field_name)
             if w:
                 right.addWidget(w)
