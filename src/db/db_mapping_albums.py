@@ -128,6 +128,14 @@ ALBUM_FIELDS = {
         friendly="Compilation",
         tooltip="The album compiles music by different artists.",
     ),
+    "art_is_explicit": AlbumField(
+        type=bool,
+        friendly="Explicit Art",
+        short="Explicit Art",
+        tooltip="Indicates the cover/liner art contains explicit imagery. "
+        "When the 'Blur explicit album art' display option is enabled, "
+        "this album's art is shown blurred until revealed.",
+    ),
     "estimated_sales": AlbumField(
         type=int,
         friendly="Estimated Sales",
