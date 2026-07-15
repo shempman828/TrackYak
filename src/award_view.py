@@ -137,15 +137,6 @@ class AwardView(QWidget):
         """Truncate an award name to fit a tab label."""
         return f"{award_name[:15]}..." if len(award_name) > 15 else award_name
 
-    def _get_all_child_ids(self, parent_id: int) -> List[int]:
-        """Recursively collect all descendant award IDs for a given parent."""
-        child_ids = []
-        for award in self.all_awards:
-            if award.parent_id == parent_id:
-                child_ids.append(award.award_id)
-                child_ids.extend(self._get_all_child_ids(award.award_id))
-        return child_ids
-
     def _is_descendant(self, award_id: int, potential_ancestor_id: int) -> bool:
         """Return True if potential_ancestor_id is an ancestor of award_id."""
         for award in self.all_awards:
@@ -507,14 +498,10 @@ class AwardView(QWidget):
         if not awards_to_delete:
             return
 
-        # Build the full set of IDs to delete (selected + all their descendants)
-        all_ids_to_delete: List[int] = []
-        for award in awards_to_delete:
-            if award.award_id not in all_ids_to_delete:
-                all_ids_to_delete.append(award.award_id)
-            for child_id in self._get_all_child_ids(award.award_id):
-                if child_id not in all_ids_to_delete:
-                    all_ids_to_delete.append(child_id)
+        # Only the explicitly selected awards are deleted. Any child awards are
+        # not deleted -- the DB sets their parent_id to NULL, so they become
+        # top-level awards instead of being wiped out along with the parent.
+        all_ids_to_delete: List[int] = list(selected_ids)
 
         # Build confirmation message
         has_children = any(
@@ -527,8 +514,9 @@ class AwardView(QWidget):
             award_name = awards_to_delete[0].award_name
             if has_children:
                 message = (
-                    f"'{award_name}' has child awards. Deleting it will also "
-                    f"delete all its children.\n\nAre you sure you want to continue?"
+                    f"'{award_name}' has child awards. Deleting it will make those "
+                    f"child awards top-level awards; they will not be deleted."
+                    f"\n\nAre you sure you want to continue?"
                 )
                 title = "Delete Award with Children"
             else:
@@ -538,7 +526,10 @@ class AwardView(QWidget):
             names = ", ".join(f"'{a.award_name}'" for a in awards_to_delete)
             message = f"Are you sure you want to delete {len(awards_to_delete)} awards: {names}?"
             if has_children:
-                message += "\n\nThis will also delete their child awards."
+                message += (
+                    "\n\nSome of these have child awards, which will become "
+                    "top-level awards rather than being deleted."
+                )
             title = "Delete Multiple Awards"
 
         reply = QMessageBox.question(
