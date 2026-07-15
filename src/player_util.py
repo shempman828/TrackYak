@@ -530,6 +530,7 @@ class MusicPlayer(QObject):
         Returns True on success, False on failure.
         """
         logger.debug(f"load_track ENTER {time.time()}")
+        original_path = file_path  # matches track_file_path as stored in the DB
         resolved = self._resolve_path(file_path)
         if resolved is None:
             logger.error(f"File not found (exists=False): {file_path!r}")
@@ -563,7 +564,7 @@ class MusicPlayer(QObject):
             new_frames = 0
             # Check if we pre-loaded this exact file
             with self._preload_lock:
-                if self._next_file == file_path and self._next_sf_reader is not None:
+                if self._next_file == original_path and self._next_sf_reader is not None:
                     # Swap in the pre-loaded reader — zero disk latency
                     new_reader = self._next_sf_reader
                     new_sr = self._next_sample_rate
@@ -599,7 +600,7 @@ class MusicPlayer(QObject):
                     pass
 
             logger.debug(f"file opened at {time.time()}")
-            self.current_file = file_path
+            self.current_file = original_path
             self.current_format = file_path.suffix.lower()
             self.current_bit_depth = 32
             self._duration = int(new_frames / new_sr * 1000)
@@ -611,7 +612,7 @@ class MusicPlayer(QObject):
             self.equalizer.set_sample_rate(new_sr)
             self._gain_factor = self._calculate_gain_factor()
 
-            self.track_changed.emit(file_path)
+            self.track_changed.emit(original_path)
             logger.debug(f"track_changed emitted at {time.time()}")
             self.duration_changed.emit(self._duration)
 
