@@ -25,6 +25,31 @@ from src.track_edit_basetab import _BaseTab
 # ---------------------------------------------------------------------------
 
 
+class _NoScrollSpinBox(QSpinBox):
+    """QSpinBox that ignores wheel events unless it already has focus.
+
+    Qt delivers wheel events to whatever widget is under the cursor,
+    regardless of focus, so merely scrolling the form past a spin box
+    silently bumps its value and fires valueChanged.
+    """
+
+    def wheelEvent(self, event):
+        if not self.hasFocus():
+            event.ignore()
+        else:
+            super().wheelEvent(event)
+
+
+class _NoScrollDoubleSpinBox(QDoubleSpinBox):
+    """QDoubleSpinBox variant of _NoScrollSpinBox — see its docstring."""
+
+    def wheelEvent(self, event):
+        if not self.hasFocus():
+            event.ignore()
+        else:
+            super().wheelEvent(event)
+
+
 def _make_widget_for_field(field_name: str, field_config, on_change_cb):
     """
     Create and return the right editable widget for a TrackField.
@@ -34,14 +59,14 @@ def _make_widget_for_field(field_name: str, field_config, on_change_cb):
         w = QCheckBox()
         w.toggled.connect(lambda _checked, fn=field_name: on_change_cb(fn))
     elif field_config.type == int:  # noqa: E721
-        w = QSpinBox()
+        w = _NoScrollSpinBox()
         w.setRange(
             int(field_config.min) if field_config.min is not None else -2_147_483_648,
             int(field_config.max) if field_config.max is not None else 2_147_483_647,
         )
         w.valueChanged.connect(lambda _v, fn=field_name: on_change_cb(fn))
     elif field_config.type == float:  # noqa: E721
-        w = QDoubleSpinBox()
+        w = _NoScrollDoubleSpinBox()
         w.setDecimals(4)
         w.setRange(
             field_config.min if field_config.min is not None else -1e9,
