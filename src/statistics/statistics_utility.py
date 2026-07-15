@@ -32,23 +32,27 @@ class MusicStatistics:
             stats = {}
 
             # Basic library counts
-            stats.update(self._get_basic_counts(session))
+            basic_counts = self._get_basic_counts(session)
+            stats.update(basic_counts)
+            total_tracks = basic_counts["total_tracks"]
+            total_artists = basic_counts["total_artists"]
+            total_albums = basic_counts["total_albums"]
 
             # Play statistics
             stats.update(self._get_play_statistics(session))
 
             # Rating statistics
-            stats.update(self._get_rating_statistics(session))
+            stats.update(self._get_rating_statistics(session, total_tracks))
 
             # Audio quality metrics
             audio_stats = self._get_audio_quality_stats(session)
             stats["audio_quality_stats"] = audio_stats
 
-            # File format distribution
-            stats["file_format_distribution"] = self.get_file_format_distribution()
+            # File format distribution — reuse this session instead of opening a new one
+            stats["file_format_distribution"] = self.get_file_format_distribution(session)
 
             # Temporal statistics
-            temporal_stats = self._get_temporal_statistics(session)
+            temporal_stats = self._get_temporal_statistics(session, total_tracks)
             stats["temporal_statistics"] = temporal_stats
 
             # Leaderboards — returns plain dicts (no ORM objects) to avoid
@@ -57,7 +61,9 @@ class MusicStatistics:
             stats["leaderboards"] = leaderboards_data
 
             # Metadata completeness — 4 axes using is_fixed / is_complete flags
-            completeness_stats = self._get_metadata_completeness(session)
+            completeness_stats = self._get_metadata_completeness(
+                session, total_tracks, total_artists, total_albums
+            )
             stats["metadata_completeness"] = completeness_stats
             overall_completeness = (
                 sum(completeness_stats.values()) / len(completeness_stats)
@@ -66,8 +72,8 @@ class MusicStatistics:
             )
             stats["overall_metadata_completeness"] = round(overall_completeness, 1)
 
-            # Ratings distribution
-            ratings_dist = self.get_ratings_distribution()
+            # Ratings distribution — reuse this session instead of opening a new one
+            ratings_dist = self.get_ratings_distribution(session)
             stats["ratings_distribution"] = ratings_dist
 
             return stats
@@ -143,7 +149,7 @@ class MusicStatistics:
             Track.user_rating <= RATING_MAX,
         )
 
-    def _get_rating_statistics(self, session):
+    def _get_rating_statistics(self, session, total_tracks=None):
         """Get rating-related statistics, excluding out-of-range values."""
         rating_stats = (
             session.query(
@@ -161,7 +167,8 @@ class MusicStatistics:
             .one()
         )
 
-        total_tracks = session.query(func.count(Track.track_id)).scalar()
+        if total_tracks is None:
+            total_tracks = session.query(func.count(Track.track_id)).scalar()
         rating_completeness = (
             (rating_stats.rated_tracks / total_tracks * 100) if total_tracks > 0 else 0
         )
@@ -177,7 +184,9 @@ class MusicStatistics:
     #  Metadata completeness — 4 axes                                     #
     # ------------------------------------------------------------------ #
 
-    def _get_metadata_completeness(self, session):
+    def _get_metadata_completeness(
+        self, session, total_tracks=None, total_artists=None, total_albums=None
+    ):
         """Calculate metadata completeness using is_fixed flags.
 
         Four axes:
@@ -186,9 +195,12 @@ class MusicStatistics:
           - albums:  albums  with is_fixed == 1
           - total:   average of the three percentages above
         """
-        total_tracks = session.query(func.count(Track.track_id)).scalar() or 0
-        total_artists = session.query(func.count(Artist.artist_id)).scalar() or 0
-        total_albums = session.query(func.count(Album.album_id)).scalar() or 0
+        if total_tracks is None:
+            total_tracks = session.query(func.count(Track.track_id)).scalar() or 0
+        if total_artists is None:
+            total_artists = session.query(func.count(Artist.artist_id)).scalar() or 0
+        if total_albums is None:
+            total_albums = session.query(func.count(Album.album_id)).scalar() or 0
 
         if total_tracks == 0 and total_artists == 0 and total_albums == 0:
             return {
@@ -294,9 +306,15 @@ class MusicStatistics:
     #  File formats                                                        #
     # ------------------------------------------------------------------ #
 
-    def get_file_format_distribution(self):
-        """Get distribution of file formats"""
-        session = self.session_factory()
+    def get_file_format_distribution(self, session=None):
+        """Get distribution of file formats.
+
+        Accepts an optional existing session so callers already holding one
+        (e.g. get_comprehensive_statistics) don't open a second connection.
+        """
+        owns_session = session is None
+        if owns_session:
+            session = self.session_factory()
         try:
             format_counts = (
                 session.query(
@@ -310,13 +328,14 @@ class MusicStatistics:
             )
             return {fmt: count for fmt, count in format_counts}
         finally:
-            session.close()
+            if owns_session:
+                session.close()
 
     # ------------------------------------------------------------------ #
     #  Temporal statistics                                                 #
     # ------------------------------------------------------------------ #
 
-    def _get_temporal_statistics(self, session):
+    def _get_temporal_statistics(self, session, total_tracks=None):
         """Get time-based statistics"""
         try:
             tracks_with_years = (
@@ -369,7 +388,8 @@ class MusicStatistics:
                 .count()
             )
 
-            total_tracks = session.query(func.count(Track.track_id)).scalar()
+            if total_tracks is None:
+                total_tracks = session.query(func.count(Track.track_id)).scalar()
             avg_tracks_per_year = (
                 total_tracks / years_with_tracks if years_with_tracks > 0 else 0
             )
@@ -576,9 +596,15 @@ class MusicStatistics:
     #  Ratings distribution                                               #
     # ------------------------------------------------------------------ #
 
-    def get_ratings_distribution(self):
-        """Get distribution of tracks across rating values, filtered to valid range."""
-        session = self.session_factory()
+    def get_ratings_distribution(self, session=None):
+        """Get distribution of tracks across rating values, filtered to valid range.
+
+        Accepts an optional existing session so callers already holding one
+        (e.g. get_comprehensive_statistics) don't open a second connection.
+        """
+        owns_session = session is None
+        if owns_session:
+            session = self.session_factory()
         try:
             ratings_distribution = (
                 session.query(
@@ -630,7 +656,8 @@ class MusicStatistics:
                 else None,
             }
         finally:
-            session.close()
+            if owns_session:
+                session.close()
 
     # ------------------------------------------------------------------ #
     #  On This Day                                                         #
