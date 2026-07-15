@@ -124,7 +124,7 @@ class FuzzyMatchDialog(QDialog):
                     f"adding alias for {old_artist.artist_name} to {new_artist.artist_name}"
                 )
                 self.controller.add.add_entity(
-                    "Alias",
+                    "ArtistAlias",
                     artist_id=new_artist.artist_id,
                     alias_name=old_artist.artist_name,
                 )
