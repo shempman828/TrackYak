@@ -21,6 +21,7 @@ from src.metadata.metadata_mapping import (
 )
 from src.metadata.metadata_writer_vorbis import VorbisCommentWriter
 from src.metadata.metadata_writer_flac_picture import FlacPictureWriter
+from src.metadata.metadata_writer_id3_picture import Id3PictureWriter
 from src.core.logger_config import logger
 from src.core.status_utility import StatusManager
 
@@ -50,6 +51,7 @@ class MetadataWriter:
         self.id3_writer = ID3TagWriter()
         self.vorbis_writer = VorbisCommentWriter()
         self.flac_picture_writer = FlacPictureWriter()
+        self.id3_picture_writer = Id3PictureWriter()
         self.status_manager = StatusManager
 
     def detect_audio_format(self, file_path: str) -> AudioFormat:
@@ -777,14 +779,37 @@ class MetadataWriter:
         except Exception:
             return 0
 
+    def _flac_prefix_length(self, file_path: str) -> int:
+        """
+        Bytes before the "fLaC" marker that must be preserved as-is on
+        write - 0 normally, or the length of a leading ID3v2 tag some
+        (non-standard, but real) FLAC files have. Returns -1 if no "fLaC"
+        marker can be found at all.
+        """
+        try:
+            with open(file_path, "rb") as f:
+                header = f.read(10)
+                if header[0:4] == b"fLaC":
+                    return 0
+                if header[0:3] == b"ID3" and len(header) == 10:
+                    id3_end = 10 + self._parse_sync_safe_int(header[6:10])
+                    f.seek(id3_end)
+                    if f.read(4) == b"fLaC":
+                        return id3_end
+        except Exception as e:
+            logger.debug(f"Error checking FLAC prefix for {file_path}: {e}")
+        return -1
+
     def _find_flac_metadata_blocks(self, file_path: str) -> List[Tuple[int, int, int]]:
         """Find FLAC metadata blocks and their positions."""
         blocks = []
         try:
+            prefix_length = self._flac_prefix_length(file_path)
+            if prefix_length < 0:
+                return blocks
+
             with open(file_path, "rb") as f:
-                # Check FLAC signature
-                if f.read(4) != b"fLaC":
-                    return blocks
+                f.seek(prefix_length + 4)
 
                 # Read metadata blocks
                 while True:
@@ -863,7 +888,13 @@ class MetadataWriter:
     def _write_id3_metadata(
         self, file_path: str, data: Dict[str, Any], mode: WriteMode
     ) -> bool:
-        """Write ID3 metadata to MP3 file with complete file handling."""
+        """Write ID3 metadata to MP3 file with complete file handling.
+
+        Preserves any existing frame whose ID isn't one of the ones being
+        rebuilt from `data` (e.g. an embedded APIC frame, or any frame this
+        app doesn't itself construct) rather than wiping the whole tag -
+        only applies to v2.3/2.4 source tags, same as the artwork writer.
+        """
         try:
             # Create backup
             backup_path = file_path + ".bak"
@@ -871,9 +902,26 @@ class MetadataWriter:
 
             shutil.copy2(file_path, backup_path)
 
-            # Build new frames
+            # Build new frames, and preserve every existing frame whose ID
+            # isn't among the ones we're about to rebuild.
             new_frames = self.build_id3_frames_from_data(data)
-            new_tag = self.id3_writer.build_id3_tag(new_frames)
+            new_frame_ids = {
+                nf[0:4].decode("ascii", errors="ignore") for nf in new_frames if len(nf) >= 4
+            }
+
+            existing_frames = self._find_id3_frames(file_path)
+            with open(file_path, "rb") as f:
+                file_data = f.read()
+
+            preserved_frames = [
+                self._rewrap_id3_frame_as_v3(
+                    frame_id, file_data[pos + 10 : pos + size]
+                )
+                for frame_id, pos, size in existing_frames
+                if frame_id not in new_frame_ids
+            ]
+
+            new_tag = self.id3_writer.build_id3_tag(preserved_frames + new_frames)
 
             # Read existing audio data
             audio_start = self._find_mp3_audio_start(file_path)
@@ -953,16 +1001,23 @@ class MetadataWriter:
         return file_data[last_pos + last_size :]
 
     def _serialize_flac_blocks(
-        self, ordered_blocks: List[Tuple[int, bytes]], audio_tail: bytes
+        self,
+        ordered_blocks: List[Tuple[int, bytes]],
+        audio_tail: bytes,
+        prefix: bytes = b"",
     ) -> bytes:
         """
         Given an ordered list of (block_type, payload_bytes) - not including
         the "fLaC" magic - serialize a complete FLAC metadata-block stream
         followed by audio_tail (the untouched audio frame bytes). Recomputes
         the is_last bit on the final metadata block only; every block's own
-        payload bytes are written through unchanged.
+        payload bytes are written through unchanged. `prefix` is carried
+        through untouched before the "fLaC" magic - normally empty, but a
+        leading ID3v2 tag on non-standard (but real) FLAC files must survive
+        a rewrite exactly as it was.
         """
-        out = bytearray(b"fLaC")
+        out = bytearray(prefix)
+        out += b"fLaC"
         for i, (block_type, payload) in enumerate(ordered_blocks):
             is_last = 1 if i == len(ordered_blocks) - 1 else 0
             block_header = struct.pack(">B", (is_last << 7) | (block_type & 0x7F))
@@ -984,6 +1039,7 @@ class MetadataWriter:
                 file_data = f.read()
 
             audio_tail = self._flac_audio_tail(file_data, blocks)
+            prefix = file_data[: self._flac_prefix_length(file_path)]
 
             # Keep every block except the existing Vorbis comment (type 4),
             # then append the new comment block last.
@@ -996,7 +1052,7 @@ class MetadataWriter:
             if new_comment_block:
                 ordered_blocks.append((4, new_comment_block))
 
-            new_data = self._serialize_flac_blocks(ordered_blocks, audio_tail)
+            new_data = self._serialize_flac_blocks(ordered_blocks, audio_tail, prefix)
 
             with open(file_path, "wb") as f:
                 f.write(new_data)
@@ -1012,6 +1068,24 @@ class MetadataWriter:
     ) -> bool:
         """
         Add/replace (image_bytes given) or remove (image_bytes=None) the
+        `role` ("front"/"rear"/"liner") artwork in an audio file. Dispatches
+        by extension - FLAC and MP3 are supported today, anything else
+        returns False.
+        """
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == ".flac":
+            return self._write_flac_artwork_to_file(file_path, role, image_bytes)
+        elif ext == ".mp3":
+            return self._write_id3_artwork_to_file(file_path, role, image_bytes)
+        else:
+            logger.debug(f"Unsupported format for artwork write: {file_path}")
+            return False
+
+    def _write_flac_artwork_to_file(
+        self, file_path: str, role: str, image_bytes: Any
+    ) -> bool:
+        """
+        Add/replace (image_bytes given) or remove (image_bytes=None) the
         PICTURE block for `role` ("front"/"rear"/"liner") in a FLAC file.
         PICTURE blocks for other roles, and all non-PICTURE blocks, pass
         through byte-for-byte unchanged.
@@ -1020,6 +1094,10 @@ class MetadataWriter:
             raise ValueError(f"Unknown artwork role: {role}")
 
         import shutil
+
+        if not os.access(file_path, os.W_OK):
+            logger.debug(f"Skipping artwork write - not writable: {file_path}")
+            return False
 
         backup_path = file_path + ".bak"
         try:
@@ -1034,6 +1112,7 @@ class MetadataWriter:
                 file_data = f.read()
 
             audio_tail = self._flac_audio_tail(file_data, blocks)
+            prefix = file_data[: self._flac_prefix_length(file_path)]
 
             # Offsets are only valid against the original file, so slice out
             # every block's payload up front.
@@ -1056,17 +1135,16 @@ class MetadataWriter:
                 )
                 new_blocks.append((6, new_picture_payload))
 
-            new_data = self._serialize_flac_blocks(new_blocks, audio_tail)
+            new_data = self._serialize_flac_blocks(new_blocks, audio_tail, prefix)
 
             with open(file_path, "wb") as f:
                 f.write(new_data)
 
             if not self._verify_artwork_write(file_path, role, image_bytes):
-                shutil.copy2(backup_path, file_path)
-                os.remove(backup_path)
+                self._restore_artwork_backup(file_path, backup_path)
                 logger.error(
                     f"Artwork write verification failed for {file_path} "
-                    f"(role={role}); restored backup"
+                    f"(role={role}); attempted to restore backup"
                 )
                 return False
 
@@ -1076,8 +1154,28 @@ class MetadataWriter:
         except Exception as e:
             logger.debug(f"Error writing artwork to {file_path}: {e}")
             if os.path.exists(backup_path):
-                shutil.copy2(backup_path, file_path)
-                os.remove(backup_path)
+                self._restore_artwork_backup(file_path, backup_path)
+            return False
+
+    def _restore_artwork_backup(self, file_path: str, backup_path: str) -> bool:
+        """
+        Best-effort restore of file_path from backup_path. Never raises -
+        a failed restore (e.g. the same permission error that caused the
+        original write to fail) must not crash the caller. On failure, the
+        backup is deliberately left in place for manual recovery instead of
+        being deleted.
+        """
+        import shutil
+
+        try:
+            shutil.copy2(backup_path, file_path)
+            os.remove(backup_path)
+            return True
+        except Exception as e:
+            logger.error(
+                f"Failed to restore {file_path} from backup after a write "
+                f"error: {e}. Backup preserved at {backup_path}"
+            )
             return False
 
     def _find_flac_picture_index_for_role(
@@ -1110,13 +1208,222 @@ class MetadataWriter:
 
         return None
 
+    def _find_id3_frames(self, file_path: str) -> List[Tuple[str, int, int]]:
+        """
+        Find ID3v2 frames and their byte spans (whole frame, header
+        included). Returns [] if there's no ID3 tag, or the tag is v2.2
+        (3-char frame IDs, incompatible header layout - reads still work
+        via ArtworkExtractor, but this writer only rewrites v2.3/2.4 tags).
+        """
+        frames = []
+        try:
+            with open(file_path, "rb") as f:
+                header = f.read(10)
+                if len(header) < 10 or header[0:3] != b"ID3":
+                    return frames
+
+                version_major = header[3]
+                if version_major not in (3, 4):
+                    logger.debug(
+                        f"Unsupported ID3 version {version_major} for "
+                        f"frame-level writes: {file_path}"
+                    )
+                    return frames
+
+                tag_size = self._parse_sync_safe_int(header[6:10])
+                tag_end = 10 + tag_size
+
+                pos = 10
+                while pos < tag_end - 10:
+                    f.seek(pos)
+                    frame_header = f.read(10)
+                    if len(frame_header) < 10:
+                        break
+
+                    frame_id = frame_header[0:4]
+                    if version_major == 4:
+                        frame_size = self._parse_sync_safe_int(frame_header[4:8])
+                    else:
+                        frame_size = struct.unpack(">I", frame_header[4:8])[0]
+
+                    if frame_size == 0:
+                        break
+
+                    frames.append(
+                        (frame_id.decode("ascii", errors="ignore"), pos, 10 + frame_size)
+                    )
+                    pos += 10 + frame_size
+
+        except Exception as e:
+            logger.debug(f"Error finding ID3 frames for {file_path}: {e}")
+
+        return frames
+
+    def _rewrap_id3_frame_as_v3(self, frame_id: str, frame_body: bytes) -> bytes:
+        """
+        Rebuild a frame's 10-byte header using ID3v2.3-style plain
+        (non-syncsafe) frame sizing, regardless of what version the frame
+        originally came from. ID3TagWriter.build_id3_tag always writes the
+        tag as v2.3, so every preserved frame must be re-headered to match -
+        otherwise a frame carried over unchanged from a v2.4 source tag
+        (syncsafe size) desyncs every frame boundary that follows it.
+        """
+        return (
+            frame_id.encode("ascii")
+            + struct.pack(">I", len(frame_body))
+            + b"\x00\x00"
+            + frame_body
+        )
+
+    def _peek_id3_picture_type(self, frame_body: bytes, version_major: int):
+        """Read just the picture-type byte out of an APIC/PIC frame body,
+        without doing the full parse ArtworkExtractor does."""
+        try:
+            if len(frame_body) < 2:
+                return None
+            pos = 1  # skip encoding byte
+            if version_major == 2:
+                pos += 3  # v2.2 PIC: fixed 3-byte image format code
+            else:
+                while pos < len(frame_body) and frame_body[pos] != 0:
+                    pos += 1
+                pos += 1  # skip past the null-terminated MIME string
+            if pos >= len(frame_body):
+                return None
+            return frame_body[pos]
+        except Exception:
+            return None
+
+    def _find_id3_picture_index_for_role(
+        self, raw_frames: List[Tuple[str, bytes]], role: str, version_major: int
+    ):
+        """
+        Find the index of the existing APIC/PIC frame that currently
+        represents `role`, using the same typed + untyped-fallback-to-front
+        rule as ArtworkExtractor.extract_artwork_by_role.
+        """
+        typed_indices: Dict[str, int] = {}
+        untyped_indices = []
+
+        for idx, (frame_id, frame_bytes) in enumerate(raw_frames):
+            if frame_id not in ("APIC", "PIC"):
+                continue
+            picture_type = self._peek_id3_picture_type(frame_bytes[10:], version_major)
+            if picture_type is None:
+                continue
+            mapped_role = Id3PictureWriter.TYPE_TO_ROLE.get(picture_type)
+            if mapped_role:
+                typed_indices.setdefault(mapped_role, idx)
+            else:
+                untyped_indices.append(idx)
+
+        if role in typed_indices:
+            return typed_indices[role]
+
+        if role == "front" and "front" not in typed_indices and len(untyped_indices) == 1:
+            return untyped_indices[0]
+
+        return None
+
+    def _write_id3_artwork_to_file(
+        self, file_path: str, role: str, image_bytes: Any
+    ) -> bool:
+        """
+        Add/replace (image_bytes given) or remove (image_bytes=None) the
+        APIC frame for `role` in an MP3 file's ID3v2.3/2.4 tag. Every other
+        frame's body - including APIC frames for other roles - passes
+        through unchanged (only its header is re-serialized as v2.3-style,
+        since the whole tag is always rewritten as v2.3, matching
+        ID3TagWriter.build_id3_tag).
+        """
+        if role not in Id3PictureWriter.ROLE_TO_TYPE:
+            raise ValueError(f"Unknown artwork role: {role}")
+
+        import shutil
+
+        if not os.access(file_path, os.W_OK):
+            logger.debug(f"Skipping artwork write - not writable: {file_path}")
+            return False
+
+        with open(file_path, "rb") as f:
+            header = f.read(10)
+        if len(header) < 10 or header[0:3] != b"ID3" or header[3] not in (3, 4):
+            logger.debug(
+                f"No writable ID3v2.3/2.4 tag found, cannot write artwork: {file_path}"
+            )
+            return False
+        version_major = header[3]
+
+        backup_path = file_path + ".bak"
+        try:
+            shutil.copy2(file_path, backup_path)
+
+            existing_frames = self._find_id3_frames(file_path)
+
+            with open(file_path, "rb") as f:
+                file_data = f.read()
+
+            raw_frames = [
+                (
+                    frame_id,
+                    self._rewrap_id3_frame_as_v3(
+                        frame_id, file_data[pos + 10 : pos + size]
+                    ),
+                )
+                for frame_id, pos, size in existing_frames
+            ]
+
+            target_idx = self._find_id3_picture_index_for_role(
+                raw_frames, role, version_major
+            )
+
+            new_frames = [
+                frame_bytes
+                for idx, (frame_id, frame_bytes) in enumerate(raw_frames)
+                if idx != target_idx
+            ]
+
+            if image_bytes is not None:
+                new_frames.append(
+                    self.id3_picture_writer.build_apic_frame(role, image_bytes)
+                )
+
+            new_tag = self.id3_writer.build_id3_tag(new_frames)
+
+            audio_start = self._find_mp3_audio_start(file_path)
+            with open(file_path, "rb") as f:
+                f.seek(audio_start)
+                audio_data = f.read()
+
+            with open(file_path, "wb") as f:
+                f.write(new_tag)
+                f.write(audio_data)
+
+            if not self._verify_artwork_write(file_path, role, image_bytes):
+                self._restore_artwork_backup(file_path, backup_path)
+                logger.error(
+                    f"Artwork write verification failed for {file_path} "
+                    f"(role={role}); attempted to restore backup"
+                )
+                return False
+
+            os.remove(backup_path)
+            return True
+
+        except Exception as e:
+            logger.debug(f"Error writing MP3 artwork to {file_path}: {e}")
+            if os.path.exists(backup_path):
+                self._restore_artwork_backup(file_path, backup_path)
+            return False
+
     def _verify_artwork_write(self, file_path: str, role: str, image_bytes: Any) -> bool:
         """Re-read the file and confirm the write did what it was meant to do."""
         import hashlib
 
         from src.metadata.metadata_artwork import ArtworkExtractor
 
-        result = ArtworkExtractor().extract_artwork_by_role(file_path, ".flac")
+        ext = os.path.splitext(file_path)[1].lower()
+        result = ArtworkExtractor().extract_artwork_by_role(file_path, ext)
 
         if image_bytes is None:
             return role not in result
