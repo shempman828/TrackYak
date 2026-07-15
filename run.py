@@ -147,7 +147,9 @@ def initialize_application(splash, app, config: Config):
     window = GUI(controller)
     show_status(splash, "Almost ready…", delay=0.4)
     logger.info("Main window initialized")
-    splash.finish(window)
+
+    show_status(splash, "Ready!", delay=0.2)
+    splash.finish()
 
     # Start MPRIS2 and attach to window to prevent garbage collection
     mpris = MPRIS2Player(controller.mediaplayer)
@@ -184,11 +186,12 @@ def main() -> None:
         splash.show()
         splash.update_status("Starting application...")
 
-        # Pass config into initialize_application to avoid a second Config() call
-        window, display_settings = initialize_application(splash, app, config)
-
-        # Final update before showing main window
-        splash.update_status("Ready!")
+        try:
+            # Pass config into initialize_application to avoid a second Config() call
+            window, display_settings = initialize_application(splash, app, config)
+        except Exception:
+            splash.close()
+            raise
 
         window.show()
 
