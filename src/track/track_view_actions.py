@@ -10,6 +10,7 @@ from PySide6.QtCore import QByteArray, QMimeData, Qt
 from PySide6.QtGui import QDrag, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
 
+from src.core.censor import censor_text
 from src.core.logger_config import logger
 
 
@@ -85,6 +86,8 @@ class TrackViewActionsMixin:
             return f"{m}:{s:02d}"
         if field_name in ("file_size",) and isinstance(value, (int, float)):
             return f"{value / (1024 * 1024):.1f} MB"
+        if field_name in ("track_name", "album_name", "lyrics"):
+            return censor_text(str(value))
         return str(value)
 
     # =========================================================================
