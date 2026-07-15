@@ -117,12 +117,28 @@ class AddMemberDialog(QDialog):
                 "is_current": self.current_checkbox.isChecked(),
             }
 
-            self.controller.add.add_entity("GroupMembership", **membership_data)
+            new_membership = self.controller.add.add_entity(
+                "GroupMembership", **membership_data
+            )
+            if new_membership is None:
+                logger.warning(
+                    f"Could not add member {artist_id} to group "
+                    f"{self.group.artist_name}: already a member, or the add failed"
+                )
+                QMessageBox.warning(
+                    self,
+                    "Could Not Add Member",
+                    "This artist is already a member of the group, or the "
+                    "membership could not be saved.",
+                )
+                return
+
             self.accept()
             logger.info(f"Added member {artist_id} to group {self.group.artist_name}")
 
         except Exception as e:
             logger.error(f"Error adding member: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to add member:\n{e}")
 
 
 class AddGroupDialog(QDialog):
