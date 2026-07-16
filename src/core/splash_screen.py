@@ -35,6 +35,14 @@ class StartupSplash(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
 
+        # A widget's own stylesheet always wins over the app-wide one, so this
+        # keeps the splash transparent even after the theme QSS is applied
+        # mid-startup (its global "QWidget { background-color: ... }" rule
+        # would otherwise repaint the splash's background and change its look
+        # partway through loading).
+        self.setObjectName("startupSplash")
+        self.setStyleSheet("QWidget#startupSplash { background: transparent; border: none; }")
+
         # Load splash image
         self.pixmap = self._load_splash_image()
         self.resize(self.pixmap.deviceIndependentSize().toSize())
@@ -211,7 +219,10 @@ class StartupSplash(QWidget):
             surface.setAlpha(220)
             painter.fillRect(status_rect, surface)
 
-            base_font = QFont()
+            # Explicit family/size rather than QFont() so the splash text
+            # doesn't visibly change when the theme applies its own app-wide
+            # font mid-startup (display_settings._apply_font -> app.setFont).
+            base_font = QFont("Cambria")
 
             # Title
             title_font = QFont(base_font)
