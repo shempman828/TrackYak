@@ -418,6 +418,8 @@ class BaseTrackView(QDialog):
             return censor_text(name)
         elif db_field == "artist_name":
             return self._get_artist_name(track)
+        elif db_field == "duration":
+            return track.duration_formatted
 
         # Get the raw value from the track object
         raw_value = getattr(track, db_field, "")
@@ -449,14 +451,6 @@ class BaseTrackView(QDialog):
             return ""
 
         # Field-specific formatting
-        if db_field == "duration" and isinstance(value, int):
-            try:
-                minutes = value // 60
-                seconds = value % 60
-                return f"{minutes}:{seconds:02d}"
-            except (TypeError, ValueError):
-                return "0:00"
-
         if db_field in ("track_name", "album_name", "lyrics"):
             return censor_text(str(value))
 
