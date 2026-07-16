@@ -4,7 +4,7 @@ import random
 from collections import deque
 
 import networkx as nx
-from PySide6.QtCore import QPointF, Qt, QTimer
+from PySide6.QtCore import QPointF, QRect, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QDialog,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QGraphicsView,
     QHBoxLayout,
     QLabel,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -149,24 +150,69 @@ class _LegendRow(QWidget):
 
 
 class _LegendPanel(QFrame):
-    """Small floating overlay explaining what the node colors mean."""
+    """Small floating overlay explaining what the node colors mean.
 
-    def __init__(self, parent=None):
+    User-resizable (drag the top-right corner) so cluster lists longer than
+    the default size can be reviewed without a hard-coded row cap; overflow
+    beyond the chosen size just scrolls. Size is persisted across sessions.
+    """
+
+    _MIN_WIDTH = 160
+    _MIN_HEIGHT = 90
+    _MAX_WIDTH = 480
+    _MAX_HEIGHT = 640
+    _GRIP_SIZE = 14
+
+    def __init__(self, parent=None, on_resize=None):
         super().__init__(parent)
+        self._on_resize = on_resize
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(
             "_LegendPanel { background-color: rgba(17, 18, 26, 205);"
             " border: 1px solid rgba(133, 153, 234, 90); border-radius: 8px; }"
             " QLabel { color: #b8c0f0; background: transparent; font-size: 11px; }"
+            " QScrollArea { background: transparent; border: none; }"
+            " QScrollArea > QWidget > QWidget { background: transparent; }"
+            " QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }"
+            " QScrollBar::handle:vertical { background: rgba(133,153,234,0.35);"
+            " border-radius: 3px; min-height: 24px; }"
+            " QScrollBar::handle:vertical:hover { background: rgba(133,153,234,0.6); }"
+            " QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
         )
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(10, 8, 10, 8)
         self._layout.setSpacing(4)
+
+        self._title = QLabel("Clusters")
+        self._title.setStyleSheet("font-weight: 600; font-size: 11px;")
+        self._layout.addWidget(self._title)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._rows_widget = QWidget()
+        self._rows_layout = QVBoxLayout(self._rows_widget)
+        self._rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._rows_layout.setSpacing(4)
+        self._scroll.setWidget(self._rows_widget)
+        self._layout.addWidget(self._scroll, 1)
+
+        self._resizing = False
+        self._resize_start_pos = QPointF()
+        self._resize_start_size = None
+        self.setMouseTracking(True)
+
+        width, height = app_config.get_influence_legend_size()
+        self.resize(
+            self._clamp(width, self._MIN_WIDTH, self._MAX_WIDTH),
+            self._clamp(height, self._MIN_HEIGHT, self._MAX_HEIGHT),
+        )
         self.hide()
 
-    def set_communities(self, rows, on_rename=None, max_rows=12):
-        while self._layout.count():
-            item = self._layout.takeAt(0)
+    def set_communities(self, rows, on_rename=None):
+        while self._rows_layout.count():
+            item = self._rows_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
@@ -174,26 +220,79 @@ class _LegendPanel(QFrame):
             self.hide()
             return
 
-        title = QLabel("Clusters")
-        title.setStyleSheet("font-weight: 600; font-size: 11px;")
-        self._layout.addWidget(title)
-
-        shown = rows[:max_rows]
-        for community_index, color, count, name, representative_artists in shown:
-            self._layout.addWidget(
+        for community_index, color, count, name, representative_artists in rows:
+            self._rows_layout.addWidget(
                 _LegendRow(
                     community_index, color, count, name, on_rename, representative_artists
                 )
             )
-
-        remaining = len(rows) - len(shown)
-        if remaining > 0:
-            more = QLabel(f"+{remaining} more")
-            more.setStyleSheet("color: #7a82a8;")
-            self._layout.addWidget(more)
-
-        self.adjustSize()
+        self._rows_layout.addStretch()
         self.show()
+
+    # -----------------------
+    # Resize (top-right corner grip)
+    #
+    # The panel is anchored at its bottom-left (see
+    # InfluenceGraphView._reposition_legend), so growing it taller pushes the
+    # top edge up while the bottom stays put. The corner that actually
+    # tracks the cursor 1:1 during a drag is therefore top-right, not the
+    # more common bottom-right.
+    # -----------------------
+    def _grip_rect(self):
+        return QRect(self.width() - self._GRIP_SIZE, 0, self._GRIP_SIZE, self._GRIP_SIZE)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setPen(QPen(QColor(133, 153, 234, 140), 1))
+        grip = self._grip_rect()
+        for offset in (4, 8, 12):
+            painter.drawLine(
+                grip.right() - offset, grip.top(), grip.right(), grip.top() + offset
+            )
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self._grip_rect().contains(
+            event.position().toPoint()
+        ):
+            self._resizing = True
+            self._resize_start_pos = event.globalPosition()
+            self._resize_start_size = self.size()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._resizing:
+            delta = event.globalPosition() - self._resize_start_pos
+            new_width = self._clamp(
+                self._resize_start_size.width() + delta.x(), self._MIN_WIDTH, self._MAX_WIDTH
+            )
+            new_height = self._clamp(
+                self._resize_start_size.height() - delta.y(), self._MIN_HEIGHT, self._MAX_HEIGHT
+            )
+            self.resize(int(new_width), int(new_height))
+            if self._on_resize is not None:
+                self._on_resize()
+            event.accept()
+        elif self._grip_rect().contains(event.position().toPoint()):
+            self.setCursor(Qt.SizeBDiagCursor)
+        else:
+            self.unsetCursor()
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._resizing and event.button() == Qt.LeftButton:
+            self._resizing = False
+            app_config.set_influence_legend_size(self.width(), self.height())
+            app_config.save()
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    @staticmethod
+    def _clamp(value, minimum, maximum):
+        return max(minimum, min(maximum, value))
 
 
 class InfluenceGraphView(QGraphicsView):
@@ -226,7 +325,7 @@ class InfluenceGraphView(QGraphicsView):
         self.setScene(self.scene)
         self._apply_theme_palette()
 
-        self._legend = _LegendPanel(self)
+        self._legend = _LegendPanel(self, on_resize=self._reposition_legend)
 
         # Force-directed layout timer
         self.force_layout_timer = QTimer()
