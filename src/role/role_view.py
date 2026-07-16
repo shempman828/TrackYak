@@ -39,7 +39,11 @@ class RoleLoaderWorker(QObject):
 
     # Emitted when loading succeeds.
     # Payload: (all_roles, album_counts_by_role_id, track_counts_by_role_id)
-    finished = Signal(list, dict, dict)
+    # Uses `object` rather than `list`/`dict` because PySide6's queued
+    # cross-thread delivery can fail to copy-convert plain dict/list
+    # signal args, logging "_pythonToCppCopy" errors (or worse, dropping
+    # the payload). `object` passes the Python object through untouched.
+    finished = Signal(object, object, object)
 
     # Emitted if something goes wrong.
     error = Signal(str)
