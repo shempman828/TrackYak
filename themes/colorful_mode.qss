@@ -219,3 +219,37 @@ QListWidget::item[text="Now Playing"] {
     font-weight: bold;
     border-radius: 6px;
 }
+
+/* ── SPECIAL: Artist detail article (HeaderWidget / ArtistDetailTab) ────────── */
+HeaderWidget QLabel#ArtistPortrait {
+    background-color: #f7f7ff;
+    border: 1px solid #d5d5e0;
+    border-radius: 6px;
+}
+
+ArtistDetailTab QLabel#SectionHeading {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1c1c21;
+    padding-bottom: 4px;
+    border-bottom: 2px solid #ead685;
+}
+
+ArtistDetailTab QLabel#TocLabel {
+    font-size: 12px;
+    color: #6b6d80;
+}
+
+ArtistDetailTab QPushButton#TocChip {
+    background: #f2f2ff;
+    color: #4a5bb8;
+    font-weight: 500;
+    font-size: 12px;
+    border-radius: 10px;
+    padding: 3px 10px;
+    border: 1px solid rgba(133,153,234,0.6);
+}
+
+ArtistDetailTab QPushButton#TocChip:hover {
+    background: #e0e2f7;
+}
