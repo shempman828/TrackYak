@@ -425,11 +425,12 @@ class TimelineView(QWidget):
         return filtered
 
     def extract_unique_years(self):
-        """Extract unique years from all dates."""
+        """Extract unique years from all dates, excluding implausible values."""
         years = set()
         for date_item in self.all_dates:
-            if date_item["year"]:
-                years.add(date_item["year"])
+            year = date_item["year"]
+            if year and 1000 <= year <= 2999:
+                years.add(year)
         return sorted(years)
 
     def extract_unique_months(self):
