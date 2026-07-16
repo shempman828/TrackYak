@@ -21,6 +21,10 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.place.place_association_types import (
+    fetch_association_types,
+    find_or_create_association_type,
+)
 
 
 def _make_table(headers, editable=True):
@@ -141,6 +145,12 @@ class PlacesAwardsTab(QWidget):
         self.new_place_assoc_edit.setPlaceholderText(
             "Relationship (e.g. Birthplace, Hometown)"
         )
+        self._assoc_type_completer = QCompleter(
+            [t.type_name for t in fetch_association_types(self.controller)]
+        )
+        self._assoc_type_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._assoc_type_completer.setFilterMode(Qt.MatchContains)
+        self.new_place_assoc_edit.setCompleter(self._assoc_type_completer)
 
         add_place_btn = QPushButton("Link Place")
         add_place_btn.clicked.connect(self._add_place)
@@ -209,7 +219,9 @@ class PlacesAwardsTab(QWidget):
                         self.places_table,
                         [
                             assoc.place.place_name,
-                            assoc.association_type or "",
+                            assoc.association_type.type_name
+                            if assoc.association_type
+                            else "",
                             assoc.place.place_type or "",
                             _parent_place_name(assoc.place),
                         ],
@@ -308,13 +320,20 @@ class PlacesAwardsTab(QWidget):
             QMessageBox.critical(self, "Error", f"Could not find/create place:\n{e}")
             return
 
+        known_types = fetch_association_types(self.controller)
+        assoc_type_obj = find_or_create_association_type(
+            self.controller, association_type, known_types
+        )
+
         try:
             self.controller.add.add_entity(
                 "PlaceAssociation",
                 entity_id=self.artist.artist_id,
                 entity_type="Artist",
                 place_id=place.place_id,
-                association_type=association_type,
+                association_type_id=assoc_type_obj.association_type_id
+                if assoc_type_obj
+                else None,
             )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Could not link place:\n{e}")
@@ -420,3 +439,9 @@ class PlacesAwardsTab(QWidget):
         self._place_completer = _build_place_completer(self.controller)
         self.new_place_edit.setCompleter(self._place_completer)
         self._place_completer.activated[str].connect(self._on_place_completion_selected)
+        self._assoc_type_completer = QCompleter(
+            [t.type_name for t in fetch_association_types(self.controller)]
+        )
+        self._assoc_type_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._assoc_type_completer.setFilterMode(Qt.MatchContains)
+        self.new_place_assoc_edit.setCompleter(self._assoc_type_completer)
