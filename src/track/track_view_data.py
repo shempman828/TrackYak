@@ -23,16 +23,28 @@ _ALBUM_DERIVED_FIELDS = ("album_name", "release_year", "release_month", "release
 _CACHE_DEPENDENT_FIELDS = frozenset({"primary_artist_names", "disc_number", *_ALBUM_DERIVED_FIELDS})
 
 
-def _format_primary_artist_names(names: list) -> str:
-    """Oxford-comma join, mirroring Track.primary_artist_names in src/db_tables/track.py."""
-    names = [n.strip() for n in names if n and n.strip()]
-    if not names:
-        return "Unknown Artist"
+def _oxford_join(names: list) -> str:
+    """Join names as 'A' / 'A & B' / 'A, B, & C' (Oxford comma for 3+)."""
     if len(names) == 1:
         return names[0]
     if len(names) == 2:
         return f"{names[0]} & {names[1]}"
     return f"{', '.join(names[:-1])}, & {names[-1]}"
+
+
+def _format_primary_artist_names(primary_names: list, featured_names: list | None = None) -> str:
+    """Oxford-comma join, mirroring Track.primary_artist_names in src/db_tables/track.py."""
+    primary_names = [n.strip() for n in primary_names if n and n.strip()]
+    if not primary_names:
+        return "Unknown Artist"
+
+    result = _oxford_join(primary_names)
+
+    featured_names = [n.strip() for n in (featured_names or []) if n and n.strip()]
+    if featured_names:
+        result = f"{result} Featuring {_oxford_join(featured_names)}"
+
+    return result
 
 
 def _fetch_lookup_caches(session):
@@ -82,7 +94,8 @@ def _fetch_lookup_caches(session):
 
     artist_name_cache = {
         track_id: _format_primary_artist_names(
-            [name for name, role_name in entries if role_name == "Primary Artist"]
+            [name for name, role_name in entries if role_name == "Primary Artist"],
+            [name for name, role_name in entries if role_name == "Featured Artist"],
         )
         for track_id, entries in by_track.items()
     }
@@ -262,9 +275,9 @@ class TrackViewDataMixin:
                 )
 
     @staticmethod
-    def _format_primary_artist_names(names: list) -> str:
+    def _format_primary_artist_names(primary_names: list, featured_names: list | None = None) -> str:
         """Oxford-comma join, mirroring Track.primary_artist_names in src/db_tables/track.py."""
-        return _format_primary_artist_names(names)
+        return _format_primary_artist_names(primary_names, featured_names)
 
     def _field_value(self, track, field_name: str):
         """
