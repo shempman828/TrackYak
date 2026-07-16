@@ -89,9 +89,13 @@ class PlaceAssociation(Base):
         ),
         nullable=False,
     )
-    association_type = Column(String)
+    association_type_id = Column(
+        Integer,
+        ForeignKey("place_association_types.association_type_id", ondelete="SET NULL"),
+    )
 
     place = relationship("Place", back_populates="associations")
+    association_type = relationship("PlaceAssociationType")
 
     artist = relationship(
         "Artist",
