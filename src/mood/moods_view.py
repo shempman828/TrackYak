@@ -22,6 +22,7 @@ from src.common.hierarchy_tree_style import (
 )
 from src.core.logger_config import logger
 from src.mood.mood_dialog import MoodDialog
+from src.mood.mood_tracks import MoodTracksWindow
 
 
 class MoodView(QWidget):
@@ -430,6 +431,12 @@ class MoodView(QWidget):
             menu.addSeparator()
 
             # Item-specific actions
+            view_tracks_action = QAction("View Tracks", self)
+            view_tracks_action.triggered.connect(
+                lambda: self.view_tracks_for_selected_mood()
+            )
+            menu.addAction(view_tracks_action)
+
             edit_action = QAction("Edit Mood", self)
             edit_action.triggered.connect(lambda: self.edit_selected_mood())
             menu.addAction(edit_action)
@@ -452,6 +459,19 @@ class MoodView(QWidget):
             except Exception as e:
                 logger.error(f"Error creating mood: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to create mood: {str(e)}")
+
+    def view_tracks_for_selected_mood(self):
+        """Open tracks view window for selected mood."""
+        if not self.current_mood_id:
+            QMessageBox.warning(self, "No Selection", "Please select a mood first.")
+            return
+
+        mood = next(
+            (m for m in self.moods_data if m.mood_id == self.current_mood_id), None
+        )
+        if mood:
+            tracks_window = MoodTracksWindow(self.controller, mood, self)
+            tracks_window.show()
 
     def edit_selected_mood(self):
         """Edit the currently selected mood"""
