@@ -39,6 +39,10 @@ warnings.filterwarnings("ignore")
 CACHE_PATH = Path(config("analysis_cache.json"))
 CACHE_SAVE_INTERVAL = 25  # Save the cache file every N completed tracks
 
+# Must match player_util.py's REPLAYGAIN_REFERENCE_LUFS — both sides assume
+# track_gain is a ReplayGain-style adjustment relative to this reference.
+REFERENCE_LUFS = -18.0
+
 
 # ===========================================================================
 # 1. AnalysisCache
@@ -447,16 +451,20 @@ class AudioCalculations:
 
     def calculate_track_gain(self) -> float:
         """
-        Integrated RMS loudness across the whole track, in dBFS.
-        Uses 400 ms windows (EBU R-128 influenced) averaged logarithmically.
+        ReplayGain-style adjustment (dB) needed to bring the track to
+        REFERENCE_LUFS, derived from integrated RMS loudness across the
+        whole track (400 ms windows, EBU R-128 influenced, averaged
+        logarithmically). Positive = boost a quiet track, negative =
+        attenuate a loud one — same sign convention as embedded
+        REPLAYGAIN_TRACK_GAIN tags, since both feed the same DB column.
         """
         if not self._ensure_loaded():
-            return -20.0
+            return 0.0
         try:
             mono = self._mono()
             window = int(self.sr * 0.4)
             if window == 0:
-                return -20.0
+                return 0.0
 
             rms_values = []
             for start in range(0, len(mono) - window, window):
@@ -466,16 +474,17 @@ class AudioCalculations:
                     rms_values.append(20.0 * np.log10(rms))
 
             if not rms_values:
-                return -60.0
+                return 0.0
 
-            # Return the mean of the top 70% of windows (ignores silent gaps)
+            # Mean of the top 70% of windows (ignores silent gaps)
             rms_values.sort(reverse=True)
             top = rms_values[: max(1, int(len(rms_values) * 0.7))]
-            return float(np.mean(top))
+            integrated_loudness = float(np.mean(top))
+            return float(np.clip(REFERENCE_LUFS - integrated_loudness, -20.0, 20.0))
 
         except Exception as e:
             logger.error(f"Track gain calculation failed: {e}")
-            return -20.0
+            return 0.0
 
     def calculate_track_peak(self) -> float:
         """True peak amplitude, 0–1 scale."""
@@ -1157,7 +1166,7 @@ class AudioCalculations:
             "key": "C",
             "mode": "major",
             "key_confidence": 0.0,
-            "track_gain": -20.0,
+            "track_gain": 0.0,
             "track_peak": 0.0,
             "crest_factor": 12.0,
             "spectral_centroid": 2000.0,
