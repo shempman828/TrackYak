@@ -7,6 +7,8 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
     QCompleter,
+    QDialog,
+    QDialogButtonBox,
     QHBoxLayout,
     QHeaderView,
     QLineEdit,
@@ -351,6 +353,30 @@ class _AddInfluenceBar(QWidget):
         self.name_edit.add_to_index(display, artist_id)
 
 
+class _EditDescriptionDialog(QDialog):
+    """Small modal for editing an existing influence relation's description."""
+
+    def __init__(self, description, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Description")
+
+        layout = QVBoxLayout(self)
+        self.desc_edit = QLineEdit(description or "")
+        self.desc_edit.setPlaceholderText("Description (optional)")
+        layout.addWidget(self.desc_edit)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.desc_edit.setFocus()
+        self.desc_edit.selectAll()
+
+    def value(self):
+        return self.desc_edit.text().strip() or None
+
+
 # ── main tab ─────────────────────────────────────────────────────────────────
 
 
@@ -371,7 +397,7 @@ class InfluencesTab(QWidget):
         super().__init__(parent)
         self.controller = controller
         self.artist = artist
-        self._rows = []  # raw data: list of dicts {direction, name, description, influence_id}
+        self._rows = []  # raw data: list of dicts {direction, name, description, other_id}
         self._build_ui()
         self._refresh_completer_index()
 
@@ -401,6 +427,7 @@ class InfluencesTab(QWidget):
         self.table.setSortingEnabled(True)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
+        self.table.cellDoubleClicked.connect(lambda row, _col: self._handle_edit_description(row))
         layout.addWidget(self.table, 1)
 
         self.add_bar = _AddInfluenceBar(
@@ -411,6 +438,10 @@ class InfluencesTab(QWidget):
 
         remove_row = QHBoxLayout()
         remove_row.addStretch()
+        self.swap_btn = QPushButton("Swap Direction")
+        self.swap_btn.setToolTip("Reverse who influenced whom for the selected row(s).")
+        self.swap_btn.clicked.connect(self._handle_swap_selected)
+        remove_row.addWidget(self.swap_btn)
         self.remove_btn = QPushButton("Remove Selected")
         self.remove_btn.clicked.connect(self._handle_remove_selected)
         remove_row.addWidget(self.remove_btn)
@@ -428,7 +459,7 @@ class InfluencesTab(QWidget):
                 "direction": DIR_INFLUENCED,
                 "name": rel.influenced.artist_name,
                 "description": rel.description or "",
-                "influence_id": getattr(rel, "influence_id", None),
+                "other_id": rel.influenced.artist_id,
             }
             for rel in getattr(artist, "influencer_relations", [])
             if rel.influenced is not None
@@ -437,12 +468,18 @@ class InfluencesTab(QWidget):
                 "direction": DIR_INFLUENCER,
                 "name": rel.influencer.artist_name,
                 "description": rel.description or "",
-                "influence_id": getattr(rel, "influence_id", None),
+                "other_id": rel.influencer.artist_id,
             }
             for rel in getattr(artist, "influenced_relations", [])
             if rel.influencer is not None
         ]
         self._render()
+
+    def _row_key(self, direction, other_id):
+        """(influencer_id, influenced_id) composite PK for a row's relation."""
+        if direction == DIR_INFLUENCED:
+            return self.artist.artist_id, other_id
+        return other_id, self.artist.artist_id
 
     def _reload_and_refresh(self):
         try:
@@ -483,7 +520,7 @@ class InfluencesTab(QWidget):
             sentence = _relationship_sentence(r["direction"], artist_name, r["name"])
             rel_item = QTableWidgetItem(sentence)
             rel_item.setForeground(_DIRECTION_COLOR[r["direction"]])
-            rel_item.setData(Qt.UserRole, r["influence_id"])
+            rel_item.setData(Qt.UserRole, r["other_id"])
             rel_item.setData(Qt.UserRole + 1, r["direction"])
             self.table.setItem(row, 1, rel_item)
 
@@ -535,38 +572,54 @@ class InfluencesTab(QWidget):
         self._reload_and_refresh()
         self.add_bar.clear_inputs()
 
-    def _selected_influence_ids(self):
-        ids = []
+    def _selected_row_data(self):
+        """List of {direction, other_id, name, description} for selected rows."""
+        rows = []
         for idx in self.table.selectionModel().selectedRows():
-            item = self.table.item(idx.row(), 1)
-            iid = item.data(Qt.UserRole) if item else None
-            if iid is not None:
-                ids.append(iid)
-        return ids
+            row = idx.row()
+            rel_item = self.table.item(row, 1)
+            if rel_item is None:
+                continue
+            name_item = self.table.item(row, 0)
+            desc_item = self.table.item(row, 2)
+            rows.append(
+                {
+                    "direction": rel_item.data(Qt.UserRole + 1),
+                    "other_id": rel_item.data(Qt.UserRole),
+                    "name": name_item.text() if name_item else "",
+                    "description": desc_item.text() if desc_item else "",
+                }
+            )
+        return rows
 
     def _handle_remove_selected(self):
-        ids = self._selected_influence_ids()
-        if not ids:
+        rows = self._selected_row_data()
+        if not rows:
             QMessageBox.information(
                 self, "No Selection", "Please select one or more rows first."
             )
             return
-        if len(ids) > 1:
+        if len(rows) > 1:
             reply = QMessageBox.question(
                 self,
                 "Remove Influences",
-                f"Remove {len(ids)} selected influence relations?",
+                f"Remove {len(rows)} selected influence relations?",
                 QMessageBox.Yes | QMessageBox.No,
             )
             if reply != QMessageBox.Yes:
                 return
-        self._delete_influences(ids)
+        self._delete_influences(rows)
 
-    def _delete_influences(self, influence_ids):
+    def _delete_influences(self, rows):
         errors = []
-        for iid in influence_ids:
+        for r in rows:
+            influencer_id, influenced_id = self._row_key(r["direction"], r["other_id"])
             try:
-                self.controller.delete.delete_entity("ArtistInfluence", iid)
+                self.controller.delete.delete_entity(
+                    "ArtistInfluence",
+                    influencer_id=influencer_id,
+                    influenced_id=influenced_id,
+                )
             except Exception as e:
                 errors.append(str(e))
         if errors:
@@ -575,11 +628,105 @@ class InfluencesTab(QWidget):
             )
         self._reload_and_refresh()
 
+    def _handle_swap_selected(self):
+        """Reverse influencer/influenced for the selected row(s). Since direction
+        is baked into the composite primary key, this deletes each relation and
+        re-adds it with influencer/influenced swapped (same pattern used for
+        GroupMembership edits, which also has a composite key)."""
+        rows = self._selected_row_data()
+        if not rows:
+            QMessageBox.information(
+                self, "No Selection", "Please select one or more rows first."
+            )
+            return
+
+        # A row can't be swapped onto a key that already exists (e.g. both
+        # "A influenced B" and "B influenced A" are independently present) —
+        # skip those rather than deleting the original and losing it.
+        existing_keys = {(r["direction"], r["other_id"]) for r in self._rows}
+        opposite = {DIR_INFLUENCED: DIR_INFLUENCER, DIR_INFLUENCER: DIR_INFLUENCED}
+
+        skipped = []
+        errors = []
+        for r in rows:
+            if (opposite[r["direction"]], r["other_id"]) in existing_keys:
+                skipped.append(r["name"])
+                continue
+            influencer_id, influenced_id = self._row_key(r["direction"], r["other_id"])
+            try:
+                self.controller.delete.delete_entity(
+                    "ArtistInfluence",
+                    influencer_id=influencer_id,
+                    influenced_id=influenced_id,
+                )
+                swapped = self.controller.add.add_entity(
+                    "ArtistInfluence",
+                    influencer_id=influenced_id,
+                    influenced_id=influencer_id,
+                    description=r["description"] or None,
+                )
+                if swapped is None:
+                    errors.append(r["name"])
+            except Exception as e:
+                errors.append(f'{r["name"]}: {e}')
+
+        if skipped:
+            QMessageBox.warning(
+                self,
+                "Cannot Swap",
+                "Skipped — the reverse relationship already exists:\n"
+                + "\n".join(skipped),
+            )
+        if errors:
+            QMessageBox.critical(
+                self, "Error", "Could not swap some influences:\n" + "\n".join(errors)
+            )
+        self._reload_and_refresh()
+
+    def _handle_edit_description(self, row):
+        rel_item = self.table.item(row, 1)
+        if rel_item is None:
+            return
+        direction = rel_item.data(Qt.UserRole + 1)
+        other_id = rel_item.data(Qt.UserRole)
+        desc_item = self.table.item(row, 2)
+        current_description = desc_item.text() if desc_item else ""
+
+        dialog = _EditDescriptionDialog(current_description, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        influencer_id, influenced_id = self._row_key(direction, other_id)
+        try:
+            self.controller.delete.delete_entity(
+                "ArtistInfluence",
+                influencer_id=influencer_id,
+                influenced_id=influenced_id,
+            )
+            self.controller.add.add_entity(
+                "ArtistInfluence",
+                influencer_id=influencer_id,
+                influenced_id=influenced_id,
+                description=dialog.value(),
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not update description:\n{e}")
+            return
+        self._reload_and_refresh()
+
     def _show_context_menu(self, pos):
-        if not self.table.itemAt(pos):
+        item = self.table.itemAt(pos)
+        if not item:
             return
         menu = QMenu(self)
+        swap_action = menu.addAction("Swap Direction")
+        edit_desc_action = menu.addAction("Edit Description…")
+        menu.addSeparator()
         remove_action = menu.addAction("Remove Selected")
         action = menu.exec(self.table.viewport().mapToGlobal(pos))
         if action == remove_action:
             self._handle_remove_selected()
+        elif action == swap_action:
+            self._handle_swap_selected()
+        elif action == edit_desc_action:
+            self._handle_edit_description(item.row())
