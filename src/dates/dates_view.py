@@ -1,7 +1,9 @@
+from datetime import date
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
-from src.dates.dates_calendar import CalendarWidget
+from src.dates.dates_calendar import CalendarWidget, OnThisDayDialog
 from src.dates.dates_timeline import TimelineWidget
 from src.core.logger_config import logger
 
@@ -79,6 +81,9 @@ class TimelineView(QWidget):
             lambda index: self.update_calendar_for_month(index + 1)
         )
 
+        # Connect "On This Day" button to show cross-year events for today's date
+        self.calendar_widget.on_this_day_requested.connect(self.show_on_this_day)
+
     def load_dates_from_db(self):
         """Load all date integers from the database."""
         if not self.controller:
@@ -111,6 +116,17 @@ class TimelineView(QWidget):
 
         except Exception as e:
             logger.error(f"Error loading dates from database: {e}")
+
+    def show_on_this_day(self):
+        """Show every event that ever happened on today's month/day, across all years."""
+        today = date.today()
+        matches = [
+            d
+            for d in self.all_dates
+            if d.get("month") == today.month and d.get("day") == today.day
+        ]
+        dialog = OnThisDayDialog(today.month, today.day, matches, parent=self)
+        dialog.exec()
 
     def on_timeline_year_selected(self, year):
         """Handle year selection from timeline."""
