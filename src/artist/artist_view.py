@@ -26,6 +26,7 @@ from src.artist.artist_delete_orphans import OrphanArtistDialog
 from src.artist.artist_detail import ArtistDetailTab
 from src.artist.artist_edit import ArtistEditor
 from src.artist.artist_fuzzy_match import FuzzyMatchDialog
+from src.artist.artist_image_manager import move_to_artist_images_dir
 from src.artist.artist_group_dialog import AddGroupDialog, AddMemberDialog
 from src.artist.artist_place import PlaceSelectionDialog
 from src.award.award_new import AddAwardDialog
@@ -747,8 +748,13 @@ class ArtistView(QWidget):
         if not file_path:
             return
 
+        artist = self.controller.get.get_entity_object("Artist", artist_id=artist_id)
+        managed_path = move_to_artist_images_dir(
+            artist_id, artist.artist_name if artist else "", file_path
+        )
+
         success = self.controller.update.update_entity(
-            "Artist", artist_id, profile_pic_path=file_path
+            "Artist", artist_id, profile_pic_path=managed_path
         )
         if success:
             QMessageBox.information(self, "Success", "Profile picture updated.")
