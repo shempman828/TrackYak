@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.statistics.rating_distribution_chart import RatingDistributionChart
 
 
 class StatisticsWorker(QThread):
@@ -290,11 +291,13 @@ class MusicStatsDialog(QDialog):
 
         ratings_group = QGroupBox("Ratings Distribution (0.5 – 10)")
         ratings_layout = QVBoxLayout(ratings_group)
-        self.ratings_labels = []
-        for _ in range(21):  # 0.5 to 10.0 in 0.5 increments = 20 slots + header
-            label = QLabel()
-            self.ratings_labels.append(label)
-            ratings_layout.addWidget(label)
+
+        self.ratings_summary_label = self.create_stat_label("")
+        ratings_layout.addWidget(self.ratings_summary_label)
+
+        self.ratings_chart = RatingDistributionChart()
+        ratings_layout.addWidget(self.ratings_chart)
+
         layout.addWidget(ratings_group)
 
         layout.addStretch()
@@ -582,20 +585,16 @@ class MusicStatsDialog(QDialog):
     def load_ratings_data(self):
         """Load ratings tab data (already fetched in self.stats)."""
         ratings_data = self.stats.get("ratings_distribution", {})
-        distribution = ratings_data.get("distribution", {})
+        distribution = {float(k): v for k, v in ratings_data.get("distribution", {}).items()}
 
-        sorted_ratings = sorted(distribution.items(), key=lambda x: float(x[0]))
+        total_rated = ratings_data.get("total_rated", sum(distribution.values()))
+        total_unrated = ratings_data.get("total_unrated", 0)
+        self.ratings_summary_label.setText(
+            f"Rated: {self.format_stat_value(total_rated)}  •  "
+            f"Unrated: {self.format_stat_value(total_unrated)}"
+        )
 
-        for i, (rating, count) in enumerate(sorted_ratings):
-            if i < len(self.ratings_labels):
-                rating_float = float(rating)
-                full_stars = int(rating_float)
-                half_star = "½" if rating_float % 1 != 0 else ""
-                stars = "★" * full_stars + half_star
-                self.ratings_labels[i].setText(f"{rating}/10 {stars}: {count} tracks")
-
-        for i in range(len(sorted_ratings), len(self.ratings_labels)):
-            self.ratings_labels[i].setText("")
+        self.ratings_chart.set_data(distribution)
 
     # ------------------------------------------------------------------ #
     #  Helpers                                                             #
