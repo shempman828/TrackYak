@@ -310,9 +310,7 @@ class AlbumTabBuilder:
         for role_assoc in self.album.album_roles:
             role_name = role_assoc.role.role_name if role_assoc.role else "Unknown Role"
             roles_by_type.setdefault(role_name, [])
-            artist_name = (
-                role_assoc.artist.artist_name if role_assoc.artist else "Unknown Artist"
-            )
+            artist_name = role_assoc.credited_name or "Unknown Artist"
             roles_by_type[role_name].append((artist_name, role_assoc))
 
         # Smaller font for the group-box title
@@ -363,6 +361,18 @@ class AlbumTabBuilder:
                 name_label = QLabel(artist_name)
                 name_label.setStyleSheet("font-size: 11px;")  # ← smaller text
                 artist_layout.addWidget(name_label)
+
+                credit_btn = QPushButton("Credit as…")
+                credit_btn.setFixedHeight(22)
+                credit_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
+                credit_btn.setToolTip(
+                    f"Choose which name (canonical or alias) to credit "
+                    f"{role_assoc.artist.artist_name if role_assoc.artist else artist_name} as here"
+                )
+                credit_btn.clicked.connect(
+                    lambda checked, ra=role_assoc: self.helper.change_credited_alias(ra)
+                )
+                artist_layout.addWidget(credit_btn)
 
                 remove_btn = QPushButton("Remove")
                 remove_btn.setFixedHeight(22)  # ← compact button
