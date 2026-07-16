@@ -2,6 +2,7 @@ from typing import Any, List
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QFrame,
@@ -183,6 +184,31 @@ class PublisherFuzzyMatchDialog(QDialog):
         layout.addLayout(btn_box)
 
         self._worker: _PublisherMergeWorker | None = None
+
+        self._autosize(content)
+
+    def _autosize(self, content: QWidget) -> None:
+        """Grow the dialog to fit the match grid, within reason.
+
+        A handful of matches shouldn't leave most of the window empty, and
+        hundreds of matches shouldn't blow the dialog past the screen — so
+        the natural content size is clamped to a fraction of the available
+        screen space, with the configured minimum as a floor.
+        """
+        hint = content.sizeHint()
+
+        screen = self.screen() or QApplication.primaryScreen()
+        available = screen.availableGeometry()
+
+        # Extra room for the scrollbar plus the instructions/buttons/margins
+        # that sit outside the scrolled grid itself.
+        width = hint.width() + 60
+        height = hint.height() + 160
+
+        width = max(self.minimumWidth(), min(width, int(available.width() * 0.9)))
+        height = max(self.minimumHeight(), min(height, int(available.height() * 0.9)))
+
+        self.resize(width, height)
 
     def _perform_merge(self) -> None:
         """Kick off a background merge of the checked pairs with the
