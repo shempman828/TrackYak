@@ -218,9 +218,7 @@ class AssociationDetailsDialog(QDialog):
             if hasattr(entity, "album") and entity.album:
                 tooltip += f"Album: {entity.album.album_name}\n"
             if entity.duration:
-                minutes = entity.duration // 60
-                seconds = entity.duration % 60
-                tooltip += f"Duration: {minutes}:{seconds:02d}"
+                tooltip += f"Duration: {entity.duration_formatted}"
         elif entity_type == "album" and hasattr(entity, "album_name"):
             tooltip = f"Album: {entity.album_name}\n"
             if entity.release_year:
