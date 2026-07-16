@@ -241,6 +241,29 @@ class PlaylistView(QWidget):
         menu.addAction("Delete", self.delete_selected)
         menu.exec_(self.tree.viewport().mapToGlobal(pos))
 
+    @staticmethod
+    def _format_playlist_label(playlist_obj) -> str:
+        """Build the raw (depth-prefix-free) display label for a playlist,
+        including its smart-playlist symbol and track counts."""
+        display_name = playlist_obj.playlist_name
+        if getattr(playlist_obj, "is_smart", False):
+            display_name = f"🔍 {display_name}"
+
+        # --- Track count display ---
+        # Use the playlist's own properties — no recalculation needed here
+        own_count = getattr(playlist_obj, "track_count", 0) or 0
+        recursive_total = (
+            getattr(playlist_obj, "recursive_track_count", own_count) or own_count
+        )
+
+        if recursive_total != own_count:
+            # This playlist has sub-playlists with additional tracks
+            # e.g. "My Folder (3, 10 total)"
+            return f"{display_name} ({own_count}, {recursive_total} total)"
+        # Counts match — no need for a separate "total"
+        # e.g. "My Playlist (5)"
+        return f"{display_name} ({own_count})"
+
     def _build_tree(self, parent_item, children_map, depth):
         """Recursively build playlist tree with smart playlist symbols."""
         parent_id = parent_item.data(0, Qt.UserRole)[1] if parent_item else None
@@ -251,26 +274,7 @@ class PlaylistView(QWidget):
         )
 
         for child in children:
-            # Add smart playlist symbol (🔍) for smart playlists
-            display_name = child.playlist_name
-            if getattr(child, "is_smart", False):
-                display_name = f"🔍 {display_name}"
-
-            # --- Track count display ---
-            # Use the playlist's own properties — no recalculation needed here
-            own_count = getattr(child, "track_count", 0) or 0
-            recursive_total = (
-                getattr(child, "recursive_track_count", own_count) or own_count
-            )
-
-            if recursive_total != own_count:
-                # This playlist has sub-playlists with additional tracks
-                # e.g. "My Folder (3, 10 total)"
-                display_name = f"{display_name} ({own_count}, {recursive_total} total)"
-            else:
-                # Counts match — no need for a separate "total"
-                # e.g. "My Playlist (5)"
-                display_name = f"{display_name} ({own_count})"
+            display_name = self._format_playlist_label(child)
 
             item = QTreeWidgetItem([hierarchy_label(display_name, depth)])
             item.setData(0, Qt.UserRole, ("playlist", child.playlist_id))
@@ -278,6 +282,10 @@ class PlaylistView(QWidget):
 
             # Store whether this is a smart playlist for context menu checks
             item.setData(0, Qt.UserRole + 1, getattr(child, "is_smart", False))
+
+            # Store the raw (un-prefixed) label so a later in-place move can
+            # recompute the depth prefix without needing a full tree reload.
+            item.setData(0, Qt.UserRole + 2, display_name)
 
             item.setIcon(0, icon_for_depth(depth))
 
@@ -424,6 +432,55 @@ class PlaylistView(QWidget):
                     self, "Error", f"Failed to delete {item_type}:\n{str(e)}"
                 )
 
+    @staticmethod
+    def _depth_of(item: QTreeWidgetItem) -> int:
+        """Count how many ancestors `item` has in the tree."""
+        depth = 0
+        parent = item.parent()
+        while parent is not None:
+            depth += 1
+            parent = parent.parent()
+        return depth
+
+    @staticmethod
+    def _is_descendant(ancestor: QTreeWidgetItem, item: Optional[QTreeWidgetItem]) -> bool:
+        """Return True if `item` is nested somewhere below `ancestor`."""
+        while item is not None:
+            item = item.parent()
+            if item is ancestor:
+                return True
+        return False
+
+    def _update_subtree_depth(self, item: QTreeWidgetItem, depth: int) -> None:
+        """Recompute the indent prefix/icon for `item` and everything nested
+        below it after its depth in the tree has changed."""
+        raw_label = item.data(0, Qt.UserRole + 2)
+        if raw_label is not None:
+            item.setText(0, hierarchy_label(raw_label, depth))
+        item.setIcon(0, icon_for_depth(depth))
+        for i in range(item.childCount()):
+            self._update_subtree_depth(item.child(i), depth + 1)
+
+    def _refresh_item_display(self, item: QTreeWidgetItem) -> None:
+        """Re-fetch a single playlist's counts from the DB and update its
+        label in place, without touching the rest of the tree."""
+        item_data = item.data(0, Qt.UserRole)
+        if not item_data or len(item_data) != 2 or item_data[0] != "playlist":
+            return
+        try:
+            playlist_obj = self.controller.get.get_entity_object(
+                "Playlist", playlist_id=item_data[1]
+            )
+        except Exception as e:
+            logger.error(f"Failed to refresh playlist item display: {str(e)}")
+            return
+        if not playlist_obj:
+            return
+
+        raw_label = self._format_playlist_label(playlist_obj)
+        item.setData(0, Qt.UserRole + 2, raw_label)
+        item.setText(0, hierarchy_label(raw_label, self._depth_of(item)))
+
     def handle_drop(self, event: Any) -> None:
         target_item = self.tree.itemAt(event.pos())
         dragged_item = self.tree.currentItem()
@@ -447,10 +504,49 @@ class PlaylistView(QWidget):
                 event.ignore()
                 return
 
+            # Dropping a playlist onto itself or one of its own descendants
+            # would create a cycle in the tree - refuse it.
+            if target_item is dragged_item or self._is_descendant(
+                dragged_item, target_item
+            ):
+                event.ignore()
+                return
+
+            old_parent_item = dragged_item.parent()
+
             # Update the playlist's parent_id in database
             self.controller.update.update_entity(
                 "Playlist", dragged_id, parent_id=new_parent_id
             )
+
+            # Move the item within the tree in place instead of reloading the
+            # whole module, so selection/scroll position/expanded state don't
+            # get disturbed by an unrelated drag-and-drop.
+            if old_parent_item is not None:
+                old_parent_item.removeChild(dragged_item)
+            else:
+                self.tree.takeTopLevelItem(
+                    self.tree.indexOfTopLevelItem(dragged_item)
+                )
+
+            if target_item is not None:
+                target_item.addChild(dragged_item)
+            else:
+                self.tree.addTopLevelItem(dragged_item)
+
+            # The moved item (and everything nested under it) sits at a new
+            # depth now - refresh its indent prefix/icon to match.
+            self._update_subtree_depth(dragged_item, self._depth_of(dragged_item))
+
+            # The recursive track counts shown on both the old and new
+            # ancestor chains changed - refresh just those labels.
+            for ancestor in (old_parent_item, target_item):
+                while ancestor is not None:
+                    self._refresh_item_display(ancestor)
+                    ancestor = ancestor.parent()
+
+            dragged_item.setExpanded(True)
+            self.tree.setCurrentItem(dragged_item)
 
             self.playlist_updated.emit()
             logger.debug(f"Moved playlist {dragged_id} to parent {new_parent_id}")
