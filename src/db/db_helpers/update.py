@@ -57,6 +57,41 @@ class UpdateDB(BaseDBHelper):
             self.session.rollback()
             return False
 
+    def update_entity_by_filter(self, model_name: str, filters: dict, **kwargs):
+        """Update every row matching `filters` -- for junction tables with a
+        composite primary key (e.g. TrackArtistRole), where update_entity's
+        single entity_id can't identify one row.
+
+        Args:
+            model_name (str): The class name of the entity (e.g., 'TrackArtistRole').
+            filters (dict): Column-value pairs identifying the row(s) to update.
+            **kwargs: Attribute values to set on the matching row(s).
+
+        Returns:
+            bool: True if the update was successful, False otherwise.
+        """
+        try:
+            entity_class = MODEL_REGISTRY[model_name]
+        except KeyError:
+            return False
+
+        try:
+            query = self.session.query(entity_class)
+            for attr, value in filters.items():
+                if not hasattr(entity_class, attr):
+                    logger.warning(f"{model_name} has no attribute '{attr}'")
+                    return False
+                query = query.filter(getattr(entity_class, attr) == value)
+
+            updated = query.update(kwargs, synchronize_session="fetch")
+            self.session.commit()
+            logger.info(f"Updated {updated} {model_name} row(s) matching {filters}")
+            return True
+        except SQLAlchemyError as e:
+            logger.error(f"Error updating {model_name} matching {filters}: {e}")
+            self.session.rollback()
+            return False
+
     def update_entities(self, model_name: str, entity_ids: list, **kwargs):
         """Apply the same attribute changes to many entities in one statement.
 
