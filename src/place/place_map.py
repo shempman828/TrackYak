@@ -77,11 +77,12 @@ class MapView(QWidget):
 
         self.multi_select_widget = MultiSelectWidget()
         self.multi_select_widget.selection_changed.connect(self.apply_filter)
-        filter_controls.addWidget(self.multi_select_widget, 1)
+        filter_controls.addWidget(self.multi_select_widget)
 
         self.refresh_types_button = QPushButton("Refresh Types")
         self.refresh_types_button.clicked.connect(self.refresh_place_types)
         filter_controls.addWidget(self.refresh_types_button)
+        filter_controls.addStretch()
 
         filter_main_layout.addLayout(filter_controls)
         layout.addWidget(self.filter_container)
