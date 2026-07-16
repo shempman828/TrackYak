@@ -5,8 +5,7 @@
 import os
 
 from PySide6.QtCore import QSettings, Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QIntValidator, QPainter, QPixmap
-from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtGui import QDesktopServices, QIntValidator
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -25,6 +24,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.image.pixmap_with_fallback import load_pixmap_with_fallback
+
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 # Fallback suggestions used if the controller can't supply distinct values
@@ -34,9 +35,6 @@ GENDERS = ["", "Male", "Female", "Other"]
 
 # QSettings key for remembering the last directory used in the picture browser
 _SETTINGS_LAST_PIC_DIR = "artist_editor/last_pic_dir"
-
-# Placeholder shown in the picture preview when no profile picture is set
-_DEFAULT_ARTIST_PIC = "/assets/default_artist.svg"
 
 
 class BasicTab(QWidget):
@@ -399,37 +397,10 @@ class BasicTab(QWidget):
         self._refresh_pic_preview(path)
 
     def _refresh_pic_preview(self, path: str):
-        if not path:
-            self._show_default_pic_preview()
-            return
-        px = QPixmap(path)
-        if px.isNull():
-            self.pic_label.setPixmap(QPixmap())
-            self.pic_label.setText("Invalid image")
-        else:
-            self.pic_label.setText("")
-            self.pic_label.setPixmap(
-                px.scaled(
-                    self.pic_label.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation
-                )
-            )
-
-    def _show_default_pic_preview(self):
-        """Render the default artist silhouette into the preview label."""
         self.pic_label.setText("")
-        if os.path.exists(_DEFAULT_ARTIST_PIC):
-            renderer = QSvgRenderer(_DEFAULT_ARTIST_PIC)
-            if renderer.isValid():
-                pix = QPixmap(self.pic_label.size())
-                pix.fill(Qt.transparent)
-                painter = QPainter(pix)
-                renderer.render(painter)
-                painter.end()
-                self.pic_label.setPixmap(pix)
-                return
-        # Fall back to plain text if the asset is missing or invalid
-        self.pic_label.setPixmap(QPixmap())
-        self.pic_label.setText("No Image")
+        self.pic_label.setPixmap(
+            load_pixmap_with_fallback(path, self.pic_label.size())
+        )
 
     def _open_wiki_link(self):
         if self._wiki_link:
