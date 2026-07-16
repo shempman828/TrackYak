@@ -35,6 +35,10 @@ from src.db.db_tables import TrackArtistRole
 from src.track.base_track_view import BaseTrackView
 from src.influences.influences_dialog import AddInfluenceDialog
 from src.core.logger_config import logger
+from src.place.place_association_types import (
+    fetch_association_types,
+    find_or_create_association_type,
+)
 
 
 # -------------------------
@@ -696,14 +700,21 @@ class ArtistView(QWidget):
             dialog = PlaceSelectionDialog(self.controller, self)
             if dialog.exec_() == QDialog.Accepted:
                 place_id = dialog.selected_place_id
-                association_type = dialog.selected_association_type
                 if place_id:
+                    known_types = fetch_association_types(self.controller)
+                    assoc_type = find_or_create_association_type(
+                        self.controller,
+                        dialog.selected_association_type,
+                        known_types,
+                    )
                     self.controller.add.add_entity(
                         "PlaceAssociation",
                         place_id=place_id,
                         entity_id=artist.artist_id,
                         entity_type="Artist",
-                        association_type=association_type or "associated",
+                        association_type_id=assoc_type.association_type_id
+                        if assoc_type
+                        else None,
                     )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to add place: {e}")
