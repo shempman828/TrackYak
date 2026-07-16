@@ -47,10 +47,25 @@ class TrackArtistRole(Base):
     role_id = Column(
         Integer, ForeignKey("roles.role_id", ondelete="CASCADE"), primary_key=True
     )
+    # Optional override so this specific credit can display/write one of the
+    # artist's existing aliases (e.g. "The Artist Formerly Known As") instead
+    # of their canonical artist_name, without changing who they resolve to.
+    credited_alias_id = Column(
+        Integer, ForeignKey("artist_alias.alias_id", ondelete="SET NULL")
+    )
 
     track = relationship("Track", back_populates="artist_roles")
     artist = relationship("Artist", back_populates="track_roles")
     role = relationship("Role", back_populates="track_roles")
+    credited_alias = relationship("ArtistAlias")
+
+    @property
+    def credited_name(self):
+        """Name to display/write for this credit: the overriding alias if
+        set, otherwise the artist's canonical name."""
+        if self.credited_alias:
+            return self.credited_alias.alias_name
+        return self.artist.artist_name if self.artist else None
 
 
 class AlbumRoleAssociation(Base):
@@ -70,8 +85,23 @@ class AlbumRoleAssociation(Base):
     # group -- lets "Duke Ellington & John Coltrane" be reordered to
     # "John Coltrane & Duke Ellington" without changing who's credited.
     sort_order = Column(Integer, nullable=False, default=0)
+    # Optional override so this specific credit can display/write one of the
+    # artist's existing aliases (e.g. "The Artist Formerly Known As") instead
+    # of their canonical artist_name, without changing who they resolve to.
+    credited_alias_id = Column(
+        Integer, ForeignKey("artist_alias.alias_id", ondelete="SET NULL")
+    )
 
     # Relationships
     album = relationship("Album", back_populates="album_roles")
     artist = relationship("Artist", back_populates="album_roles")
     role = relationship("Role", back_populates="album_roles")
+    credited_alias = relationship("ArtistAlias")
+
+    @property
+    def credited_name(self):
+        """Name to display/write for this credit: the overriding alias if
+        set, otherwise the artist's canonical name."""
+        if self.credited_alias:
+            return self.credited_alias.alias_name
+        return self.artist.artist_name if self.artist else None
