@@ -24,7 +24,6 @@ from PySide6.QtWidgets import (
 
 from src.common.hierarchy_tree_style import (
     configure_hierarchy_tree,
-    hierarchy_label,
     icon_for_depth,
 )
 from src.core.logger_config import logger
@@ -299,14 +298,9 @@ class PlaylistView(QWidget):
             return
 
         child_names = ", ".join(
-            item.data(0, Qt.UserRole + 2) or item.text(0)
-            for children in groups.values()
-            for item in children
+            item.text(0) for children in groups.values() for item in children
         )
-        parent_names = ", ".join(
-            parent_item.data(0, Qt.UserRole + 2) or parent_item.text(0)
-            for parent_item in groups
-        )
+        parent_names = ", ".join(parent_item.text(0) for parent_item in groups)
         confirm = QMessageBox.question(
             self,
             "Add Tracks to Parent Playlist",
@@ -417,16 +411,12 @@ class PlaylistView(QWidget):
             display_name = self._format_playlist_name(child)
             count_text = self._format_track_count(child)
 
-            item = QTreeWidgetItem([hierarchy_label(display_name, depth), count_text])
+            item = QTreeWidgetItem([display_name, count_text])
             item.setData(0, Qt.UserRole, ("playlist", child.playlist_id))
             item.setFlags(item.flags() | Qt.ItemIsEditable)
 
             # Store whether this is a smart playlist for context menu checks
             item.setData(0, Qt.UserRole + 1, getattr(child, "is_smart", False))
-
-            # Store the raw (un-prefixed) name so a later in-place move can
-            # recompute the depth prefix without needing a full tree reload.
-            item.setData(0, Qt.UserRole + 2, display_name)
 
             item.setIcon(0, icon_for_depth(depth))
             self._style_count_cell(item)
@@ -542,8 +532,6 @@ class PlaylistView(QWidget):
             return
         item_type, item_id = item_data
 
-        # Use the stored playlist object name, not item.text(0), which
-        # includes the depth-indent prefix (e.g. "  ↳ ").
         try:
             playlist_obj = self.controller.get.get_entity_object(
                 "Playlist", playlist_id=item_id
@@ -594,11 +582,8 @@ class PlaylistView(QWidget):
         return False
 
     def _update_subtree_depth(self, item: QTreeWidgetItem, depth: int) -> None:
-        """Recompute the indent prefix/icon for `item` and everything nested
-        below it after its depth in the tree has changed."""
-        raw_label = item.data(0, Qt.UserRole + 2)
-        if raw_label is not None:
-            item.setText(0, hierarchy_label(raw_label, depth))
+        """Recompute the icon for `item` and everything nested below it
+        after its depth in the tree has changed."""
         item.setIcon(0, icon_for_depth(depth))
         for i in range(item.childCount()):
             self._update_subtree_depth(item.child(i), depth + 1)
@@ -620,8 +605,7 @@ class PlaylistView(QWidget):
             return
 
         raw_name = self._format_playlist_name(playlist_obj)
-        item.setData(0, Qt.UserRole + 2, raw_name)
-        item.setText(0, hierarchy_label(raw_name, self._depth_of(item)))
+        item.setText(0, raw_name)
         item.setText(1, self._format_track_count(playlist_obj))
         self._style_count_cell(item)
 
