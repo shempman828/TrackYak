@@ -115,7 +115,6 @@ class MusicPlayer(QObject):
         self._next_sample_rate: int = 0
         self._next_channels: int = 0
         self._next_total_frames: int = 0
-        self._next_gain_factor: float = 1.0
         self._preload_lock = threading.Lock()
         self._preload_thread: Optional[threading.Thread] = None
 
@@ -675,7 +674,6 @@ class MusicPlayer(QObject):
                     self._next_sample_rate = reader.samplerate
                     self._next_channels = reader.channels
                     self._next_total_frames = len(reader)
-                    self._next_gain_factor = 1.0  # Approximate; recalculated at swap
                 logger.debug(f"Pre-loaded next track: {next_path.name}")
             except Exception as exc:
                 logger.warning(f"Pre-load failed for {next_path.name}: {exc}")
