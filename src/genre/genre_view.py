@@ -1,6 +1,8 @@
 from collections import defaultdict
 from typing import Optional
 
+from sqlalchemy import func, select
+
 from PySide6.QtCore import QMimeData, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QDrag, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
@@ -18,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.base_split_dialog import SplitDBDialog
+from src.db.db_tables import TrackGenre
 from src.genre.genre_edit import GenreEditDialog
 from src.genre.genre_merge import GenreMergeDialog
 from src.genre.genre_tracks import GenreTracksWindow
@@ -169,14 +172,17 @@ class GenreView(QWidget):
             self.tree.clear()
             genres = self.controller.get.get_all_entities("Genre")
 
-            # Get track counts for each genre from TrackGenre table
-            track_counts = {}
-            track_genres = self.controller.get.get_all_entities("TrackGenre")
-
-            # Count tracks per genre using TrackGenre table (much faster)
-            for track_genre in track_genres:
-                genre_id = track_genre.genre_id
-                track_counts[genre_id] = track_counts.get(genre_id, 0) + 1
+            # Get track counts for each genre with a single grouped COUNT
+            # query instead of fetching every TrackGenre row as an ORM
+            # object just to count them in Python (67k+ rows in a large
+            # library — that instantiation cost alone was ~800ms).
+            track_counts = dict(
+                self.controller.get.session.execute(
+                    select(TrackGenre.genre_id, func.count()).group_by(
+                        TrackGenre.genre_id
+                    )
+                ).all()
+            )
 
             # Build a mapping of genre_id to genre for quick lookup
             genre_map = {genre.genre_id: genre for genre in genres}
@@ -184,9 +190,14 @@ class GenreView(QWidget):
             # Build a parent-child mapping
             children_map = defaultdict(list)
             for genre in genres:
+                parent_name = (
+                    genre_map[genre.parent_id].genre_name
+                    if genre.parent_id in genre_map
+                    else "None"
+                )
                 logger.debug(
                     f"Genre: {genre.genre_name} (ID: {genre.genre_id}), Parent: "
-                    f"{genre.parent.genre_name if genre.parent else 'None'}"
+                    f"{parent_name}"
                 )
 
                 children_map[genre.parent_id].append(genre)
