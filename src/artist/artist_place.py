@@ -1,6 +1,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QCompleter,
     QDialog,
     QDialogButtonBox,
     QLabel,
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.place.place_association_types import fetch_association_types
 
 
 # -------------------------
@@ -23,7 +25,7 @@ class PlaceSelectionDialog(QDialog):
         super().__init__(parent)
         self.controller = controller
         self.selected_place_id = None
-        self.selected_association_type = "associated"
+        self.selected_association_type = "Associated"
         self._init_ui()
 
     def _init_ui(self):
@@ -47,7 +49,14 @@ class PlaceSelectionDialog(QDialog):
 
         layout.addWidget(QLabel("Association type:"))
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["associated", "birth", "death", "residence"])
+        self.type_combo.setEditable(True)
+        known_types = fetch_association_types(self.controller)
+        self.type_combo.addItems([t.type_name for t in known_types])
+        self.type_combo.setCurrentText("Associated")
+        completer = QCompleter([t.type_name for t in known_types], self.type_combo)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        self.type_combo.setCompleter(completer)
         layout.addWidget(self.type_combo)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
