@@ -384,7 +384,7 @@ VORBIS_PLACE_MAPPINGS = {
         "field": "place_name",
         "type": str,
         "entity": "Place",
-        "association_type": "Release Country",
+        "association_type": "Release Location",
         "entity_type": "Album",
     },
 }
