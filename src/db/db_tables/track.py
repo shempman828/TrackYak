@@ -217,10 +217,9 @@ class Track(Base):
     def primary_artist_names(self):
         """Return properly formatted primary artist names (Oxford comma style)."""
         names = [
-            artist.artist_name
-            if artist and hasattr(artist, "artist_name") and artist.artist_name
-            else "Unknown Artist"
-            for artist in self.primary_artists
+            assoc.credited_name or "Unknown Artist"
+            for assoc in self.artist_roles
+            if assoc.role and assoc.role.role_name == "Primary Artist"
         ]
 
         # Clean up whitespace and remove empty strings
