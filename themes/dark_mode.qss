@@ -212,6 +212,34 @@ QTreeWidget::item:selected:!active {
     border: none;
 }
 
+QTreeView::indicator,
+QListView::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #3a3d55;
+    background-color: #11121a;
+    border-radius: 4px;
+}
+
+QTreeView::indicator:hover,
+QListView::indicator:hover {
+    border-color: rgba(133, 153, 234, 0.6);
+    background-color: #1a1b26;
+}
+
+QTreeView::indicator:checked,
+QListView::indicator:checked {
+    background-color: #8599ea;
+    border-color: #8599ea;
+    image: url(ASSETS_DIR_PLACEHOLDER/checkmark.svg);
+}
+
+QTreeView::indicator:indeterminate,
+QListView::indicator:indeterminate {
+    background-color: rgba(133, 153, 234, 0.4);
+    border-color: #8599ea;
+}
+
 /* ── TABLE VIEW ──────────────────────────────────────────────────────────────── */
 QTableView,
 QTableWidget {

@@ -78,6 +78,27 @@ QTreeWidget::item:selected {
     border: none;
 }
 
+QTreeView::indicator,
+QListView::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #777;
+    background-color: #ffffff;
+    border-radius: 3px;
+}
+
+QTreeView::indicator:checked,
+QListView::indicator:checked {
+    background-color: #8599ea;
+    border: 1px solid #8599ea;
+    image: url(assets/checkmark.svg);
+}
+
+QTreeView::indicator:unchecked:hover,
+QListView::indicator:unchecked:hover {
+    border: 1px solid #99ea85;
+}
+
 /* --- BUTTONS --- */
 QPushButton {
     background-color: #e9eaff;

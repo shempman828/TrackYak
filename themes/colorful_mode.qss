@@ -132,6 +132,27 @@ QTreeWidget::item:selected {
     color: white;
 }
 
+QTreeView::indicator,
+QListView::indicator {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #ea8599;
+    border-radius: 4px;
+    background-color: #ffffff;
+}
+
+QTreeView::indicator:checked,
+QListView::indicator:checked {
+    background-color: #99ea85;
+    border-color: #99ea85;
+    image: url(assets/checkmark.svg);
+}
+
+QTreeView::indicator:hover,
+QListView::indicator:hover {
+    border-color: #8599ea;
+}
+
 /* --- SCROLLBARS (Neon Glow) --- */
 QScrollBar::handle {
     background: #8599ea;
