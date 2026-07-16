@@ -85,29 +85,51 @@ class ID3FrameBuilder:
             "Conductor": "TPE3",
         }
 
+        # MusicBrainz Picard convention: alongside the display name, also
+        # write a stable per-artist ID as a TXXX frame so re-imports can
+        # resolve identity even when the display name is an alias override,
+        # not the artist's canonical name. Only the primary/album artist
+        # frames have a standard ID counterpart.
+        id_frame_map = {"TPE1": "MusicBrainz Artist Id", "TPE2": "MusicBrainz Album Artist Id"}
+
         # Group artists by role for each frame type
         artists_by_frame = {}
+        mbids_by_frame = {}
         for artist_data in artists_with_roles:
             role_name = artist_data["role"].role_name
             frame_id = role_to_frame_map.get(role_name)
-            if frame_id and artist_data["artist"].artist_name:
-                if frame_id not in artists_by_frame:
-                    artists_by_frame[frame_id] = []
-                artists_by_frame[frame_id].append(artist_data["artist"].artist_name)
+            if frame_id and artist_data["credited_name"]:
+                artists_by_frame.setdefault(frame_id, [])
+                artists_by_frame[frame_id].append(artist_data["credited_name"])
+                if frame_id in id_frame_map and artist_data.get("artist_mbid"):
+                    mbids_by_frame.setdefault(frame_id, [])
+                    mbids_by_frame[frame_id].append(artist_data["artist_mbid"])
 
         # Also include album artists
         for artist_data in album_artists_with_roles:
             role_name = artist_data["role"].role_name
-            if role_name == "Album Artist" and artist_data["artist"].artist_name:
-                if "TPE2" not in artists_by_frame:
-                    artists_by_frame["TPE2"] = []
-                artists_by_frame["TPE2"].append(artist_data["artist"].artist_name)
+            if role_name == "Album Artist" and artist_data["credited_name"]:
+                artists_by_frame.setdefault("TPE2", [])
+                artists_by_frame["TPE2"].append(artist_data["credited_name"])
+                if artist_data.get("artist_mbid"):
+                    mbids_by_frame.setdefault("TPE2", [])
+                    mbids_by_frame["TPE2"].append(artist_data["artist_mbid"])
 
         # Create frames for each artist type
         for frame_id, artist_names in artists_by_frame.items():
             if artist_names:
                 artist_text = " / ".join(artist_names)
                 frames.append(self.id3_writer.create_text_frame(frame_id, artist_text))
+
+        # Create the paired MusicBrainz ID TXXX frames, in the same order
+        for frame_id, mbids in mbids_by_frame.items():
+            if mbids:
+                mbid_text = " / ".join(mbids)
+                frames.append(
+                    self.id3_writer.create_txxx_frame(
+                        id_frame_map[frame_id], mbid_text
+                    )
+                )
 
         # Genre mappings
         for tag_id, mapping in ID3_GENRE_MAPPINGS.items():
@@ -186,7 +208,7 @@ class ID3FrameBuilder:
 
                 for artist_data in all_artists_data:
                     role_name = artist_data["role"].role_name
-                    artist_name = artist_data["artist"].artist_name
+                    artist_name = artist_data["credited_name"]
                     if role_name and artist_name:
                         role_artist_pairs.append(
                             f"{role_name}{mapping['separator']}{artist_name}"
