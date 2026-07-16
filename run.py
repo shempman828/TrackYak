@@ -8,7 +8,7 @@ import random
 import sys
 import traceback
 
-from PySide6.QtCore import QEventLoop, QTimer
+from PySide6.QtCore import QEventLoop, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from src.core.config_setup import Config
@@ -168,6 +168,12 @@ def main() -> None:
 
         # Change #1 — display backend now configured via an explicit function call
         configure_display_backend()
+
+        # Must be set before QApplication is constructed. Without it, the first
+        # QWebEngineView created after other top-level windows already exist
+        # (e.g. opening the Places map) forces Qt to recreate every window to
+        # share a GL context, which is visible as a whole-app flash.
+        QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
 
         # Initialize Qt application FIRST for splash screen
         app = QApplication(sys.argv)
