@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QTreeWidget,
     QTreeWidgetItem,
+    QTreeWidgetItemIterator,
 )
 
 from src.core.logger_config import logger
@@ -146,6 +147,25 @@ class PublisherTreeWidget(QTreeWidget):
         except Exception as e:
             logger.error(f"Error calculating album count: {str(e)}")
             return 0
+
+    def count_total(self):
+        """Count all publisher items in the tree, regardless of visibility."""
+        count = 0
+        iterator = QTreeWidgetItemIterator(self)
+        while iterator.value():
+            count += 1
+            iterator += 1
+        return count
+
+    def count_visible(self):
+        """Count publisher items currently visible (not hidden by search filter)."""
+        count = 0
+        iterator = QTreeWidgetItemIterator(self)
+        while iterator.value():
+            if not iterator.value().isHidden():
+                count += 1
+            iterator += 1
+        return count
 
     def filter_items(self, search_text):
         """Filter tree items based on search text."""
