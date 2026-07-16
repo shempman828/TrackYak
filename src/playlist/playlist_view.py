@@ -11,6 +11,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
+    QHeaderView,
     QMenu,
     QMessageBox,
     QPushButton,
@@ -81,6 +82,14 @@ class PlaylistView(QWidget):
         # Tree widget for displaying playlist hierarchy
         self.tree = QTreeWidget()
         configure_hierarchy_tree(self.tree)
+
+        # Second column keeps track counts out of the name text so the tree
+        # reads as "name ... count" instead of a single run-on string.
+        self.tree.setColumnCount(2)
+        header = self.tree.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
 
         # Override dropEvent with our custom handler for persistence
         self.tree.dropEvent = self.handle_drop
@@ -242,27 +251,42 @@ class PlaylistView(QWidget):
         menu.exec_(self.tree.viewport().mapToGlobal(pos))
 
     @staticmethod
-    def _format_playlist_label(playlist_obj) -> str:
-        """Build the raw (depth-prefix-free) display label for a playlist,
-        including its smart-playlist symbol and track counts."""
+    def _format_playlist_name(playlist_obj) -> str:
+        """Build the raw (depth-prefix-free) display name for a playlist,
+        including its smart-playlist symbol. Track counts are rendered
+        separately — see `_format_track_count` — so the name column stays
+        readable instead of a run-on string of words and numbers."""
         display_name = playlist_obj.playlist_name
         if getattr(playlist_obj, "is_smart", False):
             display_name = f"🔍 {display_name}"
+        return display_name
 
-        # --- Track count display ---
-        # Use the playlist's own properties — no recalculation needed here
+    @staticmethod
+    def _format_track_count(playlist_obj) -> str:
+        """Build the compact track-count text for the tree's count column.
+
+        Use the playlist's own properties — no recalculation needed here.
+        """
         own_count = getattr(playlist_obj, "track_count", 0) or 0
         recursive_total = (
             getattr(playlist_obj, "recursive_track_count", own_count) or own_count
         )
-
         if recursive_total != own_count:
-            # This playlist has sub-playlists with additional tracks
-            # e.g. "My Folder (3, 10 total)"
-            return f"{display_name} ({own_count}, {recursive_total} total)"
-        # Counts match — no need for a separate "total"
-        # e.g. "My Playlist (5)"
-        return f"{display_name} ({own_count})"
+            # Has sub-playlists contributing additional tracks, e.g. "3 · 10"
+            return f"{own_count} · {recursive_total}"
+        # Counts match — just the one number, e.g. "5"
+        return str(own_count)
+
+    @staticmethod
+    def _style_count_cell(item: QTreeWidgetItem) -> None:
+        """Right-align and de-emphasize the count column so it reads as a
+        secondary detail rather than competing with the playlist name."""
+        item.setTextAlignment(1, Qt.AlignRight | Qt.AlignVCenter)
+        font = item.font(1)
+        font.setItalic(True)
+        item.setFont(1, font)
+        if "·" in item.text(1):
+            item.setToolTip(1, "Own tracks · total including sub-playlists")
 
     def _build_tree(self, parent_item, children_map, depth):
         """Recursively build playlist tree with smart playlist symbols."""
@@ -274,20 +298,22 @@ class PlaylistView(QWidget):
         )
 
         for child in children:
-            display_name = self._format_playlist_label(child)
+            display_name = self._format_playlist_name(child)
+            count_text = self._format_track_count(child)
 
-            item = QTreeWidgetItem([hierarchy_label(display_name, depth)])
+            item = QTreeWidgetItem([hierarchy_label(display_name, depth), count_text])
             item.setData(0, Qt.UserRole, ("playlist", child.playlist_id))
             item.setFlags(item.flags() | Qt.ItemIsEditable)
 
             # Store whether this is a smart playlist for context menu checks
             item.setData(0, Qt.UserRole + 1, getattr(child, "is_smart", False))
 
-            # Store the raw (un-prefixed) label so a later in-place move can
+            # Store the raw (un-prefixed) name so a later in-place move can
             # recompute the depth prefix without needing a full tree reload.
             item.setData(0, Qt.UserRole + 2, display_name)
 
             item.setIcon(0, icon_for_depth(depth))
+            self._style_count_cell(item)
 
             if parent_item:
                 parent_item.addChild(item)
@@ -400,8 +426,8 @@ class PlaylistView(QWidget):
             return
         item_type, item_id = item_data
 
-        # Use the stored playlist object name, not item.text(0), which now
-        # includes the track count suffix like "(5)" or "(3, 10 total)".
+        # Use the stored playlist object name, not item.text(0), which
+        # includes the depth-indent prefix (e.g. "  ↳ ").
         try:
             playlist_obj = self.controller.get.get_entity_object(
                 "Playlist", playlist_id=item_id
@@ -477,9 +503,11 @@ class PlaylistView(QWidget):
         if not playlist_obj:
             return
 
-        raw_label = self._format_playlist_label(playlist_obj)
-        item.setData(0, Qt.UserRole + 2, raw_label)
-        item.setText(0, hierarchy_label(raw_label, self._depth_of(item)))
+        raw_name = self._format_playlist_name(playlist_obj)
+        item.setData(0, Qt.UserRole + 2, raw_name)
+        item.setText(0, hierarchy_label(raw_name, self._depth_of(item)))
+        item.setText(1, self._format_track_count(playlist_obj))
+        self._style_count_cell(item)
 
     def handle_drop(self, event: Any) -> None:
         target_item = self.tree.itemAt(event.pos())
