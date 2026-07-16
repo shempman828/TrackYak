@@ -5,7 +5,7 @@ text for TrackView.
 
 from sqlalchemy import select
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtGui import QStandardItem
 
 from src.db.db_tables import Album, Artist, Disc, Role, TrackArtistRole
@@ -15,8 +15,108 @@ from src.track.track_view_filter import LAZY_BATCH_SIZE, SortWorker
 # Track fields whose value comes from a relationship rather than a plain
 # Column. Reading these lazily (`getattr(track, field_name)`) triggers a
 # separate DB query per track — fine for one row, ruinous for a full-library
-# sort. `_build_lookup_caches` fetches all of them in a few bulk queries.
+# sort. `_build_lookup_caches`/`TrackLookupCacheWorker` fetch all of them in
+# a few bulk queries instead.
 _ALBUM_DERIVED_FIELDS = ("album_name", "release_year", "release_month", "release_day")
+
+# Relationship-derived columns that a lookup-cache refresh can change.
+_CACHE_DEPENDENT_FIELDS = frozenset({"primary_artist_names", "disc_number", *_ALBUM_DERIVED_FIELDS})
+
+
+def _format_primary_artist_names(names: list) -> str:
+    """Oxford-comma join, mirroring Track.primary_artist_names in src/db_tables/track.py."""
+    names = [n.strip() for n in names if n and n.strip()]
+    if not names:
+        return "Unknown Artist"
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} & {names[1]}"
+    return f"{', '.join(names[:-1])}, & {names[-1]}"
+
+
+def _fetch_lookup_caches(session):
+    """
+    Bulk-fetch every relationship-derived value (album info, disc number,
+    primary artist names) in a handful of JOIN queries. Shared by the
+    synchronous first-load path and the background `TrackLookupCacheWorker`.
+    """
+    album_cache = {
+        album_id: {
+            "album_name": name,
+            "release_year": year,
+            "release_month": month,
+            "release_day": day,
+        }
+        for album_id, name, year, month, day in session.execute(
+            select(
+                Album.album_id,
+                Album.album_name,
+                Album.release_year,
+                Album.release_month,
+                Album.release_day,
+            )
+        )
+    }
+
+    disc_number_cache = dict(
+        session.execute(select(Disc.disc_id, Disc.disc_number)).all()
+    )
+
+    by_track: dict[int, list[tuple[str, str]]] = {}
+    rows = session.execute(
+        select(TrackArtistRole.track_id, Artist.artist_name, Role.role_name)
+        .join(Artist, TrackArtistRole.artist_id == Artist.artist_id)
+        .join(Role, TrackArtistRole.role_id == Role.role_id)
+        # Match the (track_id, artist_id, role_id) composite PK index
+        # order that a per-track lazy load would return, so cached names
+        # come out in the same order as Track.primary_artist_names.
+        .order_by(
+            TrackArtistRole.track_id,
+            TrackArtistRole.artist_id,
+            TrackArtistRole.role_id,
+        )
+    ).all()
+    for track_id, artist_name, role_name in rows:
+        by_track.setdefault(track_id, []).append((artist_name, role_name))
+
+    artist_name_cache = {
+        track_id: _format_primary_artist_names(
+            [name for name, role_name in entries if role_name == "Primary Artist"]
+        )
+        for track_id, entries in by_track.items()
+    }
+
+    return album_cache, disc_number_cache, artist_name_cache
+
+
+class TrackLookupCacheWorker(QObject):
+    """
+    Runs on a background thread. Rebuilds the artist/album/disc lookup
+    caches with 3 bulk queries and emits the results back to the main
+    thread — mirrors RoleLoaderWorker in src/role/role_view.py.
+
+    Used when the user revisits the Tracks nav item: switching views must
+    stay instant, so the (already-cached) tracks are re-displayed
+    immediately and this worker refreshes the relationship-derived caches
+    (which may have gone stale if artists/albums were edited on another
+    view) without blocking the GUI thread.
+    """
+
+    # Payload: (album_cache, disc_number_cache, artist_name_cache)
+    finished = Signal(object, object, object)
+    error = Signal(str)
+
+    def __init__(self, controller):
+        super().__init__()
+        self.controller = controller
+
+    def run(self):
+        try:
+            caches = _fetch_lookup_caches(self.controller.get.session)
+            self.finished.emit(*caches)
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class TrackViewDataMixin:
@@ -26,6 +126,13 @@ class TrackViewDataMixin:
         """
         Load all tracks from DB into self._all_tracks (once).
         Only pushes the first LAZY_BATCH_SIZE rows into the Qt model.
+
+        On first load, the lookup caches are built synchronously (nothing to
+        show yet anyway). On a revisit (nav dock switch back to Tracks),
+        tracks are already cached, so the model is refreshed immediately from
+        the existing caches and the lookup caches are rebuilt in the
+        background — that keeps the switch itself instant even though a
+        full-library JOIN is happening under the hood.
         """
         if not self._tracks_loaded:
             try:
@@ -39,13 +146,21 @@ class TrackViewDataMixin:
                 logger.error(f"Error fetching tracks: {e}")
                 self._all_tracks = []
 
-        self._build_lookup_caches()
-        self._filter_active = False
-        self._filtered_tracks = []
-        self._loaded_count = 0
-        self.model.setRowCount(0)
-        self._append_next_batch(self._all_tracks)
-        self._update_status()
+            self._build_lookup_caches()
+            self._filter_active = False
+            self._filtered_tracks = []
+            self._loaded_count = 0
+            self.model.setRowCount(0)
+            self._append_next_batch(self._all_tracks)
+            self._update_status()
+        else:
+            self._filter_active = False
+            self._filtered_tracks = []
+            self._loaded_count = 0
+            self.model.setRowCount(0)
+            self._append_next_batch(self._all_tracks)
+            self._update_status()
+            self._refresh_lookup_caches_async()
 
     def _force_reload(self):
         """Explicitly re-query the DB (Refresh)."""
@@ -74,66 +189,82 @@ class TrackViewDataMixin:
         lazy-load a relationship per track, so sort_key() is a pure in-memory
         dict lookup and is safe to run on the background SortWorker thread
         (the ORM session itself is main-thread-only).
+
+        Used for the synchronous first-load / explicit-refresh paths. See
+        `_refresh_lookup_caches_async` for the background-thread version
+        used when revisiting the Tracks nav item.
         """
-        session = self.controller.get.session
-
-        self._album_cache = {
-            album_id: {
-                "album_name": name,
-                "release_year": year,
-                "release_month": month,
-                "release_day": day,
-            }
-            for album_id, name, year, month, day in session.execute(
-                select(
-                    Album.album_id,
-                    Album.album_name,
-                    Album.release_year,
-                    Album.release_month,
-                    Album.release_day,
-                )
-            )
-        }
-
-        self._disc_number_cache = dict(
-            session.execute(select(Disc.disc_id, Disc.disc_number)).all()
+        self._album_cache, self._disc_number_cache, self._artist_name_cache = (
+            _fetch_lookup_caches(self.controller.get.session)
         )
 
-        by_track: dict[int, list[tuple[str, str]]] = {}
-        rows = session.execute(
-            select(TrackArtistRole.track_id, Artist.artist_name, Role.role_name)
-            .join(Artist, TrackArtistRole.artist_id == Artist.artist_id)
-            .join(Role, TrackArtistRole.role_id == Role.role_id)
-            # Match the (track_id, artist_id, role_id) composite PK index
-            # order that a per-track lazy load would return, so cached names
-            # come out in the same order as Track.primary_artist_names.
-            .order_by(
-                TrackArtistRole.track_id,
-                TrackArtistRole.artist_id,
-                TrackArtistRole.role_id,
-            )
-        ).all()
-        for track_id, artist_name, role_name in rows:
-            by_track.setdefault(track_id, []).append((artist_name, role_name))
+    def _refresh_lookup_caches_async(self):
+        """Rebuild the lookup caches on a background thread (nav-switch revisit path)."""
+        try:
+            if self._lookup_thread and self._lookup_thread.isRunning():
+                return
+        except RuntimeError:
+            self._lookup_thread = None
 
-        self._artist_name_cache = {
-            track_id: self._format_primary_artist_names(
-                [name for name, role_name in entries if role_name == "Primary Artist"]
-            )
-            for track_id, entries in by_track.items()
-        }
+        self._lookup_thread = QThread(self)
+        self._lookup_worker = TrackLookupCacheWorker(self.controller)
+        self._lookup_worker.moveToThread(self._lookup_thread)
+
+        self._lookup_thread.started.connect(self._lookup_worker.run)
+        self._lookup_worker.finished.connect(self._on_lookup_caches_loaded)
+        self._lookup_worker.error.connect(self._on_lookup_caches_error)
+        self._lookup_worker.finished.connect(self._lookup_thread.quit)
+        self._lookup_worker.error.connect(self._lookup_thread.quit)
+        self._lookup_thread.finished.connect(self._lookup_thread.deleteLater)
+
+        self._lookup_thread.start()
+
+    def _on_lookup_caches_loaded(self, album_cache, disc_number_cache, artist_name_cache):
+        """Called on the main thread once TrackLookupCacheWorker finishes."""
+        self._album_cache = album_cache
+        self._disc_number_cache = disc_number_cache
+        self._artist_name_cache = artist_name_cache
+        self._refresh_visible_rows()
+
+    def _on_lookup_caches_error(self, message: str):
+        logger.error(f"Error refreshing track lookup caches: {message}")
+
+    def _refresh_visible_rows(self):
+        """
+        Re-render the relationship-derived columns (artist/album/disc names)
+        for rows already pushed into the model, picking up any changes from
+        the just-completed background cache rebuild.
+        """
+        source = self._filtered_tracks if self._filter_active else self._all_tracks
+        column_keys = list(self.columns.keys())
+        relevant_columns = [
+            (i, field_name)
+            for i, field_name in enumerate(column_keys)
+            if field_name in _CACHE_DEPENDENT_FIELDS
+        ]
+        if not relevant_columns:
+            return
+
+        row_count = min(self._loaded_count, len(source))
+        for row in range(row_count):
+            track = source[row]
+            for col_index, field_name in relevant_columns:
+                field_config = self.track_fields.get(field_name)
+                value = self._field_value(track, field_name)
+                display_value = self._format_value(value, field_name, field_config)
+                item = self.model.item(row, col_index)
+                if item is None:
+                    continue
+                item.setText(display_value)
+                item.setData(
+                    value if isinstance(value, (int, float)) else display_value,
+                    Qt.UserRole,
+                )
 
     @staticmethod
     def _format_primary_artist_names(names: list) -> str:
         """Oxford-comma join, mirroring Track.primary_artist_names in src/db_tables/track.py."""
-        names = [n.strip() for n in names if n and n.strip()]
-        if not names:
-            return "Unknown Artist"
-        if len(names) == 1:
-            return names[0]
-        if len(names) == 2:
-            return f"{names[0]} & {names[1]}"
-        return f"{', '.join(names[:-1])}, & {names[-1]}"
+        return _format_primary_artist_names(names)
 
     def _field_value(self, track, field_name: str):
         """
