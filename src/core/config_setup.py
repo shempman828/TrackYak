@@ -1,6 +1,7 @@
 """Class for managing the startup screen and config creation."""
 
 import configparser
+import json
 import logging
 from pathlib import Path
 
@@ -131,6 +132,10 @@ class Config:
         }
         self.config["nowplaying"] = {
             "lyrics_sync_offset": "-5",  # stored as tenths of a second (int)
+        }
+        self.config["influences"] = {
+            "legend_visible": "true",
+            "cluster_names": "",
         }
 
     def save(self):
@@ -580,6 +585,36 @@ class Config:
         if "nowplaying" not in self.config:
             self.config["nowplaying"] = {}
         self.config.set("nowplaying", "lyrics_sync_offset", str(int(value)))
+
+    def get_influence_legend_visible(self) -> bool:
+        """Get whether the cluster legend overlay is shown in the influences view."""
+        return self.config.getboolean("influences", "legend_visible", fallback=True)
+
+    def set_influence_legend_visible(self, visible: bool):
+        """Set whether the cluster legend overlay is shown in the influences view."""
+        if "influences" not in self.config:
+            self.config["influences"] = {}
+        self.config.set("influences", "legend_visible", str(visible).lower())
+
+    def get_influence_cluster_names(self) -> dict:
+        """Get persisted Louvain cluster names, keyed by anchor artist ID (as string).
+
+        Community indices are reassigned on every Louvain recompute, so names
+        are pinned to each cluster's highest-degree "anchor" artist instead.
+        """
+        raw = self.config.get("influences", "cluster_names", fallback="")
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def set_influence_cluster_names(self, names: dict):
+        """Set persisted Louvain cluster names, keyed by anchor artist ID (as string)."""
+        if "influences" not in self.config:
+            self.config["influences"] = {}
+        self.config.set("influences", "cluster_names", json.dumps(names))
 
     def get_last_art_dir(self) -> str:
         """Get the last directory used when picking album artwork."""
