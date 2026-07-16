@@ -184,16 +184,35 @@ class VorbisCommentBuilder:
             if name not in artists_by_tag[tag]:
                 artists_by_tag[tag].append(name)
 
+        # MusicBrainz Picard convention: alongside the display name, also
+        # write a stable per-artist ID tag so re-imports can resolve identity
+        # even when the display name is an alias override, not the artist's
+        # canonical name. Only ARTIST/ALBUMARTIST have a standard ID
+        # counterpart; other roles don't get one.
+        ID_TAG_MAP = {"ARTIST": "MUSICBRAINZ_ARTISTID", "ALBUMARTIST": "MUSICBRAINZ_ALBUMARTISTID"}
+        mbids_by_tag = {}
+
+        def _add_mbid(tag, mbid):
+            if not mbid:
+                return
+            id_tag = ID_TAG_MAP.get(tag)
+            if not id_tag:
+                return
+            mbids_by_tag.setdefault(id_tag, [])
+            if mbid not in mbids_by_tag[id_tag]:
+                mbids_by_tag[id_tag].append(mbid)
+
         all_artist_data = artists_with_roles + album_artists_with_roles
         for artist_data in all_artist_data:
             role_name = artist_data["role"].role_name
-            artist_name = artist_data["artist"].artist_name
+            artist_name = artist_data["credited_name"]
             if not artist_name:
                 continue
 
             direct_tag = ROLE_TO_TAG.get(role_name)
             if direct_tag:
                 _add_artist(direct_tag, artist_name)
+                _add_mbid(direct_tag, artist_data.get("artist_mbid"))
             else:
                 # Non-standard role: write as PERFORMER=Artist (Role)
                 # This is exactly what MusicBrainz Picard does
@@ -204,7 +223,7 @@ class VorbisCommentBuilder:
         ALSO_PERFORMER = {"Conductor", "Performer"}
         for artist_data in all_artist_data:
             role_name = artist_data["role"].role_name
-            artist_name = artist_data["artist"].artist_name
+            artist_name = artist_data["credited_name"]
             if not artist_name:
                 continue
             if role_name in ALSO_PERFORMER:
@@ -213,6 +232,9 @@ class VorbisCommentBuilder:
 
         for tag, names in artists_by_tag.items():
             _set_list(tag, names)
+
+        for id_tag, mbids in mbids_by_tag.items():
+            _set_list(id_tag, mbids)
 
         # ----------------------------------------------------------------
         # Multi-value fields — genres, moods, publishers, places
