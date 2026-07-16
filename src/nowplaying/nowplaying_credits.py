@@ -83,9 +83,8 @@ class _CreditsPanel(QWidget):
         try:
             for ar in getattr(track, "artist_roles", None) or []:
                 role = getattr(ar, "role", None)
-                artist = getattr(ar, "artist", None)
                 role_name = getattr(role, "role_name", "") or ""
-                artist_name = getattr(artist, "artist_name", "") or ""
+                artist_name = getattr(ar, "credited_name", "") or ""
                 if role_name == "Primary Artist":
                     continue
                 if role_name and artist_name:
