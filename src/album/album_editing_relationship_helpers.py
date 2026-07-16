@@ -16,6 +16,10 @@ from PySide6.QtWidgets import (
 
 from src.common.credited_as_dialog import CreditedAsDialog
 from src.core.logger_config import logger
+from src.place.place_association_types import (
+    fetch_association_types,
+    find_or_create_association_type,
+)
 
 
 class RelationshipHelpers:
@@ -265,6 +269,7 @@ class RelationshipHelpers:
     def add_place(self):
         """Add a place association to the album."""
         existing_places = self._get_existing_entities("Place", "place_name")
+        known_types = fetch_association_types(self.controller)
 
         result = AutocompleteDialog.get_inputs(
             [
@@ -279,7 +284,8 @@ class RelationshipHelpers:
                     "name": "association_type",
                     "label": "Association Type:",
                     "type": "text",
-                    "placeholder": "e.g. Recording Location, Release Country...",
+                    "completer_data": [t.type_name for t in known_types],
+                    "placeholder": "e.g. Recording Location, Release Location...",
                 },
             ],
             title="Add Place Association",
@@ -299,12 +305,18 @@ class RelationshipHelpers:
                     "Place", place_name=result["place_name"]
                 )
 
+            assoc_type_obj = find_or_create_association_type(
+                self.controller, result["association_type"], known_types
+            )
+
             self.controller.add.add_entity(
                 "PlaceAssociation",
                 place_id=place.place_id,
                 entity_id=self.album.album_id,
                 entity_type="Album",
-                association_type=result["association_type"] or None,
+                association_type_id=assoc_type_obj.association_type_id
+                if assoc_type_obj
+                else None,
             )
 
             self.show_updated_view()
