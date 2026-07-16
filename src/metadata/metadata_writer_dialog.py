@@ -22,8 +22,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.metadata.metadata_writer import MetadataWriter, WriteMode
+from src.core.logger_config import logger
 from src.core.status_utility import StatusManager
+from src.metadata.metadata_writer import MetadataWriter, WriteMode
 
 
 class MetadataScannerWorker(QThread):
@@ -70,6 +71,7 @@ class MetadataScannerWorker(QThread):
                         self.log_message.emit(f"Scanned {i + 1}/{total} tracks...")
 
                 except Exception as e:
+                    logger.error(f"Error scanning track {track.track_id}: {e}")
                     self.log_message.emit(
                         f"Error scanning track {track.track_id}: {str(e)}"
                     )
@@ -82,6 +84,7 @@ class MetadataScannerWorker(QThread):
             self.finished.emit(results)
 
         except Exception as e:
+            logger.exception("Library metadata scan failed")
             self.log_message.emit(f"Scan failed: {str(e)}")
             self.finished.emit({})
 
@@ -133,6 +136,7 @@ class MetadataWriteWorker(QThread):
                     self.log_message.emit(f"✗ Failed to update track {track_id}")
 
             except Exception as e:
+                logger.error(f"Error updating track {track_id}: {e}")
                 self.log_message.emit(f"✗ Error updating track {track_id}: {str(e)}")
                 results[track_id] = False
 
@@ -308,6 +312,9 @@ class MetadataWriteDialog(QDialog):
         self.cancel_btn.setEnabled(False)
         self.progress_group.setVisible(False)
 
+        logger.info(
+            f"Metadata scan complete: {eligible_count}/{total_count} files eligible for update"
+        )
         self.log_message(
             f"=== Scan complete: {eligible_count}/{total_count} files eligible for update ==="
         )
@@ -383,6 +390,9 @@ class MetadataWriteDialog(QDialog):
         self.progress_group.setVisible(False)
 
         # Show results
+        logger.info(
+            f"Metadata update complete: {success_count}/{total_count} files updated successfully"
+        )
         self.log_message(
             f"=== Update complete: {success_count}/{total_count} successful ==="
         )

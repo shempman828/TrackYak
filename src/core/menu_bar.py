@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from src.statistics.analysis_dialog import AudioAnalysisDialog
 from src.core.asset_paths import icon
 from src.core.config_setup import app_config
+from src.core.logger_config import logger
 from src.display.display_dialog import DisplaySettingsDialog
 from src.library.duplicate_finder import DuplicateFinderDialog
 from src.equalizer.equalizer_dialog import EqualizerDialog
@@ -167,7 +168,8 @@ class MenuBar:
         try:
             path = icon(name)
             return bool(path) and os.path.exists(path)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Icon existence check failed for {name}: {e}")
             return False
 
     def _get_display_settings_auto_hide(self) -> bool:
@@ -363,6 +365,7 @@ class MenuBar:
         try:
             self.import_dialog.isVisible()
         except RuntimeError:
+            logger.debug("Import dialog was deleted; recreating")
             self.import_dialog = ImportDialog(self.controller)
 
         self.import_dialog.raise_()
@@ -394,9 +397,10 @@ class MenuBar:
                 self._mini_player.close()
                 self._mini_player.deleteLater()
             except RuntimeError:
-                pass
+                logger.debug("Mini player window was already deleted")
             self._mini_player = None
 
+        logger.debug("Opening mini player window")
         self._mini_player = MiniPlayerWindow(self.controller)
         self._mini_player.setParent(None)
 
@@ -438,7 +442,7 @@ class MenuBar:
                 self._apply_menu_bar_auto_hide
             )
         except RuntimeError:
-            pass  # Signal was already disconnected
+            logger.debug("menu_bar_auto_hide_changed signal was already disconnected")
 
     def show_missing_tracks(self):
         self._missing_tracks = MissingTracks(self.controller)

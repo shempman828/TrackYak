@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.core.logger_config import logger
+
 
 class DeleteEmptyAlbumsDialog(QDialog):
     """Dialog to confirm deletion of empty albums."""
@@ -17,6 +19,9 @@ class DeleteEmptyAlbumsDialog(QDialog):
         self.empty_albums = empty_albums
         self.setWindowTitle("Delete Empty Albums - Confirmation")
         self.setMinimumSize(500, 400)
+        logger.info(
+            f"Opened empty-albums confirmation dialog with {len(empty_albums)} album(s)"
+        )
         self.init_ui()
 
     def init_ui(self):

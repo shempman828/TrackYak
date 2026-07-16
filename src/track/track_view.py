@@ -17,6 +17,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut, QStandardItemModel
 from PySide6.QtWidgets import QTableView, QVBoxLayout, QWidget
 
+from src.core.logger_config import logger
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.track.track_view_actions import TrackViewActionsMixin
 from src.track.track_view_columns import TrackViewColumnsMixin
@@ -95,4 +96,5 @@ class TrackView(
         delete_shortcut.activated.connect(self.delete_selected_tracks)
 
         # Initial load
+        logger.debug("TrackView initialized, starting initial track load")
         self.load_tracks_on_startup()

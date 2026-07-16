@@ -15,6 +15,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
 from src.core.config_setup import app_config
+from src.core.logger_config import logger
 
 RATING_MIN = 0.5
 RATING_MAX = 10.0
@@ -90,8 +91,8 @@ class RatingDistributionChart(QWidget):
         theme_name = None
         try:
             theme_name = app_config.get_display_theme()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to get display theme, using default: {e}")
         (
             self._color_surface,
             self._color_bar,
@@ -111,6 +112,7 @@ class RatingDistributionChart(QWidget):
         self._apply_theme_palette()
         self._distribution = distribution or {}
         self._hovered_index = None
+        logger.debug(f"Rating distribution chart updated with {len(self._distribution)} buckets")
         self.update()
 
     # ------------------------------------------------------------------ #

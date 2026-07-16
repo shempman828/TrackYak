@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 
 from src.common.style_utils import set_style_property
 from src.core.censor import censor_text
+from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 
 
@@ -119,6 +120,9 @@ class AlbumWidget(QWidget):
 
     def refresh_album(self, album):
         """Update this widget in place to reflect fresh album data (e.g. after editing)."""
+        logger.debug(
+            f"Refreshing album widget in place: {getattr(album, 'album_name', '?')}"
+        )
         self.album = album
         self.refresh_display()
 

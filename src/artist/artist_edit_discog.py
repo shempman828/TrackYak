@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from src.album.album_flowlayout import FlowLayout
 from src.common.style_utils import set_style_property
+from src.core.logger_config import logger
 
 
 def _make_table(headers, editable=False):
@@ -207,6 +208,10 @@ class DiscographyTab(QWidget):
             ),
         )
         self._album_flow.set_albums(album_list)
+        logger.debug(
+            f"Loaded discography for artist_id={getattr(artist, 'artist_id', '?')}: "
+            f"{len(self._album_groups)} album(s), {len(self._track_rows)} track credit(s)"
+        )
 
         self._apply_filters()
 

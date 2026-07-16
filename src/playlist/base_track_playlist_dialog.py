@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
 )
 
+from src.core.logger_config import logger
+
 
 class PlaylistSelectionDialog(QDialog):
     """Dialog for selecting a playlist."""
@@ -54,6 +56,10 @@ class PlaylistSelectionDialog(QDialog):
         if 0 <= current_row < len(self.playlists):
             self.selected_playlist = self.playlists[current_row]
             self.accept()
+        else:
+            logger.debug(
+                "Playlist selection dialog: accept attempted with no playlist selected"
+            )
 
     def get_selected_playlist(self):
         """Return the selected playlist."""

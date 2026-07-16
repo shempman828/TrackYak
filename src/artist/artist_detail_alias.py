@@ -3,6 +3,8 @@ from typing import List
 from PySide6.QtCore import QPropertyAnimation, QTimer
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 
+from src.core.logger_config import logger
+
 
 class AliasesCarousel(QWidget):
     """A widget that cycles through artist aliases with animation"""

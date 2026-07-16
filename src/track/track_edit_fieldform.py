@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.core.logger_config import logger
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.track.track_edit_basetab import _BaseTab
 
@@ -137,7 +138,10 @@ def _coerce(value, field_config) -> Any:
             return float(value)
         if field_config.type == bool:  # noqa: E721
             return bool(value)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(
+            f"Failed to coerce value {value!r} for field '{field_config.friendly}': {e}"
+        )
         return None
     return value
 
@@ -254,4 +258,9 @@ class FieldFormTab(_BaseTab):
             new_val = _coerce(raw, cfg)
             if self.is_multi or self._has_changed(field_name, new_val):
                 changes[field_name] = new_val
+        if changes:
+            logger.debug(
+                f"Collected {len(changes)} field change(s) in '{self.category}' tab: "
+                f"{list(changes.keys())}"
+            )
         return changes

@@ -4,6 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
 
 from src.core.config_setup import Config
+from src.core.logger_config import logger
 from src.db.db_helpers import AddToDB, DeleteDB, GetFromDB, MergeDB, SplitDB, UpdateDB
 from src.db.db_tables import Base
 from src.importing.library_import import TrackImporter
@@ -40,6 +41,9 @@ class MusicController:
         self.config = Config()
         self.statistics = MusicStatistics(self.SessionFactory)
 
+        logger.info("MusicController initialized")
+
     def close_session(self):
         """Ensure all sessions are properly closed."""
         self.SessionFactory.remove()
+        logger.debug("Database session closed")

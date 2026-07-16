@@ -2,6 +2,8 @@ from PySide6.QtCore import QRectF
 from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen, Qt
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem
 
+from src.core.logger_config import logger
+
 # Matches the "Cambria, Georgia, serif" stack the app's QSS themes apply to
 # every widget. QGraphicsTextItem isn't a QWidget, so it never picks that up
 # automatically and previously fell back to a hardcoded Arial.
@@ -206,5 +208,6 @@ class ArtistNode(QGraphicsRectItem):
 
     def contextMenuEvent(self, event):
         """Handle right-click context menu"""
+        logger.debug(f"Context menu requested for artist node: {self.artist_name}")
         self.show_context_menu()
         event.accept()

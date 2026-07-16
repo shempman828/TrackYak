@@ -5,6 +5,7 @@ import inspect
 from sqlalchemy import select
 
 import src.db.db_tables
+from src.core.logger_config import logger
 
 # Maps every ORM class name in src.db.db_tables to its class object, so the
 # rest of this package can look entities up by string name (e.g. "Track")
@@ -44,6 +45,10 @@ class BaseDBHelper:
                 )
             )
             if conflict is not None:
+                logger.debug(
+                    f"Unique conflict on {entity_class.__name__}.{column.name}={value!r} "
+                    f"(conflicts with id={getattr(conflict, pk_col)})"
+                )
                 return column.name, value, getattr(conflict, pk_col)
 
         return None
@@ -68,6 +73,10 @@ class BaseDBHelper:
                 )
             )
             if conflict is not None:
+                logger.debug(
+                    f"Unique conflict (bulk) on {entity_class.__name__}.{column.name}={value!r} "
+                    f"(conflicts with id={getattr(conflict, pk_col)})"
+                )
                 return column.name, value, getattr(conflict, pk_col)
 
         return None

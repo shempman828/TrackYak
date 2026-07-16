@@ -7,6 +7,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication
 
+from src.core.logger_config import logger
+
 
 def blur_pixmap(pixmap: QPixmap, strength: int = 12) -> QPixmap:
     """Return a heavily obscured copy of `pixmap`.
@@ -43,10 +45,12 @@ def load_art_pixmap(
     own behavior so callers can fall back to a placeholder as usual.
     """
     if not path or not Path(path).exists():
+        logger.debug(f"Art path missing or does not exist: {path}")
         return QPixmap()
 
     pixmap = QPixmap(str(path))
     if pixmap.isNull():
+        logger.warning(f"Failed to load album art image: {path}")
         return pixmap
 
     if is_explicit and _blur_enabled():

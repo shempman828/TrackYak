@@ -2,6 +2,8 @@
 
 from typing import Optional
 
+from src.core.logger_config import logger
+
 _FORMAT_TO_MIME = {
     "JPEG": "image/jpeg",
     "PNG": "image/png",
@@ -26,6 +28,10 @@ def determine_image_format(image_data: bytes, mime_type: str = "") -> Optional[s
     elif "png" in mime_type.lower():
         return "PNG"
 
+    logger.debug(
+        f"Unrecognized image format (mime_type={mime_type!r}); "
+        "could not determine format from magic bytes"
+    )
     return None
 
 

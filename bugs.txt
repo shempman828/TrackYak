@@ -4,22 +4,10 @@
 
 #Bug/Feature Fixes
 
-20. In track edit moods, add a qcompleter to the mood search. Also, when we match to an existing name it should default to using that existing mood rather than defaulting to the option of creating a new one with the same name.
+31. When adding an artist image, I think it adds the chosen file to the db exactly where it exists. Instead, the image should be moved to the artist image directory and the path should be updated accordingly. We will need to migrate any existing paths if necessary.
 
-21. In track edit places, add a qcompleter to the place search. Also, when we match to an existing name it should default to using that existing place rather than defaulting to the option of creating a new one with the same name.
+32. Reduce intrusive QMessagebox calls where possible.
 
-22. Let's standardize place associations. First, check the database for existing association types. We want to reduce redundancy in, for example, Birthplace, birth place, place of birth, etc. We will first heal the existing database, then build in a canonical listing of relevant association types.
 
-23. Improve "primary_artist_names" to include "Featured Artist" using this pattern, assuming Queen is the primary artist and David Bowie is Featured Artist: "Queen Featuring David Bowie" If there are multiple featured artists, use the same join logic.
-
-24. Allow users to name Louvain community clusters in the influences view. The community color palette needs to be expanded to support up to 50 communities, focusing on as much visual distinction as possible. Also allow the user to hide the cluster legend.
-
-25.In the timeline view, exclude absurd dates like below 1000 and above 2999
-
-26. Remove the ↳ indent marker from qtreewidgets
-
-27. add base track view to mood view to view tracks in a mood
-
-28. Improve the library statistics rating distribution visual. A bar graph my be appropriate here.
 
 

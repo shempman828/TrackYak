@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.core.logger_config import logger
+
 
 class SearchResultsDialog(QDialog):
     """Dialog to display multiple search results and let the user choose one."""
@@ -45,6 +47,7 @@ class SearchResultsDialog(QDialog):
             self.selected_result = selected_item.data(Qt.UserRole)
             self.accept()
         else:
+            logger.debug("Location search results dialog: no location selected")
             QMessageBox.warning(self, "No Selection", "Please select a location.")
 
     def get_selected_result(self):

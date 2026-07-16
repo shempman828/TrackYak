@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.core.logger_config import logger
+
 
 class MembershipWidget(QWidget):
     """Membership section widget - shows members for groups or groups for individuals"""
@@ -26,6 +28,10 @@ class MembershipWidget(QWidget):
 
         # Get membership data based on artist type
         is_group = getattr(self.artist, "isgroup", 0) == 1
+        logger.debug(
+            f"Building membership widget for artist_id="
+            f"{getattr(self.artist, 'artist_id', '?')} (is_group={is_group})"
+        )
 
         if is_group:
             self._setup_group_ui(layout)

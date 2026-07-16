@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.core.logger_config import logger
+
 
 class OrganizationPreviewDialog(QDialog):
     """Dialog to preview and confirm file organization operations"""
@@ -20,6 +22,10 @@ class OrganizationPreviewDialog(QDialog):
         self.auto_ops = auto_ops
         self.confirm_ops = confirm_ops
         self.approved_ops = auto_ops.copy()  # Auto-approve the obvious moves
+        logger.debug(
+            f"Previewing file organization: {len(auto_ops)} automatic, "
+            f"{len(confirm_ops)} needing confirmation"
+        )
         self._init_ui()
         self.setWindowTitle("Review File Organization")
         self.setMinimumSize(900, 600)
@@ -141,4 +147,5 @@ class OrganizationPreviewDialog(QDialog):
             ):
                 approved.append(item.data(Qt.UserRole))
 
+        logger.info(f"File organization approved: {len(approved)} operations")
         return approved

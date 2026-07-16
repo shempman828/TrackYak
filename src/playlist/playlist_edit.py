@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.core.logger_config import logger
+
 
 class EditPlaylist(QDialog):
     """Dialog for editing playlist name and description (normal playlists only)."""
@@ -79,6 +81,10 @@ class EditPlaylist(QDialog):
     def save_changes(self):
         """Save the changes to the playlist."""
         if self.is_smart_playlist:
+            logger.debug(
+                f"Edit blocked for smart playlist {self.playlist_id}; "
+                "use Smart Playlist Editor instead"
+            )
             QMessageBox.information(
                 self,
                 "Smart Playlist",
@@ -90,6 +96,9 @@ class EditPlaylist(QDialog):
         description = self.desc_edit.toPlainText().strip()
 
         if not name:
+            logger.debug(
+                f"Playlist edit rejected for playlist {self.playlist_id}: name is empty"
+            )
             QMessageBox.warning(
                 self, "Validation Error", "Playlist name cannot be empty."
             )
@@ -105,7 +114,9 @@ class EditPlaylist(QDialog):
                 playlist_description=description,
             )
 
+            logger.info(f"Updated playlist {self.playlist_id}: {name}")
             self.accept()
 
         except Exception as e:
+            logger.error(f"Failed to update playlist {self.playlist_id}: {e}")
             QMessageBox.critical(self, "Error", f"Failed to update playlist: {str(e)}")

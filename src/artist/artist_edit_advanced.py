@@ -4,6 +4,8 @@
 
 from PySide6.QtWidgets import QCheckBox, QFormLayout, QLabel, QLineEdit, QWidget
 
+from src.core.logger_config import logger
+
 
 class AdvancedTab(QWidget):
     def __init__(self, controller, artist, parent=None):

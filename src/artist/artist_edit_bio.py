@@ -4,6 +4,8 @@
 
 from PySide6.QtWidgets import QLabel, QTextEdit, QVBoxLayout, QWidget
 
+from src.core.logger_config import logger
+
 
 class BiographyTab(QWidget):
     def __init__(self, controller, artist, parent=None):

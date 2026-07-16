@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.core.logger_config import logger
 from src.place.place_list import ListView
 from src.place.place_map import MapView
 

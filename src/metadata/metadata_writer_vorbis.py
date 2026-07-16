@@ -9,6 +9,8 @@ This is the correct format per the Vorbis I specification and expected by Picard
 import struct
 from typing import Dict, List, Union
 
+from src.core.logger_config import logger
+
 
 class VorbisCommentWriter:
     """Handles writing Vorbis comments to FLAC/OGG files."""
@@ -64,6 +66,7 @@ class VorbisCommentWriter:
             self._encode_comment(field, value) for field, value in pairs
         )
 
+        logger.debug(f"Built Vorbis comment block with {len(pairs)} entries")
         return vendor_block + comment_count + comment_data
 
     # ------------------------------------------------------------------

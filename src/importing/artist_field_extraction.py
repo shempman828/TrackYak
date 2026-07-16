@@ -12,6 +12,8 @@ that drift risk.
 
 from typing import Any, Dict, List
 
+from src.core.logger_config import logger
+
 # Field-name priority lists, in the order they should be checked.
 ALBUM_ARTIST_FIELDS = ["artist_album_artist", "album_artist_name"]
 TRACK_ARTIST_FIELDS = ["artist_name", "artist_primary_artist"]
@@ -78,4 +80,5 @@ def extract_artists_from_metadata(
         if normalized:
             return normalized
 
+    logger.debug(f"No artist data found in metadata fields: {field_names}")
     return []

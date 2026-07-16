@@ -4,6 +4,7 @@ combining freshly-built tag data with whatever a file already has on disk.
 
 from typing import Dict, List, Tuple
 
+from src.core.logger_config import logger
 from src.metadata.metadata_writer_types import WriteMode
 
 
@@ -23,6 +24,10 @@ def merge_id3_frames(
     Returns:
         The full list of frame bytes to write.
     """
+    logger.debug(
+        f"Merging {len(new_frames)} new ID3 frames with "
+        f"{len(existing_frames)} existing frames using {mode.name}"
+    )
     if mode == WriteMode.REPLACE_ALL:
         return list(new_frames)
 
@@ -66,6 +71,10 @@ def merge_vorbis_comments(
     Returns:
         The merged comment dict to serialize and write.
     """
+    logger.debug(
+        f"Merging {len(new)} new Vorbis comments with "
+        f"{len(existing)} existing comments using {mode.name}"
+    )
     if mode == WriteMode.REPLACE_ALL:
         return dict(new)
 

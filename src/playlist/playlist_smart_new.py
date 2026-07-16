@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.core.logger_config import logger
 from src.playlist.playlist_smart_criteria_widget import CriteriaWidget
 
 
@@ -108,6 +109,7 @@ class SmartPlaylistCreateDialog(QDialog):
         count = self.criteria_container.count()
         self.criteria_container.insertWidget(count - 1, widget)
         self.criteria_widgets.append(widget)
+        logger.debug(f"Added smart playlist criteria row (total={len(self.criteria_widgets)})")
 
     def remove_criteria_widget(self, widget):
         """Remove a criteria row (but always keep at least one)."""
@@ -117,6 +119,9 @@ class SmartPlaylistCreateDialog(QDialog):
             self.criteria_widgets.remove(widget)
             widget.setParent(None)
             widget.deleteLater()
+            logger.debug(
+                f"Removed smart playlist criteria row (total={len(self.criteria_widgets)})"
+            )
 
     def get_data(self):
         """

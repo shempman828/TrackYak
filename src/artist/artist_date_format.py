@@ -10,6 +10,8 @@ Formats date fields into visually pleasing strings with the following rules:
 - Ignores incomplete combinations (day without month, month without year)
 """
 
+from src.core.logger_config import logger
+
 
 class DateFormatter:
     """Formats date information from Artist ORM objects"""

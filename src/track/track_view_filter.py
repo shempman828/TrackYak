@@ -4,6 +4,7 @@ track_view_filter.py — background search/filter worker for TrackView.
 
 from PySide6.QtCore import QThread, Signal
 
+from src.core.logger_config import logger
 from src.db.db_mapping_tracks import TRACK_FIELDS
 
 # How many rows to load into the Qt model in each batch.
@@ -77,6 +78,10 @@ class FilterWorker(QThread):
                 if text in val:
                     results.append(t)
 
+        logger.debug(
+            f"Filter search for '{text}' (field={self._field_name}) matched "
+            f"{len(results)}/{len(self._tracks)} tracks"
+        )
         self.finished.emit(results)
 
 
@@ -110,4 +115,8 @@ class SortWorker(QThread):
             return (0, str(raw).lower())
 
         result = sorted(self._tracks, key=sort_key, reverse=not self._ascending)
+        logger.debug(
+            f"Sorted {len(result)} tracks by '{self._field_name}' "
+            f"({'ascending' if self._ascending else 'descending'})"
+        )
         self.finished.emit(result)

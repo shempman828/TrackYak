@@ -5,6 +5,7 @@ track_view_toolbar.py — toolbar construction and column-search picker for Trac
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QMenu, QToolButton
 
+from src.core.logger_config import logger
 from src.track.track_view_filter import SEARCH_ALL
 
 
@@ -128,5 +129,6 @@ class TrackViewToolbarMixin:
             action.text() if self._search_field_name != SEARCH_ALL else "All Columns"
         )
         self.search_column_btn.setText(f"{label} \u25be")
+        logger.debug(f"Search column changed to '{label}'")
         # Re-run the search immediately with the new column choice
         self._apply_search_filter()

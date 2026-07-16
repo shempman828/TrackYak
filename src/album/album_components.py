@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.core.logger_config import logger
+
 
 class AlbumUIComponents:
     """Helper class for creating reusable UI components"""
@@ -73,6 +75,10 @@ class AlbumUIComponents:
 
         else:
             # Fallback: plain text input
+            logger.debug(
+                f"No dedicated widget for field type {field_config.type!r}; "
+                "falling back to plain text input"
+            )
             widget = QLineEdit()
             if current_value is not None:
                 widget.setText(str(current_value))

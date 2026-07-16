@@ -1,6 +1,8 @@
 import struct
 from typing import List
 
+from src.core.logger_config import logger
+
 
 class ID3TagWriter:
     """Handles writing ID3v2.3/2.4 tags to MP3 files."""
@@ -127,6 +129,7 @@ class ID3TagWriter:
     def build_id3_tag(self, frames: List[bytes]) -> bytes:
         """Build complete ID3 tag from frames."""
         if not frames:
+            logger.debug("No frames provided to build_id3_tag; skipping tag creation")
             return b""
 
         tag_data = b"".join(frames)

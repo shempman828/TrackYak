@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.core.logger_config import logger
+
 
 class OrphanArtistDialog(QDialog):
     """Shows every artist that has no roles, influences, memberships, places,
@@ -25,6 +27,7 @@ class OrphanArtistDialog(QDialog):
         self.setWindowTitle("Delete Unused Artists")
         self.setMinimumSize(500, 500)
         self._checkboxes = []
+        logger.info(f"Opened orphan-artist review dialog with {len(self.orphans)} candidate(s)")
         self._init_ui()
 
     def _init_ui(self):

@@ -10,6 +10,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QTreeWidget
 
+from src.core.logger_config import logger
+
 DEPTH_COLORS = [
     QColor(70, 130, 180),  # Steel Blue
     QColor(46, 139, 87),  # Sea Green

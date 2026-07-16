@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.core.logger_config import logger
+
 
 class DiscEditDialog(QDialog):
     """Dialog for adding/editing disc properties"""
@@ -16,6 +18,9 @@ class DiscEditDialog(QDialog):
         super().__init__(parent)
         self.album = album
         self.controller = controller
+        logger.debug(
+            f"Opening disc edit dialog for album {getattr(album, 'album_name', album)}"
+        )
         self.init_ui()
 
     def init_ui(self):

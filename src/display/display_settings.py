@@ -5,6 +5,8 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
+from src.core.logger_config import logger
+
 
 class DisplaySettings(QObject):
     """
@@ -85,6 +87,7 @@ class DisplaySettings(QObject):
             self.config.set_display_theme(theme_name)
             self.config.save()
 
+        logger.info(f"Applied theme: {theme_name}")
         self.display_changed.emit()
 
     # ---------------------------------------------------------
@@ -235,6 +238,7 @@ class DisplaySettings(QObject):
             )
             self.config.save()
 
+        logger.debug(f"Menu bar auto-hide set to {enabled}")
         # Notify the main window so it can activate/deactivate the behavior
         self.menu_bar_auto_hide_changed.emit(enabled)
         self.display_changed.emit()
@@ -287,6 +291,7 @@ class DisplaySettings(QObject):
             except FileNotFoundError:
                 # Stored theme is gone — fall back gracefully and clear the
                 # stale name so we don't retry it on the next startup.
+                logger.warning(f"Stored theme {self.theme_name!r} not found; clearing")
                 self.theme_name = None
                 if self.config:
                     self.config.set_display_theme("")

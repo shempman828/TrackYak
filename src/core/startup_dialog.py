@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from src.core.asset_paths import icon
 from src.core.config_setup import Config
+from src.core.logger_config import logger
 
 
 class StartupDialog(QDialog):
@@ -143,6 +144,7 @@ class StartupDialog(QDialog):
                 license_content = license_path.read_text(encoding="utf-8")
                 license_text.setMarkdown(license_content)
             except Exception as e:
+                logger.error(f"Could not load license file: {e}")
                 license_text.setText(f"Could not load license file: {e}")
         else:
             license_text.setText("License file (license.md) not found.")
@@ -180,6 +182,7 @@ class StartupDialog(QDialog):
             try:
                 selected_dir.mkdir(parents=True, exist_ok=True)
             except Exception as e:
+                logger.error(f"Could not create music directory {selected_dir}: {e}")
                 self._show_error(f"Could not create directory: {e}")
                 return
 
@@ -189,4 +192,5 @@ class StartupDialog(QDialog):
         self.config.set_first_run(False)
         self.config.save()
 
+        logger.info(f"First-run setup completed: library directory set to {selected_dir}")
         self.accept()

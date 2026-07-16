@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.core.logger_config import logger
 from src.db.db_mapping_tracks import TRACK_FIELDS, TrackField
 
 # Storage/display format for exact-moment datetime values. Must use a space
@@ -551,8 +552,8 @@ class CriteriaWidget(QWidget):
         elif isinstance(self.value_widget, (QSpinBox, QDoubleSpinBox)):
             try:
                 self.value_widget.setValue(float(value))
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Could not restore numeric criteria value {value!r}: {e}")
         elif isinstance(self.value_widget, QDateEdit):
             # "On this day" — date only, tolerate a full datetime string too
             day_text = str(value).strip().split(" ")[0].split("T")[0]

@@ -7,6 +7,8 @@ artist everywhere else.
 
 from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel
 
+from src.core.logger_config import logger
+
 
 class CreditedAsDialog(QDialog):
     """Combo-box picker: the artist's canonical name plus each of their
@@ -14,6 +16,9 @@ class CreditedAsDialog(QDialog):
 
     def __init__(self, artist, aliases, current_alias_id=None, parent=None):
         super().__init__(parent)
+        logger.debug(
+            f"Opening credited-as dialog for {artist.artist_name} ({len(aliases)} aliases)"
+        )
         self.setWindowTitle(f"Credit {artist.artist_name} as…")
         self.setMinimumWidth(320)
 

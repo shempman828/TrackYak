@@ -7,6 +7,8 @@ from PySide6.QtCore import Property, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPixmap, QRadialGradient
 from PySide6.QtWidgets import QWidget
 
+from src.core.logger_config import logger
+
 
 class _BlurredBackdrop(QWidget):
     """Full-widget blurred album-art background with vignette overlay."""

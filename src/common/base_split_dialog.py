@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.orm import object_mapper
 
+from src.core.logger_config import logger
 from src.db.db_helpers import SplitDB
 
 
@@ -132,6 +133,7 @@ class SplitDBDialog(QDialog):
                                     related_value, name_attr, "Unknown"
                                 )
                         except:  # noqa: E722
+                            logger.debug("Could not determine name for related object")
                             pass
                         relationship_info.append(f"• {rel_key}: {related_name}")
 
@@ -141,6 +143,7 @@ class SplitDBDialog(QDialog):
                 self.relationship_info.setText("No relationships found")
 
         except Exception as e:
+            logger.error(f"Failed to load relationship info for {self.model_name}: {e}")
             self.relationship_info.setText(f"Could not load relationship info: {e}")
 
     def _find_name_attribute_for_obj(self, obj) -> str:
@@ -248,11 +251,15 @@ class SplitDBDialog(QDialog):
                 "Split Successful",
                 f"Successfully split into {len(names)} new entities.",
             )
+            logger.info(
+                f"Split {self.model_name} (id={entity_id}) into {len(names)} new entities: {names}"
+            )
 
             # Accept the dialog to close it
             self.accept()
 
         except Exception as e:
+            logger.error(f"Failed to split {self.model_name} (id={entity_id}): {e}")
             QMessageBox.critical(
                 self,
                 "Split Failed",

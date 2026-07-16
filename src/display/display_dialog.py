@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.core.logger_config import logger
 from src.display.display_settings import DisplaySettings
 
 
@@ -30,6 +31,7 @@ class DisplaySettingsDialog(QDialog):
         self.setModal(True)
         self.resize(420, 340)
 
+        logger.debug("Opening display settings dialog")
         self._build_ui()
         self._populate()
         self._connect_signals()

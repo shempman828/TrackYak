@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.config_setup import Config
+from src.core.logger_config import logger
 
 
 class ConfigDialog(QDialog):
@@ -303,6 +304,7 @@ class ConfigDialog(QDialog):
             self.backup_count_spin.setValue(self.config.get_backup_count())
 
         except Exception as e:
+            logger.error(f"Failed to load settings: {e}")
             self._show_error(f"Failed to load settings: {e}")
 
     def _apply_settings(self):
@@ -369,9 +371,11 @@ class ConfigDialog(QDialog):
 
             reconfigure_logging(self.config)
 
+            logger.info("General settings saved and applied")
             QMessageBox.information(self, "Success", "Settings saved successfully.")
 
         except Exception as e:
+            logger.error(f"Failed to apply settings: {e}")
             QMessageBox.critical(self, "Error", f"Failed to apply settings: {e}")
 
     def _ok_clicked(self):

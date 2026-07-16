@@ -11,6 +11,8 @@ segment ends the packet.
 import struct
 from typing import Iterator, List, Optional, Tuple
 
+from src.core.logger_config import logger
+
 
 def iter_packets(data: bytes, max_packets: int = 8) -> Iterator[bytes]:
     """Yield up to max_packets reconstructed packets from the first
@@ -131,6 +133,10 @@ def _build_single_page(
     a correct checksum. Raises if segment_table needs more than the 255
     entries a page's one-byte segment count can hold."""
     if len(segment_table) > 255:
+        logger.error(
+            f"Cannot build Ogg page: segment table has {len(segment_table)} "
+            "entries, exceeding the 255-entry limit"
+        )
         raise ValueError("Ogg page cannot have more than 255 segments")
 
     header = bytearray()
@@ -259,6 +265,9 @@ def replace_comment_packet(
     """
     pages = list(iter_pages(data))
     if len(pages) < 2:
+        logger.warning(
+            f"Cannot rewrite Ogg comment packet: file has only {len(pages)} page(s)"
+        )
         return None
 
     serial_number = pages[0]["serial_number"]
@@ -269,6 +278,10 @@ def replace_comment_packet(
 
     for page in pages:
         if page["serial_number"] != serial_number:
+            logger.warning(
+                "Cannot rewrite Ogg comment packet: file is a multiplexed "
+                "multi-stream file, which is out of scope"
+            )
             return None  # multiplexed multi-stream file - out of scope
 
         seg_table = page["segment_table"]
@@ -291,6 +304,10 @@ def replace_comment_packet(
             break
 
     if header_pages_end is None:
+        logger.warning(
+            "Cannot rewrite Ogg comment packet: could not locate the end of "
+            "the header pages (unexpected file layout)"
+        )
         return None
 
     # The identification header gets its own page, separate from the
@@ -331,4 +348,8 @@ def replace_comment_packet(
         )
         seq += 1
 
+    logger.debug(
+        f"Rebuilt Ogg file with new comment packet: "
+        f"{len(new_header_bytes) + len(tail)} bytes total"
+    )
     return new_header_bytes + bytes(tail)

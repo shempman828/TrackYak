@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from src.db.db_helpers import Session
 from src.common.style_utils import set_style_property
+from src.core.logger_config import logger
 from src.core.status_utility import StatusManager
 from src.sync.sync_utility import (
     MtpManager,
@@ -573,6 +574,7 @@ class SyncView(QWidget):
         self.profiles.append(profile)
         self.profile_store.save(self.profiles)
         self._rebuild_cards()
+        logger.info(f"Created new sync profile: {profile.name}")
         # Select the new card
         new_card = self.cards[-1]
         self._on_card_clicked(new_card)
@@ -590,10 +592,12 @@ class SyncView(QWidget):
         if reply != QMessageBox.Yes:
             return
 
+        deleted_name = self.current_profile.name
         self.profiles.remove(self.current_profile)
         self.current_profile = None
         self.profile_store.save(self.profiles)
         self._rebuild_cards()
+        logger.info(f"Deleted sync profile: {deleted_name}")
 
         if self.profiles:
             self._on_card_clicked(self.cards[0])
@@ -722,6 +726,7 @@ class SyncView(QWidget):
             QFileDialog.ShowDirsOnly,
         )
         if folder:
+            logger.info(f"Sync destination folder set to '{folder}' for profile '{self.current_profile.name}'")
             self.current_profile.path = folder
             self.folder_label.setText(folder)
             set_style_property(self.folder_label, "textRole", None)
@@ -757,6 +762,9 @@ class SyncView(QWidget):
         self.current_profile.device_uri = chosen.uri
         self.current_profile.device_name = chosen.short_name
         self.profile_store.save(self.profiles)
+        logger.info(
+            f"Linked device '{chosen.display_name}' to profile '{self.current_profile.name}'"
+        )
 
         self._refresh_device_label()
         card = self._find_card_for_profile(self.current_profile)
@@ -768,6 +776,7 @@ class SyncView(QWidget):
     def _unlink_device(self):
         if not self.current_profile:
             return
+        logger.info(f"Unlinked device from profile '{self.current_profile.name}'")
         self.current_profile.device_uri = ""
         self.current_profile.device_name = ""
         self.profile_store.save(self.profiles)
@@ -792,6 +801,7 @@ class SyncView(QWidget):
 
     def _do_detect(self):
         devices = self.mtp_manager.list_devices()
+        logger.info(f"MTP device scan found {len(devices)} device(s)")
         self.detect_btn.setText("⟳ Detect")
         self.detect_btn.setEnabled(True)
 
@@ -853,8 +863,8 @@ class SyncView(QWidget):
             for card in self.cards:
                 if card.profile.device_uri:
                     card.set_connected(card.profile.device_uri in connected_uris)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to poll MTP devices: {e}")
 
     # -----------------------------------------------------------------------
     # Playlist / mood selection tree
@@ -1071,6 +1081,10 @@ class SyncView(QWidget):
         # Switch to Log tab so the user can see progress
         self.tabs.setCurrentIndex(2)
 
+        logger.info(
+            f"Starting sync for profile '{self.current_profile.name}': "
+            f"{' + '.join(selection_parts)} ({total_tracks} tracks) -> {dest_desc}"
+        )
         self.status_manager.start_task(f"Starting sync: {self.current_profile.name}")
         self._set_sync_ui_state(False)
         self.progress_bar.setVisible(True)
@@ -1099,6 +1113,7 @@ class SyncView(QWidget):
             )
             if reply == QMessageBox.Yes:
                 self.sync_worker.cancel()
+                logger.info(f"Sync cancelled by user for profile '{self.current_profile.name}'")
                 self.sync_log.append("*** Sync cancelled by user ***")
                 self.status_manager.end_task("Sync cancelled", 3000)
 
@@ -1138,6 +1153,11 @@ class SyncView(QWidget):
         total = len(results)
         total_copied = sum(r.get("tracks_copied", 0) for r in results)
         total_skipped = sum(r.get("tracks_skipped", 0) for r in results)
+
+        logger.info(
+            f"Sync finished: {successful}/{total} playlists succeeded, "
+            f"{total_copied} tracks copied, {total_skipped} skipped"
+        )
 
         self.current_action.setText(
             f"Done — {successful}/{total} playlists  ·  "

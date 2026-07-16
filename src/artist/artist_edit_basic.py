@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.core.logger_config import logger
 from src.image.pixmap_with_fallback import load_pixmap_with_fallback
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -136,8 +137,8 @@ class BasicTab(QWidget):
                 value = (getattr(a, "artist_type", None) or "").strip()
                 if value:
                     suggestions.add(value)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to fetch artist type suggestions: {e}")
         return sorted(suggestions, key=str.lower)
 
     @classmethod
@@ -384,6 +385,7 @@ class BasicTab(QWidget):
             "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)",
         )
         if path:
+            logger.debug(f"Profile picture selected for artist editor: {path}")
             self._settings.setValue(_SETTINGS_LAST_PIC_DIR, os.path.dirname(path))
             self._set_pic_path(path)
 

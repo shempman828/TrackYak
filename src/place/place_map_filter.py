@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.core.logger_config import logger
+
 
 class _DropdownPopup(QFrame):
     """Frameless popup panel holding the checkbox list and select all/none controls."""

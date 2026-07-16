@@ -5,6 +5,7 @@ import struct
 
 from PIL import Image
 
+from src.core.logger_config import logger
 from src.metadata.metadata_image_utils import determine_image_format, mime_type_for_format
 
 _MODE_BIT_DEPTHS = {
@@ -31,6 +32,7 @@ class FlacPictureWriter:
     ) -> bytes:
         """Build a raw METADATA_BLOCK_PICTURE payload (no block header) for `role`."""
         if role not in self.ROLE_TO_TYPE:
+            logger.error(f"Unknown artwork role for FLAC picture block: {role}")
             raise ValueError(f"Unknown artwork role: {role}")
 
         image = Image.open(io.BytesIO(image_bytes))
@@ -57,4 +59,8 @@ class FlacPictureWriter:
         payload += struct.pack(">I", 0)  # colors used - 0 means not indexed/palette
         payload += struct.pack(">I", len(image_bytes))
         payload += image_bytes
+        logger.debug(
+            f"Built FLAC picture block: role={role}, format={format_type}, "
+            f"{width}x{height}, {len(image_bytes)} bytes"
+        )
         return bytes(payload)

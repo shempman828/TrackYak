@@ -7,6 +7,8 @@ when the available width is exhausted, similar to CSS flexbox wrap.
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtWidgets import QLayout
 
+from src.core.logger_config import logger
+
 
 class FlowLayout(QLayout):
     """Custom wrapping flow layout.
@@ -38,6 +40,9 @@ class FlowLayout(QLayout):
         self._h_space: int = h_spacing if h_spacing is not None else spacing
         self._v_space: int = v_spacing if v_spacing is not None else spacing
         self._item_list: list = []
+        logger.debug(
+            f"FlowLayout created (h_spacing={self._h_space}, v_spacing={self._v_space})"
+        )
 
     # ------------------------------------------------------------------
     # QLayout required interface

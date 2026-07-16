@@ -3,6 +3,8 @@ from pathlib import Path
 import sys
 from PySide6.QtGui import QIcon
 
+from src.core.logger_config import logger
+
 # --- Base Directories --------------------------------------------------------
 
 # Handle both development and frozen (PyInstaller / fbs) modes
@@ -76,4 +78,6 @@ def ensure_directories_exist():
         IMAGECACHE_DIR,
         THEMES_DIR,
     ]:
+        if not path.exists():
+            logger.info(f"Creating missing directory: {path}")
         path.mkdir(parents=True, exist_ok=True)

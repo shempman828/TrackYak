@@ -7,6 +7,8 @@ from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QLabel, QSizePolicy
 
+from src.core.logger_config import logger
+
 
 class _KaraokeLine(QLabel):
     """Single-line karaoke label that fades in on each new line."""

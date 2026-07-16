@@ -32,6 +32,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.core.logger_config import logger
+
 # ── Palette constants (mirror dark_mode.qss) ─────────────────────────────────
 _BG_BASE = "#0b0c10"
 _BG_SLIGHT = "#11121a"
@@ -347,6 +349,7 @@ class CalendarWidget(QWidget):
 
     def set_year(self, year: int):
         """Change the year and redraw."""
+        logger.debug(f"Calendar year changed to {year}")
         self.year = year
         self._year_label.setText(str(year))
         self.events_by_date = self._organize_events_by_date()

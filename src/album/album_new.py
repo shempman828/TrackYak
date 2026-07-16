@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.core.logger_config import logger
 
 # ---------------------------------------------------------------------------
 # Helper dialog: New Album
@@ -60,6 +61,7 @@ class NewAlbumDialog(QDialog):
 
     def _on_accept(self):
         if not self.name_edit.text().strip():
+            logger.debug("New album dialog rejected: album name is empty")
             QMessageBox.warning(self, "Required", "Album name cannot be empty.")
             return
         self.accept()
