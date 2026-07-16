@@ -174,3 +174,18 @@ class GetFromDB(BaseDBHelper):
 
     def get_entity_links(self, link_type: str, **kwargs):
         return self.query_entities(link_type, multiple=True, **kwargs)
+
+    def resolve_entity_or_alias(self, model_name: str, name_field: str, name: str):
+        """Resolve `name` to an entity of `model_name` by its own name field,
+        falling back to a `<model_name>Alias` table's `alias_name` (e.g.
+        PublisherAlias, GenreAlias). Lets a name the user has aliased to a
+        canonical entity -- directly, or via a merge -- resolve to it
+        instead of the caller creating a duplicate. Returns None if neither
+        matches.
+        """
+        entity = self.get_entity_object(model_name, **{name_field: name})
+        if entity:
+            return entity
+
+        alias = self.get_entity_object(f"{model_name}Alias", alias_name=name)
+        return getattr(alias, model_name.lower()) if alias else None
