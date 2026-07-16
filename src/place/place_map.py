@@ -122,6 +122,56 @@ class MapView(QWidget):
         ]
         return palette[hash_val % len(palette)]
 
+    def _order_types_by_hierarchy(self, raw_places, unique_types) -> List[str]:
+        """Order place types broad-to-narrow (country, state, ... building).
+
+        Rather than relying solely on a hardcoded list, this walks the real
+        parent_id tree already maintained for places (see place_list.py) and
+        ranks each type by the average depth at which it actually appears —
+        e.g. if "City" places tend to sit two levels below "Country" places,
+        City is ordered after Country. Types with no depth signal (isolated
+        places) fall back to the static COLOR_MAPPING order, then to
+        alphabetical order, so the list is always fully and stably ordered.
+        """
+        places_by_id = {p.place_id: p for p in raw_places}
+        depth_cache = {}
+
+        def depth_of(place, seen):
+            if place.place_id in depth_cache:
+                return depth_cache[place.place_id]
+            parent = (
+                places_by_id.get(place.parent_id)
+                if place.parent_id is not None
+                else None
+            )
+            if parent is None or place.place_id in seen:
+                depth_cache[place.place_id] = 0
+                return 0
+            depth = 1 + depth_of(parent, seen | {place.place_id})
+            depth_cache[place.place_id] = depth
+            return depth
+
+        depths_by_type = {}
+        for place in raw_places:
+            if not place.place_type or not place.place_type.strip():
+                continue
+            type_name = place.place_type.strip().title()
+            depths_by_type.setdefault(type_name, []).append(depth_of(place, set()))
+
+        avg_depth = {t: sum(ds) / len(ds) for t, ds in depths_by_type.items()}
+
+        static_order = [t for t in self.COLOR_MAPPING if t != "default"]
+        static_rank = {t.title(): i for i, t in enumerate(static_order)}
+
+        def sort_key(type_name):
+            return (
+                avg_depth.get(type_name, float("inf")),
+                static_rank.get(type_name, len(static_rank)),
+                type_name,
+            )
+
+        return sorted(unique_types, key=sort_key)
+
     def toggle_filter_visibility(self):
         """Toggles the filter container visibility and updates button text."""
         is_visible = self.filter_container.isVisible()
@@ -155,11 +205,11 @@ class MapView(QWidget):
             else:
                 restored_types = set(unique_types)
 
+            ordered_types = self._order_types_by_hierarchy(places, unique_types)
+
             # Update the multi-select widget without letting it auto-select
             # everything, then apply the restored selection explicitly.
-            self.multi_select_widget.set_items(
-                list(unique_types), default_selected=False
-            )
+            self.multi_select_widget.set_items(ordered_types, default_selected=False)
             self.multi_select_widget.set_selected_items(restored_types)
 
             # Store the selected types
