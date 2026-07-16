@@ -596,6 +596,19 @@ class Config:
             self.config["influences"] = {}
         self.config.set("influences", "legend_visible", str(visible).lower())
 
+    def get_influence_legend_size(self) -> tuple:
+        """Get the persisted (width, height) of the cluster legend overlay."""
+        width = self.config.getint("influences", "legend_width", fallback=240)
+        height = self.config.getint("influences", "legend_height", fallback=260)
+        return width, height
+
+    def set_influence_legend_size(self, width: int, height: int):
+        """Persist the (width, height) of the cluster legend overlay."""
+        if "influences" not in self.config:
+            self.config["influences"] = {}
+        self.config.set("influences", "legend_width", str(int(width)))
+        self.config.set("influences", "legend_height", str(int(height)))
+
     def get_influence_cluster_names(self) -> dict:
         """Get persisted Louvain cluster names, keyed by anchor artist ID (as string).
 
