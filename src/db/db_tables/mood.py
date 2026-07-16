@@ -25,6 +25,11 @@ class Mood(Base):
         """Get number of tracks with this mood."""
         return len(self.tracks) if self.tracks else 0
 
+    @property
+    def mood_size(self):
+        """get total file size of all tracks with this mood"""
+        return sum(track.file_size or 0 for track in self.tracks)
+
 
 class MoodTrackAssociation(Base):
     __tablename__ = "mood_track_association"
