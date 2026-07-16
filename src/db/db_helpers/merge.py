@@ -6,7 +6,16 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.db.db_helpers.registry import BaseDBHelper
-from src.db.db_tables import Album, Artist, Genre, Mood, Publisher, Role
+from src.db.db_tables import (
+    Album,
+    Artist,
+    Genre,
+    GenreAlias,
+    Mood,
+    Publisher,
+    PublisherAlias,
+    Role,
+)
 from src.db.db_tables.award import AwardAssociation
 from src.db.db_tables.place import PlaceAssociation
 
@@ -18,6 +27,15 @@ _MERGE_MODEL_REGISTRY: dict = {
     "Mood": Mood,
     "Role": Role,
     "Album": Album,
+}
+
+# For these entity types, merging automatically preserves the merged-away
+# entity's name as an alias of the surviving entity, so the same "duplicate"
+# name resolves to the canonical entity next time instead of being recreated
+# (e.g. on import). Maps model name -> (alias model, name field, alias FK field).
+_ALIAS_ON_MERGE_REGISTRY: dict = {
+    "Publisher": (PublisherAlias, "publisher_name", "publisher_id"),
+    "Genre": (GenreAlias, "genre_name", "genre_id"),
 }
 
 # Tables that link to entities polymorphically via an (entity_type, entity_id)
@@ -159,6 +177,8 @@ class MergeDB(BaseDBHelper):
                         )
                         skipped_tables.add(assoc_table.name)
 
+            self._preserve_alias_on_merge(model_name, source_entity, target_entity)
+
             # Delete via ORM so cascade rules are respected
             self.session.delete(source_entity)
             self.session.flush()
@@ -204,6 +224,42 @@ class MergeDB(BaseDBHelper):
             logger.error(f"Error merging {model_name}: {e}")
             self.session.rollback()
             return False
+
+    def _preserve_alias_on_merge(self, model_name, source_entity, target_entity):
+        """For entity types in `_ALIAS_ON_MERGE_REGISTRY`, save the merged-away
+        entity's name as an alias of the surviving entity, so that name
+        resolves back to the same entity instead of creating a duplicate
+        later (e.g. on import).
+        """
+        alias_info = _ALIAS_ON_MERGE_REGISTRY.get(model_name)
+        if not alias_info:
+            return
+
+        alias_class, name_field, fk_field = alias_info
+        source_name = getattr(source_entity, name_field)
+        target_name = getattr(target_entity, name_field)
+        if not source_name or source_name == target_name:
+            return
+
+        # `fk_field` (e.g. "publisher_id") is both the alias table's FK
+        # column and the target entity's own primary-key attribute name.
+        target_id = getattr(target_entity, fk_field)
+
+        existing_alias = self.session.scalar(
+            select(alias_class).where(alias_class.alias_name == source_name)
+        )
+        if existing_alias is not None:
+            if getattr(existing_alias, fk_field) != target_id:
+                setattr(existing_alias, fk_field, target_id)
+            return
+
+        self.session.add(
+            alias_class(alias_name=source_name, **{fk_field: target_id})
+        )
+        logger.info(
+            f"Preserved '{source_name}' as an alias of {model_name} {target_id} "
+            f"after merge."
+        )
 
     def _safe_execute(self, stmt) -> int:
         """
