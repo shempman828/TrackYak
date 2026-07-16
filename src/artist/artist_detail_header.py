@@ -34,25 +34,31 @@ class PlacesWidget(QWidget):
 
         # Get places from database
         try:
-            places = self.artist.places if hasattr(self.artist, "places") else []
+            associations = (
+                self.controller.get.get_all_entities(
+                    "PlaceAssociation",
+                    entity_id=self.artist.artist_id,
+                    entity_type="Artist",
+                )
+                or []
+            )
 
-            # Separate birth and death places (you might need to adjust based on your schema)
             birth_places = []
             death_places = []
             other_places = []
 
-            for place in places:
-                # You'll need to determine how to identify birth/death places
-                # This is a placeholder - adjust based on your Place model
-                if hasattr(place, "association_type"):
-                    if place.association_type == "birth":
-                        birth_places.append(place)
-                    elif place.association_type == "death":
-                        death_places.append(place)
-                    else:
-                        other_places.append(place)
+            for assoc in associations:
+                if not assoc.place:
+                    continue
+                type_name = (
+                    assoc.association_type.type_name if assoc.association_type else ""
+                )
+                if type_name == "Birthplace":
+                    birth_places.append(assoc.place)
+                elif type_name == "Deathplace":
+                    death_places.append(assoc.place)
                 else:
-                    other_places.append(place)
+                    other_places.append(assoc.place)
 
             # Display birth place
             if birth_places:
