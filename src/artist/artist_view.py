@@ -2,6 +2,8 @@
 
 import webbrowser
 
+from sqlalchemy import func, select
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -29,6 +31,7 @@ from src.artist.artist_place import PlaceSelectionDialog
 from src.award.award_new import AddAwardDialog
 from src.common.base_merge_dialog import MergeDBDialog
 from src.common.base_split_dialog import SplitDBDialog
+from src.db.db_tables import TrackArtistRole
 from src.track.base_track_view import BaseTrackView
 from src.influences.influences_dialog import AddInfluenceDialog
 from src.core.logger_config import logger
@@ -243,18 +246,17 @@ class ArtistView(QWidget):
         if sort_label == "Random":
             _random.shuffle(artists)
         elif sort_label == "Most Tracks":
-
-            def _track_count(artist):
-                try:
-                    roles = self.controller.get.get_all_entities(
-                        "TrackArtistRole", artist_id=artist.artist_id
-                    )
-                    return len(roles) if roles else 0
-                except Exception:
-                    return 0
-
             try:
-                artists = sorted(artists, key=_track_count, reverse=True)
+                counts = dict(
+                    self.controller.get.session.execute(
+                        select(
+                            TrackArtistRole.artist_id, func.count()
+                        ).group_by(TrackArtistRole.artist_id)
+                    ).all()
+                )
+                artists = sorted(
+                    artists, key=lambda a: counts.get(a.artist_id, 0), reverse=True
+                )
             except Exception as e:
                 logger.warning(f"Track-count sort failed: {e}")
         else:
