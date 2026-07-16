@@ -99,10 +99,9 @@ class Album(Base):
     def album_artist_names(self):
         """Return properly formatted album artist names (Oxford comma style)."""
         names = [
-            artist.artist_name
-            if artist and hasattr(artist, "artist_name") and artist.artist_name
-            else "Unknown Artist"
-            for artist in self.album_artists
+            assoc.credited_name or "Unknown Artist"
+            for assoc in self.album_roles
+            if assoc.role and assoc.role.role_name == "Album Artist"
         ]
 
         # Clean whitespace and remove empty values
