@@ -2,6 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QDialog,
+    QLabel,
     QLineEdit,
     QMenu,
     QMessageBox,
@@ -46,6 +47,11 @@ class PublisherView(QWidget):
         self.search_bar.setPlaceholderText("Search publishers...")
         self.search_bar.textChanged.connect(self.filter_publishers)
         left_layout.addWidget(self.search_bar)
+
+        # Count label — shows "N publishers" or "Showing X of Y" while filtering
+        self.count_label = QLabel()
+        self.count_label.setProperty("textRole", "muted")
+        left_layout.addWidget(self.count_label)
 
         # Publisher Tree with context menu
         self.publishers_tree = PublisherTreeWidget(self.controller)
@@ -385,6 +391,16 @@ class PublisherView(QWidget):
     def load_publishers(self):
         """Load publishers into the hierarchical tree."""
         self.publishers_tree.load_publishers()
+        self._update_count_label()
+
+    def _update_count_label(self):
+        """Refresh the "N publishers" / "Showing X of Y" count label."""
+        total = self.publishers_tree.count_total()
+        visible = self.publishers_tree.count_visible()
+        if visible == total:
+            self.count_label.setText(f"{total} publisher{'s' if total != 1 else ''}")
+        else:
+            self.count_label.setText(f"{visible} of {total} publishers")
 
     def on_publisher_selected(self, item):
         """Handle publisher selection."""
@@ -395,3 +411,4 @@ class PublisherView(QWidget):
     def filter_publishers(self, text):
         """Filter publishers based on search text."""
         self.publishers_tree.filter_items(text)
+        self._update_count_label()
