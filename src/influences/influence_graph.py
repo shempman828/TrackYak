@@ -7,19 +7,20 @@ import networkx as nx
 from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
+    QDialog,
     QFrame,
     QGraphicsLineItem,
     QGraphicsPolygonItem,
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QVBoxLayout,
     QWidget,
 )
 
 from src.core.config_setup import app_config
+from src.influences.cluster_name_dialog import ClusterNameDialog
 from src.influences.influence_artist_node import ArtistNode
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -103,11 +104,21 @@ class _GraphScene(QGraphicsScene):
 class _LegendRow(QWidget):
     """One legend entry. Double-click to rename the cluster it represents."""
 
-    def __init__(self, community_index, color, count, name, on_rename, parent=None):
+    def __init__(
+        self,
+        community_index,
+        color,
+        count,
+        name,
+        on_rename,
+        representative_artists=None,
+        parent=None,
+    ):
         super().__init__(parent)
         self._community_index = community_index
         self._name = name
         self._on_rename = on_rename
+        self._representative_artists = representative_artists or []
         if on_rename is not None:
             self.setCursor(Qt.PointingHandCursor)
             self.setToolTip("Double-click to rename this cluster")
@@ -131,11 +142,9 @@ class _LegendRow(QWidget):
         if self._on_rename is None:
             super().mouseDoubleClickEvent(event)
             return
-        new_name, ok = QInputDialog.getText(
-            self, "Rename Cluster", "Cluster name:", text=self._name
-        )
-        if ok:
-            self._on_rename(self._community_index, new_name)
+        dialog = ClusterNameDialog(self._representative_artists, self._name, parent=self)
+        if dialog.exec() == QDialog.Accepted:
+            self._on_rename(self._community_index, dialog.cluster_name())
         event.accept()
 
 
@@ -170,9 +179,11 @@ class _LegendPanel(QFrame):
         self._layout.addWidget(title)
 
         shown = rows[:max_rows]
-        for community_index, color, count, name in shown:
+        for community_index, color, count, name, representative_artists in shown:
             self._layout.addWidget(
-                _LegendRow(community_index, color, count, name, on_rename)
+                _LegendRow(
+                    community_index, color, count, name, on_rename, representative_artists
+                )
             )
 
         remaining = len(rows) - len(shown)
@@ -349,10 +360,25 @@ class InfluenceGraphView(QGraphicsView):
         app_config.save()
         self._update_legend()
 
+    def _representative_artists(self, members_by_community, community_index, limit=5):
+        """Return up to `limit` artist names for a community, ranked by mass
+        (the same "most prominent node" weighting used for the anchor pick
+        in _resolve_community_names) so the user has enough signal to tell
+        clusters apart when renaming them.
+        """
+        members = sorted(
+            members_by_community.get(community_index, []),
+            key=lambda node_id: self.node_mass.get(node_id, 0),
+            reverse=True,
+        )
+        return [self.node_names.get(node_id, "") for node_id in members[:limit]]
+
     def _update_legend(self):
         counts = {}
-        for community_index in self.community_id.values():
+        members_by_community = {}
+        for node_id, community_index in self.community_id.items():
             counts[community_index] = counts.get(community_index, 0) + 1
+            members_by_community.setdefault(community_index, []).append(node_id)
         sized = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
         rows = [
             (
@@ -360,6 +386,7 @@ class InfluenceGraphView(QGraphicsView):
                 self.get_community_color(community_index),
                 count,
                 self.community_names.get(community_index, ""),
+                self._representative_artists(members_by_community, community_index),
             )
             for community_index, count in sized
         ]
