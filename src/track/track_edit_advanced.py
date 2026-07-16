@@ -1,9 +1,11 @@
 # track_edit_advanced.py
 """
-AdvancedTab — wraps FieldFormTab("Advanced") and adds two action buttons:
+AdvancedTab — wraps FieldFormTab("Advanced") and adds three action buttons:
 
-  • Copy to Clipboard — serialises current field values to the clipboard.
-  • Analyse Audio    — runs BatchAnalysisScheduler on the track(s) being
+  • Copy to Clipboard   — serialises current field values to the clipboard.
+  • Write Metadata to File — reads each track's file tags, compares them to
+                       the database, and writes any tags that differ.
+  • Analyse Audio       — runs BatchAnalysisScheduler on the track(s) being
                        edited, wiring its Qt signals back to this widget for
                        live progress feedback.
 """
@@ -24,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from src.statistics.analysis_utility import BatchAnalysisScheduler, analysis_cache
 from src.core.logger_config import logger
+from src.metadata.metadata_writer import MetadataWriter
 from src.track.track_edit_basetab import _BaseTab
 from src.track.track_edit_fieldform import FieldFormTab
 
@@ -47,6 +50,7 @@ class AdvancedTab(_BaseTab):
 
         self._inner = FieldFormTab("Advanced", tracks, controller)
         self._scheduler: BatchAnalysisScheduler | None = None
+        self._metadata_writer = MetadataWriter(controller)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -71,6 +75,14 @@ class AdvancedTab(_BaseTab):
         self._copy_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._copy_btn.clicked.connect(self._on_copy)
 
+        self._write_btn = QPushButton("Write Metadata to File")
+        self._write_btn.setToolTip(
+            "Compare each track's file tags to the database and write\n"
+            "any tags that differ. Tracks already in sync are skipped."
+        )
+        self._write_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._write_btn.clicked.connect(self._on_write_metadata)
+
         self._analyse_btn = QPushButton("Analyse Audio")
         self._analyse_btn.setToolTip(
             "Run audio analysis on the selected track(s).\n"
@@ -80,6 +92,7 @@ class AdvancedTab(_BaseTab):
         self._analyse_btn.clicked.connect(self._on_analyse)
 
         btn_row.addWidget(self._copy_btn)
+        btn_row.addWidget(self._write_btn)
         btn_row.addWidget(self._analyse_btn)
         btn_row.addStretch()
 
@@ -118,6 +131,63 @@ class AdvancedTab(_BaseTab):
         except Exception as e:
             logger.error(f"AdvancedTab clipboard copy failed: {e}", exc_info=True)
             QMessageBox.critical(self, "Copy Error", f"Failed to copy:\n{e}")
+
+    # ── Write metadata to file ────────────────────────────────────────────
+
+    def _on_write_metadata(self):
+        """For each track being edited: read its file's current tags,
+        compare them to the database, and write only the tags that differ.
+        """
+        try:
+            results = [
+                (track, self._metadata_writer.sync_metadata_to_track(track.track_id))
+                for track in self.tracks
+            ]
+
+            updated = [(t, r) for t, r in results if r["success"] and r["changed"]]
+            unchanged = [(t, r) for t, r in results if r["success"] and not r["changed"]]
+            failed = [(t, r) for t, r in results if not r["success"]]
+
+            self._set_status(
+                f"Write Metadata: {len(updated)} updated, "
+                f"{len(unchanged)} already up to date, {len(failed)} failed."
+            )
+            logger.info(
+                f"AdvancedTab: write metadata — {len(updated)} updated, "
+                f"{len(unchanged)} unchanged, {len(failed)} failed"
+            )
+
+            if len(results) == 1:
+                track, result = results[0]
+                if not result["success"]:
+                    QMessageBox.warning(self, "Write Metadata to File", result["message"])
+                elif not result["changed"]:
+                    QMessageBox.information(
+                        self,
+                        "Write Metadata to File",
+                        "File tags already match the database.",
+                    )
+                else:
+                    QMessageBox.information(
+                        self,
+                        "Write Metadata to File",
+                        "Updated tag(s):\n" + "\n".join(result["changed"]),
+                    )
+                return
+
+            lines = [
+                f"Updated: {len(updated)}",
+                f"Already up to date: {len(unchanged)}",
+            ]
+            if failed:
+                lines.append(f"Failed: {len(failed)}")
+                for track, result in failed:
+                    lines.append(f"  {track.track_name}: {result['message']}")
+            QMessageBox.information(self, "Write Metadata to File", "\n".join(lines))
+
+        except Exception as e:
+            logger.error(f"AdvancedTab write metadata failed: {e}", exc_info=True)
+            QMessageBox.critical(self, "Write Metadata Error", f"Failed to write:\n{e}")
 
     # ── Audio analysis ────────────────────────────────────────────────────
 
