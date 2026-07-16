@@ -2,10 +2,12 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QLabel,
     QLineEdit,
     QMessageBox,
 )
 
+from src.common.entity_alias_tab import EntityAliasesTab
 from src.core.logger_config import logger
 
 
@@ -20,6 +22,7 @@ class PublisherEditDialog(QDialog):
         # "New Child" context menu actions) can link the resulting publisher
         # without re-querying the database.
         self.result_publisher = None
+        self.tab_aliases = None
         self.setup_ui()
         self.load_data()
 
@@ -34,6 +37,20 @@ class PublisherEditDialog(QDialog):
         self.desc_input = QLineEdit()
         layout.addRow("Description:", self.desc_input)
 
+        # Aliases only make sense once the publisher exists (they need a
+        # publisher_id to point at), so this section is edit-only.
+        if self.publisher:
+            self.setMinimumSize(420, 420)
+            layout.addRow(QLabel("Aliases:"))
+            self.tab_aliases = EntityAliasesTab(
+                self.controller,
+                self.publisher,
+                "Publisher",
+                "publisher_id",
+                placeholder="e.g. EMI Records",
+            )
+            layout.addRow(self.tab_aliases)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.validate)
         buttons.rejected.connect(self.reject)
@@ -43,6 +60,8 @@ class PublisherEditDialog(QDialog):
         if self.publisher:
             self.name_input.setText(self.publisher.publisher_name or "")
             self.desc_input.setText(self.publisher.description or "")
+            if self.tab_aliases:
+                self.tab_aliases.load(self.publisher)
 
     def validate(self):
         name = self.name_input.text().strip()
