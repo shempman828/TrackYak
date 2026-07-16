@@ -74,9 +74,7 @@ class PublisherAssociationDialog(QDialog):
                             [
                                 track.track_name,
                                 str(track.track_number) if track.track_number else "",
-                                f"{track.duration // 60}:{track.duration % 60:02d}"
-                                if track.duration
-                                else "",
+                                track.duration_formatted,
                             ]
                         )
                         album_item.addChild(track_item)
