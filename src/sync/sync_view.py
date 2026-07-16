@@ -39,6 +39,18 @@ from src.sync.sync_utility import (
     mtp_available,
 )
 
+
+def _format_file_size(bytes_size):
+    """Convert bytes to a human-readable string."""
+    if not bytes_size:
+        return "0 B"
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if bytes_size < 1024.0:
+            return f"{bytes_size:.2f} {unit}"
+        bytes_size /= 1024.0
+    return f"{bytes_size:.2f} PB"
+
+
 # ---------------------------------------------------------------------------
 # DeviceCard — a single profile card in the left sidebar
 # ---------------------------------------------------------------------------
@@ -967,11 +979,13 @@ class SyncView(QWidget):
         """Rebuild self.selected_items and update the track count label."""
         self.selected_items = []
         total_tracks = 0
+        total_size = 0
         for item in self._iter_sync_items():
             if item.checkState(0) == Qt.Checked:
                 data = item.data(0, Qt.UserRole)
                 self.selected_items.append(data)
                 total_tracks += data.get("track_count", 0)
+                total_size += data.get("size", 0) or 0
 
         if self.selected_items:
             n_playlists = sum(1 for it in self.selected_items if it["kind"] == "playlist")
@@ -982,7 +996,8 @@ class SyncView(QWidget):
             if n_moods:
                 parts.append(f"{n_moods} mood(s)")
             self.track_count_label.setText(
-                f"{' + '.join(parts)}  ·  {total_tracks} tracks"
+                f"{' + '.join(parts)}  ·  {total_tracks} tracks  ·  "
+                f"{_format_file_size(total_size)}"
             )
         else:
             self.track_count_label.setText("")
