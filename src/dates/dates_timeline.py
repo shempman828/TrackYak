@@ -49,6 +49,8 @@ class TimelineWidget(QWidget):
     DOT_R_SEL = 9  # dot radius – selected / active decade
     LABEL_Y_OFFSET = 18  # pixels below track centre for labels
 
+    BACK_ZONE_W = 44  # width of the clickable/visual "back" chip in year view
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -63,6 +65,7 @@ class TimelineWidget(QWidget):
         # UI state
         self._expanded_decade: Optional[int] = None  # None → decade view
         self._hovered_index: Optional[int] = None  # index into current items
+        self._back_hovered: bool = False  # mouse is over the "back" chip
 
         self.setMouseTracking(True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -114,11 +117,19 @@ class TimelineWidget(QWidget):
 
     # ── Geometry helpers ───────────────────────────────────────────────────────
 
+    def _left_margin(self) -> int:
+        """Left padding for the track — widened in year view so the first
+        year's dot/label never collides with the "back" chip."""
+        if self._expanded_decade is not None:
+            return max(self.MARGIN, self.BACK_ZONE_W + 12)
+        return self.MARGIN
+
     def _x_for_index(self, index: int, total: int) -> int:
         if total <= 1:
             return self.width() // 2
-        usable = self.width() - 2 * self.MARGIN
-        return self.MARGIN + int(index / (total - 1) * usable)
+        left_margin = self._left_margin()
+        usable = self.width() - left_margin - self.MARGIN
+        return left_margin + int(index / (total - 1) * usable)
 
     def _index_near_x(self, x: float) -> Optional[int]:
         items = self._current_items()
@@ -131,7 +142,8 @@ class TimelineWidget(QWidget):
             if dist < best_dist:
                 best_dist = dist
                 best_idx = i
-        hit_radius = max(20, (self.width() - 2 * self.MARGIN) / max(n, 1) / 2)
+        usable = self.width() - self._left_margin() - self.MARGIN
+        hit_radius = max(20, usable / max(n, 1) / 2)
         return best_idx if best_dist <= hit_radius else None
 
     # ── Paint ──────────────────────────────────────────────────────────────────
@@ -157,9 +169,10 @@ class TimelineWidget(QWidget):
         in_year_view = self._expanded_decade is not None
 
         # Track (full)
+        left_margin = self._left_margin()
         pen = QPen(self.COLOR_TRACK, self.TRACK_H, Qt.SolidLine, Qt.RoundCap)
         painter.setPen(pen)
-        painter.drawLine(self.MARGIN, cy, w - self.MARGIN, cy)
+        painter.drawLine(left_margin, cy, w - self.MARGIN, cy)
 
         # Track fill up to selected item
         selected_item = (
@@ -176,7 +189,7 @@ class TimelineWidget(QWidget):
                 self.COLOR_TRACK_FILL, self.TRACK_H, Qt.SolidLine, Qt.RoundCap
             )
             painter.setPen(pen_fill)
-            painter.drawLine(self.MARGIN, cy, sel_x, cy)
+            painter.drawLine(left_margin, cy, sel_x, cy)
 
         # Dots and labels
         for i, item in enumerate(items):
@@ -251,12 +264,23 @@ class TimelineWidget(QWidget):
         painter.setPen(self.COLOR_TEXT_MUTED)
         painter.drawText(QRect(0, 4, w, 14), Qt.AlignCenter, hint)
 
-        # In year view: show a small "back" indicator on the left
+        # In year view: show a "back" chip on the left, with hover feedback
+        # so it reads as clickable rather than floating, static text.
         if in_year_view:
+            back_rect = QRect(4, cy - 12, self.BACK_ZONE_W - 8, 24)
+            back_color = self.COLOR_HOVERED if self._back_hovered else self.COLOR_TRACK_FILL
+
+            chip_bg = QColor(back_color)
+            chip_bg.setAlpha(40 if self._back_hovered else 20)
+            painter.setBrush(chip_bg)
+            painter.setPen(QPen(back_color, 1))
+            painter.drawRoundedRect(back_rect, 6, 6)
+
             back_font = QFont("Cambria", 8)
+            back_font.setBold(self._back_hovered)
             painter.setFont(back_font)
-            painter.setPen(self.COLOR_TRACK_FILL)
-            painter.drawText(QRect(4, cy - 10, 40, 20), Qt.AlignCenter, "← back")
+            painter.setPen(back_color)
+            painter.drawText(back_rect, Qt.AlignCenter, "← back")
 
         painter.end()
 
@@ -269,8 +293,8 @@ class TimelineWidget(QWidget):
         x = event.position().x()
         y = event.position().y()
 
-        # "back" hit area (left 44px, centre band) — only in year view
-        if self._expanded_decade is not None and x < 44:
+        # "back" hit area — only in year view
+        if self._expanded_decade is not None and x < self.BACK_ZONE_W:
             self._collapse_to_decades()
             return
 
@@ -295,15 +319,24 @@ class TimelineWidget(QWidget):
 
     def mouseMoveEvent(self, event):
         """Update hover highlight — no drag selection."""
-        idx = self._index_near_x(event.position().x())
-        if idx != self._hovered_index:
-            self._hovered_index = idx
-            self.setCursor(Qt.PointingHandCursor if idx is not None else Qt.ArrowCursor)
+        x = event.position().x()
+        over_back = self._expanded_decade is not None and x < self.BACK_ZONE_W
+
+        idx = None if over_back else self._index_near_x(x)
+
+        changed = over_back != self._back_hovered or idx != self._hovered_index
+        self._back_hovered = over_back
+        self._hovered_index = idx
+
+        if changed:
+            hot = over_back or idx is not None
+            self.setCursor(Qt.PointingHandCursor if hot else Qt.ArrowCursor)
             self.update()
 
     def leaveEvent(self, event):
-        if self._hovered_index is not None:
+        if self._hovered_index is not None or self._back_hovered:
             self._hovered_index = None
+            self._back_hovered = False
             self.update()
         self.setCursor(Qt.ArrowCursor)
 
@@ -312,6 +345,7 @@ class TimelineWidget(QWidget):
     def _collapse_to_decades(self):
         self._expanded_decade = None
         self._hovered_index = None
+        self._back_hovered = False
         self.update()
 
     def sizeHint(self):
