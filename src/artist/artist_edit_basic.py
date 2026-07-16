@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.artist.artist_image_manager import move_to_artist_images_dir
 from src.core.logger_config import logger
 from src.image.pixmap_with_fallback import load_pixmap_with_fallback
 
@@ -387,7 +388,10 @@ class BasicTab(QWidget):
         if path:
             logger.debug(f"Profile picture selected for artist editor: {path}")
             self._settings.setValue(_SETTINGS_LAST_PIC_DIR, os.path.dirname(path))
-            self._set_pic_path(path)
+            managed_path = move_to_artist_images_dir(
+                self.artist.artist_id, self.artist.artist_name, path
+            )
+            self._set_pic_path(managed_path)
 
     def _clear_pic(self):
         self._set_pic_path("")
