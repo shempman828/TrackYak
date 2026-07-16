@@ -157,6 +157,14 @@ class ListView(QWidget):
         menu.addAction("Edit", lambda p=place: self.edit_place_for(p))
         menu.addAction("Merge", lambda p=place: self.merge_place(p))
         menu.addAction("Split", lambda p=place: self._split_place())
+        menu.addSeparator()
+        menu.addAction(
+            "New Parent Place", lambda p=place: self.create_new_parent_place(p)
+        )
+        menu.addAction(
+            "New Child Place", lambda p=place: self.create_new_child_place(p)
+        )
+        menu.addSeparator()
         menu.addAction("Delete", lambda p=place: self.delete_place_for(p))
 
         menu.exec_(self.tree_widget.viewport().mapToGlobal(position))
@@ -289,6 +297,64 @@ class ListView(QWidget):
         if not selected:
             return
         self.edit_place_for(selected.data(0, Qt.UserRole))
+
+    def create_new_parent_place(self, place):
+        """Create a new place and insert it as the parent of the given place.
+
+        The new place takes over the place's old parent slot (preserving
+        the grandparent chain), and the place becomes a child of the new
+        place.
+        """
+        dialog = PlaceEditDialog(self.controller, self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        new_place_data = dialog.get_place_data()
+        if new_place_data is None:
+            return
+
+        try:
+            new_place = self.controller.add.add_entity("Place", **new_place_data)
+            if not new_place:
+                raise ValueError("Failed to create new place")
+
+            self.controller.update.update_entity(
+                "Place", new_place.place_id, parent_id=place.parent_id
+            )
+            self.controller.update.update_entity(
+                "Place", place.place_id, parent_id=new_place.place_id
+            )
+            if self.parent_view:
+                self.parent_view.refresh_views()
+            logger.info("New parent place created and linked successfully.")
+        except Exception as e:
+            logger.error(f"Failed to create new parent place: {str(e)}")
+            QMessageBox.critical(self, "Error", "Failed to create new parent place")
+
+    def create_new_child_place(self, place):
+        """Create a new place and set it as a child of the given place."""
+        dialog = PlaceEditDialog(self.controller, self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        new_place_data = dialog.get_place_data()
+        if new_place_data is None:
+            return
+
+        try:
+            new_place = self.controller.add.add_entity("Place", **new_place_data)
+            if not new_place:
+                raise ValueError("Failed to create new place")
+
+            self.controller.update.update_entity(
+                "Place", new_place.place_id, parent_id=place.place_id
+            )
+            if self.parent_view:
+                self.parent_view.refresh_views()
+            logger.info("New child place created and linked successfully.")
+        except Exception as e:
+            logger.error(f"Failed to create new child place: {str(e)}")
+            QMessageBox.critical(self, "Error", "Failed to create new child place")
 
     def delete_place_for(self, place):
         """Delete the given place after confirmation."""

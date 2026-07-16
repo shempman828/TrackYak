@@ -14,6 +14,10 @@ class RoleEditDialog(QDialog):
         super().__init__(parent)
         self.controller = controller
         self.role = role
+        # Populated after a successful save so callers (e.g. the "New Parent"/
+        # "New Child" context menu actions) can link the resulting role
+        # without re-querying the database.
+        self.result_role = None
         self.setup_ui()
         self.load_data()
 
@@ -63,8 +67,9 @@ class RoleEditDialog(QDialog):
                     role_name=name,
                     role_description=description,
                 )
+                self.result_role = self.role
             else:  # Creating
-                self.controller.add.add_entity(
+                self.result_role = self.controller.add.add_entity(
                     "Role", role_name=name, role_description=description
                 )
             self.accept()

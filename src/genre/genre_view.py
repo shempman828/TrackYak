@@ -364,6 +364,13 @@ class GenreView(QWidget):
             menu.addAction("Edit", lambda: self.edit_genre(self.current_genre_id))
             menu.addAction("Merge", lambda: self.merge_genre(self.current_genre_id))
             menu.addAction("Split", lambda: self._split_genre())
+            menu.addSeparator()
+            menu.addAction(
+                "New Parent Genre", lambda: self.create_new_parent(self.current_genre_id)
+            )
+            menu.addAction(
+                "New Child Genre", lambda: self.create_new_child(self.current_genre_id)
+            )
         else:
             # Multiple selection
             self.current_genre_id = None
@@ -419,6 +426,63 @@ class GenreView(QWidget):
         except Exception as e:
             logger.error(f"Error editing genre: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to edit genre")
+
+    def create_new_parent(self, genre_id):
+        """Create a new genre and insert it as the parent of the given genre.
+
+        The new genre takes over the genre's old parent slot (preserving the
+        grandparent chain), and the genre becomes a child of the new genre.
+        """
+        genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
+        if not genre:
+            show_status_message(self, "The selected genre no longer exists.")
+            return
+
+        dialog = GenreEditDialog(self.controller, None)
+        if dialog.exec_() != QDialog.Accepted or not dialog.result_genre:
+            return
+
+        new_genre = dialog.result_genre
+        try:
+            self.controller.update.update_entity(
+                "Genre", new_genre.genre_id, parent_id=genre.parent_id
+            )
+            self.controller.update.update_entity(
+                "Genre", genre.genre_id, parent_id=new_genre.genre_id
+            )
+            self.load_genres()
+            self.genre_updated.emit()
+            self.status_bar.setText(
+                f"Created '{new_genre.genre_name}' as parent of '{genre.genre_name}'"
+            )
+        except Exception as e:
+            logger.error(f"Error creating new parent genre: {str(e)}")
+            QMessageBox.critical(self, "Error", "Failed to create new parent genre")
+
+    def create_new_child(self, genre_id):
+        """Create a new genre and set it as a child of the given genre."""
+        genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
+        if not genre:
+            show_status_message(self, "The selected genre no longer exists.")
+            return
+
+        dialog = GenreEditDialog(self.controller, None)
+        if dialog.exec_() != QDialog.Accepted or not dialog.result_genre:
+            return
+
+        new_genre = dialog.result_genre
+        try:
+            self.controller.update.update_entity(
+                "Genre", new_genre.genre_id, parent_id=genre.genre_id
+            )
+            self.load_genres()
+            self.genre_updated.emit()
+            self.status_bar.setText(
+                f"Created '{new_genre.genre_name}' as child of '{genre.genre_name}'"
+            )
+        except Exception as e:
+            logger.error(f"Error creating new child genre: {str(e)}")
+            QMessageBox.critical(self, "Error", "Failed to create new child genre")
 
     def delete_selected_genres(self):
         """Delete all selected genres after confirmation."""

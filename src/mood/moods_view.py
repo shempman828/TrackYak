@@ -440,6 +440,18 @@ class MoodView(QWidget):
             edit_action.triggered.connect(lambda: self.edit_selected_mood())
             menu.addAction(edit_action)
 
+            menu.addSeparator()
+
+            new_parent_action = QAction("New Parent Mood", self)
+            new_parent_action.triggered.connect(lambda: self.create_new_parent_mood())
+            menu.addAction(new_parent_action)
+
+            new_child_action = QAction("New Child Mood", self)
+            new_child_action.triggered.connect(lambda: self.create_new_child_mood())
+            menu.addAction(new_child_action)
+
+            menu.addSeparator()
+
             delete_action = QAction("Delete Mood", self)
             delete_action.triggered.connect(self.delete_selected_mood)
             menu.addAction(delete_action)
@@ -495,6 +507,87 @@ class MoodView(QWidget):
             except Exception as e:
                 logger.error(f"Error updating mood: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to update mood: {str(e)}")
+
+    def create_new_parent_mood(self):
+        """Create a new mood and insert it as the parent of the current mood.
+
+        The new mood takes over the mood's old parent slot (preserving the
+        grandparent chain), and the current mood becomes a child of the new mood.
+        """
+        if not self.current_mood_id:
+            return
+
+        mood = next(
+            (m for m in self.moods_data if m.mood_id == self.current_mood_id), None
+        )
+        if not mood:
+            show_status_message(self, "The selected mood no longer exists.")
+            return
+
+        dialog = MoodDialog(controller=self.controller, parent=self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        mood_data = dialog.get_mood_data()
+        try:
+            new_mood = self.controller.add.add_entity("Mood", **mood_data)
+            if not new_mood:
+                raise ValueError("Failed to create new mood")
+
+            self.controller.update.update_entity(
+                "Mood", new_mood.mood_id, parent_id=mood.parent_id
+            )
+            self.controller.update.update_entity(
+                "Mood", mood.mood_id, parent_id=new_mood.mood_id
+            )
+            self.mood_created.emit(new_mood)
+            self.load_moods()
+            show_status_message(
+                self,
+                f"Created '{new_mood.mood_name}' as parent of '{mood.mood_name}'",
+            )
+        except Exception as e:
+            logger.error(f"Error creating new parent mood: {e}")
+            QMessageBox.critical(
+                self, "Error", f"Failed to create new parent mood: {str(e)}"
+            )
+
+    def create_new_child_mood(self):
+        """Create a new mood and set it as a child of the current mood."""
+        if not self.current_mood_id:
+            return
+
+        mood = next(
+            (m for m in self.moods_data if m.mood_id == self.current_mood_id), None
+        )
+        if not mood:
+            show_status_message(self, "The selected mood no longer exists.")
+            return
+
+        dialog = MoodDialog(controller=self.controller, parent=self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        mood_data = dialog.get_mood_data()
+        try:
+            new_mood = self.controller.add.add_entity("Mood", **mood_data)
+            if not new_mood:
+                raise ValueError("Failed to create new mood")
+
+            self.controller.update.update_entity(
+                "Mood", new_mood.mood_id, parent_id=mood.mood_id
+            )
+            self.mood_created.emit(new_mood)
+            self.load_moods()
+            show_status_message(
+                self,
+                f"Created '{new_mood.mood_name}' as child of '{mood.mood_name}'",
+            )
+        except Exception as e:
+            logger.error(f"Error creating new child mood: {e}")
+            QMessageBox.critical(
+                self, "Error", f"Failed to create new child mood: {str(e)}"
+            )
 
     def delete_selected_mood(self):
         """Delete the currently selected mood"""

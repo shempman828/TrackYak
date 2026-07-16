@@ -15,6 +15,7 @@ from src.common.base_split_dialog import SplitDBDialog
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.publisher.publisher_detail import PublisherDetailTab
+from src.publisher.publisher_edit_dialog import PublisherEditDialog
 from src.publisher.publisher_fuzzy_match import PublisherFuzzyMatchDialog
 from src.publisher.publisher_merge_dialog import PublisherMergeDialog
 from src.publisher.publisher_tree import PublisherTreeWidget
@@ -100,6 +101,22 @@ class PublisherView(QWidget):
                 split_action = QAction("Split Publisher...", self)
                 split_action.triggered.connect(self._split_publisher)
                 menu.addAction(split_action)
+
+                menu.addSeparator()
+
+                new_parent_action = QAction("New Parent Publisher", self)
+                new_parent_action.triggered.connect(
+                    lambda: self.create_new_parent_publisher(item)
+                )
+                menu.addAction(new_parent_action)
+
+                new_child_action = QAction("New Child Publisher", self)
+                new_child_action.triggered.connect(
+                    lambda: self.create_new_child_publisher(item)
+                )
+                menu.addAction(new_child_action)
+
+            menu.addSeparator()
 
             # Delete works for single or multiple selection
             count = len(selected_items)
@@ -218,6 +235,64 @@ class PublisherView(QWidget):
 
         except Exception as e:
             logger.error(f"Error in _split_publisher(): {e}", exc_info=True)
+
+    def create_new_parent_publisher(self, item):
+        """Create a new publisher and insert it as the parent of the given publisher.
+
+        The new publisher takes over the publisher's old parent slot
+        (preserving the grandparent chain), and the publisher becomes a
+        child of the new publisher.
+        """
+        publisher_id = item.data(0, Qt.UserRole)
+        publisher = self.controller.get.get_entity_object(
+            "Publisher", publisher_id=publisher_id
+        )
+        if not publisher:
+            show_status_message(self, "The selected publisher no longer exists.")
+            return
+
+        dialog = PublisherEditDialog(self.controller, parent=self)
+        if dialog.exec_() != QDialog.Accepted or not dialog.result_publisher:
+            return
+
+        new_publisher = dialog.result_publisher
+        try:
+            self.controller.update.update_entity(
+                "Publisher", new_publisher.publisher_id, parent_id=publisher.parent_id
+            )
+            self.controller.update.update_entity(
+                "Publisher", publisher.publisher_id, parent_id=new_publisher.publisher_id
+            )
+            self.load_publishers()
+            logger.info("New parent publisher created and linked successfully.")
+        except Exception as e:
+            logger.error(f"Error creating new parent publisher: {str(e)}")
+            QMessageBox.critical(self, "Error", "Failed to create new parent publisher")
+
+    def create_new_child_publisher(self, item):
+        """Create a new publisher and set it as a child of the given publisher."""
+        publisher_id = item.data(0, Qt.UserRole)
+        publisher = self.controller.get.get_entity_object(
+            "Publisher", publisher_id=publisher_id
+        )
+        if not publisher:
+            show_status_message(self, "The selected publisher no longer exists.")
+            return
+
+        dialog = PublisherEditDialog(self.controller, parent=self)
+        if dialog.exec_() != QDialog.Accepted or not dialog.result_publisher:
+            return
+
+        new_publisher = dialog.result_publisher
+        try:
+            self.controller.update.update_entity(
+                "Publisher", new_publisher.publisher_id, parent_id=publisher.publisher_id
+            )
+            self.load_publishers()
+            logger.info("New child publisher created and linked successfully.")
+        except Exception as e:
+            logger.error(f"Error creating new child publisher: {str(e)}")
+            QMessageBox.critical(self, "Error", "Failed to create new child publisher")
 
     def _remove_parent(self):
         """Remove parent from selected publisher."""

@@ -725,6 +725,13 @@ class RoleView(QWidget):
         menu.addAction("Edit", lambda: self.edit_role(self.current_role_id))
         menu.addAction("Merge…", lambda: self.merge_role(self.current_role_id))
         menu.addSeparator()
+        menu.addAction(
+            "New Parent Role", lambda: self.create_new_parent_role(self.current_role_id)
+        )
+        menu.addAction(
+            "New Child Role", lambda: self.create_new_child_role(self.current_role_id)
+        )
+        menu.addSeparator()
         menu.addAction("Delete", lambda: self.delete_role(self.current_role_id))
 
         menu.exec_(self.role_tree.viewport().mapToGlobal(pos))
@@ -777,6 +784,63 @@ class RoleView(QWidget):
         except Exception as e:
             logger.error(f"Error merging role: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to merge role: {str(e)}")
+
+    def create_new_parent_role(self, role_id):
+        """Create a new role and insert it as the parent of the given role.
+
+        The new role takes over the role's old parent slot (preserving the
+        grandparent chain), and the role becomes a child of the new role.
+        """
+        role = self.controller.get.get_entity_object("Role", role_id=role_id)
+        if not role:
+            show_status_message(self, "The selected role no longer exists.")
+            return
+
+        dialog = RoleEditDialog(self.controller, None, self)
+        if dialog.exec_() != QDialog.Accepted or not dialog.result_role:
+            return
+
+        new_role = dialog.result_role
+        try:
+            self.controller.update.update_entity(
+                "Role", new_role.role_id, parent_id=role.parent_id
+            )
+            self.controller.update.update_entity(
+                "Role", role.role_id, parent_id=new_role.role_id
+            )
+            self.load_roles()
+            self.role_updated.emit()
+            self.status_bar.setText(
+                f"Created '{new_role.role_name}' as parent of '{role.role_name}'"
+            )
+        except Exception as e:
+            logger.error(f"Error creating new parent role: {str(e)}")
+            QMessageBox.critical(self, "Error", "Failed to create new parent role")
+
+    def create_new_child_role(self, role_id):
+        """Create a new role and set it as a child of the given role."""
+        role = self.controller.get.get_entity_object("Role", role_id=role_id)
+        if not role:
+            show_status_message(self, "The selected role no longer exists.")
+            return
+
+        dialog = RoleEditDialog(self.controller, None, self)
+        if dialog.exec_() != QDialog.Accepted or not dialog.result_role:
+            return
+
+        new_role = dialog.result_role
+        try:
+            self.controller.update.update_entity(
+                "Role", new_role.role_id, parent_id=role.role_id
+            )
+            self.load_roles()
+            self.role_updated.emit()
+            self.status_bar.setText(
+                f"Created '{new_role.role_name}' as child of '{role.role_name}'"
+            )
+        except Exception as e:
+            logger.error(f"Error creating new child role: {str(e)}")
+            QMessageBox.critical(self, "Error", "Failed to create new child role")
 
     def delete_role(self, role_id):
         """Delete selected role after confirmation."""

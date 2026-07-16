@@ -60,6 +60,10 @@ class GenreEditDialog(QDialog):
         self.controller = controller
         self.genre = genre
         self.parent_id = genre.parent_id if genre else None
+        # Populated after a successful save so callers (e.g. the "New Parent"/
+        # "New Child" context menu actions) can link the resulting genre
+        # without re-querying the database.
+        self.result_genre = None
         self.setup_ui()
         self.load_data()
 
@@ -141,8 +145,9 @@ class GenreEditDialog(QDialog):
                     description=self.desc_input.text().strip() or None,
                     parent_id=parent_id,
                 )
+                self.result_genre = self.genre
             else:  # Creating
-                self.controller.add.add_entity(
+                self.result_genre = self.controller.add.add_entity(
                     "Genre",
                     genre_name=name,
                     description=self.desc_input.text().strip() or None,
