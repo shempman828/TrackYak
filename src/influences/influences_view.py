@@ -1,5 +1,6 @@
 from PySide6.QtGui import QColor, QPen
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QGraphicsLineItem,
     QHBoxLayout,
@@ -9,6 +10,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.core.config_setup import app_config
 from src.influences.influence_graph import InfluenceGraphView
 from src.influences.influences_dialog import RemoveInfluenceDialog
 from src.core.logger_config import logger
@@ -51,10 +53,19 @@ class InfluencesView(QWidget):
         self.fit_view_button.clicked.connect(lambda: self.graph_view.fit_to_view())
         self.fit_view_button.setToolTip("Zoom to fit the whole graph on screen")
 
+        self.legend_checkbox = QCheckBox("Show Cluster Legend")
+        self.legend_checkbox.setChecked(app_config.get_influence_legend_visible())
+        self.legend_checkbox.setToolTip(
+            "Show or hide the cluster legend overlay. Double-click a legend "
+            "entry to rename that cluster."
+        )
+        self.legend_checkbox.toggled.connect(self.toggle_legend_visible)
+
         button_layout.addWidget(self.refresh_button)
         button_layout.addWidget(self.add_influence_button)
         button_layout.addWidget(self.remove_influence_button)
         button_layout.addWidget(self.fit_view_button)
+        button_layout.addWidget(self.legend_checkbox)
 
         button_layout.addStretch()
 
@@ -72,6 +83,10 @@ class InfluencesView(QWidget):
         layout.addWidget(self.graph_view)
 
         self.setLayout(layout)
+
+    def toggle_legend_visible(self, visible):
+        """Show or hide the cluster legend overlay."""
+        self.graph_view.set_legend_visible(visible)
 
     def show_global_view(self):
         """Display entire influence graph"""
