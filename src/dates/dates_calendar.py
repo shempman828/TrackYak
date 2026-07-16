@@ -106,6 +106,41 @@ def _group_events_by_type(events: list) -> dict:
     return groups
 
 
+def _build_event_row(event: dict) -> QFrame:
+    frame = QFrame()
+    frame.setStyleSheet(f"""
+        QFrame {{
+            background-color: {_BG_CARD};
+            border: 1px solid {_BORDER_SUBTLE};
+            border-radius: 4px;
+        }}
+    """)
+    row_layout = QVBoxLayout(frame)
+    row_layout.setContentsMargins(8, 6, 8, 6)
+    row_layout.setSpacing(2)
+
+    color = _entity_color(event.get("entity", ""))
+
+    name_label = QLabel(event.get("entity_name", "Unknown"))
+    name_font = QFont("Cambria", 11)
+    name_font.setBold(True)
+    name_label.setFont(name_font)
+    name_label.setStyleSheet(f"color: {color}; background: transparent;")
+    row_layout.addWidget(name_label)
+
+    type_label = QLabel(_type_label(event.get("type", "")))
+    type_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
+    row_layout.addWidget(type_label)
+
+    if event.get("description"):
+        desc_label = QLabel(event["description"])
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet(f"color: {_TEXT}; font-size: 10px; background: transparent;")
+        row_layout.addWidget(desc_label)
+
+    return frame
+
+
 class CalendarDayWidget(QFrame):
     """
     Represents a single day cell in the calendar grid.
@@ -274,7 +309,7 @@ class DateDetailDialog(QDialog):
             key=lambda e: (_type_label(e.get("type", "")), e.get("entity_name", "")),
         )
         for event in sorted_events:
-            container_layout.addWidget(self._build_event_row(event))
+            container_layout.addWidget(_build_event_row(event))
         container_layout.addStretch()
 
         scroll.setWidget(container)
@@ -285,39 +320,75 @@ class DateDetailDialog(QDialog):
         buttons.button(QDialogButtonBox.Close).clicked.connect(self.accept)
         layout.addWidget(buttons)
 
-    def _build_event_row(self, event: dict) -> QFrame:
-        frame = QFrame()
-        frame.setStyleSheet(f"""
-            QFrame {{
-                background-color: {_BG_CARD};
-                border: 1px solid {_BORDER_SUBTLE};
-                border-radius: 4px;
-            }}
-        """)
-        row_layout = QVBoxLayout(frame)
-        row_layout.setContentsMargins(8, 6, 8, 6)
-        row_layout.setSpacing(2)
 
-        color = _entity_color(event.get("entity", ""))
+class OnThisDayDialog(QDialog):
+    """Shows every event that ever happened on a given month/day, grouped by year."""
 
-        name_label = QLabel(event.get("entity_name", "Unknown"))
-        name_font = QFont("Cambria", 11)
-        name_font.setBold(True)
-        name_label.setFont(name_font)
-        name_label.setStyleSheet(f"color: {color}; background: transparent;")
-        row_layout.addWidget(name_label)
+    def __init__(self, month: int, day: int, events: list, parent=None):
+        super().__init__(parent)
+        month_name = _MONTH_NAMES[month - 1] if 1 <= month <= 12 else str(month)
+        self.setWindowTitle(f"On This Day — {month_name} {day}")
+        self.setMinimumSize(460, 380)
+        self._init_ui(month_name, day, events)
 
-        type_label = QLabel(_type_label(event.get("type", "")))
-        type_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
-        row_layout.addWidget(type_label)
+    def _init_ui(self, month_name, day, events):
+        layout = QVBoxLayout(self)
 
-        if event.get("description"):
-            desc_label = QLabel(event["description"])
-            desc_label.setWordWrap(True)
-            desc_label.setStyleSheet(f"color: {_TEXT}; font-size: 10px; background: transparent;")
-            row_layout.addWidget(desc_label)
+        header = QLabel(f"On This Day — {month_name} {day}")
+        header_font = QFont("Cambria", 14)
+        header_font.setBold(True)
+        header.setFont(header_font)
+        header.setStyleSheet(f"color: {_GOLD};")
+        layout.addWidget(header)
 
-        return frame
+        years_count = len({e.get("year") for e in events if e.get("year")})
+        count_label = QLabel(
+            f"{len(events)} event{'s' if len(events) != 1 else ''} across {years_count} year{'s' if years_count != 1 else ''}"
+        )
+        count_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+        layout.addWidget(count_label)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setSpacing(10)
+
+        if events:
+            events_by_year = {}
+            for event in events:
+                events_by_year.setdefault(event.get("year"), []).append(event)
+
+            for year in sorted(events_by_year.keys(), reverse=True):
+                year_label = QLabel(str(year))
+                year_font = QFont("Cambria", 12)
+                year_font.setBold(True)
+                year_label.setFont(year_font)
+                year_label.setStyleSheet(f"color: {_ACCENT}; background: transparent;")
+                container_layout.addWidget(year_label)
+
+                sorted_events = sorted(
+                    events_by_year[year],
+                    key=lambda e: (_type_label(e.get("type", "")), e.get("entity_name", "")),
+                )
+                for event in sorted_events:
+                    container_layout.addWidget(_build_event_row(event))
+        else:
+            empty_label = QLabel("No events found for this day in any year.")
+            empty_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+            container_layout.addWidget(empty_label)
+
+        container_layout.addStretch()
+
+        scroll.setWidget(container)
+        layout.addWidget(scroll, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self.reject)
+        buttons.button(QDialogButtonBox.Close).clicked.connect(self.accept)
+        layout.addWidget(buttons)
 
 
 class CalendarWidget(QWidget):
@@ -325,6 +396,8 @@ class CalendarWidget(QWidget):
     A full monthly calendar view.
     Accepts a year and a list of event dicts; refreshes automatically when either changes.
     """
+
+    on_this_day_requested = Signal()
 
     def __init__(self, year: int, events_data: list = None, parent=None):
         super().__init__(parent)
@@ -473,12 +546,34 @@ class CalendarWidget(QWidget):
             f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;"
         )
 
+        self.on_this_day_button = QPushButton("On This Day")
+        self.on_this_day_button.setToolTip(
+            "See what happened on today's date across every year in your library"
+        )
+        self.on_this_day_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {_ACCENT_DIM};
+                color: {_GOLD};
+                border: 1px solid {_ACCENT_BORDER};
+                border-radius: 4px;
+                padding: 4px 10px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(133,153,234,0.28);
+                border: 1px solid {_ACCENT};
+            }}
+        """)
+        self.on_this_day_button.clicked.connect(self.on_this_day_requested.emit)
+
         header.addWidget(self.prev_button)
         header.addWidget(self.month_combo)
         header.addWidget(self.next_button)
         header.addSpacing(8)
         header.addWidget(self._year_label)
         header.addStretch()
+        header.addWidget(self.on_this_day_button)
+        header.addSpacing(8)
         header.addWidget(self.summary_label)
         root.addLayout(header)
 
