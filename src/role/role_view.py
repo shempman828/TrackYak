@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
 
 from src.common.hierarchy_tree_style import (
     configure_hierarchy_tree,
-    hierarchy_label,
     icon_for_depth,
 )
 from src.core.logger_config import logger
@@ -454,7 +453,7 @@ class RoleView(QWidget):
             # Display text mirrors the genre tree's "Name (count)" style
             display_text = f"{role.role_name} ({total_count})"
 
-            item = QTreeWidgetItem([hierarchy_label(display_text, depth)])
+            item = QTreeWidgetItem([display_text])
             item.setData(0, Qt.UserRole, role.role_id)
             item.setFlags(item.flags() | Qt.ItemIsEditable)
 
