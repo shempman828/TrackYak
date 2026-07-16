@@ -2,9 +2,8 @@
 
 Genre, Role, Mood, and Playlist trees all represent a parent/child hierarchy
 and use the same visual language to show nesting: a colored dot icon per
-depth level, plus an indented "↳" prefix on the label. Centralizing it here
-keeps the views visually consistent and avoids re-implementing the same
-color table and tree setup in each one.
+depth level. Centralizing it here keeps the views visually consistent and
+avoids re-implementing the same color table and tree setup in each one.
 """
 
 from PySide6.QtCore import Qt
@@ -41,13 +40,6 @@ def icon_for_depth(depth: int, size: int = 16) -> QIcon:
     """Colored dot icon for a tree item at the given hierarchy depth."""
     color = DEPTH_COLORS[depth] if depth < len(DEPTH_COLORS) else FALLBACK_COLOR
     return create_colored_icon(color, size)
-
-
-def hierarchy_label(text: str, depth: int) -> str:
-    """Prefix `text` with the "↳" indent marker used for nested tree items."""
-    if depth <= 0:
-        return text
-    return "  " * depth + "↳ " + text
 
 
 def configure_hierarchy_tree(tree: QTreeWidget, *, multi_select: bool = True) -> None:
