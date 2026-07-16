@@ -294,8 +294,10 @@ class PlacesWidget(QWidget):
                         "place_latitude": getattr(place, "place_latitude", None),
                         "place_longitude": getattr(place, "place_longitude", None),
                         "association_id": getattr(association, "association_id", None),
-                        "association_type": getattr(
-                            association, "association_type", None
+                        "association_type": (
+                            association.association_type.type_name
+                            if getattr(association, "association_type", None)
+                            else None
                         ),
                         "entity_id": getattr(association, "entity_id", None),
                         "entity_type": getattr(association, "entity_type", None),
