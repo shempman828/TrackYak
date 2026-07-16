@@ -96,7 +96,12 @@ class MultiSelectWidget(QWidget):
         self.toggle_button.setChecked(False)
 
     def set_items(self, items, default_selected=True):
-        """Set the list of items with checkboxes."""
+        """Set the list of items with checkboxes.
+
+        Items are added in the order given, so callers that want a
+        meaningful ordering (e.g. hierarchy-based rather than alphabetical)
+        can control it by passing items pre-sorted.
+        """
         # Clear existing checkboxes
         for i in reversed(range(self.popup.content_layout.count())):
             widget = self.popup.content_layout.itemAt(i).widget()
@@ -107,7 +112,7 @@ class MultiSelectWidget(QWidget):
         self.selected_items.clear()
 
         # Add checkboxes for each item
-        for item in sorted(items):
+        for item in items:
             checkbox = QCheckBox(item)
             checkbox.setChecked(default_selected)
             checkbox.stateChanged.connect(
