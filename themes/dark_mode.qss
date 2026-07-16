@@ -348,6 +348,28 @@ QLineEdit::placeholder {
     color: #333a52;
 }
 
+/* ── SEARCH BAR + COLUMN-SCOPE PICKER (fused into one control) ───────────────── */
+QLineEdit#searchBarField {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    border-right: none;
+}
+
+QLineEdit#searchBarField:focus {
+    border-right: none;
+}
+
+QToolButton#searchColumnBtn {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left: 1px solid #2a2c3e;
+    background-color: #11121a;
+}
+
+QToolButton#searchColumnBtn:hover {
+    border-left-color: rgba(133, 153, 234, 0.7);
+}
+
 /* ── TEXT EDIT / PLAIN TEXT ──────────────────────────────────────────────────── */
 QTextEdit,
 QPlainTextEdit {

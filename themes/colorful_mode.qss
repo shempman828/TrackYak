@@ -73,6 +73,22 @@ QLineEdit:focus {
     border-color: #8599ea;
 }
 
+/* --- SEARCH BAR + COLUMN-SCOPE PICKER (fused into one control) --- */
+QLineEdit#searchBarField {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    border-right: none;
+}
+
+QToolButton#searchColumnBtn {
+    border: 2px solid #ea8599;
+    border-radius: 6px;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    background-color: #ffffff;
+    padding: 6px;
+}
+
 /* --- CHECKBOXES (Candy Pop) --- */
 QCheckBox::indicator {
     width: 18px;

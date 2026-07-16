@@ -155,6 +155,21 @@ QLineEdit:disabled {
     border-color: #ddd;
 }
 
+/* --- SEARCH BAR + COLUMN-SCOPE PICKER (fused into one control) --- */
+QLineEdit#searchBarField {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    border-right: none;
+}
+
+QToolButton#searchColumnBtn {
+    border: 1px solid #ea8599;
+    border-radius: 6px;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    background-color: #ffffff;
+}
+
 
 /* --- SCROLLBARS --- */
 QScrollBar:vertical, QScrollBar:horizontal {
