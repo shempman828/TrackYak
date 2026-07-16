@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
 from src.common.hierarchy_tree_style import (
     configure_hierarchy_tree,
     create_colored_icon,
-    hierarchy_label,
     icon_for_depth,
 )
 from src.core.logger_config import logger
@@ -370,7 +369,7 @@ class MoodView(QWidget):
             f"{original_name} ({track_count})" if track_count > 0 else original_name
         )
 
-        item.setText(0, hierarchy_label(display_name, depth))
+        item.setText(0, display_name)
         item.setIcon(0, icon_for_depth(depth))
 
         # Add tooltip with mood information including track count
