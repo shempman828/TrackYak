@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QStackedWidget,
     QTreeWidgetItem,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -103,21 +102,15 @@ class GUI(QMainWindow, MenuBar):
         self._add_navigation_menu_actions()
 
     def _init_status_system(self):
-        """Initialize the status manager and status bar."""
+        """
+        Initialize the status manager and its floating status overlay.
+
+        The status widget is parented directly to the main window and is
+        never added to a layout, so it floats above whatever view is
+        showing and never reserves layout space -- even while visible.
+        """
         self.setStatusBar(None)
         self.status_bar_widget = StatusBarWidget(self)
-
-        old_central = self.centralWidget()
-        if old_central:
-            main_container = QWidget()
-            main_layout = QVBoxLayout(main_container)
-            main_layout.setContentsMargins(0, 0, 0, 0)
-            main_layout.setSpacing(0)
-            main_layout.addWidget(old_central, 1)
-            main_layout.addWidget(self.status_bar_widget, 0)
-            self.setCentralWidget(main_container)
-        else:
-            self.status_bar_widget.setParent(self)
 
         StatusManager.show_status.connect(self.status_bar_widget.show_message)
         StatusManager.hide_status.connect(self.status_bar_widget.hide)
