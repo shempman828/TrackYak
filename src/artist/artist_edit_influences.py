@@ -22,17 +22,40 @@ from PySide6.QtWidgets import (
 from src.core.logger_config import logger
 
 # Direction constants — stored in the table's UserRole+1 slot per row.
-DIR_INFLUENCED = "influenced"  # this artist -> other artist
-DIR_INFLUENCER = "influencer"  # other artist -> this artist
+DIR_INFLUENCED = "influenced"  # this artist -> other artist (other was influenced by this one)
+DIR_INFLUENCER = "influencer"  # other artist -> this artist (this one was influenced by other)
 
-_DIRECTION_LABEL = {
-    DIR_INFLUENCED: "→ Influenced",
-    DIR_INFLUENCER: "← Influencer",
-}
 _DIRECTION_COLOR = {
-    DIR_INFLUENCED: QColor("#2f7dd1"),  # blue: outbound influence
-    DIR_INFLUENCER: QColor("#c17a2a"),  # amber: inbound influence
+    DIR_INFLUENCED: QColor("#2f7dd1"),  # blue: this artist influenced them
+    DIR_INFLUENCER: QColor("#c17a2a"),  # amber: they influenced this artist
 }
+
+
+def _esc_amp(text):
+    """Escape '&' so it doesn't act as a Qt mnemonic prefix in button/label text."""
+    return (text or "").replace("&", "&&")
+
+
+def _cap(text):
+    """Capitalize just the first character — safe for names ('lady Gaga' stays intact)."""
+    return text[0].upper() + text[1:] if text else text
+
+
+def _relationship_sentence(direction, artist_name, other_name=None):
+    """
+    Always-active-voice sentence naming both artists — 'X influenced Y' — so
+    the relationship can never be misread the way passive "Influenced by" or
+    a bare arrow could be. When `other_name` isn't known yet (e.g. an empty
+    add-bar field), falls back to a grammatically-correct pronoun.
+    """
+    name = artist_name or "this artist"
+    if direction == DIR_INFLUENCED:
+        # this artist -> other: this artist is the influencer (subject)
+        other = other_name or "them"
+        return _cap(f"{name} influenced {other}")
+    # other -> this artist: other artist is the influencer (subject)
+    other = other_name or "they"
+    return _cap(f"{other} influenced {name}")
 
 
 # ── artist lookup / completer plumbing ──────────────────────────────────────
@@ -135,7 +158,10 @@ def _build_artist_index(artists):
 
 
 class _FilterChips(QWidget):
-    """Small exclusive chip row: All / Influenced / Influencer."""
+    """
+    Small exclusive chip row: All / "<artist> influenced them" / "They influenced <artist>".
+    Always active voice and names the edited artist explicitly so the filter can't be misread.
+    """
 
     CHIP_STYLE = """
         QPushButton {
@@ -157,6 +183,7 @@ class _FilterChips(QWidget):
     def __init__(self, on_changed, parent=None):
         super().__init__(parent)
         self._on_changed = on_changed
+        self._artist_name = "this artist"
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
@@ -165,12 +192,8 @@ class _FilterChips(QWidget):
         self.group.setExclusive(True)
 
         self._buttons = {}
-        for key, label in (
-            (None, "All"),
-            (DIR_INFLUENCED, "Influenced"),
-            (DIR_INFLUENCER, "Influencer"),
-        ):
-            btn = QPushButton(label)
+        for key in (None, DIR_INFLUENCED, DIR_INFLUENCER):
+            btn = QPushButton()
             btn.setCheckable(True)
             btn.setStyleSheet(self.CHIP_STYLE)
             btn.setCursor(Qt.PointingHandCursor)
@@ -181,6 +204,8 @@ class _FilterChips(QWidget):
 
         self._buttons[None].setChecked(True)
         self.group.buttonClicked.connect(self._emit_change)
+        self._counts = {}
+        self._relabel()
 
     def _emit_change(self, _btn):
         self._on_changed(self.current_filter())
@@ -191,16 +216,24 @@ class _FilterChips(QWidget):
                 return key
         return None
 
+    def set_artist_name(self, name):
+        self._artist_name = name or "this artist"
+        self._relabel()
+
     def set_counts(self, counts: dict):
         """counts: {None: total, DIR_INFLUENCED: n, DIR_INFLUENCER: n}"""
+        self._counts = counts
+        self._relabel()
+
+    def _relabel(self):
         labels = {
             None: "All",
-            DIR_INFLUENCED: "Influenced",
-            DIR_INFLUENCER: "Influencer",
+            DIR_INFLUENCED: _relationship_sentence(DIR_INFLUENCED, self._artist_name),
+            DIR_INFLUENCER: _relationship_sentence(DIR_INFLUENCER, self._artist_name),
         }
         for key, btn in self._buttons.items():
-            n = counts.get(key, 0)
-            btn.setText(f"{labels[key]} ({n})")
+            n = self._counts.get(key, 0)
+            btn.setText(_esc_amp(f"{labels[key]} ({n})"))
 
 
 # ── add bar ──────────────────────────────────────────────────────────────────
@@ -228,21 +261,24 @@ class _AddInfluenceBar(QWidget):
         QPushButton#dirRight { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
     """
 
-    def __init__(self, on_add, parent=None):
+    def __init__(self, on_add, artist_name=None, parent=None):
         super().__init__(parent)
         self._on_add = on_add
+        self._artist_name = artist_name or "this artist"
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(6)
 
-        # Direction toggle (swap for widgets.segmented_toggle.SegmentedToggle
-        # here if you want pixel-identical styling to artist_edit_basic).
+        # Direction toggle. Each label is a full "X influenced Y" sentence
+        # naming the current artist explicitly. It live-updates as the name
+        # field is typed into — "Prince influenced them" becomes "Prince
+        # influenced Lady Gaga" — so the direction can't be picked backwards.
         self.dir_group = QButtonGroup(self)
         self.dir_group.setExclusive(True)
-        self.btn_influenced = QPushButton("This artist →")
+        self.btn_influenced = QPushButton()
         self.btn_influenced.setObjectName("dirLeft")
-        self.btn_influencer = QPushButton("← influenced this")
+        self.btn_influencer = QPushButton()
         self.btn_influencer.setObjectName("dirRight")
         for b in (self.btn_influenced, self.btn_influencer):
             b.setCheckable(True)
@@ -257,8 +293,11 @@ class _AddInfluenceBar(QWidget):
         dir_box.addWidget(self.btn_influencer)
 
         self.name_edit = ArtistNameEdit()
+        self.name_edit.textChanged.connect(self._relabel_toggle)
         self.desc_edit = QLineEdit()
         self.desc_edit.setPlaceholderText("Description (optional)")
+
+        self._relabel_toggle()
 
         add_btn = QPushButton("Add")
         add_btn.setFixedWidth(60)
@@ -273,6 +312,22 @@ class _AddInfluenceBar(QWidget):
 
     def current_direction(self):
         return DIR_INFLUENCED if self.btn_influenced.isChecked() else DIR_INFLUENCER
+
+    def set_artist_name(self, name):
+        self._artist_name = name or "this artist"
+        self._relabel_toggle()
+
+    def _relabel_toggle(self, *_args):
+        name = self._artist_name
+        other = self.name_edit.text().strip() or None
+
+        influenced_sentence = _relationship_sentence(DIR_INFLUENCED, name, other)
+        influencer_sentence = _relationship_sentence(DIR_INFLUENCER, name, other)
+
+        self.btn_influenced.setText(_esc_amp(influenced_sentence))
+        self.btn_influenced.setToolTip(influenced_sentence + ".")
+        self.btn_influencer.setText(_esc_amp(influencer_sentence))
+        self.btn_influencer.setToolTip(influencer_sentence + ".")
 
     def _handle_add(self):
         name = self.name_edit.text().strip()
@@ -307,7 +362,10 @@ class InfluencesTab(QWidget):
     direction has more entries just gets more visible rows.
     """
 
-    COLUMNS = ["Direction", "Artist", "Description"]
+    # Artist column stays for sorting/scanning; Relationship spells out the
+    # full "X influenced Y" sentence naming both artists so it's unambiguous
+    # on its own, without needing to cross-reference the Artist column.
+    COLUMNS = ["Artist", "Relationship", "Description"]
 
     def __init__(self, controller, artist, parent=None):
         super().__init__(parent)
@@ -323,6 +381,7 @@ class InfluencesTab(QWidget):
         layout.setSpacing(6)
 
         self.filter_chips = _FilterChips(on_changed=lambda _f: self._render())
+        self.filter_chips.set_artist_name(getattr(self.artist, "artist_name", None))
         layout.addWidget(self.filter_chips)
 
         self.table = QTableWidget(0, len(self.COLUMNS))
@@ -344,7 +403,10 @@ class InfluencesTab(QWidget):
         self.table.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.table, 1)
 
-        self.add_bar = _AddInfluenceBar(on_add=self._handle_add)
+        self.add_bar = _AddInfluenceBar(
+            on_add=self._handle_add,
+            artist_name=getattr(self.artist, "artist_name", None),
+        )
         layout.addWidget(self.add_bar)
 
         remove_row = QHBoxLayout()
@@ -358,6 +420,9 @@ class InfluencesTab(QWidget):
 
     def load(self, artist):
         self.artist = artist
+        artist_name = getattr(artist, "artist_name", None)
+        self.filter_chips.set_artist_name(artist_name)
+        self.add_bar.set_artist_name(artist_name)
         self._rows = [
             {
                 "direction": DIR_INFLUENCED,
@@ -405,19 +470,23 @@ class InfluencesTab(QWidget):
             if active_filter is None or r["direction"] == active_filter
         ]
 
+        artist_name = getattr(self.artist, "artist_name", None)
+
         self.table.setSortingEnabled(False)
         self.table.setRowCount(0)
         for r in visible:
             row = self.table.rowCount()
             self.table.insertRow(row)
 
-            dir_item = QTableWidgetItem(_DIRECTION_LABEL[r["direction"]])
-            dir_item.setForeground(_DIRECTION_COLOR[r["direction"]])
-            dir_item.setData(Qt.UserRole, r["influence_id"])
-            dir_item.setData(Qt.UserRole + 1, r["direction"])
-            self.table.setItem(row, 0, dir_item)
+            self.table.setItem(row, 0, QTableWidgetItem(r["name"]))
 
-            self.table.setItem(row, 1, QTableWidgetItem(r["name"]))
+            sentence = _relationship_sentence(r["direction"], artist_name, r["name"])
+            rel_item = QTableWidgetItem(sentence)
+            rel_item.setForeground(_DIRECTION_COLOR[r["direction"]])
+            rel_item.setData(Qt.UserRole, r["influence_id"])
+            rel_item.setData(Qt.UserRole + 1, r["direction"])
+            self.table.setItem(row, 1, rel_item)
+
             self.table.setItem(row, 2, QTableWidgetItem(r["description"]))
         self.table.setSortingEnabled(True)
 
@@ -469,7 +538,7 @@ class InfluencesTab(QWidget):
     def _selected_influence_ids(self):
         ids = []
         for idx in self.table.selectionModel().selectedRows():
-            item = self.table.item(idx.row(), 0)
+            item = self.table.item(idx.row(), 1)
             iid = item.data(Qt.UserRole) if item else None
             if iid is not None:
                 ids.append(iid)
