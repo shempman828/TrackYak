@@ -57,7 +57,12 @@ def configure_hierarchy_tree(tree: QTreeWidget, *, multi_select: bool = True) ->
     """
     tree.setHeaderHidden(True)
     if multi_select:
-        tree.setSelectionMode(QTreeWidget.MultiSelection)
+        # ExtendedSelection: plain click selects only that item (clearing the
+        # rest); Ctrl/Shift-click extends the selection. MultiSelection was
+        # used here previously, but it toggles each clicked item without ever
+        # clearing the others, so clicking through items left them all still
+        # highlighted.
+        tree.setSelectionMode(QTreeWidget.ExtendedSelection)
     tree.setAnimated(True)
     tree.setDragEnabled(True)
     tree.setAcceptDrops(True)
