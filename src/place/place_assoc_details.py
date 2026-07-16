@@ -160,7 +160,9 @@ class AssociationDetailsDialog(QDialog):
                             [
                                 display_name,
                                 assoc.entity_type.title(),
-                                assoc.association_type or "",
+                                assoc.association_type.type_name
+                                if assoc.association_type
+                                else "",
                                 assoc.place_path
                                 if hasattr(assoc, "place_path")
                                 else "Direct",
@@ -184,7 +186,9 @@ class AssociationDetailsDialog(QDialog):
                             [
                                 f"Unknown {assoc.entity_type} (ID: {assoc.entity_id})",
                                 assoc.entity_type.title(),
-                                assoc.association_type or "",
+                                assoc.association_type.type_name
+                                if assoc.association_type
+                                else "",
                                 assoc.place_path
                                 if hasattr(assoc, "place_path")
                                 else "Direct",
