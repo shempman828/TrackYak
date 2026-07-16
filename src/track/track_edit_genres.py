@@ -99,12 +99,10 @@ class GenresTab(_BaseTab):
         if combo_data and combo_data != "new":
             genre = self.controller.get.get_entity_object("Genre", genre_id=combo_data)
         else:
-            existing = self.controller.get.get_entity_object(
-                "Genre", genre_name=genre_name
+            genre = self.controller.get.resolve_entity_or_alias(
+                "Genre", "genre_name", genre_name
             )
-            if existing:
-                genre = existing if not isinstance(existing, list) else existing[0]
-            else:
+            if not genre:
                 genre = self.controller.add.add_entity("Genre", genre_name=genre_name)
         if not genre:
             return

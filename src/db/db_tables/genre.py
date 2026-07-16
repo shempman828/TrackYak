@@ -21,6 +21,14 @@ class Genre(Base):
     tracks = relationship("Track", secondary="track_genres", back_populates="genres")
     subgenre_names = association_proxy("children", "genre_name")
 
+    aliases = relationship(
+        "GenreAlias",
+        back_populates="genre",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    aliases_list = association_proxy("aliases", "alias_name")
+
     @property
     def track_count(self):
         """Get number of tracks in this genre."""
@@ -57,3 +65,25 @@ class Genre(Base):
         for subgenre in self.all_subgenres:
             total += subgenre.track_count
         return total
+
+
+class GenreAlias(Base):
+    """An alternate name for a genre that always resolves to it.
+
+    Merging a duplicate genre into a canonical one automatically adds the
+    merged-away name as an alias (see MergeDB.merge_entities), and adding
+    a genre to a track (whether by import or manual edit) checks aliases
+    before creating a new genre, so the same "duplicate" name doesn't keep
+    coming back (see GetFromDB.resolve_entity_or_alias).
+    """
+
+    __tablename__ = "genre_alias"
+
+    alias_id = Column(Integer, primary_key=True)
+    alias_name = Column(String, unique=True, nullable=False)
+    genre_id = Column(
+        Integer, ForeignKey("genres.genre_id", ondelete="CASCADE"), nullable=False
+    )
+
+    genre = relationship("Genre", back_populates="aliases")
+    genre_name = association_proxy("genre", "genre_name")
