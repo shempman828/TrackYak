@@ -3,10 +3,12 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QLabel,
     QLineEdit,
     QMessageBox,
 )
 
+from src.common.entity_alias_tab import EntityAliasesTab
 from src.core.logger_config import logger
 
 
@@ -64,6 +66,7 @@ class GenreEditDialog(QDialog):
         # "New Child" context menu actions) can link the resulting genre
         # without re-querying the database.
         self.result_genre = None
+        self.tab_aliases = None
         self.setup_ui()
         self.load_data()
 
@@ -81,6 +84,20 @@ class GenreEditDialog(QDialog):
         self.parent_combo.addItem("(No parent)", None)
         layout.addRow("Parent Genre:", self.parent_combo)
 
+        # Aliases only make sense once the genre exists (they need a
+        # genre_id to point at), so this section is edit-only.
+        if self.genre:
+            self.setMinimumSize(420, 420)
+            layout.addRow(QLabel("Aliases:"))
+            self.tab_aliases = EntityAliasesTab(
+                self.controller,
+                self.genre,
+                "Genre",
+                "genre_id",
+                placeholder="e.g. Film Scores",
+            )
+            layout.addRow(self.tab_aliases)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.validate)
         buttons.rejected.connect(self.reject)
@@ -92,6 +109,9 @@ class GenreEditDialog(QDialog):
             self.name_input.setText(self.genre.genre_name)
             if self.genre.description:
                 self.desc_input.setText(self.genre.description)
+
+            if self.tab_aliases:
+                self.tab_aliases.load(self.genre)
 
             # Clear existing items except the first "(No parent)" option
 
