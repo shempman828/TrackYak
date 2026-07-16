@@ -142,12 +142,23 @@ def _coerce(value, field_config) -> Any:
     return value
 
 
-def _format_readonly(value, field_config) -> str:
+def _format_readonly(value, field_config, field_name: str = "") -> str:
     """Format a value for display in a readonly QLabel."""
     if value is None or value == "":
         return "—"
     if field_config and field_config.type == bool:  # noqa: E721
         return "Yes" if value else "No"
+    if field_name == "duration" and isinstance(value, (int, float)):
+        total_s = int(value)
+        m, s = divmod(total_s, 60)
+        return f"{m}:{s:02d}"
+    if field_name == "file_size" and isinstance(value, (int, float)):
+        return f"{value / (1024 * 1024):.1f} MB"
+    if field_config and field_config.type == float and isinstance(value, (int, float)):  # noqa: E721
+        # 0–1 typed features (danceability, energy, etc.) read better as percentages
+        if field_config.min == 0.0 and field_config.max == 1.0:
+            return f"{value * 100:.1f}%"
+        return f"{value:,.2f}"
     text = str(value)
     if len(text) > 80:
         return text[:77] + "..."
@@ -225,7 +236,9 @@ class FieldFormTab(_BaseTab):
             for field_name, lbl in self._labels.items():
                 cfg = TRACK_FIELDS.get(field_name)
                 lbl.setText(
-                    _format_readonly(getattr(self.track, field_name, None), cfg)
+                    _format_readonly(
+                        getattr(self.track, field_name, None), cfg, field_name
+                    )
                 )
 
     def collect_changes(self) -> Dict[str, Any]:
