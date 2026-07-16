@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
 )
 
+from src.common.credited_as_dialog import CreditedAsDialog
 from src.core.logger_config import logger
 
 
@@ -150,12 +151,15 @@ class RelationshipHelpers:
                 max(ra.sort_order for ra in siblings) + 1 if siblings else 0
             )
 
+            credited_alias_id = self._prompt_credited_alias(artist)
+
             self.controller.add.add_entity(
                 "AlbumRoleAssociation",
                 album_id=self.album.album_id,
                 artist_id=artist.artist_id,
                 role_id=role.role_id,
                 sort_order=next_sort_order,
+                credited_alias_id=credited_alias_id,
             )
 
             self.show_updated_view()
@@ -215,6 +219,44 @@ class RelationshipHelpers:
         )
 
         self.show_updated_view()
+
+    def _prompt_credited_alias(self, artist, current_alias_id=None):
+        """Show the alias picker for `artist` if they have any aliases on
+        file; return the chosen alias_id, or None for the canonical name.
+        Skipped entirely (returns None) when the artist has no aliases, and
+        also on cancel, so the artist's canonical name is always the safe
+        default."""
+        aliases = self.controller.get.get_all_entities(
+            "ArtistAlias", artist_id=artist.artist_id
+        )
+        if not aliases:
+            return None
+
+        dialog = CreditedAsDialog(
+            artist, aliases, current_alias_id=current_alias_id, parent=None
+        )
+        if dialog.exec() == QDialog.Accepted:
+            return dialog.selected_alias_id()
+        return current_alias_id
+
+    def change_credited_alias(self, role_assoc):
+        """Change which name (canonical or alias) an existing credit shows."""
+        if not role_assoc.artist:
+            return
+        try:
+            credited_alias_id = self._prompt_credited_alias(
+                role_assoc.artist, current_alias_id=role_assoc.credited_alias_id
+            )
+            self.controller.update.update_entity(
+                "AlbumRoleAssociation",
+                role_assoc.association_id,
+                credited_alias_id=credited_alias_id,
+            )
+            self.show_updated_view()
+        except Exception as e:
+            QMessageBox.critical(
+                None, "Error", f"Failed to update credited name: {str(e)}"
+            )
 
     # =========================================================================
     # Place management
