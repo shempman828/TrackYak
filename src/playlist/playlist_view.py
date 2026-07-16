@@ -209,6 +209,16 @@ class PlaylistView(QWidget):
         if not item_data or len(item_data) != 2:
             return
 
+        # A right-click on an item that's part of a multi-selection keeps the
+        # whole selection (standard Qt behavior); otherwise it's just this item.
+        selected_items = self.tree.selectedItems()
+        if item not in selected_items:
+            selected_items = [item]
+
+        if len(selected_items) > 1:
+            self._show_multi_select_context_menu(selected_items, pos)
+            return
+
         item_type, item_id = item_data
 
         # Check whether this is a smart playlist
@@ -249,6 +259,112 @@ class PlaylistView(QWidget):
 
         menu.addAction("Delete", self.delete_selected)
         menu.exec_(self.tree.viewport().mapToGlobal(pos))
+
+    def _show_multi_select_context_menu(self, selected_items, pos) -> None:
+        """Context menu shown when more than one tree item is selected."""
+        playlist_items = [
+            it
+            for it in selected_items
+            if (data := it.data(0, Qt.UserRole)) and len(data) == 2 and data[0] == "playlist"
+        ]
+        # Only playlists that have a parent can have their tracks folded upward.
+        playlists_with_parent = [it for it in playlist_items if it.parent() is not None]
+
+        menu = QMenu()
+
+        if playlists_with_parent:
+            menu.addAction(
+                "Add All Tracks to Parent Playlist",
+                lambda: self._add_tracks_to_parent_playlists(playlists_with_parent),
+            )
+            menu.addSeparator()
+
+        menu.addAction("Delete", self.delete_selected)
+        menu.exec_(self.tree.viewport().mapToGlobal(pos))
+
+    def _add_tracks_to_parent_playlists(self, items: list) -> None:
+        """Add every track in each selected playlist to that playlist's parent.
+
+        Selected playlists are grouped by parent so e.g. selecting "sleepy jazz"
+        and "sleepy indie" (both children of "sleepy") copies both playlists'
+        tracks into "sleepy" in one go.
+        """
+        groups = defaultdict(list)
+        for item in items:
+            parent_item = item.parent()
+            if parent_item is not None:
+                groups[parent_item].append(item)
+
+        if not groups:
+            return
+
+        child_names = ", ".join(
+            item.data(0, Qt.UserRole + 2) or item.text(0)
+            for children in groups.values()
+            for item in children
+        )
+        parent_names = ", ".join(
+            parent_item.data(0, Qt.UserRole + 2) or parent_item.text(0)
+            for parent_item in groups
+        )
+        confirm = QMessageBox.question(
+            self,
+            "Add Tracks to Parent Playlist",
+            f"Add all tracks from {child_names} to {parent_names}?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        total_added = 0
+        try:
+            for parent_item, children in groups.items():
+                parent_id = parent_item.data(0, Qt.UserRole)[1]
+
+                existing_tracks = self.controller.get.get_entity_links(
+                    "PlaylistTracks", playlist_id=parent_id
+                )
+                existing_track_ids = {t.track_id for t in existing_tracks}
+                next_position = (
+                    max((t.position for t in existing_tracks), default=0) + 1
+                )
+
+                for child_item in children:
+                    child_id = child_item.data(0, Qt.UserRole)[1]
+                    child_tracks = self.controller.get.get_entity_links(
+                        "PlaylistTracks", playlist_id=child_id
+                    )
+                    for pt in child_tracks:
+                        if pt.track_id in existing_track_ids:
+                            continue
+                        if self.controller.add.add_entity_link(
+                            "PlaylistTracks",
+                            playlist_id=parent_id,
+                            track_id=pt.track_id,
+                            position=next_position,
+                        ):
+                            existing_track_ids.add(pt.track_id)
+                            next_position += 1
+                            total_added += 1
+
+            self.load_playlists()
+            self.playlist_updated.emit()
+            logger.info(
+                f"Added {total_added} track(s) from {child_names} to {parent_names}"
+            )
+            QMessageBox.information(
+                self,
+                "Tracks Added",
+                f"Added {total_added} track(s) to the parent playlist(s).",
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to add tracks to parent playlist: {str(e)}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to add tracks to parent playlist:\n{str(e)}",
+            )
 
     @staticmethod
     def _format_playlist_name(playlist_obj) -> str:
