@@ -348,3 +348,21 @@ ArtistDetailTab QPushButton#TocChip {
 ArtistDetailTab QPushButton#TocChip:hover {
     background-color: #e0e2f7;
 }
+
+/* ── SPECIAL: StatusBarWidget floating overlay ────────────────────────────────── */
+StatusBarWidget[mode="float"] {
+    background-color: rgba(255, 255, 255, 0.78);
+    border: 1px solid rgba(133, 153, 234, 0.4);
+    border-radius: 8px;
+    min-height: 36px;
+    max-height: 36px;
+}
+
+StatusBarWidget[mode="float"] QLabel {
+    color: #2b2c36;
+    font-size: 12px;
+}
+
+StatusBarWidget[mode="float"] QPushButton {
+    color: #2b2c36;
+}

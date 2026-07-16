@@ -1277,35 +1277,22 @@ AlbumWidget[selected="true"] {
     border-radius: 4px;
 }
 
-/* ── SPECIAL: StatusBarWidget mode ("float" | "bar") ─────────────────────────── */
+/* ── SPECIAL: StatusBarWidget floating overlay ────────────────────────────────── */
 StatusBarWidget[mode="float"] {
-    background-color: palette(window);
-    border: 1px solid palette(mid);
+    background-color: rgba(20, 21, 30, 0.72);
+    border: 1px solid rgba(184, 192, 240, 0.25);
     border-radius: 8px;
     min-height: 36px;
     max-height: 36px;
 }
 
 StatusBarWidget[mode="float"] QLabel {
-    color: palette(window-text);
+    color: #d6dbf7;
     font-size: 12px;
 }
 
 StatusBarWidget[mode="float"] QPushButton {
-    color: palette(window-text);
-}
-
-StatusBarWidget[mode="bar"] {
-    background-color: palette(mid);
-    border-top: 1px solid palette(shadow);
-    border-radius: 0px;
-    min-height: 24px;
-    max-height: 30px;
-}
-
-StatusBarWidget[mode="bar"] QLabel {
-    color: palette(window-text);
-    font-size: 12px;
+    color: #d6dbf7;
 }
 
 /* ── SPECIAL: Disc management status message ─────────────────────────────────── */
