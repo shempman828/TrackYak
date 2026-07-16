@@ -7,6 +7,7 @@ Widget for a single smart playlist criteria row.
 from datetime import datetime
 
 from PySide6.QtCore import QDate, QDateTime, Qt, Signal
+from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -60,7 +61,8 @@ _EXCLUDED_FIELDS = {
 _LIST_FIELDS = [
     ("genre_names", "Genre Names", "Filter by genre, e.g.: Rock, Jazz"),
     ("artist_names", "Artist Names", "Filter by any associated artist name"),
-    ("primary_artist_names", "Primary Artist", "Filter by primary credited artist"),
+    # "primary_artist_names" is intentionally omitted here — it's already in
+    # TRACK_FIELDS (category "Basic") as "Primary Artist(s)".
     ("place_names", "Place Names", "Filter by associated place"),
     ("mood_name", "Mood", "Filter by mood"),
 ]
@@ -83,12 +85,17 @@ def _field_to_group(field: TrackField) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Build the ordered field list from TRACK_FIELDS + _LIST_FIELDS.
-# Each entry: (field_name, op_group, display_name, tooltip, min, max)
+# Build the ordered field list from TRACK_FIELDS + _LIST_FIELDS, grouped by
+# TrackField.category — mirrors the grouping TrackView uses for its column
+# picker (src/track/track_view_columns.py::show_column_menu).
+# Each entry: (field_name, op_group, display_name, tooltip, min, max, category)
 # ---------------------------------------------------------------------------
 def _build_criteria_fields():
     entries = []
 
+    # Preferred category order for the most commonly filtered fields; any
+    # other categories present in TRACK_FIELDS are appended alphabetically
+    # after these, followed by an "Other" catch-all.
     category_order = [
         "Basic",
         "Properties",
@@ -98,17 +105,21 @@ def _build_criteria_fields():
         "Classical",
         "Identification",
     ]
-    buckets = {cat: [] for cat in category_order}
-    buckets["Other"] = []
 
+    buckets: dict[str, list] = {}
     for field_name, field in TRACK_FIELDS.items():
         if field_name in _EXCLUDED_FIELDS:
             continue
         cat = field.category or "Other"
         buckets.setdefault(cat, []).append((field_name, field))
 
-    for cat in category_order + ["Other"]:
-        for field_name, field in buckets.get(cat, []):
+    remaining = sorted(c for c in buckets if c not in category_order and c != "Other")
+    ordered_categories = [c for c in category_order if c in buckets] + remaining
+    if "Other" in buckets:
+        ordered_categories.append("Other")
+
+    for cat in ordered_categories:
+        for field_name, field in buckets[cat]:
             entries.append(
                 (
                     field_name,
@@ -117,12 +128,13 @@ def _build_criteria_fields():
                     field.tooltip or "",
                     field.min,
                     field.max,
+                    cat,
                 )
             )
 
-    # Append relationship / list fields
+    # Append relationship / list fields under their own "Related" group
     for field_name, display, tooltip in _LIST_FIELDS:
-        entries.append((field_name, "List", display, tooltip, None, None))
+        entries.append((field_name, "List", display, tooltip, None, None, "Related"))
 
     return entries
 
@@ -264,7 +276,7 @@ class CriteriaWidget(QWidget):
         # Lookup: field_name → (op_group, display, tooltip, min, max)
         self._field_meta = {
             name: (grp, disp, tip, mn, mx)
-            for name, grp, disp, tip, mn, mx in CRITERIA_FIELDS
+            for name, grp, disp, tip, mn, mx, cat in CRITERIA_FIELDS
         }
         self.init_ui()
 
@@ -273,13 +285,27 @@ class CriteriaWidget(QWidget):
         layout.setContentsMargins(0, 2, 0, 2)
         layout.setSpacing(5)
 
-        # Field selector
+        # Field selector — grouped under bold, unselectable category headers
+        # (same pattern as AlbumView's sort combo).
         self.field_combo = QComboBox()
-        for field_name, op_group, display, tooltip, mn, mx in CRITERIA_FIELDS:
-            self.field_combo.addItem(display, field_name)
+        field_model = QStandardItemModel(self.field_combo)
+        current_category = None
+        for field_name, op_group, display, tooltip, mn, mx, category in CRITERIA_FIELDS:
+            if category != current_category:
+                header = QStandardItem(category)
+                header.setFlags(Qt.NoItemFlags)
+                font = header.font()
+                font.setBold(True)
+                header.setFont(font)
+                field_model.appendRow(header)
+                current_category = category
+            item = QStandardItem(f"    {display}")
+            item.setData(field_name, Qt.UserRole)
             if tooltip:
-                idx = self.field_combo.count() - 1
-                self.field_combo.setItemData(idx, tooltip, Qt.ToolTipRole)
+                item.setToolTip(tooltip)
+            field_model.appendRow(item)
+        self.field_combo.setModel(field_model)
+        self.field_combo.setCurrentIndex(1)  # skip the first category header
         self.field_combo.currentIndexChanged.connect(self._on_field_changed)
 
         # Operator selector
@@ -305,7 +331,7 @@ class CriteriaWidget(QWidget):
         layout.addWidget(delete_btn)
 
         # Populate initial state
-        self._on_field_changed(0)
+        self._on_field_changed(self.field_combo.currentIndex())
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -423,6 +449,9 @@ class CriteriaWidget(QWidget):
 
     def _on_field_changed(self, index):
         if index < 0:
+            return
+        if self.field_combo.itemData(index) is None:
+            # Category header row — not selectable, ignore.
             return
         self._rebuild_operator_combo()
         self._rebuild_value_widget()
