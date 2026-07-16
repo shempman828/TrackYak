@@ -19,6 +19,7 @@ class TrackViewToolbarMixin:
 
         # Search field with built-in clear (✕) button
         self.search_bar = QLineEdit(self)
+        self.search_bar.setObjectName("searchBarField")
         self.search_bar.setPlaceholderText("Search tracks…")
         self.search_bar.setClearButtonEnabled(True)
 
@@ -30,6 +31,7 @@ class TrackViewToolbarMixin:
         self._search_field_name: str = SEARCH_ALL  # tracks the active field
 
         self.search_column_btn = QToolButton(self)
+        self.search_column_btn.setObjectName("searchColumnBtn")
         self.search_column_btn.setText("All Columns \u25be")
         self.search_column_btn.setToolTip("Choose which column to search")
         self.search_column_btn.setPopupMode(QToolButton.InstantPopup)
@@ -38,8 +40,15 @@ class TrackViewToolbarMixin:
         self.search_column_btn.setMenu(self._search_column_menu)
         # Menu is filled once columns are known — see _populate_search_combo()
 
-        toolbar_row.addWidget(self.search_bar, stretch=1)
-        toolbar_row.addWidget(self.search_column_btn)
+        # Fuse the search field and its column-scope picker into a single visual
+        # group (zero spacing, flush borders via QSS) so the picker reads as part
+        # of the search bar, distinct from the unrelated Queue/View buttons.
+        search_group = QHBoxLayout()
+        search_group.setSpacing(0)
+        search_group.addWidget(self.search_bar, stretch=1)
+        search_group.addWidget(self.search_column_btn)
+        toolbar_row.addLayout(search_group, stretch=1)
+        toolbar_row.addSpacing(12)
 
         # ── "⋮ Queue" drop-down button ────────────────────────────────────
         queue_btn = QToolButton(self)
