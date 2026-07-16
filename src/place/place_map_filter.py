@@ -5,11 +5,16 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from src.core.logger_config import logger
+
+# Cap the dropdown's collapsed-button width so it stays compact in a filter
+# bar instead of stretching to fill all available horizontal space.
+_TOGGLE_BUTTON_MAX_WIDTH = 220
 
 
 class _DropdownPopup(QFrame):
@@ -72,6 +77,8 @@ class MultiSelectWidget(QWidget):
 
         self.toggle_button = QPushButton("No items")
         self.toggle_button.setCheckable(True)
+        self.toggle_button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.toggle_button.setMaximumWidth(_TOGGLE_BUTTON_MAX_WIDTH)
         self.toggle_button.clicked.connect(self._toggle_popup)
         layout.addWidget(self.toggle_button)
 
