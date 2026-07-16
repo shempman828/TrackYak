@@ -1353,6 +1353,43 @@ HeaderWidget QLabel#GroupLabel {
     font-weight: 500;
 }
 
-HeaderWidget QFrame {
-    color: #1e1f2b;
+ArtistInfobox {
+    background-color: #1a1b26;
+    border: 1px solid #1e1f2b;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+HeaderWidget QLabel#ArtistPortrait {
+    background-color: #12131c;
+    border: 1px solid #1e1f2b;
+    border-radius: 6px;
+}
+
+/* ── SPECIAL: Artist article sections and jump nav (ArtistDetailTab) ────────── */
+ArtistDetailTab QLabel#SectionHeading {
+    font-size: 18px;
+    font-weight: 600;
+    color: #b8c0f0;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #1e1f2b;
+}
+
+ArtistDetailTab QLabel#TocLabel {
+    font-size: 12px;
+    color: #555e7a;
+}
+
+ArtistDetailTab QPushButton#TocChip {
+    font-size: 12px;
+    color: #8599ea;
+    background-color: #1a1b26;
+    border: 1px solid #1e1f2b;
+    border-radius: 10px;
+    padding: 3px 10px;
+}
+
+ArtistDetailTab QPushButton#TocChip:hover {
+    background-color: #23253a;
+    color: #b8c0f0;
 }
