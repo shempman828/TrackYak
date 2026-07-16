@@ -23,7 +23,7 @@ from src.db.db_tables.award import Award, AwardAssociation
 from src.db.db_tables.base import Base, set_sqlite_pragma
 from src.db.db_tables.database import MusicDatabase
 from src.db.db_tables.disc import Disc
-from src.db.db_tables.genre import Genre
+from src.db.db_tables.genre import Genre, GenreAlias
 from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.place import Place, PlaceAssociation
 from src.db.db_tables.place_association_type import PlaceAssociationType
@@ -33,7 +33,7 @@ from src.db.db_tables.playlist import (
     SmartPlaylist,
     SmartPlaylistCriteria,
 )
-from src.db.db_tables.publisher import Publisher
+from src.db.db_tables.publisher import Publisher, PublisherAlias
 from src.db.db_tables.role import Role
 from src.db.db_tables.track import Samples, Track, TrackUsage
 
@@ -57,9 +57,11 @@ __all__ = [
     "ArtistInfluence",
     "GroupMembership",
     "Genre",
+    "GenreAlias",
     "Mood",
     "MoodTrackAssociation",
     "Publisher",
+    "PublisherAlias",
     "Place",
     "PlaceAssociation",
     "PlaceAssociationType",
