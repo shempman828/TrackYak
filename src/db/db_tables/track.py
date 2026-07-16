@@ -13,6 +13,15 @@ from sqlalchemy.orm import relationship
 from src.db.db_tables.base import Base
 
 
+def _oxford_join(names: list) -> str:
+    """Join names as 'A' / 'A & B' / 'A, B, & C' (Oxford comma for 3+)."""
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} & {names[1]}"
+    return f"{', '.join(names[:-1])}, & {names[-1]}"
+
+
 class Samples(Base):
     __tablename__ = "samples"
     sampled_by_id = Column(
@@ -215,27 +224,30 @@ class Track(Base):
 
     @property
     def primary_artist_names(self):
-        """Return properly formatted primary artist names (Oxford comma style)."""
-        names = [
-            assoc.credited_name or "Unknown Artist"
-            for assoc in self.artist_roles
-            if assoc.role and assoc.role.role_name == "Primary Artist"
-        ]
+        """Return formatted primary artist names (Oxford comma style), with
+        any Featured Artist credits appended, e.g. "Queen Featuring David Bowie"
+        or "Queen Featuring David Bowie, Freddie Mercury, & Prince".
+        """
 
-        # Clean up whitespace and remove empty strings
-        names = [name.strip() for name in names if name and name.strip()]
+        def _names_for(role_name):
+            names = [
+                assoc.credited_name or "Unknown Artist"
+                for assoc in self.artist_roles
+                if assoc.role and assoc.role.role_name == role_name
+            ]
+            return [name.strip() for name in names if name and name.strip()]
 
-        if not names:
+        primary_names = _names_for("Primary Artist")
+        if not primary_names:
             return "Unknown Artist"
 
-        if len(names) == 1:
-            return names[0]
+        result = _oxford_join(primary_names)
 
-        if len(names) == 2:
-            return f"{names[0]} & {names[1]}"
+        featured_names = _names_for("Featured Artist")
+        if featured_names:
+            result = f"{result} Featuring {_oxford_join(featured_names)}"
 
-        # 3 or more → Oxford comma
-        return f"{', '.join(names[:-1])}, & {names[-1]}"
+        return result
 
     @property
     def composer_names(self):
