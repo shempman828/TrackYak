@@ -2,7 +2,7 @@ from collections import defaultdict
 from typing import Optional
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal
-from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -19,6 +19,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.hierarchy_tree_style import (
+    configure_hierarchy_tree,
+    hierarchy_label,
+    icon_for_depth,
+)
 from src.core.logger_config import logger
 from src.role.role_detail_tab import RoleDetailTab
 from src.role.role_edit_dialog import RoleEditDialog
@@ -203,55 +208,17 @@ class RoleView(QWidget):
     def _create_role_tree(self):
         """Create a unified role tree with common configuration."""
         tree = QTreeWidget()
-        tree.setHeaderHidden(True)
-        tree.setSelectionMode(QTreeWidget.MultiSelection)
-        tree.setAnimated(True)
+        configure_hierarchy_tree(tree)
         tree.itemChanged.connect(self.on_item_edited)
-
-        # Drag and drop configuration for hierarchy
-        tree.setDragEnabled(True)
-        tree.setAcceptDrops(True)
-        tree.setDropIndicatorShown(True)
-        tree.setDragDropMode(QTreeWidget.InternalMove)
 
         # Use a wrapper to maintain self context in drop event
         tree.dropEvent = lambda event: self.on_drop_event(event)
 
-        # Context menu signals
-        tree.setContextMenuPolicy(Qt.CustomContextMenu)
         tree.customContextMenuRequested.connect(self.show_context_menu)
 
         tree.setAlternatingRowColors(True)
 
         return tree
-
-    def create_colored_icon(self, color, size=16):
-        """Create a colored circle icon for hierarchy levels (matches genre tree style)."""
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(QBrush(color))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(2, 2, size - 4, size - 4)
-        painter.end()
-        return QIcon(pixmap)
-
-    # Depth -> color, matching GenreView's hierarchy palette
-    _DEPTH_COLORS = [
-        QColor(70, 130, 180),  # Steel Blue
-        QColor(46, 139, 87),  # Sea Green
-        QColor(218, 165, 32),  # Goldenrod
-        QColor(178, 34, 34),  # Firebrick
-        QColor(138, 43, 226),  # Blue Violet
-        QColor(255, 140, 0),  # Dark Orange
-        QColor(199, 21, 133),  # Medium Violet Red
-        QColor(0, 191, 255),  # Deep Sky Blue
-    ]
-
-    def _icon_for_depth(self, depth):
-        color = self._DEPTH_COLORS[depth % len(self._DEPTH_COLORS)]
-        return self.create_colored_icon(color)
 
     def _connect_signals(self):
         """Connect UI signals to their handlers."""
@@ -487,11 +454,7 @@ class RoleView(QWidget):
             # Display text mirrors the genre tree's "Name (count)" style
             display_text = f"{role.role_name} ({total_count})"
 
-            # Apply indentation for hierarchy
-            if depth > 0:
-                display_text = "  " * depth + "↳ " + display_text
-
-            item = QTreeWidgetItem([display_text])
+            item = QTreeWidgetItem([hierarchy_label(display_text, depth)])
             item.setData(0, Qt.UserRole, role.role_id)
             item.setFlags(item.flags() | Qt.ItemIsEditable)
 
@@ -500,7 +463,7 @@ class RoleView(QWidget):
             item.setData(0, Qt.UserRole + 1, track_count)
             item.setData(0, Qt.UserRole + 2, album_count)
 
-            item.setIcon(0, self._icon_for_depth(depth))
+            item.setIcon(0, icon_for_depth(depth))
 
             # Gray out unassigned roles
             if total_count == 0:

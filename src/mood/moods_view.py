@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QFont, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QAction, QColor, QFont
 from PySide6.QtWidgets import (
     QDialog,
     QGroupBox,
@@ -15,6 +15,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.hierarchy_tree_style import (
+    configure_hierarchy_tree,
+    create_colored_icon,
+    hierarchy_label,
+    icon_for_depth,
+)
 from src.core.logger_config import logger
 from src.mood.mood_dialog import MoodDialog
 
@@ -73,16 +79,9 @@ class MoodView(QWidget):
 
         # Moods tree
         self.mood_tree = QTreeWidget()
-        self.mood_tree.setHeaderLabel("")
+        configure_hierarchy_tree(self.mood_tree)
         self.mood_tree.itemSelectionChanged.connect(self.on_mood_selected)
-        self.mood_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.mood_tree.customContextMenuRequested.connect(self.show_context_menu)
-
-        # Enable drag and drop for hierarchy
-        self.mood_tree.setDragEnabled(True)
-        self.mood_tree.setAcceptDrops(True)
-        self.mood_tree.setDropIndicatorShown(True)
-        self.mood_tree.setDragDropMode(QTreeWidget.InternalMove)
 
         # Override drop event to handle parent updates
         self.mood_tree.dropEvent = self.handle_drop_event
@@ -239,18 +238,18 @@ class MoodView(QWidget):
             tip1 = QTreeWidgetItem(item, ["Right-click to create your first mood"])
             tip1.setData(0, Qt.UserRole, None)
             tip1.setIcon(
-                0, self.create_colored_icon(QColor(100, 149, 237))
+                0, create_colored_icon(QColor(100, 149, 237))
             )  # Cornflower blue
 
             tip2 = QTreeWidgetItem(item, ["Moods can be organized in a hierarchy"])
             tip2.setData(0, Qt.UserRole, None)
             tip2.setIcon(
-                0, self.create_colored_icon(QColor(60, 179, 113))
+                0, create_colored_icon(QColor(60, 179, 113))
             )  # Medium sea green
 
             tip3 = QTreeWidgetItem(item, ["Drag and drop to reorder moods"])
             tip3.setData(0, Qt.UserRole, None)
-            tip3.setIcon(0, self.create_colored_icon(QColor(255, 165, 0)))  # Orange
+            tip3.setIcon(0, create_colored_icon(QColor(255, 165, 0)))  # Orange
 
             self.mood_tree.expandAll()
             return
@@ -327,18 +326,6 @@ class MoodView(QWidget):
             # First time loading — expand everything like before
             self.mood_tree.expandAll()
 
-    def create_colored_icon(self, color, size=16):
-        """Create a colored circle icon for hierarchy levels."""
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(QBrush(color))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(2, 2, size - 4, size - 4)
-        painter.end()
-        return QIcon(pixmap)
-
     def get_track_counts_for_all_moods(self):
         """Get track counts for all moods in the database"""
         try:
@@ -383,44 +370,8 @@ class MoodView(QWidget):
             f"{original_name} ({track_count})" if track_count > 0 else original_name
         )
 
-        # Apply hierarchy formatting
-        if depth > 0:
-            indent_prefix = "  " * depth + "↳ "
-            display_name = indent_prefix + display_name
-
-        item.setText(0, display_name)
-
-        # Set different icons for different levels (same as before)
-        if depth == 0:
-            item.setIcon(
-                0, self.create_colored_icon(QColor(70, 130, 180))
-            )  # Steel Blue
-        elif depth == 1:
-            item.setIcon(0, self.create_colored_icon(QColor(46, 139, 87)))  # Sea Green
-        elif depth == 2:
-            item.setIcon(0, self.create_colored_icon(QColor(218, 165, 32)))  # Goldenrod
-        elif depth == 3:
-            item.setIcon(0, self.create_colored_icon(QColor(178, 34, 34)))  # Firebrick
-        elif depth == 4:
-            item.setIcon(
-                0, self.create_colored_icon(QColor(138, 43, 226))
-            )  # Blue Violet
-        elif depth == 5:
-            item.setIcon(
-                0, self.create_colored_icon(QColor(255, 140, 0))
-            )  # Dark Orange
-        elif depth == 6:
-            item.setIcon(
-                0, self.create_colored_icon(QColor(199, 21, 133))
-            )  # Medium Violet Red
-        elif depth == 7:
-            item.setIcon(
-                0, self.create_colored_icon(QColor(0, 191, 255))
-            )  # Deep Sky Blue
-        else:
-            item.setIcon(
-                0, self.create_colored_icon(QColor(128, 128, 128))
-            )  # Gray (fallback)
+        item.setText(0, hierarchy_label(display_name, depth))
+        item.setIcon(0, icon_for_depth(depth))
 
         # Add tooltip with mood information including track count
         if mood_obj:

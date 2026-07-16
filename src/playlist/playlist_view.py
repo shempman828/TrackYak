@@ -9,7 +9,6 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QDialog,
     QHBoxLayout,
     QMenu,
@@ -22,6 +21,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.hierarchy_tree_style import (
+    configure_hierarchy_tree,
+    hierarchy_label,
+    icon_for_depth,
+)
 from src.core.logger_config import logger
 from src.playlist.playlist_edit import EditPlaylist
 from src.playlist.playlist_export import PlaylistExporter
@@ -76,19 +80,12 @@ class PlaylistView(QWidget):
 
         # Tree widget for displaying playlist hierarchy
         self.tree = QTreeWidget()
-        self.tree.setHeaderHidden(True)
-        self.tree.setSelectionMode(QAbstractItemView.MultiSelection)
+        configure_hierarchy_tree(self.tree)
 
-        # Enable drag and drop reorganization of items
-        self.tree.setDragEnabled(True)
-        self.tree.setAcceptDrops(True)
-        self.tree.setDropIndicatorShown(True)
-        self.tree.setDragDropMode(QTreeWidget.InternalMove)
         # Override dropEvent with our custom handler for persistence
         self.tree.dropEvent = self.handle_drop
 
         # Context menu for additional actions
-        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.show_context_menu)
 
         main_layout.addWidget(self.tree)
@@ -275,12 +272,14 @@ class PlaylistView(QWidget):
                 # e.g. "My Playlist (5)"
                 display_name = f"{display_name} ({own_count})"
 
-            item = QTreeWidgetItem([display_name])
+            item = QTreeWidgetItem([hierarchy_label(display_name, depth)])
             item.setData(0, Qt.UserRole, ("playlist", child.playlist_id))
             item.setFlags(item.flags() | Qt.ItemIsEditable)
 
             # Store whether this is a smart playlist for context menu checks
             item.setData(0, Qt.UserRole + 1, getattr(child, "is_smart", False))
+
+            item.setIcon(0, icon_for_depth(depth))
 
             if parent_item:
                 parent_item.addChild(item)

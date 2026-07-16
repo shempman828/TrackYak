@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy import func, select
 
 from PySide6.QtCore import QMimeData, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QDrag, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -20,6 +20,11 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.base_split_dialog import SplitDBDialog
+from src.common.hierarchy_tree_style import (
+    configure_hierarchy_tree,
+    hierarchy_label,
+    icon_for_depth,
+)
 from src.db.db_tables import TrackGenre
 from src.genre.genre_edit import GenreEditDialog
 from src.genre.genre_merge import GenreMergeDialog
@@ -47,22 +52,11 @@ class GenreView(QWidget):
 
         # Tree widget configuration (created early so top-row buttons can reference it)
         self.tree = QTreeWidget()
-        self.tree.setHeaderHidden(True)
-        self.tree.setSelectionMode(
-            QTreeWidget.MultiSelection
-        )  # Changed from SingleSelection
-        self.tree.setAnimated(True)
+        configure_hierarchy_tree(self.tree)
         self.tree.itemChanged.connect(self.on_item_edited)
-
-        # Drag and drop configuration
-        self.tree.setDragEnabled(True)
-        self.tree.setAcceptDrops(True)
-        self.tree.setDropIndicatorShown(True)
-        self.tree.setDragDropMode(QTreeWidget.InternalMove)
         self.tree.dropEvent = self.on_drop_event
 
         # Context menu signals
-        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.show_context_menu)
 
         # Install event filter for keyboard shortcuts
@@ -237,56 +231,14 @@ class GenreView(QWidget):
             # Create display text with track count
             display_text = f"{genre.genre_name} ({count})"
 
-            item = QTreeWidgetItem([display_text])
+            item = QTreeWidgetItem([hierarchy_label(display_text, depth)])
             item.setData(0, Qt.UserRole, genre.genre_id)
             item.setFlags(item.flags() | Qt.ItemIsEditable)
 
             # Store original genre name as tooltip data for editing
             item.setData(1, Qt.UserRole, genre.genre_name)
 
-            # Use indentation and icons instead of colors
-            if depth > 0:
-                # Add prefix with hierarchy indicators
-                indent_prefix = "  " * depth + "↳ "
-                item.setText(0, indent_prefix + display_text)
-
-            # Set different icons for different levels
-            if depth == 0:
-                item.setIcon(
-                    0, self.create_colored_icon(QColor(70, 130, 180))
-                )  # Steel Blue
-            elif depth == 1:
-                item.setIcon(
-                    0, self.create_colored_icon(QColor(46, 139, 87))
-                )  # Sea Green
-            elif depth == 2:
-                item.setIcon(
-                    0, self.create_colored_icon(QColor(218, 165, 32))
-                )  # Goldenrod
-            elif depth == 3:
-                item.setIcon(
-                    0, self.create_colored_icon(QColor(178, 34, 34))
-                )  # Firebrick
-            elif depth == 4:
-                item.setIcon(
-                    0, self.create_colored_icon(QColor(138, 43, 226))
-                )  # Blue Violet
-            elif depth == 5:
-                item.setIcon(
-                    0, self.create_colored_icon(QColor(255, 140, 0))
-                )  # Dark Orange
-            elif depth == 6:
-                item.setIcon(
-                    0, self.create_colored_icon(QColor(199, 21, 133))
-                )  # Medium Violet Red
-            elif depth == 7:
-                item.setIcon(
-                    0, self.create_colored_icon(QColor(0, 191, 255))
-                )  # Deep Sky Blue
-            else:
-                item.setIcon(
-                    0, self.create_colored_icon(QColor(128, 128, 128))
-                )  # Gray (fallback)
+            item.setIcon(0, icon_for_depth(depth))
 
             # Update tooltip to include track count
             tooltip = f"ID: {genre.genre_id}\nTracks: {count}"
@@ -304,18 +256,6 @@ class GenreView(QWidget):
             self._build_genre_tree(
                 item, children_map, genre_map, track_counts, depth + 1
             )
-
-    def create_colored_icon(self, color, size=16):
-        """Create a colored circle icon for hierarchy levels."""
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(QBrush(color))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(2, 2, size - 4, size - 4)
-        painter.end()
-        return QIcon(pixmap)
 
     def on_item_edited(self, item, column):
         """Handle genre name updates."""
