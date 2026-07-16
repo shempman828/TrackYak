@@ -80,6 +80,29 @@ class MP3FileWriter:
                 restore_backup(file_path, backup_path)
             return False
 
+    def get_existing_frame_map(self, file_path: str) -> Dict[str, bytes]:
+        """Return {frame_id: full_frame_bytes} for the file's current ID3
+        frames, re-headered as v2.3 so they're byte-comparable against
+        frames freshly built by ID3FrameBuilder (same header format,
+        see _rewrap_frame_as_v3). Frame IDs that repeat keep only their
+        last occurrence, matching merge_id3_frames' one-frame-per-ID
+        handling of app-managed tags.
+        """
+        try:
+            existing_frames = self._find_frames(file_path)
+            with open(file_path, "rb") as f:
+                file_data = f.read()
+
+            return {
+                frame_id: self._rewrap_frame_as_v3(
+                    frame_id, file_data[pos + 10 : pos + size]
+                )
+                for frame_id, pos, size in existing_frames
+            }
+        except Exception as e:
+            logger.debug(f"Error reading existing ID3 frames for {file_path}: {e}")
+            return {}
+
     def write_artwork(self, file_path: str, role: str, image_bytes: Any) -> bool:
         """
         Add/replace (image_bytes given) or remove (image_bytes=None) the
