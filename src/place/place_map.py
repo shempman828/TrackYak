@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Dict, List
 
-from PySide6.QtCore import QObject, Slot
+from PySide6.QtCore import QObject, QSettings, Slot
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
@@ -18,6 +18,10 @@ from PySide6.QtWidgets import (
 from src.core.logger_config import logger
 from src.place.place_assoc_details import AssociationDetailsDialog
 from src.place.place_map_filter import MultiSelectWidget
+
+
+# QSettings key for remembering the selected place type filters
+_SETTINGS_SELECTED_TYPES = "place_map/selected_types"
 
 
 class MapView(QWidget):
@@ -41,6 +45,7 @@ class MapView(QWidget):
         self.controller = controller
         self.selected_types = set()  # Track selected types
         self.all_place_types = set()  # Track all available types
+        self._settings = QSettings()
         self.init_ui()
         self.setup_js_communication()
 
@@ -141,10 +146,20 @@ class MapView(QWidget):
 
             self.all_place_types = unique_types
 
-            # Update the multi-select widget
+            # Restore the previously saved filter selection, if any, limited
+            # to types that still exist.
+            saved_types = self._load_saved_selected_types()
+            if saved_types is not None:
+                restored_types = saved_types & unique_types
+            else:
+                restored_types = set(unique_types)
+
+            # Update the multi-select widget without letting it auto-select
+            # everything, then apply the restored selection explicitly.
             self.multi_select_widget.set_items(
-                list(unique_types), default_selected=True
+                list(unique_types), default_selected=False
             )
+            self.multi_select_widget.set_selected_items(restored_types)
 
             # Store the selected types
             self.selected_types = set(self.multi_select_widget.get_selected_items())
@@ -187,7 +202,24 @@ class MapView(QWidget):
     def apply_filter(self, selected_types):
         """Apply filter to map markers based on selected types."""
         self.selected_types = set(selected_types)
+        self._save_selected_types(self.selected_types)
         self.load_places()
+
+    def _load_saved_selected_types(self):
+        """Return the previously saved set of selected types, or None if unset."""
+        saved = self._settings.value(_SETTINGS_SELECTED_TYPES, None, type=str)
+        if not saved:
+            return None
+        try:
+            return set(json.loads(saved))
+        except (ValueError, TypeError):
+            return None
+
+    def _save_selected_types(self, selected_types):
+        """Persist the selected place types so the filter survives restarts."""
+        self._settings.setValue(
+            _SETTINGS_SELECTED_TYPES, json.dumps(sorted(selected_types))
+        )
 
     def load_places(self, places: List[Dict] = None):
         try:
