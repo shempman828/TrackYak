@@ -57,6 +57,8 @@ class TrackView(
         self._tracks_loaded: bool = False
         self._filter_worker: FilterWorker | None = None
         self._sort_worker = None
+        self._lookup_thread = None
+        self._lookup_worker = None
         self._artist_name_cache: dict = {}
         self._album_cache: dict = {}
         self._disc_number_cache: dict = {}
