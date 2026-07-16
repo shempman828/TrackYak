@@ -46,11 +46,11 @@ class VorbisCommentWriter:
             field_upper = field.upper()
             if isinstance(value, list):
                 for v in value:
-                    s = self._escape(str(v))
+                    s = self.sanitize_value(str(v))
                     if s:
                         pairs.append((field_upper, s))
             else:
-                s = self._escape(str(value))
+                s = self.sanitize_value(str(value))
                 if s:
                     pairs.append((field_upper, s))
 
@@ -70,8 +70,14 @@ class VorbisCommentWriter:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _escape(self, value: str) -> str:
-        """Sanitise a tag value: strip newlines, leave = unescaped in value."""
+    def sanitize_value(self, value: str) -> str:
+        """Sanitise a tag value: strip newlines, leave = unescaped in value.
+
+        Public so callers comparing on-disk tags against freshly-built ones
+        (e.g. a metadata diff) can apply the same normalisation before
+        comparing, rather than flagging a value as "changed" purely because
+        it round-trips through this escaping.
+        """
         if not value:
             return ""
         # Newlines are illegal in Vorbis comment values
