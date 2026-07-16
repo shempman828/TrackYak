@@ -26,6 +26,7 @@ from src.db.db_tables.disc import Disc
 from src.db.db_tables.genre import Genre
 from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.place import Place, PlaceAssociation
+from src.db.db_tables.place_association_type import PlaceAssociationType
 from src.db.db_tables.playlist import (
     Playlist,
     PlaylistTracks,
@@ -61,6 +62,7 @@ __all__ = [
     "Publisher",
     "Place",
     "PlaceAssociation",
+    "PlaceAssociationType",
     "Award",
     "AwardAssociation",
     "Playlist",
