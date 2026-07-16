@@ -4,9 +4,89 @@
 
 #Bug/Feature Fixes
 
-31. When adding an artist image, I think it adds the chosen file to the db exactly where it exists. Instead, the image should be moved to the artist image directory and the path should be updated accordingly. We will need to migrate any existing paths if necessary.
-
 32. Reduce intrusive QMessagebox calls where possible.
+
+33. Splash screen styling changes partway through loading, probably when the theme qss is applied.
+
+34. Visually, the search field button selector should be visually part of the search bar, separate from the queue and view buttons to symbolize that you are choosing which column you are searching.
+
+35. Review loudness normalization code. The goal is to reduce volume leaps between tracks so Dubstep doesn't flashbang you after listening to Debussy.
+
+36. Make sure status manager always gives back the space it takes. Also, there are more places this can be implemented. Explore the code base for value-add opportunities.
+
+37. The timeline in the dates view "back" button when a decade is selected is a little awkward and jenky.
+
+38. Make an "on this day" calendar button that lets you see any calendar events from the current day on any year.
+
+39. Syncview checkboxes need an outline border. When unchecked, it is black on black
+
+40. Show file size of selected sync items in sync view
+
+41. Make louvain cluster name selection a dialog box. Show the user five representative artists from each cluster so they can make easy decisions.
+
+42. Allow user to resize louvain cluster legend
+
+43. In the views for role, mood, publisher, places, and genres - create a context option for add new parent and add new child. This will open a create dialog box that immediately sets that new entity as the parent or child respectively. eg. I right click Tokyo, click new parent place. Create Japan. Japan is created and tokyo is immediately set as child.
+
+44. Autosize publisher fuzzy match dialog to contents within reason.
+
+45. Create new Publisher Alias so the user can define alternate names for publishers that always resolve to the same place. Merges should automatically create new aliases and importing should check aliases as well to resolve to canonical name.
+
+46. Opening the places map makes the whole application flash for a second. Something with html display?
+
+47. In the map places filter, try to order places based on relative parentge (countries, states, counties, cities, buildings, etc).
+
+48. Place filter show/hide uses way too much space when shown.Filter type dropdown is too wide.
+
+49. Deleting a genre refreshes which tree items were expanded/contracted. Instead of redrawing full visual, only make targeted change on edits
+
+50. Create genre aliases so when genres get created, the user doesn't have to make the same merges over and over again. For example, if I prefer to call "Film Scores" "Soundtracks" instead, I can merge them. However, adding a new track with "film scores" will recreate it. Instead of recreating it, use an alias to resolve to the user's defined canonical entry.
+
+51. Track edit advanced "analyze audio" button should populate fields and save when complete. Also should be "Analyze" right for American convention?
+
+52. Track edit rename "basic info" tab to "basic"
+
+53. move track id from basic to advanced
+
+54. track edit basic "side" edit box is too wide. Realistically needs 1 or 2 characters
+
+55. track edit basic make track number and absolute track number on the same line.
+
+56. track edit move explicit to lyrics
+
+57. track edit track description - make own tab. This is essentially for a wikipedia page.
+
+58. lyrics search needs threading and status update. None found message box is intrusive
+
+59. track edit Dates edit tab could use some more modern styling.
+
+60 track edit classical could use better styling, ordering.Combining date rows, moving classical toggle to top
+
+61. Properties tab in track edit could use a facelift. Better organization especially
+
+62. track edit user rating needs organization. User rating should be 0-10 in 0.5 steps
+
+63. track edit artists and roles could use a look for spacing."credit as" is cut off.
+
+64. reorder track edit tabs by most critical to least. Artist album, dates near the top, advanced at bottom with samples and aliases.
+
+65. track edit genre should be a qcompleter that autofills with an existing genre or lets the user define a new one.
+
+66. track edit album add more information about current album. Currently only shows name. At least album artist, year, and art. Let's make it so that set current and virtual appearances is hidden by a button since the user won't need these often. e.g. button that says "change album" that makes the search bar appear.
+
+67. address saving logic in track, album, and artist. The code should determine if the user edited a field and only change that field. The current code is "dirtying" most fields arbitrarily. Save should only occur if there is a real change.
+
+68. in base track view, use formatted duration instead of bare second count.
+
+69. Review track file moving code. The goal is for the program to own the location of music files. The user sets a master directory. TrackYak organizes the files into albumartist/album subdirectories and updates filepath. We must be absolutely careful that files are never lost either by sending into the void or messing up the new path.
+
+70. artist edit discog. Use album art cover flow properly. Order albums by year
+
+71.scanning for duplicate artists shows a progress bar but it blocks the ui thread and freezes the program. Ended with a crash.
+
+
+
+
 
 
 
