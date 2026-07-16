@@ -27,6 +27,7 @@ from src.common.hierarchy_tree_style import (
     icon_for_depth,
 )
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.playlist.playlist_edit import EditPlaylist
 from src.playlist.playlist_export import PlaylistExporter
 from src.playlist.playlist_new import PlaylistCreateDialog
@@ -52,7 +53,7 @@ class PlaylistView(QWidget):
         self.controller = controller
         self.open_playlist_windows = {}
         self.selected_item: Optional[QTreeWidgetItem] = None
-        self.exporter = PlaylistExporter(self.controller)
+        self.exporter = PlaylistExporter(self.controller, parent_widget=self)
         self.init_ui()
         self.load_playlists()
         self.builder = SmartPlaylistBuilder(self.controller)
@@ -162,16 +163,12 @@ class PlaylistView(QWidget):
         """Export the currently selected playlist."""
         item = self.tree.currentItem()
         if not item:
-            QMessageBox.warning(
-                self, "Export Error", "Please select a playlist to export."
-            )
+            show_status_message(self, "Please select a playlist to export.")
             return
 
         item_data = item.data(0, Qt.UserRole)
         if not item_data or len(item_data) != 2 or item_data[0] != "playlist":
-            QMessageBox.warning(
-                self, "Export Error", "Please select a valid playlist to export."
-            )
+            show_status_message(self, "Please select a valid playlist to export.")
             return
 
         playlist_id = item_data[1]
@@ -346,9 +343,8 @@ class PlaylistView(QWidget):
             logger.info(
                 f"Added {total_added} track(s) from {child_names} to {parent_names}"
             )
-            QMessageBox.information(
+            show_status_message(
                 self,
-                "Tracks Added",
                 f"Added {total_added} track(s) to the parent playlist(s).",
             )
 
@@ -445,9 +441,7 @@ class PlaylistView(QWidget):
             name, description = dialog.get_data()
 
             if not name:
-                QMessageBox.warning(
-                    self, "Input Error", "Playlist name cannot be empty."
-                )
+                show_status_message(self, "Playlist name cannot be empty.")
                 return
 
             try:
@@ -475,9 +469,7 @@ class PlaylistView(QWidget):
             name, description, logic, criteria = dialog.get_data()
 
             if not name:
-                QMessageBox.warning(
-                    self, "Input Error", "Playlist name cannot be empty."
-                )
+                show_status_message(self, "Playlist name cannot be empty.")
                 return
 
             try:
@@ -744,7 +736,7 @@ class PlaylistView(QWidget):
                 )
             except Exception:
                 msg = "Playlist updated successfully."
-            QMessageBox.information(self, "Playlist Refreshed", msg)
+            show_status_message(self, msg)
         else:
             QMessageBox.warning(
                 self,

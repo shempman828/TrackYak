@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from src.award.award_relationship_dialog import AwardRelationshipDialog
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 
 class AwardDetailTab(QWidget):
@@ -403,7 +404,7 @@ class AwardDetailTab(QWidget):
                 # Delete the award - associations will be automatically deleted by ORM cascade,
                 # and child awards' parent_id will be set to NULL (they become top-level)
                 self.controller.delete.delete_entity("Award", self.award.award_id)
-                QMessageBox.information(self, "Deleted", "Award deleted successfully")
+                show_status_message(self, "Award deleted successfully")
                 logger.info(f"Deleted award {self.award.award_id}")
 
                 # Emit signal to notify parent to close this tab

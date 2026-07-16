@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.place.place_search_dialog import SearchResultsDialog
 
 
@@ -87,9 +88,7 @@ class PlaceEditDialog(QDialog):
         logger.debug("Searching for place {place_name} in region {region}")
 
         if not place_name:
-            QMessageBox.warning(
-                self, "Search Error", "Please enter a place name to search."
-            )
+            show_status_message(self, "Please enter a place name to search.")
             return
 
         try:
@@ -112,10 +111,8 @@ class PlaceEditDialog(QDialog):
                     self.lat_edit.setText(str(locations[0].latitude))
                     self.lon_edit.setText(str(locations[0].longitude))
             else:
-                QMessageBox.warning(
-                    self,
-                    "Search Error",
-                    "No coordinates found for the given place name.",
+                show_status_message(
+                    self, "No coordinates found for the given place name."
                 )
         except (GeocoderTimedOut, GeocoderServiceError) as e:
             QMessageBox.critical(

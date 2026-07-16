@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.place.place_association_types import (
     fetch_association_types,
     find_or_create_association_type,
@@ -60,9 +61,7 @@ def _append_row(table, values, user_data=None):
 def _remove_selected_row(parent_widget, table, remove_fn):
     rows = table.selectionModel().selectedRows()
     if not rows:
-        QMessageBox.information(
-            parent_widget, "No Selection", "Please select a row first."
-        )
+        show_status_message(parent_widget, "Please select a row first.")
         return
     remove_fn(rows[0].row())
 
@@ -294,13 +293,12 @@ class PlacesAwardsTab(QWidget):
     def _add_place(self):
         name = self.new_place_edit.text().strip()
         if not name:
-            QMessageBox.warning(self, "Validation", "Please enter a place name.")
+            show_status_message(self, "Please enter a place name.")
             return
         association_type = self.new_place_assoc_edit.text().strip()
         if not association_type:
-            QMessageBox.warning(
+            show_status_message(
                 self,
-                "Validation",
                 "Please enter the relationship type (e.g. Birthplace, Hometown).",
             )
             return

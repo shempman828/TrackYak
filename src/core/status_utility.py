@@ -80,3 +80,29 @@ class _StatusManager(QObject):
 
 
 StatusManager = _StatusManager()
+
+
+def show_status_message(widget, message: str, duration: int = 4000):
+    """
+    Show a non-blocking toast for `message`, replacing an intrusive QMessageBox.
+
+    Anchors to whichever top-level window is actually on screen for `widget`:
+    if that's a modal QDialog, the toast gets a local StatusBarWidget owned by
+    the dialog (so it's visible while the dialog is open, instead of hiding
+    behind it on the main window). Otherwise it goes through the shared
+    StatusManager/main-window status bar as usual.
+    """
+    from PySide6.QtWidgets import QDialog
+
+    from src.core.status_widget import StatusBarWidget
+
+    window = widget.window()
+    if not isinstance(window, QDialog):
+        StatusManager.show_message(message, duration)
+        return
+
+    status_widget = getattr(window, "_local_status_widget", None)
+    if status_widget is None:
+        status_widget = StatusBarWidget(window)
+        window._local_status_widget = status_widget
+    status_widget.show_message(message, duration)

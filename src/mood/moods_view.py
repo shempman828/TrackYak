@@ -21,6 +21,7 @@ from src.common.hierarchy_tree_style import (
     icon_for_depth,
 )
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.mood.mood_dialog import MoodDialog
 from src.mood.mood_tracks import MoodTracksWindow
 
@@ -145,10 +146,8 @@ class MoodView(QWidget):
                 dragged_mood_id == new_parent_id
                 or self.is_child_of(dragged_mood_id, new_parent_id)
             ):
-                QMessageBox.warning(
-                    self,
-                    "Invalid Move",
-                    "Cannot make a mood a child of itself or its descendants.",
+                show_status_message(
+                    self, "Cannot make a mood a child of itself or its descendants."
                 )
                 event.ignore()
                 return
@@ -463,7 +462,7 @@ class MoodView(QWidget):
     def view_tracks_for_selected_mood(self):
         """Open tracks view window for selected mood."""
         if not self.current_mood_id:
-            QMessageBox.warning(self, "No Selection", "Please select a mood first.")
+            show_status_message(self, "Please select a mood first.")
             return
 
         mood = next(
@@ -514,7 +513,7 @@ class MoodView(QWidget):
                 self.controller.delete.delete_entity("Mood", self.current_mood_id)
                 self.mood_deleted.emit(self.current_mood_id)
                 self.load_moods()  # Reload the list
-                QMessageBox.information(self, "Success", "Mood deleted successfully.")
+                show_status_message(self, "Mood deleted successfully.")
             except Exception as e:
                 logger.error(f"Error deleting mood: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to delete mood: {str(e)}")

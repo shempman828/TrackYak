@@ -47,6 +47,7 @@ from PySide6.QtWidgets import (
 
 from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 # ---------------------------------------------------------------------------
 # String helpers
@@ -516,7 +517,7 @@ class DuplicateFinderDialog(QDialog):
             return
 
         if not all_tracks:
-            QMessageBox.information(self, "No Tracks", "No tracks found in library.")
+            show_status_message(self, "No tracks found in library.")
             return
 
         self._groups = []

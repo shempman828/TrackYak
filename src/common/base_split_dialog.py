@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.orm import object_mapper
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.db.db_helpers import SplitDB
 
 
@@ -212,9 +213,7 @@ class SplitDBDialog(QDialog):
         """Collect input and perform the split."""
         names = self._collect_split_names()
         if not names:
-            QMessageBox.warning(
-                self, "No Names", "Please enter at least one new entity name."
-            )
+            show_status_message(self, "Please enter at least one new entity name.")
             return
 
         # Confirm the action

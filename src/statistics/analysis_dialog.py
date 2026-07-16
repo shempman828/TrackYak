@@ -34,7 +34,7 @@ from src.statistics.analysis_utility import (
     analysis_cache,
 )
 from src.core.logger_config import logger
-from src.core.status_utility import StatusManager
+from src.core.status_utility import StatusManager, show_status_message
 
 
 # Fields that must be present and non-zero/None for a track to be
@@ -275,9 +275,7 @@ class AudioAnalysisDialog(QDialog):
 
     def _on_start(self):
         if not self._tracks_pending:
-            QMessageBox.information(
-                self, "Nothing to do", "All tracks are already analysed."
-            )
+            show_status_message(self, "All tracks are already analysed.")
             return
 
         # Recreate the scheduler if it finished or was stopped
@@ -345,10 +343,8 @@ class AudioAnalysisDialog(QDialog):
         StatusManager.end_task(f"Analysis complete: {total} tracks processed", 5000)
 
         if self.isVisible():
-            QMessageBox.information(
-                self,
-                "Analysis Complete",
-                f"Audio analysis finished.\n{total} tracks processed.",
+            show_status_message(
+                self, f"Audio analysis finished. {total} tracks processed.", 5000
             )
 
     @Slot(int, str)
@@ -388,10 +384,9 @@ class AudioAnalysisDialog(QDialog):
         logger.info(f"Track {track_id} removed from cache — will be re-analysed")
 
         if self._scheduler.is_running:
-            QMessageBox.information(
+            show_status_message(
                 self,
-                "Track Queued",
-                "This track will be re-analysed the next time you start analysis.\n"
+                "This track will be re-analysed the next time you start analysis. "
                 "(Stop and restart to include it in the current run.)",
             )
 

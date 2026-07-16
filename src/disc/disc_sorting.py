@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 
 class TrackSortingDisplay(QTreeWidget):
@@ -207,7 +208,7 @@ class TrackSortingDisplay(QTreeWidget):
                     logger.warning(f"Track ID {tid} not found — skipping.")
 
             if not tracks:
-                QMessageBox.warning(self, "Not Found", "No tracks could be loaded.")
+                show_status_message(self, "No tracks could be loaded.")
                 return
 
             # Import here to avoid circular imports at module level
@@ -259,7 +260,7 @@ class TrackSortingDisplay(QTreeWidget):
                 logger.warning(f"Track ID {tid} not found — skipping.")
 
         if not tracks:
-            QMessageBox.warning(self, "Not Found", "No tracks could be loaded.")
+            show_status_message(self, "No tracks could be loaded.")
             return
 
         count = len(tracks)

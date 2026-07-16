@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from src.common.credited_as_dialog import CreditedAsDialog
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.place.place_association_types import (
     fetch_association_types,
     find_or_create_association_type,
@@ -25,10 +26,13 @@ from src.place.place_association_types import (
 class RelationshipHelpers:
     """Manages album relationship operations (artists, publishers, places, awards)"""
 
-    def __init__(self, controller, album, refresh_callback):
+    def __init__(self, controller, album, refresh_callback, widget=None):
         self.controller = controller
         self.album = album
         self.show_updated_view = refresh_callback
+        # Anchor widget for non-blocking toast notifications (show_status_message
+        # needs a real QWidget to find the top-level window it should attach to).
+        self.widget = widget
 
     # =========================================================================
     # Publisher management
@@ -72,7 +76,7 @@ class RelationshipHelpers:
             )
 
             self.show_updated_view()
-            QMessageBox.information(None, "Success", "Publisher added successfully!")
+            show_status_message(self.widget, "Publisher added successfully!")
 
         except Exception as e:
             logger.exception("Failed to add publisher")
@@ -126,7 +130,7 @@ class RelationshipHelpers:
         )
 
         if not result or not result["artist_name"] or not result["role_name"]:
-            QMessageBox.warning(None, "Warning", "Both artist and role are required.")
+            show_status_message(self.widget, "Both artist and role are required.")
             return
 
         try:
@@ -293,7 +297,7 @@ class RelationshipHelpers:
         )
 
         if not result or not result["place_name"]:
-            QMessageBox.warning(None, "Warning", "Place name is required.")
+            show_status_message(self.widget, "Place name is required.")
             return
 
         try:

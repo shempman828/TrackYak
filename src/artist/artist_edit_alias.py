@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from src.artist.artist_alias_dialog import AliasEditDialog
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 
 class AliasesTab(QWidget):
@@ -217,9 +218,8 @@ class AliasesTab(QWidget):
                 "duplicate alias name)",
                 alias_id,
             )
-            QMessageBox.warning(
+            show_status_message(
                 self,
-                "Could Not Update Alias",
                 f"Could not rename alias to '{dlg.alias_name}'. "
                 "That name may already be in use.",
             )
@@ -285,9 +285,7 @@ class AliasesTab(QWidget):
             logger.debug(
                 "AliasesTab._swap_alias: no-op, alias already matches primary name"
             )
-            QMessageBox.information(
-                self, "No Change", "That alias is already the primary name."
-            )
+            show_status_message(self, "That alias is already the primary name.")
             return
 
         reply = QMessageBox.question(

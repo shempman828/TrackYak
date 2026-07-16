@@ -4,11 +4,11 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QVBoxLayout,
 )
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 
 class SearchResultsDialog(QDialog):
@@ -48,7 +48,7 @@ class SearchResultsDialog(QDialog):
             self.accept()
         else:
             logger.debug("Location search results dialog: no location selected")
-            QMessageBox.warning(self, "No Selection", "Please select a location.")
+            show_status_message(self, "Please select a location.")
 
     def get_selected_result(self):
         return self.selected_result

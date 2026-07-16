@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from src.common.credited_as_dialog import CreditedAsDialog
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.track.track_edit_basetab import _BaseTab
 
 PRIMARY_ARTIST_ROLE = "Primary Artist"
@@ -439,9 +440,8 @@ class RolesTab(_BaseTab):
         the existing role input field (reused as a quick prompt)."""
         role_name = self._role_edit.text().strip()
         if len(role_name) < 2:
-            QMessageBox.information(
+            show_status_message(
                 self,
-                "Add Role",
                 f"Type a role name (min 2 chars) in the role field, then click "
                 f"'+ Add role…' next to {artist_name}.",
             )

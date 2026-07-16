@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from src.core.config_setup import Config
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 
 class ConfigDialog(QDialog):
@@ -315,9 +316,8 @@ class ConfigDialog(QDialog):
             if dir_text and Path(dir_text).exists():
                 self.config.set_base_directory(dir_text)
             else:
-                QMessageBox.warning(
+                show_status_message(
                     self,
-                    "Invalid Directory",
                     "The selected music directory does not exist. Using current directory.",
                 )
 
@@ -372,7 +372,7 @@ class ConfigDialog(QDialog):
             reconfigure_logging(self.config)
 
             logger.info("General settings saved and applied")
-            QMessageBox.information(self, "Success", "Settings saved successfully.")
+            show_status_message(self, "Settings saved successfully.")
 
         except Exception as e:
             logger.error(f"Failed to apply settings: {e}")

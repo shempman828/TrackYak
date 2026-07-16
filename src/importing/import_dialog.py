@@ -22,7 +22,7 @@ from src.core.config_setup import app_config
 from src.importing.library_import import ImportWorker
 from src.core.asset_paths import config, icon
 from src.core.logger_config import logger
-from src.core.status_utility import StatusManager
+from src.core.status_utility import StatusManager, show_status_message
 
 CONFIG_FILE = config("import_paths.json")
 
@@ -196,9 +196,7 @@ class ImportDialog(QDialog):
 
         # Show completion message only if dialog is visible
         if self.isVisible():
-            QMessageBox.information(
-                self, "Complete", f"Import completed. Processed {success_count} files"
-            )
+            show_status_message(self, f"Import completed. Processed {success_count} files")
         else:
             # Dialog was hidden, show notification and keep hidden
             # Optionally, you could automatically show the dialog here

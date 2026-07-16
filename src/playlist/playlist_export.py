@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from src.core.asset_paths import playlist_path
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 
 class PlaylistExporter:
@@ -12,13 +13,18 @@ class PlaylistExporter:
     Handles exporting a single Playlist ORM object to an M3U file.
     """
 
-    def __init__(self, controller, show_messages: bool = True):
+    def __init__(self, controller, show_messages: bool = True, parent_widget=None):
         """
         controller: gives access to ORM getters (get_entity_object, get_all_entities)
-        show_messages: whether to show QMessageBox notifications
+        show_messages: whether to show user feedback notifications
+        parent_widget: optional widget to anchor a non-blocking success toast to.
+            Failure/partial-failure paths still use a blocking QMessageBox
+            regardless, since export failures involve file I/O and shouldn't be
+            easy to miss.
         """
         self.controller = controller
         self.show_messages = show_messages
+        self.parent_widget = parent_widget
 
     def export_playlist(self, playlist_id: int) -> bool:
         """
@@ -97,11 +103,15 @@ class PlaylistExporter:
                     f.write(f"#EXTINF:{duration},{artist_names} - {title}\n")
                     f.write(f"{rel_path}\n")
 
-            msg = f"Exported playlist to:\n{file_path}"
             if failed:
+                # Partial failure - keep this as a blocking notice so the user
+                # doesn't miss that some tracks were skipped.
+                msg = f"Exported playlist to:\n{file_path}"
                 msg += f"\n\n{len(failed)} tracks were skipped."
+                self._show_message("Export Complete", msg)
+            else:
+                self._show_success(f"Export complete: playlist exported to {file_path}")
 
-            self._show_message("Export Complete", msg)
             logger.info(
                 f"Playlist '{playlist.playlist_name}' exported to {file_path} ({len(failed)} failed)"
             )
@@ -113,6 +123,20 @@ class PlaylistExporter:
             return False
 
     def _show_message(self, title: str, text: str):
-        """Helper for showing user feedback if enabled."""
+        """Helper for showing blocking user feedback (errors/partial failures) if enabled."""
         if self.show_messages:
             QMessageBox.information(None, title, text)
+
+    def _show_success(self, text: str):
+        """Helper for showing a non-blocking success toast if enabled.
+
+        Falls back to a blocking QMessageBox when no parent widget was given
+        (e.g. exporter used outside a UI context), since show_status_message
+        needs a widget to anchor to.
+        """
+        if not self.show_messages:
+            return
+        if self.parent_widget is not None:
+            show_status_message(self.parent_widget, text)
+        else:
+            QMessageBox.information(None, "Export Complete", text)

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 
 class EditPlaylist(QDialog):
@@ -85,9 +86,8 @@ class EditPlaylist(QDialog):
                 f"Edit blocked for smart playlist {self.playlist_id}; "
                 "use Smart Playlist Editor instead"
             )
-            QMessageBox.information(
+            show_status_message(
                 self,
-                "Smart Playlist",
                 "Smart playlists cannot be edited here. Use the Smart Playlist Editor instead.",
             )
             return

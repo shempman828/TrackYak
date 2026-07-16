@@ -28,6 +28,7 @@ from src.album.album_new import NewAlbumDialog
 from src.album.base_album_edit import AlbumEditor
 from src.album.base_album_widget import AlbumWidget
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.image.artwork_cache import get_artwork_cache
 
 # ---------------------------------------------------------------------------
@@ -476,9 +477,7 @@ class AlbumView(QWidget):
             empty_albums = [a for a in all_albums if self._get_track_count(a) == 0]
 
             if not empty_albums:
-                QMessageBox.information(
-                    self, "No Empty Albums", "No empty albums found in your library."
-                )
+                show_status_message(self, "No empty albums found in your library.")
                 return
 
             confirm_dialog = DeleteEmptyAlbumsDialog(empty_albums, self)
@@ -493,7 +492,7 @@ class AlbumView(QWidget):
                 except Exception as e:
                     logger.warning(f"Failed to delete album {album.album_name}: {e}")
 
-            QMessageBox.information(self, "Done", f"Deleted {deleted} empty album(s).")
+            show_status_message(self, f"Deleted {deleted} empty album(s).")
             self.load_albums()
 
         except Exception as e:

@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from src.core.asset_paths import icon
 from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.publisher.publisher_albums import PublisherAlbumsWindow
 from src.publisher.publisher_association_dialog import PublisherAssociationDialog
 
@@ -365,9 +366,8 @@ class PublisherDetailTab(QWidget):
             tracks = self._get_publisher_tracks()
 
             if not tracks:
-                QMessageBox.information(
+                show_status_message(
                     self,
-                    "No Tracks",
                     f"No tracks found for publisher: {self.current_publisher.publisher_name}",
                 )
                 return

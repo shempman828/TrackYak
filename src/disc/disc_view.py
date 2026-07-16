@@ -15,6 +15,7 @@ from src.common.style_utils import set_style_property
 from src.disc.disc_edit import DiscEditDialog
 from src.disc.disc_sorting import TrackSortingDisplay
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 
 class DiscManagementView(QWidget):
@@ -248,14 +249,12 @@ class DiscManagementView(QWidget):
         """Edit selected disc"""
         # TODO: Implement disc selection and editing
         # For now, show message
-        QMessageBox.information(
-            self, "Info", "Select a disc to edit (not yet implemented)"
-        )
+        show_status_message(self, "Select a disc to edit (not yet implemented)")
 
     def remove_disc(self):
         """Remove selected disc"""
         if not self.discs:
-            QMessageBox.information(self, "Info", "No discs to remove.")
+            show_status_message(self, "No discs to remove.")
             return
 
         # Build a list of disc choices for the user

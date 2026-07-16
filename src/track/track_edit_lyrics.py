@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.track.track_edit_basetab import _BaseTab
 
 
@@ -77,7 +78,7 @@ class LyricsTab(_BaseTab):
                 formatted = self._format_lyrics(lyrics)
                 self._edit.setPlainText(formatted)
             else:
-                QMessageBox.information(self, "Lyrics Search", "No lyrics found.")
+                show_status_message(self, "No lyrics found.")
         except Exception as e:
             logger.error(f"Lyrics search error: {e}")
             QMessageBox.warning(self, "Lyrics Search", f"Search failed:\n{e}")

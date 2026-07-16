@@ -3,13 +3,13 @@ from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
-    QMessageBox,
     QTreeWidget,
     QTreeWidgetItem,
     QTreeWidgetItemIterator,
 )
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 
 class PublisherTreeWidget(QTreeWidget):
@@ -226,11 +226,7 @@ class PublisherTreeWidget(QTreeWidget):
             return
 
         if self.is_child_of(target_item, source_item):
-            QMessageBox.warning(
-                self,
-                "Invalid Operation",
-                "Cannot create circular parent-child relationship.",
-            )
+            show_status_message(self, "Cannot create circular parent-child relationship.")
             return
 
         try:

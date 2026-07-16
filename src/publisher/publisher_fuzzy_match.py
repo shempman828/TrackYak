@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 # Longest a publisher name is allowed to render in the match list before
 # being elided, so one very long name can't blow out the column width
@@ -202,10 +203,8 @@ class PublisherFuzzyMatchDialog(QDialog):
             jobs.append((old_publisher, new_publisher))
 
         if not jobs:
-            QMessageBox.warning(
-                self,
-                "No Merges",
-                "No pairs were merged (none checked or errors occurred)",
+            show_status_message(
+                self, "No pairs were merged (none checked or errors occurred)"
             )
             return
 

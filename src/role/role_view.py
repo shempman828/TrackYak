@@ -24,6 +24,7 @@ from src.common.hierarchy_tree_style import (
     icon_for_depth,
 )
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.role.role_detail_tab import RoleDetailTab
 from src.role.role_edit_dialog import RoleEditDialog
 from src.role.role_merge import RoleMergeDialog
@@ -638,7 +639,7 @@ class RoleView(QWidget):
             self.status_bar.setText(f"Renamed to {new_name}")
 
         except ValueError as e:
-            QMessageBox.warning(self, "Rename Error", str(e))
+            show_status_message(self, str(e))
             item.setText(0, old_text)  # Revert to old text
         except Exception as e:
             logger.error(f"Error renaming role: {str(e)}")
@@ -665,9 +666,8 @@ class RoleView(QWidget):
 
                 # Prevent circular references
                 if self._would_create_circular_reference(child_id, parent_id):
-                    QMessageBox.warning(
+                    show_status_message(
                         self,
-                        "Invalid Operation",
                         f"Moving '{child_item.text(0)}' there would create a "
                         "circular reference in the hierarchy.",
                     )
@@ -764,9 +764,7 @@ class RoleView(QWidget):
                 "Role", role_id=source_role_id
             )
             if not role_obj:
-                QMessageBox.warning(
-                    self, "Not Found", "The selected role no longer exists."
-                )
+                show_status_message(self, "The selected role no longer exists.")
                 return
 
             merge_dialog = RoleMergeDialog(self.controller, self, role_obj=role_obj)

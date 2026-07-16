@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 from src.db.db_helpers import Session
 from src.common.style_utils import set_style_property
 from src.core.logger_config import logger
-from src.core.status_utility import StatusManager
+from src.core.status_utility import StatusManager, show_status_message
 from src.sync.sync_utility import (
     MtpManager,
     SyncManager,
@@ -740,14 +740,11 @@ class SyncView(QWidget):
         """Show a picker of currently connected MTP devices."""
         devices = self.mtp_manager.list_devices()
         if not devices:
-            QMessageBox.information(
+            show_status_message(
                 self,
-                "No Devices Found",
-                "No Android devices were detected.\n\n"
-                "Make sure your phone is:\n"
-                "  • Connected via USB\n"
-                "  • Set to  File Transfer  mode\n"
-                "    (pull down the notification shade and tap the USB notification)",
+                "No Devices Found: No Android devices were detected. Make sure your "
+                "phone is connected via USB and set to File Transfer mode (pull down "
+                "the notification shade and tap the USB notification).",
             )
             return
 
@@ -806,12 +803,11 @@ class SyncView(QWidget):
         self.detect_btn.setEnabled(True)
 
         if not devices:
-            QMessageBox.information(
+            show_status_message(
                 self,
-                "No Devices Found",
-                "No devices detected via USB.\n\n"
-                "Make sure your phone is connected and set to File Transfer mode.\n"
-                "(Pull down the notification shade and tap the USB notification.)",
+                "No Devices Found: No devices detected via USB. Make sure your "
+                "phone is connected and set to File Transfer mode (pull down the "
+                "notification shade and tap the USB notification).",
             )
             return
 
@@ -823,9 +819,8 @@ class SyncView(QWidget):
         self._poll_mtp_devices()
 
         if not new_devices:
-            QMessageBox.information(
+            show_status_message(
                 self,
-                "Devices Up To Date",
                 f"{len(devices)} device(s) connected — all already have profiles.",
             )
             return
@@ -1042,7 +1037,7 @@ class SyncView(QWidget):
         # Validate destination
         if self.current_profile.is_mtp:
             if not self.current_profile.device_uri:
-                QMessageBox.warning(self, "No Device", "No device linked.")
+                show_status_message(self, "No device linked.")
                 return
             name = self.current_profile.device_name or self.current_profile.device_uri
             dest_desc = (
@@ -1050,7 +1045,7 @@ class SyncView(QWidget):
             )
         else:
             if not self.current_profile.path:
-                QMessageBox.warning(self, "No Folder", "No destination folder set.")
+                show_status_message(self, "No destination folder set.")
                 return
             dest_desc = f"Folder: {self.current_profile.path}"
 
@@ -1172,13 +1167,11 @@ class SyncView(QWidget):
             self.status_manager.end_task(
                 f"Sync complete: {total_copied} copied, {total_skipped} skipped", 5000
             )
-            QMessageBox.information(
+            show_status_message(
                 self,
-                "Sync Complete",
-                f"Sync finished!\n\n"
-                f"Playlists:  {successful}/{total} successful\n"
-                f"Tracks copied:  {total_copied}\n"
-                f"Duplicates skipped:  {total_skipped}",
+                f"Sync finished! Playlists: {successful}/{total} successful  ·  "
+                f"Tracks copied: {total_copied}  ·  Duplicates skipped: {total_skipped}",
+                5000,
             )
         else:
             self.status_manager.end_task("Sync completed — no tracks copied", 3000)

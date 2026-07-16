@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.place.place_assoc_details import AssociationDetailsDialog
 from src.place.place_detail import PlaceDetailView
 from src.place.place_edit import PlaceEditDialog
@@ -246,8 +247,8 @@ class ListView(QWidget):
         """Show detailed view of all entities associated with the selected place."""
         selected = self.tree_widget.currentItem()
         if not selected:
-            QMessageBox.information(
-                self, "No Selection", "Please select a place to view its associations."
+            show_status_message(
+                self, "Please select a place to view its associations."
             )
             return
         self.show_association_details_for(selected.data(0, Qt.UserRole))
@@ -316,15 +317,11 @@ class ListView(QWidget):
 
     def merge_place(self, place):
         """Merge this place into another. Not yet implemented."""
-        QMessageBox.information(
-            self, "Not Implemented", "Merge is not yet available for places."
-        )
+        show_status_message(self, "Merge is not yet available for places.")
 
     def _split_place(self):
         """Split this place into multiple places. Not yet implemented."""
-        QMessageBox.information(
-            self, "Not Implemented", "Split is not yet available for places."
-        )
+        show_status_message(self, "Split is not yet available for places.")
 
     def view_place_details_for(self, place):
         """View detailed information about the given place."""

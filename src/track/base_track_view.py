@@ -27,6 +27,7 @@ from src.playlist.base_track_playlist_dialog import PlaylistSelectionDialog
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.core.censor import censor_text
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
 
 
@@ -492,18 +493,14 @@ class BaseTrackView(QDialog):
         )
 
         if not tracks_to_shuffle:
-            QMessageBox.information(
-                self, "No Tracks", "No tracks available to shuffle."
-            )
+            show_status_message(self, "No tracks available to shuffle.")
             return
 
         random.shuffle(tracks_to_shuffle)
         queue_manager = self._get_queue_manager()
 
         if not queue_manager:
-            QMessageBox.warning(
-                self, "Queue Unavailable", "Could not access the playback queue."
-            )
+            show_status_message(self, "Could not access the playback queue.")
             return
 
         if hasattr(queue_manager, "clear_queue"):
@@ -690,10 +687,8 @@ class BaseTrackView(QDialog):
 
             # Show results based on success
             if success_count == len(track_ids):
-                QMessageBox.information(
-                    self,
-                    "Success",
-                    f"All {success_count} track(s) added to playlist successfully!",
+                show_status_message(
+                    self, f"All {success_count} track(s) added to playlist successfully!"
                 )
             elif success_count > 0:
                 QMessageBox.warning(
@@ -702,10 +697,8 @@ class BaseTrackView(QDialog):
                     f"{success_count} of {len(track_ids)} track(s) added (some might already be in the playlist).",
                 )
             else:
-                QMessageBox.warning(
-                    self,
-                    "Warning",
-                    "No tracks were added (they might already be in the playlist).",
+                show_status_message(
+                    self, "No tracks were added (they might already be in the playlist)."
                 )
         except Exception as e:
             logger.error(f"Error adding tracks to playlist: {str(e)}")
@@ -748,10 +741,8 @@ class BaseTrackView(QDialog):
 
             # Show results based on success
             if success_count == len(track_ids):
-                QMessageBox.information(
-                    self,
-                    "Success",
-                    f"All {success_count} track(s) added to mood successfully!",
+                show_status_message(
+                    self, f"All {success_count} track(s) added to mood successfully!"
                 )
             elif success_count > 0:
                 QMessageBox.warning(
@@ -762,9 +753,8 @@ class BaseTrackView(QDialog):
                     f"\n".join(error_messages[-3:]),  # Show last 3 errors
                 )
             else:
-                QMessageBox.warning(
+                show_status_message(
                     self,
-                    "No tracks added",
                     "No tracks were added. All selected tracks are already in this mood.",
                 )
 

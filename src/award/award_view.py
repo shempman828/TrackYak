@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from src.award.award_detail import AwardDetailTab
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 
 class AwardView(QWidget):
@@ -378,7 +379,7 @@ class AwardView(QWidget):
 
         name = name_edit.text().strip()
         if not name:
-            QMessageBox.warning(self, "Invalid Input", "Award name is required.")
+            show_status_message(self, "Award name is required.")
             return
 
         category = category_edit.text().strip() or None
@@ -388,9 +389,7 @@ class AwardView(QWidget):
             try:
                 year = int(year_text)
             except ValueError:
-                QMessageBox.warning(
-                    self, "Invalid Input", "Year must be a whole number."
-                )
+                show_status_message(self, "Year must be a whole number.")
                 return
         parent_id = parent_combo.currentData()
 

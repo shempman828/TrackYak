@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 # Direction constants — stored in the table's UserRole+1 slot per row.
 DIR_INFLUENCED = "influenced"  # this artist -> other artist (other was influenced by this one)
@@ -595,9 +596,7 @@ class InfluencesTab(QWidget):
     def _handle_remove_selected(self):
         rows = self._selected_row_data()
         if not rows:
-            QMessageBox.information(
-                self, "No Selection", "Please select one or more rows first."
-            )
+            show_status_message(self, "Please select one or more rows first.")
             return
         if len(rows) > 1:
             reply = QMessageBox.question(
@@ -635,9 +634,7 @@ class InfluencesTab(QWidget):
         GroupMembership edits, which also has a composite key)."""
         rows = self._selected_row_data()
         if not rows:
-            QMessageBox.information(
-                self, "No Selection", "Please select one or more rows first."
-            )
+            show_status_message(self, "Please select one or more rows first.")
             return
 
         # A row can't be swapped onto a key that already exists (e.g. both
@@ -671,9 +668,8 @@ class InfluencesTab(QWidget):
                 errors.append(f'{r["name"]}: {e}')
 
         if skipped:
-            QMessageBox.warning(
+            show_status_message(
                 self,
-                "Cannot Swap",
                 "Skipped — the reverse relationship already exists:\n"
                 + "\n".join(skipped),
             )

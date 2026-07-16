@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from src.common.base_split_dialog import SplitDBDialog
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.publisher.publisher_detail import PublisherDetailTab
 from src.publisher.publisher_fuzzy_match import PublisherFuzzyMatchDialog
 from src.publisher.publisher_merge_dialog import PublisherMergeDialog
@@ -146,9 +147,7 @@ class PublisherView(QWidget):
         """
         selected_items = self.publishers_tree.selectedItems()
         if not selected_items:
-            QMessageBox.warning(
-                self, "No Selection", "Please select a publisher to delete."
-            )
+            show_status_message(self, "Please select a publisher to delete.")
             return
 
         count = len(selected_items)
@@ -194,9 +193,7 @@ class PublisherView(QWidget):
         """Split the selected publisher."""
         item = self.publishers_tree.currentItem()
         if not item:
-            QMessageBox.warning(
-                self, "No Selection", "Please select a publisher to split."
-            )
+            show_status_message(self, "Please select a publisher to split.")
             return
 
         publisher_id = item.data(0, Qt.UserRole)
@@ -206,9 +203,7 @@ class PublisherView(QWidget):
                 "Publisher", publisher_id=publisher_id
             )
             if not publisher_obj:
-                QMessageBox.warning(
-                    self, "Not Found", "The selected publisher no longer exists."
-                )
+                show_status_message(self, "The selected publisher no longer exists.")
                 return
 
             split_dialog = SplitDBDialog(
@@ -288,9 +283,7 @@ class PublisherView(QWidget):
             return
 
         if not publishers:
-            QMessageBox.information(
-                self, "No Publishers", "No publishers found in database."
-            )
+            show_status_message(self, "No publishers found in database.")
             return
 
         # --- Show a progress dialog so the user knows work is happening ---
@@ -363,9 +356,8 @@ class PublisherView(QWidget):
         def _on_finished(matches):
             progress.close()
             if not matches:
-                QMessageBox.information(
+                show_status_message(
                     self,
-                    "No Duplicates Found",
                     f"No similar publisher names found (threshold: {int(THRESHOLD * 100)}% similarity).",
                 )
                 return

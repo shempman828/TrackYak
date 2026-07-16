@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.artist.artist_delete_orphans import OrphanArtistDialog
+from src.core.status_utility import show_status_message
 from src.artist.artist_detail import ArtistDetailTab
 from src.artist.artist_edit import ArtistEditor
 from src.artist.artist_fuzzy_match import FuzzyMatchDialog
@@ -329,9 +330,7 @@ class ArtistView(QWidget):
         artist_id = selected.data(Qt.UserRole)
         artist = self.controller.get.get_entity_object("Artist", artist_id=artist_id)
         if not artist:
-            QMessageBox.warning(
-                self, "Not Found", f"No artist found with ID {artist_id}"
-            )
+            show_status_message(self, f"No artist found with ID {artist_id}")
             return
 
         # Remove whatever is currently in the detail panel
@@ -462,11 +461,7 @@ class ArtistView(QWidget):
             tracks = self._get_all_artist_tracks(artist.artist_id)
 
             if not tracks:
-                QMessageBox.information(
-                    self,
-                    "No Tracks Found",
-                    f"No tracks found for '{artist.artist_name}'.",
-                )
+                show_status_message(self, f"No tracks found for '{artist.artist_name}'.")
                 return
 
             track_view = BaseTrackView(
@@ -583,7 +578,7 @@ class ArtistView(QWidget):
             ]
             group_names = [g.artist_name for g in groups]
             if not group_names:
-                QMessageBox.information(self, "No Groups", "No groups exist yet.")
+                show_status_message(self, "No groups exist yet.")
                 return
 
             name, ok = QInputDialog.getItem(
@@ -757,7 +752,7 @@ class ArtistView(QWidget):
             "Artist", artist_id, profile_pic_path=managed_path
         )
         if success:
-            QMessageBox.information(self, "Success", "Profile picture updated.")
+            show_status_message(self, "Profile picture updated.")
         else:
             QMessageBox.warning(self, "Error", "Failed to update profile picture.")
 
@@ -809,9 +804,8 @@ class ArtistView(QWidget):
             return
 
         if not orphans:
-            QMessageBox.information(
+            show_status_message(
                 self,
-                "No Unused Artists",
                 "No artists were found with zero roles, influences, "
                 "memberships, places, or awards.",
             )
@@ -830,10 +824,8 @@ class ArtistView(QWidget):
             if self.controller.delete.delete_entity("Artist", entity_id=artist_id):
                 deleted += 1
 
-        QMessageBox.information(
-            self,
-            "Artists Deleted",
-            f"Deleted {deleted} of {len(selected_ids)} selected artist(s).",
+        show_status_message(
+            self, f"Deleted {deleted} of {len(selected_ids)} selected artist(s)."
         )
         self.load_artists()
 
@@ -863,7 +855,7 @@ class ArtistView(QWidget):
             return
 
         if not artists:
-            QMessageBox.information(self, "No Artists", "No artists found in database.")
+            show_status_message(self, "No artists found in database.")
             return
 
         # --- Show a progress dialog so the user knows work is happening ---
@@ -938,9 +930,8 @@ class ArtistView(QWidget):
         def _on_finished(matches):
             progress.close()
             if not matches:
-                QMessageBox.information(
+                show_status_message(
                     self,
-                    "No Duplicates Found",
                     f"No similar artist names found (threshold: {int(THRESHOLD * 100)}% similarity).",
                 )
                 return

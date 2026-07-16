@@ -169,7 +169,7 @@ class AlbumEditor(QDialog):
         except Exception:
             self.album = album
 
-        self.helper = RelationshipHelpers(controller, album, self.refresh_view)
+        self.helper = RelationshipHelpers(controller, album, self.refresh_view, widget=self)
         self.field_widgets: dict = {}
         self.tab_builder = AlbumTabBuilder(self)
 

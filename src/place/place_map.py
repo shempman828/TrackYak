@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.place.place_assoc_details import AssociationDetailsDialog
 from src.place.place_map_filter import MultiSelectWidget
 
@@ -437,9 +438,7 @@ class MapView(QWidget):
                 dialog.exec_()
             else:
                 logger.error(f"Place with ID {place_id} not found")
-                QMessageBox.warning(
-                    self, "Not Found", f"Place with ID {place_id} not found"
-                )
+                show_status_message(self, f"Place with ID {place_id} not found")
         except Exception as e:
             logger.error(f"Error showing associations: {str(e)}")
             QMessageBox.critical(

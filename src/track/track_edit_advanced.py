@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from src.statistics.analysis_utility import BatchAnalysisScheduler, analysis_cache
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.metadata.metadata_writer import MetadataWriter
 from src.track.track_edit_basetab import _BaseTab
 from src.track.track_edit_fieldform import FieldFormTab
@@ -120,9 +121,7 @@ class AdvancedTab(_BaseTab):
         try:
             changes = self._inner.collect_changes()
             if not changes:
-                QMessageBox.information(
-                    self, "Copy to Clipboard", "No Advanced fields have values to copy."
-                )
+                show_status_message(self, "No Advanced fields have values to copy.")
                 return
 
             lines = [f"{field}: {value}" for field, value in changes.items()]
@@ -162,16 +161,10 @@ class AdvancedTab(_BaseTab):
                 if not result["success"]:
                     QMessageBox.warning(self, "Write Metadata to File", result["message"])
                 elif not result["changed"]:
-                    QMessageBox.information(
-                        self,
-                        "Write Metadata to File",
-                        "File tags already match the database.",
-                    )
+                    show_status_message(self, "File tags already match the database.")
                 else:
-                    QMessageBox.information(
-                        self,
-                        "Write Metadata to File",
-                        "Updated tag(s):\n" + "\n".join(result["changed"]),
+                    show_status_message(
+                        self, "Updated tag(s):\n" + "\n".join(result["changed"])
                     )
                 return
 
@@ -183,7 +176,7 @@ class AdvancedTab(_BaseTab):
                 lines.append(f"Failed: {len(failed)}")
                 for track, result in failed:
                     lines.append(f"  {track.track_name}: {result['message']}")
-            QMessageBox.information(self, "Write Metadata to File", "\n".join(lines))
+            show_status_message(self, "\n".join(lines))
 
         except Exception as e:
             logger.error(f"AdvancedTab write metadata failed: {e}", exc_info=True)
@@ -221,9 +214,8 @@ class AdvancedTab(_BaseTab):
                 t for t in self.tracks if not analysis_cache.is_analysed(t.track_id)
             ]
             if not uncached:
-                QMessageBox.information(
+                show_status_message(
                     self,
-                    "Analyse Audio",
                     "All selected track(s) are already analysed.\n\n"
                     "Shift+click 'Analyse Audio' to force re-analysis.",
                 )

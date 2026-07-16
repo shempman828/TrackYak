@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
-from src.core.status_utility import StatusManager
+from src.core.status_utility import StatusManager, show_status_message
 from src.metadata.metadata_writer import MetadataWriter, WriteMode
 
 
@@ -322,9 +322,7 @@ class MetadataWriteDialog(QDialog):
     def start_update(self):
         """Start updating metadata for all tracks that need it."""
         if not hasattr(self, "tracks_to_update") or not self.tracks_to_update:
-            QMessageBox.warning(
-                self, "No Updates Needed", "No files need metadata updates."
-            )
+            show_status_message(self, "No files need metadata updates.")
             return
 
         mode = self.mode_combo.currentData()
@@ -399,10 +397,8 @@ class MetadataWriteDialog(QDialog):
         self.update_status(f"Updated {success_count}/{total_count} files successfully")
 
         if success_count == total_count:
-            QMessageBox.information(
-                self,
-                "Success",
-                f"Successfully updated metadata for all {total_count} files",
+            show_status_message(
+                self, f"Successfully updated metadata for all {total_count} files"
             )
         else:
             QMessageBox.warning(

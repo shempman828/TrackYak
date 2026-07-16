@@ -24,6 +24,7 @@ from src.common.hierarchy_tree_style import (
     configure_hierarchy_tree,
     icon_for_depth,
 )
+from src.core.status_utility import show_status_message
 from src.db.db_tables import TrackGenre
 from src.genre.genre_edit import GenreEditDialog
 from src.genre.genre_merge import GenreMergeDialog
@@ -109,9 +110,7 @@ class GenreView(QWidget):
             # Get the currently selected item from the tree
             current_item = self.tree.currentItem()
             if not current_item:
-                QMessageBox.warning(
-                    self, "No Genre Selected", "Please select a genre to split."
-                )
+                show_status_message(self, "Please select a genre to split.")
                 return
 
             current_genre_id = current_item.data(0, Qt.UserRole)
@@ -121,9 +120,7 @@ class GenreView(QWidget):
                 "Genre", genre_id=current_genre_id
             )
             if not genre_obj:
-                QMessageBox.warning(
-                    self, "Not Found", "The selected genre no longer exists."
-                )
+                show_status_message(self, "The selected genre no longer exists.")
                 return
 
             # Create the split dialog with proper parameters
@@ -299,7 +296,7 @@ class GenreView(QWidget):
             self.status_bar.setText(f"Renamed to {new_name}")
 
         except ValueError as e:
-            QMessageBox.warning(self, "Rename Error", str(e))
+            show_status_message(self, str(e))
             item.setText(0, old_display_text)  # Revert to old display text
         except Exception as e:
             logger.error(f"Error renaming genre: {str(e)}")
@@ -380,7 +377,7 @@ class GenreView(QWidget):
         """Open tracks view window for selected genre."""
         current_item = self.tree.currentItem()
         if not current_item:
-            QMessageBox.warning(self, "No Selection", "Please select a genre first.")
+            show_status_message(self, "Please select a genre first.")
             return
 
         genre_id = current_item.data(0, Qt.UserRole)
@@ -397,9 +394,7 @@ class GenreView(QWidget):
                 "Genre", genre_id=source_genre_id
             )
             if not genre_obj:
-                QMessageBox.warning(
-                    self, "Not Found", "The selected genre no longer exists."
-                )
+                show_status_message(self, "The selected genre no longer exists.")
                 return
 
             merge_dialog = GenreMergeDialog(self.controller, self, genre_obj=genre_obj)
@@ -429,9 +424,7 @@ class GenreView(QWidget):
         """Delete all selected genres after confirmation."""
         selected_items = self.tree.selectedItems()
         if not selected_items:
-            QMessageBox.information(
-                self, "No Selection", "Please select genres to delete."
-            )
+            show_status_message(self, "Please select genres to delete.")
             return
 
         # Get genre names for confirmation message

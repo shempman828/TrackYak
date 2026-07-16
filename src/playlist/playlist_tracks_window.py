@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 
 class PlaylistTracksWindow(QMainWindow):
@@ -226,9 +227,8 @@ class PlaylistTracksWindow(QMainWindow):
     def remove_selected_tracks(self):
         """Remove selected tracks from playlist - auto-saves immediately."""
         if self.is_smart_playlist:
-            QMessageBox.information(
+            show_status_message(
                 self,
-                "Smart Playlist",
                 "Cannot remove tracks from smart playlists. Tracks are automatically managed based on criteria.",
             )
             return

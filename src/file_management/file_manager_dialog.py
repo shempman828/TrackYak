@@ -23,6 +23,7 @@ from src.file_management.file_organizer_preview_dialog import OrganizationPrevie
 from src.importing.import_dialog import ImportDialog
 from src.metadata.metadata_writer_dialog import show_metadata_write_dialog
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 # --- Long HTML texts extracted for clarity ---
 _DIR_EXPLANATION = (
@@ -311,9 +312,7 @@ class FileManager(QDialog):
     ) -> None:
         # if nothing to do, short-circuit
         if not auto_ops and not confirm_ops:
-            QMessageBox.information(
-                self, "No Changes Needed", "All files are already organized correctly!"
-            )
+            show_status_message(self, "All files are already organized correctly!")
             if self.organizer and hasattr(self.organizer, "user_cancelled"):
                 try:
                     self.organizer.user_cancelled()
@@ -361,11 +360,7 @@ class FileManager(QDialog):
         if success:
             if files_moved > 0:
                 self.org_status.setText(f"Complete — moved {files_moved} files")
-                QMessageBox.information(
-                    self,
-                    "Organization Complete",
-                    f"Successfully organized {files_moved} files",
-                )
+                show_status_message(self, f"Successfully organized {files_moved} files")
                 self.library_modified.emit()
             else:
                 self.org_status.setText("No files needed organization")
@@ -395,10 +390,8 @@ class FileManager(QDialog):
             f"Complete — {success_count}/{total_count} files updated"
         )
 
-        QMessageBox.information(
-            self,
-            "Metadata Update Complete",
-            f"Updated {success_count} out of {total_count} files",
+        show_status_message(
+            self, f"Metadata update complete: updated {success_count} out of {total_count} files"
         )
 
         if success_count > 0:

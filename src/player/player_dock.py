@@ -21,7 +21,7 @@ from src.core.censor import censor_text
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
 from src.common.rating_widget import RatingStarsWidget
-from src.core.status_utility import StatusManager
+from src.core.status_utility import StatusManager, show_status_message
 from src.track.track_edit import TrackEditDialog
 
 _COLOR_TRACK = "#b8c0f0"  # text primary – soft lavender white
@@ -1231,9 +1231,7 @@ class PlayerUI(QWidget):
                     track_id=track_id,
                 )
                 if not success:
-                    QMessageBox.warning(
-                        self, "Failed", "Could not remove track from playlist."
-                    )
+                    show_status_message(self, "Could not remove track from playlist.")
                 # Update the checkmark state on the action
                 action.setCheckable(True)
                 action.setChecked(False)
@@ -1251,9 +1249,7 @@ class PlayerUI(QWidget):
                     position=next_position,
                 )
                 if not success:
-                    QMessageBox.warning(
-                        self, "Failed", "Could not add track to playlist."
-                    )
+                    show_status_message(self, "Could not add track to playlist.")
                 # Update the checkmark state on the action
                 action.setCheckable(True)
                 action.setChecked(True)
@@ -1288,9 +1284,7 @@ class PlayerUI(QWidget):
                     track_id=track_id,
                 )
                 if not success:
-                    QMessageBox.warning(
-                        self, "Failed", "Could not remove track from mood."
-                    )
+                    show_status_message(self, "Could not remove track from mood.")
                 # Update the checkmark state on the action
                 action.setCheckable(True)
                 action.setChecked(False)
@@ -1302,7 +1296,7 @@ class PlayerUI(QWidget):
                     track_id=track_id,
                 )
                 if not success:
-                    QMessageBox.warning(self, "Failed", "Could not add track to mood.")
+                    show_status_message(self, "Could not add track to mood.")
                 # Update the checkmark state on the action
                 action.setCheckable(True)
                 action.setChecked(True)

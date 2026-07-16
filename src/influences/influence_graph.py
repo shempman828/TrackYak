@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
-    QMessageBox,
     QVBoxLayout,
     QWidget,
 )
@@ -23,6 +22,7 @@ from PySide6.QtWidgets import (
 from src.core.config_setup import app_config
 from src.influences.influence_artist_node import ArtistNode
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 
 def _generate_community_palette(count):
@@ -456,9 +456,8 @@ class InfluenceGraphView(QGraphicsView):
 
         # Add this check
         if not nodes:
-            QMessageBox.warning(
+            show_status_message(
                 self,
-                "No Data",
                 "No artists with influence relationships found. Add some influence relationships first.",
             )
             return

@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.equalizer.equalizer_utility import EqualizerUtility
 
 
@@ -127,7 +128,7 @@ class EqualizerDialog(QDialog):
         """Save current EQ settings as a custom preset."""
         if not self.config:
             logger.warning("Cannot save custom EQ preset: no configuration available")
-            QMessageBox.warning(self, "Error", "Configuration not available")
+            show_status_message(self, "Configuration not available")
             return
 
         # Get preset name from user
@@ -152,14 +153,14 @@ class EqualizerDialog(QDialog):
                 self.preset_combo.setCurrentText(preset_name)
 
             logger.info(f"Saved custom EQ preset: {preset_name}")
-            QMessageBox.information(self, "Success", f"EQ preset '{preset_name}' saved")
+            show_status_message(self, f"EQ preset '{preset_name}' saved")
 
     # Add the load_from_config method:
     def load_from_config(self):
         """Load EQ settings from configuration."""
         if not self.config:
             logger.warning("Cannot load EQ settings: no configuration available")
-            QMessageBox.warning(self, "Error", "Configuration not available")
+            show_status_message(self, "Configuration not available")
             return
 
         reply = QMessageBox.question(

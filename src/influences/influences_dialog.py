@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 
 class AddInfluenceDialog(QDialog):
@@ -157,15 +158,13 @@ class AddInfluenceDialog(QDialog):
 
         # Validate
         if not influencer_name or not influenced_name:
-            QMessageBox.warning(
-                self,
-                "Error",
-                "Please enter both influencer and influenced artist names!",
+            show_status_message(
+                self, "Please enter both influencer and influenced artist names!"
             )
             return
 
         if influencer_name.lower() == influenced_name.lower():
-            QMessageBox.warning(self, "Error", "An artist cannot influence themselves!")
+            show_status_message(self, "An artist cannot influence themselves!")
             return
 
         try:
@@ -299,9 +298,7 @@ class RemoveInfluenceDialog(QDialog):
     def remove_influence(self):
         """Remove the selected influence relationship"""
         if not self.selected_influence:
-            QMessageBox.warning(
-                self, "Error", "Please select a relationship to remove!"
-            )
+            show_status_message(self, "Please select a relationship to remove!")
             return
 
         try:

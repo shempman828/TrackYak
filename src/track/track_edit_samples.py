@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.track.track_edit_basetab import _BaseTab
 
 # Direction constants for the add bar's toggle.
@@ -181,10 +182,8 @@ class _AddSampleBar(QWidget):
     def _handle_add(self):
         matched_id = self.name_edit.matched_track_id()
         if matched_id is None:
-            QMessageBox.information(
-                self,
-                "No Track Selected",
-                "Choose an existing track from the completion list.",
+            show_status_message(
+                self, "No track selected. Choose an existing track from the completion list."
             )
             return
         self._on_add(direction=self.current_direction(), matched_track_id=matched_id)
@@ -291,7 +290,7 @@ class SamplesTab(_BaseTab):
 
     def _handle_add(self, direction, matched_track_id):
         if matched_track_id == self.track.track_id:
-            QMessageBox.warning(self, "Invalid Sample", "A track can't sample itself.")
+            show_status_message(self, "A track can't sample itself.")
             return
 
         if direction == DIR_USES:
@@ -300,9 +299,7 @@ class SamplesTab(_BaseTab):
             kwargs = dict(sampled_by_id=matched_track_id, sampled_id=self.track.track_id)
 
         if (kwargs["sampled_by_id"], kwargs["sampled_id"]) in self._existing_sample_keys():
-            QMessageBox.information(
-                self, "Already Added", "That sample relationship already exists."
-            )
+            show_status_message(self, "That sample relationship already exists.")
             return
 
         try:

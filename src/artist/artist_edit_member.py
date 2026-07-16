@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Shared helpers
@@ -63,9 +64,7 @@ def _append_row(table, values, user_data=None):
 def _get_selected_row(parent_widget, table):
     rows = table.selectionModel().selectedRows()
     if not rows:
-        QMessageBox.information(
-            parent_widget, "No Selection", "Please select a row first."
-        )
+        show_status_message(parent_widget, "Please select a row first.")
         return None
     return rows[0].row()
 
@@ -255,9 +254,7 @@ class _GroupMembersPanel(QWidget):
     def _add(self):
         name = self.name_edit.text().strip()
         if not name:
-            QMessageBox.warning(
-                self, "Validation", "Please enter a member artist name."
-            )
+            show_status_message(self, "Please enter a member artist name.")
             return
         try:
             member = _find_or_create_artist(self.controller, name)
@@ -435,7 +432,7 @@ class _AffiliationsPanel(QWidget):
     def _add(self):
         name = self.group_edit.text().strip()
         if not name:
-            QMessageBox.warning(self, "Validation", "Please enter a group name.")
+            show_status_message(self, "Please enter a group name.")
             return
         try:
             group = _find_or_create_artist(self.controller, name, isgroup=1)
