@@ -52,6 +52,7 @@ class MusicDatabase:
                 "publishers",
                 "places",
                 "place_associations",
+                "place_association_types",
                 "group_membership",
                 "track_artist_roles",
                 "playlists",
