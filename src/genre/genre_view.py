@@ -42,6 +42,29 @@ class GenreView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
 
+        # Tree widget configuration (created early so top-row buttons can reference it)
+        self.tree = QTreeWidget()
+        self.tree.setHeaderHidden(True)
+        self.tree.setSelectionMode(
+            QTreeWidget.MultiSelection
+        )  # Changed from SingleSelection
+        self.tree.setAnimated(True)
+        self.tree.itemChanged.connect(self.on_item_edited)
+
+        # Drag and drop configuration
+        self.tree.setDragEnabled(True)
+        self.tree.setAcceptDrops(True)
+        self.tree.setDropIndicatorShown(True)
+        self.tree.setDragDropMode(QTreeWidget.InternalMove)
+        self.tree.dropEvent = self.on_drop_event
+
+        # Context menu signals
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.show_context_menu)
+
+        # Install event filter for keyboard shortcuts
+        self.tree.installEventFilter(self)
+
         # Top row: Search bar + Refresh button
         top_row = QHBoxLayout()
 
@@ -68,29 +91,6 @@ class GenreView(QWidget):
 
         # Add horizontal layout to the main vertical layout
         layout.addLayout(top_row)
-
-        # Tree widget configuration
-        self.tree = QTreeWidget()
-        self.tree.setHeaderHidden(True)
-        self.tree.setSelectionMode(
-            QTreeWidget.MultiSelection
-        )  # Changed from SingleSelection
-        self.tree.setAnimated(True)
-        self.tree.itemChanged.connect(self.on_item_edited)
-
-        # Drag and drop configuration
-        self.tree.setDragEnabled(True)
-        self.tree.setAcceptDrops(True)
-        self.tree.setDropIndicatorShown(True)
-        self.tree.setDragDropMode(QTreeWidget.InternalMove)
-        self.tree.dropEvent = self.on_drop_event
-
-        # Context menu signals
-        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.tree.customContextMenuRequested.connect(self.show_context_menu)
-
-        # Install event filter for keyboard shortcuts
-        self.tree.installEventFilter(self)
 
         layout.addWidget(self.tree)
 
