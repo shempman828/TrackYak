@@ -491,18 +491,19 @@ class GenreView(QWidget):
             show_status_message(self, "Please select genres to delete.")
             return
 
-        # Get genre names for confirmation message
+        # Get genre names for confirmation message, keeping each tree item
+        # paired with its genre_id so we can target the right item on delete
         genre_names = []
-        genre_ids = []
+        to_delete = []  # list of (item, genre_id)
 
         for item in selected_items:
             genre_id = item.data(0, Qt.UserRole)
             genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
             if genre:
                 genre_names.append(genre.genre_name)
-                genre_ids.append(genre_id)
+                to_delete.append((item, genre_id))
 
-        if not genre_ids:
+        if not to_delete:
             return
 
         # Confirm deletion
@@ -523,24 +524,26 @@ class GenreView(QWidget):
 
         if reply == QMessageBox.Yes:
             try:
-                # Delete each genre
+                # Delete each genre and remove just its tree item, rather
+                # than reloading the whole tree (which would collapse/expand
+                # items back to their saved state instead of leaving the
+                # rest of the tree untouched).
                 success_count = 0
-                for genre_id in genre_ids:
+                for item, genre_id in to_delete:
                     try:
                         self.controller.delete.delete_entity("Genre", genre_id)
+                        self._remove_genre_tree_item(item)
                         success_count += 1
                     except Exception as e:
                         logger.error(f"Error deleting genre {genre_id}: {str(e)}")
 
-                # Refresh the tree
-                self.load_genres()
                 self.genre_updated.emit()
 
-                if success_count == len(genre_ids):
+                if success_count == len(to_delete):
                     self.status_bar.setText(f"Deleted {success_count} genre(s)")
                 else:
                     self.status_bar.setText(
-                        f"Deleted {success_count} of {len(genre_ids)} genre(s)"
+                        f"Deleted {success_count} of {len(to_delete)} genre(s)"
                     )
 
             except Exception as e:
@@ -562,13 +565,60 @@ class GenreView(QWidget):
 
             if reply == QMessageBox.Yes:
                 self.controller.delete.delete_entity("Genre", genre_id)
-                self.load_genres()
+                item = self._find_genre_item(genre_id)
+                if item:
+                    self._remove_genre_tree_item(item)
                 self.genre_updated.emit()
                 self.status_bar.setText(f"Deleted {genre.genre_name}")
 
         except Exception as e:
             logger.error(f"Error deleting genre: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to delete genre")
+
+    def _find_genre_item(self, genre_id, container=None):
+        """Recursively find the tree item for a genre_id."""
+        container = container or self.tree.invisibleRootItem()
+        for i in range(container.childCount()):
+            child = container.child(i)
+            if child.data(0, Qt.UserRole) == genre_id:
+                return child
+            found = self._find_genre_item(genre_id, child)
+            if found:
+                return found
+        return None
+
+    def _remove_genre_tree_item(self, item):
+        """Remove a single genre's tree item without reloading the whole tree.
+
+        Deleting a genre nullifies its children's parent_id in the DB
+        (they become top-level genres), so their tree items are promoted
+        to the top level rather than deleted along with their parent.
+        The rest of the tree - including every other item's expanded or
+        collapsed state - is left untouched.
+        """
+        children = item.takeChildren()
+        container = item.parent() or self.tree.invisibleRootItem()
+        container.removeChild(item)
+
+        root = self.tree.invisibleRootItem()
+        for child in children:
+            index = self._sorted_insert_index(root, child.text(0))
+            root.insertChild(index, child)
+            self._reindent_subtree(child, 0)
+
+    def _sorted_insert_index(self, container, text):
+        """Find the alphabetical insertion index for text among container's children."""
+        key = text.lower()
+        for i in range(container.childCount()):
+            if container.child(i).text(0).lower() > key:
+                return i
+        return container.childCount()
+
+    def _reindent_subtree(self, item, depth):
+        """Refresh depth-based icons after an item moves to a new tree level."""
+        item.setIcon(0, icon_for_depth(depth))
+        for i in range(item.childCount()):
+            self._reindent_subtree(item.child(i), depth + 1)
 
     def _refresh_genre_display_text(self, item, genre_id, genre_name):
         """Refresh the display text with updated track count."""
