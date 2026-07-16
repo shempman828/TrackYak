@@ -258,3 +258,38 @@ QListWidget#placeList::item:selected {
     color: #ffffff;
     border: 2px solid #6477d4;
 }
+
+/* ── SPECIAL: Artist detail article (HeaderWidget / ArtistDetailTab) ────────── */
+HeaderWidget QLabel#ArtistPortrait {
+    background-color: #f1f1f1;
+    border: 2px solid #60627a;
+    border-radius: 4px;
+}
+
+ArtistDetailTab QLabel#SectionHeading {
+    font-size: 19px;
+    font-weight: 700;
+    color: #1c1c21;
+    padding-bottom: 4px;
+    border-bottom: 2px solid #60627a;
+}
+
+ArtistDetailTab QLabel#TocLabel {
+    font-size: 13px;
+    color: #3a3b45;
+}
+
+ArtistDetailTab QPushButton#TocChip {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1c1c21;
+    background-color: #f1f1f1;
+    border: 2px solid #6477d4;
+    border-radius: 10px;
+    padding: 3px 10px;
+}
+
+ArtistDetailTab QPushButton#TocChip:hover {
+    background-color: #6477d4;
+    color: #ffffff;
+}
