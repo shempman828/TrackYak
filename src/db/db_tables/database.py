@@ -69,6 +69,8 @@ class MusicDatabase:
                 "smart_playlists",
                 "smart_playlist_criteria",
                 "artist_alias",
+                "publisher_alias",
+                "genre_alias",
                 "samples",
                 "album_virtual_tracks",
                 "track_usages",
