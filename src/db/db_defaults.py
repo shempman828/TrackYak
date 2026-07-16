@@ -1,4 +1,4 @@
-from src.db.db_tables import Place, Role
+from src.db.db_tables import Place, PlaceAssociationType, Role
 from src.core.logger_config import logger
 
 
@@ -24,6 +24,62 @@ class Defaults:
                 logger.info("Inserted default role: Album Artist")
             else:
                 logger.debug("Roles already exist, skipping role defaults.")
+
+            # -----------------
+            # Place association types
+            # -----------------
+            assoc_type_count = session.query(PlaceAssociationType).count()
+            if assoc_type_count == 0:
+                session.add_all(
+                    [
+                        PlaceAssociationType(
+                            type_name="Birthplace",
+                            type_description="Where a person was born",
+                        ),
+                        PlaceAssociationType(
+                            type_name="Origin",
+                            type_description="Where a band/artist formed or originated",
+                        ),
+                        PlaceAssociationType(
+                            type_name="Hometown",
+                            type_description="Where a person grew up",
+                        ),
+                        PlaceAssociationType(
+                            type_name="Residence",
+                            type_description="Where a person lived/lives",
+                        ),
+                        PlaceAssociationType(
+                            type_name="Deathplace",
+                            type_description="Where a person died",
+                        ),
+                        PlaceAssociationType(
+                            type_name="Recording Location",
+                            type_description="Where a track/album was recorded",
+                        ),
+                        PlaceAssociationType(
+                            type_name="Release Location",
+                            type_description="Where an album was released",
+                        ),
+                        PlaceAssociationType(
+                            type_name="Song About",
+                            type_description="Place is the subject/theme of a track",
+                        ),
+                        PlaceAssociationType(
+                            type_name="Headquartered In",
+                            type_description="Where a publisher/label is based",
+                        ),
+                        PlaceAssociationType(
+                            type_name="Associated",
+                            type_description="Generic/unspecified place association",
+                        ),
+                    ]
+                )
+                session.commit()
+                logger.info("Inserted default place association types.")
+            else:
+                logger.debug(
+                    "Place association types already exist, skipping defaults."
+                )
 
             # -----------------
             # Places (Motown example)
