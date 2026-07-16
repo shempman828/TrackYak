@@ -586,6 +586,7 @@ class SyncManager:
                 "name": pl.playlist_name,
                 "description": pl.playlist_description,
                 "track_count": pl.track_count,
+                "size": pl.playlist_size,
                 "is_smart": pl.is_smart,
                 "parent_id": pl.parent_id,
             }
@@ -601,6 +602,7 @@ class SyncManager:
                 "name": mood.mood_name,
                 "description": mood.mood_description,
                 "track_count": mood.track_count,
+                "size": mood.mood_size,
                 "parent_id": mood.parent_id,
             }
             for mood in moods
