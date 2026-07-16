@@ -1,6 +1,6 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
-    QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QSizePolicy,
@@ -9,8 +9,13 @@ from PySide6.QtWidgets import (
 )
 
 from src.artist.artist_detail_alias import AliasesCarousel
+from src.artist.artist_detail_bio import BioWidget
 from src.artist.artist_detail_dates import DateDisplayWidget
 from src.core.logger_config import logger
+from src.image.pixmap_with_fallback import load_pixmap_with_fallback
+
+PORTRAIT_SIZE = QSize(160, 160)
+INFOBOX_WIDTH = 220
 
 
 class PlacesWidget(QWidget):
@@ -58,6 +63,7 @@ class PlacesWidget(QWidget):
                     birth_text += f" (+{len(birth_places) - 3} more)"
                 birth_label = QLabel(birth_text)
                 birth_label.setObjectName("PlaceLabel")
+                birth_label.setWordWrap(True)
                 layout.addWidget(birth_label)
 
             # Display death place
@@ -69,6 +75,7 @@ class PlacesWidget(QWidget):
                     death_text += f" (+{len(death_places) - 3} more)"
                 death_label = QLabel(death_text)
                 death_label.setObjectName("PlaceLabel")
+                death_label.setWordWrap(True)
                 layout.addWidget(death_label)
 
             # Display other significant places (if any and space permits)
@@ -80,58 +87,55 @@ class PlacesWidget(QWidget):
                     places_text += f" (+{len(other_places) - 2} more)"
                 places_label = QLabel(places_text)
                 places_label.setObjectName("PlaceLabel")
+                places_label.setWordWrap(True)
                 layout.addWidget(places_label)
 
         except Exception as e:
             logger.error(f"Error loading places: {e}")
 
 
-class HeaderWidget(QWidget):
-    """Main header widget for artist detail pane"""
+class ArtistInfobox(QGroupBox):
+    """Wikipedia-style infobox: portrait plus at-a-glance facts, anchored
+    beside the article title in HeaderWidget."""
 
-    def __init__(self, artist, controller=None):
-        super().__init__()
+    def __init__(self, artist, controller=None, parent=None):
+        super().__init__(parent)
         self.artist = artist
         self.controller = controller
+        self.setObjectName("ArtistInfobox")
+        self.setFixedWidth(INFOBOX_WIDTH)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         self.init_ui()
 
     def init_ui(self):
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(16, 16, 16, 16)
-        main_layout.setSpacing(12)
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
 
-        # Artist name (very prominent)
-        self.name_label = QLabel(self.artist.artist_name)
-        self.name_label.setObjectName("ArtistName")
+        # Portrait, centered
+        portrait = QLabel()
+        portrait.setObjectName("ArtistPortrait")
+        portrait.setFixedSize(PORTRAIT_SIZE)
+        portrait.setAlignment(Qt.AlignCenter)
+        portrait.setPixmap(
+            load_pixmap_with_fallback(
+                getattr(self.artist, "profile_pic_path", "") or "", PORTRAIT_SIZE
+            )
+        )
+        portrait_row = QHBoxLayout()
+        portrait_row.addStretch()
+        portrait_row.addWidget(portrait)
+        portrait_row.addStretch()
+        layout.addLayout(portrait_row)
 
-        # Artist type badge
+        # Type badge, centered
         type_badge = QLabel(self.artist.artist_type or "Artist")
         type_badge.setObjectName("TypeBadge")
         type_badge.setAlignment(Qt.AlignCenter)
         type_badge.setFixedHeight(24)
-        type_badge.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        type_badge.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        layout.addWidget(type_badge, alignment=Qt.AlignHCenter)
 
-        # Name and type row
-        name_row = QHBoxLayout()
-        name_row.addWidget(self.name_label)
-        name_row.addWidget(type_badge)
-        name_row.addStretch()
-
-        main_layout.addLayout(name_row)
-
-        # Aliases section
-        aliases = getattr(self.artist, "aliases_list", []) or []
-        if aliases:
-            self.aliases_widget = AliasesCarousel(aliases)
-            main_layout.addWidget(self.aliases_widget)
-
-        # Separator
-        separator1 = QFrame()
-        separator1.setFrameShape(QFrame.HLine)
-        separator1.setFrameShadow(QFrame.Sunken)
-        main_layout.addWidget(separator1)
-
-        # Date information (only if we have any date data)
+        # Dates / age
         has_date_data = any(
             [
                 self.artist.begin_year,
@@ -142,49 +146,77 @@ class HeaderWidget(QWidget):
                 self.artist.end_day,
             ]
         )
-
         if has_date_data:
-            self.date_widget = DateDisplayWidget(self.artist)
-            main_layout.addWidget(self.date_widget)
+            layout.addWidget(DateDisplayWidget(self.artist))
 
-        # Places information
+        # Places
         if hasattr(self.artist, "places") and self.controller:
             try:
-                # Check if there are any places
-                places = self.artist.places
-                if places:
-                    self.places_widget = PlacesWidget(self.artist, self.controller)
-                    main_layout.addWidget(self.places_widget)
+                if self.artist.places:
+                    layout.addWidget(PlacesWidget(self.artist, self.controller))
             except Exception as e:
                 logger.error(f"Error accessing places: {e}")
 
-        # Group/Individual info
-        info_row = QHBoxLayout()
-
-        # Gender/Group status
+        # Gender
         if hasattr(self.artist, "gender") and self.artist.gender:
             gender_label = QLabel(f"Gender: {self.artist.gender}")
             gender_label.setObjectName("InfoLabel")
-            info_row.addWidget(gender_label)
+            layout.addWidget(gender_label)
 
         # Group indicator
         if hasattr(self.artist, "isgroup") and self.artist.isgroup == 1:
             group_label = QLabel("🎵 Group")
             group_label.setObjectName("GroupLabel")
-            info_row.addWidget(group_label)
-
-        info_row.addStretch()
+            layout.addWidget(group_label)
 
         # Track count
         track_count = getattr(self.artist, "track_count", 0)
         if track_count > 0:
             tracks_label = QLabel(f"Tracks: {track_count}")
             tracks_label.setObjectName("InfoLabel")
-            info_row.addWidget(tracks_label)
+            layout.addWidget(tracks_label)
 
-        main_layout.addLayout(info_row)
+
+class HeaderWidget(QWidget):
+    """Article lead section: title, aliases, and biography beside an
+    at-a-glance infobox."""
+
+    def __init__(self, artist, controller=None):
+        super().__init__()
+        self.artist = artist
+        self.controller = controller
+        self.aliases_widget = None
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(20)
+
+        # --- Left: article title ---
+        title_col = QVBoxLayout()
+        title_col.setSpacing(8)
+
+        self.name_label = QLabel(self.artist.artist_name)
+        self.name_label.setObjectName("ArtistName")
+        self.name_label.setWordWrap(True)
+        title_col.addWidget(self.name_label)
+
+        aliases = getattr(self.artist, "aliases_list", []) or []
+        if aliases:
+            self.aliases_widget = AliasesCarousel(aliases)
+            title_col.addWidget(self.aliases_widget)
+
+        # Lead biography flows here, beside the infobox, rather than
+        # waiting below it — matches how a wiki article's lead paragraph
+        # wraps around its infobox instead of leaving it stranded.
+        title_col.addWidget(BioWidget(self.artist), 1)
+        layout.addLayout(title_col, 1)
+
+        # --- Right: infobox ---
+        layout.addWidget(ArtistInfobox(self.artist, self.controller), 0)
 
     def cleanup(self):
         """Clean up resources when widget is destroyed"""
-        if hasattr(self, "aliases_widget"):
+        if self.aliases_widget:
             self.aliases_widget.stop()
