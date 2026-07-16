@@ -47,7 +47,14 @@ class TrackDataAssembler:
                     "Role", role_id=tar.role_id
                 )
                 if artist and role:
-                    artists_with_roles.append({"artist": artist, "role": role})
+                    artists_with_roles.append(
+                        {
+                            "artist": artist,
+                            "role": role,
+                            "credited_name": tar.credited_name,
+                            "artist_mbid": artist.MBID,
+                        }
+                    )
 
             album_artists_with_roles = []
             if album:
@@ -63,7 +70,12 @@ class TrackDataAssembler:
                     )
                     if artist and role:
                         album_artists_with_roles.append(
-                            {"artist": artist, "role": role}
+                            {
+                                "artist": artist,
+                                "role": role,
+                                "credited_name": ar.credited_name,
+                                "artist_mbid": artist.MBID,
+                            }
                         )
 
             track_genres = self.controller.get.get_all_entities(
