@@ -565,9 +565,10 @@ class TrackImporter:
                 continue
 
             try:
-                # Get or create genre
-                genre = self.controller.get.get_entity_object(
-                    "Genre", genre_name=genre_name
+                # Get or create genre, checking aliases first so a name
+                # merged/aliased to a canonical genre doesn't recreate it.
+                genre = self.controller.get.resolve_entity_or_alias(
+                    "Genre", "genre_name", genre_name
                 )
                 if not genre:
                     genre = self.controller.add.add_entity(

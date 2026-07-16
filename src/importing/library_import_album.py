@@ -246,13 +246,11 @@ class AlbumImporter:
             if not publisher_name or publisher_name.strip() == "":
                 continue
 
-            # Get or create publisher
-            publisher = self.controller.get.get_entity_object(
-                "Publisher", publisher_name=publisher_name
-            )
+            name = publisher_name.strip()
+            publisher = self._resolve_publisher(name)
             if not publisher:
                 publisher = self.controller.add.add_entity(
-                    "Publisher", commit=commit, publisher_name=publisher_name.strip()
+                    "Publisher", commit=commit, publisher_name=name
                 )
 
             # Create album-publisher relationship
@@ -265,6 +263,16 @@ class AlbumImporter:
             logger.debug(
                 f"Created publisher relationship: {publisher_name} -> album {album_id}"
             )
+
+    def _resolve_publisher(self, publisher_name: str):
+        """Resolve a publisher name to its canonical Publisher entity,
+        checking known aliases so a name the user has aliased to a
+        canonical publisher (directly, or via a merge) doesn't recreate a
+        duplicate publisher on every import.
+        """
+        return self.controller.get.resolve_entity_or_alias(
+            "Publisher", "publisher_name", publisher_name
+        )
 
     def _process_artist_name(
         self,
