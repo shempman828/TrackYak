@@ -366,7 +366,7 @@ class TrackSortingDisplay(QTreeWidget):
         track = item_dict["track"]
         is_v = item_dict["is_virtual"]
 
-        duration = self._format_duration(track.duration)
+        duration = track.duration_formatted
         # Append a ghost emoji to virtual track names so they're visually
         # distinct without needing a whole dedicated column.
         track_name = (track.track_name or "Unknown") + (" 👻" if is_v else "")
@@ -387,11 +387,6 @@ class TrackSortingDisplay(QTreeWidget):
             for i in range(3):
                 node.setForeground(i, Qt.gray)
             node.setToolTip(1, "Virtual track — borrowed from another album")
-
-    def _format_duration(self, seconds):
-        if not seconds:
-            return "0:00"
-        return f"{int(seconds // 60)}:{int(seconds % 60):02d}"
 
     # -------------------------------------------------------------------------
     # Drag-and-drop
