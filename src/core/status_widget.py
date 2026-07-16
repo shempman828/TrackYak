@@ -1,5 +1,5 @@
 # status_widget.py
-from PySide6.QtCore import QRect, Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QPushButton, QWidget
 
@@ -10,16 +10,13 @@ from src.core.logger_config import logger
 
 class StatusBarWidget(QWidget):
     """
-    Status widget with two display modes:
+    Floating, mostly-transparent status toast.
 
-    1. FLOAT mode (default): Hovers over the bottom-right corner of the parent
-       window as a toast notification. Takes up zero space in the layout.
+    Hovers over the bottom-right corner of the parent window. It is never
+    added to a layout, so it never reserves space -- it appears on top of
+    whatever is showing and gives that space right back when hidden.
 
-    2. BAR mode: The classic inline bar pinned at the bottom of the window.
-       The user can switch to this by clicking the collapse (↓) button on the
-       floating notification.
-
-    Public API (unchanged from the original):
+    Public API:
         show_message(message, duration=0)   – show a message
         hide()                              – hide the widget
     """
@@ -29,7 +26,10 @@ class StatusBarWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self._mode = "float"  # "float" | "bar"
+        # Plain QWidgets don't paint stylesheet background/border by default;
+        # this is required for the translucent rgba panel to actually render.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
         self._current_message = ""
         self._current_duration = 0
 
@@ -42,12 +42,13 @@ class StatusBarWidget(QWidget):
             parent.installEventFilter(self)
 
         self._init_ui()
+        set_style_property(self, "mode", "float")
         self.hide()
 
     # ------------------------------------------------------------ UI building
 
     def _init_ui(self):
-        """Build the widget contents (shared by both modes)."""
+        """Build the widget contents."""
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(10, 6, 10, 6)
         self._layout.setSpacing(8)
@@ -71,15 +72,6 @@ class StatusBarWidget(QWidget):
         self.progress_bar.hide()
         self._layout.addWidget(self.progress_bar)
 
-        # Collapse button – switches from float → bar
-        self.collapse_btn = QPushButton("↓")
-        self.collapse_btn.setFixedSize(18, 18)
-        self.collapse_btn.setFlat(True)
-        self.collapse_btn.setToolTip("Collapse to status bar")
-        self.collapse_btn.clicked.connect(self._switch_to_bar)
-        self.collapse_btn.hide()
-        self._layout.addWidget(self.collapse_btn)
-
         # Close / dismiss button
         self.close_btn = QPushButton()
         self.close_btn.setIcon(QIcon(icon("close.svg")))
@@ -98,11 +90,9 @@ class StatusBarWidget(QWidget):
         Args:
             message:  The text to display.
             duration: Milliseconds before auto-hide.
-                      0 = persistent (shows progress bar + buttons).
+                      0 = persistent (shows progress bar + close button).
         """
-        logger.debug(
-            f"StatusBarWidget.show_message: '{message}', duration={duration}, mode={self._mode}"
-        )
+        logger.debug(f"StatusBarWidget.show_message: '{message}', duration={duration}")
 
         self._current_message = message
         self._current_duration = duration
@@ -112,15 +102,13 @@ class StatusBarWidget(QWidget):
 
         is_persistent = duration == 0
 
-        # Progress bar + buttons only for persistent messages
+        # Progress bar + close button only for persistent messages
         self.progress_bar.setVisible(is_persistent)
         self.close_btn.setVisible(is_persistent)
 
-        # Collapse button only in float mode for persistent messages
-        self.collapse_btn.setVisible(is_persistent and self._mode == "float")
-
-        self._apply_mode_style()
-        self._show_widget()
+        self._position()
+        self.show()
+        self.raise_()  # keep it painted on top of the current view
 
         if duration > 0:
             self._auto_hide_timer.start(duration)
@@ -128,26 +116,11 @@ class StatusBarWidget(QWidget):
             self._auto_hide_timer.stop()
 
     def hide(self):
-        """Hide the widget completely."""
+        """Hide the widget completely, giving back any space it used."""
         self._auto_hide_timer.stop()
         self.progress_bar.hide()
         self.close_btn.hide()
-        self.collapse_btn.hide()
         super().hide()
-
-    # ---------------------------------------------------- mode switching
-
-    def _switch_to_bar(self):
-        """Switch from floating toast → inline bar at the bottom."""
-        logger.debug("StatusBarWidget: switching to bar mode")
-        self._mode = "bar"
-
-        # In bar mode the widget must be part of the normal layout flow,
-        # so we clear the floating window flags.
-        self.setWindowFlags(Qt.WindowType.Widget)
-
-        # Re-show with the same message using bar styling
-        self.show_message(self._current_message, self._current_duration)
 
     # ---------------------------------------------------- internal helpers
 
@@ -161,31 +134,7 @@ class StatusBarWidget(QWidget):
             icon_name = "info.svg"
         self.icon_label.setPixmap(QIcon(icon(icon_name)).pixmap(16, 16))
 
-    def _apply_mode_style(self):
-        """Apply the correct stylesheet for the current mode."""
-        set_style_property(self, "mode", self._mode)
-
-    def _show_widget(self):
-        """Make the widget visible using the correct geometry for the mode."""
-        if self._mode == "float":
-            self._position_float()
-            # Ensure it paints on top of other widgets but stays inside the window
-            self.setWindowFlags(Qt.WindowType.Widget)
-            self.raise_()
-        else:
-            # Bar mode: let the parent layout handle it normally.
-            # Remove any absolute positioning leftovers.
-            self.setGeometry(QRect())  # clear explicit geometry
-            self.setMaximumHeight(30)
-            self.setMinimumHeight(24)
-
-        self.show()
-
-        if self._mode == "float":
-            # raise again after show() so it stays on top
-            self.raise_()
-
-    def _position_float(self):
+    def _position(self):
         """Place the toast in the bottom-right corner of the parent widget."""
         parent = self.parent()
         if parent is None:
@@ -206,9 +155,7 @@ class StatusBarWidget(QWidget):
     # ------------------------------------------------ event filter (reposition on parent resize/move)
 
     def eventFilter(self, watched, event):
-        from PySide6.QtCore import QEvent
-
-        if watched is self.parent() and self._mode == "float" and self.isVisible():
+        if watched is self.parent() and self.isVisible():
             if event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
-                self._position_float()
+                self._position()
         return super().eventFilter(watched, event)
