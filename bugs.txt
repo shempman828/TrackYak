@@ -1,206 +1,25 @@
-NEW IDEAS
+# NEW IDEAS
     add family relationships to artists in database schema
 
-/assets
 
+#Bug/Feature Fixes
 
-album_edit_overview.py
+20. In track edit moods, add a qcompleter to the mood search. Also, when we match to an existing name it should default to using that existing mood rather than defaulting to the option of creating a new one with the same name.
 
+21. In track edit places, add a qcompleter to the place search. Also, when we match to an existing name it should default to using that existing place rather than defaulting to the option of creating a new one with the same name.
 
-album_edit_details.py
+22. Let's standardize place associations. First, check the database for existing association types. We want to reduce redundancy in, for example, Birthplace, birth place, place of birth, etc. We will first heal the existing database, then build in a canonical listing of relevant association types.
 
+23. Improve "primary_artist_names" to include "Featured Artist" using this pattern, assuming Queen is the primary artist and David Bowie is Featured Artist: "Queen Featuring David Bowie" If there are multiple featured artists, use the same join logic.
 
-album_edit_publisher&Places
+24. Allow users to name Louvain community clusters in the influences view. The community color palette needs to be expanded to support up to 50 communities, focusing on as much visual distinction as possible. Also allow the user to hide the cluster legend.
 
+25.In the timeline view, exclude absurd dates like below 1000 and above 2999
 
-album_editing_relationship_helpers.py
+26. Remove the ↳ indent marker from qtreewidgets
 
+27. add base track view to mood view to view tracks in a mood
 
-album_view.py
+28. Improve the library statistics rating distribution visual. A bar graph my be appropriate here.
 
-
-artist alias management
-
-
-artist_detail.py
-
-
-artist_detail_credits
-
-
-artist_edit.py
-
-
-artist_edit_alias.py
-
-
-artist_edit_basic.py
-
-
-artist_edit_discography
-
-
-artist_edit_influences
-
-
-arist_edit_member.py
-
-
-artist_edit_places
-
-
-artist_view.py
-
-
-audio_analysis.py
-
-
-award_view.py
-
-
-base_album_edit.py
-
-
-base_merge_dialog
-
-
-base_track_view
-
-
-config_setup.py
-
-
-dates_calendar.py
-
-
-dates_view.py
-
-
-db_helpers.py
-
-
-db_tables.py
-
-
-disc management
-
-
-disc_view.py
-
-display_settings.py
-
-
-duplicate_finder.py
-
-
-genre_edit.py
-
-
-genre_view.py
-
-
-influences_graph.py
-
-
-influences_view.py
-
-
-library_import.py
-
-
-
-lyrics_search.py
-
-
-main_window.py
-
-
-menu_bar.py
-
-
-metadata_text.py
-
-
-moods_view.py
-
-
-navigation_dock.py
-
-
-nowplaying_view.py
-
-
-places_view.py
-
-
-place_map_filter.py
-
-
-player_dock.py
-
-
-player_settings.py
-
-
-player_util.py
-
-
-playlist_smart_builder.py
-
-
-playlist_smart_criteria_widget.py
-
-
-playlist_view.py
-
-
-publisher_detail.py
-
-
-publisher_merge.py
-
-
-publisher_view.py
-
-
-queue_utility.py
-
-
-role_view.py
-
-
-statistics_dialog.py
-
-
-status_widget.py
-
-
-sync_view.py
-
-
-track_edit_album
-
-
-track_edit_lyrics
-
-
-track_edit_roles
-
-
-track_edit
-
-
-track_view.py
-
-
-track_view_actions.py
-
-
-track_view_data.py
-
-
-track_view_search.py
-
-
-track_view_filter.py
 

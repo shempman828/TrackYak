@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtWidgets import (
+    QCompleter,
     QHBoxLayout,
     QLineEdit,
     QListWidget,
@@ -13,31 +14,89 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QMenu,
     QListWidgetItem,
-    QComboBox,
 )
 
 from src.core.logger_config import logger
 from src.track.track_edit_basetab import _BaseTab
 
 
+def _fetch_all_moods(controller):
+    """Fetch all moods for completer indexing."""
+    try:
+        return controller.get.get_all_entities("Mood") or []
+    except Exception as e:
+        logger.warning(f"Could not fetch moods for completer: {e}")
+        return []
+
+
+def _find_or_create_mood(controller, name, known_moods):
+    """
+    Look up a mood by name (case-insensitive) among known moods; create one
+    only if none is found. Matching against the already-loaded list (rather
+    than a fresh DB query) guarantees an existing mood always wins over
+    creating a same-named duplicate, regardless of case.
+    """
+    lowered = name.strip().lower()
+    for mood in known_moods:
+        if (mood.mood_name or "").strip().lower() == lowered:
+            return mood
+    return controller.add.add_entity("Mood", mood_name=name)
+
+
+class _MoodNameEdit(QLineEdit):
+    """
+    QLineEdit with a QCompleter over known moods. When the user picks a
+    completion, we remember the matched mood_id directly so add-time skips
+    the name-lookup roundtrip entirely (and can't collide with a same-named
+    mood). Any manual edit after a match clears the lock — typing a new
+    name always means "maybe create new."
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setPlaceholderText("Search moods…")
+        self._display_to_id = {}
+        self._matched_id = None
+        self.textEdited.connect(self._on_manual_edit)
+
+    def set_index(self, display_to_id: dict):
+        """Rebuild the completer's backing model."""
+        self._display_to_id = dict(display_to_id)
+        model = QStringListModel(sorted(self._display_to_id.keys()), self)
+        completer = QCompleter(model, self)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        completer.activated.connect(self._on_completion_picked)
+        self.setCompleter(completer)
+
+    def _on_completion_picked(self, text):
+        self._matched_id = self._display_to_id.get(text)
+
+    def _on_manual_edit(self, _text):
+        self._matched_id = None
+
+    def matched_mood_id(self):
+        return self._matched_id
+
+    def reset(self):
+        self.clear()
+        self._matched_id = None
+
+
 class MoodsTab(_BaseTab):
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
         self._build_ui()
+        self._refresh_completer_index()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
         search_row = QHBoxLayout()
-        self._search = QLineEdit()
-        self._search.setPlaceholderText("Search moods… (min 2 chars)")
-        self._search.textChanged.connect(self._on_search)
+        self._search = _MoodNameEdit()
+        self._search.textChanged.connect(self._on_search_text_changed)
+        self._search.returnPressed.connect(self._add)
         search_row.addWidget(self._search)
-
-        self._combo = QComboBox()
-        self._combo.setVisible(False)
-        self._combo.currentIndexChanged.connect(self._on_selected)
-        search_row.addWidget(self._combo)
 
         self._add_btn = QPushButton("Add Mood")
         self._add_btn.setEnabled(False)
@@ -47,6 +106,14 @@ class MoodsTab(_BaseTab):
 
         self._list = QListWidget()
         layout.addWidget(self._list)
+
+    def _on_search_text_changed(self, text: str):
+        self._add_btn.setEnabled(bool(text.strip()))
+
+    def _refresh_completer_index(self):
+        self._known_moods = _fetch_all_moods(self.controller)
+        index = {m.mood_name: m.mood_id for m in self._known_moods if m.mood_name}
+        self._search.set_index(index)
 
     def load(self, tracks: list) -> None:
         self.tracks = tracks
@@ -84,46 +151,23 @@ class MoodsTab(_BaseTab):
             common &= s
         return list(common)
 
-    def _on_search(self, text: str):
-        text = text.strip()
-        self._combo.blockSignals(True)
-        self._combo.clear()
-        if len(text) >= 2:
-            results = self.controller.get.get_entity_object("Mood", mood_name=text)
-            self._combo.addItem(f"Create new: '{text}'", "new")
-            if results is not None:
-                items = results if isinstance(results, list) else [results]
-                for m in items:
-                    self._combo.addItem(m.mood_name, m.mood_id)
-            self._combo.setVisible(self._combo.count() > 1)
-        else:
-            self._combo.setVisible(False)
-        self._combo.blockSignals(False)
-        self._add_btn.setEnabled(len(text) >= 2)
-
-    def _on_selected(self, index: int):
-        if index > 0:
-            self._search.blockSignals(True)
-            self._search.setText(self._combo.currentText())
-            self._search.blockSignals(False)
-
     def _add(self):
         mood_name = self._search.text().strip()
         if not mood_name:
             return
-        combo_data = self._combo.currentData() if self._combo.isVisible() else None
-        if combo_data and combo_data != "new":
-            mood = self.controller.get.get_entity_object("Mood", mood_id=combo_data)
-        else:
-            existing = self.controller.get.get_entity_object(
-                "Mood", mood_name=mood_name
-            )
-            if existing:
-                mood = existing if not isinstance(existing, list) else existing[0]
+
+        matched_id = self._search.matched_mood_id()
+        try:
+            if matched_id is not None:
+                mood = self.controller.get.get_entity_object("Mood", mood_id=matched_id)
             else:
-                mood = self.controller.add.add_entity("Mood", mood_name=mood_name)
+                mood = _find_or_create_mood(self.controller, mood_name, self._known_moods)
+        except Exception as e:
+            logger.error(f"Failed to find/create mood: {e}")
+            return
         if not mood:
             return
+
         rows = [
             {"track_id": track.track_id, "mood_id": mood.mood_id}
             for track in self.tracks
@@ -132,8 +176,8 @@ class MoodsTab(_BaseTab):
             self.controller.add.add_entities("MoodTrackAssociation", rows)
         except Exception as e:
             logger.error(f"Failed to add mood to tracks: {e}")
-        self._search.clear()
-        self._combo.setVisible(False)
+        self._search.reset()
+        self._refresh_completer_index()
         self.load(self.tracks)
 
     def _remove_selected(self):
