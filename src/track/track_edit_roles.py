@@ -6,6 +6,7 @@ from __future__ import annotations
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
     QHBoxLayout,
     QHeaderView,
     QLayout,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.credited_as_dialog import CreditedAsDialog
 from src.core.logger_config import logger
 from src.track.track_edit_basetab import _BaseTab
 
@@ -191,8 +193,11 @@ class RolesTab(_BaseTab):
         self.tracks = tracks
         self._table.setRowCount(0)
 
-        # artist_id -> {"artist_name": str, "roles": {role_id: role_name}}
-        grouped: dict[int | None, dict] = {}
+        # (artist_id, credited_name) -> {"roles": {role_id: role_name}}
+        # Keyed by credited_name too (not just artist_id) so a role credited
+        # under a different alias doesn't get silently merged into the same
+        # display row as the artist's other, differently-credited roles.
+        grouped: dict[tuple, dict] = {}
 
         if self.is_multi:
             self._collect_common_roles(grouped)
@@ -201,17 +206,23 @@ class RolesTab(_BaseTab):
                 artist = role_assoc.artist
                 role = role_assoc.role
                 artist_id = artist.artist_id if artist else None
-                artist_name = artist.artist_name if artist else "?"
+                credited_name = role_assoc.credited_name or "?"
                 role_id = role.role_id if role else None
                 role_name = role.role_name if role else "?"
 
                 entry = grouped.setdefault(
-                    artist_id, {"artist_name": artist_name, "roles": {}}
+                    (artist_id, credited_name),
+                    {"roles": {}, "credited_alias_id": role_assoc.credited_alias_id},
                 )
                 entry["roles"][role_id] = role_name
 
-        for artist_id, entry in self._sorted_groups(grouped):
-            self._add_artist_row(artist_id, entry["artist_name"], entry["roles"])
+        for (artist_id, credited_name), entry in self._sorted_groups(grouped):
+            self._add_artist_row(
+                artist_id,
+                credited_name,
+                entry["roles"],
+                credited_alias_id=entry.get("credited_alias_id"),
+            )
 
     def _collect_common_roles(self, grouped: dict) -> None:
         """Populate `grouped` with artist/role pairs shared by every track."""
@@ -224,7 +235,7 @@ class RolesTab(_BaseTab):
                         (
                             ra.artist.artist_id,
                             ra.role.role_id,
-                            ra.artist.artist_name,
+                            ra.credited_name,
                             ra.role.role_name,
                         )
                     )
@@ -234,21 +245,19 @@ class RolesTab(_BaseTab):
         for s in all_sets[1:]:
             common &= s
 
-        for artist_id, role_id, artist_name, role_name in common:
-            entry = grouped.setdefault(
-                artist_id, {"artist_name": artist_name, "roles": {}}
-            )
+        for artist_id, role_id, credited_name, role_name in common:
+            entry = grouped.setdefault((artist_id, credited_name), {"roles": {}})
             entry["roles"][role_id] = role_name
 
     @staticmethod
     def _sorted_groups(grouped: dict) -> list:
         """Sort artists, putting anyone with a Primary Artist role first,
-        then alphabetically by artist name."""
+        then alphabetically by credited name."""
 
         def sort_key(item):
-            _artist_id, entry = item
+            (_artist_id, credited_name), entry = item
             has_primary = PRIMARY_ARTIST_ROLE in entry["roles"].values()
-            return (0 if has_primary else 1, entry["artist_name"].lower())
+            return (0 if has_primary else 1, credited_name.lower())
 
         return sorted(grouped.items(), key=sort_key)
 
@@ -262,7 +271,7 @@ class RolesTab(_BaseTab):
 
         return sorted(roles.items(), key=sort_key)
 
-    def _add_artist_row(self, artist_id, artist_name, roles: dict):
+    def _add_artist_row(self, artist_id, artist_name, roles: dict, credited_alias_id=None):
         row = self._table.rowCount()
         self._table.insertRow(row)
 
@@ -274,12 +283,32 @@ class RolesTab(_BaseTab):
         roles_widget = self._build_roles_cell(artist_id, artist_name, roles)
         self._table.setCellWidget(row, 1, roles_widget)
 
+        actions_widget = QWidget()
+        actions_layout = QHBoxLayout(actions_widget)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(4)
+
+        # A single credited name is only unambiguous when editing one track
+        # at a time -- with multiple tracks selected, different tracks may
+        # already have different credited names for the same artist/role.
+        if not self.is_multi:
+            credit_btn = QPushButton("Credit as…")
+            credit_btn.setToolTip(f"Choose which name to credit {artist_name} as")
+            credit_btn.clicked.connect(
+                lambda _checked, aid=artist_id, r=dict(roles), cur=credited_alias_id: (
+                    self._change_credited_alias(aid, r, cur)
+                )
+            )
+            actions_layout.addWidget(credit_btn)
+
         remove_artist_btn = QPushButton("Remove All")
         remove_artist_btn.setToolTip(f"Remove every role for {artist_name}")
         remove_artist_btn.clicked.connect(
             lambda _checked, aid=artist_id: self._remove_all_roles_for_artist(aid)
         )
-        self._table.setCellWidget(row, 2, remove_artist_btn)
+        actions_layout.addWidget(remove_artist_btn)
+
+        self._table.setCellWidget(row, 2, actions_widget)
 
         self._table.resizeRowToContents(row)
 
@@ -392,7 +421,13 @@ class RolesTab(_BaseTab):
             QMessageBox.warning(self, "Error", "Could not resolve artist or role.")
             return
 
-        self._batch_add_track_artist_role(artist.artist_id, role.role_id)
+        credited_alias_id = None
+        if not self.is_multi:
+            credited_alias_id = self._prompt_credited_alias(artist)
+
+        self._batch_add_track_artist_role(
+            artist.artist_id, role.role_id, credited_alias_id=credited_alias_id
+        )
 
         self._artist_search.clear()
         self._role_edit.clear()
@@ -418,8 +453,60 @@ class RolesTab(_BaseTab):
             QMessageBox.warning(self, "Error", "Could not resolve role.")
             return
 
-        self._batch_add_track_artist_role(artist_id, role.role_id)
+        credited_alias_id = None
+        if not self.is_multi:
+            artist = self.controller.get.get_entity_object(
+                "Artist", artist_id=artist_id
+            )
+            if artist:
+                credited_alias_id = self._prompt_credited_alias(artist)
+
+        self._batch_add_track_artist_role(
+            artist_id, role.role_id, credited_alias_id=credited_alias_id
+        )
         self._role_edit.clear()
+        self.load(self.tracks)
+
+    def _prompt_credited_alias(self, artist, current_alias_id=None):
+        """Show the alias picker for `artist` if they have any aliases on
+        file; return the chosen alias_id, or `current_alias_id` unchanged
+        if they have none or the user cancels."""
+        aliases = self.controller.get.get_all_entities(
+            "ArtistAlias", artist_id=artist.artist_id
+        )
+        if not aliases:
+            return current_alias_id
+
+        dialog = CreditedAsDialog(
+            artist, aliases, current_alias_id=current_alias_id, parent=self
+        )
+        if dialog.exec() == QDialog.Accepted:
+            return dialog.selected_alias_id()
+        return current_alias_id
+
+    def _change_credited_alias(self, artist_id, roles: dict, current_alias_id):
+        """Change the credited name for every role this artist currently
+        holds on the single selected track."""
+        artist = self.controller.get.get_entity_object("Artist", artist_id=artist_id)
+        if not artist:
+            return
+
+        new_alias_id = self._prompt_credited_alias(
+            artist, current_alias_id=current_alias_id
+        )
+        if new_alias_id == current_alias_id:
+            return
+
+        for role_id in roles:
+            self.controller.update.update_entity_by_filter(
+                "TrackArtistRole",
+                {
+                    "track_id": self.track.track_id,
+                    "artist_id": artist_id,
+                    "role_id": role_id,
+                },
+                credited_alias_id=new_alias_id,
+            )
         self.load(self.tracks)
 
     def _remove_role(self, artist_id, role_id):
@@ -446,9 +533,14 @@ class RolesTab(_BaseTab):
     # track (a bulk INSERT and a single DELETE ... WHERE track_id IN (...)
     # respectively), instead of one round-trip per track.
 
-    def _batch_add_track_artist_role(self, artist_id, role_id):
+    def _batch_add_track_artist_role(self, artist_id, role_id, credited_alias_id=None):
         rows = [
-            {"track_id": track.track_id, "artist_id": artist_id, "role_id": role_id}
+            {
+                "track_id": track.track_id,
+                "artist_id": artist_id,
+                "role_id": role_id,
+                "credited_alias_id": credited_alias_id,
+            }
             for track in self.tracks
         ]
         try:
