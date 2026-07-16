@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtWidgets import (
-    QComboBox,
+    QCompleter,
     QHBoxLayout,
     QHeaderView,
     QLineEdit,
@@ -20,27 +20,87 @@ from src.core.logger_config import logger
 from src.track.track_edit_basetab import _BaseTab
 
 
+def _fetch_all_places(controller):
+    """Fetch all places for completer indexing."""
+    try:
+        return controller.get.get_all_entities("Place") or []
+    except Exception as e:
+        logger.warning(f"Could not fetch places for completer: {e}")
+        return []
+
+
+def _find_or_create_place(controller, name, known_places):
+    """
+    Look up a place by name (case-insensitive) among known places; create one
+    only if none is found. Matching against the already-loaded list (rather
+    than a fresh DB query) guarantees an existing place always wins over
+    creating a same-named duplicate, regardless of case.
+    """
+    lowered = name.strip().lower()
+    for place in known_places:
+        if (place.place_name or "").strip().lower() == lowered:
+            return place
+    return controller.add.add_entity("Place", place_name=name)
+
+
+class _PlaceNameEdit(QLineEdit):
+    """
+    QLineEdit with a QCompleter over known places. When the user picks a
+    completion, we remember the matched place_id directly so add-time skips
+    the name-lookup roundtrip entirely (and can't collide with a same-named
+    place). Any manual edit after a match clears the lock — typing a new
+    name always means "maybe create new."
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setPlaceholderText("Search places…")
+        self._display_to_id = {}
+        self._matched_id = None
+        self.textEdited.connect(self._on_manual_edit)
+
+    def set_index(self, display_to_id: dict):
+        """Rebuild the completer's backing model."""
+        self._display_to_id = dict(display_to_id)
+        model = QStringListModel(sorted(self._display_to_id.keys()), self)
+        completer = QCompleter(model, self)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        completer.activated.connect(self._on_completion_picked)
+        self.setCompleter(completer)
+
+    def _on_completion_picked(self, text):
+        self._matched_id = self._display_to_id.get(text)
+
+    def _on_manual_edit(self, _text):
+        self._matched_id = None
+
+    def matched_place_id(self):
+        return self._matched_id
+
+    def reset(self):
+        self.clear()
+        self._matched_id = None
+
+
 class PlacesTab(_BaseTab):
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
         self._build_ui()
+        self._refresh_completer_index()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
         search_row = QHBoxLayout()
-        self._search = QLineEdit()
-        self._search.setPlaceholderText("Search places… (min 2 chars)")
-        self._search.textChanged.connect(self._on_search)
+        self._search = _PlaceNameEdit()
+        self._search.textChanged.connect(self._on_search_text_changed)
+        self._search.returnPressed.connect(self._add)
         search_row.addWidget(self._search)
-
-        self._combo = QComboBox()
-        self._combo.setVisible(False)
-        self._combo.currentIndexChanged.connect(self._on_selected)
-        search_row.addWidget(self._combo)
 
         self._type_edit = QLineEdit()
         self._type_edit.setPlaceholderText("Type (Recorded, Composed, etc.)")
+        self._type_edit.returnPressed.connect(self._add)
         search_row.addWidget(self._type_edit)
 
         self._add_btn = QPushButton("Add Place")
@@ -57,6 +117,14 @@ class PlacesTab(_BaseTab):
             2, QHeaderView.ResizeToContents
         )
         layout.addWidget(self._table)
+
+    def _on_search_text_changed(self, text: str):
+        self._add_btn.setEnabled(bool(text.strip()))
+
+    def _refresh_completer_index(self):
+        self._known_places = _fetch_all_places(self.controller)
+        index = {p.place_name: p.place_id for p in self._known_places if p.place_name}
+        self._search.set_index(index)
 
     def load(self, tracks: list) -> None:
         self.tracks = tracks
@@ -109,47 +177,28 @@ class PlacesTab(_BaseTab):
         btn.clicked.connect(lambda _c, r=row: self._remove_row(r))
         self._table.setCellWidget(row, 2, btn)
 
-    def _on_search(self, text: str):
-        text = text.strip()
-        self._combo.blockSignals(True)
-        self._combo.clear()
-        if len(text) >= 2:
-            results = self.controller.get.get_entity_object("Place", place_name=text)
-            self._combo.addItem(f"Create new: '{text}'", "new")
-            if results is not None:
-                items = results if isinstance(results, list) else [results]
-                for p in items:
-                    self._combo.addItem(p.place_name, p.place_id)
-            self._combo.setVisible(self._combo.count() > 1)
-        else:
-            self._combo.setVisible(False)
-        self._combo.blockSignals(False)
-        self._add_btn.setEnabled(len(text) >= 2)
-
-    def _on_selected(self, index: int):
-        if index > 0:
-            self._search.blockSignals(True)
-            self._search.setText(self._combo.currentText())
-            self._search.blockSignals(False)
-
     def _add(self):
         place_name = self._search.text().strip()
         assoc_type = self._type_edit.text().strip() or None
         if not place_name:
             return
-        combo_data = self._combo.currentData() if self._combo.isVisible() else None
-        if combo_data and combo_data != "new":
-            place = self.controller.get.get_entity_object("Place", place_id=combo_data)
-        else:
-            existing = self.controller.get.get_entity_object(
-                "Place", place_name=place_name
-            )
-            if existing:
-                place = existing if not isinstance(existing, list) else existing[0]
+
+        matched_id = self._search.matched_place_id()
+        try:
+            if matched_id is not None:
+                place = self.controller.get.get_entity_object(
+                    "Place", place_id=matched_id
+                )
             else:
-                place = self.controller.add.add_entity("Place", place_name=place_name)
+                place = _find_or_create_place(
+                    self.controller, place_name, self._known_places
+                )
+        except Exception as e:
+            logger.error(f"Failed to find/create place: {e}")
+            return
         if not place:
             return
+
         rows = [
             {
                 "entity_id": track.track_id,
@@ -163,9 +212,9 @@ class PlacesTab(_BaseTab):
             self.controller.add.add_entities("PlaceAssociation", rows)
         except Exception as e:
             logger.error(f"Failed to add place to tracks: {e}")
-        self._search.clear()
+        self._search.reset()
         self._type_edit.clear()
-        self._combo.setVisible(False)
+        self._refresh_completer_index()
         self.load(self.tracks)
 
     def _remove_row(self, row: int):
