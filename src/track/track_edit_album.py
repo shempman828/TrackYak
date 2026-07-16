@@ -6,12 +6,14 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -33,9 +35,9 @@ class AlbumsTab(_BaseTab):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        # ── Primary album section ─────────────────────────────────────────
-        primary_grp_label = QLabel("<b>Primary Album</b>")
-        layout.addWidget(primary_grp_label)
+        # ── Current album group ─────────────────────────────────────────
+        current_group = QGroupBox("Current Album")
+        current_layout = QVBoxLayout(current_group)
 
         primary_row = QHBoxLayout()
         self._primary_label = QLabel("—")
@@ -54,12 +56,12 @@ class AlbumsTab(_BaseTab):
         )
         self._remove_primary_btn.clicked.connect(self._remove_primary_album)
         primary_row.addWidget(self._remove_primary_btn)
-        layout.addLayout(primary_row)
+        current_layout.addLayout(primary_row)
+        layout.addWidget(current_group)
 
-        # ── Add album section ─────────────────────────────────────────────
-        layout.addWidget(
-            QLabel("<b>Set Primary Album</b> (search existing or create new)")
-        )
+        # ── Set current album group ────────────────────────────────────
+        set_group = QGroupBox("Set Current Album (search existing or create new)")
+        set_layout = QVBoxLayout(set_group)
 
         add_row = QHBoxLayout()
         self._album_search = QLineEdit()
@@ -72,16 +74,16 @@ class AlbumsTab(_BaseTab):
         self._album_combo.currentIndexChanged.connect(self._on_album_selected)
         add_row.addWidget(self._album_combo)
 
-        self._set_primary_btn = QPushButton("Set as Primary Album")
+        self._set_primary_btn = QPushButton("Set as Current Album")
         self._set_primary_btn.setEnabled(False)
         self._set_primary_btn.clicked.connect(self._set_primary_album)
         add_row.addWidget(self._set_primary_btn)
-        layout.addLayout(add_row)
+        set_layout.addLayout(add_row)
+        layout.addWidget(set_group)
 
-        # ── Virtual appearances section ───────────────────────────────────
-        layout.addWidget(
-            QLabel("<b>Virtual Appearances</b> (track borrowed by other albums)")
-        )
+        # ── Virtual appearances group ─────────────────────────────────────
+        virtual_group = QGroupBox("Virtual Appearances (track borrowed by other albums)")
+        virtual_layout = QVBoxLayout(virtual_group)
 
         self._virtual_table = QTableWidget(0, 5)
         self._virtual_table.setHorizontalHeaderLabels(
@@ -102,13 +104,15 @@ class AlbumsTab(_BaseTab):
         self._virtual_table.horizontalHeader().setSectionResizeMode(
             4, QHeaderView.ResizeToContents
         )
-        layout.addWidget(self._virtual_table)
+        self._virtual_table.verticalHeader().setVisible(False)
+        # Sized by row count (see _update_virtual_table_height) rather than
+        # expanding to fill the tab — this section is empty for most tracks.
+        self._virtual_table.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Fixed
+        )
+        virtual_layout.addWidget(self._virtual_table)
 
         # ── Add virtual appearance ────────────────────────────────────────
-        layout.addWidget(
-            QLabel("<b>Add Virtual Appearance</b> (search or create album)")
-        )
-
         virt_add_row = QHBoxLayout()
         self._virt_search = QLineEdit()
         self._virt_search.setPlaceholderText("Search albums… (min 2 chars)")
@@ -136,7 +140,11 @@ class AlbumsTab(_BaseTab):
         self._virt_add_btn.setEnabled(False)
         self._virt_add_btn.clicked.connect(self._add_virtual)
         virt_add_row.addWidget(self._virt_add_btn)
-        layout.addLayout(virt_add_row)
+        virtual_layout.addLayout(virt_add_row)
+        layout.addWidget(virtual_group)
+
+        layout.addStretch(1)
+        self._update_virtual_table_height()
 
     # ── Loading ───────────────────────────────────────────────────────────
 
@@ -161,6 +169,7 @@ class AlbumsTab(_BaseTab):
             self._set_primary_btn.setEnabled(len(self._album_search.text().strip()) >= 2)
             self._virt_add_btn.setEnabled(False)
             self._virtual_table.setRowCount(0)
+            self._update_virtual_table_height()
             return
 
         # Primary album
@@ -187,6 +196,19 @@ class AlbumsTab(_BaseTab):
                     disc_num=link.virtual_disc_number,
                     side=link.virtual_side,
                 )
+        self._update_virtual_table_height()
+
+    def _update_virtual_table_height(self) -> None:
+        """Keep the table sized to its contents so an empty/short list of
+        virtual appearances doesn't reserve a big block of the tab."""
+        header_height = self._virtual_table.horizontalHeader().height()
+        row_height = self._virtual_table.verticalHeader().defaultSectionSize()
+        row_count = self._virtual_table.rowCount()
+        visible_rows = max(row_count, 1)  # room for the "no rows" empty state
+        visible_rows = min(visible_rows, 4)  # cap height; extra rows scroll
+        frame = 2 * self._virtual_table.frameWidth()
+        height = header_height + visible_rows * row_height + frame
+        self._virtual_table.setFixedHeight(height)
 
     def _add_virtual_row(
         self, virtual_id, album_name, album_id, track_num, disc_num, side
