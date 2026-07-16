@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
 from src.common.base_split_dialog import SplitDBDialog
 from src.common.hierarchy_tree_style import (
     configure_hierarchy_tree,
-    hierarchy_label,
     icon_for_depth,
 )
 from src.db.db_tables import TrackGenre
@@ -231,7 +230,7 @@ class GenreView(QWidget):
             # Create display text with track count
             display_text = f"{genre.genre_name} ({count})"
 
-            item = QTreeWidgetItem([hierarchy_label(display_text, depth)])
+            item = QTreeWidgetItem([display_text])
             item.setData(0, Qt.UserRole, genre.genre_id)
             item.setFlags(item.flags() | Qt.ItemIsEditable)
 
@@ -523,21 +522,6 @@ class GenreView(QWidget):
 
             # Build display text with count
             display_text = f"{genre_name} ({count})"
-
-            # Add indentation if needed
-            indent_prefix = ""
-            text = item.text(0)
-            if text.startswith("  "):
-                # Extract indentation from current text
-                for char in text:
-                    if char == " ":
-                        indent_prefix += " "
-                    elif char == "↳":
-                        indent_prefix += "↳"
-                        break
-                    else:
-                        break
-                display_text = indent_prefix + display_text
 
             item.setText(0, display_text)
 
