@@ -35,7 +35,8 @@ class MusicDatabase:
         - Missing tables are recreated automatically via create_all().
         - Missing columns are logged as warnings. They won't crash the app on startup,
           but any query touching that column will fail until it's added manually via
-          an ALTER TABLE migration (SQLite doesn't support automatic column addition).
+          an ALTER TABLE migration (SQLite can't express anything beyond a simple
+          additive column this way).
         """
         try:
             inspector = inspect(self.engine)
@@ -125,12 +126,19 @@ class MusicDatabase:
         """Attempt to add a missing column to an existing table via ALTER TABLE.
 
         Only safe, additive cases are handled: SQLite's ADD COLUMN can't
-        attach a PRIMARY KEY, UNIQUE, or FOREIGN KEY constraint, and a NOT
-        NULL column requires a constant DEFAULT. Anything outside that
-        (composite keys, unique columns, NOT NULL with no default) is left
-        for the caller to report instead of guessing at a migration.
+        attach a PRIMARY KEY or UNIQUE constraint, and a NOT NULL column
+        requires a constant DEFAULT. A FOREIGN KEY is fine as long as the
+        column is nullable — SQLite implicitly defaults it to NULL for
+        every existing row, which trivially satisfies the constraint;
+        there's just no safe way to backfill a NOT NULL FK with no
+        existing row to point at. Anything outside that (composite keys,
+        unique columns, NOT NULL with no default) is left for the caller
+        to report instead of guessing at a migration.
         """
-        if column.primary_key or column.foreign_keys or column.unique:
+        if column.primary_key or column.unique:
+            return False
+
+        if column.foreign_keys and not column.nullable:
             return False
 
         has_scalar_default = column.default is not None and getattr(
