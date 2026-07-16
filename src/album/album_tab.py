@@ -197,7 +197,12 @@ class AlbumTabBuilder:
                     widget_layout = QHBoxLayout(widget)
                     widget_layout.setContentsMargins(0, 0, 0, 0)
 
-                    place_text = f"{place.place_name} ({association.association_type})"
+                    assoc_type_name = (
+                        association.association_type.type_name
+                        if association.association_type
+                        else ""
+                    )
+                    place_text = f"{place.place_name} ({assoc_type_name})"
                     widget_layout.addWidget(QLabel(place_text))
 
                     remove_btn = QPushButton("Remove")
