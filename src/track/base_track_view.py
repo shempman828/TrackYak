@@ -439,9 +439,9 @@ class BaseTrackView(QDialog):
                 None,
             )
             if primary_artist:
-                return primary_artist.artist.artist_name
+                return primary_artist.credited_name
             else:
-                return track.artist_roles[0].artist.artist_name
+                return track.artist_roles[0].credited_name
         else:
             return "Unknown Artist"
 
