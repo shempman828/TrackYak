@@ -17,6 +17,10 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.place.place_association_types import (
+    fetch_association_types,
+    find_or_create_association_type,
+)
 from src.track.track_edit_basetab import _BaseTab
 
 
@@ -99,7 +103,7 @@ class PlacesTab(_BaseTab):
         search_row.addWidget(self._search)
 
         self._type_edit = QLineEdit()
-        self._type_edit.setPlaceholderText("Type (Recorded, Composed, etc.)")
+        self._type_edit.setPlaceholderText("Type (Recording Location, Origin, etc.)")
         self._type_edit.returnPressed.connect(self._add)
         search_row.addWidget(self._type_edit)
 
@@ -126,6 +130,15 @@ class PlacesTab(_BaseTab):
         index = {p.place_name: p.place_id for p in self._known_places if p.place_name}
         self._search.set_index(index)
 
+        self._known_types = fetch_association_types(self.controller)
+        type_model = QStringListModel(
+            [t.type_name for t in self._known_types], self._type_edit
+        )
+        type_completer = QCompleter(type_model, self._type_edit)
+        type_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        type_completer.setFilterMode(Qt.MatchContains)
+        self._type_edit.setCompleter(type_completer)
+
     def load(self, tracks: list) -> None:
         self.tracks = tracks
         self._table.setRowCount(0)
@@ -141,9 +154,10 @@ class PlacesTab(_BaseTab):
                     "Place", place_id=a.place_id
                 )
                 if place:
-                    rows.append(
-                        (place.place_id, place.place_name, a.association_type or "")
+                    assoc_type_name = (
+                        a.association_type.type_name if a.association_type else ""
                     )
+                    rows.append((place.place_id, place.place_name, assoc_type_name))
         for place_id, place_name, assoc_type in rows:
             self._add_row(place_id, place_name, assoc_type)
 
@@ -159,7 +173,10 @@ class PlacesTab(_BaseTab):
                     "Place", place_id=a.place_id
                 )
                 if place:
-                    s.add((place.place_id, place.place_name, a.association_type or ""))
+                    assoc_type_name = (
+                        a.association_type.type_name if a.association_type else ""
+                    )
+                    s.add((place.place_id, place.place_name, assoc_type_name))
             all_sets.append(s)
         common = all_sets[0]
         for s in all_sets[1:]:
@@ -199,12 +216,17 @@ class PlacesTab(_BaseTab):
         if not place:
             return
 
+        assoc_type_obj = find_or_create_association_type(
+            self.controller, assoc_type, self._known_types
+        )
         rows = [
             {
                 "entity_id": track.track_id,
                 "entity_type": "Track",
                 "place_id": place.place_id,
-                "association_type": assoc_type,
+                "association_type_id": assoc_type_obj.association_type_id
+                if assoc_type_obj
+                else None,
             }
             for track in self.tracks
         ]
