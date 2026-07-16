@@ -1,3 +1,4 @@
+import colorsys
 import math
 import random
 from collections import deque
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMessageBox,
     QVBoxLayout,
@@ -21,6 +23,35 @@ from PySide6.QtWidgets import (
 from src.core.config_setup import app_config
 from src.influences.influence_artist_node import ArtistNode
 from src.core.logger_config import logger
+
+
+def _generate_community_palette(count):
+    """Generate `count` maximally-distinct hex colors for Louvain community
+    coloring.
+
+    Hues step around the wheel by the golden-angle conjugate, which spreads
+    every prefix of the sequence (not just the full set) roughly evenly
+    around the circle — so even the first handful of communities look
+    clearly different from one another, rather than only being guaranteed
+    distinct once all `count` colors are in use. Saturation/value cycle
+    across a few bands as a secondary cue for hues that land close together,
+    and stay in a mid-high range so the fixed dark node-label text
+    (see ArtistNode.text_color) keeps enough contrast against every swatch.
+    """
+    golden_ratio_conjugate = 0.6180339887498949
+    hue = 0.58  # anchors the first color near the app's existing indigo accent
+    saturations = (0.68, 0.55, 0.78, 0.62)
+    values = (0.90, 0.78, 0.95, 0.84)
+    palette = []
+    for i in range(count):
+        hue = (hue + golden_ratio_conjugate) % 1.0
+        s = saturations[i % len(saturations)]
+        v = values[i % len(values)]
+        r, g, b = colorsys.hsv_to_rgb(hue, s, v)
+        palette.append(
+            "#{:02x}{:02x}{:02x}".format(round(r * 255), round(g * 255), round(b * 255))
+        )
+    return palette
 
 
 class _GraphScene(QGraphicsScene):
@@ -69,13 +100,51 @@ class _GraphScene(QGraphicsScene):
             y += spacing
 
 
+class _LegendRow(QWidget):
+    """One legend entry. Double-click to rename the cluster it represents."""
+
+    def __init__(self, community_index, color, count, name, on_rename, parent=None):
+        super().__init__(parent)
+        self._community_index = community_index
+        self._name = name
+        self._on_rename = on_rename
+        if on_rename is not None:
+            self.setCursor(Qt.PointingHandCursor)
+            self.setToolTip("Double-click to rename this cluster")
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+
+        swatch = QLabel()
+        swatch.setFixedSize(10, 10)
+        swatch.setStyleSheet(f"background-color: {color.name()}; border-radius: 3px;")
+        row.addWidget(swatch)
+
+        label_text = (
+            f"{name} ({count})" if name else f"{count} artist{'s' if count != 1 else ''}"
+        )
+        row.addWidget(QLabel(label_text))
+        row.addStretch()
+
+    def mouseDoubleClickEvent(self, event):
+        if self._on_rename is None:
+            super().mouseDoubleClickEvent(event)
+            return
+        new_name, ok = QInputDialog.getText(
+            self, "Rename Cluster", "Cluster name:", text=self._name
+        )
+        if ok:
+            self._on_rename(self._community_index, new_name)
+        event.accept()
+
+
 class _LegendPanel(QFrame):
     """Small floating overlay explaining what the node colors mean."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.setStyleSheet(
             "_LegendPanel { background-color: rgba(17, 18, 26, 205);"
             " border: 1px solid rgba(133, 153, 234, 90); border-radius: 8px; }"
@@ -86,13 +155,13 @@ class _LegendPanel(QFrame):
         self._layout.setSpacing(4)
         self.hide()
 
-    def set_communities(self, sized_colors, max_rows=8):
+    def set_communities(self, rows, on_rename=None, max_rows=12):
         while self._layout.count():
             item = self._layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        if len(sized_colors) <= 1:
+        if len(rows) <= 1:
             self.hide()
             return
 
@@ -100,24 +169,13 @@ class _LegendPanel(QFrame):
         title.setStyleSheet("font-weight: 600; font-size: 11px;")
         self._layout.addWidget(title)
 
-        shown = sized_colors[:max_rows]
-        for color, count in shown:
-            row_widget = QWidget()
-            row = QHBoxLayout(row_widget)
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(6)
-
-            swatch = QLabel()
-            swatch.setFixedSize(10, 10)
-            swatch.setStyleSheet(
-                f"background-color: {color.name()}; border-radius: 3px;"
+        shown = rows[:max_rows]
+        for community_index, color, count, name in shown:
+            self._layout.addWidget(
+                _LegendRow(community_index, color, count, name, on_rename)
             )
-            row.addWidget(swatch)
-            row.addWidget(QLabel(f"{count} artist{'s' if count != 1 else ''}"))
-            row.addStretch()
-            self._layout.addWidget(row_widget)
 
-        remaining = len(sized_colors) - len(shown)
+        remaining = len(rows) - len(shown)
         if remaining > 0:
             more = QLabel(f"+{remaining} more")
             more.setStyleSheet("color: #7a82a8;")
@@ -144,10 +202,11 @@ class InfluenceGraphView(QGraphicsView):
         "accessibility_mode": (QColor("#ffffff"), QColor(28, 28, 33, 32)),
     }
 
-    # On-brand palette (matches the accent/pink/green/gold/accent-soft swatches
-    # used across all app themes) so Louvain communities read as part of the
-    # same visual system instead of an arbitrary rainbow.
-    _COMMUNITY_PALETTE = ["#8599ea", "#EA8599", "#99EA85", "#EAD685", "#9385ea"]
+    # Generated, not hand-picked: supports up to 50 communities with maximal
+    # visual distinction (golden-angle hue spread — see
+    # _generate_community_palette). Communities beyond 50 wrap around and
+    # reuse these hues at alternating lighter/darker strengths.
+    _COMMUNITY_PALETTE = _generate_community_palette(50)
 
     def __init__(self, controller):
         super().__init__()
@@ -171,7 +230,11 @@ class InfluenceGraphView(QGraphicsView):
         self.velocities = {}  # node_id -> QPointF
         self.node_mass = {}  # node_id -> mass for FA2 repulsion
         self.community_id = {}  # node_id -> Louvain community
+        self.community_names = {}  # community_index -> user-given name (this session)
+        self._community_anchor = {}  # community_index -> anchor node_id (naming key)
         self._node_radii = {}  # node_id -> (half_w, half_h) cached each render tick
+
+        self.legend_enabled = app_config.get_influence_legend_visible()
 
         # Rendering items
         self.edge_lines = {}  # (source_id, target_id) -> QGraphicsLineItem
@@ -223,11 +286,11 @@ class InfluenceGraphView(QGraphicsView):
         self.scene.set_palette(base_color, dot_color)
 
     def get_community_color(self, community_index):
-        """Map a Louvain community id to an on-brand, stable color.
+        """Map a Louvain community id to a stable, visually distinct color.
 
-        Cycles through the app's accent/pink/green/gold/accent-soft palette.
-        Communities beyond the base 5 reuse it at alternating lighter/darker
-        strengths rather than falling back to arbitrary hues.
+        Indexes into the generated 50-color palette. Communities beyond the
+        base 50 reuse it at alternating lighter/darker strengths rather than
+        falling back to arbitrary hues.
         """
         palette = self._COMMUNITY_PALETTE
         lap, idx = divmod(community_index, len(palette))
@@ -239,16 +302,71 @@ class InfluenceGraphView(QGraphicsView):
             color = color.darker(factor) if lap % 2 == 0 else color.lighter(factor)
         return color
 
+    def _resolve_community_names(self):
+        """Re-attach persisted cluster names after a Louvain recompute.
+
+        Raw community indices are reassigned every time Louvain runs, so a
+        name can't be pinned to an index. Instead each community is pinned to
+        its highest-degree "anchor" artist (stable enough across re-runs on
+        the same data), and names are persisted keyed by that artist's id.
+        """
+        anchors = {}
+        for node_id, community_index in self.community_id.items():
+            mass = self.node_mass.get(node_id, 0)
+            current = anchors.get(community_index)
+            if current is None or mass > self.node_mass.get(current, 0):
+                anchors[community_index] = node_id
+        self._community_anchor = anchors
+
+        saved_names = app_config.get_influence_cluster_names()
+        self.community_names = {
+            community_index: saved_names[str(anchor_id)]
+            for community_index, anchor_id in anchors.items()
+            if str(anchor_id) in saved_names
+        }
+
+    def rename_community(self, community_index, name):
+        """Rename a cluster and persist it against its anchor artist."""
+        anchor_id = self._community_anchor.get(community_index)
+        if anchor_id is None:
+            return
+        name = name.strip()
+        saved_names = app_config.get_influence_cluster_names()
+        if name:
+            self.community_names[community_index] = name
+            saved_names[str(anchor_id)] = name
+        else:
+            self.community_names.pop(community_index, None)
+            saved_names.pop(str(anchor_id), None)
+        app_config.set_influence_cluster_names(saved_names)
+        app_config.save()
+        self._update_legend()
+
+    def set_legend_visible(self, visible: bool):
+        """Show/hide the cluster legend overlay, persisting the preference."""
+        self.legend_enabled = visible
+        app_config.set_influence_legend_visible(visible)
+        app_config.save()
+        self._update_legend()
+
     def _update_legend(self):
         counts = {}
         for community_index in self.community_id.values():
             counts[community_index] = counts.get(community_index, 0) + 1
         sized = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
-        sized_colors = [
-            (self.get_community_color(community_index), count)
+        rows = [
+            (
+                community_index,
+                self.get_community_color(community_index),
+                count,
+                self.community_names.get(community_index, ""),
+            )
             for community_index, count in sized
         ]
-        self._legend.set_communities(sized_colors)
+        if self.legend_enabled:
+            self._legend.set_communities(rows, on_rename=self.rename_community)
+        else:
+            self._legend.hide()
         self._reposition_legend()
 
     def _reposition_legend(self):
@@ -362,6 +480,7 @@ class InfluenceGraphView(QGraphicsView):
 
         self.initialize_random_layout(node_ids)
         self.assign_louvain_communities(node_ids, self.edges)
+        self._resolve_community_names()
         self._update_legend()
         self.render_graph()
         self.debug_size_distribution()
@@ -1023,6 +1142,8 @@ class InfluenceGraphView(QGraphicsView):
         self.velocities.clear()
         self.node_mass.clear()
         self.community_id.clear()
+        self.community_names.clear()
+        self._community_anchor.clear()
         self._legend.hide()
 
     def debug_graph_structure(self):
