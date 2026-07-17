@@ -133,7 +133,9 @@ class TrackEditDialog(QDialog):
         self._add_tab("Samples", SamplesTab(self.tracks, self.controller))
         self._add_tab("Albums", AlbumsTab(self.tracks, self.controller))
         self._add_tab("Used In", UsedInTab(self.tracks, self.controller))
-        self._add_tab("Advanced", AdvancedTab(self.tracks, self.controller))
+        advanced_tab = AdvancedTab(self.tracks, self.controller)
+        advanced_tab.tracks_analyzed.connect(self._on_tracks_analyzed)
+        self._add_tab("Advanced", advanced_tab)
 
         # Keyboard shortcuts Ctrl+1 … Ctrl+9 for first 9 tabs
         for i in range(min(9, len(self._tabs))):
@@ -159,6 +161,18 @@ class TrackEditDialog(QDialog):
             except Exception as e:
                 logger.error(
                     f"Error loading tab {type(tab).__name__}: {e}", exc_info=True
+                )
+
+    def _on_tracks_analyzed(self):
+        """Audio analysis updated the track(s) in place (e.g. bpm, key,
+        gain) — refresh every tab's displayed values. Unlike _load_all(),
+        this leaves any unsaved edits the user already made untouched."""
+        for tab in self._tabs:
+            try:
+                tab.refresh_values(self.tracks)
+            except Exception as e:
+                logger.error(
+                    f"Error refreshing tab {type(tab).__name__}: {e}", exc_info=True
                 )
 
     # ── Save ──────────────────────────────────────────────────────────────
