@@ -8,53 +8,25 @@
 
 
 
-43. In the views for role, mood, publisher, places, and genres - create a context option for add new parent and add new child. This will open a create dialog box that immediately sets that new entity as the parent or child respectively. eg. I right click Tokyo, click new parent place. Create Japan. Japan is created and tokyo is immediately set as child.
 
-44. Autosize publisher fuzzy match dialog to contents within reason.
 
-45. Create new Publisher Alias so the user can define alternate names for publishers that always resolve to the same place. Merges should automatically create new aliases and importing should check aliases as well to resolve to canonical name.
 
-46. Opening the places map makes the whole application flash for a second. Something with html display?
 
-47. In the map places filter, try to order places based on relative parentge (countries, states, counties, cities, buildings, etc).
 
-48. Place filter show/hide uses way too much space when shown.Filter type dropdown is too wide.
 
-49. Deleting a genre refreshes which tree items were expanded/contracted. Instead of redrawing full visual, only make targeted change on edits
 
-50. Create genre aliases so when genres get created, the user doesn't have to make the same merges over and over again. For example, if I prefer to call "Film Scores" "Soundtracks" instead, I can merge them. However, adding a new track with "film scores" will recreate it. Instead of recreating it, use an alias to resolve to the user's defined canonical entry.
 
-51. Track edit advanced "analyze audio" button should populate fields and save when complete. Also should be "Analyze" right for American convention?
 
-52. Track edit rename "basic info" tab to "basic"
 
-53. move track id from basic to advanced
 
-54. track edit basic "side" edit box is too wide. Realistically needs 1 or 2 characters
 
-55. track edit basic make track number and absolute track number on the same line.
 
-56. track edit move explicit to lyrics
 
-57. track edit track description - make own tab. This is essentially for a wikipedia page.
 
-58. lyrics search needs threading and status update. None found message box is intrusive
 
-59. track edit Dates edit tab could use some more modern styling.
 
-60 track edit classical could use better styling, ordering.Combining date rows, moving classical toggle to top
 
-61. Properties tab in track edit could use a facelift. Better organization especially
 
-62. track edit user rating needs organization. User rating should be 0-10 in 0.5 steps
-
-63. track edit artists and roles could use a look for spacing."credit as" is cut off.
-
-64. reorder track edit tabs by most critical to least. Artist album, dates near the top, advanced at bottom with samples and aliases.
-
-65. track edit genre should be a qcompleter that autofills with an existing genre or lets the user define a new one.
-
-66. track edit album add more information about current album. Currently only shows name. At least album artist, year, and art. Let's make it so that set current and virtual appearances is hidden by a button since the user won't need these often. e.g. button that says "change album" that makes the search bar appear.
 
 67. address saving logic in track, album, and artist. The code should determine if the user edited a field and only change that field. The current code is "dirtying" most fields arbitrarily. Save should only occur if there is a real change.
 
@@ -70,6 +42,9 @@
 
 73. menu_bar.py's _icon_exists() always returns False, so the General Settings menu item never gets its icon. asset_paths.icon() returns a QIcon, not a path string, so os.path.exists(path) throws "path should be string, bytes, os.PathLike or integer, not QIcon" every time (caught and logged as debug, silently swallowed). Fix by checking the underlying file path before wrapping it in QIcon.
 
+74. [Duplication cleanup - Phase 2] Consolidate the per-format metadata writers into the shared metadata_mapping.py/metadata_text.py/metadata_image_utils.py modules instead of each format reimplementing the same logic. metadata_flac_file_writer.py and metadata_mp3_file_writer.py each independently implement the same _find_picture_index_for_role role-resolution algorithm and the same write_artwork skeleton (backup -> strip existing art -> append new picture -> serialize -> verify/restore), and ROLE_TO_TYPE is redefined separately in metadata_writer_flac_picture.py and metadata_writer_id3_picture.py. Separately, metadata_id3_frame_builder.py and metadata_vorbis_comment_builder.py each independently implement "group artists by role -> joined tag text + paired MusicBrainz-ID tag" and "build an ISO date string from year/month/day columns" logic. Hoist both into the shared utility modules so FLAC/MP3/MP4/OGG all call one implementation.
+
+75. [Duplication cleanup - Phase 3] Smaller cleanup items identified during the Phase 1 refactor: (a) merge the duplicate AlbumField/TrackField dataclass schemas in db_mapping_albums.py/db_mapping_tracks.py into one shared FieldSpec dataclass; (b) extend src/common/entity_alias_tab.py's EntityAliasesTab/EntityAliasRowWidget with optional extra_field/on_swap hooks so artist_alias_dialog.py can subclass it instead of forking ~150 duplicated lines; (c) add an add_action(menu, text, icon_name, slot, shortcut) helper to menu_bar.py to collapse its 17 near-identical QAction construction blocks; (d) migrate more of queue_dock.py/player_dock.py/nowplaying_*.py's remaining hand-rolled QSS strings to the src/common/style_utils.py property-selector pattern, following the precedent set in Phase 1 Batch A.
 
 
 
