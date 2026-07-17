@@ -4,11 +4,7 @@
 
 #Bug/Feature Fixes
 
-
-
-90. allow artists to have multiple types. Composer, Pianist, Producer, etc. Make a new model for types and migrate any current data.
-
-91. add education as a place type.
+93.
 
 
 
