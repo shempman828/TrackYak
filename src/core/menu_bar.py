@@ -5,7 +5,7 @@ from PySide6.QtGui import QAction, QCursor, QDesktopServices, QIcon, QKeySequenc
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from src.statistics.analysis_dialog import AudioAnalysisDialog
-from src.core.asset_paths import icon
+from src.core.asset_paths import ASSETS_DIR, icon
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
 from src.display.display_dialog import DisplaySettingsDialog
@@ -166,8 +166,8 @@ class MenuBar:
     def _icon_exists(self, name: str) -> bool:
         """Safely check if an icon file exists before loading it."""
         try:
-            path = icon(name)
-            return bool(path) and os.path.exists(path)
+            path = str(ASSETS_DIR / name)
+            return os.path.exists(path)
         except Exception as e:
             logger.debug(f"Icon existence check failed for {name}: {e}")
             return False
