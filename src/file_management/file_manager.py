@@ -15,6 +15,14 @@ from src.core.logger_config import logger
 
 CONFIG_FILE = config("import_paths.json")
 
+# Progress-bar allocation across the three phases of organization. Analysis
+# only does a cheap stat() per track, so it gets a small slice; execution
+# (mkdir + move + verify + batched DB update) is the real bottleneck and
+# gets the bulk of the bar; cleanup gets the remainder.
+ANALYSIS_PROGRESS_SHARE = 10
+EXECUTION_PROGRESS_SHARE = 85
+CLEANUP_PROGRESS_START = ANALYSIS_PROGRESS_SHARE + EXECUTION_PROGRESS_SHARE  # 95
+
 
 class FileOrganizer(CancellableWorker):
     """Background worker for file organization with preview and confirmation"""
@@ -121,7 +129,11 @@ class FileOrganizer(CancellableWorker):
                 break
 
             self.progress_updated.emit(
-                int((idx + 1) / total * 50),  # First half for analysis
+                # Analysis is a cheap per-track stat() check, not the real
+                # bottleneck — give it a small slice so the bar doesn't race
+                # to the halfway point and then crawl through the actually
+                # expensive move/DB work below.
+                int((idx + 1) / total * ANALYSIS_PROGRESS_SHARE),
                 f"Analyzing: {track.track_name or 'Unknown'}",
             )
 
@@ -254,7 +266,8 @@ class FileOrganizer(CancellableWorker):
             expected_path = operation["expected_path"]
 
             self.progress_updated.emit(
-                50 + int((idx + 1) / total * 45),
+                ANALYSIS_PROGRESS_SHARE
+                + int((idx + 1) / total * EXECUTION_PROGRESS_SHARE),
                 f"Moving: {track.track_name or 'Unknown'}",
             )
 
@@ -295,7 +308,9 @@ class FileOrganizer(CancellableWorker):
         the dirnames list from os.walk, which can become stale as siblings are
         removed during the same traversal.
         """
-        self.progress_updated.emit(95, "Cleaning up empty directories...")
+        self.progress_updated.emit(
+            CLEANUP_PROGRESS_START, "Cleaning up empty directories..."
+        )
 
         # Collect candidate dirs bottom-up (topdown=False) so children are
         # evaluated before their parents.
