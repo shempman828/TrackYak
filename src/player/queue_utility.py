@@ -2,18 +2,21 @@
 queue_utility.py — QueueManager
 """
 
+import json
 import random
 from collections import deque
+from pathlib import Path
 from typing import List, Optional
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from src.db.db_tables import Track
+from src.core.asset_paths import config as config_path
 from src.core.logger_config import logger
+from src.metadata.metadata_writer_backup import atomic_write
 
 # ── Persistence limits ────────────────────────────────────────────────────────
-SAVE_HISTORY_LIMIT = 500  # most-recent N played tracks saved to config
-SAVE_UPCOMING_LIMIT = 500  # next N upcoming tracks saved to config
+SAVE_HISTORY_LIMIT = 500  # most-recent N played tracks kept (recency buffer, not the full queue)
 
 
 # ── Background worker for bulk queue additions ────────────────────────────────
@@ -282,18 +285,24 @@ class QueueManager(QObject):
         }
 
     # ── Persistence ───────────────────────────────────────────────────────────
+    #
+    # Queue/history track IDs are stored in queue_state.json (next to
+    # config.ini) rather than in the config file itself. A shuffled
+    # full-library queue can be tens of thousands of track IDs — fine as a
+    # small JSON blob, but not something that belongs mixed into a
+    # human-editable settings file that gets rewritten on every save.
+
+    def _queue_state_path(self) -> str:
+        return config_path("queue_state.json")
 
     def save_queue_to_config(self):
         """
-        Persist queue state to config.  Call once from closeEvent().
+        Persist queue state to queue_state.json.  Call once from closeEvent().
 
         Saves:
           • Up to SAVE_HISTORY_LIMIT most-recent history entries
-          • The current track (queue[0]) + up to SAVE_UPCOMING_LIMIT upcoming
-
-        Format in config:
-          history_ids  = comma-separated track IDs, oldest-first
-          queue_ids    = comma-separated track IDs, current-first
+          • The full upcoming queue (current track + everything after it),
+            however many tracks that is — no cap.
         """
         if not self.config:
             return
@@ -305,33 +314,23 @@ class QueueManager(QObject):
 
         try:
             # History — deque.maxlen already caps at SAVE_HISTORY_LIMIT, so no trimming needed
-            history_list = list(self.history)
-            history_ids = ",".join(str(t.track_id) for t in history_list)
+            history_ids = [t.track_id for t in self.history]
+            queue_ids = [t.track_id for t in self.queue]
 
-            # Queue — current + next N
-            save_queue = self.queue[: SAVE_UPCOMING_LIMIT + 1]
-            queue_ids = ",".join(str(t.track_id) for t in save_queue)
-
-            # self.config is the Config wrapper; self.config.config is the actual
-            # configparser object that has the .set() method we need.
-            if not self.config.config.has_section("queue"):
-                self.config.config.add_section("queue")
-            self.config.config.set("queue", "history_ids", history_ids)
-            self.config.config.set("queue", "queue_ids", queue_ids)
-
-            # Flush to disk so the .ini file actually updates
-            self.config.save()
+            state = {"history": history_ids, "queue": queue_ids}
+            data = json.dumps(state).encode("utf-8")
+            atomic_write(self._queue_state_path(), data)
 
             logger.info(
-                f"save_queue_to_config: {len(history_list)} history + "
-                f"{len(save_queue)} upcoming saved"
+                f"save_queue_to_config: {len(history_ids)} history + "
+                f"{len(queue_ids)} queue saved"
             )
         except Exception as exc:
             logger.error(f"save_queue_to_config failed: {exc}")
 
     def load_queue_from_config(self, db_session):
         """
-        Restore queue state from config at startup.
+        Restore queue state from queue_state.json at startup.
         Uses a single IN-clause query per batch instead of N individual queries.
         Returns True if anything was loaded.
         """
@@ -344,16 +343,18 @@ class QueueManager(QObject):
             return False
 
         try:
-            history_ids_str = self.config.config.get(
-                "queue", "history_ids", fallback=""
-            )
-            queue_ids_str = self.config.config.get("queue", "queue_ids", fallback="")
-
-            if not queue_ids_str and not history_ids_str:
+            state_path = Path(self._queue_state_path())
+            if not state_path.exists():
                 return False
 
-            def _parse_ids(s: str) -> List[int]:
-                return [int(x.strip()) for x in s.split(",") if x.strip()]
+            with open(state_path, "r", encoding="utf-8") as f:
+                state = json.load(f)
+
+            history_ids = state.get("history", [])
+            queue_ids = state.get("queue", [])
+
+            if not queue_ids and not history_ids:
+                return False
 
             def _fetch_tracks(ids: List[int]) -> List[Track]:
                 if not ids:
@@ -364,9 +365,6 @@ class QueueManager(QObject):
                 id_to_track = {t.track_id: t for t in rows}
                 return [id_to_track[i] for i in ids if i in id_to_track]
 
-            history_ids = _parse_ids(history_ids_str)
-            queue_ids = _parse_ids(queue_ids_str)
-
             loaded_history = _fetch_tracks(history_ids)
             loaded_queue = _fetch_tracks(queue_ids)
 
@@ -375,7 +373,7 @@ class QueueManager(QObject):
 
             logger.info(
                 f"load_queue_from_config: {len(loaded_history)} history + "
-                f"{len(loaded_queue)} upcoming restored"
+                f"{len(loaded_queue)} queue restored"
             )
             self.queue_changed.emit()
             return bool(loaded_queue)
