@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QGroupBox,
@@ -22,7 +23,10 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.image.artwork_cache import get_artwork_cache
 from src.track.track_edit_basetab import _BaseTab
+
+_ART_SIZE = 96
 
 
 class AlbumsTab(_BaseTab):
@@ -39,15 +43,44 @@ class AlbumsTab(_BaseTab):
         current_group = QGroupBox("Current Album")
         current_layout = QVBoxLayout(current_group)
 
-        primary_row = QHBoxLayout()
-        self._primary_label = QLabel("—")
-        self._primary_label.setProperty("textRole", "note")
-        primary_row.addWidget(self._primary_label, stretch=1)
+        info_row = QHBoxLayout()
+        info_row.setSpacing(12)
 
+        self._art_label = QLabel()
+        self._art_label.setFixedSize(_ART_SIZE, _ART_SIZE)
+        self._art_label.setAlignment(Qt.AlignCenter)
+        self._art_label.setProperty("textRole", "note")
+        info_row.addWidget(self._art_label)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(2)
+
+        self._primary_label = QLabel("—")
+        primary_font = self._primary_label.font()
+        primary_font.setBold(True)
+        primary_font.setPointSize(primary_font.pointSize() + 2)
+        self._primary_label.setFont(primary_font)
+        self._primary_label.setWordWrap(True)
+        text_col.addWidget(self._primary_label)
+
+        self._primary_artist_label = QLabel("—")
+        self._primary_artist_label.setProperty("textRole", "note")
+        self._primary_artist_label.setWordWrap(True)
+        text_col.addWidget(self._primary_artist_label)
+
+        self._primary_year_label = QLabel("—")
+        self._primary_year_label.setProperty("textRole", "note")
+        text_col.addWidget(self._primary_year_label)
+
+        text_col.addStretch(1)
+        info_row.addLayout(text_col, stretch=1)
+        current_layout.addLayout(info_row)
+
+        btn_row = QHBoxLayout()
         self._open_primary_btn = QPushButton("Edit Album")
         self._open_primary_btn.setEnabled(False)
         self._open_primary_btn.clicked.connect(self._open_primary_album)
-        primary_row.addWidget(self._open_primary_btn)
+        btn_row.addWidget(self._open_primary_btn)
 
         self._remove_primary_btn = QPushButton("Remove Relationship")
         self._remove_primary_btn.setEnabled(False)
@@ -55,11 +88,21 @@ class AlbumsTab(_BaseTab):
             "Detaches this track from its album (track stays in library)"
         )
         self._remove_primary_btn.clicked.connect(self._remove_primary_album)
-        primary_row.addWidget(self._remove_primary_btn)
-        current_layout.addLayout(primary_row)
+        btn_row.addWidget(self._remove_primary_btn)
+
+        self._change_album_btn = QPushButton("Change Album")
+        self._change_album_btn.setCheckable(True)
+        self._change_album_btn.setToolTip(
+            "Search for a different album, or manage virtual appearances"
+        )
+        self._change_album_btn.toggled.connect(self._on_change_album_toggled)
+        btn_row.addWidget(self._change_album_btn)
+
+        btn_row.addStretch(1)
+        current_layout.addLayout(btn_row)
         layout.addWidget(current_group)
 
-        # ── Set current album group ────────────────────────────────────
+        # ── Set current album group (revealed by "Change Album") ────────
         set_group = QGroupBox("Set Current Album (search existing or create new)")
         set_layout = QVBoxLayout(set_group)
 
@@ -79,6 +122,8 @@ class AlbumsTab(_BaseTab):
         self._set_primary_btn.clicked.connect(self._set_primary_album)
         add_row.addWidget(self._set_primary_btn)
         set_layout.addLayout(add_row)
+        set_group.setVisible(False)
+        self._set_group = set_group
         layout.addWidget(set_group)
 
         # ── Virtual appearances group ─────────────────────────────────────
@@ -141,10 +186,17 @@ class AlbumsTab(_BaseTab):
         self._virt_add_btn.clicked.connect(self._add_virtual)
         virt_add_row.addWidget(self._virt_add_btn)
         virtual_layout.addLayout(virt_add_row)
+        virtual_group.setVisible(False)
+        self._virtual_group = virtual_group
         layout.addWidget(virtual_group)
 
         layout.addStretch(1)
         self._update_virtual_table_height()
+
+    def _on_change_album_toggled(self, checked: bool) -> None:
+        self._set_group.setVisible(checked)
+        self._virtual_group.setVisible(checked)
+        self._change_album_btn.setText("Hide Album Search" if checked else "Change Album")
 
     # ── Loading ───────────────────────────────────────────────────────────
 
@@ -156,14 +208,15 @@ class AlbumsTab(_BaseTab):
             album_ids = {a.album_id if a else None for a in track_albums}
             if len(album_ids) == 1:
                 album = track_albums[0]
-                self._primary_label.setText(
-                    album.album_name if album else "— (none)"
-                )
+                self._set_primary_display(album)
                 self._remove_primary_btn.setEnabled(bool(album))
             else:
                 self._primary_label.setText(
                     f"(multiple albums across {len(self.tracks)} tracks)"
                 )
+                self._primary_artist_label.setText("")
+                self._primary_year_label.setText("")
+                self._art_label.clear()
                 self._remove_primary_btn.setEnabled(True)
             self._open_primary_btn.setEnabled(False)
             self._set_primary_btn.setEnabled(len(self._album_search.text().strip()) >= 2)
@@ -174,14 +227,9 @@ class AlbumsTab(_BaseTab):
 
         # Primary album
         album = getattr(self.track, "album", None)
-        if album:
-            self._primary_label.setText(album.album_name)
-            self._open_primary_btn.setEnabled(True)
-            self._remove_primary_btn.setEnabled(True)
-        else:
-            self._primary_label.setText("— (none)")
-            self._open_primary_btn.setEnabled(False)
-            self._remove_primary_btn.setEnabled(False)
+        self._set_primary_display(album)
+        self._open_primary_btn.setEnabled(bool(album))
+        self._remove_primary_btn.setEnabled(bool(album))
 
         # Virtual appearances
         self._virtual_table.setRowCount(0)
@@ -197,6 +245,48 @@ class AlbumsTab(_BaseTab):
                     side=link.virtual_side,
                 )
         self._update_virtual_table_height()
+
+    def _set_primary_display(self, album) -> None:
+        """Populate the Current Album header (art, name, artist, year)."""
+        if not album:
+            self._primary_label.setText("— (none)")
+            self._primary_artist_label.setText("")
+            self._primary_year_label.setText("")
+            self._art_label.clear()
+            return
+
+        self._primary_label.setText(album.album_name or "—")
+        self._primary_artist_label.setText(
+            getattr(album, "album_artist_names", None) or "Unknown Artist"
+        )
+        year = getattr(album, "release_year", None)
+        self._primary_year_label.setText(str(year) if year else "Year unknown")
+        self._load_album_art(album)
+
+    def _load_album_art(self, album) -> None:
+        pixmap = None
+        try:
+            cache = get_artwork_cache()
+            if cache:
+                is_explicit = bool(getattr(album, "art_is_explicit", False))
+                pixmap = cache.get_pixmap(album, "front", is_explicit)
+        except Exception as e:
+            logger.warning(f"Failed to load album art for tab display: {e}")
+            pixmap = None
+
+        if pixmap and not pixmap.isNull():
+            self._art_label.setText("")
+            self._art_label.setPixmap(
+                pixmap.scaled(
+                    _ART_SIZE,
+                    _ART_SIZE,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+            )
+        else:
+            self._art_label.setPixmap(QPixmap())
+            self._art_label.setText("No Art")
 
     def _update_virtual_table_height(self) -> None:
         """Keep the table sized to its contents so an empty/short list of
