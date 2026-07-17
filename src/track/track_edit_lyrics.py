@@ -18,22 +18,41 @@ from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.track.track_edit_basetab import _BaseTab
+from src.track.track_edit_fieldform import (
+    _coerce,
+    _make_widget_for_field,
+    _read_widget,
+    _write_widget,
+)
 
 
 class LyricsTab(_BaseTab):
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
+        self._explicit_widget = None
         self._build_ui()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        # Search button row
+        # Search button + Explicit checkbox row
         btn_row = QHBoxLayout()
         self._search_btn = QPushButton("🔍  Search Lyrics Online")
         self._search_btn.clicked.connect(self._search_lyrics)
         btn_row.addWidget(self._search_btn)
         btn_row.addStretch()
+
+        explicit_cfg = TRACK_FIELDS.get("is_explicit")
+        if explicit_cfg:
+            explicit_lbl = QLabel(f"{explicit_cfg.friendly or 'Explicit'}:")
+            if explicit_cfg.tooltip:
+                explicit_lbl.setToolTip(explicit_cfg.tooltip)
+            self._explicit_widget = _make_widget_for_field(
+                "is_explicit", explicit_cfg, self._mark_dirty
+            )
+            btn_row.addWidget(explicit_lbl)
+            btn_row.addWidget(self._explicit_widget)
+
         layout.addLayout(btn_row)
 
         lbl = QLabel("Lyrics:")
@@ -64,10 +83,28 @@ class LyricsTab(_BaseTab):
             self._edit.blockSignals(False)
             self._search_btn.setEnabled(True)
 
+        if self._explicit_widget is not None:
+            if self.is_multi:
+                values = [getattr(t, "is_explicit", None) for t in tracks]
+                unique = set(str(v) for v in values)
+                _write_widget(
+                    self._explicit_widget, values[0] if len(unique) == 1 else None
+                )
+            else:
+                _write_widget(
+                    self._explicit_widget, getattr(self.track, "is_explicit", None)
+                )
+
     def collect_changes(self) -> Dict[str, Any]:
-        if "lyrics" not in self._dirty:
-            return {}
-        return {"lyrics": self._edit.toPlainText() or None}
+        changes = {}
+        if "lyrics" in self._dirty:
+            changes["lyrics"] = self._edit.toPlainText() or None
+        if self._explicit_widget is not None and "is_explicit" in self._dirty:
+            cfg = TRACK_FIELDS.get("is_explicit")
+            new_val = _coerce(_read_widget(self._explicit_widget), cfg)
+            if self.is_multi or self._has_changed("is_explicit", new_val):
+                changes["is_explicit"] = new_val
+        return changes
 
     def _search_lyrics(self):
         try:
