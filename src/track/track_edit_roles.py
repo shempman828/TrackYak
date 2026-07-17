@@ -3,7 +3,9 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt
+from sqlalchemy import select
+
+from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -22,9 +24,97 @@ from PySide6.QtWidgets import (
 from src.common.credited_as_dialog import CreditedAsDialog
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
+from src.db.db_tables import Artist, ArtistAlias, Role, TrackArtistRole
 from src.track.track_edit_basetab import _BaseTab
 
 PRIMARY_ARTIST_ROLE = "Primary Artist"
+
+
+def _fetch_role_rows(session, track_ids: list):
+    """Bulk-fetch every (track, artist, role) triple for `track_ids` in a
+    single joined query, instead of walking `track.artist_roles` and the
+    `.artist`/`.role` relationships per row -- that lazy-loads one query at
+    a time and is what made the Roles tab hitch on open."""
+    stmt = (
+        select(
+            TrackArtistRole.track_id,
+            TrackArtistRole.artist_id,
+            TrackArtistRole.role_id,
+            TrackArtistRole.credited_alias_id,
+            Role.role_name,
+            Artist.artist_name,
+            ArtistAlias.alias_name,
+        )
+        .outerjoin(Artist, TrackArtistRole.artist_id == Artist.artist_id)
+        .outerjoin(Role, TrackArtistRole.role_id == Role.role_id)
+        .outerjoin(ArtistAlias, TrackArtistRole.credited_alias_id == ArtistAlias.alias_id)
+        .where(TrackArtistRole.track_id.in_(track_ids))
+    )
+    return session.execute(stmt).all()
+
+
+def _group_role_rows(rows, track_ids: list, is_multi: bool) -> dict:
+    """Turn flat (track_id, artist_id, role_id, ...) rows into the
+    (artist_id, credited_name) -> {"roles": {...}} shape the table renders.
+
+    Mirrors the two grouping strategies the tab always had: for a single
+    track every row becomes its own group; for multiple tracks only roles
+    common to *every* selected track survive (an intersection of per-track
+    sets), same as before.
+    """
+    grouped: dict[tuple, dict] = {}
+
+    if is_multi:
+        by_track: dict = {}
+        for track_id, artist_id, role_id, _alias_id, role_name, artist_name, alias_name in rows:
+            credited_name = alias_name or artist_name or "?"
+            role_name = role_name or "?"
+            by_track.setdefault(track_id, set()).add(
+                (artist_id, role_id, credited_name, role_name)
+            )
+
+        all_sets = [by_track.get(tid, set()) for tid in track_ids]
+        common = all_sets[0] if all_sets else set()
+        for s in all_sets[1:]:
+            common &= s
+
+        for artist_id, role_id, credited_name, role_name in common:
+            entry = grouped.setdefault((artist_id, credited_name), {"roles": {}})
+            entry["roles"][role_id] = role_name
+    else:
+        for track_id, artist_id, role_id, alias_id, role_name, artist_name, alias_name in rows:
+            credited_name = alias_name or artist_name or "?"
+            role_name = role_name or "?"
+            entry = grouped.setdefault(
+                (artist_id, credited_name),
+                {"roles": {}, "credited_alias_id": alias_id},
+            )
+            entry["roles"][role_id] = role_name
+
+    return grouped
+
+
+class _RolesLoaderWorker(QObject):
+    """Runs on a background thread: fetches and groups the artist/role data
+    with a single bulk query, then emits the result back to the main thread."""
+
+    # Payload: grouped dict, as returned by _group_role_rows.
+    finished = Signal(object)
+    error = Signal(str)
+
+    def __init__(self, controller, track_ids: list, is_multi: bool):
+        super().__init__()
+        self.controller = controller
+        self._track_ids = track_ids
+        self._is_multi = is_multi
+
+    def run(self):
+        try:
+            rows = _fetch_role_rows(self.controller.get.session, self._track_ids)
+            grouped = _group_role_rows(rows, self._track_ids, self._is_multi)
+            self.finished.emit(grouped)
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class _FlowLayout(QLayout):
@@ -136,6 +226,8 @@ class _RolesTable(QTableWidget):
 class RolesTab(_BaseTab):
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
+        self._loader_thread: QThread | None = None
+        self._worker: _RolesLoaderWorker | None = None
         self._build_ui()
 
     def _build_ui(self):
@@ -195,31 +287,38 @@ class RolesTab(_BaseTab):
     # ── Loading ───────────────────────────────────────────────────────────
 
     def load(self, tracks: list) -> None:
+        """Kick off a background load: fetching artist/role rows previously
+        walked `track.artist_roles` and `.artist`/`.role` per row, which
+        lazy-loads one DB query at a time and hitched the UI thread on open.
+        The table is (re)populated in `_on_roles_loaded` once the bulk query
+        finishes on a worker thread."""
         self.tracks = tracks
+
+        try:
+            if self._loader_thread and self._loader_thread.isRunning():
+                return
+        except RuntimeError:
+            self._loader_thread = None
+
+        self._table.setEnabled(False)
+
+        track_ids = [t.track_id for t in tracks]
+        self._loader_thread = QThread(self)
+        self._worker = _RolesLoaderWorker(self.controller, track_ids, self.is_multi)
+        self._worker.moveToThread(self._loader_thread)
+
+        self._loader_thread.started.connect(self._worker.run)
+        self._worker.finished.connect(self._on_roles_loaded)
+        self._worker.error.connect(self._on_roles_load_error)
+        self._worker.finished.connect(self._loader_thread.quit)
+        self._worker.error.connect(self._loader_thread.quit)
+        self._loader_thread.finished.connect(self._loader_thread.deleteLater)
+
+        self._loader_thread.start()
+
+    def _on_roles_loaded(self, grouped: dict) -> None:
+        """Called on the main thread once the background worker finishes."""
         self._table.setRowCount(0)
-
-        # (artist_id, credited_name) -> {"roles": {role_id: role_name}}
-        # Keyed by credited_name too (not just artist_id) so a role credited
-        # under a different alias doesn't get silently merged into the same
-        # display row as the artist's other, differently-credited roles.
-        grouped: dict[tuple, dict] = {}
-
-        if self.is_multi:
-            self._collect_common_roles(grouped)
-        else:
-            for role_assoc in self.track.artist_roles:
-                artist = role_assoc.artist
-                role = role_assoc.role
-                artist_id = artist.artist_id if artist else None
-                credited_name = role_assoc.credited_name or "?"
-                role_id = role.role_id if role else None
-                role_name = role.role_name if role else "?"
-
-                entry = grouped.setdefault(
-                    (artist_id, credited_name),
-                    {"roles": {}, "credited_alias_id": role_assoc.credited_alias_id},
-                )
-                entry["roles"][role_id] = role_name
 
         for (artist_id, credited_name), entry in self._sorted_groups(grouped):
             self._add_artist_row(
@@ -235,31 +334,24 @@ class RolesTab(_BaseTab):
         # every row is in, so e.g. "Credit as…" never renders clipped.
         self._table.resizeColumnToContents(0)
         self._table.resizeColumnToContents(2)
+        self._table.setEnabled(True)
 
-    def _collect_common_roles(self, grouped: dict) -> None:
-        """Populate `grouped` with artist/role pairs shared by every track."""
-        all_sets = []
-        for t in self.tracks:
-            s = set()
-            for ra in t.artist_roles:
-                if ra.artist and ra.role:
-                    s.add(
-                        (
-                            ra.artist.artist_id,
-                            ra.role.role_id,
-                            ra.credited_name,
-                            ra.role.role_name,
-                        )
-                    )
-            all_sets.append(s)
+    def _on_roles_load_error(self, message: str) -> None:
+        logger.error(f"Error loading artist roles: {message}")
+        self._table.setEnabled(True)
 
-        common = all_sets[0] if all_sets else set()
-        for s in all_sets[1:]:
-            common &= s
-
-        for artist_id, role_id, credited_name, role_name in common:
-            entry = grouped.setdefault((artist_id, credited_name), {"roles": {}})
-            entry["roles"][role_id] = role_name
+    def cleanup(self) -> None:
+        """Stop any in-flight background load before the tab is destroyed,
+        so the worker's finished/error signals never land on a deleted
+        widget."""
+        try:
+            if self._loader_thread and self._loader_thread.isRunning():
+                self._worker.finished.disconnect(self._on_roles_loaded)
+                self._worker.error.disconnect(self._on_roles_load_error)
+                self._loader_thread.quit()
+                self._loader_thread.wait(3000)
+        except RuntimeError:
+            pass
 
     @staticmethod
     def _sorted_groups(grouped: dict) -> list:
