@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -69,6 +70,11 @@ class MapView(QWidget):
         # 2. Filter Container (The part that hides/shows)
         self.filter_container = QWidget()
         self.filter_container.setVisible(False)  # Hide by default
+        # Fixed vertical policy so the container only claims its sizeHint,
+        # instead of splitting leftover space evenly with the map widget.
+        self.filter_container.setSizePolicy(
+            QSizePolicy.Preferred, QSizePolicy.Fixed
+        )
         filter_main_layout = QVBoxLayout(self.filter_container)
         filter_main_layout.setContentsMargins(0, 0, 0, 5)
 
@@ -89,7 +95,7 @@ class MapView(QWidget):
 
         # 3. Map Widget
         self.map_widget = QWebEngineView()
-        layout.addWidget(self.map_widget)
+        layout.addWidget(self.map_widget, 1)
 
         self.refresh_place_types()
 
