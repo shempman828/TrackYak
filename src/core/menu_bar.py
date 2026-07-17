@@ -473,4 +473,4 @@ class MenuBar:
             logger.debug("menu_bar_auto_hide_changed signal was already disconnected")
 
     def show_missing_tracks(self):
-        self._missing_tracks = MissingTracks(self.controller)
+        self._missing_tracks = MissingTracks(self.controller, parent=self)
