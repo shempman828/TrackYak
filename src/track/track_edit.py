@@ -212,6 +212,16 @@ class TrackEditDialog(QDialog):
             logger.error(f"Error saving track(s): {e}", exc_info=True)
             QMessageBox.critical(self, "Save Error", f"Failed to save:\n{e}")
 
+    # ── Cleanup ───────────────────────────────────────────────────────────
+
+    def closeEvent(self, event) -> None:
+        for tab in self._tabs:
+            try:
+                tab.cleanup()
+            except Exception as e:
+                logger.error(f"Error cleaning up tab {type(tab).__name__}: {e}")
+        super().closeEvent(event)
+
 
 # ---------------------------------------------------------------------------
 # Backwards-compatibility alias so existing callers don't need changes
