@@ -140,7 +140,7 @@ class _LyricWorker(QObject):
     Do not instantiate directly; use LyricSearchThread.
     """
 
-    lyrics_ready = Signal(str)  # emitted with lyrics text on success
+    lyrics_ready = Signal(object)  # emitted with Lyrics object (or str) on success
     lyrics_not_found = Signal()  # emitted when search returns nothing
     error_occurred = Signal(str)  # emitted with message on exception
 
@@ -189,7 +189,7 @@ class LyricSearchThread(QObject):
     """
 
     # Re-export worker signals so callers only hold one reference
-    lyrics_ready = Signal(str)
+    lyrics_ready = Signal(object)
     lyrics_not_found = Signal()
     error_occurred = Signal(str)
 
