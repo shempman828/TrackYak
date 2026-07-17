@@ -329,10 +329,12 @@ class FileOrganizer(CancellableWorker):
 
         Safety guarantees:
           1. Source existence is verified before any action.
-          2. shutil.move is used for cross-device safety.
-          3. Destination existence is verified BEFORE updating the DB —
+          2. The target path is verified to stay inside the library root
+             before anything is created or moved.
+          3. shutil.move is used for cross-device safety.
+          4. Destination existence is verified BEFORE updating the DB —
              the DB is only changed once the file is confirmed present.
-          4. Every outcome (success, partial failure, full failure) is
+          5. Every outcome (success, partial failure, full failure) is
              written to the move log so nothing is silently lost.
 
         Returns True on full success (file moved + DB updated).
@@ -352,6 +354,23 @@ class FileOrganizer(CancellableWorker):
                 logger.error(f"Source file does not exist: {source_path}")
                 self._append_to_move_log(
                     {**log_base, "status": "failed", "reason": "source not found"}
+                )
+                return False
+
+            # --- Containment check: never write outside the library root ---
+            try:
+                target_path.resolve().relative_to(self.root.resolve())
+            except ValueError:
+                logger.error(
+                    f"Refusing to move outside library root: {target_path} "
+                    f"is not under {self.root}"
+                )
+                self._append_to_move_log(
+                    {
+                        **log_base,
+                        "status": "failed",
+                        "reason": "target path escapes library root",
+                    }
                 )
                 return False
 
@@ -440,7 +459,14 @@ class FileOrganizer(CancellableWorker):
         invalid_chars = '<>:"/\\|?*'
         for char in invalid_chars:
             name = name.replace(char, "_")
-        return name.strip()
+        name = name.strip()
+        # "", ".", and ".." are valid path components that don't mean what a
+        # tag value implies -- ".." in particular would walk the target
+        # directory outside the library root. Refuse them rather than let
+        # them silently redirect the move.
+        if name in ("", ".", ".."):
+            return "Unknown"
+        return name
 
     def set_approved_operations(self, approved_ops: List[Dict]):
         """Set which operations to execute (called by preview dialog)"""
