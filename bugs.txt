@@ -5,31 +5,6 @@
 #Bug/Feature Fixes
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-67. address saving logic in track, album, and artist. The code should determine if the user edited a field and only change that field. The current code is "dirtying" most fields arbitrarily. Save should only occur if there is a real change.
-
 68. in base track view, use formatted duration instead of bare second count.
 
 69. Review track file moving code. The goal is for the program to own the location of music files. The user sets a master directory. TrackYak organizes the files into albumartist/album subdirectories and updates filepath. We must be absolutely careful that files are never lost either by sending into the void or messing up the new path.
