@@ -140,9 +140,11 @@ class RolesTab(_BaseTab):
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
+        layout.setSpacing(8)
 
         # ── Search row ────────────────────────────────────────────────────
         search_row = QHBoxLayout()
+        search_row.setSpacing(8)
 
         self._artist_search = QLineEdit()
         self._artist_search.setPlaceholderText("Search artists… (min 2 chars)")
@@ -181,7 +183,9 @@ class RolesTab(_BaseTab):
         self._table.horizontalHeader().sectionResized.connect(
             lambda *_args: self._table.resizeRowsToContents()
         )
+        self._table.setWordWrap(True)
         self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setDefaultSectionSize(36)
         self._table.setToolTip(
             "Each artist gets one row; their roles are shown as chips with "
             "individual remove (×) buttons."
@@ -224,6 +228,13 @@ class RolesTab(_BaseTab):
                 entry["roles"],
                 credited_alias_id=entry.get("credited_alias_id"),
             )
+
+        # ResizeToContents tracks each insertRow individually, so a column
+        # can be left sized from an earlier, narrower row in the batch —
+        # force both content columns to re-fit their widest cell now that
+        # every row is in, so e.g. "Credit as…" never renders clipped.
+        self._table.resizeColumnToContents(0)
+        self._table.resizeColumnToContents(2)
 
     def _collect_common_roles(self, grouped: dict) -> None:
         """Populate `grouped` with artist/role pairs shared by every track."""
@@ -286,8 +297,8 @@ class RolesTab(_BaseTab):
 
         actions_widget = QWidget()
         actions_layout = QHBoxLayout(actions_widget)
-        actions_layout.setContentsMargins(0, 0, 0, 0)
-        actions_layout.setSpacing(4)
+        actions_layout.setContentsMargins(6, 4, 6, 4)
+        actions_layout.setSpacing(8)
 
         # A single credited name is only unambiguous when editing one track
         # at a time -- with multiple tracks selected, different tracks may
