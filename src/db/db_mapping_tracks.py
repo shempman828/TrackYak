@@ -459,7 +459,7 @@ TRACK_FIELDS = {
     ),
     "is_explicit": TrackField(
         type=bool,
-        category="Basic",
+        category="Lyrics",
         friendly="Explicit",
         short="Explicit",
         tooltip="Indicates whether the track contains explicit content.",
