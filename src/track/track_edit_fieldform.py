@@ -227,15 +227,28 @@ class FieldFormTab(_BaseTab):
     def load(self, tracks: list) -> None:
         self.tracks = tracks
         self._dirty.clear()
+        self._populate(tracks, skip_dirty=False)
 
+    def refresh_values(self, tracks: list) -> None:
+        """Like load(), but leaves any field the user has already started
+        editing untouched — safe to call mid-session (e.g. after a
+        background audio analysis run updates the underlying track(s))."""
+        self.tracks = tracks
+        self._populate(tracks, skip_dirty=True)
+
+    def _populate(self, tracks: list, skip_dirty: bool) -> None:
         if self.is_multi:
             # Show value only when all tracks agree; blank otherwise
             for field_name, w in self._widgets.items():
+                if skip_dirty and field_name in self._dirty:
+                    continue
                 values = [getattr(t, field_name, None) for t in tracks]
                 unique = set(str(v) for v in values)
                 _write_widget(w, values[0] if len(unique) == 1 else None)
         else:
             for field_name, w in self._widgets.items():
+                if skip_dirty and field_name in self._dirty:
+                    continue
                 _write_widget(w, getattr(self.track, field_name, None))
             for field_name, lbl in self._labels.items():
                 cfg = TRACK_FIELDS.get(field_name)
