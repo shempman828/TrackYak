@@ -45,6 +45,11 @@ class _BaseTab(QWidget):
         (e.g. audio analysis) without disturbing unsaved edits. Default is a
         no-op; override in tabs that display fields analysis can populate."""
 
+    def cleanup(self) -> None:
+        """Called when the owning dialog is closing. Default is a no-op;
+        override in tabs that own background threads or other resources
+        that must be stopped before the tab is destroyed."""
+
     def _mark_dirty(self, field_name: str) -> None:
         self._dirty.add(field_name)
 
