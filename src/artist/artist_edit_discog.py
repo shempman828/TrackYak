@@ -3,7 +3,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QCursor
+from PySide6.QtGui import QCursor, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -23,6 +23,9 @@ from PySide6.QtWidgets import (
 from src.album.album_flowlayout import FlowLayout
 from src.common.style_utils import set_style_property
 from src.core.logger_config import logger
+from src.image.artwork_cache import get_artwork_cache
+
+_CHIP_ART_SIZE = 48
 
 
 def _make_table(headers, editable=False):
@@ -163,8 +166,9 @@ class DiscographyTab(QWidget):
                 assoc.album_id,
                 {
                     "id": assoc.album_id,
+                    "album": assoc.album,
                     "name": assoc.album.album_name,
-                    "year": assoc.album.release_year or "",
+                    "year": assoc.album.release_year,
                     "album_artist": assoc.album.album_artist_names,
                     "roles": set(),
                 },
@@ -202,10 +206,7 @@ class DiscographyTab(QWidget):
 
         album_list = sorted(
             self._album_groups.values(),
-            key=lambda g: (
-                -(g["year"] or 0) if isinstance(g["year"], int) else 0,
-                g["name"] or "",
-            ),
+            key=lambda g: (-(g["year"] or 0), g["name"] or ""),
         )
         self._album_flow.set_albums(album_list)
         logger.debug(
@@ -342,7 +343,7 @@ class _AlbumChip(QFrame):
 
     clicked = Signal(object)  # album_id
 
-    def __init__(self, album_id, name, year, album_artist, roles, parent=None):
+    def __init__(self, album_id, album, name, year, album_artist, roles, parent=None):
         super().__init__(parent)
         self.album_id = album_id
         self.roles = set(roles)
@@ -351,17 +352,28 @@ class _AlbumChip(QFrame):
         self.setObjectName("albumChip")
         self.setCursor(QCursor(Qt.PointingHandCursor))
         self.setFrameShape(QFrame.StyledPanel)
-        self.setMaximumWidth(220)
+        self.setMaximumWidth(260)
         self.setToolTip(", ".join(sorted(self.roles)))
 
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(8, 6, 8, 6)
-        lay.setSpacing(1)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(6, 6, 8, 6)
+        lay.setSpacing(8)
+
+        self._art_label = QLabel()
+        self._art_label.setObjectName("albumChipArt")
+        self._art_label.setFixedSize(_CHIP_ART_SIZE, _CHIP_ART_SIZE)
+        self._art_label.setAlignment(Qt.AlignCenter)
+        self._art_label.setProperty("textRole", "note")
+        self._load_art(album)
+        lay.addWidget(self._art_label)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(1)
 
         title = QLabel(name or "Untitled")
         title.setObjectName("albumChipTitle")
         title.setWordWrap(True)
-        lay.addWidget(title)
+        text_col.addWidget(title)
 
         sub_bits = [str(year)] if year else []
         if album_artist:
@@ -369,7 +381,36 @@ class _AlbumChip(QFrame):
         sub = QLabel(" \u00b7 ".join(sub_bits))
         sub.setObjectName("albumChipSub")
         sub.setWordWrap(True)
-        lay.addWidget(sub)
+        text_col.addWidget(sub)
+
+        lay.addLayout(text_col)
+
+    def _load_art(self, album):
+        """Load cover art through the shared artwork cache, same as every
+        other album-art surface in the app (AlbumWidget, track_edit_album)."""
+        pixmap = None
+        try:
+            cache = get_artwork_cache()
+            if cache is not None and album is not None:
+                is_explicit = bool(getattr(album, "art_is_explicit", False))
+                pixmap = cache.get_pixmap(album, "front", is_explicit)
+        except Exception as e:
+            logger.warning(f"Failed to load album art for discography chip: {e}")
+            pixmap = None
+
+        if pixmap and not pixmap.isNull():
+            self._art_label.setText("")
+            self._art_label.setPixmap(
+                pixmap.scaled(
+                    _CHIP_ART_SIZE,
+                    _CHIP_ART_SIZE,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+            )
+        else:
+            self._art_label.setPixmap(QPixmap())
+            self._art_label.setText("No Art")
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -421,7 +462,7 @@ class _AlbumFlowArea(QScrollArea):
             return
         for a in albums:
             chip = _AlbumChip(
-                a["id"], a["name"], a["year"], a["album_artist"], a["roles"]
+                a["id"], a["album"], a["name"], a["year"], a["album_artist"], a["roles"]
             )
             chip.clicked.connect(self.album_clicked)
             self._flow.addWidget(chip)
