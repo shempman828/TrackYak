@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QSpinBox,
@@ -180,6 +181,10 @@ class FieldFormTab(_BaseTab):
     Read-only fields → styled QLabel.
     """
 
+    # Fields sharing one form row instead of getting their own — keeps
+    # short, closely-related numeric fields from wasting vertical space.
+    _PAIRED_ROWS = {"track_number": "absolute_track_number"}
+
     def __init__(self, category: str, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
         self.category = category
@@ -202,29 +207,68 @@ class FieldFormTab(_BaseTab):
             note.setProperty("textRole", "note")
             layout.addRow(note)
 
+        skip = set()
         for field_name, cfg in fields.items():
-            # Build the label
-            label_text = cfg.friendly or field_name
-            lbl = QLabel(f"{label_text}:")
-            if cfg.tooltip:
-                lbl.setToolTip(cfg.tooltip)
+            if field_name in skip:
+                continue
 
-            if not cfg.editable:
-                # Read-only display label
-                val_lbl = QLabel("—")
-                val_lbl.setWordWrap(True)
-                val_lbl.setProperty("textRole", "note")
-                val_lbl.setFocusPolicy(Qt.NoFocus)
-                val_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-                self._labels[field_name] = val_lbl
-                layout.addRow(lbl, val_lbl)
-            else:
-                # Skip fields marked multiple=False in multi-track mode
-                if self.is_multi and not cfg.multiple:
+            partner_name = self._PAIRED_ROWS.get(field_name)
+            if partner_name and partner_name in fields:
+                skip.add(partner_name)
+                rows = [
+                    row
+                    for row in (
+                        self._make_row_field(field_name, cfg),
+                        self._make_row_field(partner_name, fields[partner_name]),
+                    )
+                    if row is not None
+                ]
+                if not rows:
                     continue
-                w = _make_widget_for_field(field_name, cfg, self._mark_dirty)
-                self._widgets[field_name] = w
-                layout.addRow(lbl, w)
+                if len(rows) == 1:
+                    layout.addRow(*rows[0])
+                    continue
+                first_label, first_widget = rows[0]
+                container = QWidget()
+                hbox = QHBoxLayout(container)
+                hbox.setContentsMargins(0, 0, 0, 0)
+                hbox.addWidget(first_widget)
+                for lbl, w in rows[1:]:
+                    hbox.addWidget(lbl)
+                    hbox.addWidget(w)
+                hbox.addStretch()
+                layout.addRow(first_label, container)
+                continue
+
+            row = self._make_row_field(field_name, cfg)
+            if row is not None:
+                layout.addRow(*row)
+
+    def _make_row_field(self, field_name: str, cfg):
+        """Build the (label, value_widget) pair for one field, or return
+        None if the field should be omitted (e.g. non-multiple in multi-track
+        edit mode)."""
+        label_text = cfg.friendly or field_name
+        lbl = QLabel(f"{label_text}:")
+        if cfg.tooltip:
+            lbl.setToolTip(cfg.tooltip)
+
+        if not cfg.editable:
+            # Read-only display label
+            val_lbl = QLabel("—")
+            val_lbl.setWordWrap(True)
+            val_lbl.setProperty("textRole", "note")
+            val_lbl.setFocusPolicy(Qt.NoFocus)
+            val_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            self._labels[field_name] = val_lbl
+            return lbl, val_lbl
+
+        # Skip fields marked multiple=False in multi-track mode
+        if self.is_multi and not cfg.multiple:
+            return None
+        w = _make_widget_for_field(field_name, cfg, self._mark_dirty)
+        self._widgets[field_name] = w
+        return lbl, w
 
     # ── _BaseTab interface ───────────────────────────────────────────────
 
