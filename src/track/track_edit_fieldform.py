@@ -69,11 +69,15 @@ def _make_widget_for_field(field_name: str, field_config, on_change_cb):
         w.valueChanged.connect(lambda _v, fn=field_name: on_change_cb(fn))
     elif field_config.type == float:  # noqa: E721
         w = _NoScrollDoubleSpinBox()
-        w.setDecimals(4)
+        w.setDecimals(
+            field_config.decimals if field_config.decimals is not None else 4
+        )
         w.setRange(
             field_config.min if field_config.min is not None else -1e9,
             field_config.max if field_config.max is not None else 1e9,
         )
+        if field_config.step is not None:
+            w.setSingleStep(field_config.step)
         w.valueChanged.connect(lambda _v, fn=field_name: on_change_cb(fn))
     elif field_config.longtext:
         w = QTextEdit()
@@ -182,8 +186,20 @@ class FieldFormTab(_BaseTab):
     """
 
     # Fields sharing one form row instead of getting their own — keeps
-    # short, closely-related numeric fields from wasting vertical space.
-    _PAIRED_ROWS = {"track_number": "absolute_track_number"}
+    # short, closely-related fields (e.g. a Year/Month/Day trio) from
+    # wasting vertical space. Keyed by the first field in the group.
+    _ROW_GROUPS = {
+        "track_number": ["absolute_track_number"],
+        "recorded_year": ["recorded_month", "recorded_day"],
+        "release_year": ["release_month", "release_day"],
+        "composed_year": ["composed_month", "composed_day"],
+        "file_extension": ["file_size", "duration"],
+        "bit_rate": ["sample_rate", "channels", "bit_depth"],
+        "bpm": ["tempo_confidence"],
+        "key": ["mode", "key_confidence"],
+        "track_gain": ["track_peak"],
+        "date_added": ["last_listened_date", "play_count"],
+    }
 
     def __init__(self, category: str, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
@@ -208,18 +224,28 @@ class FieldFormTab(_BaseTab):
             layout.addRow(note)
 
         skip = set()
+        current_section = None
         for field_name, cfg in fields.items():
             if field_name in skip:
                 continue
 
-            partner_name = self._PAIRED_ROWS.get(field_name)
-            if partner_name and partner_name in fields:
-                skip.add(partner_name)
+            if cfg.section and cfg.section != current_section:
+                current_section = cfg.section
+                layout.addRow(self._make_section_header(current_section))
+
+            partner_names = [
+                n for n in self._ROW_GROUPS.get(field_name, []) if n in fields
+            ]
+            if partner_names:
+                skip.update(partner_names)
                 rows = [
                     row
                     for row in (
                         self._make_row_field(field_name, cfg),
-                        self._make_row_field(partner_name, fields[partner_name]),
+                        *(
+                            self._make_row_field(name, fields[name])
+                            for name in partner_names
+                        ),
                     )
                     if row is not None
                 ]
@@ -243,6 +269,18 @@ class FieldFormTab(_BaseTab):
             row = self._make_row_field(field_name, cfg)
             if row is not None:
                 layout.addRow(*row)
+
+    @staticmethod
+    def _make_section_header(text: str) -> QLabel:
+        """A bold sub-heading row that splits a tab's fields into groups
+        (e.g. Properties' "File Info" vs "Musical Properties")."""
+        header = QLabel(text)
+        font = header.font()
+        font.setBold(True)
+        font.setPointSize(font.pointSize() + 1)
+        header.setFont(font)
+        header.setStyleSheet("margin-top: 10px;")
+        return header
 
     def _make_row_field(self, field_name: str, cfg):
         """Build the (label, value_widget) pair for one field, or return
