@@ -24,7 +24,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
-from src.db.db_mapping_tracks import TRACK_FIELDS, TrackField
+from src.db.db_mapping_tracks import TRACK_FIELDS
+from src.db.field_spec import FieldSpec
 
 # Storage/display format for exact-moment datetime values. Must use a space
 # separator (not Qt.ISODate's "T") to match the "yyyy-MM-dd HH:MM:SS[.ffffff]"
@@ -70,9 +71,9 @@ _LIST_FIELDS = [
 
 
 # ---------------------------------------------------------------------------
-# Map a TrackField's Python type → our operator-group key
+# Map a FieldSpec's Python type → our operator-group key
 # ---------------------------------------------------------------------------
-def _field_to_group(field: TrackField) -> str:
+def _field_to_group(field: FieldSpec) -> str:
     t = field.type
     if t is int:
         return "Integer"
@@ -87,7 +88,7 @@ def _field_to_group(field: TrackField) -> str:
 
 # ---------------------------------------------------------------------------
 # Build the ordered field list from TRACK_FIELDS + _LIST_FIELDS, grouped by
-# TrackField.category — mirrors the grouping TrackView uses for its column
+# FieldSpec.category — mirrors the grouping TrackView uses for its column
 # picker (src/track/track_view_columns.py::show_column_menu).
 # Each entry: (field_name, op_group, display_name, tooltip, min, max, category)
 # ---------------------------------------------------------------------------

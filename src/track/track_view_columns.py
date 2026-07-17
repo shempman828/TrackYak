@@ -127,7 +127,7 @@ class TrackViewColumnsMixin:
             logger.error(f"Error saving column state: {e}")
 
     def show_column_menu(self):
-        """Toggle Columns menu, grouped by TrackField category into submenus."""
+        """Toggle Columns menu, grouped by FieldSpec category into submenus."""
         menu = QMenu(self)
         list(self.columns.keys())
 

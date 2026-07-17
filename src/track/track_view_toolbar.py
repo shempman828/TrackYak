@@ -112,7 +112,7 @@ class TrackViewToolbarMixin:
         menu.addAction(all_action)
         menu.addSeparator()
 
-        # Group columns by their TrackField category
+        # Group columns by their FieldSpec category
         category_groups: dict[str, list] = {}
         for field_name, friendly in self.columns.items():
             field_config = self.track_fields.get(field_name)

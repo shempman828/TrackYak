@@ -1,38 +1,16 @@
-from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Type
 
-
-@dataclass
-class TrackField:
-    friendly: Optional[str] = None  # Human-readable name
-    short: Optional[str] = None  # shorter human readable name
-    type: Type = str  # Python type with default value
-    editable: bool = True  # Can the user edit this field?
-    placeholder: Optional[str] = None  # Placeholder text for UI
-    longtext: bool = False  # useTextEdit if true, QlineEdit if false
-    min: Optional[float] = None  # Minimum value (for numbers)
-    max: Optional[float] = None  # Maximum value (for numbers)
-    length: Optional[int] = None  # Maximum length (for strings)
-    step: Optional[float] = None  # Spin box increment (for numbers); default 1.0
-    decimals: Optional[int] = None  # Decimal places shown (for floats); default 4
-    category: Optional[str] = (
-        None  # Grouping or section name (Basic, Properties, Alias (different track name types), Date, Classical, Identification, User, Lyrics, Description, Advanced)
-    )
-    tooltip: Optional[str] = None  # UI popup hint
-    multiple: bool = False  # can be edited on multiple tracks at once
-    section: Optional[str] = None  # Optional sub-heading within a tab (e.g. splits Properties into "File Info" / "Musical Properties")
-
+from src.db.field_spec import FieldSpec
 
 TRACK_FIELDS = {
-    "track_name": TrackField(
+    "track_name": FieldSpec(
         friendly="Track Name",
         short="Name",
         placeholder="Enter song title",
         category="Basic",
         tooltip="The credited name of the track in your preferred style",
     ),
-    "track_id": TrackField(
+    "track_id": FieldSpec(
         friendly="Track ID",
         short="ID",
         type=int,
@@ -40,20 +18,20 @@ TRACK_FIELDS = {
         category="Advanced",
         tooltip="The Unique ID assigned to the track in the database.",
     ),
-    "track_number": TrackField(
+    "track_number": FieldSpec(
         friendly="Track Number",
         short="Track #",
         type=int,
         category="Basic",
         tooltip="The position of the track within its disc or side, following the original release ordering.",
     ),
-    "absolute_track_number": TrackField(
+    "absolute_track_number": FieldSpec(
         friendly="Absolute Track Number",
         type=int,
         category="Basic",
         tooltip="The track’s overall position in the full album sequence, counting continuously across all discs or sides.",
     ),
-    "side": TrackField(
+    "side": FieldSpec(
         friendly="Side",
         category="Basic",
         tooltip="The side of the disc or record that contains this track.",
@@ -61,7 +39,7 @@ TRACK_FIELDS = {
         length=2,
         multiple=True,
     ),
-    "track_file_path": TrackField(
+    "track_file_path": FieldSpec(
         friendly="Track File Path",
         short="File Path",
         category="Properties",
@@ -69,7 +47,7 @@ TRACK_FIELDS = {
         tooltip="The absolute file path to the track.",
         editable=False,
     ),
-    "file_extension": TrackField(
+    "file_extension": FieldSpec(
         category="Properties",
         section="File Info",
         friendly="File Extension",
@@ -77,7 +55,7 @@ TRACK_FIELDS = {
         tooltip="The type of file.",
         editable=False,
     ),
-    "file_size": TrackField(
+    "file_size": FieldSpec(
         friendly="Track File Size",
         short="Size",
         editable=False,
@@ -86,7 +64,7 @@ TRACK_FIELDS = {
         category="Properties",
         section="File Info",
     ),
-    "duration": TrackField(
+    "duration": FieldSpec(
         friendly="Duration",
         short="Length",
         type=float,
@@ -95,7 +73,7 @@ TRACK_FIELDS = {
         category="Properties",
         section="File Info",
     ),
-    "bit_rate": TrackField(
+    "bit_rate": FieldSpec(
         type=int,
         category="Properties",
         section="File Info",
@@ -104,7 +82,7 @@ TRACK_FIELDS = {
         tooltip="The bit rate of the audio file in kilobits per second.",
         editable=False,
     ),
-    "sample_rate": TrackField(
+    "sample_rate": FieldSpec(
         type=int,
         category="Properties",
         section="File Info",
@@ -113,7 +91,7 @@ TRACK_FIELDS = {
         tooltip="Specifies how many audio samples are captured per second, determining the recording resolution and frequency detail.",
         editable=False,
     ),
-    "channels": TrackField(
+    "channels": FieldSpec(
         type=int,
         category="Properties",
         section="File Info",
@@ -122,7 +100,7 @@ TRACK_FIELDS = {
         tooltip="The number of audio channels (e.g., 2 for stereo).",
         editable=False,
     ),
-    "bit_depth": TrackField(
+    "bit_depth": FieldSpec(
         type=int,
         category="Properties",
         section="File Info",
@@ -131,42 +109,42 @@ TRACK_FIELDS = {
         tooltip="Indicates the number of bits used to represent each audio sample, affecting dynamic range and audio precision.",
         editable=False,
     ),
-    "track_name_original": TrackField(
+    "track_name_original": FieldSpec(
         category="Alias",
         friendly="Original Track Title",
         short="Original Title",
         tooltip="The original title of the track in the language's native script.",
         placeholder="稲妻ブルース",
     ),
-    "track_name_transcribed": TrackField(
+    "track_name_transcribed": FieldSpec(
         category="Alias",
         friendly="Transcribed Track Title",
         short="Transcribed Title",
         tooltip="The track title transcribed to your local script",
         placeholder="Inazuma Burūsu",
     ),
-    "track_name_translated": TrackField(
+    "track_name_translated": FieldSpec(
         category="Alias",
         friendly="Translated Track Title",
         short="Translated Title",
         tooltip="The title of the track translated into your language.",
         placeholder="Lightning Blues",
     ),
-    "track_name_official": TrackField(
+    "track_name_official": FieldSpec(
         category="Alias",
         friendly="Official Track Title",
         short="Official Title",
         tooltip="The official credited track title",
         placeholder="INAZUMA BLUES",
     ),
-    "track_name_stylized": TrackField(
+    "track_name_stylized": FieldSpec(
         category="Alias",
         tooltip="The track title with any special styling applied.",
         short="Stylized Name",
         friendly="Stylized Track Title",
         placeholder="稲妻B L U E S",
     ),
-    "recorded_year": TrackField(
+    "recorded_year": FieldSpec(
         type=int,
         category="Date",
         friendly="Recording Year",
@@ -175,7 +153,7 @@ TRACK_FIELDS = {
         max=2100,
         multiple=True,
     ),
-    "recorded_month": TrackField(
+    "recorded_month": FieldSpec(
         type=int,
         category="Date",
         friendly="Recording Month",
@@ -184,7 +162,7 @@ TRACK_FIELDS = {
         max=12,
         multiple=True,
     ),
-    "recorded_day": TrackField(
+    "recorded_day": FieldSpec(
         type=int,
         category="Date",
         friendly="Recording Day",
@@ -193,7 +171,7 @@ TRACK_FIELDS = {
         max=31,
         multiple=True,
     ),
-    "remaster_year": TrackField(
+    "remaster_year": FieldSpec(
         type=int,
         category="Date",
         friendly="Remaster Year",
@@ -202,7 +180,7 @@ TRACK_FIELDS = {
         max=2100,
         multiple=True,
     ),
-    "is_classical": TrackField(
+    "is_classical": FieldSpec(
         type=bool,
         category="Classical",
         friendly="Classical",
@@ -210,7 +188,7 @@ TRACK_FIELDS = {
         tooltip="Indicates whether this release or track belongs to the classical genre, following conventions for classical metadata handling.",
         multiple=True,
     ),
-    "composed_year": TrackField(
+    "composed_year": FieldSpec(
         type=int,
         category="Classical",
         friendly="Composed Year",
@@ -219,7 +197,7 @@ TRACK_FIELDS = {
         max=2100,
         multiple=True,
     ),
-    "composed_month": TrackField(
+    "composed_month": FieldSpec(
         type=int,
         category="Classical",
         friendly="Composed Month",
@@ -228,7 +206,7 @@ TRACK_FIELDS = {
         min=1,
         max=12,
     ),
-    "composed_day": TrackField(
+    "composed_day": FieldSpec(
         type=int,
         category="Classical",
         friendly="Composed Day",
@@ -237,7 +215,7 @@ TRACK_FIELDS = {
         max=31,
         multiple=True,
     ),
-    "first_performed_year": TrackField(
+    "first_performed_year": FieldSpec(
         type=int,
         category="Classical",
         friendly="First Performed Year",
@@ -246,7 +224,7 @@ TRACK_FIELDS = {
         max=2100,
         multiple=True,
     ),
-    "work_name": TrackField(
+    "work_name": FieldSpec(
         category="Classical",
         friendly="Work Name",
         short="Work",
@@ -254,7 +232,7 @@ TRACK_FIELDS = {
         placeholder="Symphony No. 5",
         multiple=True,
     ),
-    "work_type": TrackField(
+    "work_type": FieldSpec(
         category="Classical",
         friendly="Work Type",
         short="Work Type",
@@ -262,7 +240,7 @@ TRACK_FIELDS = {
         placeholder="Symphony, Sonata, Concerto, etc.",
         multiple=True,
     ),
-    "classical_catalog_prefix": TrackField(
+    "classical_catalog_prefix": FieldSpec(
         category="Classical",
         friendly="Classical Catalog Prefix",
         short="Catalog Prefix",
@@ -270,7 +248,7 @@ TRACK_FIELDS = {
         placeholder="Op., K., BWV, etc.",
         multiple=True,
     ),
-    "classical_catalog_number": TrackField(
+    "classical_catalog_number": FieldSpec(
         type=int,
         category="Classical",
         friendly="Classical Catalog Number",
@@ -279,7 +257,7 @@ TRACK_FIELDS = {
         placeholder="e.g., 67, 1041, 545, etc.",
         multiple=True,
     ),
-    "classical_tempo": TrackField(
+    "classical_tempo": FieldSpec(
         category="Classical",
         friendly="Classical Tempo",
         short="Tempo",
@@ -287,7 +265,7 @@ TRACK_FIELDS = {
         placeholder="Allegro, Andante, Presto, etc.",
         multiple=True,
     ),
-    "movement_name": TrackField(
+    "movement_name": FieldSpec(
         category="Classical",
         friendly="Movement Name",
         short="Movement",
@@ -295,7 +273,7 @@ TRACK_FIELDS = {
         placeholder="Allegro con brio",
         multiple=True,
     ),
-    "movement_number": TrackField(
+    "movement_number": FieldSpec(
         type=int,
         category="Classical",
         friendly="Movement Number",
@@ -304,40 +282,40 @@ TRACK_FIELDS = {
         placeholder="e.g., 1, 2, 3, etc.",
         multiple=True,
     ),
-    "isrc": TrackField(
+    "isrc": FieldSpec(
         category="Identification",
         friendly="ISRC",
         tooltip="The International Standard Recording Code for the track.",
         placeholder="e.g., US-S1Z-99-00001",
     ),
-    "track_copyright": TrackField(
+    "track_copyright": FieldSpec(
         category="Identification",
         friendly="Track Copyright",
         tooltip="The copyright information for the track.",
         placeholder="e.g., © 2023 Music Library",
     ),
-    "MBID": TrackField(
+    "MBID": FieldSpec(
         category="Identification",
         friendly="MusicBrainz ID",
         short="MBID",
         tooltip="The MusicBrainz Identifier for the track.",
         placeholder="e.g., a1b2c3d4-e5f6-7g8h-9i0j-k1l2m3n4o5p6",
     ),
-    "track_barcode": TrackField(
+    "track_barcode": FieldSpec(
         category="Identification",
         friendly="Track Barcode",
         short="Barcode",
         tooltip="The barcode associated with the track.",
         placeholder="e.g., 0123456789123",
     ),
-    "track_wikipedia_link": TrackField(
+    "track_wikipedia_link": FieldSpec(
         category="Identification",
         friendly="Track Wikipedia Link",
         short="Wikipedia",
         tooltip="A link to the track's Wikipedia page.",
         placeholder="e.g., https://en.wikipedia.org/wiki/Track_Name",
     ),
-    "bpm": TrackField(
+    "bpm": FieldSpec(
         type=int,
         category="Properties",
         section="Musical Properties",
@@ -348,7 +326,7 @@ TRACK_FIELDS = {
         max=300,
         multiple=True,
     ),
-    "tempo_confidence": TrackField(
+    "tempo_confidence": FieldSpec(
         type=float,
         category="Properties",
         section="Musical Properties",
@@ -359,7 +337,7 @@ TRACK_FIELDS = {
         min=0.0,
         max=1.0,
     ),
-    "key": TrackField(
+    "key": FieldSpec(
         category="Properties",
         section="Musical Properties",
         friendly="Musical Key",
@@ -369,7 +347,7 @@ TRACK_FIELDS = {
         length=1,
         multiple=True,
     ),
-    "mode": TrackField(
+    "mode": FieldSpec(
         category="Properties",
         section="Musical Properties",
         friendly="Musical Mode",
@@ -378,7 +356,7 @@ TRACK_FIELDS = {
         placeholder="e.g., Major, Minor",
         multiple=True,
     ),
-    "key_confidence": TrackField(
+    "key_confidence": FieldSpec(
         type=float,
         category="Properties",
         section="Musical Properties",
@@ -389,7 +367,7 @@ TRACK_FIELDS = {
         min=0.0,
         max=1.0,
     ),
-    "primary_time_signature": TrackField(
+    "primary_time_signature": FieldSpec(
         category="Properties",
         section="Musical Properties",
         friendly="Time Signature",
@@ -398,7 +376,7 @@ TRACK_FIELDS = {
         placeholder="e.g., 4/4, 3/4",
         multiple=True,
     ),
-    "track_gain": TrackField(
+    "track_gain": FieldSpec(
         type=float,
         category="Properties",
         section="Musical Properties",
@@ -409,7 +387,7 @@ TRACK_FIELDS = {
         max=20.0,
         multiple=True,
     ),
-    "track_peak": TrackField(
+    "track_peak": FieldSpec(
         type=float,
         category="Properties",
         section="Musical Properties",
@@ -420,7 +398,7 @@ TRACK_FIELDS = {
         max=1.0,
         multiple=True,
     ),
-    "user_rating": TrackField(
+    "user_rating": FieldSpec(
         type=float,
         category="User",
         section="Your Rating & Notes",
@@ -433,7 +411,7 @@ TRACK_FIELDS = {
         decimals=1,
         multiple=True,
     ),
-    "track_quality": TrackField(
+    "track_quality": FieldSpec(
         category="User",
         section="Your Rating & Notes",
         friendly="Track Quality",
@@ -441,7 +419,7 @@ TRACK_FIELDS = {
         tooltip="The user's assessment of the track's quality.",
         multiple=True,
     ),
-    "is_fixed": TrackField(
+    "is_fixed": FieldSpec(
         type=bool,
         category="User",
         section="Your Rating & Notes",
@@ -450,7 +428,7 @@ TRACK_FIELDS = {
         tooltip="Indicates whether the user considers track metadata complete.",
         multiple=True,
     ),
-    "comment": TrackField(
+    "comment": FieldSpec(
         category="User",
         section="Your Rating & Notes",
         friendly="User Comment",
@@ -458,7 +436,7 @@ TRACK_FIELDS = {
         tooltip="User comments or notes about the track.",
         multiple=True,
     ),
-    "date_added": TrackField(
+    "date_added": FieldSpec(
         type=datetime,
         category="User",
         section="Listening Activity",
@@ -467,7 +445,7 @@ TRACK_FIELDS = {
         tooltip="The date and time when the track was added to the library.",
         editable=False,
     ),
-    "last_listened_date": TrackField(
+    "last_listened_date": FieldSpec(
         type=datetime,
         category="User",
         section="Listening Activity",
@@ -476,7 +454,7 @@ TRACK_FIELDS = {
         tooltip="The date and time when the track was last listened to.",
         editable=False,
     ),
-    "play_count": TrackField(
+    "play_count": FieldSpec(
         type=int,
         category="User",
         section="Listening Activity",
@@ -485,21 +463,21 @@ TRACK_FIELDS = {
         tooltip="The number of times the track has been played.",
         editable=False,
     ),
-    "lyrics": TrackField(
+    "lyrics": FieldSpec(
         category="Lyrics",
         friendly="Lyrics",
         short="Lyrics",
         tooltip="The written words of the track, which can be displayed, edited, or synchronized with the audio.",
         longtext=True,
     ),
-    "track_description": TrackField(
+    "track_description": FieldSpec(
         category="Description",
         friendly="Track Description",
         short="Description",
         tooltip="A description or background information about the track.",
         longtext=True,
     ),
-    "is_explicit": TrackField(
+    "is_explicit": FieldSpec(
         type=bool,
         category="Lyrics",
         friendly="Explicit",
@@ -507,7 +485,7 @@ TRACK_FIELDS = {
         tooltip="Indicates whether the track contains explicit content.",
         multiple=True,
     ),
-    "is_instrumental": TrackField(
+    "is_instrumental": FieldSpec(
         type=bool,
         category="Basic",
         friendly="Instrumental",
@@ -515,7 +493,7 @@ TRACK_FIELDS = {
         tooltip="Indicates whether the track is instrumental.",
         multiple=True,
     ),
-    "spectral_centroid": TrackField(
+    "spectral_centroid": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Spectral Centroid",
@@ -523,7 +501,7 @@ TRACK_FIELDS = {
         tooltip="Represents the “center of mass” of the spectrum, giving a measure of the brightness of a sound. Higher values indicate brighter, more high-frequency content.",
         editable=False,
     ),
-    "spectral_rolloff": TrackField(
+    "spectral_rolloff": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Spectral Rolloff",
@@ -531,7 +509,7 @@ TRACK_FIELDS = {
         tooltip="The frequency below which a specified percentage of the total spectral energy is contained, often used to distinguish harmonic content from noise.",
         editable=False,
     ),
-    "spectral_flatness": TrackField(
+    "spectral_flatness": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Spectral Flatness",
@@ -541,7 +519,7 @@ TRACK_FIELDS = {
         max=1.0,
         editable=False,
     ),
-    "spectral_flux": TrackField(
+    "spectral_flux": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Spectral Flux",
@@ -551,7 +529,7 @@ TRACK_FIELDS = {
         max=1.0,
         editable=False,
     ),
-    "crest_factor": TrackField(
+    "crest_factor": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Crest Factor",
@@ -559,7 +537,7 @@ TRACK_FIELDS = {
         tooltip="Peak-to-loudness ratio in dB. High values indicate dynamic, uncompressed material; low values indicate heavily limited/compressed material.",
         editable=False,
     ),
-    "dynamic_range": TrackField(
+    "dynamic_range": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Dynamic Range",
@@ -567,7 +545,7 @@ TRACK_FIELDS = {
         tooltip="Measures the difference between the quietest and loudest parts of the audio, indicating how much variation in volume is present. Higher values generally reflect greater detail and nuance.",
         editable=False,
     ),
-    "stereo_width": TrackField(
+    "stereo_width": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Stereo Width",
@@ -575,7 +553,7 @@ TRACK_FIELDS = {
         tooltip="Describes the perceived spatial separation between the left and right channels, indicating how wide or narrow the stereo image of the recording is.",
         editable=False,
     ),
-    "ms_energy_ratio": TrackField(
+    "ms_energy_ratio": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Mid/Side Energy Ratio",
@@ -583,7 +561,7 @@ TRACK_FIELDS = {
         tooltip="Raw ratio of side-channel to mid-channel RMS energy. Near 0 indicates mono/mid-heavy content; higher values indicate more out-of-phase side content.",
         editable=False,
     ),
-    "channel_coherence": TrackField(
+    "channel_coherence": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Channel Coherence",
@@ -593,7 +571,7 @@ TRACK_FIELDS = {
         max=1.0,
         editable=False,
     ),
-    "transient_strength": TrackField(
+    "transient_strength": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Transient Ratio",
@@ -601,7 +579,7 @@ TRACK_FIELDS = {
         tooltip="Represents the frequency and intensity of sudden changes in amplitude, capturing the sharpness or percussive characteristics of the audio.",
         editable=False,
     ),
-    "danceability": TrackField(
+    "danceability": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Danceability",
@@ -611,7 +589,7 @@ TRACK_FIELDS = {
         max=1.0,
         editable=False,
     ),
-    "energy": TrackField(
+    "energy": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Energy",
@@ -621,7 +599,7 @@ TRACK_FIELDS = {
         max=1.0,
         editable=False,
     ),
-    "acousticness": TrackField(
+    "acousticness": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Acousticness",
@@ -631,7 +609,7 @@ TRACK_FIELDS = {
         max=1.0,
         editable=False,
     ),
-    "liveness": TrackField(
+    "liveness": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Liveness",
@@ -641,7 +619,7 @@ TRACK_FIELDS = {
         max=1.0,
         editable=False,
     ),
-    "valence": TrackField(
+    "valence": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Valence",
@@ -651,7 +629,7 @@ TRACK_FIELDS = {
         max=1.0,
         editable=False,
     ),
-    "fidelity_score": TrackField(
+    "fidelity_score": FieldSpec(
         type=float,
         category="Advanced",
         friendly="Fidelity Score",
@@ -661,14 +639,14 @@ TRACK_FIELDS = {
         max=1.0,
         editable=False,
     ),
-    "album_name": TrackField(
+    "album_name": FieldSpec(
         category="Basic",
         friendly="Album Name",
         short="Album",
         tooltip="The name of the album the track belongs to.",
         editable=False,
     ),
-    "release_year": TrackField(
+    "release_year": FieldSpec(
         type=int,
         category="Date",
         friendly="Release Year",
@@ -676,7 +654,7 @@ TRACK_FIELDS = {
         tooltip="The year the album was released.",
         editable=False,
     ),
-    "release_month": TrackField(
+    "release_month": FieldSpec(
         type=int,
         category="Date",
         friendly="Release Month",
@@ -685,7 +663,7 @@ TRACK_FIELDS = {
         editable=False,
         max=12,
     ),
-    "release_day": TrackField(
+    "release_day": FieldSpec(
         type=int,
         category="Date",
         friendly="Release Day",
@@ -693,14 +671,14 @@ TRACK_FIELDS = {
         tooltip="The day the album was released.",
         editable=False,
     ),
-    "primary_artist_names": TrackField(
+    "primary_artist_names": FieldSpec(
         category="Basic",
         friendly="Primary Artist(s)",
         short="Artist",
         tooltip="The name of the primary artist(s) for the track.",
         editable=False,
     ),
-    "disc_number": TrackField(
+    "disc_number": FieldSpec(
         type=int,
         category="Basic",
         friendly="Disc Number",

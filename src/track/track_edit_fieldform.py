@@ -54,7 +54,7 @@ class _NoScrollDoubleSpinBox(QDoubleSpinBox):
 
 def _make_widget_for_field(field_name: str, field_config, on_change_cb):
     """
-    Create and return the right editable widget for a TrackField.
+    Create and return the right editable widget for a FieldSpec.
     Connects the widget's change signal to on_change_cb(field_name).
     """
     if field_config.type == bool:  # noqa: E721
