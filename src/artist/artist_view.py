@@ -26,7 +26,7 @@ from src.artist.artist_delete_orphans import OrphanArtistDialog
 from src.core.status_utility import show_status_message
 from src.artist.artist_detail import ArtistDetailTab
 from src.artist.artist_edit import ArtistEditor
-from src.artist.artist_fuzzy_match import FuzzyMatchDialog
+from src.artist.artist_fuzzy_match import ArtistFuzzyMatchWorker, FuzzyMatchDialog
 from src.artist.artist_image_manager import move_to_artist_images_dir
 from src.artist.artist_group_dialog import AddGroupDialog, AddMemberDialog
 from src.artist.artist_place import PlaceSelectionDialog
@@ -837,16 +837,13 @@ class ArtistView(QWidget):
         Blocking reduces this to only comparing artists that share the same
         name prefix, cutting comparisons by ~99%.
 
-        The scan runs in a background thread so the UI stays responsive.
+        The scan runs in a background thread (ArtistFuzzyMatchWorker) so the
+        UI stays responsive, with progress and cancellation checked every
+        500 pairs — a common prefix like "the" can still put thousands of
+        artists in one block, and without frequent checkpoints inside that
+        block the dialog would sit unresponsive (Cancel included) until the
+        whole block finished.
         """
-        import re
-        from collections import defaultdict
-        from difflib import SequenceMatcher
-
-        from PySide6.QtCore import Signal
-
-        from src.common.cancellable_worker import CancellableWorker
-
         THRESHOLD = 0.85  # 85% similarity required to flag as a duplicate
 
         # --- Load artists up front (fast DB call) ---
@@ -860,11 +857,12 @@ class ArtistView(QWidget):
             show_status_message(self, "No artists found in database.")
             return
 
-        # --- Show a progress dialog so the user knows work is happening ---
+        # --- Show a determinate progress dialog so the user can see it's
+        # actually moving, and Cancel responds promptly ---
         from PySide6.QtWidgets import QProgressDialog
 
         progress = QProgressDialog(
-            "Scanning for duplicate artists…", "Cancel", 0, 0, self
+            "Scanning for duplicate artists…", "Cancel", 0, 1, self
         )
         progress.setWindowTitle("Duplicate Scan")
         progress.setWindowModality(Qt.WindowModal)
@@ -872,64 +870,12 @@ class ArtistView(QWidget):
         progress.setValue(0)
         progress.show()
 
-        # --- Background worker ---
-        class _ScanWorker(CancellableWorker):
-            finished = Signal(list)
-            error = Signal(str)
+        worker = ArtistFuzzyMatchWorker(artists, THRESHOLD)
 
-            def __init__(self, artists, threshold):
-                super().__init__()
-                self._artists = artists
-                self._threshold = threshold
-                self._punct_re = re.compile(r"[^\w\s]")
-
-            def _normalise(self, text):
-                text = (text or "").lower()
-                text = self._punct_re.sub("", text)
-                return " ".join(text.split())
-
-            def run(self):
-                try:
-                    matches = []
-                    seen_pairs = set()
-
-                    # Build blocks keyed on first 3 chars of normalised name
-                    blocks = defaultdict(list)
-                    for artist in self._artists:
-                        key = self._normalise(artist.artist_name)[:3]
-                        if key:
-                            blocks[key].append(artist)
-
-                    # Only compare within each block
-                    for block in blocks.values():
-                        if self.is_cancelled:
-                            break
-                        if len(block) < 2:
-                            continue
-                        for i, a in enumerate(block):
-                            for b in block[i + 1 :]:
-                                pair_key = (
-                                    min(a.artist_id, b.artist_id),
-                                    max(a.artist_id, b.artist_id),
-                                )
-                                if pair_key in seen_pairs:
-                                    continue
-                                seen_pairs.add(pair_key)
-
-                                ratio = SequenceMatcher(
-                                    None,
-                                    self._normalise(a.artist_name),
-                                    self._normalise(b.artist_name),
-                                ).ratio()
-
-                                if ratio >= self._threshold:
-                                    matches.append((a, b, round(ratio * 100)))
-
-                    self.finished.emit(matches)
-                except Exception as e:
-                    self.error.emit(str(e))
-
-        worker = _ScanWorker(artists, THRESHOLD)
+        def _on_progress(current, total):
+            progress.setRange(0, total)
+            progress.setValue(current)
+            progress.setLabelText(f"Scanning for duplicate artists… ({current:,} / {total:,})")
 
         def _on_finished(matches):
             progress.close()
@@ -950,6 +896,7 @@ class ArtistView(QWidget):
         def _on_cancelled():
             worker.request_cancel()
 
+        worker.progress.connect(_on_progress)
         worker.finished.connect(_on_finished)
         worker.error.connect(_on_error)
         progress.canceled.connect(_on_cancelled)
