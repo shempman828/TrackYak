@@ -17,15 +17,10 @@ from src.core.logger_config import logger
 class OrganizationPreviewDialog(QDialog):
     """Dialog to preview and confirm file organization operations"""
 
-    def __init__(self, parent, auto_ops: List[Dict], confirm_ops: List[Dict]):
+    def __init__(self, parent, operations: List[Dict]):
         super().__init__(parent)
-        self.auto_ops = auto_ops
-        self.confirm_ops = confirm_ops
-        self.approved_ops = auto_ops.copy()  # Auto-approve the obvious moves
-        logger.debug(
-            f"Previewing file organization: {len(auto_ops)} automatic, "
-            f"{len(confirm_ops)} needing confirmation"
-        )
+        self.operations = operations
+        logger.debug(f"Previewing file organization: {len(operations)} operations")
         self._init_ui()
         self.setWindowTitle("Review File Organization")
         self.setMinimumSize(900, 600)
@@ -34,10 +29,7 @@ class OrganizationPreviewDialog(QDialog):
         layout = QVBoxLayout()
 
         # Summary
-        summary = QLabel(
-            f"Found {len(self.auto_ops)} files to move automatically "
-            f"and {len(self.confirm_ops)} files needing confirmation"
-        )
+        summary = QLabel(f"Found {len(self.operations)} files to move")
         layout.addWidget(summary)
 
         # Operations list - set larger item height for multi-line display
@@ -73,18 +65,8 @@ class OrganizationPreviewDialog(QDialog):
         """Populate list with organization operations"""
         self.ops_list.clear()
 
-        # Add auto-approved operations (disabled for selection)
-        for op in self.auto_ops:
-            item = QListWidgetItem(self._format_operation_text(op, "AUTO"))
-            item.setFlags(item.flags() & ~Qt.ItemIsUserCheckable)  # Not checkable
-            item.setData(Qt.UserRole, op)
-            item.setBackground(Qt.lightGray)
-            item.setSizeHint(self._calculate_item_size(op))  # Set appropriate height
-            self.ops_list.addItem(item)
-
-        # Add operations needing confirmation (checkable)
-        for op in self.confirm_ops:
-            item = QListWidgetItem(self._format_operation_text(op, "CONFIRM"))
+        for op in self.operations:
+            item = QListWidgetItem(self._format_operation_text(op))
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Checked)  # Default to checked
             item.setData(Qt.UserRole, op)
@@ -105,46 +87,33 @@ class OrganizationPreviewDialog(QDialog):
 
         return QSize(400, base_height + (extra_height * 10))
 
-    def _format_operation_text(self, op: Dict, op_type: str) -> str:
+    def _format_operation_text(self, op: Dict) -> str:
         """Format operation for display in list with full paths"""
-        similarity = op["similarity_percent"]
-
-        # Show full path changes
         current_path = str(op["current_path"])
         expected_path = str(op["expected_path"])
 
-        text = (
-            f"[{op_type}] {similarity}% similar\n"
-            f"FROM: {current_path}\n"
-            f"TO:   {expected_path}"
-        )
+        text = f"FROM: {current_path}\nTO:   {expected_path}"
         return text
 
     def _confirm_all(self):
-        """Select all confirmable operations"""
+        """Select all operations"""
         for i in range(self.ops_list.count()):
             item = self.ops_list.item(i)
-            if item.flags() & Qt.ItemIsUserCheckable:
-                item.setCheckState(Qt.Checked)
+            item.setCheckState(Qt.Checked)
 
     def _deselect_all(self):
-        """Deselect all confirmable operations"""
+        """Deselect all operations"""
         for i in range(self.ops_list.count()):
             item = self.ops_list.item(i)
-            if item.flags() & Qt.ItemIsUserCheckable:
-                item.setCheckState(Qt.Unchecked)
+            item.setCheckState(Qt.Unchecked)
 
     def get_approved_operations(self) -> List[Dict]:
         """Get list of approved operations to execute"""
-        approved = self.auto_ops.copy()  # Start with auto-approved
+        approved = []
 
-        # Add checked confirmable operations
         for i in range(self.ops_list.count()):
             item = self.ops_list.item(i)
-            if (
-                item.flags() & Qt.ItemIsUserCheckable
-                and item.checkState() == Qt.Checked
-            ):
+            if item.checkState() == Qt.Checked:
                 approved.append(item.data(Qt.UserRole))
 
         logger.info(f"File organization approved: {len(approved)} operations")
