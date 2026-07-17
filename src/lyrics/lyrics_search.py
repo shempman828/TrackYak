@@ -202,6 +202,10 @@ class LyricSearchThread(QObject):
     # Public API
     # ------------------------------------------------------------------
 
+    @property
+    def is_running(self) -> bool:
+        return self._thread.isRunning()
+
     def search(
         self,
         track_orm,
