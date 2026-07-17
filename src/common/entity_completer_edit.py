@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from PySide6.QtCore import QStringListModel, Qt
+from PySide6.QtCore import QEvent, QStringListModel, Qt
 from PySide6.QtWidgets import QCompleter, QLineEdit
 
 
@@ -29,6 +29,30 @@ class EntityCompleterEdit(QLineEdit):
         self._display_to_id: dict = {}
         self._matched_id = None
         self.textEdited.connect(self._on_manual_edit)
+
+    def event(self, e) -> bool:
+        # Claim Enter/Return as a ShortcutOverride so a dialog's default
+        # button (e.g. Save) doesn't *also* fire from the same keypress --
+        # this field's returnPressed is meant to add an item, not submit
+        # whatever dialog happens to host it.
+        if e.type() == QEvent.ShortcutOverride and e.key() in (
+            Qt.Key_Return,
+            Qt.Key_Enter,
+        ):
+            e.accept()
+            return True
+        return super().event(e)
+
+    def keyPressEvent(self, e) -> None:
+        # QLineEdit emits returnPressed() for Enter/Return but deliberately
+        # leaves the event ignore()'d afterward (by Qt design, so a dialog's
+        # default button still fires from a plain line edit) -- that ignored
+        # event is what bubbles up to QDialog's own "Enter clicks the default
+        # button" handling. Re-accept it here for the same reason as the
+        # ShortcutOverride above: this field handles its own Enter.
+        super().keyPressEvent(e)
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter):
+            e.accept()
 
     def set_index(self, display_to_id: dict) -> None:
         """Rebuild the completer's backing model."""
