@@ -10,8 +10,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Signal
 
+from src.common.cancellable_worker import CancellableWorker
 from src.db.db_helpers import GetFromDB
 from src.core.logger_config import logger
 from src.core.status_utility import StatusManager
@@ -974,7 +975,7 @@ class SyncManager:
 # ---------------------------------------------------------------------------
 
 
-class SyncWorker(QThread):
+class SyncWorker(CancellableWorker):
     """
     Runs the sync operation in a background thread.
 
@@ -997,7 +998,6 @@ class SyncWorker(QThread):
         self.playlists = playlists
         self.profile = profile
         self.results = []
-        self._is_cancelled = False
 
     def run(self):
         try:
@@ -1005,7 +1005,7 @@ class SyncWorker(QThread):
             profile = self.profile
 
             # ── Optionally clear destination ────────────────────────────────
-            if profile.clear_before_sync and not self._is_cancelled:
+            if profile.clear_before_sync and not self.is_cancelled:
                 self.progress.emit(0, 1, "Clearing destination…")
                 if profile.is_mtp:
                     self.sync_manager.clear_mtp_folders(
@@ -1017,7 +1017,7 @@ class SyncWorker(QThread):
             # ── Sync each playlist ──────────────────────────────────────────
             total = len(self.playlists)
             for i, playlist in enumerate(self.playlists):
-                if self._is_cancelled:
+                if self.is_cancelled:
                     status_manager.show_message("Sync cancelled", 3000)
                     break
 
@@ -1052,4 +1052,5 @@ class SyncWorker(QThread):
         self.progress.emit(current, total, message)
 
     def cancel(self):
-        self._is_cancelled = True
+        """Alias for request_cancel() -- kept for sync_view.py's existing call site."""
+        self.request_cancel()

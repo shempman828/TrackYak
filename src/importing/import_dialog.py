@@ -206,7 +206,7 @@ class ImportDialog(QDialog):
     def cancel_import(self):
         """Cancel ongoing import operation"""
         if self.import_worker and self.import_worker.isRunning():
-            self.import_worker.stop()
+            self.import_worker.request_cancel()
             self.import_worker.wait()
             StatusManager.end_task("Import cancelled", 3000)
             self.btn_scan.setEnabled(True)

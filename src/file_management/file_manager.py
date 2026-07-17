@@ -7,15 +7,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Signal
 
+from src.common.cancellable_worker import CancellableWorker
 from src.core.asset_paths import config
 from src.core.logger_config import logger
 
 CONFIG_FILE = config("import_paths.json")
 
 
-class FileOrganizer(QThread):
+class FileOrganizer(CancellableWorker):
     """Background worker for file organization with preview and confirmation"""
 
     progress_updated = Signal(int, str)  # percent, current file
@@ -27,7 +28,6 @@ class FileOrganizer(QThread):
         super().__init__()
         self.root = root
         self.controller = controller
-        self._cancel = False
         self.auto_operations = []
         self.confirm_operations = []
         self.approved_operations = []
@@ -61,13 +61,13 @@ class FileOrganizer(QThread):
 
             # Wait for user approval
             self._waiting_for_approval = True
-            while self._waiting_for_approval and not self._cancel:
+            while self._waiting_for_approval and not self.is_cancelled:
                 self.msleep(100)  # Sleep briefly to avoid busy waiting
 
-            logger.info(f"FileOrganizer: Approval received, cancelled: {self._cancel}")
+            logger.info(f"FileOrganizer: Approval received, cancelled: {self.is_cancelled}")
 
             # Phase 2: Execution
-            if not self._cancel and self.approved_operations:
+            if not self.is_cancelled and self.approved_operations:
                 logger.info(
                     f"FileOrganizer: Starting execution phase with {len(self.approved_operations)} approved operations"
                 )
@@ -77,11 +77,11 @@ class FileOrganizer(QThread):
                 )
 
                 # Phase 3: Cleanup empty directories
-                if not self._cancel:
+                if not self.is_cancelled:
                     logger.info("FileOrganizer: Starting cleanup phase")
                     self._cleanup_empty_directories()
 
-            success = not self._cancel
+            success = not self.is_cancelled
             logger.info(
                 f"FileOrganizer: Process complete - success: {success}, files_moved: {files_moved}"
             )
@@ -105,7 +105,7 @@ class FileOrganizer(QThread):
         """Called when user cancels in the preview dialog"""
         logger.info("FileOrganizer: User cancelled organization")
         self._waiting_for_approval = False
-        self._cancel = True
+        self.request_cancel()
 
     def _analyze_organization(self, tracks) -> Tuple[List[Dict], List[Dict]]:
         """Analyze organization needs and categorize operations.
@@ -119,7 +119,7 @@ class FileOrganizer(QThread):
         total = len(tracks)
 
         for idx, track in enumerate(tracks):
-            if self._cancel:
+            if self.is_cancelled:
                 break
 
             self.progress_updated.emit(
@@ -207,7 +207,7 @@ class FileOrganizer(QThread):
         )
 
         for idx, operation in enumerate(self.approved_operations):
-            if self._cancel:
+            if self.is_cancelled:
                 logger.info(
                     "FileOrganizer._execute_organization: Cancelled during execution"
                 )
@@ -260,7 +260,7 @@ class FileOrganizer(QThread):
                 candidate_dirs.append(current_dir)
 
         for idx, empty_dir in enumerate(candidate_dirs):
-            if self._cancel:
+            if self.is_cancelled:
                 break
 
             self.cleanup_progress.emit(
@@ -448,4 +448,4 @@ class FileOrganizer(QThread):
 
     def cancel(self):
         """Request organization cancellation"""
-        self._cancel = True
+        self.request_cancel()

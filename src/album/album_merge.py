@@ -1,6 +1,6 @@
 from difflib import SequenceMatcher
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.base_merge_dialog import MergeDBDialog
+from src.common.cancellable_worker import CancellableWorker
 from src.core.logger_config import logger
 
 # ---------------------------------------------------------------------------
@@ -126,7 +127,7 @@ def score_pair(album_a, album_b) -> float:
 # ---------------------------------------------------------------------------
 
 
-class _DuplicateScanner(QThread):
+class _DuplicateScanner(CancellableWorker):
     """
     Finds candidate duplicate pairs above a given threshold.
 
@@ -150,10 +151,9 @@ class _DuplicateScanner(QThread):
 
     # -- public slot so the caller can cancel mid-run
     def stop(self):
-        self._stop = True
+        self.request_cancel()
 
     def run(self):
-        self._stop = False
         albums = self.albums
         threshold = self.threshold
         results = []
@@ -168,7 +168,7 @@ class _DuplicateScanner(QThread):
         total = len(bucket_list)
 
         for idx, bucket in enumerate(bucket_list):
-            if self._stop:
+            if self.is_cancelled:
                 break
             n = len(bucket)
             for i in range(n):

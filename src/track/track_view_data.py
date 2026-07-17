@@ -335,7 +335,7 @@ class TrackViewDataMixin:
           shows "Sorting…" until it finishes.
         """
         if self._sort_worker and self._sort_worker.isRunning():
-            self._sort_worker.quit()
+            self._sort_worker.request_cancel()
             self._sort_worker.wait()
 
         column_keys = list(self.columns.keys())

@@ -1,6 +1,6 @@
 from typing import Any, List
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.cancellable_worker import CancellableWorker
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 
@@ -32,7 +33,7 @@ _MAX_NAME_CHARS = 40
 # ---------------------------------------------------------------------------
 
 
-class _PublisherMergeWorker(QThread):
+class _PublisherMergeWorker(CancellableWorker):
     """Runs the checked merges off the UI thread so a large batch doesn't
     freeze the dialog, reporting progress as each pair completes."""
 

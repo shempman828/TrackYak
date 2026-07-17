@@ -27,7 +27,7 @@ from collections import defaultdict
 from difflib import SequenceMatcher
 from typing import Dict, List
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.cancellable_worker import CancellableWorker
 from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -120,7 +121,7 @@ def _get_album_string(track) -> str:
 # ---------------------------------------------------------------------------
 
 
-class DuplicateScanWorker(QThread):
+class DuplicateScanWorker(CancellableWorker):
     """
     Background worker that finds duplicate tracks using a blocking strategy.
 
@@ -153,11 +154,7 @@ class DuplicateScanWorker(QThread):
         self._use_artist = use_artist
         self._use_album = use_album
         self._use_year = use_year
-        self._stop_requested = False
         self._stopped_early = False
-
-    def stop(self):
-        self._stop_requested = True
 
     def run(self):
         try:
@@ -298,13 +295,13 @@ class DuplicateScanWorker(QThread):
         stopped = False
 
         for block_tracks in blocks.values():
-            if self._stop_requested:
+            if self.is_cancelled:
                 stopped = True
                 break
 
             m = len(block_tracks)
             for i in range(m):
-                if self._stop_requested:
+                if self.is_cancelled:
                     stopped = True
                     break
                 for j in range(i + 1, m):
@@ -318,7 +315,7 @@ class DuplicateScanWorker(QThread):
                     if checked - last_emitted >= 500:
                         self.progress.emit(checked, total_pairs)
                         last_emitted = checked
-                        if self._stop_requested:
+                        if self.is_cancelled:
                             stopped = True
                             break
                 if stopped:
@@ -548,7 +545,7 @@ class DuplicateFinderDialog(QDialog):
 
     def _stop_scan(self):
         if self._worker:
-            self._worker.stop()
+            self._worker.request_cancel()
         self.stop_button.setEnabled(False)
         self.status_label.setText("Stopping...")
 
@@ -695,6 +692,6 @@ class DuplicateFinderDialog(QDialog):
 
     def closeEvent(self, event):
         if self._worker and self._worker.isRunning():
-            self._worker.stop()
+            self._worker.request_cancel()
             self._worker.wait(3000)
         super().closeEvent(event)

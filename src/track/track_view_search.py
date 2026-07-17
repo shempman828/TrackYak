@@ -36,7 +36,7 @@ class TrackViewSearchMixin:
 
         # Stop any already-running worker before starting a new one
         if self._filter_worker and self._filter_worker.isRunning():
-            self._filter_worker.quit()
+            self._filter_worker.request_cancel()
             self._filter_worker.wait()
 
         field_name = self._search_field_name

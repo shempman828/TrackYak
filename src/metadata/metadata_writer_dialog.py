@@ -6,7 +6,7 @@ Streamlined version - entire library updates only.
 import os
 from typing import Dict, List, Optional
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -22,12 +22,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.common.cancellable_worker import CancellableWorker
 from src.core.logger_config import logger
 from src.core.status_utility import StatusManager, show_status_message
 from src.metadata.metadata_writer import MetadataWriter, WriteMode
 
 
-class MetadataScannerWorker(QThread):
+class MetadataScannerWorker(CancellableWorker):
     """Worker thread that collects tracks eligible for a metadata write.
 
     Emits finished with {track_id: bool} where True = has a valid file
@@ -42,10 +43,9 @@ class MetadataScannerWorker(QThread):
     def __init__(self, metadata_writer, parent=None):
         super().__init__(parent)
         self.metadata_writer = metadata_writer
-        self._is_cancelled = False
 
     def cancel(self):
-        self._is_cancelled = True
+        self.request_cancel()
 
     def run(self):
         try:
@@ -56,7 +56,7 @@ class MetadataScannerWorker(QThread):
             self.log_message.emit(f"Scanning {total} tracks for writable files...")
 
             for i, track in enumerate(tracks):
-                if self._is_cancelled:
+                if self.is_cancelled:
                     break
 
                 self.progress.emit(i + 1, total)
@@ -89,7 +89,7 @@ class MetadataScannerWorker(QThread):
             self.finished.emit({})
 
 
-class MetadataWriteWorker(QThread):
+class MetadataWriteWorker(CancellableWorker):
     """Worker thread for metadata writing operations."""
 
     progress = Signal(int, int, int)  # current, total, track_id
@@ -107,11 +107,10 @@ class MetadataWriteWorker(QThread):
         self.metadata_writer = metadata_writer
         self.track_ids = track_ids
         self.mode = mode
-        self._is_cancelled = False
 
     def cancel(self):
         """Cancel the operation."""
-        self._is_cancelled = True
+        self.request_cancel()
 
     def run(self):
         """Execute the metadata writing operation."""
@@ -119,7 +118,7 @@ class MetadataWriteWorker(QThread):
         results = {}
 
         for i, track_id in enumerate(self.track_ids):
-            if self._is_cancelled:
+            if self.is_cancelled:
                 break
 
             self.progress.emit(i + 1, total, track_id)

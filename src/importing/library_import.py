@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import psutil
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Signal
 
+from src.common.cancellable_worker import CancellableWorker
 from src.metadata.metadata_extraction import MetadataExtractor
 from src.importing.artist_field_extraction import (
     ALBUM_ARTIST_FIELDS,
@@ -680,7 +681,7 @@ class TrackImporter:
                 logger.debug(f"  {key}: {type(value)} -> {str(value)[:100]}...")
 
 
-class ImportWorker(QThread):
+class ImportWorker(CancellableWorker):
     """
     Background import worker with resource monitoring and graceful error handling.
     Processes audio files in batches with comprehensive progress tracking.
@@ -696,7 +697,6 @@ class ImportWorker(QThread):
         self.controller = controller
         self.paths = [Path(path) for path in paths]
         self.importer = TrackImporter(controller)
-        self._stop_requested = False
         self.processed_count = 0
         self._resource_check_interval = 50
         self._memory_warning_threshold_mb = 500
@@ -726,7 +726,7 @@ class ImportWorker(QThread):
 
         successful_imports = 0
         for i, file_path in enumerate(all_files):
-            if self._stop_requested:
+            if self.is_cancelled:
                 logger.info("Import stopped by user request")
                 break
 
@@ -740,7 +740,7 @@ class ImportWorker(QThread):
         """Collect all audio files from all provided paths."""
         all_files = []
         for path in self.paths:
-            if self._stop_requested:
+            if self.is_cancelled:
                 break
             if path.exists():
                 files = self.importer.process_path(str(path))
@@ -798,12 +798,3 @@ class ImportWorker(QThread):
             logger.warning(warning_msg)
             self.resource_warning.emit("memory", memory_mb)
 
-    @property
-    def stop_requested(self) -> bool:
-        """Thread-safe access to stop flag."""
-        return self._stop_requested
-
-    def stop(self):
-        """Request the worker to stop processing gracefully."""
-        self._stop_requested = True
-        logger.info("Import worker stop requested")

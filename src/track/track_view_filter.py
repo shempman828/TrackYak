@@ -2,8 +2,9 @@
 track_view_filter.py — background search/filter worker for TrackView.
 """
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Signal
 
+from src.common.cancellable_worker import CancellableWorker
 from src.core.logger_config import logger
 from src.db.db_mapping_tracks import TRACK_FIELDS
 
@@ -14,7 +15,7 @@ LAZY_BATCH_SIZE = 200
 SEARCH_ALL = "__all__"
 
 
-class FilterWorker(QThread):
+class FilterWorker(CancellableWorker):
     """
     Runs the track-filter loop on a background thread.
     Emits `finished` with the matching subset when done.
@@ -25,6 +26,10 @@ class FilterWorker(QThread):
     `album_name` / `release_year` are SQLAlchemy association_proxy's onto
     `Track.album`, so a raw `getattr(track, field_name)` here would trigger a
     lazy load off the main thread and raise DetachedInstanceError.
+
+    Checks `is_cancelled` inside the filter loop so a caller that starts a
+    new search while one is still running can interrupt it via
+    `request_cancel()` instead of blocking on `.wait()` until it finishes.
     """
 
     finished = Signal(list)
@@ -51,6 +56,9 @@ class FilterWorker(QThread):
         results = []
 
         for t in self._tracks:
+            if self.is_cancelled:
+                break
+
             if self._field_name == SEARCH_ALL:
                 # Search a broad set of common fields
                 values = [
@@ -85,7 +93,7 @@ class FilterWorker(QThread):
         self.finished.emit(results)
 
 
-class SortWorker(QThread):
+class SortWorker(CancellableWorker):
     """
     Runs a column sort on a background thread so large libraries don't
     freeze the UI while sorting.
@@ -93,6 +101,11 @@ class SortWorker(QThread):
     `field_value_fn` must only read already-loaded scalar data (plain Column
     attributes or precomputed lookup caches) — never touch a lazy-loaded ORM
     relationship, since the DB session is main-thread-only.
+
+    Inherits CancellableWorker for naming consistency with the rest of the
+    codebase, but a single `sorted()` call has no natural interruption
+    point, so `request_cancel()` here can't do more than today: the caller
+    still waits for the in-flight sort to finish (which is fast).
     """
 
     finished = Signal(list)

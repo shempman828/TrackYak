@@ -843,7 +843,9 @@ class ArtistView(QWidget):
         from collections import defaultdict
         from difflib import SequenceMatcher
 
-        from PySide6.QtCore import QThread, Signal
+        from PySide6.QtCore import Signal
+
+        from src.common.cancellable_worker import CancellableWorker
 
         THRESHOLD = 0.85  # 85% similarity required to flag as a duplicate
 
@@ -871,7 +873,7 @@ class ArtistView(QWidget):
         progress.show()
 
         # --- Background worker ---
-        class _ScanWorker(QThread):
+        class _ScanWorker(CancellableWorker):
             finished = Signal(list)
             error = Signal(str)
 
@@ -900,6 +902,8 @@ class ArtistView(QWidget):
 
                     # Only compare within each block
                     for block in blocks.values():
+                        if self.is_cancelled:
+                            break
                         if len(block) < 2:
                             continue
                         for i, a in enumerate(block):
@@ -944,7 +948,7 @@ class ArtistView(QWidget):
             QMessageBox.critical(self, "Scan Error", f"Duplicate scan failed:\n{msg}")
 
         def _on_cancelled():
-            worker.quit()
+            worker.request_cancel()
 
         worker.finished.connect(_on_finished)
         worker.error.connect(_on_error)
