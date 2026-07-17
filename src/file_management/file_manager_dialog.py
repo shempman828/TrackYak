@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 
 from src.core.asset_paths import icon
 from src.core.config_setup import app_config
-from src.file_management.file_manager import FileOrganizer
+from src.file_management.file_manager import CLEANUP_PROGRESS_START, FileOrganizer
 from src.file_management.file_organizer_preview_dialog import OrganizationPreviewDialog
 from src.importing.import_dialog import ImportDialog
 from src.metadata.metadata_writer_dialog import show_metadata_write_dialog
@@ -300,11 +300,14 @@ class FileManager(QDialog):
         self.org_status.setText(f"{current_file} — {percent}%")
 
     def _update_cleanup_progress(self, percent: int, current_dir: str) -> None:
-        # map cleanup into last few percents if desired
+        # Cleanup's own 0-100 percent is compressed into the remaining slice
+        # of the bar after analysis + execution (see CLEANUP_PROGRESS_START).
         if self.org_progress.maximum() == 0:
             self.org_progress.setRange(0, 100)
-        # keep it simple: show percent as-is
-        self.org_progress.setValue(min(100, 95 + percent // 20))
+        cleanup_span = 100 - CLEANUP_PROGRESS_START
+        self.org_progress.setValue(
+            min(100, CLEANUP_PROGRESS_START + int(percent / 100 * cleanup_span))
+        )
         self.org_status.setText(f"Cleaning: {current_dir}")
 
     def _show_organization_preview(self, operations: List[Dict]) -> None:
