@@ -111,28 +111,33 @@ class TrackEditDialog(QDialog):
         right_widget.setLayout(right)
         root.addWidget(right_widget, stretch=1)
 
-        # Build all tabs
+        # Build all tabs, ordered most- to least-critical: core identity and
+        # the artist/album/date relationships that define a track sit up top;
+        # niche metadata (aliases, samples) and Advanced sit at the bottom.
         self._tabs: List[_BaseTab] = []
         self._add_tab("Basic", FieldFormTab("Basic", self.tracks, self.controller))
-        self._add_tab("Lyrics", LyricsTab(self.tracks, self.controller))
+        self._add_tab("Artists & Roles", RolesTab(self.tracks, self.controller))
+        self._add_tab("Albums", AlbumsTab(self.tracks, self.controller))
         self._add_tab("Dates", FieldFormTab("Date", self.tracks, self.controller))
+        self._add_tab("Genres", GenresTab(self.tracks, self.controller))
+        self._add_tab(
+            "Description", FieldFormTab("Description", self.tracks, self.controller)
+        )
+        self._add_tab("Lyrics", LyricsTab(self.tracks, self.controller))
         self._add_tab(
             "Classical", FieldFormTab("Classical", self.tracks, self.controller)
         )
         self._add_tab(
             "Properties", FieldFormTab("Properties", self.tracks, self.controller)
         )
-        self._add_tab("Identification", IdentificationTab(self.tracks, self.controller))
-        self._add_tab("User Data", FieldFormTab("User", self.tracks, self.controller))
-        self._add_tab("Artists & Roles", RolesTab(self.tracks, self.controller))
-        self._add_tab("Genres", GenresTab(self.tracks, self.controller))
-        self._add_tab("Places", PlacesTab(self.tracks, self.controller))
         self._add_tab("Moods", MoodsTab(self.tracks, self.controller))
+        self._add_tab("Places", PlacesTab(self.tracks, self.controller))
         self._add_tab("Awards", AwardsTab(self.tracks, self.controller))
+        self._add_tab("User Data", FieldFormTab("User", self.tracks, self.controller))
+        self._add_tab("Identification", IdentificationTab(self.tracks, self.controller))
+        self._add_tab("Used In", UsedInTab(self.tracks, self.controller))
         self._add_tab("Aliases", FieldFormTab("Alias", self.tracks, self.controller))
         self._add_tab("Samples", SamplesTab(self.tracks, self.controller))
-        self._add_tab("Albums", AlbumsTab(self.tracks, self.controller))
-        self._add_tab("Used In", UsedInTab(self.tracks, self.controller))
         advanced_tab = AdvancedTab(self.tracks, self.controller)
         advanced_tab.tracks_analyzed.connect(self._on_tracks_analyzed)
         self._add_tab("Advanced", advanced_tab)
