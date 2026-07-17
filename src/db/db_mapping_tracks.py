@@ -34,7 +34,7 @@ TRACK_FIELDS = {
         short="ID",
         type=int,
         editable=False,
-        category="Basic",
+        category="Advanced",
         tooltip="The Unique ID assigned to the track in the database.",
     ),
     "track_number": TrackField(
