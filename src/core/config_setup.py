@@ -47,11 +47,28 @@ class Config:
             try:
                 self.config.read(self.config_path)
                 logger.info(f"Configuration loaded from {self.config_path}")
+                self._migrate_legacy_queue_keys()
             except Exception as e:
                 logger.error(f"Error loading config: {e}")
                 self._create_default_config()
         else:
             self._create_default_config()
+            self.save()
+
+    def _migrate_legacy_queue_keys(self):
+        """One-time cleanup: queue/history track IDs used to be stored directly
+        in this ini file and could grow to tens of thousands of entries for a
+        shuffled library. They now live in queue_state.json — strip the old
+        keys so an already-bloated config.ini shrinks back down."""
+        if not self.config.has_section("queue"):
+            return
+        removed = False
+        for legacy_key in ("history_ids", "queue_ids"):
+            if self.config.has_option("queue", legacy_key):
+                self.config.remove_option("queue", legacy_key)
+                removed = True
+        if removed:
+            logger.info("Migrated legacy queue/history IDs out of config.ini")
             self.save()
 
     def _create_default_config(self):
@@ -119,10 +136,10 @@ class Config:
             "presets": "Flat,Bass Boost,Treble Boost,Rock,Pop,Jazz,Classical,Electronic,Hip Hop,Acoustic,Vocal Boost,Dance",
         }
         # Queue section
-
+        # Note: queue/history track IDs live in queue_state.json, not here —
+        # a shuffled full-library queue can be tens of thousands of IDs, which
+        # doesn't belong in a human-editable settings file.
         self.config["queue"] = {
-            "history_ids": "",  # most-recent-last, up to 500 entries
-            "queue_ids": "",  # current + up to 500 upcoming
             "persist_queue": "true",
         }
         self.config["track_view"] = {
@@ -147,6 +164,51 @@ class Config:
         except Exception as e:
             logger.error(f"Error saving config: {e}")
 
+    # --- Generic section/type helpers -------------------------------------
+    # Every get_*/set_* pair below is a thin wrapper around one of these.
+    # Setters ensure the section exists first, since not all sections are
+    # guaranteed to be present in configs written by older app versions.
+
+    def _ensure_section(self, section: str):
+        if section not in self.config:
+            self.config[section] = {}
+
+    def _get_str(self, section: str, key: str, fallback: str = "") -> str:
+        return self.config.get(section, key, fallback=fallback)
+
+    def _set_str(self, section: str, key: str, value: str):
+        self._ensure_section(section)
+        self.config.set(section, key, value)
+
+    def _get_bool(self, section: str, key: str, fallback: bool = False) -> bool:
+        return self.config.getboolean(section, key, fallback=fallback)
+
+    def _set_bool(self, section: str, key: str, value: bool):
+        self._set_str(section, key, str(value).lower())
+
+    def _get_int(self, section: str, key: str, fallback: int = 0) -> int:
+        return self.config.getint(section, key, fallback=fallback)
+
+    def _set_int(self, section: str, key: str, value: int):
+        self._set_str(section, key, str(value))
+
+    def _get_float(self, section: str, key: str, fallback: float = 0.0) -> float:
+        return self.config.getfloat(section, key, fallback=fallback)
+
+    def _set_float(self, section: str, key: str, value: float):
+        self._set_str(section, key, str(value))
+
+    def _get_list(self, section: str, key: str, fallback: str = "") -> list:
+        raw = self.config.get(section, key, fallback=fallback)
+        return raw.split(",") if raw else []
+
+    def _set_list(self, section: str, key: str, items: list):
+        self._set_str(section, key, ",".join(str(item) for item in items))
+
+    def _get_int_list(self, section: str, key: str, fallback: str = "") -> list:
+        raw = self.config.get(section, key, fallback=fallback)
+        return [int(item) for item in raw.split(",")] if raw else []
+
     # Window properties
     def get_window_size(self):
         """Get window size from config"""
@@ -160,7 +222,7 @@ class Config:
     def set_window_size(self, size: QSize):
         """Set window size in config"""
         size_str = f"{size.width()},{size.height()}"
-        self.config.set("window", "size", size_str)
+        self._set_str("window", "size", size_str)
 
     def get_window_position(self):
         """Get window position from config"""
@@ -174,7 +236,7 @@ class Config:
     def set_window_position(self, position: QPoint):
         """Set window position in config"""
         pos_str = f"{position.x()},{position.y()}"
-        self.config.set("window", "position", pos_str)
+        self._set_str("window", "position", pos_str)
 
     def get_window_state(self):
         """Get window state from config"""
@@ -189,53 +251,53 @@ class Config:
     def set_window_state(self, state: QByteArray):
         """Set window state in config"""
         state_b64 = state.toBase64().data().decode()
-        self.config.set("window", "state", state_b64)
+        self._set_str("window", "state", state_b64)
 
     def is_window_maximized(self):
         """Check if window should be maximized"""
-        return self.config.getboolean("window", "maximized", fallback=False)
+        return self._get_bool("window", "maximized", fallback=False)
 
     def set_window_maximized(self, maximized: bool):
         """Set window maximized state"""
-        self.config.set("window", "maximized", str(maximized).lower())
+        self._set_bool("window", "maximized", maximized)
 
     # App properties
     def get_theme(self):
         """Get current theme"""
-        return self.config.get("app", "theme", fallback="dark_mode")
+        return self._get_str("app", "theme", fallback="dark_mode")
 
     def set_theme(self, theme: str):
         """Set theme"""
-        self.config.set("app", "theme", theme)
+        self._set_str("app", "theme", theme)
 
     def get_theme_file(self):
         """Get current theme file"""
-        return self.config.get("app", "theme_file", fallback="default.qss")
+        return self._get_str("app", "theme_file", fallback="default.qss")
 
     def set_theme_file(self, theme_file: str):
         """Set theme file"""
-        self.config.set("app", "theme_file", theme_file)
+        self._set_str("app", "theme_file", theme_file)
 
     def is_first_run(self):
         """Check if this is the first run"""
-        return self.config.getboolean("app", "first_run", fallback=True)
+        return self._get_bool("app", "first_run", fallback=True)
 
     def set_first_run(self, first_run: bool):
         """Set first run flag"""
-        self.config.set("app", "first_run", str(first_run).lower())
+        self._set_bool("app", "first_run", first_run)
 
     # Base directory methods (replacing your deprecated code)
     def get_base_directory(self):
         """Get base music directory"""
         return Path(
-            self.config.get(
+            self._get_str(
                 "library", "root_directory", fallback=str(Path.home() / "Music")
             )
         )
 
     def set_base_directory(self, directory: str | Path):
         """Set base music directory"""
-        self.config.set("library", "root_directory", str(directory))
+        self._set_str("library", "root_directory", str(directory))
 
     def get_music_directory(self):
         """Get music directory (alias for base directory)"""
@@ -248,85 +310,85 @@ class Config:
     # Library properties
     def get_scan_on_startup(self):
         """Get scan on startup setting"""
-        return self.config.getboolean("library", "scan_on_startup", fallback=True)
+        return self._get_bool("library", "scan_on_startup", fallback=True)
 
     def set_scan_on_startup(self, scan: bool):
         """Set scan on startup setting"""
-        self.config.set("library", "scan_on_startup", str(scan).lower())
+        self._set_bool("library", "scan_on_startup", scan)
 
     def get_auto_refresh(self):
         """Get auto refresh setting"""
-        return self.config.getboolean("library", "auto_refresh", fallback=False)
+        return self._get_bool("library", "auto_refresh", fallback=False)
 
     def set_auto_refresh(self, refresh: bool):
         """Set auto refresh setting"""
-        self.config.set("library", "auto_refresh", str(refresh).lower())
+        self._set_bool("library", "auto_refresh", refresh)
 
     # Playback properties
     def get_volume(self):
         """Get volume setting"""
-        return self.config.getint("playback", "volume", fallback=75)
+        return self._get_int("playback", "volume", fallback=75)
 
     def set_volume(self, volume: int):
         """Set volume setting"""
-        self.config.set("playback", "volume", str(volume))
+        self._set_int("playback", "volume", volume)
 
     def get_shuffle(self):
         """Get shuffle setting"""
-        return self.config.getboolean("playback", "shuffle", fallback=False)
+        return self._get_bool("playback", "shuffle", fallback=False)
 
     def set_shuffle(self, shuffle: bool):
         """Set shuffle setting"""
-        self.config.set("playback", "shuffle", str(shuffle).lower())
+        self._set_bool("playback", "shuffle", shuffle)
 
     def get_repeat_mode(self):
         """Get repeat mode"""
-        return self.config.get("playback", "repeat", fallback="none")
+        return self._get_str("playback", "repeat", fallback="none")
 
     def set_repeat_mode(self, mode: str):
         """Set repeat mode"""
-        self.config.set("playback", "repeat", mode)
+        self._set_str("playback", "repeat", mode)
 
     def get_fade_duration(self):
         """Get fade duration"""
-        return self.config.getint("playback", "fade_duration", fallback=0)
+        return self._get_int("playback", "fade_duration", fallback=0)
 
     def set_fade_duration(self, duration: int):
         """Set fade duration"""
-        self.config.set("playback", "fade_duration", str(duration))
+        self._set_int("playback", "fade_duration", duration)
 
     def get_crossfade(self):
         """Get crossfade setting"""
-        return self.config.getboolean("playback", "crossfade", fallback=False)
+        return self._get_bool("playback", "crossfade", fallback=False)
 
     def set_crossfade(self, crossfade: bool):
         """Set crossfade setting"""
-        self.config.set("playback", "crossfade", str(crossfade).lower())
+        self._set_bool("playback", "crossfade", crossfade)
 
     # Audio properties
     def get_output_device(self):
         """Get output device"""
-        return self.config.get("audio", "output_device", fallback="default")
+        return self._get_str("audio", "output_device", fallback="default")
 
     def set_output_device(self, device: str):
         """Set output device"""
-        self.config.set("audio", "output_device", device)
+        self._set_str("audio", "output_device", device)
 
     def get_sample_rate(self):
         """Get sample rate"""
-        return self.config.getint("audio", "sample_rate", fallback=44100)
+        return self._get_int("audio", "sample_rate", fallback=44100)
 
     def set_sample_rate(self, rate: int):
         """Set sample rate"""
-        self.config.set("audio", "sample_rate", str(rate))
+        self._set_int("audio", "sample_rate", rate)
 
     def get_buffer_size(self):
         """Get buffer size"""
-        return self.config.getint("audio", "buffer_size", fallback=1024)
+        return self._get_int("audio", "buffer_size", fallback=1024)
 
     def set_buffer_size(self, size: int):
         """Set buffer size"""
-        self.config.set("audio", "buffer_size", str(size))
+        self._set_int("audio", "buffer_size", size)
 
     # Theme management
     def get_available_themes(self):
@@ -357,95 +419,91 @@ class Config:
     # Logging properties
     def get_logging_level(self):
         """Get logging level"""
-        level_name = self.config.get("logging", "level", fallback="INFO")
+        level_name = self._get_str("logging", "level", fallback="INFO")
         return getattr(logging, level_name, logging.INFO)
 
     def set_logging_level(self, level_name: str):
         """Set logging level"""
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if level_name.upper() in valid_levels:
-            self.config.set("logging", "level", level_name.upper())
+            self._set_str("logging", "level", level_name.upper())
 
     def is_console_logging_enabled(self):
         """Check if console logging is enabled"""
-        return self.config.getboolean("logging", "console_enabled", fallback=True)
+        return self._get_bool("logging", "console_enabled", fallback=True)
 
     def set_console_logging_enabled(self, enabled: bool):
         """Set console logging enabled"""
-        self.config.set("logging", "console_enabled", str(enabled).lower())
+        self._set_bool("logging", "console_enabled", enabled)
 
     def is_file_logging_enabled(self):
         """Check if file logging is enabled"""
-        return self.config.getboolean("logging", "file_enabled", fallback=True)
+        return self._get_bool("logging", "file_enabled", fallback=True)
 
     def set_file_logging_enabled(self, enabled: bool):
         """Set file logging enabled"""
-        self.config.set("logging", "file_enabled", str(enabled).lower())
+        self._set_bool("logging", "file_enabled", enabled)
 
     def get_max_file_size_mb(self):
         """Get maximum log file size in MB"""
-        return self.config.getint("logging", "max_file_size_mb", fallback=10)
+        return self._get_int("logging", "max_file_size_mb", fallback=10)
 
     def set_max_file_size_mb(self, size_mb: int):
         """Set maximum log file size in MB"""
-        self.config.set("logging", "max_file_size_mb", str(size_mb))
+        self._set_int("logging", "max_file_size_mb", size_mb)
 
     def get_backup_count(self):
         """Get number of backup log files to keep"""
-        return self.config.getint("logging", "backup_count", fallback=14)
+        return self._get_int("logging", "backup_count", fallback=14)
 
     def set_backup_count(self, count: int):
         """Set number of backup log files to keep"""
-        self.config.set("logging", "backup_count", str(count))
+        self._set_int("logging", "backup_count", count)
 
     def get_equalizer_enabled(self):
         """Get equalizer enabled state"""
-        return self.config.getboolean("equalizer", "enabled", fallback=False)
+        return self._get_bool("equalizer", "enabled", fallback=False)
 
     def set_equalizer_enabled(self, enabled: bool):
         """Set equalizer enabled state"""
-        self.config.set("equalizer", "enabled", str(enabled).lower())
+        self._set_bool("equalizer", "enabled", enabled)
 
     def get_equalizer_custom_preset_name(self):
         """Get custom preset name"""
-        return self.config.get(
-            "equalizer", "custom_preset_name", fallback="My Custom EQ"
-        )
+        return self._get_str("equalizer", "custom_preset_name", fallback="My Custom EQ")
 
     def set_equalizer_custom_preset_name(self, name: str):
         """Set custom preset name"""
-        self.config.set("equalizer", "custom_preset_name", name)
+        self._set_str("equalizer", "custom_preset_name", name)
 
     def get_equalizer_band_gains(self):
         """Get band gains as list of floats"""
-        gains_str = self.config.get(
+        gains_str = self._get_str(
             "equalizer",
             "band_gains",
             fallback="0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0",
         )
         try:
             return [float(gain) for gain in gains_str.split(",")]
-        except:  # noqa: E722
+        except ValueError:
             return [0.0] * 10
 
     def set_equalizer_band_gains(self, gains: list):
         """Set band gains from list of floats"""
         gains_str = ",".join(f"{gain:.1f}" for gain in gains)
-        self.config.set("equalizer", "band_gains", gains_str)
+        self._set_str("equalizer", "band_gains", gains_str)
 
     def get_equalizer_presets(self):
         """Get list of available presets"""
-        presets_str = self.config.get(
+        return self._get_list(
             "equalizer",
             "presets",
             fallback="Flat,Bass Boost,Treble Boost,Rock,Pop,Jazz,Classical,Electronic,Hip Hop,Acoustic,Vocal Boost,Dance",
         )
-        return presets_str.split(",")
 
     def set_equalizer_presets(self, presets: list):
         """Set available presets"""
-        presets_str = ",".join(presets)
-        self.config.set("equalizer", "presets", presets_str)
+        self._set_list("equalizer", "presets", presets)
 
     def save_equalizer_settings(
         self, enabled: bool, band_gains: list, preset_name: str = "Custom"
@@ -459,112 +517,84 @@ class Config:
 
     def get_display_theme(self):
         """Get display theme"""
-        return self.config.get("display", "theme", fallback="dark_mode")
+        return self._get_str("display", "theme", fallback="dark_mode")
 
     def set_display_theme(self, theme: str):
         """Set display theme"""
-        self.config.set("display", "theme", theme)
+        self._set_str("display", "theme", theme)
 
     def get_ui_scale(self):
         """Get UI scale factor"""
-        return self.config.getfloat("display", "ui_scale", fallback=1.0)
+        return self._get_float("display", "ui_scale", fallback=1.0)
 
     def set_ui_scale(self, scale: float):
         """Set UI scale factor"""
-        self.config.set("display", "ui_scale", str(scale))
+        self._set_float("display", "ui_scale", scale)
 
     def get_font_family(self):
         """Get font family"""
-        return self.config.get("display", "font_family", fallback="Inter")
+        return self._get_str("display", "font_family", fallback="Inter")
 
     def set_font_family(self, font_family: str):
         """Set font family"""
-        self.config.set("display", "font_family", font_family)
+        self._set_str("display", "font_family", font_family)
 
     def get_font_size(self):
         """Get font size"""
-        return self.config.getint("display", "font_size", fallback=10)
+        return self._get_int("display", "font_size", fallback=10)
 
     def set_font_size(self, size: int):
         """Set font size"""
-        self.config.set("display", "font_size", str(size))
+        self._set_int("display", "font_size", size)
 
     def get_blur_explicit_art(self):
         """Get whether album art marked explicit should be shown blurred"""
-        return self.config.getboolean("display", "blur_explicit_art", fallback=False)
+        return self._get_bool("display", "blur_explicit_art", fallback=False)
 
     def set_blur_explicit_art(self, enabled: bool):
         """Set whether album art marked explicit should be shown blurred"""
-        self.config.set("display", "blur_explicit_art", str(enabled).lower())
+        self._set_bool("display", "blur_explicit_art", enabled)
 
     def get_censor_explicit_words(self):
         """Get whether explicit words should be censored throughout the app"""
-        return self.config.getboolean(
-            "display", "censor_explicit_words", fallback=False
-        )
+        return self._get_bool("display", "censor_explicit_words", fallback=False)
 
     def set_censor_explicit_words(self, enabled: bool):
         """Set whether explicit words should be censored throughout the app"""
-        self.config.set("display", "censor_explicit_words", str(enabled).lower())
+        self._set_bool("display", "censor_explicit_words", enabled)
 
     # Queue properties
-    def get_queue_track_ids(self):
-        """Get saved queue track IDs as string."""
-        return self.config.get("queue", "track_ids", fallback="")
-
-    def set_queue_track_ids(self, track_ids_str: str):
-        """Set queue track IDs."""
-        self.config.set("queue", "track_ids", track_ids_str)
-
-    def get_queue_history_exists(self):
-        """Get queue history state."""
-        return self.config.getboolean("queue", "history_exists", fallback=False)
-
-    def set_queue_history_exists(self, exists: bool):
-        """Set queue history state."""
-        self.config.set("queue", "history_exists", str(exists).lower())
-
     def get_persist_queue(self):
         """Get whether to persist queue across sessions."""
-        return self.config.getboolean("queue", "persist_queue", fallback=True)
+        return self._get_bool("queue", "persist_queue", fallback=True)
 
     def set_persist_queue(self, persist: bool):
         """Set whether to persist queue across sessions."""
-        self.config.set("queue", "persist_queue", str(persist).lower())
+        self._set_bool("queue", "persist_queue", persist)
 
     def get_track_view_visible_columns(self):
         """Get visible columns from config."""
-        columns_str = self.config.get("track_view", "visible_columns", fallback="")
-        if columns_str:
-            return columns_str.split(",")
-        return []
+        return self._get_list("track_view", "visible_columns", fallback="")
 
     def set_track_view_visible_columns(self, columns: list):
         """Set visible columns in config."""
-        self.config.set("track_view", "visible_columns", ",".join(columns))
+        self._set_list("track_view", "visible_columns", columns)
 
     def get_track_view_column_order(self):
         """Get column order from config."""
-        order_str = self.config.get("track_view", "column_order", fallback="")
-        if order_str:
-            return order_str.split(",")
-        return []
+        return self._get_list("track_view", "column_order", fallback="")
 
     def set_track_view_column_order(self, order: list):
         """Set column order in config."""
-        self.config.set("track_view", "column_order", ",".join(order))
+        self._set_list("track_view", "column_order", order)
 
     def get_track_view_column_widths(self):
         """Get column widths from config."""
-        widths_str = self.config.get("track_view", "column_widths", fallback="")
-        if widths_str:
-            return [int(w) for w in widths_str.split(",")]
-        return []
+        return self._get_int_list("track_view", "column_widths", fallback="")
 
     def set_track_view_column_widths(self, widths: list):
         """Set column widths in config."""
-        widths_str = ",".join(str(w) for w in widths)
-        self.config.set("track_view", "column_widths", widths_str)
+        self._set_list("track_view", "column_widths", widths)
 
     def get_lyrics_sync_offset(self) -> int:
         """
@@ -573,7 +603,7 @@ class Config:
         Returns an int in the range the slider accepts (−50 … 50).
         """
         try:
-            return self.config.getint("nowplaying", "lyrics_sync_offset", fallback=-5)
+            return self._get_int("nowplaying", "lyrics_sync_offset", fallback=-5)
         except Exception:
             return -5
 
@@ -582,32 +612,26 @@ class Config:
         Persist the lyrics sync-offset slider value.
         value is in tenths of a second (same unit the slider uses).
         """
-        if "nowplaying" not in self.config:
-            self.config["nowplaying"] = {}
-        self.config.set("nowplaying", "lyrics_sync_offset", str(int(value)))
+        self._set_int("nowplaying", "lyrics_sync_offset", int(value))
 
     def get_influence_legend_visible(self) -> bool:
         """Get whether the cluster legend overlay is shown in the influences view."""
-        return self.config.getboolean("influences", "legend_visible", fallback=True)
+        return self._get_bool("influences", "legend_visible", fallback=True)
 
     def set_influence_legend_visible(self, visible: bool):
         """Set whether the cluster legend overlay is shown in the influences view."""
-        if "influences" not in self.config:
-            self.config["influences"] = {}
-        self.config.set("influences", "legend_visible", str(visible).lower())
+        self._set_bool("influences", "legend_visible", visible)
 
     def get_influence_legend_size(self) -> tuple:
         """Get the persisted (width, height) of the cluster legend overlay."""
-        width = self.config.getint("influences", "legend_width", fallback=240)
-        height = self.config.getint("influences", "legend_height", fallback=260)
+        width = self._get_int("influences", "legend_width", fallback=240)
+        height = self._get_int("influences", "legend_height", fallback=260)
         return width, height
 
     def set_influence_legend_size(self, width: int, height: int):
         """Persist the (width, height) of the cluster legend overlay."""
-        if "influences" not in self.config:
-            self.config["influences"] = {}
-        self.config.set("influences", "legend_width", str(int(width)))
-        self.config.set("influences", "legend_height", str(int(height)))
+        self._set_int("influences", "legend_width", int(width))
+        self._set_int("influences", "legend_height", int(height))
 
     def get_influence_cluster_names(self) -> dict:
         """Get persisted Louvain cluster names, keyed by anchor artist ID (as string).
@@ -615,7 +639,7 @@ class Config:
         Community indices are reassigned on every Louvain recompute, so names
         are pinned to each cluster's highest-degree "anchor" artist instead.
         """
-        raw = self.config.get("influences", "cluster_names", fallback="")
+        raw = self._get_str("influences", "cluster_names", fallback="")
         if not raw:
             return {}
         try:
@@ -625,19 +649,15 @@ class Config:
 
     def set_influence_cluster_names(self, names: dict):
         """Set persisted Louvain cluster names, keyed by anchor artist ID (as string)."""
-        if "influences" not in self.config:
-            self.config["influences"] = {}
-        self.config.set("influences", "cluster_names", json.dumps(names))
+        self._set_str("influences", "cluster_names", json.dumps(names))
 
     def get_last_art_dir(self) -> str:
         """Get the last directory used when picking album artwork."""
-        return self.config.get("ui", "last_art_dir", fallback=str(Path.home()))
+        return self._get_str("ui", "last_art_dir", fallback=str(Path.home()))
 
     def set_last_art_dir(self, directory: str) -> None:
         """Persist the last directory used when picking album artwork."""
-        if "ui" not in self.config:
-            self.config["ui"] = {}
-        self.config.set("ui", "last_art_dir", directory)
+        self._set_str("ui", "last_art_dir", directory)
 
 
 app_config = Config()
