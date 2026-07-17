@@ -8,7 +8,6 @@ from typing import Any, Dict
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
@@ -30,6 +29,14 @@ class LyricsTab(_BaseTab):
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
         self._explicit_widget = None
+
+        from src.lyrics.lyrics_search import LyricSearchThread
+
+        self._lyric_thread = LyricSearchThread(parent=self)
+        self._lyric_thread.lyrics_ready.connect(self._on_lyrics_ready)
+        self._lyric_thread.lyrics_not_found.connect(self._on_lyrics_not_found)
+        self._lyric_thread.error_occurred.connect(self._on_lyric_error)
+
         self._build_ui()
 
     def _build_ui(self):
@@ -66,6 +73,7 @@ class LyricsTab(_BaseTab):
         layout.addWidget(self._edit)
 
     def load(self, tracks: list) -> None:
+        self._lyric_thread.stop()
         self.tracks = tracks
         self._dirty.clear()
         if self.is_multi:
@@ -107,18 +115,27 @@ class LyricsTab(_BaseTab):
         return changes
 
     def _search_lyrics(self):
-        try:
-            from src.lyrics.lyrics_search import search_lyrics_for_track
+        self._search_btn.setEnabled(False)
+        show_status_message(self, "Searching for lyrics…", duration=0)
+        self._lyric_thread.search(self.track)
 
-            lyrics = search_lyrics_for_track(self.track)
-            if lyrics:
-                formatted = self._format_lyrics(lyrics)
-                self._edit.setPlainText(formatted)
-            else:
-                show_status_message(self, "No lyrics found.")
-        except Exception as e:
-            logger.error(f"Lyrics search error: {e}")
-            QMessageBox.warning(self, "Lyrics Search", f"Search failed:\n{e}")
+    def _on_lyrics_ready(self, lyrics) -> None:
+        formatted = self._format_lyrics(lyrics)
+        self._edit.setPlainText(formatted)
+        self._search_btn.setEnabled(True)
+        show_status_message(self, "Lyrics found.")
+
+    def _on_lyrics_not_found(self) -> None:
+        self._search_btn.setEnabled(True)
+        show_status_message(self, "No lyrics found.")
+
+    def _on_lyric_error(self, message: str) -> None:
+        logger.error(f"Lyrics search error: {message}")
+        self._search_btn.setEnabled(True)
+        show_status_message(self, f"Lyrics search failed: {message}")
+
+    def cleanup(self) -> None:
+        self._lyric_thread.stop()
 
     @staticmethod
     def _format_lyrics(lyrics_obj) -> str:
