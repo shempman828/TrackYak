@@ -243,6 +243,13 @@ class PlayerUI(QWidget):
         # Rating stars and other initialization...
         self.rating_stars = RatingStarsWidget()
 
+        from src.lyrics.lyrics_search import LyricSearchThread
+
+        self._lyric_thread = LyricSearchThread(parent=self)
+        self._lyric_thread.lyrics_ready.connect(self._on_lyrics_ready)
+        self._lyric_thread.lyrics_not_found.connect(self._on_lyrics_not_found)
+        self._lyric_thread.error_occurred.connect(self._on_lyric_error)
+
         # Initialize UI and connections
         self.init_ui()
         self.init_connections()
@@ -1385,29 +1392,38 @@ class PlayerUI(QWidget):
         """Search for lyrics for the currently playing track and save them."""
         if not self.current_track:
             return
+        if self._lyric_thread.is_running:
+            return
+        StatusManager.show_message("Searching for lyrics…", 0)
+        self._lyric_search_track = self.current_track
+        self._lyric_thread.search(self.current_track)
+
+    def _on_lyrics_ready(self, lyrics) -> None:
+        track = self._lyric_search_track
         try:
-            from src.lyrics.lyrics_search import search_lyrics_for_track
-
-            StatusManager.show_message("Searching for lyrics…", 0)
-
-            lyrics = search_lyrics_for_track(self.current_track)
-            if lyrics:
-                # Convert the Lyrics object to a plain string before saving
-                lyrics_text = self._format_lyrics(lyrics)
-
-                self.controller.update.update_entity(
-                    "Track",
-                    self.current_track.track_id,
-                    lyrics=lyrics_text,
-                )
-                StatusManager.show_message("Lyrics found and saved.", 4000)
+            lyrics_text = self._format_lyrics(lyrics)
+            self.controller.update.update_entity(
+                "Track",
+                track.track_id,
+                lyrics=lyrics_text,
+            )
+            StatusManager.show_message("Lyrics found and saved.", 4000)
+            if self.current_track is track:
                 self._reload_now_playing()
-            else:
-                StatusManager.show_message("No lyrics found for this track.", 4000)
-
         except Exception as e:
-            logger.error(f"Lyrics search error from player dock: {e}")
+            logger.error(f"Error saving lyrics from player dock: {e}")
             StatusManager.show_message(f"Lyrics search failed: {e}", 5000)
+
+    def _on_lyrics_not_found(self) -> None:
+        StatusManager.show_message("No lyrics found for this track.", 4000)
+
+    def _on_lyric_error(self, message: str) -> None:
+        logger.error(f"Lyrics search error from player dock: {message}")
+        StatusManager.show_message(f"Lyrics search failed: {message}", 5000)
+
+    def cleanup(self):
+        """Stop any in-flight background work before the app closes."""
+        self._lyric_thread.stop()
 
     def _reload_now_playing(self):
         """
