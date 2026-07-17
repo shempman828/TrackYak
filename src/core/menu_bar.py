@@ -20,6 +20,37 @@ from src.statistics.statistics_dialog import MusicStatsDialog
 
 
 class MenuBar:
+    def add_action(
+        self,
+        menu,
+        text,
+        icon_name=None,
+        slot=None,
+        shortcut=None,
+        *,
+        tooltip=None,
+        checkable=False,
+        checked=False,
+        shortcut_context=None,
+    ):
+        """Build a QAction, wire it up, and append it to `menu` in one call."""
+        action = QAction(text, self)
+        if icon_name and self._icon_exists(icon_name):
+            action.setIcon(QIcon(icon(icon_name)))
+        if shortcut:
+            action.setShortcut(QKeySequence(shortcut))
+        if shortcut_context is not None:
+            action.setShortcutContext(shortcut_context)
+        if tooltip:
+            action.setToolTip(tooltip)
+        if checkable:
+            action.setCheckable(True)
+            action.setChecked(checked)
+        if slot is not None:
+            action.triggered.connect(slot)
+        menu.addAction(action)
+        return action
+
     def _init_menu_bar(self):
         """Create the main menu bar without navigation-specific actions."""
         menu_bar = self.menuBar()
@@ -27,113 +58,110 @@ class MenuBar:
         # File menu
         file_menu = menu_bar.addMenu("File")
 
-        import_action = QAction("Import Directory", self)
-        import_action.setIcon(QIcon(icon("import.svg")))
-        import_action.triggered.connect(self.show_import_dialog)
-        file_menu.addAction(import_action)
-
-        file_manager_action = QAction("Manage Library", self)
-        file_manager_action.setIcon(QIcon(icon("manage_library.svg")))
-        file_manager_action.triggered.connect(self.show_file_manager)
-        file_menu.addAction(file_manager_action)
-
-        statistics_action = QAction("View Library Statistics", self)
-        statistics_action.setIcon(QIcon(icon("statistics.svg")))
-        statistics_action.triggered.connect(self.show_statistics_dialog)
-        file_menu.addAction(statistics_action)
-
-        duplicate_action = QAction("Find Duplicate Tracks", self)
-        duplicate_action.setToolTip("Scan library for possible duplicate tracks")
-        duplicate_action.triggered.connect(self.show_duplicate_finder)
-        file_menu.addAction(duplicate_action)
-
-        missing_action = QAction("Find Missing Tracks", self)
-        missing_action.setToolTip("Scan library for missing tracks")
-        missing_action.triggered.connect(self.show_missing_tracks)
-        file_menu.addAction(missing_action)
+        self.add_action(
+            file_menu, "Import Directory", "import.svg", self.show_import_dialog
+        )
+        self.add_action(
+            file_menu, "Manage Library", "manage_library.svg", self.show_file_manager
+        )
+        self.add_action(
+            file_menu,
+            "View Library Statistics",
+            "statistics.svg",
+            self.show_statistics_dialog,
+        )
+        self.add_action(
+            file_menu,
+            "Find Duplicate Tracks",
+            slot=self.show_duplicate_finder,
+            tooltip="Scan library for possible duplicate tracks",
+        )
+        self.add_action(
+            file_menu,
+            "Find Missing Tracks",
+            slot=self.show_missing_tracks,
+            tooltip="Scan library for missing tracks",
+        )
 
         file_menu.addSeparator()
 
         # General Settings — opens the full ConfigDialog
-        general_settings_action = QAction("General Settings", self)
-        general_settings_action.setIcon(
-            QIcon(icon("settings.svg"))
-            if self._icon_exists("settings.svg")
-            else QIcon()
+        self.add_action(
+            file_menu,
+            "General Settings",
+            "settings.svg",
+            self.show_general_settings_dialog,
         )
-        general_settings_action.triggered.connect(self.show_general_settings_dialog)
-        file_menu.addAction(general_settings_action)
 
         file_menu.addSeparator()
 
-        exit_action = QAction("Exit", self)
-        exit_action.setShortcut(QKeySequence("Ctrl+Q"))
-        exit_action.setIcon(QIcon(icon("exit.svg")))
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
+        self.add_action(
+            file_menu, "Exit", "exit.svg", self.close, shortcut="Ctrl+Q"
+        )
 
         # Audio Menu
         audio_menu = menu_bar.addMenu("Audio")
 
-        audio_settings_action = QAction("Manage Audio Settings", self)
-        audio_settings_action.setIcon(QIcon(icon("audio_settings.svg")))
-        audio_settings_action.triggered.connect(self.show_audio_settings_dialog)
-        audio_menu.addAction(audio_settings_action)
-
-        equalizer_action = QAction("Equalizer Settings", self)
-        equalizer_action.setIcon(QIcon(icon("equalizer.svg")))
-        equalizer_action.triggered.connect(self.show_equalizer_dialog)
-        audio_menu.addAction(equalizer_action)
-
-        audio_props_action = QAction("Audio File Analysis", self)
-        audio_props_action.setIcon(QIcon(icon("audio_analysis.svg")))
-        audio_props_action.triggered.connect(self.show_audio_properties)
-        audio_menu.addAction(audio_props_action)
+        self.add_action(
+            audio_menu,
+            "Manage Audio Settings",
+            "audio_settings.svg",
+            self.show_audio_settings_dialog,
+        )
+        self.add_action(
+            audio_menu, "Equalizer Settings", "equalizer.svg", self.show_equalizer_dialog
+        )
+        self.add_action(
+            audio_menu,
+            "Audio File Analysis",
+            "audio_analysis.svg",
+            self.show_audio_properties,
+        )
 
         # View menu
         self.view_menu = menu_bar.addMenu("View")
 
-        display_settings_action = QAction("Display Settings", self)
-        display_settings_action.setIcon(QIcon(icon("display_settings.svg")))
-        display_settings_action.triggered.connect(self.show_display_settings_dialog)
-        self.view_menu.addAction(display_settings_action)
+        self.add_action(
+            self.view_menu,
+            "Display Settings",
+            "display_settings.svg",
+            self.show_display_settings_dialog,
+        )
 
-        self.toggle_queue_action = QAction("Show Queue", self)
-        self.toggle_queue_action.setCheckable(True)
-        self.toggle_queue_action.setChecked(False)
-        self.toggle_queue_action.setShortcut(QKeySequence("Shift+Q"))
-        self.toggle_queue_action.setShortcutContext(Qt.ApplicationShortcut)
-        self.toggle_queue_action.triggered.connect(self.toggle_queue_visibility)
-        self.toggle_queue_action.setIcon(QIcon(icon("toggle_queue.svg")))
-        self.view_menu.addAction(self.toggle_queue_action)
+        self.toggle_queue_action = self.add_action(
+            self.view_menu,
+            "Show Queue",
+            "toggle_queue.svg",
+            self.toggle_queue_visibility,
+            shortcut="Shift+Q",
+            checkable=True,
+            checked=False,
+            shortcut_context=Qt.ApplicationShortcut,
+        )
 
-        fullscreen_action = QAction("Full Screen", self)
-        fullscreen_action.setShortcut(QKeySequence("F11"))
-        fullscreen_action.setIcon(QIcon(icon("fullscreen.svg")))
-        fullscreen_action.triggered.connect(self.toggle_fullscreen)
-        self.view_menu.addAction(fullscreen_action)
-
-        miniplayer_action = QAction("Mini Player", self)
-        miniplayer_action.setShortcut(QKeySequence("Ctrl+M"))
-        miniplayer_action.triggered.connect(self.open_miniplayer)
-        self.view_menu.addAction(miniplayer_action)
+        self.add_action(
+            self.view_menu,
+            "Full Screen",
+            "fullscreen.svg",
+            self.toggle_fullscreen,
+            shortcut="F11",
+        )
+        self.add_action(
+            self.view_menu, "Mini Player", slot=self.open_miniplayer, shortcut="Ctrl+M"
+        )
 
         # Help menu
         help_menu = menu_bar.addMenu("Help")
 
-        about_action = QAction("About", self)
-        about_action.triggered.connect(self.show_about_dialog)
-        help_menu.addAction(about_action)
-
-        support_action = QAction("Support this Project", self)
-        help_menu.addAction(support_action)
+        self.add_action(help_menu, "About", slot=self.show_about_dialog)
+        self.add_action(help_menu, "Support this Project")
 
         wikipedia_url = "https://wikimediafoundation.org/give/?rdfrom=%2F%2Fdonate.wikimedia.org%2Fw%2Findex.php%3Ftitle%3DWays_to_Give%26redirect%3Dno#ways-to-give"
-        wikipedia_action = QAction("Support Wikipedia", self)
-        wikipedia_action.triggered.connect(
-            lambda: QDesktopServices.openUrl(QUrl(wikipedia_url))
+        self.add_action(
+            help_menu,
+            "Support Wikipedia",
+            slot=lambda: QDesktopServices.openUrl(QUrl(wikipedia_url)),
         )
-        help_menu.addAction(wikipedia_action)
 
         # --- Menu bar auto-hide setup ---
         # A timer is used to add a small delay before hiding so the bar doesn't
