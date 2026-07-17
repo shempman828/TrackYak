@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.artist.artist_image_manager import move_to_artist_images_dir
+from src.common.edit_dirty import value_changed
 from src.core.logger_config import logger
 from src.image.pixmap_with_fallback import load_pixmap_with_fallback
 
@@ -328,8 +329,9 @@ class BasicTab(QWidget):
         self._links_group.setVisible(bool(self._wiki_link))
 
     def collect_changes(self):
-        """Return a dict of basic field values for update_entity."""
-        return dict(
+        """Return a dict of only the basic fields whose value actually
+        differs from the loaded artist — untouched fields are omitted."""
+        candidates = dict(
             artist_name=self.name_edit.text().strip(),
             artist_type=self.artist_type_edit.text().strip() or None,
             isgroup=1 if self.isgroup_check.isChecked() else 0,
@@ -342,6 +344,11 @@ class BasicTab(QWidget):
             end_day=self.end_day_edit.get_value_or_none(),
             profile_pic_path=self._pic_path or None,
         )
+        return {
+            field: new
+            for field, new in candidates.items()
+            if value_changed(getattr(self.artist, field, None), new)
+        }
 
     # ── Internal slots ─────────────────────────────────────────────────────
 
