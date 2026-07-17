@@ -4,6 +4,7 @@
 
 from PySide6.QtWidgets import QCheckBox, QFormLayout, QLabel, QLineEdit, QWidget
 
+from src.common.edit_dirty import value_changed
 from src.core.logger_config import logger
 
 
@@ -45,9 +46,14 @@ class AdvancedTab(QWidget):
         self.artist_id_label.setText(str(artist.artist_id))
 
     def collect_changes(self):
-        return dict(
+        candidates = dict(
             MBID=self.mbid_edit.text().strip() or None,
             wikipedia_link=self.wiki_edit.text().strip() or None,
             website_link=self.website_edit.text().strip() or None,
             is_fixed=1 if self.is_fixed_check.isChecked() else 0,
         )
+        return {
+            field: new
+            for field, new in candidates.items()
+            if value_changed(getattr(self.artist, field, None), new)
+        }
