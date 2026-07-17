@@ -228,15 +228,16 @@ class _AddInfluenceBar(QWidget):
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(6)
 
-        # Direction toggle. Each label is a full "X influenced Y" sentence
-        # naming the current artist explicitly. It live-updates as the name
-        # field is typed into — "Prince influenced them" becomes "Prince
-        # influenced Lady Gaga" — so the direction can't be picked backwards.
+        # Direction toggle. Labels stay short and fixed-width — "Influenced"
+        # vs. "Influenced by" — regardless of how long the typed artist name
+        # gets, so the bar can't be crammed. The full "X influenced Y"
+        # sentence (with real names) lives in the tooltip instead, and
+        # live-updates as the name field is typed into.
         self.dir_group = QButtonGroup(self)
         self.dir_group.setExclusive(True)
-        self.btn_influenced = QPushButton()
+        self.btn_influenced = QPushButton(_esc_amp("Influenced"))
         self.btn_influenced.setObjectName("dirLeft")
-        self.btn_influencer = QPushButton()
+        self.btn_influencer = QPushButton(_esc_amp("Influenced by"))
         self.btn_influencer.setObjectName("dirRight")
         for b in (self.btn_influenced, self.btn_influencer):
             b.setCheckable(True)
@@ -276,15 +277,15 @@ class _AddInfluenceBar(QWidget):
         self._relabel_toggle()
 
     def _relabel_toggle(self, *_args):
+        # Button text stays short and fixed ("Influenced" / "Influenced by");
+        # only the tooltip spells out the full sentence with real names.
         name = self._artist_name
         other = self.name_edit.text().strip() or None
 
         influenced_sentence = _relationship_sentence(DIR_INFLUENCED, name, other)
         influencer_sentence = _relationship_sentence(DIR_INFLUENCER, name, other)
 
-        self.btn_influenced.setText(_esc_amp(influenced_sentence))
         self.btn_influenced.setToolTip(influenced_sentence + ".")
-        self.btn_influencer.setText(_esc_amp(influencer_sentence))
         self.btn_influencer.setToolTip(influencer_sentence + ".")
 
     def _handle_add(self):
