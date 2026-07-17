@@ -2,11 +2,13 @@ import os
 
 from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 
 
 class MissingTracks:
-    def __init__(self, controller):
+    def __init__(self, controller, parent=None):
         self.controller = controller
+        self.parent = parent
 
         missing = self.find_missing_tracks()
         self.show_missing_tracks(missing)
@@ -44,7 +46,9 @@ class MissingTracks:
         """
 
         if not missing:
-            logger.warning("No missing tracks")
+            logger.info("No missing tracks found")
+            if self.parent is not None:
+                show_status_message(self.parent, "No missing tracks found.")
             return None
 
         view = BaseTrackView(
