@@ -24,10 +24,6 @@ from src.common.rating_widget import RatingStarsWidget
 from src.core.status_utility import StatusManager, show_status_message
 from src.track.track_edit import TrackEditDialog
 
-_COLOR_TRACK = "#b8c0f0"  # text primary – soft lavender white
-_COLOR_ARTIST = "#8599ea"  # accent periwinkle blue-purple
-_COLOR_ALBUM = "#EAD685"  # complementary gold
-
 
 class _ScrollingLabel(QLabel):
     """
@@ -150,20 +146,18 @@ class _TrackInfoWidget(QWidget):
         # Track title row — scrolling label
         self.title_label = _ScrollingLabel("")
         self.title_label.setAlignment(Qt.AlignCenter)
-        self.title_label.setStyleSheet(
-            f"color: {_COLOR_TRACK}; font-style: italic; font-size: 1.3em;"
-        )
+        self.title_label.setObjectName("PlayerTrackLabel")
         self.title_label.setMinimumWidth(180)
 
         # Artist label — display only (editing via context menu on PlayerUI)
         self.artist_label = QLabel("")
         self.artist_label.setAlignment(Qt.AlignCenter)
-        self.artist_label.setStyleSheet(f"color: {_COLOR_ARTIST}; font-size: 1.0em;")
+        self.artist_label.setObjectName("PlayerArtistLabel")
 
         # Album label — display only (editing via context menu on PlayerUI)
         self.album_label = QLabel("")
         self.album_label.setAlignment(Qt.AlignCenter)
-        self.album_label.setStyleSheet(f"color: {_COLOR_ALBUM}; font-size: 1.0em;")
+        self.album_label.setObjectName("PlayerAlbumLabel")
 
         layout.addWidget(self.title_label)
         layout.addWidget(self.artist_label)

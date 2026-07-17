@@ -27,17 +27,10 @@ PAGE_SIZE = 100
 # How close to the bottom (in rows) before we load the next page
 SCROLL_THRESHOLD = 20
 
-
-# ── Colour constants (mirrors dark_mode.qss) ──────────────────────────────────
-_C_BASE = "#0b0c10"
-_C_SURFACE = "#11121a"
-_C_ELEVATED = "#1a1b26"
-_C_ACCENT = "#8599ea"
-_C_GOLD = "#EAD685"
-_C_PINK = "#EA8599"
-_C_TEXT = "#b8c0f0"
-_C_DIM = "#555e7a"
-_C_BORDER = "rgba(133, 153, 234, 0.25)"
+# QAbstractListModel has no widget to attach a QSS selector to, so this one
+# color can't be sourced from themes/dark_mode.qss like the rest of this
+# file's styling. Kept in sync with QListView#QueueListView's `color`.
+_MODEL_TEXT_COLOR = QColor("#b8c0f0")
 
 
 # ── _QueueModel ───────────────────────────────────────────────────────────────
@@ -73,7 +66,7 @@ class _QueueModel(QAbstractListModel):
             return self._format(track, index.row())
 
         if role == Qt.ForegroundRole:
-            return QColor(_C_TEXT)
+            return _MODEL_TEXT_COLOR
 
         if role == Qt.UserRole:
             return track
@@ -146,18 +139,6 @@ class _NowPlayingCard(QFrame):
         self.setObjectName("NowPlayingCard")
         self.setFrameShape(QFrame.NoFrame)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setStyleSheet(f"""
-            QFrame#NowPlayingCard {{
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(133,153,234,0.18),
-                    stop:1 rgba(133,153,234,0.06)
-                );
-                border: none;
-                border-left: 3px solid {_C_ACCENT};
-                border-radius: 0px;
-            }}
-        """)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
@@ -165,29 +146,21 @@ class _NowPlayingCard(QFrame):
 
         # "NOW PLAYING" label
         tag = QLabel("NOW PLAYING")
-        tag.setStyleSheet(f"""
-            color: {_C_ACCENT};
-            font-size: 9px;
-            font-weight: bold;
-            letter-spacing: 0.12em;
-            background: transparent;
-        """)
+        tag.setObjectName("NowPlayingTag")
         layout.addWidget(tag)
 
         # Track title
         self._title = QLabel("—")
+        self._title.setObjectName("NowPlayingTitle")
         title_font = QFont("Cambria", 13, QFont.Bold)
         self._title.setFont(title_font)
-        self._title.setStyleSheet(f"color: {_C_TEXT}; background: transparent;")
         self._title.setWordWrap(False)
         self._title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         layout.addWidget(self._title)
 
         # Artist — Album
         self._sub = QLabel("—")
-        self._sub.setStyleSheet(
-            f"color: {_C_DIM}; font-size: 11px; background: transparent;"
-        )
+        self._sub.setObjectName("NowPlayingSubtitle")
         layout.addWidget(self._sub)
 
     def update_track(self, track):
@@ -257,66 +230,33 @@ class QueueDockWidget(QWidget):
         # ── Thin divider ──────────────────────────────────────────────────
         divider = QFrame()
         divider.setFrameShape(QFrame.HLine)
-        divider.setStyleSheet(f"background: {_C_BORDER}; border: none;")
+        divider.setObjectName("QueueDivider")
         divider.setFixedHeight(1)
         root.addWidget(divider)
 
         # ── Section header row ────────────────────────────────────────────
         header = QWidget()
-        header.setStyleSheet(f"background: {_C_SURFACE};")
+        header.setObjectName("QueueSurfacePanel")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(14, 6, 10, 6)
         header_layout.setSpacing(8)
 
         self._section_label = QLabel("UPCOMING")
-        self._section_label.setStyleSheet(f"""
-            color: {_C_DIM};
-            font-size: 9px;
-            font-weight: bold;
-            letter-spacing: 0.12em;
-            background: transparent;
-        """)
+        self._section_label.setObjectName("QueueSectionLabel")
 
         self._count_label = QLabel("")
-        self._count_label.setStyleSheet(f"""
-            color: {_C_DIM};
-            font-size: 9px;
-            background: transparent;
-        """)
+        self._count_label.setObjectName("QueueCountLabel")
 
         self._status_label = QLabel("")
-        self._status_label.setStyleSheet(
-            f"color: {_C_ACCENT}; font-size: 10px; background: transparent;"
-        )
-
-        btn_style = f"""
-            QPushButton {{
-                background: transparent;
-                color: {_C_DIM};
-                border: 1px solid rgba(133,153,234,0.22);
-                border-radius: 6px;
-                padding: 3px 10px;
-                font-size: 11px;
-            }}
-            QPushButton:hover {{
-                color: {_C_GOLD};
-                border-color: {_C_GOLD};
-                background: rgba(234,214,133,0.08);
-            }}
-            QPushButton:pressed {{
-                background: rgba(133,153,234,0.15);
-                color: {_C_ACCENT};
-                border-color: {_C_ACCENT};
-            }}
-        """
+        self._status_label.setObjectName("QueueStatusLabel")
 
         self._shuffle_btn = QPushButton("⇌ Shuffle")
-        self._shuffle_btn.setStyleSheet(btn_style)
+        self._shuffle_btn.setProperty("queueTool", True)
         self._shuffle_btn.setToolTip("Shuffle upcoming tracks")
         self._shuffle_btn.clicked.connect(self._on_shuffle)
 
         self._clear_btn = QPushButton("✕ Clear")
-        self._clear_btn.setStyleSheet(btn_style)
+        self._clear_btn.setProperty("queueTool", True)
         self._clear_btn.setToolTip("Clear the entire queue")
         self._clear_btn.clicked.connect(self._on_clear)
 
@@ -343,47 +283,7 @@ class QueueDockWidget(QWidget):
         self._list_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self._list_view.customContextMenuRequested.connect(self._show_context_menu)
         self._list_view.doubleClicked.connect(self._on_double_clicked)
-        self._list_view.setStyleSheet(f"""
-            QListView {{
-                background: {_C_BASE};
-                border: none;
-                outline: none;
-                font-family: "Cambria", "Georgia", serif;
-                font-size: 12px;
-                color: {_C_TEXT};
-            }}
-            QListView::item {{
-                padding: 7px 14px;
-                border-bottom: 1px solid rgba(30,31,43,0.6);
-                border-radius: 0px;
-                color: {_C_TEXT};
-            }}
-            QListView::item:hover {{
-                background: rgba(234,133,153,0.1);
-                color: {_C_PINK};
-            }}
-            QListView::item:selected {{
-                background: rgba(133,153,234,0.2);
-                color: {_C_TEXT};
-            }}
-            QScrollBar:vertical {{
-                background: {_C_BASE};
-                width: 6px;
-                margin: 0;
-            }}
-            QScrollBar::handle:vertical {{
-                background: rgba(133,153,234,0.35);
-                border-radius: 3px;
-                min-height: 30px;
-            }}
-            QScrollBar::handle:vertical:hover {{
-                background: rgba(133,153,234,0.6);
-            }}
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {{
-                height: 0;
-            }}
-        """)
+        self._list_view.setObjectName("QueueListView")
 
         # Detect scroll-near-bottom to trigger lazy load
         self._list_view.verticalScrollBar().valueChanged.connect(self._on_scroll)
@@ -392,30 +292,13 @@ class QueueDockWidget(QWidget):
 
         # ── Remove-selected footer ────────────────────────────────────────
         footer = QWidget()
-        footer.setStyleSheet(f"background: {_C_SURFACE};")
+        footer.setObjectName("QueueSurfacePanel")
         footer_layout = QHBoxLayout(footer)
         footer_layout.setContentsMargins(10, 6, 10, 6)
         footer_layout.setSpacing(8)
 
         self._remove_btn = QPushButton("Remove Selected")
-        self._remove_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: {_C_DIM};
-                border: 1px solid rgba(234,133,153,0.3);
-                border-radius: 6px;
-                padding: 3px 12px;
-                font-size: 11px;
-            }}
-            QPushButton:hover {{
-                color: {_C_PINK};
-                border-color: {_C_PINK};
-                background: rgba(234,133,153,0.08);
-            }}
-            QPushButton:pressed {{
-                background: rgba(234,133,153,0.15);
-            }}
-        """)
+        self._remove_btn.setObjectName("QueueRemoveButton")
         self._remove_btn.clicked.connect(self._remove_selected)
 
         footer_layout.addWidget(self._remove_btn)

@@ -1,6 +1,6 @@
 from typing import Any
 
-from PySide6.QtCore import QThread, QTimer, Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QGridLayout,
@@ -13,11 +13,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.cancellable_worker import CancellableWorker
 from src.core.logger_config import logger
 from src.statistics.rating_distribution_chart import RatingDistributionChart
 
+# Highlight color for stat values in the HTML rich-text labels below. Qt's
+# rich-text renderer doesn't resolve QSS for inline HTML color attributes,
+# so this can't be sourced from themes/dark_mode.qss like widget styling can.
+_HIGHLIGHT_COLOR = "#EA8599"
 
-class StatisticsWorker(QThread):
+
+class StatisticsWorker(CancellableWorker):
     """Runs get_comprehensive_statistics() off the main thread.
 
     The stats query does ~20 sequential SQL queries with joins/group-bys;
@@ -358,12 +364,12 @@ class MusicStatsDialog(QDialog):
 
         play_time = self.format_duration(stats["total_play_time"])
         self.total_play_time_label.setText(
-            f"Total Play Time: <span style='color: #EA8599; font-weight: bold;'>{play_time}</span>"
+            f"Total Play Time: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{play_time}</span>"
         )
 
         file_size = self.format_file_size(stats["total_file_size"])
         self.total_file_size_label.setText(
-            f"Total File Size: <span style='color: #EA8599; font-weight: bold;'>{file_size}</span>"
+            f"Total File Size: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{file_size}</span>"
         )
 
         # Overall completeness summary label
@@ -433,7 +439,7 @@ class MusicStatsDialog(QDialog):
         if top_artists:
             name, _ = top_artists[0]
             self.most_played_artist_label.setText(
-                f"Most Played Artist: <span style='color: #EA8599; font-weight: bold;'>{name}</span>"
+                f"Most Played Artist: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{name}</span>"
             )
         else:
             self.most_played_artist_label.setText("Most Played Artist: N/A")
@@ -442,7 +448,7 @@ class MusicStatsDialog(QDialog):
         if top_genres:
             name, _ = top_genres[0]
             self.most_played_genre_label.setText(
-                f"Most Played Genre: <span style='color: #EA8599; font-weight: bold;'>{name}</span>"
+                f"Most Played Genre: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{name}</span>"
             )
         else:
             self.most_played_genre_label.setText("Most Played Genre: N/A")
@@ -451,7 +457,7 @@ class MusicStatsDialog(QDialog):
         if highest_rated_artists:
             name, avg_rating = highest_rated_artists[0]
             self.highest_rated_artist_label.setText(
-                f"Highest Rated Artist: <span style='color: #EA8599; font-weight: bold;'>{name} ({avg_rating:.1f})</span>"
+                f"Highest Rated Artist: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{name} ({avg_rating:.1f})</span>"
             )
         else:
             self.highest_rated_artist_label.setText("Highest Rated Artist: N/A")
@@ -460,7 +466,7 @@ class MusicStatsDialog(QDialog):
         if highest_rated_albums:
             name, avg_rating = highest_rated_albums[0]
             self.highest_rated_album_label.setText(
-                f"Highest Rated Album: <span style='color: #EA8599; font-weight: bold;'>{name} ({avg_rating:.1f})</span>"
+                f"Highest Rated Album: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{name} ({avg_rating:.1f})</span>"
             )
         else:
             self.highest_rated_album_label.setText("Highest Rated Album: N/A")
@@ -469,7 +475,7 @@ class MusicStatsDialog(QDialog):
         if highest_rated_genres:
             name, avg_rating = highest_rated_genres[0]
             self.highest_rated_genre_label.setText(
-                f"Highest Rated Genre: <span style='color: #EA8599; font-weight: bold;'>{name} ({avg_rating:.1f})</span>"
+                f"Highest Rated Genre: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{name} ({avg_rating:.1f})</span>"
             )
         else:
             self.highest_rated_genre_label.setText("Highest Rated Genre: N/A")
@@ -478,7 +484,7 @@ class MusicStatsDialog(QDialog):
         if lowest_rated_genres:
             name, avg_rating = lowest_rated_genres[0]
             self.lowest_rated_genre_label.setText(
-                f"Lowest Rated Genre: <span style='color: #EA8599; font-weight: bold;'>{name} ({avg_rating:.1f})</span>"
+                f"Lowest Rated Genre: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{name} ({avg_rating:.1f})</span>"
             )
         else:
             self.lowest_rated_genre_label.setText("Lowest Rated Genre: N/A")
@@ -541,7 +547,7 @@ class MusicStatsDialog(QDialog):
             self.format_file_size(avg_file_size) if avg_file_size else "N/A"
         )
         self.avg_file_size_label.setText(
-            f"Average File Size: <span style='color: #EA8599; font-weight: bold;'>{file_size_value}</span>"
+            f"Average File Size: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{file_size_value}</span>"
         )
 
         # Total track length = average duration × total tracks
@@ -550,7 +556,7 @@ class MusicStatsDialog(QDialog):
         total_length = (avg_duration or 0) * total_tracks
         formatted_length = self.format_duration(total_length)
         self.total_track_length_label.setText(
-            f"Total Track Length: <span style='color: #EA8599; font-weight: bold;'>{formatted_length}</span>"
+            f"Total Track Length: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{formatted_length}</span>"
         )
 
         self.load_file_format_data()
@@ -616,7 +622,7 @@ class MusicStatsDialog(QDialog):
             formatted_value = str(value)
 
         return (
-            f'<span style="color: #EA8599; font-weight: bold;">{formatted_value}</span>'
+            f'<span style="color: {_HIGHLIGHT_COLOR}; font-weight: bold;">{formatted_value}</span>'
         )
 
     def format_duration(self, seconds):
