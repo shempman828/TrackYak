@@ -9,6 +9,7 @@ from src.db.db_helpers.registry import BaseDBHelper
 from src.db.db_tables import (
     Album,
     Artist,
+    ArtistAlias,
     Genre,
     GenreAlias,
     Mood,
@@ -34,6 +35,7 @@ _MERGE_MODEL_REGISTRY: dict = {
 # name resolves to the canonical entity next time instead of being recreated
 # (e.g. on import). Maps model name -> (alias model, name field, alias FK field).
 _ALIAS_ON_MERGE_REGISTRY: dict = {
+    "Artist": (ArtistAlias, "artist_name", "artist_id"),
     "Publisher": (PublisherAlias, "publisher_name", "publisher_id"),
     "Genre": (GenreAlias, "genre_name", "genre_id"),
 }
