@@ -1,11 +1,9 @@
 """This class grants access to database operations throughout the modules."""
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import scoped_session, sessionmaker
-
 from src.core.config_setup import Config
 from src.core.logger_config import logger
 from src.db.db_helpers import AddToDB, DeleteDB, GetFromDB, MergeDB, SplitDB, UpdateDB
+from src.db.db_helpers.session import Session, engine
 from src.db.db_tables import Base
 from src.importing.library_import import TrackImporter
 from src.player.player_util import MusicPlayer
@@ -16,19 +14,19 @@ class MusicController:
     """Mediates between modules and database"""
 
     def __init__(self):
-        self.engine = create_engine(
-            "sqlite:///music_library.db",
-            echo=False,
-            connect_args={"check_same_thread": False},
-        )
+        self.engine = engine
         Base.metadata.create_all(self.engine)
 
-        self.SessionFactory = scoped_session(sessionmaker(bind=self.engine))
+        # Shared scoped_session from db_helpers.session — the same engine/session
+        # factory other modules (e.g. sync_view.py) use directly, so the whole
+        # running app talks to one connection pool instead of several uncoordinated
+        # ones pointed at the same SQLite file.
+        self.SessionFactory = Session
 
         # Direct instances — no proxy needed. Most calls are on the main thread;
         # self.statistics is also called from a background QThread (scoped_session
-        # gives that thread its own Session, and check_same_thread=False above lets
-        # pooled connections move between threads safely).
+        # gives that thread its own Session, and check_same_thread=False on the
+        # shared engine lets pooled connections move between threads safely).
         self.get = GetFromDB(self.SessionFactory)
         self.add = AddToDB(self.SessionFactory)
         self.update = UpdateDB(self.SessionFactory)

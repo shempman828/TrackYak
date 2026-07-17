@@ -5,14 +5,23 @@ MusicDatabase: engine/session setup plus schema and integrity verification.
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
+from src.db.db_engine import engine as _shared_engine
 from src.db.db_tables.base import Base
 from src.core.logger_config import logger
 
+_DEFAULT_DB_PATH = "sqlite:///music_library.db"
+
 
 class MusicDatabase:
-    def __init__(self, db_path: str = "sqlite:///music_library.db") -> None:
+    def __init__(self, db_path: str = _DEFAULT_DB_PATH) -> None:
         try:
-            self.engine = create_engine(db_path, echo=False)
+            # Reuse the app-wide shared engine for the default path so this
+            # doesn't open a second, uncoordinated connection pool against the
+            # same SQLite file as MusicController/db_helpers. A non-default
+            # path (e.g. for tests) still gets its own dedicated engine.
+            self.engine = (
+                _shared_engine if db_path == _DEFAULT_DB_PATH else create_engine(db_path, echo=False)
+            )
             self.Session = sessionmaker(bind=self.engine)
             self._initialize_database()
             self._verify_integrity()

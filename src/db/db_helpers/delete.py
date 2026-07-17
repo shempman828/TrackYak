@@ -44,10 +44,11 @@ class DeleteDB(BaseDBHelper):
                     logger.warning("delete_entity called with an empty entity_ids list")
                     return True  # Nothing to do -- not an error
 
+                pk_cols = list(entity_class.__table__.primary_key.columns)
+                pk_col = pk_cols[0].name if pk_cols else "id"
+
                 self.session.query(entity_class).filter(
-                    entity_class.track_id.in_(
-                        entity_ids
-                    )  # <-- change track_id to match your model's actual PK field name
+                    getattr(entity_class, pk_col).in_(entity_ids)
                 ).delete(synchronize_session="fetch")
                 # "fetch" tells SQLAlchemy to load the objects first so that
                 # cascade rules (e.g. deleting related join rows) fire correctly.
