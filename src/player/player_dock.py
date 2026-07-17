@@ -305,7 +305,7 @@ class PlayerUI(QWidget):
         self.position_label = QLabel("0:00 / 0:00")
         self.position_label.setAlignment(Qt.AlignCenter)
         self.position_label.setFixedWidth(100)
-        self.position_label.setStyleSheet("QLabel { font-size: 1.4em; }")
+        self.position_label.setObjectName("PlayerPositionLabel")
 
         # Main horizontal layout
         layout = QHBoxLayout(self)
@@ -375,7 +375,7 @@ class PlayerUI(QWidget):
         btn.setIconSize(QSize(48, 48))  # <-- scale icon inside button
         btn.setToolTip(tooltip)
         btn.setFixedSize(64, 64)
-        btn.setStyleSheet("QPushButton { border: none; background: transparent; }")
+        btn.setProperty("playerCtrlBtn", True)
         btn.setCursor(Qt.PointingHandCursor)
         return btn
 

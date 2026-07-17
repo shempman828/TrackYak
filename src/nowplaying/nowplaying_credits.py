@@ -28,7 +28,7 @@ class _CreditsPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background: transparent;")
+        self.setProperty("bgTransparent", True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         root = QVBoxLayout(self)
@@ -39,11 +39,10 @@ class _CreditsPanel(QWidget):
         self._area.setFrameShape(QFrame.NoFrame)
         self._area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._area.setStyleSheet("background: transparent; border: none;")
         self._area.setWidgetResizable(True)
 
         self._container = QWidget()
-        self._container.setStyleSheet("background: transparent;")
+        self._container.setProperty("bgTransparent", True)
         self._cards_layout = QVBoxLayout(self._container)
         self._cards_layout.setContentsMargins(0, 8, 0, 48)
         self._cards_layout.setSpacing(6)
@@ -105,36 +104,23 @@ class _CreditsPanel(QWidget):
     def _show_placeholder(self, text: str):
         lbl = QLabel(text)
         lbl.setAlignment(Qt.AlignCenter)
-        lbl.setStyleSheet(
-            "color: rgba(133,153,234,0.28); font-size: 13px; font-style: italic;"
-            " background: transparent; border: none;"
-        )
+        lbl.setProperty("npRole", "creditsPlaceholder")
         self._cards_layout.addWidget(lbl)
 
     @staticmethod
     def _make_card(role: str, name: str) -> QWidget:
         card = QWidget()
-        card.setStyleSheet(
-            "background: rgba(133,153,234,0.07);"
-            " border: 1px solid rgba(133,153,234,0.18);"
-            " border-radius: 8px;"
-        )
+        card.setProperty("npCreditCard", True)
         lay = QHBoxLayout(card)
         lay.setContentsMargins(14, 8, 14, 8)
         lay.setSpacing(12)
 
         role_lbl = QLabel(role)
-        role_lbl.setStyleSheet(
-            "color: rgba(133,153,234,0.55); font-size: 10px;"
-            " background: transparent; border: none;"
-        )
+        role_lbl.setProperty("npRole", "creditsRole")
         role_lbl.setFixedWidth(130)
 
         name_lbl = QLabel(name)
-        name_lbl.setStyleSheet(
-            "color: rgba(210,218,255,0.88); font-size: 13px;"
-            " background: transparent; border: none;"
-        )
+        name_lbl.setProperty("npRole", "creditsName")
 
         lay.addWidget(role_lbl)
         lay.addWidget(name_lbl, stretch=1)

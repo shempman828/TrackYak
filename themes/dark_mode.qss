@@ -1058,6 +1058,10 @@ QLabel#PlayerAlbumLabel {
     font-size: 1.0em;
 }
 
+QLabel#PlayerPositionLabel {
+    font-size: 1.4em;
+}
+
 /* ── SPECIAL: Queue Dock (QueueDockWidget) ───────────────────────────────────── */
 QFrame#NowPlayingCard {
     background: qlineargradient(
@@ -1201,6 +1205,13 @@ QListWidget::item[text="Now Playing"] {
    after setProperty() to force Qt to re-evaluate the stylesheet.
 ============================================================================= */
 
+/* ── GENERIC: transparent background override for plain QWidget containers ──
+   Only needed on bare QWidget instances — QLabel/QFrame/QScrollArea are
+   already transparent by default (see their base rules above). */
+QWidget[bgTransparent="true"] {
+    background: transparent;
+}
+
 /* ── TEXT ROLES: secondary/dim labels (notes, hints, status, placeholders) ──── */
 QLabel[textRole="muted"] {
     color: #555e7a;
@@ -1265,6 +1276,12 @@ QPushButton[queueTool="true"]:pressed {
     background: rgba(133,153,234,0.15);
     color: #8599ea;
     border-color: #8599ea;
+}
+
+/* ── PLAYER DOCK TRANSPORT BUTTONS (previous/play/pause/stop/next) ──────────── */
+QPushButton[playerCtrlBtn="true"] {
+    border: none;
+    background: transparent;
 }
 
 /* ── CHIP / SEGMENTED TOGGLE BUTTONS (checkable QPushButtons) ───────────────── */
@@ -1356,6 +1373,122 @@ QPushButton[npToggle="true"][active="true"] {
     background: rgba(133, 153, 234, 0.22);
     border: 1px solid rgba(133, 153, 234, 0.50);
     color: rgba(230, 235, 255, 0.90);
+}
+
+/* ── "NOW PLAYING" metadata chip pills ───────────────────────────────────────── */
+QLabel[npChip="true"] {
+    background: rgba(133, 153, 234, 0.13);
+    border: 1px solid rgba(133, 153, 234, 0.28);
+    border-radius: 10px;
+    color: rgba(200, 208, 244, 0.80);
+    font-size: 10px;
+    padding: 2px 10px;
+}
+
+/* ── "NOW PLAYING" tab-bar divider rule ──────────────────────────────────────── */
+QFrame[npRule="true"] {
+    border: none;
+    border-top: 1px solid rgba(133, 153, 234, 0.25);
+}
+
+/* ── "NOW PLAYING" credit card (one per artist-role row) ─────────────────────── */
+QWidget[npCreditCard="true"] {
+    background: rgba(133, 153, 234, 0.07);
+    border: 1px solid rgba(133, 153, 234, 0.18);
+    border-radius: 8px;
+}
+
+/* ── "NOW PLAYING" labels — color/style variants keyed by role ──────────────── */
+QLabel[npRole="title"] {
+    color: rgba(230, 235, 255, 0.94);
+}
+
+QLabel[npRole="album"] {
+    color: rgba(150, 160, 210, 0.50);
+}
+
+QLabel[npRole="nextLyric"] {
+    color: rgba(133, 153, 234, 0.38);
+    font-style: italic;
+}
+
+QLabel[npRole="plainLyrics"] {
+    color: rgba(200, 208, 244, 0.75);
+    line-height: 1.7em;
+}
+
+QLabel[npRole="noLyrics"] {
+    color: rgba(133, 153, 234, 0.28);
+    font-size: 14px;
+    font-style: italic;
+}
+
+QLabel[npRole="countdown"] {
+    color: rgba(133, 153, 234, 0.55);
+    font-size: 13px;
+    font-style: italic;
+}
+
+QLabel[npRole="offsetLabel"] {
+    color: rgba(133, 153, 234, 0.45);
+    font-size: 10px;
+}
+
+QLabel[npRole="creditsPlaceholder"] {
+    color: rgba(133, 153, 234, 0.28);
+    font-size: 13px;
+    font-style: italic;
+}
+
+QLabel[npRole="creditsRole"] {
+    color: rgba(133, 153, 234, 0.55);
+    font-size: 10px;
+}
+
+QLabel[npRole="creditsName"] {
+    color: rgba(210, 218, 255, 0.88);
+    font-size: 13px;
+}
+
+/* ── "NOW PLAYING" lyrics scroll area (plain-text mode) ──────────────────────── */
+QScrollArea#NowPlayingLyricsScrollArea {
+    background: transparent;
+    border: none;
+}
+
+QScrollArea#NowPlayingLyricsScrollArea QScrollBar:vertical {
+    width: 4px;
+    background: transparent;
+}
+
+QScrollArea#NowPlayingLyricsScrollArea QScrollBar::handle:vertical {
+    background: rgba(133, 153, 234, 0.30);
+    border-radius: 2px;
+}
+
+QScrollArea#NowPlayingLyricsScrollArea QScrollBar::add-line:vertical,
+QScrollArea#NowPlayingLyricsScrollArea QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+/* ── "NOW PLAYING" lyric sync-offset slider ──────────────────────────────────── */
+QSlider#NowPlayingSyncSlider::groove:horizontal {
+    height: 2px;
+    background: rgba(133, 153, 234, 0.25);
+    border-radius: 1px;
+}
+
+QSlider#NowPlayingSyncSlider::handle:horizontal {
+    width: 10px;
+    height: 10px;
+    margin: -4px 0;
+    border-radius: 5px;
+    background: rgba(133, 153, 234, 0.60);
+}
+
+QSlider#NowPlayingSyncSlider::sub-page:horizontal {
+    background: rgba(133, 153, 234, 0.50);
+    border-radius: 1px;
 }
 
 /* ── SPECIAL: Album edit header byline ("by Artist Name") ────────────────────── */

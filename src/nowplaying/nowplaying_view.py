@@ -118,14 +118,7 @@ class _FadedScrollArea(QScrollArea):
         self.setFrameShape(QFrame.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.setStyleSheet(
-            "QScrollArea { background: transparent; border: none; }"
-            "QScrollBar:vertical { width: 4px; background: transparent; }"
-            "QScrollBar::handle:vertical { background: rgba(133,153,234,0.30);"
-            " border-radius: 2px; }"
-            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical"
-            " { height: 0px; }"
-        )
+        self.setObjectName("NowPlayingLyricsScrollArea")
         self.setWidgetResizable(True)
 
 
@@ -160,7 +153,7 @@ class _MarqueeLabel(QWidget):
         self._text_width = 0
 
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setStyleSheet("background: transparent;")
+        self.setProperty("bgTransparent", True)
 
         self._timer = QTimer(self)
         self._timer.setInterval(self._SCROLL_INTERVAL_MS)
@@ -379,7 +372,7 @@ class NowPlayingView(QWidget):
     def _initUI(self):
         self.setMinimumSize(760, 480)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setStyleSheet("background: transparent;")
+        self.setProperty("bgTransparent", True)
 
         self._backdrop = _BlurredBackdrop(self)
         self._backdrop.lower()
@@ -390,7 +383,7 @@ class NowPlayingView(QWidget):
 
         # ── LEFT — album art ─────────────────────────────────────────────
         left_widget = QWidget()
-        left_widget.setStyleSheet("background: transparent;")
+        left_widget.setProperty("bgTransparent", True)
         left_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         left_widget.setMinimumWidth(260)
         left_layout = QVBoxLayout(left_widget)
@@ -404,7 +397,7 @@ class NowPlayingView(QWidget):
 
         # ── RIGHT — metadata + content ───────────────────────────────────
         right_widget = QWidget()
-        right_widget.setStyleSheet("background: transparent;")
+        right_widget.setProperty("bgTransparent", True)
         right_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(16, 36, 32, 24)
@@ -413,9 +406,7 @@ class NowPlayingView(QWidget):
         # Title
         self._title_lbl = QLabel("No Track Playing")
         self._title_lbl.setFont(self._TITLE_FONT)
-        self._title_lbl.setStyleSheet(
-            "color: rgba(230,235,255,0.94); background: transparent; border: none;"
-        )
+        self._title_lbl.setProperty("npRole", "title")
         self._title_lbl.setWordWrap(True)
         right_layout.addWidget(self._title_lbl)
 
@@ -431,9 +422,7 @@ class NowPlayingView(QWidget):
         # Album
         self._album_lbl = QLabel("—")
         self._album_lbl.setFont(self._ALBUM_FONT)
-        self._album_lbl.setStyleSheet(
-            "color: rgba(150,160,210,0.50); background: transparent; border: none;"
-        )
+        self._album_lbl.setProperty("npRole", "album")
         right_layout.addWidget(self._album_lbl)
 
         right_layout.addSpacing(10)
@@ -487,22 +476,19 @@ class NowPlayingView(QWidget):
 
         tab_rule = QFrame()
         tab_rule.setFrameShape(QFrame.HLine)
-        tab_rule.setStyleSheet(
-            "border: none; border-top: 1px solid rgba(133,153,234,0.25);"
-            " background: transparent;"
-        )
+        tab_rule.setProperty("npRule", True)
         tab_rule.setFixedHeight(1)
         right_layout.addWidget(tab_rule)
         right_layout.addSpacing(10)
 
         # ── Stacked pages ─────────────────────────────────────────────────
         self._stack = QStackedWidget()
-        self._stack.setStyleSheet("background: transparent;")
+        self._stack.setProperty("bgTransparent", True)
         self._stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         # Page 0: LYRICS
         lyrics_page = QWidget()
-        lyrics_page.setStyleSheet("background: transparent;")
+        lyrics_page.setProperty("bgTransparent", True)
         lp = QVBoxLayout(lyrics_page)
         lp.setContentsMargins(0, 0, 0, 0)
         lp.setSpacing(0)
@@ -513,10 +499,7 @@ class NowPlayingView(QWidget):
         # Next lyric line — shown dimmer below the current karaoke line
         self._next_lyric_lbl = QLabel("")
         self._next_lyric_lbl.setFont(QFont("Cambria", 14, QFont.Normal))
-        self._next_lyric_lbl.setStyleSheet(
-            "color: rgba(133,153,234,0.38); font-style: italic;"
-            " background: transparent; border: none;"
-        )
+        self._next_lyric_lbl.setProperty("npRole", "nextLyric")
         self._next_lyric_lbl.setAlignment(Qt.AlignCenter)
         self._next_lyric_lbl.setWordWrap(True)
         self._next_lyric_lbl.setVisible(False)
@@ -525,10 +508,7 @@ class NowPlayingView(QWidget):
         self._plain_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._plain_lbl = QLabel()
         self._plain_lbl.setFont(self._PLAIN_FONT)
-        self._plain_lbl.setStyleSheet(
-            "color: rgba(200,208,244,0.75); line-height: 1.7em;"
-            " background: transparent; border: none;"
-        )
+        self._plain_lbl.setProperty("npRole", "plainLyrics")
         self._plain_lbl.setWordWrap(True)
         self._plain_lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self._plain_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -538,19 +518,13 @@ class NowPlayingView(QWidget):
 
         self._no_lyrics_lbl = QLabel("No lyrics available")
         self._no_lyrics_lbl.setAlignment(Qt.AlignCenter)
-        self._no_lyrics_lbl.setStyleSheet(
-            "color: rgba(133,153,234,0.28); font-size: 14px; font-style: italic;"
-            " background: transparent; border: none;"
-        )
+        self._no_lyrics_lbl.setProperty("npRole", "noLyrics")
         self._no_lyrics_lbl.setVisible(False)
 
         # Countdown label (shown below current lyric when next line is ≥5 s away)
         self._countdown_lbl = QLabel("")
         self._countdown_lbl.setAlignment(Qt.AlignCenter)
-        self._countdown_lbl.setStyleSheet(
-            "color: rgba(133,153,234,0.55); font-size: 13px; font-style: italic;"
-            " background: transparent; border: none;"
-        )
+        self._countdown_lbl.setProperty("npRole", "countdown")
         self._countdown_lbl.setFixedHeight(28)
         self._countdown_lbl.setVisible(False)
 
@@ -562,33 +536,22 @@ class NowPlayingView(QWidget):
 
         # Sync offset row — contains slider + "SHOW ALL" toggle
         self._offset_row = QWidget()
-        self._offset_row.setStyleSheet("background: transparent;")
+        self._offset_row.setProperty("bgTransparent", True)
         off_lay = QHBoxLayout(self._offset_row)
         off_lay.setContentsMargins(0, 6, 0, 0)
         off_lay.setSpacing(8)
 
         self._offset_lbl = QLabel("Sync  −0.5s")
-        self._offset_lbl.setStyleSheet(
-            "color: rgba(133,153,234,0.45); font-size: 10px;"
-            " background: transparent; border: none;"
-        )
+        self._offset_lbl.setProperty("npRole", "offsetLabel")
         self._offset_lbl.setFixedWidth(80)
 
         self._offset_slider = QSlider(Qt.Horizontal)
+        self._offset_slider.setObjectName("NowPlayingSyncSlider")
         self._offset_slider.setRange(-50, 50)
         # Restore saved slider position
         self._offset_slider.setValue(self._saved_offset_tenths)
         self._offset_slider.setTickInterval(5)
         self._offset_slider.setSingleStep(1)
-        self._offset_slider.setStyleSheet(
-            "QSlider::groove:horizontal { height: 2px;"
-            " background: rgba(133,153,234,0.25); border-radius: 1px; }"
-            " QSlider::handle:horizontal { width: 10px; height: 10px;"
-            " margin: -4px 0; border-radius: 5px;"
-            " background: rgba(133,153,234,0.60); }"
-            " QSlider::sub-page:horizontal { background: rgba(133,153,234,0.50);"
-            " border-radius: 1px; }"
-        )
         self._offset_slider.valueChanged.connect(self._on_offset_changed)
 
         # "SHOW ALL" / "KARAOKE" toggle button

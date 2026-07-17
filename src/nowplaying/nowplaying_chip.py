@@ -12,17 +12,10 @@ from src.core.logger_config import logger
 class _Chip(QLabel):
     """Pill-shaped metadata chip."""
 
-    _SS = (
-        "QLabel { background: rgba(133,153,234,0.13);"
-        " border: 1px solid rgba(133,153,234,0.28);"
-        " border-radius: 10px; color: rgba(200,208,244,0.80);"
-        " font-size: 10px; padding: 2px 10px; }"
-    )
-
     def __init__(self, icon_str: str, value: str, parent=None):
         super().__init__(parent)
         self._icon = icon_str
-        self.setStyleSheet(self._SS)
+        self.setProperty("npChip", True)
         self.set_value(value)
 
     def set_value(self, value: str):
@@ -49,11 +42,10 @@ class _ScrollingChipRow(QScrollArea):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setFixedHeight(36)
-        self.setStyleSheet("background: transparent; border: none;")
         self.setWidgetResizable(False)
 
         self._inner = QWidget()
-        self._inner.setStyleSheet("background: transparent;")
+        self._inner.setProperty("bgTransparent", True)
         self._row = QHBoxLayout(self._inner)
         self._row.setContentsMargins(0, 4, 0, 4)
         self._row.setSpacing(6)

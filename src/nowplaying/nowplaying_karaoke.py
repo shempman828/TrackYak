@@ -30,10 +30,10 @@ class _KaraokeLine(QLabel):
     def _set_opacity(self, v: float):
         self._opacity = v
         alpha = int(v * 230)
-        self.setStyleSheet(
-            f"color: rgba(230, 235, 255, {alpha});"
-            " background: transparent; border: none;"
-        )
+        # Continuous per-frame alpha during the fade animation — not a
+        # discrete state, so it can't be expressed as a QSS property
+        # selector like the rest of this app's dynamic styling.
+        self.setStyleSheet(f"color: rgba(230, 235, 255, {alpha});")
 
     lineOpacity = Property(float, _get_opacity, _set_opacity)
 
