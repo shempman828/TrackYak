@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.artist.artist_edit_types import ArtistTypesWidget
 from src.artist.artist_image_manager import move_to_artist_images_dir
 from src.common.edit_dirty import value_changed
 from src.core.logger_config import logger
@@ -63,6 +64,7 @@ class BasicTab(QWidget):
         left_col.setSpacing(12)
 
         left_col.addWidget(self._build_identity_group())
+        left_col.addWidget(self._build_types_group())
         left_col.addWidget(self._build_dates_group())
         left_col.addWidget(self._build_links_group())
         left_col.addStretch()
@@ -96,6 +98,13 @@ class BasicTab(QWidget):
         self._gender_label = QLabel("Gender:")
         form.addRow(self._gender_label, self.gender_combo)
 
+        return grp
+
+    def _build_types_group(self):
+        grp = QGroupBox("Types")
+        v = QVBoxLayout(grp)
+        self.types_widget = ArtistTypesWidget(self.controller, self.artist)
+        v.addWidget(self.types_widget)
         return grp
 
     def _build_dates_group(self):
@@ -230,6 +239,7 @@ class BasicTab(QWidget):
     def load(self, artist):
         self.artist = artist
         self.name_edit.setText(artist.artist_name or "")
+        self.types_widget.load(artist)
 
         is_group = bool(artist.isgroup)
         self.isgroup_check.blockSignals(True)
