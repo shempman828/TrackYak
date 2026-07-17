@@ -390,6 +390,66 @@ class TrackSortingDisplay(QTreeWidget):
             node.setToolTip(1, "Virtual track — borrowed from another album")
 
     # -------------------------------------------------------------------------
+    # Absolute track numbering
+    # -------------------------------------------------------------------------
+
+    def assign_absolute_track_numbers(self):
+        """
+        Walk the tree in its current visible order (discs, then sides, then
+        tracks — reflecting any manual drag-and-drop reordering) and assign
+        sequential absolute_track_number values to physical tracks.
+
+        Virtual tracks still occupy a position in the count (so numbering
+        stays correct around them) but are not written to, since they belong
+        to another album's track row.
+        """
+        controller = self.controller
+        if controller is None:
+            parent = self.parent()
+            while parent and not hasattr(parent, "controller"):
+                parent = parent.parent()
+            if parent:
+                controller = parent.controller
+
+        if controller is None:
+            logger.error("Cannot renumber tracks: no controller found")
+            QMessageBox.warning(self, "Error", "Could not renumber tracks.")
+            return
+
+        updates = {}
+        position = 0
+
+        def visit(item):
+            nonlocal position
+            for i in range(item.childCount()):
+                child = item.child(i)
+                track_id = child.data(0, Qt.UserRole)
+                if isinstance(track_id, int):
+                    position += 1
+                    if not child.data(1, Qt.UserRole):  # skip virtual tracks
+                        updates[track_id] = position
+                else:
+                    visit(child)
+
+        for i in range(self.topLevelItemCount()):
+            visit(self.topLevelItem(i))
+
+        if not updates:
+            show_status_message(self, "No tracks to renumber.")
+            return
+
+        updated = 0
+        for track_id, number in updates.items():
+            if controller.update.update_entity(
+                "Track", track_id, absolute_track_number=number
+            ):
+                updated += 1
+
+        logger.info(f"Assigned absolute track numbers to {updated} track(s)")
+        show_status_message(self, f"Renumbered {updated} track(s).")
+        self.track_edited.emit()
+
+    # -------------------------------------------------------------------------
     # Drag-and-drop
     # -------------------------------------------------------------------------
 
