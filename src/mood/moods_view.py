@@ -16,9 +16,13 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.hierarchy_tree_style import (
+    collect_expanded_ids,
     configure_hierarchy_tree,
     create_colored_icon,
+    filter_tree_widget,
     icon_for_depth,
+    is_hierarchy_descendant,
+    restore_expanded_ids,
 )
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -144,7 +148,12 @@ class MoodView(QWidget):
             # Prevent circular reference
             if new_parent_id and (
                 dragged_mood_id == new_parent_id
-                or self.is_child_of(dragged_mood_id, new_parent_id)
+                or is_hierarchy_descendant(
+                    dragged_mood_id,
+                    new_parent_id,
+                    self.moods_data,
+                    id_attr="mood_id",
+                )
             ):
                 show_status_message(
                     self, "Cannot make a mood a child of itself or its descendants."
@@ -178,51 +187,11 @@ class MoodView(QWidget):
             # Revert UI on error
             self.load_moods()
 
-    def is_child_of(self, parent_mood_id, potential_child_id):
-        """Check if potential_child_id is a child (at any level) of parent_mood_id"""
-        if not parent_mood_id or not potential_child_id:
-            return False
-
-        # Build parent-child mapping
-        child_map = {}
-        for mood in self.moods_data:
-            if mood.parent_id:
-                if mood.parent_id not in child_map:
-                    child_map[mood.parent_id] = []
-                child_map[mood.parent_id].append(mood.mood_id)
-
-        # Recursively check all children
-        def check_children(parent_id, target_id):
-            if parent_id not in child_map:
-                return False
-
-            if target_id in child_map[parent_id]:
-                return True
-
-            for child_id in child_map[parent_id]:
-                if check_children(child_id, target_id):
-                    return True
-
-            return False
-
-        return check_children(parent_mood_id, potential_child_id)
-
     def build_mood_tree(self):
         """Build hierarchical tree from flat moods list with color coding"""
-        expanded_ids = set()
-
-        def collect_expanded(item):
-            if item.isExpanded():
-                mood_id = item.data(0, Qt.UserRole)
-                if mood_id is not None:
-                    expanded_ids.add(mood_id)
-            for i in range(item.childCount()):
-                collect_expanded(item.child(i))
-
         root = self.mood_tree.invisibleRootItem()
         had_items = root.childCount() > 0
-        for i in range(root.childCount()):
-            collect_expanded(root.child(i))
+        expanded_ids = collect_expanded_ids(self.mood_tree)
         self.mood_tree.clear()
 
         # Get track counts for all moods
@@ -286,7 +255,7 @@ class MoodView(QWidget):
                 child_item.setData(0, Qt.UserRole + 1, child)  # Store full mood object
 
                 # Set color based on depth
-                self._set_mood_item_style(child_item, depth)
+                self._set_mood_item_style(child_item, depth, mood_track_counts)
 
                 add_children(child_item, child, depth + 1)
 
@@ -305,22 +274,13 @@ class MoodView(QWidget):
             item.setData(0, Qt.UserRole + 1, mood)  # Store full mood object
 
             # Set color for root items (depth 0)
-            self._set_mood_item_style(item, 0)
+            self._set_mood_item_style(item, 0, mood_track_counts)
 
             add_children(item, mood, 1)
 
-        def restore_expanded(item):
-            mood_id = item.data(0, Qt.UserRole)
-            if mood_id in expanded_ids:
-                item.setExpanded(True)
-            for i in range(item.childCount()):
-                restore_expanded(item.child(i))
-
         if had_items:
             # We had a previous state — restore it, even if everything was collapsed
-            root = self.mood_tree.invisibleRootItem()
-            for i in range(root.childCount()):
-                restore_expanded(root.child(i))
+            restore_expanded_ids(self.mood_tree, expanded_ids)
         else:
             # First time loading — expand everything like before
             self.mood_tree.expandAll()
@@ -350,7 +310,7 @@ class MoodView(QWidget):
             logger.error(f"Error getting track counts: {e}")
             return {}
 
-    def _set_mood_item_style(self, item, depth):
+    def _set_mood_item_style(self, item, depth, track_counts):
         """Set color and styling for mood tree items based on depth"""
         # Get the original mood name from stored data
         mood_obj = item.data(0, Qt.UserRole + 1)
@@ -361,7 +321,6 @@ class MoodView(QWidget):
         original_name = mood_obj.mood_name
 
         # Get track count for this mood
-        track_counts = self.get_track_counts_for_all_moods()
         track_count = track_counts.get(mood_obj.mood_id, 0)
 
         # Build display name with count
@@ -613,27 +572,7 @@ class MoodView(QWidget):
 
     def filter_moods(self):
         """Filter moods based on search text"""
-        search_text = self.search_box.text().lower()
-
-        def filter_tree_item(item):
-            """Recursively filter tree items"""
-            text = item.text(0).lower()
-            matches = search_text in text
-
-            # Show item if it matches or any child matches
-            child_matches = False
-            for i in range(item.childCount()):
-                child = item.child(i)
-                if filter_tree_item(child):
-                    child_matches = True
-
-            item.setHidden(not (matches or child_matches))
-            return matches or child_matches
-
-        root = self.mood_tree.invisibleRootItem()
-        for i in range(root.childCount()):
-            item = root.child(i)
-            filter_tree_item(item)
+        filter_tree_widget(self.mood_tree, self.search_box.text())
 
     def update_statistics(self):
         """Update the statistics display with track count data"""

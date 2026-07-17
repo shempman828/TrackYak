@@ -63,3 +63,98 @@ def configure_hierarchy_tree(tree: QTreeWidget, *, multi_select: bool = True) ->
     tree.setDropIndicatorShown(True)
     tree.setDragDropMode(QTreeWidget.InternalMove)
     tree.setContextMenuPolicy(Qt.CustomContextMenu)
+
+
+def filter_tree_widget(tree: QTreeWidget, search_text: str) -> None:
+    """Recursively hide tree items whose text (and all descendants' text)
+    doesn't contain `search_text` (case-insensitive). An item stays visible
+    if it matches directly or any descendant matches.
+    """
+    search_text = search_text.lower()
+
+    def _filter_item(item) -> bool:
+        text = item.text(0).lower()
+        matches = search_text in text
+
+        child_matches = False
+        for i in range(item.childCount()):
+            if _filter_item(item.child(i)):
+                child_matches = True
+
+        item.setHidden(not (matches or child_matches))
+        return matches or child_matches
+
+    root = tree.invisibleRootItem()
+    for i in range(root.childCount()):
+        _filter_item(root.child(i))
+
+
+def collect_expanded_ids(tree: QTreeWidget, *, id_role: int = Qt.UserRole) -> set:
+    """Return the set of entity IDs (stored at `id_role`) whose tree item is
+    currently expanded. Call before clearing/rebuilding a tree, together with
+    `restore_expanded_ids`, to preserve the user's expand/collapse state
+    across a reload.
+    """
+    expanded_ids = set()
+
+    def _collect(item):
+        if item.isExpanded():
+            entity_id = item.data(0, id_role)
+            if entity_id is not None:
+                expanded_ids.add(entity_id)
+        for i in range(item.childCount()):
+            _collect(item.child(i))
+
+    root = tree.invisibleRootItem()
+    for i in range(root.childCount()):
+        _collect(root.child(i))
+    return expanded_ids
+
+
+def restore_expanded_ids(
+    tree: QTreeWidget, expanded_ids: set, *, id_role: int = Qt.UserRole
+) -> None:
+    """Re-expand tree items whose entity ID (stored at `id_role`) is in
+    `expanded_ids`. Counterpart to `collect_expanded_ids`.
+    """
+
+    def _restore(item):
+        entity_id = item.data(0, id_role)
+        if entity_id in expanded_ids:
+            item.setExpanded(True)
+        for i in range(item.childCount()):
+            _restore(item.child(i))
+
+    root = tree.invisibleRootItem()
+    for i in range(root.childCount()):
+        _restore(root.child(i))
+
+
+def is_hierarchy_descendant(
+    ancestor_id, candidate_id, entities, *, id_attr: str, parent_attr: str = "parent_id"
+) -> bool:
+    """True if `candidate_id` is a descendant (at any depth) of `ancestor_id`
+    within `entities` -- i.e. re-parenting `ancestor_id` under `candidate_id`
+    would create a cycle. Use as a drag-drop reparent guard:
+    `is_hierarchy_descendant(dragged_id, new_parent_id, ...)`.
+
+    `entities` is the flat list of ORM objects for the whole hierarchy (e.g.
+    all Genre/Mood/Role/Award rows); `id_attr`/`parent_attr` name the
+    primary-key and parent-reference attributes on those objects.
+    """
+    if not ancestor_id or not candidate_id:
+        return False
+
+    children_by_parent: dict = {}
+    for entity in entities:
+        parent_id = getattr(entity, parent_attr, None)
+        if parent_id is not None:
+            children_by_parent.setdefault(parent_id, []).append(getattr(entity, id_attr))
+
+    def _check(parent_id) -> bool:
+        children = children_by_parent.get(parent_id, [])
+        if candidate_id in children:
+            return True
+        return any(_check(child_id) for child_id in children)
+
+    return _check(ancestor_id)

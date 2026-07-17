@@ -20,8 +20,12 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.hierarchy_tree_style import (
+    collect_expanded_ids,
     configure_hierarchy_tree,
+    filter_tree_widget,
     icon_for_depth,
+    is_hierarchy_descendant,
+    restore_expanded_ids,
 )
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -317,19 +321,7 @@ class RoleView(QWidget):
 
         # Remember which roles were expanded so the rebuild doesn't collapse
         # everything the user had opened.
-        expanded_ids = set()
-
-        def collect_expanded(item):
-            if item.isExpanded():
-                role_id = item.data(0, Qt.UserRole)
-                if role_id is not None:
-                    expanded_ids.add(role_id)
-            for i in range(item.childCount()):
-                collect_expanded(item.child(i))
-
-        root = self.role_tree.invisibleRootItem()
-        for i in range(root.childCount()):
-            collect_expanded(root.child(i))
+        expanded_ids = collect_expanded_ids(self.role_tree)
 
         self.role_tree.clear()
 
@@ -364,17 +356,7 @@ class RoleView(QWidget):
 
         # Restore expansion state, or expand everything on first build
         if expanded_ids:
-
-            def restore_expanded(item):
-                role_id = item.data(0, Qt.UserRole)
-                if role_id in expanded_ids:
-                    item.setExpanded(True)
-                for i in range(item.childCount()):
-                    restore_expanded(item.child(i))
-
-            root = self.role_tree.invisibleRootItem()
-            for i in range(root.childCount()):
-                restore_expanded(root.child(i))
+            restore_expanded_ids(self.role_tree, expanded_ids)
         else:
             self.role_tree.expandAll()
 
@@ -588,19 +570,7 @@ class RoleView(QWidget):
 
     def _filter_roles(self, text):
         """Filter visible roles based on search text."""
-        text = text.lower()
-
-        for i in range(self.role_tree.topLevelItemCount()):
-            self._filter_tree_item(self.role_tree.topLevelItem(i), text)
-
-    def _filter_tree_item(self, item, text):
-        """Recursive filtering helper for tree items."""
-        visible = text in item.text(0).lower()
-        child_visible = False
-        for i in range(item.childCount()):
-            child_visible |= self._filter_tree_item(item.child(i), text)
-        item.setHidden(not (visible or child_visible))
-        return visible or child_visible
+        filter_tree_widget(self.role_tree, text)
 
     # -----------------------------------------------------------------------
     # Edit / rename / delete / drag-drop
@@ -665,7 +635,9 @@ class RoleView(QWidget):
                     continue
 
                 # Prevent circular references
-                if self._would_create_circular_reference(child_id, parent_id):
+                if is_hierarchy_descendant(
+                    child_id, parent_id, self._all_roles, id_attr="role_id"
+                ):
                     show_status_message(
                         self,
                         f"Moving '{child_item.text(0)}' there would create a "
@@ -689,23 +661,6 @@ class RoleView(QWidget):
         except Exception as e:
             logger.error(f"Error moving role: {str(e)}")
             event.ignore()
-
-    def _would_create_circular_reference(self, child_id, parent_id):
-        """Check if setting parent_id would create a circular reference."""
-        if not parent_id:
-            return False
-
-        # Traverse up the parent chain to see if we encounter child_id
-        current_id = parent_id
-        while current_id:
-            if current_id == child_id:
-                return True
-            role = self.controller.get.get_entity_object("Role", role_id=current_id)
-            if not role or not role.parent_id:
-                break
-            current_id = role.parent_id
-
-        return False
 
     def show_context_menu(self, pos):
         """Display context menu for role operations."""

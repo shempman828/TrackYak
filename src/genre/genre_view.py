@@ -21,8 +21,12 @@ from PySide6.QtWidgets import (
 
 from src.common.base_split_dialog import SplitDBDialog
 from src.common.hierarchy_tree_style import (
+    collect_expanded_ids,
     configure_hierarchy_tree,
+    filter_tree_widget,
     icon_for_depth,
+    is_hierarchy_descendant,
+    restore_expanded_ids,
 )
 from src.core.status_utility import show_status_message
 from src.db.db_tables import TrackGenre
@@ -145,19 +149,7 @@ class GenreView(QWidget):
         """Load genres from the database using the controller."""
         try:
             # Save which genre IDs are currently expanded
-            expanded_ids = set()
-
-            def collect_expanded(item):
-                if item.isExpanded():
-                    genre_id = item.data(0, Qt.UserRole)
-                    if genre_id is not None:
-                        expanded_ids.add(genre_id)
-                for i in range(item.childCount()):
-                    collect_expanded(item.child(i))
-
-            root = self.tree.invisibleRootItem()
-            for i in range(root.childCount()):
-                collect_expanded(root.child(i))
+            expanded_ids = collect_expanded_ids(self.tree)
 
             self.tree.clear()
             genres = self.controller.get.get_all_entities("Genre")
@@ -195,17 +187,8 @@ class GenreView(QWidget):
             # Build the tree recursively starting from root nodes (parent_id=None)
             self._build_genre_tree(None, children_map, genre_map, track_counts, 0)
 
-            def restore_expanded(item):
-                genre_id = item.data(0, Qt.UserRole)
-                if genre_id in expanded_ids:
-                    item.setExpanded(True)
-                for i in range(item.childCount()):
-                    restore_expanded(item.child(i))
-
             if expanded_ids:
-                root = self.tree.invisibleRootItem()
-                for i in range(root.childCount()):
-                    restore_expanded(root.child(i))
+                restore_expanded_ids(self.tree, expanded_ids)
             else:
                 self.tree.expandAll()
             logger.info(f"Loaded {len(genres)} genres with track counts")
@@ -305,18 +288,7 @@ class GenreView(QWidget):
 
     def filter_genres(self, text):
         """Simple text-based filtering."""
-        text = text.lower()
-        for i in range(self.tree.topLevelItemCount()):
-            self._filter_item(self.tree.topLevelItem(i), text)
-
-    def _filter_item(self, item, text):
-        """Recursive filtering helper."""
-        visible = text in item.text(0).lower()
-        child_visible = False
-        for i in range(item.childCount()):
-            child_visible |= self._filter_item(item.child(i), text)
-        item.setHidden(not (visible or child_visible))
-        return visible or child_visible
+        filter_tree_widget(self.tree, text)
 
     def on_drop_event(self, event):
         """Handle parent changes through drag-and-drop."""
@@ -332,6 +304,22 @@ class GenreView(QWidget):
         target_id = target_item.data(0, Qt.UserRole) if target_item else None
 
         try:
+            # Prevent circular reference: reject moving a genre onto itself
+            # or onto one of its own descendants.
+            if target_id is not None:
+                all_genres = self.controller.get.get_all_entities("Genre")
+                for item in selected_items:
+                    child_id = item.data(0, Qt.UserRole)
+                    if child_id == target_id or is_hierarchy_descendant(
+                        child_id, target_id, all_genres, id_attr="genre_id"
+                    ):
+                        show_status_message(
+                            self,
+                            "Cannot make a genre a child of itself or its descendants.",
+                        )
+                        event.ignore()
+                        return
+
             # Move all selected items to the new parent
             for item in selected_items:
                 child_id = item.data(0, Qt.UserRole)

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.award.award_detail import AwardDetailTab
+from src.common.hierarchy_tree_style import is_hierarchy_descendant
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 
@@ -137,15 +138,6 @@ class AwardView(QWidget):
     def _format_tab_name(award_name: str) -> str:
         """Truncate an award name to fit a tab label."""
         return f"{award_name[:15]}..." if len(award_name) > 15 else award_name
-
-    def _is_descendant(self, award_id: int, potential_ancestor_id: int) -> bool:
-        """Return True if potential_ancestor_id is an ancestor of award_id."""
-        for award in self.all_awards:
-            if award.award_id == award_id and award.parent_id is not None:
-                if award.parent_id == potential_ancestor_id:
-                    return True
-                return self._is_descendant(award.parent_id, potential_ancestor_id)
-        return False
 
     def load_awards(self) -> None:
         """Load awards from database and update filters."""
@@ -456,8 +448,8 @@ class AwardView(QWidget):
                 return
 
             # Prevent circular chains (dropping onto a descendant)
-            if new_parent_id is not None and self._is_descendant(
-                new_parent_id, dragged_award_id
+            if new_parent_id is not None and is_hierarchy_descendant(
+                dragged_award_id, new_parent_id, self.all_awards, id_attr="award_id"
             ):
                 logger.warning(
                     f"Rejected drop: award {new_parent_id} is a descendant of {dragged_award_id}"
