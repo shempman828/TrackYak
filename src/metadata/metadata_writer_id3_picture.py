@@ -3,15 +3,20 @@
 import struct
 
 from src.core.logger_config import logger
-from src.metadata.metadata_image_utils import determine_image_format, mime_type_for_format
+from src.metadata.metadata_image_utils import (
+    ARTWORK_ROLE_TO_TYPE,
+    ARTWORK_TYPE_TO_ROLE,
+    determine_image_format,
+    mime_type_for_format,
+)
 
 
 class Id3PictureWriter:
     """Builds APIC frames, per the same MusicBrainz/ID3-APIC picture-type
     convention used by the FLAC writer (and the reader, ArtworkExtractor)."""
 
-    ROLE_TO_TYPE = {"front": 3, "rear": 4, "liner": 5}
-    TYPE_TO_ROLE = {v: k for k, v in ROLE_TO_TYPE.items()}
+    ROLE_TO_TYPE = ARTWORK_ROLE_TO_TYPE
+    TYPE_TO_ROLE = ARTWORK_TYPE_TO_ROLE
 
     def build_apic_frame(self, role: str, image_bytes: bytes, description: str = "") -> bytes:
         """Build a complete APIC frame (header + body) for `role`, always as

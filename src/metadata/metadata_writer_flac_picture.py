@@ -6,7 +6,12 @@ import struct
 from PIL import Image
 
 from src.core.logger_config import logger
-from src.metadata.metadata_image_utils import determine_image_format, mime_type_for_format
+from src.metadata.metadata_image_utils import (
+    ARTWORK_ROLE_TO_TYPE,
+    ARTWORK_TYPE_TO_ROLE,
+    determine_image_format,
+    mime_type_for_format,
+)
 
 _MODE_BIT_DEPTHS = {
     "1": 1,
@@ -24,8 +29,8 @@ class FlacPictureWriter:
     """Builds METADATA_BLOCK_PICTURE payloads, per the MusicBrainz/ID3-APIC
     picture-type convention used by the reader (ArtworkExtractor)."""
 
-    ROLE_TO_TYPE = {"front": 3, "rear": 4, "liner": 5}
-    TYPE_TO_ROLE = {v: k for k, v in ROLE_TO_TYPE.items()}
+    ROLE_TO_TYPE = ARTWORK_ROLE_TO_TYPE
+    TYPE_TO_ROLE = ARTWORK_TYPE_TO_ROLE
 
     def build_picture_block(
         self, role: str, image_bytes: bytes, description: str = ""

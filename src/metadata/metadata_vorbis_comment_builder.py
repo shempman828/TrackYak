@@ -12,6 +12,7 @@ from src.metadata.metadata_mapping import (
     VORBIS_DISC_MAPPINGS,
     VORBIS_TRACK_MAPPINGS,
 )
+from src.metadata.metadata_text import build_iso_date_string, group_artists_by_tag
 from src.core.logger_config import logger
 
 
@@ -46,22 +47,6 @@ class VorbisCommentBuilder:
             clean = [str(v) for v in values if v is not None and str(v).strip()]
             if clean:
                 comments[tag] = clean
-
-        def _build_date(entity, year_field, month_field=None, day_field=None):
-            """Build ISO-8601 date string from separate year/month/day DB columns."""
-            year = getattr(entity, year_field, None)
-            if not year:
-                return None
-            parts = [str(year).zfill(4)]
-            if month_field:
-                month = getattr(entity, month_field, None)
-                if month:
-                    parts.append(str(month).zfill(2))
-                    if day_field:
-                        day = getattr(entity, day_field, None)
-                        if day:
-                            parts.append(str(day).zfill(2))
-            return "-".join(parts)
 
         # ----------------------------------------------------------------
         # Track scalar fields (from VORBIS_TRACK_MAPPINGS)
@@ -119,24 +104,24 @@ class VorbisCommentBuilder:
         # ----------------------------------------------------------------
         # Album release date
         if album:
-            release_date = _build_date(
-                album, "release_year", "release_month", "release_day"
+            release_date = build_iso_date_string(
+                album, ["release_year", "release_month", "release_day"]
             )
             if release_date:
                 _set("DATE", release_date)
                 _set("YEAR", str(album.release_year))
 
         # Track recording date
-        recording_date = _build_date(
-            track, "recorded_year", "recorded_month", "recorded_day"
+        recording_date = build_iso_date_string(
+            track, ["recorded_year", "recorded_month", "recorded_day"]
         )
         if recording_date:
             _set("RECORDINGDATE", recording_date)
             _set("RECORDEDDATE", recording_date)  # alias used by some taggers
 
         # Track composed date
-        composed_date = _build_date(
-            track, "composed_year", "composed_month", "composed_day"
+        composed_date = build_iso_date_string(
+            track, ["composed_year", "composed_month", "composed_day"]
         )
         if composed_date:
             _set("COMPOSEDDATE", composed_date)
@@ -174,46 +159,34 @@ class VorbisCommentBuilder:
             "Mastering Engineer": "MASTERING",
         }
 
-        # Accumulate per-tag lists so we can emit repeated entries
-        artists_by_tag = {}
-
-        def _add_artist(tag, name):
-            if not name:
-                return
-            artists_by_tag.setdefault(tag, [])
-            if name not in artists_by_tag[tag]:
-                artists_by_tag[tag].append(name)
-
         # MusicBrainz Picard convention: alongside the display name, also
         # write a stable per-artist ID tag so re-imports can resolve identity
         # even when the display name is an alias override, not the artist's
         # canonical name. Only ARTIST/ALBUMARTIST have a standard ID
         # counterpart; other roles don't get one.
         ID_TAG_MAP = {"ARTIST": "MUSICBRAINZ_ARTISTID", "ALBUMARTIST": "MUSICBRAINZ_ALBUMARTISTID"}
-        mbids_by_tag = {}
-
-        def _add_mbid(tag, mbid):
-            if not mbid:
-                return
-            id_tag = ID_TAG_MAP.get(tag)
-            if not id_tag:
-                return
-            mbids_by_tag.setdefault(id_tag, [])
-            if mbid not in mbids_by_tag[id_tag]:
-                mbids_by_tag[id_tag].append(mbid)
 
         all_artist_data = artists_with_roles + album_artists_with_roles
+        artists_by_tag, mbids_by_tag = group_artists_by_tag(
+            all_artist_data, ROLE_TO_TAG, ID_TAG_MAP, dedupe=True
+        )
+
+        # Accumulate into the same per-tag lists for the PERFORMER fallback
+        # below, so emitting the entries later applies one dedup rule.
+        def _add_artist(tag, name):
+            if not name:
+                return
+            names = artists_by_tag.setdefault(tag, [])
+            if name not in names:
+                names.append(name)
+
         for artist_data in all_artist_data:
             role_name = artist_data["role"].role_name
             artist_name = artist_data["credited_name"]
             if not artist_name:
                 continue
 
-            direct_tag = ROLE_TO_TAG.get(role_name)
-            if direct_tag:
-                _add_artist(direct_tag, artist_name)
-                _add_mbid(direct_tag, artist_data.get("artist_mbid"))
-            else:
+            if role_name not in ROLE_TO_TAG:
                 # Non-standard role: write as PERFORMER=Artist (Role)
                 # This is exactly what MusicBrainz Picard does
                 performer_value = f"{artist_name} ({role_name})"

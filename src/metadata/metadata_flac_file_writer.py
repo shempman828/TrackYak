@@ -3,18 +3,13 @@ metadata blocks in an existing file, for both tag and artwork writes.
 Works entirely on file paths and byte blobs - no database access.
 """
 
-import os
 import struct
-from typing import Any, Dict, List, Tuple
+from typing import Any, List, Tuple
 
 from src.metadata.metadata_byte_utils import syncsafe_to_int
+from src.metadata.metadata_image_utils import find_picture_index_for_role
 from src.metadata.metadata_raw_tags import RawTagExtractor
-from src.metadata.metadata_writer_backup import (
-    backup_file,
-    discard_backup,
-    restore_backup,
-    verify_artwork_write,
-)
+from src.metadata.metadata_writer_backup import write_artwork_with_backup
 from src.metadata.metadata_writer_flac_picture import FlacPictureWriter
 from src.metadata.metadata_writer_merge import merge_vorbis_comments
 from src.metadata.metadata_writer_types import WriteMode
@@ -98,20 +93,10 @@ class FlacFileWriter:
         PICTURE blocks for other roles, and all non-PICTURE blocks, pass
         through byte-for-byte unchanged.
         """
-        if role not in FlacPictureWriter.ROLE_TO_TYPE:
-            raise ValueError(f"Unknown artwork role: {role}")
 
-        if not os.access(file_path, os.W_OK):
-            logger.debug(f"Skipping artwork write - not writable: {file_path}")
-            return False
-
-        backup_path = None
-        try:
-            backup_path = backup_file(file_path)
-
+        def mutate() -> bool:
             blocks = self._find_metadata_blocks(file_path)
             if not blocks:
-                discard_backup(backup_path)
                 return False
 
             with open(file_path, "rb") as f:
@@ -146,22 +131,11 @@ class FlacFileWriter:
             with open(file_path, "wb") as f:
                 f.write(new_data)
 
-            if not verify_artwork_write(file_path, role, image_bytes):
-                restore_backup(file_path, backup_path)
-                logger.error(
-                    f"Artwork write verification failed for {file_path} "
-                    f"(role={role}); attempted to restore backup"
-                )
-                return False
-
-            discard_backup(backup_path)
             return True
 
-        except Exception as e:
-            logger.debug(f"Error writing artwork to {file_path}: {e}")
-            if backup_path and os.path.exists(backup_path):
-                restore_backup(file_path, backup_path)
-            return False
+        return write_artwork_with_backup(
+            file_path, role, image_bytes, FlacPictureWriter.ROLE_TO_TYPE, mutate, "artwork"
+        )
 
     def _prefix_length(self, file_path: str) -> int:
         """
@@ -265,23 +239,11 @@ class FlacFileWriter:
         rule as ArtworkExtractor.extract_artwork_by_role, so the writer and
         reader agree on which picture "is" the front/rear/liner cover.
         """
-        typed_indices: Dict[str, int] = {}
-        untyped_indices = []
 
-        for idx, (block_type, payload) in enumerate(raw_blocks):
+        def picture_type_for_block(item: Tuple[int, bytes]):
+            block_type, payload = item
             if block_type != 6 or len(payload) < 4:  # PICTURE block, has a type field
-                continue
-            picture_type = struct.unpack(">I", payload[:4])[0]
-            mapped_role = FlacPictureWriter.TYPE_TO_ROLE.get(picture_type)
-            if mapped_role:
-                typed_indices.setdefault(mapped_role, idx)
-            else:
-                untyped_indices.append(idx)
+                return None
+            return struct.unpack(">I", payload[:4])[0]
 
-        if role in typed_indices:
-            return typed_indices[role]
-
-        if role == "front" and "front" not in typed_indices and len(untyped_indices) == 1:
-            return untyped_indices[0]
-
-        return None
+        return find_picture_index_for_role(raw_blocks, role, picture_type_for_block)

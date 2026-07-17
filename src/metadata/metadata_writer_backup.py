@@ -5,7 +5,7 @@ writers when writing tags or artwork.
 import hashlib
 import os
 import shutil
-from typing import Any
+from typing import Any, Callable, Dict
 
 from src.core.logger_config import logger
 from src.metadata.metadata_artwork import ArtworkExtractor
@@ -42,6 +42,59 @@ def discard_backup(backup_path: str) -> None:
     """Remove a backup after a successful write."""
     if os.path.exists(backup_path):
         os.remove(backup_path)
+
+
+def write_artwork_with_backup(
+    file_path: str,
+    role: str,
+    image_bytes: Any,
+    role_to_type: Dict[str, int],
+    mutate: Callable[[], bool],
+    error_context: str,
+) -> bool:
+    """
+    Shared control-flow skeleton for a format's write_artwork: validate
+    `role`, back up the file, run `mutate` (which does the format-specific
+    strip-existing-picture/append-new-picture/serialize and writes the
+    file), then verify the result and restore the backup on any failure.
+
+    `mutate` returns False if it couldn't find anything to write against
+    (e.g. no parseable metadata blocks/tag) - treated the same as any other
+    failure, but without a verification step since nothing was written.
+    `error_context` is folded into the debug log line on an exception (e.g.
+    "artwork" or "MP3 artwork") so failures are still distinguishable by format.
+    """
+    if role not in role_to_type:
+        raise ValueError(f"Unknown artwork role: {role}")
+
+    if not os.access(file_path, os.W_OK):
+        logger.debug(f"Skipping artwork write - not writable: {file_path}")
+        return False
+
+    backup_path = None
+    try:
+        backup_path = backup_file(file_path)
+
+        if not mutate():
+            discard_backup(backup_path)
+            return False
+
+        if not verify_artwork_write(file_path, role, image_bytes):
+            restore_backup(file_path, backup_path)
+            logger.error(
+                f"Artwork write verification failed for {file_path} "
+                f"(role={role}); attempted to restore backup"
+            )
+            return False
+
+        discard_backup(backup_path)
+        return True
+
+    except Exception as e:
+        logger.debug(f"Error writing {error_context} to {file_path}: {e}")
+        if backup_path and os.path.exists(backup_path):
+            restore_backup(file_path, backup_path)
+        return False
 
 
 def verify_artwork_write(file_path: str, role: str, image_bytes: Any) -> bool:

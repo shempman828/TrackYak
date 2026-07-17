@@ -5,19 +5,6 @@
 #Bug/Feature Fixes
 
 
-68. in base track view, use formatted duration instead of bare second count.
-
-69. Review track file moving code. The goal is for the program to own the location of music files. The user sets a master directory. TrackYak organizes the files into albumartist/album subdirectories and updates filepath. We must be absolutely careful that files are never lost either by sending into the void or messing up the new path.
-
-70. artist edit discog. Use album art cover flow properly. Order albums by year
-
-71.scanning for duplicate artists shows a progress bar but it blocks the ui thread and freezes the program. Ended with a crash.
-
-72. Opening the Publishers view for the first time froze the app for over 2 minutes (logs show ~12,000 sequential DB queries between 13:17:35 and 13:19:33). PublisherTreeWidget.calculate_recursive_album_count() in publisher_tree.py issues one AlbumPublisher query and one child-Publisher query per publisher, then recurses into every child - so descendant subtrees get requeried again and again as each ancestor computes its own total, and it all runs on the main thread instead of a background worker like the duplicate scan does. With ~2,187 publishers this is what caused the freeze. Should compute album counts with a single grouped query (like genre_view.py already does for genres) and build the recursive totals bottom-up in Python.
-
-73. menu_bar.py's _icon_exists() always returns False, so the General Settings menu item never gets its icon. asset_paths.icon() returns a QIcon, not a path string, so os.path.exists(path) throws "path should be string, bytes, os.PathLike or integer, not QIcon" every time (caught and logged as debug, silently swallowed). Fix by checking the underlying file path before wrapping it in QIcon.
-
-74. [Duplication cleanup - Phase 2] Consolidate the per-format metadata writers into the shared metadata_mapping.py/metadata_text.py/metadata_image_utils.py modules instead of each format reimplementing the same logic. metadata_flac_file_writer.py and metadata_mp3_file_writer.py each independently implement the same _find_picture_index_for_role role-resolution algorithm and the same write_artwork skeleton (backup -> strip existing art -> append new picture -> serialize -> verify/restore), and ROLE_TO_TYPE is redefined separately in metadata_writer_flac_picture.py and metadata_writer_id3_picture.py. Separately, metadata_id3_frame_builder.py and metadata_vorbis_comment_builder.py each independently implement "group artists by role -> joined tag text + paired MusicBrainz-ID tag" and "build an ISO date string from year/month/day columns" logic. Hoist both into the shared utility modules so FLAC/MP3/MP4/OGG all call one implementation.
 
 75. [Duplication cleanup - Phase 3] Smaller cleanup items identified during the Phase 1 refactor: (a) merge the duplicate AlbumField/TrackField dataclass schemas in db_mapping_albums.py/db_mapping_tracks.py into one shared FieldSpec dataclass; (b) extend src/common/entity_alias_tab.py's EntityAliasesTab/EntityAliasRowWidget with optional extra_field/on_swap hooks so artist_alias_dialog.py can subclass it instead of forking ~150 duplicated lines; (c) add an add_action(menu, text, icon_name, slot, shortcut) helper to menu_bar.py to collapse its 17 near-identical QAction construction blocks; (d) migrate more of queue_dock.py/player_dock.py/nowplaying_*.py's remaining hand-rolled QSS strings to the src/common/style_utils.py property-selector pattern, following the precedent set in Phase 1 Batch A.
 

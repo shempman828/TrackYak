@@ -9,11 +9,12 @@ from typing import Any, Dict, List, Tuple
 
 from src.metadata.metadata_byte_utils import syncsafe_to_int
 from src.metadata.metadata_id3_writer import ID3TagWriter
+from src.metadata.metadata_image_utils import find_picture_index_for_role
 from src.metadata.metadata_writer_backup import (
     backup_file,
     discard_backup,
     restore_backup,
-    verify_artwork_write,
+    write_artwork_with_backup,
 )
 from src.metadata.metadata_writer_id3_picture import Id3PictureWriter
 from src.metadata.metadata_writer_merge import merge_id3_frames
@@ -128,10 +129,7 @@ class MP3FileWriter:
             return False
         version_major = header[3]
 
-        backup_path = None
-        try:
-            backup_path = backup_file(file_path)
-
+        def mutate() -> bool:
             existing_frames = self._find_frames(file_path)
 
             with open(file_path, "rb") as f:
@@ -173,22 +171,11 @@ class MP3FileWriter:
                 f.write(new_tag)
                 f.write(audio_data)
 
-            if not verify_artwork_write(file_path, role, image_bytes):
-                restore_backup(file_path, backup_path)
-                logger.error(
-                    f"Artwork write verification failed for {file_path} "
-                    f"(role={role}); attempted to restore backup"
-                )
-                return False
-
-            discard_backup(backup_path)
             return True
 
-        except Exception as e:
-            logger.debug(f"Error writing MP3 artwork to {file_path}: {e}")
-            if backup_path and os.path.exists(backup_path):
-                restore_backup(file_path, backup_path)
-            return False
+        return write_artwork_with_backup(
+            file_path, role, image_bytes, Id3PictureWriter.ROLE_TO_TYPE, mutate, "MP3 artwork"
+        )
 
     def _find_audio_start(self, file_path: str) -> int:
         """Find the start of MP3 audio data (after ID3 tag)."""
@@ -297,25 +284,11 @@ class MP3FileWriter:
         represents `role`, using the same typed + untyped-fallback-to-front
         rule as ArtworkExtractor.extract_artwork_by_role.
         """
-        typed_indices: Dict[str, int] = {}
-        untyped_indices = []
 
-        for idx, (frame_id, frame_bytes) in enumerate(raw_frames):
+        def picture_type_for_frame(item: Tuple[str, bytes]):
+            frame_id, frame_bytes = item
             if frame_id not in ("APIC", "PIC"):
-                continue
-            picture_type = self._peek_picture_type(frame_bytes[10:], version_major)
-            if picture_type is None:
-                continue
-            mapped_role = Id3PictureWriter.TYPE_TO_ROLE.get(picture_type)
-            if mapped_role:
-                typed_indices.setdefault(mapped_role, idx)
-            else:
-                untyped_indices.append(idx)
+                return None
+            return self._peek_picture_type(frame_bytes[10:], version_major)
 
-        if role in typed_indices:
-            return typed_indices[role]
-
-        if role == "front" and "front" not in typed_indices and len(untyped_indices) == 1:
-            return untyped_indices[0]
-
-        return None
+        return find_picture_index_for_role(raw_frames, role, picture_type_for_frame)

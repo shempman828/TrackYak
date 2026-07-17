@@ -42,6 +42,71 @@ from src.metadata.metadata_mapping import (
 )
 
 
+def build_iso_date_string(entity: Any, fields: List[str]) -> Optional[str]:
+    """Build a YYYY[-MM[-DD]] date string from up to 3 year/month/day DB
+    columns on `entity`, named by `fields` (year field first, then month,
+    then day). Stops at the first missing/falsy field, so a year-only or
+    year+month row doesn't get a partial trailing gap. Returns None if
+    even the year field is missing.
+    """
+    if not fields:
+        return None
+
+    parts = []
+    for i, field in enumerate(fields):
+        value = getattr(entity, field, None)
+        if not value:
+            break
+        width = 4 if i == 0 else 2
+        parts.append(str(value).zfill(width))
+
+    return "-".join(parts) if parts else None
+
+
+def group_artists_by_tag(
+    artist_role_data: List[Dict[str, Any]],
+    role_to_tag: Dict[str, str],
+    id_tag_map: Dict[str, str],
+    dedupe: bool = False,
+) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    """Group artist-role dicts (each with "role" -> object with .role_name,
+    "credited_name", and optional "artist_mbid") by output tag/frame id,
+    using `role_to_tag` to map role name -> tag. Returns
+    (names_by_tag, mbids_by_tag): `mbids_by_tag` only gets entries for tags
+    that appear in `id_tag_map` (its values are the paired MusicBrainz-ID
+    tag/frame names), and only for artists that actually have an mbid.
+
+    With `dedupe=True`, a repeated (tag, name) or (id_tag, mbid) pair is
+    collapsed to its first occurrence - used by the Vorbis builder, which
+    emits one tag entry per artist. The ID3 builder instead joins every
+    name into a single string per frame, so it leaves dedupe=False and
+    lets duplicates show up as repeated segments in that joined text,
+    matching its pre-consolidation behavior.
+    """
+    names_by_tag: Dict[str, List[str]] = {}
+    mbids_by_tag: Dict[str, List[str]] = {}
+
+    for artist_data in artist_role_data:
+        role_name = artist_data["role"].role_name
+        tag = role_to_tag.get(role_name)
+        name = artist_data.get("credited_name")
+        if not tag or not name:
+            continue
+
+        names = names_by_tag.setdefault(tag, [])
+        if not dedupe or name not in names:
+            names.append(name)
+
+        id_tag = id_tag_map.get(tag)
+        mbid = artist_data.get("artist_mbid")
+        if id_tag and mbid:
+            mbids = mbids_by_tag.setdefault(id_tag, [])
+            if not dedupe or mbid not in mbids:
+                mbids.append(mbid)
+
+    return names_by_tag, mbids_by_tag
+
+
 class TextMetadataExtractor:
     """Extracts and normalizes metadata from audio files using mapping definitions."""
 

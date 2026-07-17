@@ -16,6 +16,7 @@ from src.metadata.metadata_mapping import (
     ID3_SPECIAL_MAPPINGS,
     ID3_TRACK_MAPPINGS,
 )
+from src.metadata.metadata_text import build_iso_date_string, group_artists_by_tag
 from src.core.logger_config import logger
 
 
@@ -92,28 +93,17 @@ class ID3FrameBuilder:
         # frames have a standard ID counterpart.
         id_frame_map = {"TPE1": "MusicBrainz Artist Id", "TPE2": "MusicBrainz Album Artist Id"}
 
-        # Group artists by role for each frame type
-        artists_by_frame = {}
-        mbids_by_frame = {}
-        for artist_data in artists_with_roles:
-            role_name = artist_data["role"].role_name
-            frame_id = role_to_frame_map.get(role_name)
-            if frame_id and artist_data["credited_name"]:
-                artists_by_frame.setdefault(frame_id, [])
-                artists_by_frame[frame_id].append(artist_data["credited_name"])
-                if frame_id in id_frame_map and artist_data.get("artist_mbid"):
-                    mbids_by_frame.setdefault(frame_id, [])
-                    mbids_by_frame[frame_id].append(artist_data["artist_mbid"])
-
-        # Also include album artists
-        for artist_data in album_artists_with_roles:
-            role_name = artist_data["role"].role_name
-            if role_name == "Album Artist" and artist_data["credited_name"]:
-                artists_by_frame.setdefault("TPE2", [])
-                artists_by_frame["TPE2"].append(artist_data["credited_name"])
-                if artist_data.get("artist_mbid"):
-                    mbids_by_frame.setdefault("TPE2", [])
-                    mbids_by_frame["TPE2"].append(artist_data["artist_mbid"])
+        # Group artists by role for each frame type. Album artists only
+        # count here under the "Album Artist" role, matching the original
+        # (pre-consolidation) per-source filtering.
+        combined_artists = list(artists_with_roles) + [
+            artist_data
+            for artist_data in album_artists_with_roles
+            if artist_data["role"].role_name == "Album Artist"
+        ]
+        artists_by_frame, mbids_by_frame = group_artists_by_tag(
+            combined_artists, role_to_frame_map, id_frame_map
+        )
 
         # Create frames for each artist type
         for frame_id, artist_names in artists_by_frame.items():
@@ -121,14 +111,14 @@ class ID3FrameBuilder:
                 artist_text = " / ".join(artist_names)
                 frames.append(self.id3_writer.create_text_frame(frame_id, artist_text))
 
-        # Create the paired MusicBrainz ID TXXX frames, in the same order
-        for frame_id, mbids in mbids_by_frame.items():
+        # Create the paired MusicBrainz ID TXXX frames, in the same order.
+        # group_artists_by_tag already keys mbids_by_frame by the mapped
+        # TXXX description (id_frame_map's values), not the source frame id.
+        for txxx_description, mbids in mbids_by_frame.items():
             if mbids:
                 mbid_text = " / ".join(mbids)
                 frames.append(
-                    self.id3_writer.create_txxx_frame(
-                        id_frame_map[frame_id], mbid_text
-                    )
+                    self.id3_writer.create_txxx_frame(txxx_description, mbid_text)
                 )
 
         # Genre mappings
@@ -163,39 +153,18 @@ class ID3FrameBuilder:
                         self.id3_writer.create_number_frame(tag_id, int(field_value))
                     )
 
-        # Date mappings with proper formatting
+        # Date mappings with proper formatting. A single-field mapping
+        # (type "year") and a 3-field one (type "date") are both just an
+        # ISO date string truncated to however many fields resolved.
         for tag_id, mapping in ID3_DATE_MAPPINGS.items():
             entity_type = mapping.get("target")
             entity = track if entity_type == "track" else album
+            if not entity:
+                continue
 
-            if entity:
-                fields = mapping.get("fields", [])
-                date_parts = []
-                for field in fields:
-                    field_value = getattr(entity, field, None)
-                    if field_value:
-                        if "year" in field:
-                            date_parts.append(str(field_value).zfill(4))
-                        else:
-                            date_parts.append(str(field_value).zfill(2))
-
-                if date_parts:
-                    if mapping["type"] == "date":
-                        if len(date_parts) == 3:  # Full date
-                            date_text = (
-                                f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}"
-                            )
-                        elif len(date_parts) == 2:  # Year-month
-                            date_text = f"{date_parts[0]}-{date_parts[1]}"
-                        else:  # Year only
-                            date_text = date_parts[0]
-                        frames.append(
-                            self.id3_writer.create_text_frame(tag_id, date_text)
-                        )
-                    elif mapping["type"] == "year":
-                        frames.append(
-                            self.id3_writer.create_text_frame(tag_id, date_parts[0])
-                        )
+            date_text = build_iso_date_string(entity, mapping.get("fields", []))
+            if date_text:
+                frames.append(self.id3_writer.create_text_frame(tag_id, date_text))
 
         # Handle special mappings (TMCL, TIPL)
         for tag_id, mapping in ID3_SPECIAL_MAPPINGS.items():

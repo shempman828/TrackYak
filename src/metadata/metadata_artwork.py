@@ -5,7 +5,7 @@ from PIL import Image
 
 from src.core.logger_config import logger
 from src.metadata.metadata_byte_utils import syncsafe_to_int
-from src.metadata.metadata_image_utils import determine_image_format
+from src.metadata.metadata_image_utils import ARTWORK_TYPE_TO_ROLE, determine_image_format
 from src.metadata.metadata_mp4_atoms import find_atom
 
 
@@ -13,9 +13,8 @@ class ArtworkExtractor:
     """Dedicated album art extraction separate from text metadata."""
 
     # MusicBrainz/ID3-APIC picture-type convention used to assign a role to
-    # each embedded picture. Picard uses type 5 ("Leaflet page") for
-    # liner/booklet art.
-    PICTURE_TYPE_ROLES = {3: "front", 4: "rear", 5: "liner"}
+    # each embedded picture, shared with the writers (see metadata_image_utils).
+    PICTURE_TYPE_ROLES = ARTWORK_TYPE_TO_ROLE
 
     # Formats supported by extract_artwork_by_role / write_artwork_to_file's
     # role-based (front/rear/liner) read+write path.
