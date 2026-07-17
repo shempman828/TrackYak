@@ -54,7 +54,8 @@ TRACK_FIELDS = {
         friendly="Side",
         category="Basic",
         tooltip="The side of the disc or record that contains this track.",
-        placeholder="A, B, C, etc.",
+        placeholder="A, B",
+        length=2,
         multiple=True,
     ),
     "track_file_path": TrackField(
