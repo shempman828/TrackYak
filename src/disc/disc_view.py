@@ -76,6 +76,13 @@ class DiscManagementView(QWidget):
 
         action_layout.addStretch()
 
+        self.renumber_btn = QPushButton("🔢 Auto-Number Tracks")
+        self.renumber_btn.setToolTip(
+            "Assign absolute track numbers based on the order currently shown below"
+        )
+        self.renumber_btn.clicked.connect(self.renumber_tracks)
+        action_layout.addWidget(self.renumber_btn)
+
         self.refresh_btn = QPushButton("🔄 Refresh")
         self.refresh_btn.clicked.connect(self.refresh_view)
         action_layout.addWidget(self.refresh_btn)
@@ -303,6 +310,12 @@ class DiscManagementView(QWidget):
         except Exception as e:
             logger.error(f"Error removing disc: {e}")
             QMessageBox.warning(self, "Error", f"Could not remove disc: {str(e)}")
+
+    def renumber_tracks(self):
+        """Assign absolute track numbers based on the currently visible order."""
+        if not self.track_display:
+            return
+        self.track_display.assign_absolute_track_numbers()
 
     def refresh_view(self):
         """Refresh all data and UI"""
