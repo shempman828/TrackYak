@@ -5,14 +5,17 @@ AdvancedTab — wraps FieldFormTab("Advanced") and adds three action buttons:
   • Copy to Clipboard   — serialises current field values to the clipboard.
   • Write Metadata to File — reads each track's file tags, compares them to
                        the database, and writes any tags that differ.
-  • Analyse Audio       — runs BatchAnalysisScheduler on the track(s) being
+  • Analyze Audio       — runs BatchAnalysisScheduler on the track(s) being
                        edited, wiring its Qt signals back to this widget for
-                       live progress feedback.
+                       live progress feedback. Results are written straight
+                       to the database and mirrored onto the in-memory
+                       track(s) so the form (here and on other tabs, e.g.
+                       Properties) reflects them immediately.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -41,10 +44,14 @@ class AdvancedTab(_BaseTab):
     ┌─────────────────────────────────┐
     │  FieldFormTab("Advanced")       │  ← all the normal fields
     ├─────────────────────────────────┤
-    │  [Copy to Clipboard] [Analyse]  │  ← action toolbar
+    │  [Copy to Clipboard] [Analyze]  │  ← action toolbar
     │  <status label>                 │
     └─────────────────────────────────┘
     """
+
+    # Emitted after each track finishes analysis, so the parent dialog can
+    # refresh other tabs (e.g. Properties, which holds bpm/key/gain/peak).
+    tracks_analyzed = Signal()
 
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
@@ -84,17 +91,17 @@ class AdvancedTab(_BaseTab):
         self._write_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._write_btn.clicked.connect(self._on_write_metadata)
 
-        self._analyse_btn = QPushButton("Analyse Audio")
-        self._analyse_btn.setToolTip(
+        self._analyze_btn = QPushButton("Analyze Audio")
+        self._analyze_btn.setToolTip(
             "Run audio analysis on the selected track(s).\n"
-            "Tracks already cached are skipped; hold Shift to force re-analyse."
+            "Tracks already cached are skipped; hold Shift to force re-analyze."
         )
-        self._analyse_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self._analyse_btn.clicked.connect(self._on_analyse)
+        self._analyze_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._analyze_btn.clicked.connect(self._on_analyze)
 
         btn_row.addWidget(self._copy_btn)
         btn_row.addWidget(self._write_btn)
-        btn_row.addWidget(self._analyse_btn)
+        btn_row.addWidget(self._analyze_btn)
         btn_row.addStretch()
 
         # Status label — hidden until analysis starts
@@ -113,6 +120,10 @@ class AdvancedTab(_BaseTab):
 
     def collect_changes(self) -> dict:
         return self._inner.collect_changes()
+
+    def refresh_values(self, tracks: list) -> None:
+        self.tracks = tracks
+        self._inner.refresh_values(tracks)
 
     # ── Copy to clipboard ─────────────────────────────────────────────────
 
@@ -184,12 +195,12 @@ class AdvancedTab(_BaseTab):
 
     # ── Audio analysis ────────────────────────────────────────────────────
 
-    def _on_analyse(self):
+    def _on_analyze(self):
         """
         Start BatchAnalysisScheduler for the tracks being edited.
 
         Shift+click clears those track IDs from the analysis cache first,
-        forcing a full re-analyse even if they were already processed.
+        forcing a full re-analyze even if they were already processed.
         """
         if self._scheduler and self._scheduler.is_running:
             # Button acts as a stop button while a run is in progress
@@ -204,7 +215,7 @@ class AdvancedTab(_BaseTab):
             for track in self.tracks:
                 analysis_cache.remove(track.track_id)
             logger.info(
-                f"AdvancedTab: forced re-analyse — cleared cache for "
+                f"AdvancedTab: forced re-analyze — cleared cache for "
                 f"{len(self.tracks)} track(s)"
             )
 
@@ -216,8 +227,8 @@ class AdvancedTab(_BaseTab):
             if not uncached:
                 show_status_message(
                     self,
-                    "All selected track(s) are already analysed.\n\n"
-                    "Shift+click 'Analyse Audio' to force re-analysis.",
+                    "All selected track(s) are already analyzed.\n\n"
+                    "Shift+click 'Analyze Audio' to force re-analysis.",
                 )
                 return
 
@@ -230,7 +241,7 @@ class AdvancedTab(_BaseTab):
         self._scheduler.signals.all_done.connect(self._on_all_done)
         self._scheduler.signals.error.connect(self._on_analysis_error)
 
-        self._analyse_btn.setText("Stop Analysis")
+        self._analyze_btn.setText("Stop Analysis")
         self._set_status(f"Queuing {len(self.tracks)} track(s)…")
         self._scheduler.start(self.tracks)
 
@@ -238,17 +249,28 @@ class AdvancedTab(_BaseTab):
 
     @Slot(int, dict)
     def _on_track_done(self, track_id: int, metadata: dict):
+        # The worker already wrote `metadata` to the database directly;
+        # mirror it onto the in-memory track object too, so the form (this
+        # tab and others, e.g. Properties) can display the fresh values
+        # without requiring the dialog to be closed and reopened.
+        track = next((t for t in self.tracks if t.track_id == track_id), None)
+        if track is not None:
+            for field_name, value in metadata.items():
+                setattr(track, field_name, value)
+
         if self._scheduler:
             done, total = self._scheduler.progress
-            self._set_status(f"Analysed {done} / {total} track(s)…")
+            self._set_status(f"Analyzed {done} / {total} track(s)…")
+
+        self.tracks_analyzed.emit()
 
     @Slot(int, int)
     def _on_batch_done(self, completed: int, total: int):
-        self._set_status(f"Analysed {completed} / {total} track(s)…")
+        self._set_status(f"Analyzed {completed} / {total} track(s)…")
 
     @Slot(int)
     def _on_all_done(self, total: int):
-        self._analyse_btn.setText("Analyse Audio")
+        self._analyze_btn.setText("Analyze Audio")
         self._set_status(f"Analysis complete — {total} track(s) processed.")
         logger.info(f"AdvancedTab: analysis finished ({total} track(s))")
 
