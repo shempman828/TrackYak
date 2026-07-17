@@ -307,11 +307,9 @@ class FileManager(QDialog):
         self.org_progress.setValue(min(100, 95 + percent // 20))
         self.org_status.setText(f"Cleaning: {current_dir}")
 
-    def _show_organization_preview(
-        self, auto_ops: List[Dict], confirm_ops: List[Dict]
-    ) -> None:
+    def _show_organization_preview(self, operations: List[Dict]) -> None:
         # if nothing to do, short-circuit
-        if not auto_ops and not confirm_ops:
+        if not operations:
             show_status_message(self, "All files are already organized correctly!")
             if self.organizer and hasattr(self.organizer, "user_cancelled"):
                 try:
@@ -321,7 +319,7 @@ class FileManager(QDialog):
             self._organization_complete(True, 0)
             return
 
-        preview_dialog = OrganizationPreviewDialog(self, auto_ops, confirm_ops)
+        preview_dialog = OrganizationPreviewDialog(self, operations)
         result = preview_dialog.exec_()
 
         if result == QDialog.Accepted:
