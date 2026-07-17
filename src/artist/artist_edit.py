@@ -110,14 +110,15 @@ class ArtistEditor(QDialog):
         kwargs.update(self.tab_biography.collect_changes())
         kwargs.update(self.tab_advanced.collect_changes())
 
-        try:
-            self.controller.update.update_entity(
-                "Artist", self.artist.artist_id, **kwargs
-            )
-            logger.info(f"Saved artist {self.artist.artist_id} '{name}'")
-        except Exception as e:
-            QMessageBox.critical(self, "Save Error", f"Could not save artist:\n{e}")
-            logger.error(f"Failed to save artist {self.artist.artist_id}: {e}")
-            return
+        if kwargs:
+            try:
+                self.controller.update.update_entity(
+                    "Artist", self.artist.artist_id, **kwargs
+                )
+                logger.info(f"Saved artist {self.artist.artist_id} '{name}'")
+            except Exception as e:
+                QMessageBox.critical(self, "Save Error", f"Could not save artist:\n{e}")
+                logger.error(f"Failed to save artist {self.artist.artist_id}: {e}")
+                return
 
         self.accept()
