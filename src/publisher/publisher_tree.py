@@ -1,3 +1,7 @@
+from collections import defaultdict
+
+from sqlalchemy import func, select
+
 from PySide6.QtCore import QMimeData, Qt
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
@@ -10,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
+from src.db.db_tables import AlbumPublisher
 
 
 class PublisherTreeWidget(QTreeWidget):
@@ -54,13 +59,15 @@ class PublisherTreeWidget(QTreeWidget):
 
         self.clear()
 
+        recursive_counts = self.calculate_recursive_album_counts(publishers)
+
         # Create dictionaries for hierarchy
         publisher_dict = {}
         root_items = []
 
         # First pass: create all items with recursive track count
         for publisher in publishers:
-            album_count = self.calculate_recursive_album_count(publisher.publisher_id)
+            album_count = recursive_counts.get(publisher.publisher_id, 0)
             item = QTreeWidgetItem()
             item.setText(0, publisher.publisher_name)
             item.setFlags(item.flags() | Qt.ItemIsEditable)
@@ -128,25 +135,47 @@ class PublisherTreeWidget(QTreeWidget):
             logger.error(f"Failed to rename publisher: {str(e)}")
             self.load_publishers()
 
-    def calculate_recursive_album_count(self, publisher_id):
-        """Calculate total albums for a publisher including all child publishers."""
+    def calculate_recursive_album_counts(self, publishers):
+        """Calculate total albums per publisher, including all child publishers.
+
+        Uses a single grouped query for direct album counts (like
+        genre_view.py does for genres) instead of one AlbumPublisher query
+        per publisher, then sums child totals into parents bottom-up in
+        Python instead of re-querying each descendant subtree once per
+        ancestor. This turned ~12,000 sequential queries (and a 2+ minute
+        UI freeze) with ~2,187 publishers into a single query.
+        """
         try:
-            album_links = self.controller.get.get_entity_links(
-                "AlbumPublisher", publisher_id=publisher_id
+            direct_counts = dict(
+                self.controller.get.session.execute(
+                    select(AlbumPublisher.publisher_id, func.count()).group_by(
+                        AlbumPublisher.publisher_id
+                    )
+                ).all()
             )
-            total_albums = len(album_links)
 
-            child_publishers = self.controller.get.get_all_entities(
-                "Publisher", parent_id=publisher_id
-            )
-            for child in child_publishers:
-                total_albums += self.calculate_recursive_album_count(child.publisher_id)
+            children_map = defaultdict(list)
+            for publisher in publishers:
+                children_map[publisher.parent_id].append(publisher.publisher_id)
 
-            return total_albums
+            totals = {}
+
+            def total_for(publisher_id):
+                if publisher_id not in totals:
+                    total = direct_counts.get(publisher_id, 0)
+                    for child_id in children_map.get(publisher_id, []):
+                        total += total_for(child_id)
+                    totals[publisher_id] = total
+                return totals[publisher_id]
+
+            for publisher in publishers:
+                total_for(publisher.publisher_id)
+
+            return totals
 
         except Exception as e:
-            logger.error(f"Error calculating album count: {str(e)}")
-            return 0
+            logger.error(f"Error calculating album counts: {str(e)}")
+            return {}
 
     def count_total(self):
         """Count all publisher items in the tree, regardless of visibility."""
