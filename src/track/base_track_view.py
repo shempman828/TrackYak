@@ -1,5 +1,6 @@
 # base_track_view.py
 
+import csv
 import random
 
 from PySide6.QtCore import (
@@ -12,6 +13,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QAction, QDrag, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -100,6 +102,13 @@ class BaseTrackView(QDialog):
         self.shuffle_button.clicked.connect(self.shuffle_all_tracks)
         self.shuffle_button.setMaximumWidth(120)
         search_layout.addWidget(self.shuffle_button)
+
+        # Export CSV button
+        self.export_csv_button = QPushButton("📄 Export CSV")
+        self.export_csv_button.setToolTip("Export the track list to a CSV file")
+        self.export_csv_button.clicked.connect(self.export_tracks_to_csv)
+        self.export_csv_button.setMaximumWidth(120)
+        search_layout.addWidget(self.export_csv_button)
 
         self.layout.addLayout(search_layout)
 
@@ -521,6 +530,42 @@ class BaseTrackView(QDialog):
                     )
             except Exception as e:
                 logger.error(f"Error starting playback: {e}")
+
+    def export_tracks_to_csv(self):
+        """Export the currently displayed track list (respecting any active filter) to a CSV file."""
+        tracks_to_export = (
+            self._filtered_tracks if self._filter_active else self._all_tracks
+        )
+
+        if not tracks_to_export:
+            show_status_message(self, "No tracks available to export.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Track List to CSV", "tracks.csv", "CSV Files (*.csv)"
+        )
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, "w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.writer(csv_file)
+                writer.writerow(self.columns.values())
+                for track in tracks_to_export:
+                    writer.writerow(
+                        str(self._get_track_value(track, db_field))
+                        for db_field in self.columns.keys()
+                    )
+
+            show_status_message(
+                self, f"Exported {len(tracks_to_export)} track(s) to {file_path}"
+            )
+            logger.info(f"Exported {len(tracks_to_export)} track(s) to CSV: {file_path}")
+        except Exception as e:
+            logger.error(f"Error exporting tracks to CSV: {e}")
+            QMessageBox.critical(
+                self, "Error", f"Failed to export track list:\n{str(e)}"
+            )
 
     def setup_drag_support(self):
         """Set up drag support for the table."""
