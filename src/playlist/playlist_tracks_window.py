@@ -4,10 +4,8 @@ from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
-    QHBoxLayout,
     QMainWindow,
     QMessageBox,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -50,9 +48,6 @@ class PlaylistTracksWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         self.main_layout = QVBoxLayout(central_widget)
-
-        # Add refresh button toolbar at the top
-        self.create_toolbar()
 
         # Create BaseTrackView with drag/drop enabled based on playlist type
         enable_drag = not self.is_smart_playlist  # Allow dragging from smart playlists?
@@ -97,20 +92,6 @@ class PlaylistTracksWindow(QMainWindow):
             geom = controller.settings.value(f"playlist_window_{playlist_id}_geometry")
             if geom:
                 self.restoreGeometry(geom)
-
-    def create_toolbar(self):
-        """Create a simple toolbar with refresh button."""
-        toolbar_layout = QHBoxLayout()
-        toolbar_layout.setContentsMargins(0, 0, 0, 10)
-
-        self.refresh_button = QPushButton("Refresh")
-        self.refresh_button.clicked.connect(self.load_playlist_tracks)
-        self.refresh_button.setMaximumWidth(100)
-
-        toolbar_layout.addWidget(self.refresh_button)
-        toolbar_layout.addStretch()
-
-        self.main_layout.addLayout(toolbar_layout)
 
     def load_playlist_tracks(self):
         """Load tracks for the current playlist - always fresh from database."""
