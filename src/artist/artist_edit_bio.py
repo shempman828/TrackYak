@@ -4,6 +4,7 @@
 
 from PySide6.QtWidgets import QLabel, QTextEdit, QVBoxLayout, QWidget
 
+from src.common.edit_dirty import value_changed
 from src.core.logger_config import logger
 
 
@@ -26,4 +27,7 @@ class BiographyTab(QWidget):
         self.bio_edit.setPlainText(artist.biography or "")
 
     def collect_changes(self):
-        return dict(biography=self.bio_edit.toPlainText().strip() or None)
+        new_val = self.bio_edit.toPlainText().strip() or None
+        if not value_changed(self.artist.biography, new_val):
+            return {}
+        return dict(biography=new_val)
