@@ -141,3 +141,39 @@ class UpdateDB(BaseDBHelper):
             logger.error(f"Error batch-updating {model_name} ids {entity_ids}: {e}")
             self.session.rollback()
             return False
+
+    def update_entities_bulk(self, model_name: str, updates: list):
+        """Apply per-row differing attribute changes to many entities in one commit.
+
+        Unlike `update_entities`, each row can be set to different values (e.g.
+        giving every track a distinct new file path). Uses SQLAlchemy's ORM
+        bulk-UPDATE-by-primary-key form to issue one executemany statement and
+        a single commit for the whole batch, instead of one commit per row.
+
+        Args:
+            model_name (str): The class name of the entity (e.g., 'Track').
+            updates (list[dict]): Each dict must contain the primary key column
+                plus the attribute values to set for that row.
+
+        Returns:
+            bool: True if the batch committed successfully, False otherwise.
+        """
+        if not updates:
+            return True
+
+        try:
+            entity_class = MODEL_REGISTRY[model_name]
+        except KeyError:
+            return False
+
+        logger.debug(f"Bulk-updating {len(updates)} {model_name} row(s)")
+
+        try:
+            self.session.execute(update(entity_class), updates)
+            self.session.commit()
+            logger.info(f"Bulk-updated {len(updates)} {model_name} row(s)")
+            return True
+        except SQLAlchemyError as e:
+            logger.error(f"Error bulk-updating {model_name}: {e}")
+            self.session.rollback()
+            return False
