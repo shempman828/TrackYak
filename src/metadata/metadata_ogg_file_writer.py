@@ -5,6 +5,7 @@ track's tags into an OGG Vorbis file.
 
 from src.metadata.metadata_ogg_pages import replace_comment_packet
 from src.metadata.metadata_raw_tags import RawTagExtractor
+from src.metadata.metadata_writer_backup import atomic_write
 from src.metadata.metadata_writer_merge import merge_vorbis_comments
 from src.metadata.metadata_writer_types import WriteMode
 from src.metadata.metadata_writer_vorbis import VorbisCommentWriter
@@ -57,8 +58,7 @@ class OggFileWriter:
                 )
                 return False
 
-            with open(file_path, "wb") as f:
-                f.write(new_file_data)
+            atomic_write(file_path, new_file_data)
 
             return True
 

@@ -5,19 +5,6 @@
 #Bug/Feature Fixes
 
 
-
-75. [Duplication cleanup - Phase 3] Smaller cleanup items identified during the Phase 1 refactor: (a) merge the duplicate AlbumField/TrackField dataclass schemas in db_mapping_albums.py/db_mapping_tracks.py into one shared FieldSpec dataclass; (b) extend src/common/entity_alias_tab.py's EntityAliasesTab/EntityAliasRowWidget with optional extra_field/on_swap hooks so artist_alias_dialog.py can subclass it instead of forking ~150 duplicated lines; (c) add an add_action(menu, text, icon_name, slot, shortcut) helper to menu_bar.py to collapse its 17 near-identical QAction construction blocks; (d) migrate more of queue_dock.py/player_dock.py/nowplaying_*.py's remaining hand-rolled QSS strings to the src/common/style_utils.py property-selector pattern, following the precedent set in Phase 1 Batch A.
-
-76. track numbers should never have a leading zero. Do a one time repair of the leading zero on the actual database and update the code to always strip leading zeros (e.g. 7 instead of 07)
-
-77. Rolestab hitches while loading. Please resolve this with threading if possible.
-
-78. places mapview gives too much space when "show filters" is selected.
-
-79. "Find missing tracks" has no notification when zero tracks are missing. It looks like it just crashed instead.
-
-80. base track view gives too much space to the refresh button. It should be incorporated better or perhaps even removed if you can't find a reasonable use case for it.
-
 81. Changing album art while listening to a track from that album led to this error: 2026-07-17 07:50:05,950 - ERROR - player_util.py:221 - _reader_loop() - Reader thread decode error, attempting to resync: Error : flac decoder lost sync.
 ERROR:musiclib:Reader thread decode error, attempting to resync: Error : flac decoder lost sync.
 2026-07-17 07:50:05,951 - ERROR - player_util.py:229 - _reader_loop() - Reader thread could not resync after decode error, ending track: Internal psf_fseek() failed.
@@ -69,6 +56,14 @@ DEBUG:musiclib:Querying Track (multiple=False) with filters: {'track_file_path':
 83. Review config code for optimization. There are a ton of repeated helpers that follow the same flow.
 
 84. Add ability to export track list as csv to basetrackview
+
+85. In disc view, add a button that automatically assigns absolute track numbers based on the currently visible order
+
+86. When organizing files, remove similarity approval code. This feature is no longer wanted.
+
+87. When organizing files, is it possible to speed up the moving process? It takes a long time and moves/updates one track at a time.
+
+88. File organization progress tracking calculations feel incorrect.
 
 
 

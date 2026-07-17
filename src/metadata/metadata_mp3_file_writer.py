@@ -11,6 +11,7 @@ from src.metadata.metadata_byte_utils import syncsafe_to_int
 from src.metadata.metadata_id3_writer import ID3TagWriter
 from src.metadata.metadata_image_utils import find_picture_index_for_role
 from src.metadata.metadata_writer_backup import (
+    atomic_write,
     backup_file,
     discard_backup,
     restore_backup,
@@ -63,14 +64,11 @@ class MP3FileWriter:
             new_tag = self.id3_writer.build_id3_tag(all_frames)
 
             audio_start = self._find_audio_start(file_path)
-            with open(file_path, "r+b") as f:
+            with open(file_path, "rb") as f:
                 f.seek(audio_start)
                 audio_data = f.read()
 
-                f.seek(0)
-                f.write(new_tag)
-                f.write(audio_data)
-                f.truncate()
+            atomic_write(file_path, new_tag + audio_data)
 
             discard_backup(backup_path)
             return True
@@ -167,9 +165,7 @@ class MP3FileWriter:
                 f.seek(audio_start)
                 audio_data = f.read()
 
-            with open(file_path, "wb") as f:
-                f.write(new_tag)
-                f.write(audio_data)
+            atomic_write(file_path, new_tag + audio_data)
 
             return True
 

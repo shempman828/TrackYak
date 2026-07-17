@@ -9,7 +9,7 @@ from typing import Any, List, Tuple
 from src.metadata.metadata_byte_utils import syncsafe_to_int
 from src.metadata.metadata_image_utils import find_picture_index_for_role
 from src.metadata.metadata_raw_tags import RawTagExtractor
-from src.metadata.metadata_writer_backup import write_artwork_with_backup
+from src.metadata.metadata_writer_backup import atomic_write, write_artwork_with_backup
 from src.metadata.metadata_writer_flac_picture import FlacPictureWriter
 from src.metadata.metadata_writer_merge import merge_vorbis_comments
 from src.metadata.metadata_writer_types import WriteMode
@@ -77,8 +77,7 @@ class FlacFileWriter:
 
             new_data = self._serialize_blocks(ordered_blocks, audio_tail, prefix)
 
-            with open(file_path, "wb") as f:
-                f.write(new_data)
+            atomic_write(file_path, new_data)
 
             return True
 
@@ -128,8 +127,7 @@ class FlacFileWriter:
 
             new_data = self._serialize_blocks(new_blocks, audio_tail, prefix)
 
-            with open(file_path, "wb") as f:
-                f.write(new_data)
+            atomic_write(file_path, new_data)
 
             return True
 

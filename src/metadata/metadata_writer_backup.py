@@ -5,10 +5,44 @@ writers when writing tags or artwork.
 import hashlib
 import os
 import shutil
+import tempfile
 from typing import Any, Callable, Dict
 
 from src.core.logger_config import logger
 from src.metadata.metadata_artwork import ArtworkExtractor
+
+
+def atomic_write(file_path: str, data: bytes) -> None:
+    """Write `data` to file_path via a temp file + atomic rename.
+
+    A straight open(file_path, "wb")/"r+b" rewrite mutates the file's
+    existing inode in place. If another thread or process (e.g. the audio
+    player streaming this exact track) already has the file open, its read
+    position is based on the old byte layout - rewriting the tag/artwork
+    shifts where the audio data starts, so the player's next read lands on
+    the wrong bytes (FLAC decoder desync, corrupt MP3 frames, etc).
+    Writing to a new temp file and renaming it over file_path swaps the
+    directory entry to a new inode; any fd already open on the old one
+    keeps reading its original, untouched bytes until it's closed and
+    reopened.
+    """
+    directory = os.path.dirname(file_path) or "."
+    suffix = os.path.splitext(file_path)[1]
+    fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".tmp-", suffix=suffix)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        try:
+            shutil.copymode(file_path, tmp_path)
+        except OSError:
+            pass
+        os.replace(tmp_path, file_path)
+    except BaseException:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def backup_file(file_path: str) -> str:
