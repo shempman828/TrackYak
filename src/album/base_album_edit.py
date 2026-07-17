@@ -37,6 +37,7 @@ from src.album.base_album_edit_tabs import (
     DetailsTab,
     TracksTab,
 )
+from src.common.edit_dirty import value_changed
 from src.core.config_setup import Config
 from src.db.db_mapping_albums import ALBUM_FIELDS
 from src.core.logger_config import logger
@@ -575,6 +576,13 @@ class AlbumEditor(QDialog):
         event.accept()
 
     def _has_unsaved_changes(self) -> bool:
+        return bool(self._collect_changed_fields())
+
+    def _collect_changed_fields(self) -> dict:
+        """Compare each editable widget's current value against the value
+        loaded from the album and return only the fields that actually
+        differ — untouched fields are omitted so save doesn't rewrite them."""
+        changes = {}
         for field_name, widget in self.field_widgets.items():
             if field_name == "album_description":
                 continue
@@ -587,8 +595,8 @@ class AlbumEditor(QDialog):
             else:
                 current = AlbumUIComponents.get_field_value(widget, field_config.type)
             original = getattr(self.album, field_name, None)
-            if current != original:
-                return True
+            if value_changed(original, current):
+                changes[field_name] = current
 
         if self.desc_widget is not None:
             if hasattr(self.desc_widget, "toPlainText"):
@@ -597,10 +605,10 @@ class AlbumEditor(QDialog):
                 desc_val = self.desc_widget.text().strip() or None
             else:
                 desc_val = None
-            if desc_val != (self.album.album_description or None):
-                return True
+            if value_changed(self.album.album_description, desc_val):
+                changes["album_description"] = desc_val
 
-        return False
+        return changes
 
     # =========================================================================
     # Cover art — loading helpers
@@ -876,34 +884,11 @@ class AlbumEditor(QDialog):
 
     def save_changes(self):
         try:
-            kwargs = {}
-            for field_name, widget in self.field_widgets.items():
-                if field_name == "album_description":
-                    continue
-                field_config = ALBUM_FIELDS.get(field_name)
-                if not (field_config and field_config.editable):
-                    continue
-
-                # NullableSpinBox has its own .value() that returns None when unchecked
-                if isinstance(widget, NullableSpinBox):
-                    kwargs[field_name] = widget.value()
-                else:
-                    kwargs[field_name] = AlbumUIComponents.get_field_value(
-                        widget, field_config.type
-                    )
-
-            # Capture description from the header widget
-            if self.desc_widget is not None:
-                if hasattr(self.desc_widget, "toPlainText"):
-                    kwargs["album_description"] = (
-                        self.desc_widget.toPlainText().strip() or None
-                    )
-                elif hasattr(self.desc_widget, "text"):
-                    kwargs["album_description"] = (
-                        self.desc_widget.text().strip() or None
-                    )
-
-            self.controller.update.update_entity("Album", self.album.album_id, **kwargs)
+            kwargs = self._collect_changed_fields()
+            if kwargs:
+                self.controller.update.update_entity(
+                    "Album", self.album.album_id, **kwargs
+                )
             self.accept()
 
         except Exception as e:
