@@ -5,7 +5,7 @@ import os
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 from PySide6.QtCore import Signal
 
@@ -20,16 +20,21 @@ class FileOrganizer(CancellableWorker):
     """Background worker for file organization with preview and confirmation"""
 
     progress_updated = Signal(int, str)  # percent, current file
-    analysis_complete = Signal(list, list)  # auto_ops, confirm_ops
+    analysis_complete = Signal(list)  # operations
     finished = Signal(bool, int)  # success, files_moved
     cleanup_progress = Signal(int, str)  # percent, current directory
+
+    # Physical file moves happen one at a time (fast — usually a rename), but
+    # DB updates and move-log writes are batched at these sizes so a large
+    # organize run doesn't pay a full commit/log-rewrite per track.
+    DB_BATCH_SIZE = 50
+    LOG_BATCH_SIZE = 50
 
     def __init__(self, root: Path, controller):
         super().__init__()
         self.root = root
         self.controller = controller
-        self.auto_operations = []
-        self.confirm_operations = []
+        self.operations = []
         self.approved_operations = []
         self._waiting_for_approval = False
         self._approval_received = False
@@ -45,17 +50,16 @@ class FileOrganizer(CancellableWorker):
             tracks = self.controller.get.get_all_entities("Track")
 
             self.progress_updated.emit(0, "Analyzing file organization...")
-            auto_ops, confirm_ops = self._analyze_organization(tracks)
+            operations = self._analyze_organization(tracks)
             logger.info(
-                f"FileOrganizer: Analysis complete - {len(auto_ops)} auto, {len(confirm_ops)} confirm"
+                f"FileOrganizer: Analysis complete - {len(operations)} operations"
             )
 
             # Store operations for later execution
-            self.auto_operations = auto_ops
-            self.confirm_operations = confirm_ops
+            self.operations = operations
 
             # Emit analysis complete for preview dialog
-            self.analysis_complete.emit(auto_ops, confirm_ops)
+            self.analysis_complete.emit(operations)
 
             logger.info("FileOrganizer: Waiting for user approval...")
 
@@ -107,15 +111,9 @@ class FileOrganizer(CancellableWorker):
         self._waiting_for_approval = False
         self.request_cancel()
 
-    def _analyze_organization(self, tracks) -> Tuple[List[Dict], List[Dict]]:
-        """Analyze organization needs and categorize operations.
-
-        Similarity thresholds:
-          < 0.9  → paths are clearly different → auto-approve (safe, obvious move)
-          ≥ 0.9  → paths are nearly identical  → require confirmation (subtle rename/move)
-        """
-        auto_ops = []  # Low similarity  = clearly different folder  = auto-approve
-        confirm_ops = []  # High similarity = subtle path difference    = needs confirmation
+    def _analyze_organization(self, tracks) -> List[Dict]:
+        """Analyze organization needs and build the list of pending move operations."""
+        operations = []
         total = len(tracks)
 
         for idx, track in enumerate(tracks):
@@ -136,23 +134,15 @@ class FileOrganizer(CancellableWorker):
             if self._paths_match_exactly(current_path, expected_path):
                 continue  # Skip - already in correct location
 
-            similarity = self._path_similarity(current_path, expected_path)
-            operation = {
-                "track": track,
-                "current_path": current_path,
-                "expected_path": expected_path,
-                "similarity": similarity,
-                "similarity_percent": int(similarity * 100),
-            }
+            operations.append(
+                {
+                    "track": track,
+                    "current_path": current_path,
+                    "expected_path": expected_path,
+                }
+            )
 
-            if similarity < 0.9:
-                # Paths are clearly different — safe to auto-approve
-                auto_ops.append(operation)
-            else:
-                # Paths are nearly identical — subtle change, ask user to confirm
-                confirm_ops.append(operation)
-
-        return auto_ops, confirm_ops
+        return operations
 
     def _get_expected_path(self, track) -> Path:
         """Build expected path according to schema"""
@@ -188,23 +178,69 @@ class FileOrganizer(CancellableWorker):
         """Check if file is already in exact correct location"""
         return current.resolve() == expected.resolve()
 
-    def _path_similarity(self, current: Path, expected: Path) -> float:
-        """Calculate path similarity (0.0 to 1.0) using sequence matching"""
-        from difflib import SequenceMatcher
-
-        # Normalize paths for better comparison
-        current_str = str(current).lower().replace("\\", "/")
-        expected_str = str(expected).lower().replace("\\", "/")
-
-        return SequenceMatcher(None, current_str, expected_str).ratio()
-
     def _execute_organization(self) -> int:
-        """Execute all approved file moves"""
+        """Execute all approved file moves.
+
+        Physical moves happen one at a time, but DB updates and move-log
+        writes are batched (see DB_BATCH_SIZE / LOG_BATCH_SIZE) instead of
+        committing/rewriting the log after every single track — with a few
+        thousand tracks, per-track commits and full-log rewrites dominate
+        runtime far more than the actual file moves do.
+        """
         files_moved = 0
         total = len(self.approved_operations)
         logger.info(
             f"FileOrganizer._execute_organization: Starting with {total} operations"
         )
+
+        pending_updates = []  # [(track, final_target_path, log_base), ...]
+        log_buffer = []  # completed log entries not yet flushed to disk
+
+        def flush_db_batch():
+            nonlocal files_moved
+            if not pending_updates:
+                return
+
+            bulk_values = [
+                {"track_id": track.track_id, "track_file_path": str(final_path)}
+                for track, final_path, _ in pending_updates
+            ]
+            batch_ok = self.controller.update.update_entities_bulk(
+                "Track", bulk_values
+            )
+
+            if batch_ok:
+                for track, final_path, log_base in pending_updates:
+                    logger.info(f"Database updated for track_id: {track.track_id}")
+                    log_buffer.append({**log_base, "status": "success"})
+                    files_moved += 1
+            else:
+                # Batch failed as a whole — fall back to per-row updates so a
+                # single bad row doesn't lose DB updates for the rest.
+                for track, final_path, log_base in pending_updates:
+                    try:
+                        self.controller.update.update_entity(
+                            "Track", track.track_id, track_file_path=str(final_path)
+                        )
+                        log_buffer.append({**log_base, "status": "success"})
+                        files_moved += 1
+                    except Exception as db_err:
+                        logger.error(
+                            f"DB update failed for track_id {track.track_id} after "
+                            f"successful move to {final_path}: {db_err}"
+                        )
+                        log_buffer.append(
+                            {
+                                **log_base,
+                                "status": "db_update_failed",
+                                "reason": str(db_err),
+                                "action_required": (
+                                    f"File is at '{final_path}'. DB still points to "
+                                    f"the old path. Manual fix needed."
+                                ),
+                            }
+                        )
+            pending_updates.clear()
 
         for idx, operation in enumerate(self.approved_operations):
             if self.is_cancelled:
@@ -225,17 +261,27 @@ class FileOrganizer(CancellableWorker):
             logger.info(f"FileOrganizer: Moving {current_path} -> {expected_path}")
 
             try:
-                if self._move_track_file(track, expected_path):
-                    files_moved += 1
-                    logger.info(
-                        f"FileOrganizer: Successfully moved file {idx + 1}/{total}"
-                    )
+                final_path, log_base = self._move_file_only(track, expected_path)
+                if final_path is not None:
+                    pending_updates.append((track, final_path, log_base))
                 else:
                     logger.warning(
                         f"FileOrganizer: Failed to move file {idx + 1}/{total}"
                     )
+                    log_buffer.append(log_base)
             except Exception as e:
                 logger.error(f"FileOrganizer: Exception moving {current_path}: {e}")
+
+            if len(pending_updates) >= self.DB_BATCH_SIZE:
+                flush_db_batch()
+            if len(log_buffer) >= self.LOG_BATCH_SIZE:
+                self._flush_move_log(log_buffer)
+                log_buffer.clear()
+
+        # Flush whatever's left, including on cancellation, so nothing moved
+        # or DB-updated so far is left unrecorded.
+        flush_db_batch()
+        self._flush_move_log(log_buffer)
 
         logger.info(
             f"FileOrganizer._execute_organization: Completed - {files_moved}/{total} files moved"
@@ -288,8 +334,8 @@ class FileOrganizer(CancellableWorker):
         """Path to the move log file in the library root."""
         return self.root / ".organize_log.json"
 
-    def _append_to_move_log(self, entry: Dict) -> None:
-        """Append a single move record to the persistent move log.
+    def _flush_move_log(self, entries: List[Dict]) -> None:
+        """Append a batch of move records to the persistent move log in one write.
 
         The log is a JSON array of objects:
           {
@@ -300,7 +346,14 @@ class FileOrganizer(CancellableWorker):
             "to": "/new/path/song.mp3",
             "status": "success" | "db_update_failed" | "failed"
           }
+
+        Batching avoids re-reading and rewriting the whole (growing) JSON log
+        file once per track, which made large organize runs effectively
+        quadratic in the number of tracks moved.
         """
+        if not entries:
+            return
+
         log_path = self._move_log_path()
         try:
             if log_path.exists():
@@ -311,7 +364,7 @@ class FileOrganizer(CancellableWorker):
         except Exception:
             records = []  # Corrupt log — start fresh rather than crash
 
-        records.append(entry)
+        records.extend(entries)
 
         try:
             with open(log_path, "w", encoding="utf-8") as f:
@@ -324,20 +377,22 @@ class FileOrganizer(CancellableWorker):
     # Core move
     # ------------------------------------------------------------------
 
-    def _move_track_file(self, track, target_path: Path) -> bool:
-        """Move a track file to target_path and update the database.
+    def _move_file_only(self, track, target_path: Path):
+        """Move a track file to target_path on disk. Does not touch the DB.
 
         Safety guarantees:
           1. Source existence is verified before any action.
           2. The target path is verified to stay inside the library root
              before anything is created or moved.
           3. shutil.move is used for cross-device safety.
-          4. Destination existence is verified BEFORE updating the DB —
-             the DB is only changed once the file is confirmed present.
-          5. Every outcome (success, partial failure, full failure) is
-             written to the move log so nothing is silently lost.
+          4. Destination existence is verified after the move.
 
-        Returns True on full success (file moved + DB updated).
+        Returns:
+            (final_target_path, log_base) on success — log_base has no
+            "status" yet; the caller fills it in once the DB update outcome
+            (batched separately) is known.
+            (None, log_entry) on failure — log_entry is already complete
+            (status/reason set), since there's no DB step to wait on.
         """
         source_path = Path(track.track_file_path)
         log_base = {
@@ -352,10 +407,11 @@ class FileOrganizer(CancellableWorker):
             # --- Pre-flight checks ---
             if not source_path.exists():
                 logger.error(f"Source file does not exist: {source_path}")
-                self._append_to_move_log(
-                    {**log_base, "status": "failed", "reason": "source not found"}
-                )
-                return False
+                return None, {
+                    **log_base,
+                    "status": "failed",
+                    "reason": "source not found",
+                }
 
             # --- Containment check: never write outside the library root ---
             try:
@@ -365,14 +421,11 @@ class FileOrganizer(CancellableWorker):
                     f"Refusing to move outside library root: {target_path} "
                     f"is not under {self.root}"
                 )
-                self._append_to_move_log(
-                    {
-                        **log_base,
-                        "status": "failed",
-                        "reason": "target path escapes library root",
-                    }
-                )
-                return False
+                return None, {
+                    **log_base,
+                    "status": "failed",
+                    "reason": "target path escapes library root",
+                }
 
             # --- Handle duplicate filenames at destination ---
             counter = 1
@@ -393,64 +446,30 @@ class FileOrganizer(CancellableWorker):
             logger.info(f"Attempting to move: {source_path} -> {target_path}")
             shutil.move(str(source_path), str(target_path))
 
-            # --- Verify destination before touching DB ---
+            # --- Verify destination ---
             if not target_path.exists():
                 logger.error(
                     f"Move appeared to succeed but destination not found: {target_path}"
                 )
-                self._append_to_move_log(
-                    {
-                        **log_base,
-                        "status": "failed",
-                        "reason": "destination missing after move — DB NOT updated",
-                    }
-                )
-                return False
+                return None, {
+                    **log_base,
+                    "status": "failed",
+                    "reason": "destination missing after move — DB NOT updated",
+                }
 
             logger.info(f"File move verified: {source_path} -> {target_path}")
-
-            # --- Update database only after file is confirmed present ---
-            try:
-                self.controller.update.update_entity(
-                    "Track", track.track_id, track_file_path=str(target_path)
-                )
-                logger.info(f"Database updated for track_id: {track.track_id}")
-                self._append_to_move_log({**log_base, "status": "success"})
-                return True
-
-            except Exception as db_err:
-                # File has moved but DB update failed — log precisely so the
-                # user can manually reconcile; do NOT attempt to move the file back.
-                logger.error(
-                    f"DB update failed for track_id {track.track_id} after successful "
-                    f"move to {target_path}: {db_err}"
-                )
-                self._append_to_move_log(
-                    {
-                        **log_base,
-                        "status": "db_update_failed",
-                        "reason": str(db_err),
-                        "action_required": (
-                            f"File is at '{target_path}'. "
-                            f"DB still points to '{source_path}'. Manual fix needed."
-                        ),
-                    }
-                )
-                return False
+            return target_path, log_base
 
         except Exception as e:
             logger.error(f"Failed to move file {track.track_file_path}: {e}")
             import traceback
 
             logger.error(f"Move error details: {traceback.format_exc()}")
-            self._append_to_move_log(
-                {
-                    **log_base,
-                    "status": "failed",
-                    "reason": str(e),
-                }
-            )
-            return False
+            return None, {
+                **log_base,
+                "status": "failed",
+                "reason": str(e),
+            }
 
     def _sanitize_filename(self, name):
         """Remove invalid characters from filenames"""
