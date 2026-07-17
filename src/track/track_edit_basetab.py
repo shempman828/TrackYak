@@ -40,6 +40,11 @@ class _BaseTab(QWidget):
     def collect_changes(self) -> Dict[str, Any]:
         return {}
 
+    def refresh_values(self, tracks: list) -> None:
+        """Re-sync displayed values from `tracks` after a background update
+        (e.g. audio analysis) without disturbing unsaved edits. Default is a
+        no-op; override in tabs that display fields analysis can populate."""
+
     def _mark_dirty(self, field_name: str) -> None:
         self._dirty.add(field_name)
 
