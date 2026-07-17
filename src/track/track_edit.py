@@ -113,7 +113,7 @@ class TrackEditDialog(QDialog):
 
         # Build all tabs
         self._tabs: List[_BaseTab] = []
-        self._add_tab("Basic Info", FieldFormTab("Basic", self.tracks, self.controller))
+        self._add_tab("Basic", FieldFormTab("Basic", self.tracks, self.controller))
         self._add_tab("Lyrics", LyricsTab(self.tracks, self.controller))
         self._add_tab("Dates", FieldFormTab("Date", self.tracks, self.controller))
         self._add_tab(
