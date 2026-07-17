@@ -1,4 +1,4 @@
-from src.db.db_tables import Place, PlaceAssociationType, Role
+from src.db.db_tables import ArtistType, Place, PlaceAssociationType, Role
 from src.core.logger_config import logger
 
 
@@ -24,6 +24,33 @@ class Defaults:
                 logger.info("Inserted default role: Album Artist")
             else:
                 logger.debug("Roles already exist, skipping role defaults.")
+
+            # -----------------
+            # Artist types
+            # -----------------
+            artist_type_count = session.query(ArtistType).count()
+            if artist_type_count == 0:
+                session.add_all(
+                    [
+                        ArtistType(type_name=name)
+                        for name in (
+                            "Composer",
+                            "Producer",
+                            "Songwriter",
+                            "Vocalist",
+                            "Instrumentalist",
+                            "Multi-Instrumentalist",
+                            "Conductor",
+                            "Arranger",
+                            "DJ",
+                            "Engineer",
+                        )
+                    ]
+                )
+                session.commit()
+                logger.info("Inserted default artist types.")
+            else:
+                logger.debug("Artist types already exist, skipping defaults.")
 
             # -----------------
             # Place association types

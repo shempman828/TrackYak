@@ -12,6 +12,7 @@ from src.db.db_tables.artist import Artist
 from src.db.db_tables.associations import (
     AlbumPublisher,
     AlbumRoleAssociation,
+    ArtistTypeAssociation,
     TrackArtistRole,
     TrackGenre,
 )
@@ -53,6 +54,11 @@ Index(
     "idx_album_roles_artist", AlbumRoleAssociation.artist_id
 )  # Reverse lookup: artist → albums
 Index("idx_track_genres", TrackGenre.track_id, TrackGenre.genre_id)
+Index(
+    "idx_artist_type_assoc",
+    ArtistTypeAssociation.artist_id,
+    ArtistTypeAssociation.artist_type_id,
+)
 Index(
     "idx_mood_track_association",
     MoodTrackAssociation.mood_id,

@@ -30,7 +30,6 @@ class Artist(Base):
     profile_pic_path = Column(String)
     wikipedia_link = Column(String)
     website_link = Column(String)
-    artist_type = Column(String)  # Person, Band, Orchestra, Choir
 
     aliases = relationship(
         "ArtistAlias",
@@ -39,6 +38,10 @@ class Artist(Base):
         passive_deletes=True,
     )
     aliases_list = association_proxy("aliases", "alias_name")
+    types = relationship(
+        "ArtistType", secondary="artist_type_associations", back_populates="artists"
+    )
+    type_names = association_proxy("types", "type_name")
     album_roles = relationship(
         "AlbumRoleAssociation",
         back_populates="artist",

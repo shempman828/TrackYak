@@ -85,10 +85,11 @@ def _find_or_create_artist(controller, name, **create_kwargs):
 
 
 def _artist_display(artist):
-    """'Artist Name' or 'Artist Name (Type)' when disambiguation is available."""
+    """'Artist Name' or 'Artist Name (Type1, Type2)' when disambiguation is available."""
     name = getattr(artist, "artist_name", None) or str(artist)
-    atype = getattr(artist, "artist_type", None)
-    return f"{name} ({atype})" if atype else name
+    types = getattr(artist, "types", None) or []
+    type_names = ", ".join(sorted(t.type_name for t in types))
+    return f"{name} ({type_names})" if type_names else name
 
 
 def _build_artist_index(artists):

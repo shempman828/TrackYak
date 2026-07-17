@@ -13,9 +13,11 @@ from src.db.db_tables.artist import (
     ArtistInfluence,
     GroupMembership,
 )
+from src.db.db_tables.artist_type import ArtistType
 from src.db.db_tables.associations import (
     AlbumPublisher,
     AlbumRoleAssociation,
+    ArtistTypeAssociation,
     TrackArtistRole,
     TrackGenre,
 )
@@ -55,6 +57,8 @@ __all__ = [
     "Artist",
     "ArtistAlias",
     "ArtistInfluence",
+    "ArtistType",
+    "ArtistTypeAssociation",
     "GroupMembership",
     "Genre",
     "GenreAlias",

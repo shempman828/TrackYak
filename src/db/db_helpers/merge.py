@@ -10,6 +10,7 @@ from src.db.db_tables import (
     Album,
     Artist,
     ArtistAlias,
+    ArtistType,
     Genre,
     GenreAlias,
     Mood,
@@ -28,6 +29,7 @@ _MERGE_MODEL_REGISTRY: dict = {
     "Mood": Mood,
     "Role": Role,
     "Album": Album,
+    "ArtistType": ArtistType,
 }
 
 # For these entity types, merging automatically preserves the merged-away

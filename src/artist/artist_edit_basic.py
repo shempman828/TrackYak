@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
-    QCompleter,
     QFileDialog,
     QFormLayout,
     QGridLayout,
@@ -31,9 +30,6 @@ from src.image.pixmap_with_fallback import load_pixmap_with_fallback
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-# Fallback suggestions used if the controller can't supply distinct values
-# already present in the database.
-ARTIST_TYPE_SUGGESTIONS = ["Person", "Band", "Orchestra", "Choir", "Ensemble"]
 GENDERS = ["", "Male", "Female", "Other"]
 
 # QSettings key for remembering the last directory used in the picture browser
@@ -42,17 +38,12 @@ _SETTINGS_LAST_PIC_DIR = "artist_editor/last_pic_dir"
 
 class BasicTab(QWidget):
     """
-    Core identity fields: name, type, isgroup, gender, dates, profile picture.
+    Core identity fields: name, isgroup, gender, dates, profile picture.
 
     collect_changes() returns a dict ready to pass to update_entity("Artist", ...).
     The isgroup_check signal is connected externally by ArtistEditor to keep
     MembersTab visibility in sync.
     """
-
-    # Cache shared across all BasicTab instances/openings so the (expensive)
-    # full artist-table scan only happens once per app session, not once per
-    # artist edit dialog.
-    _artist_type_cache = None
 
     def __init__(self, controller, artist, parent=None):
         super().__init__(parent)
@@ -95,15 +86,6 @@ class BasicTab(QWidget):
         self.name_edit.setPlaceholderText("Artist name")
         form.addRow("Name *:", self.name_edit)
 
-        self.artist_type_edit = QLineEdit()
-        self.artist_type_edit.setPlaceholderText("e.g. Person, Band, Orchestra...")
-        self.artist_type_edit.setToolTip(
-            "Type any value. Types already used in your library are suggested "
-            "as you type."
-        )
-        self.artist_type_edit.setCompleter(self._build_artist_type_completer())
-        form.addRow("Type:", self.artist_type_edit)
-
         self.isgroup_check = SegmentedToggle("Person", "Group")
         form.addRow("Is Group:", self.isgroup_check)
         self.isgroup_check.toggled.connect(self._on_isgroup_changed)
@@ -115,39 +97,6 @@ class BasicTab(QWidget):
         form.addRow(self._gender_label, self.gender_combo)
 
         return grp
-
-    def _build_artist_type_completer(self):
-        """Build the artist-type completer from types already used in the
-        library, falling back to a small generic list if lookup fails.
-        Results are cached at the class level (see _artist_type_cache) so
-        the underlying full-table scan only runs once per session."""
-        completer = QCompleter(self._get_artist_type_suggestions(), self)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-        completer.setCompletionMode(QCompleter.PopupCompletion)
-        return completer
-
-    def _get_artist_type_suggestions(self):
-        if BasicTab._artist_type_cache is None:
-            BasicTab._artist_type_cache = self._fetch_artist_type_suggestions()
-        return BasicTab._artist_type_cache
-
-    def _fetch_artist_type_suggestions(self):
-        suggestions = set(ARTIST_TYPE_SUGGESTIONS)
-        try:
-            artists = self.controller.get.get_all_entities("Artist")
-            for a in artists:
-                value = (getattr(a, "artist_type", None) or "").strip()
-                if value:
-                    suggestions.add(value)
-        except Exception as e:
-            logger.warning(f"Failed to fetch artist type suggestions: {e}")
-        return sorted(suggestions, key=str.lower)
-
-    @classmethod
-    def invalidate_artist_type_cache(cls):
-        """Call this after adding/renaming an artist type elsewhere so the
-        next editor opened picks up the change instead of using the cache."""
-        cls._artist_type_cache = None
 
     def _build_dates_group(self):
         grp = QGroupBox("Dates")
@@ -281,7 +230,6 @@ class BasicTab(QWidget):
     def load(self, artist):
         self.artist = artist
         self.name_edit.setText(artist.artist_name or "")
-        self.artist_type_edit.setText(artist.artist_type or "")
 
         is_group = bool(artist.isgroup)
         self.isgroup_check.blockSignals(True)
@@ -333,7 +281,6 @@ class BasicTab(QWidget):
         differs from the loaded artist — untouched fields are omitted."""
         candidates = dict(
             artist_name=self.name_edit.text().strip(),
-            artist_type=self.artist_type_edit.text().strip() or None,
             isgroup=1 if self.isgroup_check.isChecked() else 0,
             gender=self.gender_combo.currentText() or None,
             begin_year=self.begin_year_edit.get_value_or_none(),

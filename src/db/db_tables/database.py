@@ -56,6 +56,8 @@ class MusicDatabase:
                 "albums",
                 "tracks",
                 "artists",
+                "artist_types",
+                "artist_type_associations",
                 "genres",
                 "moods",
                 "publishers",

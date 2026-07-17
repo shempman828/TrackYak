@@ -189,13 +189,9 @@ class ArtistView(QWidget):
 
             self.all_artists = artists
 
-            # Rebuild artist_type filter options from loaded artists
+            # Rebuild type filter options from loaded artists' ArtistType assignments
             types = sorted(
-                {
-                    getattr(a, "artist_type", None) or ""
-                    for a in artists
-                    if getattr(a, "artist_type", None)
-                }
+                {t.type_name for a in artists for t in (getattr(a, "types", None) or [])}
             )
             current_type = self.type_combo.currentText()
             self.type_combo.blockSignals(True)
@@ -241,7 +237,7 @@ class ArtistView(QWidget):
             artists = [
                 a
                 for a in artists
-                if (getattr(a, "artist_type", None) or "") == type_filter
+                if any(t.type_name == type_filter for t in (a.types or []))
             ]
 
         # --- Sort ---

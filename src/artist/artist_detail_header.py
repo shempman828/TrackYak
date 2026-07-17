@@ -134,7 +134,8 @@ class ArtistInfobox(QGroupBox):
         layout.addLayout(portrait_row)
 
         # Type badge, centered
-        type_badge = QLabel(self.artist.artist_type or "Artist")
+        type_names = sorted(t.type_name for t in (self.artist.types or []))
+        type_badge = QLabel(", ".join(type_names) or "Artist")
         type_badge.setObjectName("TypeBadge")
         type_badge.setAlignment(Qt.AlignCenter)
         type_badge.setFixedHeight(24)

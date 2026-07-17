@@ -22,6 +22,7 @@ from src.artist.artist_edit_discog import DiscographyTab
 from src.artist.artist_edit_influences import InfluencesTab
 from src.artist.artist_edit_member import MembersTab
 from src.artist.artist_edit_placesawards import PlacesAwardsTab
+from src.artist.artist_edit_types import ArtistTypesTab
 from src.core.logger_config import logger
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -62,6 +63,7 @@ class ArtistEditor(QDialog):
 
         # Instantiate tabs
         self.tab_basic = BasicTab(self.controller, self.artist)
+        self.tab_types = ArtistTypesTab(self.controller, self.artist)
         self.tab_biography = BiographyTab(self.controller, self.artist)
         self.tab_aliases = AliasesTab(self.controller, self.artist)
         self.tab_members = MembersTab(self.controller, self.artist)
@@ -75,6 +77,7 @@ class ArtistEditor(QDialog):
 
         tabs = QTabWidget()
         tabs.addTab(self.tab_basic, "Basic")
+        tabs.addTab(self.tab_types, "Types")
         tabs.addTab(self.tab_biography, "Biography")
         tabs.addTab(self.tab_aliases, "Aliases")
         tabs.addTab(self.tab_members, "Members")
@@ -91,6 +94,7 @@ class ArtistEditor(QDialog):
 
     def _load_all(self):
         self.tab_basic.load(self.artist)
+        self.tab_types.load(self.artist)
         self.tab_biography.load(self.artist)
         self.tab_aliases.load(self.artist)
         self.tab_members.load(self.artist)
