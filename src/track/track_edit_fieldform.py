@@ -83,6 +83,10 @@ def _make_widget_for_field(field_name: str, field_config, on_change_cb):
             w.setPlaceholderText(field_config.placeholder)
         if field_config.length:
             w.setMaxLength(field_config.length)
+            if field_config.length <= 4:
+                w.setMaximumWidth(
+                    w.fontMetrics().horizontalAdvance("W" * field_config.length) + 24
+                )
         w.textChanged.connect(lambda _t, fn=field_name: on_change_cb(fn))
     return w
 
