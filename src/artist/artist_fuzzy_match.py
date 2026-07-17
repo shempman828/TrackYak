@@ -1,5 +1,9 @@
+import re
+from collections import defaultdict
+from difflib import SequenceMatcher
 from typing import Any, List
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -14,7 +18,108 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.cancellable_worker import CancellableWorker
 from src.core.logger_config import logger
+
+_PUNCT_RE = re.compile(r"[^\w\s]")
+
+
+def _normalise(text: str) -> str:
+    """Lowercase, strip punctuation, collapse whitespace."""
+    text = (text or "").lower()
+    text = _PUNCT_RE.sub("", text)
+    return " ".join(text.split())
+
+
+# ---------------------------------------------------------------------------
+# ArtistFuzzyMatchWorker
+# ---------------------------------------------------------------------------
+
+
+class ArtistFuzzyMatchWorker(CancellableWorker):
+    """
+    Background worker that finds fuzzy-duplicate artist name pairs.
+
+    Uses the same blocking strategy as duplicate_finder.py (first 3 chars of
+    the normalised name) to avoid comparing every artist against every other
+    artist. Unlike the original ad-hoc implementation this was extracted
+    from, cancellation is checked and progress is emitted every 500 pairs
+    *inside* the block loop rather than only between blocks — a single
+    oversized block (e.g. hundreds of artists sharing a common name prefix)
+    could otherwise run for a long time with no feedback and an unresponsive
+    Cancel button.
+
+    Signals:
+        progress(current, total)
+        finished(matches)  - list[(artist_a, artist_b, score_pct)]
+        error(message)
+    """
+
+    progress = Signal(int, int)
+    finished = Signal(list)
+    error = Signal(str)
+
+    def __init__(self, artists: list, threshold: float, parent=None):
+        super().__init__(parent)
+        self._artists = artists
+        self._threshold = threshold
+
+    def run(self):
+        try:
+            matches = self._find_matches()
+            self.finished.emit(matches)
+        except Exception as e:
+            logger.error(f"ArtistFuzzyMatchWorker error: {e}", exc_info=True)
+            self.error.emit(str(e))
+
+    def _find_matches(self) -> list:
+        blocks = defaultdict(list)
+        for artist in self._artists:
+            key = _normalise(artist.artist_name)[:3]
+            if key:
+                blocks[key].append(artist)
+        blocks = {k: v for k, v in blocks.items() if len(v) >= 2}
+
+        total_pairs = sum(len(v) * (len(v) - 1) // 2 for v in blocks.values())
+        self.progress.emit(0, max(total_pairs, 1))
+
+        matches = []
+        checked = 0
+        last_emitted = 0
+        stopped = False
+
+        for block in blocks.values():
+            if self.is_cancelled:
+                stopped = True
+                break
+            m = len(block)
+            for i in range(m):
+                if self.is_cancelled:
+                    stopped = True
+                    break
+                for j in range(i + 1, m):
+                    a, b = block[i], block[j]
+                    ratio = SequenceMatcher(
+                        None, _normalise(a.artist_name), _normalise(b.artist_name)
+                    ).ratio()
+                    if ratio >= self._threshold:
+                        matches.append((a, b, round(ratio * 100)))
+                    checked += 1
+                    if checked - last_emitted >= 500:
+                        self.progress.emit(checked, total_pairs)
+                        last_emitted = checked
+                        if self.is_cancelled:
+                            stopped = True
+                            break
+                if stopped:
+                    break
+            if stopped:
+                break
+
+        self.progress.emit(checked if stopped else total_pairs, max(total_pairs, 1))
+        if stopped:
+            logger.info(f"Artist fuzzy match scan stopped by user after {checked:,} pairs")
+        return matches
 
 
 # Fuzzy Match Dialog
