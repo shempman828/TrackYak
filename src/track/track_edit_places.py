@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
 from src.core.logger_config import logger
 from src.place.place_association_types import (
     fetch_association_types,
@@ -40,51 +41,7 @@ def _find_or_create_place(controller, name, known_places):
     than a fresh DB query) guarantees an existing place always wins over
     creating a same-named duplicate, regardless of case.
     """
-    lowered = name.strip().lower()
-    for place in known_places:
-        if (place.place_name or "").strip().lower() == lowered:
-            return place
-    return controller.add.add_entity("Place", place_name=name)
-
-
-class _PlaceNameEdit(QLineEdit):
-    """
-    QLineEdit with a QCompleter over known places. When the user picks a
-    completion, we remember the matched place_id directly so add-time skips
-    the name-lookup roundtrip entirely (and can't collide with a same-named
-    place). Any manual edit after a match clears the lock — typing a new
-    name always means "maybe create new."
-    """
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setPlaceholderText("Search places…")
-        self._display_to_id = {}
-        self._matched_id = None
-        self.textEdited.connect(self._on_manual_edit)
-
-    def set_index(self, display_to_id: dict):
-        """Rebuild the completer's backing model."""
-        self._display_to_id = dict(display_to_id)
-        model = QStringListModel(sorted(self._display_to_id.keys()), self)
-        completer = QCompleter(model, self)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchContains)
-        completer.activated.connect(self._on_completion_picked)
-        self.setCompleter(completer)
-
-    def _on_completion_picked(self, text):
-        self._matched_id = self._display_to_id.get(text)
-
-    def _on_manual_edit(self, _text):
-        self._matched_id = None
-
-    def matched_place_id(self):
-        return self._matched_id
-
-    def reset(self):
-        self.clear()
-        self._matched_id = None
+    return find_or_create_by_name(controller, "Place", "place_name", name, known_places)
 
 
 class PlacesTab(_BaseTab):
@@ -97,7 +54,7 @@ class PlacesTab(_BaseTab):
         layout = QVBoxLayout(self)
 
         search_row = QHBoxLayout()
-        self._search = _PlaceNameEdit()
+        self._search = EntityCompleterEdit("Search places…")
         self._search.textChanged.connect(self._on_search_text_changed)
         self._search.returnPressed.connect(self._add)
         search_row.addWidget(self._search)
@@ -200,7 +157,7 @@ class PlacesTab(_BaseTab):
         if not place_name:
             return
 
-        matched_id = self._search.matched_place_id()
+        matched_id = self._search.matched_id()
         try:
             if matched_id is not None:
                 place = self.controller.get.get_entity_object(

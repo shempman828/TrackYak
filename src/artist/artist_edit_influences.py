@@ -1,12 +1,11 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # Tab: Influences
 # ══════════════════════════════════════════════════════════════════════════════
-from PySide6.QtCore import QStringListModel, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
-    QCompleter,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -21,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.entity_completer_edit import EntityCompleterEdit
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 
@@ -82,52 +82,6 @@ def _find_or_create_artist(controller, name, **create_kwargs):
     if result:
         return result[0] if isinstance(result, list) else result
     return controller.add.add_entity("Artist", artist_name=name, **create_kwargs)
-
-
-class ArtistNameEdit(QLineEdit):
-    """
-    QLineEdit with a QCompleter over known artists. When the user picks a
-    completion, we remember the matched artist_id directly so add-time skips
-    the name-lookup roundtrip entirely (and can't collide with a same-named
-    artist). Any manual edit after a match clears the lock — typing a new
-    name always means "maybe create new."
-    """
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setPlaceholderText("Artist name…")
-        self._display_to_id = {}
-        self._matched_id = None
-
-        self.textEdited.connect(self._on_manual_edit)
-
-    def set_index(self, display_to_id: dict):
-        """Rebuild the completer's backing model."""
-        self._display_to_id = dict(display_to_id)
-        model = QStringListModel(sorted(self._display_to_id.keys()), self)
-        completer = QCompleter(model, self)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchContains)
-        completer.activated.connect(self._on_completion_picked)
-        self.setCompleter(completer)
-
-    def add_to_index(self, display, artist_id):
-        """Register a freshly created artist so it's matchable immediately."""
-        self._display_to_id[display] = artist_id
-        self.set_index(self._display_to_id)
-
-    def _on_completion_picked(self, text):
-        self._matched_id = self._display_to_id.get(text)
-
-    def _on_manual_edit(self, _text):
-        self._matched_id = None
-
-    def matched_artist_id(self):
-        return self._matched_id
-
-    def reset(self):
-        self.clear()
-        self._matched_id = None
 
 
 def _artist_display(artist):
@@ -295,7 +249,7 @@ class _AddInfluenceBar(QWidget):
         dir_box.addWidget(self.btn_influenced)
         dir_box.addWidget(self.btn_influencer)
 
-        self.name_edit = ArtistNameEdit()
+        self.name_edit = EntityCompleterEdit("Artist name…")
         self.name_edit.textChanged.connect(self._relabel_toggle)
         self.desc_edit = QLineEdit()
         self.desc_edit.setPlaceholderText("Description (optional)")
@@ -340,7 +294,7 @@ class _AddInfluenceBar(QWidget):
             direction=self.current_direction(),
             name=name,
             description=self.desc_edit.text().strip() or None,
-            matched_artist_id=self.name_edit.matched_artist_id(),
+            matched_artist_id=self.name_edit.matched_id(),
         )
 
     def clear_inputs(self):

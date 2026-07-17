@@ -1,5 +1,6 @@
 """Shared helpers for the canonical PlaceAssociationType list."""
 
+from src.common.entity_completer_edit import find_or_create_by_name
 from src.core.logger_config import logger
 
 
@@ -24,9 +25,6 @@ def find_or_create_association_type(controller, name, known_types):
     name = (name or "").strip()
     if not name:
         return None
-
-    lowered = name.lower()
-    for assoc_type in known_types:
-        if (assoc_type.type_name or "").strip().lower() == lowered:
-            return assoc_type
-    return controller.add.add_entity("PlaceAssociationType", type_name=name)
+    return find_or_create_by_name(
+        controller, "PlaceAssociationType", "type_name", name, known_types
+    )
