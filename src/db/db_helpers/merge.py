@@ -181,7 +181,9 @@ class MergeDB(BaseDBHelper):
                         )
                         skipped_tables.add(assoc_table.name)
 
-            self._preserve_alias_on_merge(model_name, source_entity, target_entity)
+            self._preserve_alias_on_merge(
+                model_name, source_entity, target_entity, resolved_fields
+            )
 
             # Delete via ORM so cascade rules are respected
             self.session.delete(source_entity)
@@ -229,7 +231,9 @@ class MergeDB(BaseDBHelper):
             self.session.rollback()
             return False
 
-    def _preserve_alias_on_merge(self, model_name, source_entity, target_entity):
+    def _preserve_alias_on_merge(
+        self, model_name, source_entity, target_entity, resolved_fields=None
+    ):
         """For entity types in `_ALIAS_ON_MERGE_REGISTRY`, save the merged-away
         entity's name as an alias of the surviving entity, so that name
         resolves back to the same entity instead of creating a duplicate
@@ -242,7 +246,20 @@ class MergeDB(BaseDBHelper):
         alias_class, name_field, fk_field = alias_info
         source_name = getattr(source_entity, name_field)
         target_name = getattr(target_entity, name_field)
-        if not source_name or source_name == target_name:
+
+        # A name conflict between source and target may have been resolved
+        # in favor of the source's name (e.g. the user picked "Keep Source"
+        # in the merge dialog), in which case target_entity is about to be
+        # renamed to source_name. The name actually being discarded is then
+        # target_name, not source_name — figure out which one survives
+        # before deciding what to preserve as an alias.
+        final_name = target_name
+        if resolved_fields and name_field in resolved_fields:
+            final_name = resolved_fields[name_field]
+
+        discarded_name = target_name if final_name == source_name else source_name
+
+        if not discarded_name or discarded_name == final_name:
             return
 
         # `fk_field` (e.g. "publisher_id") is both the alias table's FK
@@ -250,7 +267,7 @@ class MergeDB(BaseDBHelper):
         target_id = getattr(target_entity, fk_field)
 
         existing_alias = self.session.scalar(
-            select(alias_class).where(alias_class.alias_name == source_name)
+            select(alias_class).where(alias_class.alias_name == discarded_name)
         )
         if existing_alias is not None:
             if getattr(existing_alias, fk_field) != target_id:
@@ -258,10 +275,10 @@ class MergeDB(BaseDBHelper):
             return
 
         self.session.add(
-            alias_class(alias_name=source_name, **{fk_field: target_id})
+            alias_class(alias_name=discarded_name, **{fk_field: target_id})
         )
         logger.info(
-            f"Preserved '{source_name}' as an alias of {model_name} {target_id} "
+            f"Preserved '{discarded_name}' as an alias of {model_name} {target_id} "
             f"after merge."
         )
 
