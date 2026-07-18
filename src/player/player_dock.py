@@ -855,6 +855,7 @@ class PlayerUI(QWidget):
             self.volume_slider.valueChanged.connect(
                 self.controller.mediaplayer.set_volume
             )
+            self.position_slider.sliderPressed.connect(self._on_seek_pressed)
             self.position_slider.sliderReleased.connect(self._on_seek_released)
             self.repeat_button.clicked.connect(self._on_repeat_clicked)
 
@@ -872,8 +873,17 @@ class PlayerUI(QWidget):
         except Exception as e:
             logger.error(f"Error initializing PlayerUI connections: {e}")
 
+    def _on_seek_pressed(self):
+        """Remember which track was playing when the drag started."""
+        self._seek_track_file = self.player.current_file
+
     def _on_seek_released(self):
         """Handle seek slider release."""
+        # If the track changed (auto-advance/skip) while the slider was
+        # held down, the slider's value belongs to the old track — discard it
+        # instead of applying a stale position to the new one.
+        if self.player.current_file != getattr(self, "_seek_track_file", None):
+            return
         if self.player.duration > 0:
             self.seek_requested.emit(self.position_slider.value())
 
