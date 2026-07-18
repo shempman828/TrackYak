@@ -1,9 +1,10 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # Tab: Aliases  (embedded, no separate dialog window)
 # ══════════════════════════════════════════════════════════════════════════════
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 from src.artist.artist_alias_dialog import SUGGESTED_ALIAS_TYPES
+from src.common.base_merge_dialog import MergeDBDialog
 from src.common.entity_alias_tab import EntityAliasesTab
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -34,6 +35,7 @@ class AliasesTab(EntityAliasesTab):
                 "leave blank if unspecified."
             ),
             on_swap=self._perform_swap,
+            on_before_add=self._check_existing_artist,
             parent=parent,
         )
 
@@ -51,6 +53,64 @@ class AliasesTab(EntityAliasesTab):
 
     def _extra_completions(self) -> list[str]:
         return list(dict.fromkeys(SUGGESTED_ALIAS_TYPES + self._existing_extra_values()))
+
+    def _check_existing_artist(self, alias_name: str) -> bool:
+        """
+        Before saving a new alias, check whether `alias_name` already
+        belongs to a *different* artist (as their primary name or one of
+        their own aliases). If so, offer to merge that artist into this
+        one instead of creating a duplicate/aliased name split across two
+        records.
+
+        Returns True to let the caller proceed with the normal add-alias
+        flow, or False if a merge was offered (accepted or declined) and
+        no further action should be taken here.
+        """
+        match = self.controller.get.resolve_entity_or_alias(
+            "Artist", "artist_name", alias_name
+        )
+        if not match or match.artist_id == self.artist.artist_id:
+            return True
+
+        reply = QMessageBox.question(
+            self,
+            "Artist Already Exists",
+            f"An artist named <b>{match.artist_name}</b> already exists.<br>"
+            f"Merge it into <b>{self.artist.artist_name}</b> instead of adding "
+            "this as a separate alias?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if reply != QMessageBox.Yes:
+            logger.debug(
+                "AliasesTab._check_existing_artist: user declined merge of "
+                "artist_id=%s into artist_id=%s",
+                match.artist_id,
+                self.artist.artist_id,
+            )
+            show_status_message(
+                self,
+                f"Alias not added — '{alias_name}' already belongs to another artist.",
+            )
+            return False
+
+        dialog = MergeDBDialog(
+            self.controller,
+            "Artist",
+            self,
+            preload_source=match,
+            preload_target=self.artist,
+        )
+        if dialog.exec() == QDialog.Accepted:
+            logger.info(
+                "AliasesTab._check_existing_artist: merged artist_id=%s into artist_id=%s",
+                match.artist_id,
+                self.artist.artist_id,
+            )
+            show_status_message(
+                self, f"Merged '{match.artist_name}' into '{self.artist.artist_name}'."
+            )
+        return False
 
     def _perform_swap(self, alias_id: int, new_primary: str, alias_type: str) -> bool:
         old_primary = self.artist.artist_name
