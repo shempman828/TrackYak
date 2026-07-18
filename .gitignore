@@ -12,3 +12,4 @@ publisher_logos/
 *.db-journal
 *.bak
 bugs.md
+*.toml
