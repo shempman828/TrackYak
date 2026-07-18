@@ -3,10 +3,10 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from PySide6.QtCore import QStringListModel, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup,
-    QCompleter,
+    QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -66,46 +66,15 @@ def _sample_sentence(direction, this_name, other_name=None):
     return f"{other} samples {this}"
 
 
-class _TrackNameEdit(QLineEdit):
-    """
-    QLineEdit with a QCompleter over known tracks. Sampling always targets an
-    existing track, so unlike a name field that can create-on-miss, the add
-    button here stays disabled until a completion is actually picked.
-    """
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setPlaceholderText("Track name…")
-        self._display_to_id = {}
-        self._matched_id = None
-        self.textEdited.connect(self._on_manual_edit)
-
-    def set_index(self, display_to_id: dict):
-        """Rebuild the completer's backing model."""
-        self._display_to_id = dict(display_to_id)
-        model = QStringListModel(sorted(self._display_to_id.keys()), self)
-        completer = QCompleter(model, self)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchContains)
-        completer.activated.connect(self._on_completion_picked)
-        self.setCompleter(completer)
-
-    def _on_completion_picked(self, text):
-        self._matched_id = self._display_to_id.get(text)
-
-    def _on_manual_edit(self, _text):
-        self._matched_id = None
-
-    def matched_track_id(self):
-        return self._matched_id
-
-    def reset(self):
-        self.clear()
-        self._matched_id = None
+# Results are searched on demand (min 2 chars) instead of preloading every
+# track in the library into a completer index -- that used to run a
+# SELECT * FROM Track plus a lazy-loaded album lookup per distinct album on
+# every dialog open, regardless of the library's size.
+_MAX_SEARCH_RESULTS = 50
 
 
 class _AddSampleBar(QWidget):
-    """Direction toggle + track name (with completer) + Add, for one new sample link."""
+    """Direction toggle + track name search (min 2 chars) + Add, for one new sample link."""
 
     DIR_TOGGLE_STYLE = """
         QPushButton {
@@ -122,14 +91,18 @@ class _AddSampleBar(QWidget):
         QPushButton#dirRight { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
     """
 
-    def __init__(self, on_add, track_name=None, parent=None):
+    def __init__(self, controller, on_add, track_name=None, parent=None):
         super().__init__(parent)
+        self.controller = controller
         self._on_add = on_add
         self._track_name = track_name or "This track"
+        self._exclude_id = None
+        self._matched_id = None
+        self._display_to_id: dict = {}
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 4, 0, 0)
-        layout.setSpacing(6)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 4, 0, 0)
+        outer.setSpacing(4)
 
         # Direction toggle: "This track samples ___" vs. "___ samples this track".
         self.dir_group = QButtonGroup(self)
@@ -150,18 +123,36 @@ class _AddSampleBar(QWidget):
         dir_box.addWidget(self.btn_uses)
         dir_box.addWidget(self.btn_used_by)
 
-        self.name_edit = _TrackNameEdit()
-        self.name_edit.textChanged.connect(self._relabel_toggle)
-        self._relabel_toggle()
+        # Track name is searched on demand (min 2 chars) instead of a
+        # completer preloaded with every track in the library -- see
+        # module docstring / _MAX_SEARCH_RESULTS.
+        search_row = QHBoxLayout()
+        search_row.setSpacing(6)
+
+        self.name_search = QLineEdit()
+        self.name_search.setPlaceholderText("Track name… (min 2 chars)")
+        self.name_search.textChanged.connect(self._on_name_search)
+        self.name_search.textChanged.connect(self._relabel_toggle)
+        self.name_search.returnPressed.connect(self._handle_add)
+        search_row.addWidget(self.name_search, 1)
+
+        self.name_combo = QComboBox()
+        self.name_combo.setVisible(False)
+        self.name_combo.currentIndexChanged.connect(self._on_name_selected)
+        search_row.addWidget(self.name_combo)
 
         add_btn = QPushButton("Add")
         add_btn.setFixedWidth(60)
         add_btn.clicked.connect(self._handle_add)
-        self.name_edit.returnPressed.connect(self._handle_add)
+        search_row.addWidget(add_btn)
 
-        layout.addLayout(dir_box)
-        layout.addWidget(self.name_edit, 1)
-        layout.addWidget(add_btn)
+        outer.addLayout(dir_box)
+        outer.addLayout(search_row)
+
+        self._relabel_toggle()
+
+    def set_exclude_id(self, exclude_id):
+        self._exclude_id = exclude_id
 
     def current_direction(self):
         return DIR_USES if self.btn_uses.isChecked() else DIR_USED_BY
@@ -171,7 +162,7 @@ class _AddSampleBar(QWidget):
         self._relabel_toggle()
 
     def _relabel_toggle(self, *_args):
-        other = self.name_edit.text().strip() or None
+        other = self.name_search.text().strip() or None
         uses_sentence = _sample_sentence(DIR_USES, self._track_name, other)
         used_by_sentence = _sample_sentence(DIR_USED_BY, self._track_name, other)
         self.btn_uses.setText(uses_sentence)
@@ -179,32 +170,68 @@ class _AddSampleBar(QWidget):
         self.btn_used_by.setText(used_by_sentence)
         self.btn_used_by.setToolTip(used_by_sentence + ".")
 
+    def _on_name_search(self, text: str):
+        self._matched_id = None
+        text = text.strip()
+        self.name_combo.blockSignals(True)
+        self.name_combo.clear()
+        if len(text) >= 2:
+            tracks = (
+                self.controller.get.get_all_entities("Track", track_name__contains=text)
+                or []
+            )
+            # Cap *before* building the display index: each entry touches
+            # track.album_name, a lazy-loaded relationship, so a common
+            # substring (e.g. "love") matching thousands of tracks would
+            # otherwise trigger thousands of album lookups just to throw
+            # all but 50 of them away.
+            tracks = tracks[:_MAX_SEARCH_RESULTS]
+            self._display_to_id = _build_track_index(tracks, exclude_id=self._exclude_id)
+            for display in sorted(self._display_to_id.keys()):
+                self.name_combo.addItem(display, self._display_to_id[display])
+            self.name_combo.setVisible(self.name_combo.count() > 0)
+        else:
+            self._display_to_id = {}
+            self.name_combo.setVisible(False)
+        self.name_combo.blockSignals(False)
+
+    def _on_name_selected(self, index: int):
+        if index >= 0:
+            self._matched_id = self.name_combo.currentData()
+            self.name_search.blockSignals(True)
+            self.name_search.setText(self.name_combo.currentText())
+            self.name_search.blockSignals(False)
+            self._relabel_toggle()
+
     def _handle_add(self):
-        matched_id = self.name_edit.matched_track_id()
-        if matched_id is None:
+        if self._matched_id is None:
             show_status_message(
-                self, "No track selected. Choose an existing track from the completion list."
+                self, "No track selected. Choose an existing track from the search results."
             )
             return
-        self._on_add(direction=self.current_direction(), matched_track_id=matched_id)
+        self._on_add(direction=self.current_direction(), matched_track_id=self._matched_id)
 
     def clear_inputs(self):
-        self.name_edit.reset()
-
-    def set_completer_index(self, index):
-        self.name_edit.set_index(index)
+        self.name_search.clear()
+        self.name_combo.blockSignals(True)
+        self.name_combo.clear()
+        self.name_combo.setVisible(False)
+        self.name_combo.blockSignals(False)
+        self._matched_id = None
+        self._display_to_id = {}
 
 
 class SamplesTab(_BaseTab):
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
         self._build_ui()
-        self._refresh_completer_index()
+        if not self.is_multi:
+            self.add_bar.set_exclude_id(self.track.track_id)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        self.add_bar = _AddSampleBar(on_add=self._handle_add)
+        self.add_bar = _AddSampleBar(controller=self.controller, on_add=self._handle_add)
         layout.addWidget(self.add_bar)
 
         # Samples used list
@@ -261,13 +288,6 @@ class SamplesTab(_BaseTab):
                 item.setData(Qt.UserRole, st.track_id)
                 self._by_list.addItem(item)
 
-    def _refresh_completer_index(self):
-        if self.is_multi:
-            return
-        tracks = self.controller.get.get_all_entities("Track") or []
-        index = _build_track_index(tracks, exclude_id=self.track.track_id)
-        self.add_bar.set_completer_index(index)
-
     def _reload_and_refresh(self):
         try:
             refreshed = self.controller.get.get_entity_object(
@@ -278,7 +298,6 @@ class SamplesTab(_BaseTab):
         except Exception as e:
             logger.warning(f"Could not reload track: {e}")
         self.load(self.tracks)
-        self._refresh_completer_index()
 
     def _existing_sample_keys(self):
         """Set of (sampled_by_id, sampled_id) already present for this track."""
