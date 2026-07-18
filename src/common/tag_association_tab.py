@@ -13,7 +13,9 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMenu,
@@ -21,9 +23,16 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
+from src.common.entity_completer_edit import find_or_create_by_name
 from src.core.logger_config import logger
 from src.track.track_edit_basetab import _BaseTab
+
+# Search results are capped and fetched on demand (min 2 chars) instead of
+# preloading every row of the model's table into a completer index on tab
+# open -- see track_edit_samples.py for the tab that made this expensive
+# with the library's Track table; Genre/Mood are small today but would hit
+# the same wall as they grow.
+_MAX_SEARCH_RESULTS = 50
 
 
 class _BaseTrackAssociationTab(_BaseTab):
@@ -50,17 +59,23 @@ class _BaseTrackAssociationTab(_BaseTab):
 
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
+        self._known_entities: list = []
         self._build_ui()
-        self._refresh_completer_index()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
         search_row = QHBoxLayout()
-        self._search = EntityCompleterEdit(self.placeholder_text)
+        self._search = QLineEdit()
+        self._search.setPlaceholderText(f"{self.placeholder_text} (min 2 chars)")
         self._search.textChanged.connect(self._on_search_text_changed)
         self._search.returnPressed.connect(self._add)
         search_row.addWidget(self._search)
+
+        self._combo = QComboBox()
+        self._combo.setVisible(False)
+        self._combo.currentIndexChanged.connect(self._on_combo_selected)
+        search_row.addWidget(self._combo)
 
         self._add_btn = QPushButton(self.add_button_text)
         self._add_btn.setEnabled(False)
@@ -71,24 +86,43 @@ class _BaseTrackAssociationTab(_BaseTab):
         self._list = QListWidget()
         layout.addWidget(self._list)
 
-    def _on_search_text_changed(self, text: str):
-        self._add_btn.setEnabled(bool(text.strip()))
-
-    def _fetch_known_entities(self):
+    def _search_entities(self, text: str):
+        """Bounded, on-demand lookup of entities whose name contains
+        `text` -- used both for the search dropdown and as the
+        duplicate-check candidate set at add time (an exact match, if one
+        exists, always contains the searched text as a substring)."""
         try:
-            return self.controller.get.get_all_entities(self.model_name) or []
+            matches = (
+                self.controller.get.get_all_entities(
+                    self.model_name, **{f"{self.name_field}__contains": text}
+                )
+                or []
+            )
+            return matches[:_MAX_SEARCH_RESULTS]
         except Exception as e:
-            logger.warning(f"Could not fetch {self.model_name} for completer: {e}")
+            logger.warning(f"Could not search {self.model_name}: {e}")
             return []
 
-    def _refresh_completer_index(self):
-        self._known_entities = self._fetch_known_entities()
-        index = {
-            getattr(e, self.name_field): getattr(e, self.id_field)
-            for e in self._known_entities
-            if getattr(e, self.name_field, None)
-        }
-        self._search.set_index(index)
+    def _on_search_text_changed(self, text: str):
+        text = text.strip()
+        self._add_btn.setEnabled(bool(text))
+        self._combo.blockSignals(True)
+        self._combo.clear()
+        if len(text) >= 2:
+            for e in self._search_entities(text):
+                name = getattr(e, self.name_field, None)
+                if name:
+                    self._combo.addItem(name, getattr(e, self.id_field))
+            self._combo.setVisible(self._combo.count() > 0)
+        else:
+            self._combo.setVisible(False)
+        self._combo.blockSignals(False)
+
+    def _on_combo_selected(self, index: int):
+        if index >= 0:
+            self._search.blockSignals(True)
+            self._search.setText(self._combo.currentText())
+            self._search.blockSignals(False)
 
     def _load_track_items(self, track):
         """Return [(id, name), ...] tagged on a single track."""
@@ -140,11 +174,14 @@ class _BaseTrackAssociationTab(_BaseTab):
         if not name:
             return
 
-        matched_id = self._search.matched_id()
+        combo_data = self._combo.currentData() if self._combo.isVisible() else None
+        # Bounded candidate set for _find_or_create's duplicate check --
+        # fetched fresh here rather than kept as a stale full-table cache.
+        self._known_entities = self._search_entities(name)
         try:
-            if matched_id is not None:
+            if combo_data is not None:
                 entity = self.controller.get.get_entity_object(
-                    self.model_name, **{self.id_field: matched_id}
+                    self.model_name, **{self.id_field: combo_data}
                 )
             else:
                 entity = self._find_or_create(name)
@@ -163,8 +200,11 @@ class _BaseTrackAssociationTab(_BaseTab):
             self.controller.add.add_entities(self.assoc_model, rows)
         except Exception as e:
             logger.error(f"Failed to add {self.model_name} to tracks: {e}")
-        self._search.reset()
-        self._refresh_completer_index()
+        self._search.clear()
+        self._combo.blockSignals(True)
+        self._combo.clear()
+        self._combo.setVisible(False)
+        self._combo.blockSignals(False)
         self.load(self.tracks)
 
     def _remove_selected(self):
