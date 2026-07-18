@@ -17,6 +17,7 @@ from src.library.missing_tracks import MissingTracks
 from src.player.player_mini import MiniPlayerWindow
 from src.player.player_settings import show_audio_settings_dialog
 from src.statistics.statistics_dialog import MusicStatsDialog
+from src.core.status_utility import StatusManager
 
 
 class MenuBar:
@@ -297,15 +298,15 @@ class MenuBar:
             player = getattr(self.controller, "mediaplayer", None)
 
         if player is None:
-            self.statusBar().showMessage("Audio player not available", 3000)
+            StatusManager.show_message("Audio player not available", 3000)
             return
 
         settings_applied = show_audio_settings_dialog(player, self)
 
         if settings_applied:
-            self.statusBar().showMessage("Audio settings updated", 3000)
+            StatusManager.show_message("Audio settings updated", 3000)
         else:
-            self.statusBar().showMessage("Audio settings unchanged", 3000)
+            StatusManager.show_message("Audio settings unchanged", 3000)
 
     def show_equalizer_dialog(self):
         """Show the equalizer configuration dialog."""
