@@ -8,16 +8,13 @@ from src.statistics.analysis_dialog import AudioAnalysisDialog
 from src.core.asset_paths import ASSETS_DIR, icon
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
-from src.display.display_dialog import DisplaySettingsDialog
 from src.library.duplicate_finder import DuplicateFinderDialog
 from src.equalizer.equalizer_dialog import EqualizerDialog
 from src.file_management.file_manager_dialog import FileManager
 from src.importing.import_dialog import ImportDialog
 from src.library.missing_tracks import MissingTracks
 from src.player.player_mini import MiniPlayerWindow
-from src.player.player_settings import show_audio_settings_dialog
 from src.statistics.statistics_dialog import MusicStatsDialog
-from src.core.status_utility import StatusManager
 
 
 class MenuBar:
@@ -104,12 +101,6 @@ class MenuBar:
         audio_menu = menu_bar.addMenu("Audio")
 
         self.add_action(
-            audio_menu,
-            "Manage Audio Settings",
-            "audio_settings.svg",
-            self.show_audio_settings_dialog,
-        )
-        self.add_action(
             audio_menu, "Equalizer Settings", "equalizer.svg", self.show_equalizer_dialog
         )
         self.add_action(
@@ -121,13 +112,6 @@ class MenuBar:
 
         # View menu
         self.view_menu = menu_bar.addMenu("View")
-
-        self.add_action(
-            self.view_menu,
-            "Display Settings",
-            "display_settings.svg",
-            self.show_display_settings_dialog,
-        )
 
         self.toggle_queue_action = self.add_action(
             self.view_menu,
@@ -290,24 +274,6 @@ class MenuBar:
     # Audio settings
     # ------------------------------------------------------------------
 
-    def show_audio_settings_dialog(self):
-        """Open the audio settings dialog. Uses controller.mediaplayer if available."""
-        # Support both self.mediaplayer and self.controller.mediaplayer
-        player = getattr(self, "mediaplayer", None)
-        if player is None and hasattr(self, "controller"):
-            player = getattr(self.controller, "mediaplayer", None)
-
-        if player is None:
-            StatusManager.show_message("Audio player not available", 3000)
-            return
-
-        settings_applied = show_audio_settings_dialog(player, self)
-
-        if settings_applied:
-            StatusManager.show_message("Audio settings updated", 3000)
-        else:
-            StatusManager.show_message("Audio settings unchanged", 3000)
-
     def show_equalizer_dialog(self):
         """Show the equalizer configuration dialog."""
         if not hasattr(self, "equalizer_dialog"):
@@ -323,11 +289,38 @@ class MenuBar:
     # ------------------------------------------------------------------
 
     def show_general_settings_dialog(self):
-        """Open the General Settings (ConfigDialog) window."""
+        """Open the General Settings (ConfigDialog) window.
+
+        Also covers what used to be the separate Display Settings and
+        Manage Audio Settings dialogs, so both a DisplaySettings instance
+        and the live player are resolved and handed in when available.
+        """
         from src.core.config_dialog import ConfigDialog
 
-        dialog = ConfigDialog(app_config, self)
+        display_settings = self._resolve_display_settings()
+
+        player = getattr(self, "mediaplayer", None)
+        if player is None and hasattr(self, "controller"):
+            player = getattr(self.controller, "mediaplayer", None)
+
+        dialog = ConfigDialog(app_config, display_settings, player, self)
+
+        if display_settings is not None:
+            display_settings.menu_bar_auto_hide_changed.connect(
+                self._apply_menu_bar_auto_hide
+            )
+
         dialog.exec_()
+
+        if display_settings is not None:
+            try:
+                display_settings.menu_bar_auto_hide_changed.disconnect(
+                    self._apply_menu_bar_auto_hide
+                )
+            except RuntimeError:
+                logger.debug(
+                    "menu_bar_auto_hide_changed signal was already disconnected"
+                )
 
     # ------------------------------------------------------------------
     # Other dialogs
@@ -446,32 +439,6 @@ class MenuBar:
 
         self._mini_player.show()
         self._mini_player.raise_()
-
-    def show_display_settings_dialog(self):
-        """Show the display settings dialog."""
-        display_settings = self._resolve_display_settings()
-
-        if display_settings is None:
-            from src.display.display_settings import DisplaySettings
-
-            display_settings = DisplaySettings()
-
-        dialog = DisplaySettingsDialog(display_settings, self)
-
-        # When auto-hide changes inside the dialog, apply it immediately
-        display_settings.menu_bar_auto_hide_changed.connect(
-            self._apply_menu_bar_auto_hide
-        )
-
-        dialog.exec_()
-
-        # Disconnect after dialog closes to avoid duplicate connections next time
-        try:
-            display_settings.menu_bar_auto_hide_changed.disconnect(
-                self._apply_menu_bar_auto_hide
-            )
-        except RuntimeError:
-            logger.debug("menu_bar_auto_hide_changed signal was already disconnected")
 
     def show_missing_tracks(self):
         self._missing_tracks = MissingTracks(self.controller, parent=self)
