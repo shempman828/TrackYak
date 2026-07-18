@@ -78,8 +78,8 @@ class MusicPlayer(QObject):
         super().__init__(parent)
         self.controller = controller
         self.equalizer = EqualizerUtility(self)
-        self.queue_manager = QueueManager()
-        self.queue_manager.load_queue_from_config(app_config)
+        self.queue_manager = QueueManager(config=app_config)
+        self.queue_manager.load_queue_from_config(self.controller.SessionFactory)
 
         # ── Audio backend ──────────────────────────────────────────────────────
         self.sd = None
