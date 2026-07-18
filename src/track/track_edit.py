@@ -83,8 +83,10 @@ class TrackEditDialog(QDialog):
         self.setWindowTitle(title)
         self.setMinimumSize(900, 650)
 
+        # _build_ui() selects sidebar row 0, which builds and loads that
+        # tab via _on_nav -> _ensure_tab_built. Every other tab builds and
+        # loads itself lazily on first visit.
         self._build_ui()
-        self._load_all()
 
     # ── UI Construction ───────────────────────────────────────────────────
 
@@ -111,36 +113,54 @@ class TrackEditDialog(QDialog):
         right_widget.setLayout(right)
         root.addWidget(right_widget, stretch=1)
 
-        # Build all tabs, ordered most- to least-critical: core identity and
-        # the artist/album/date relationships that define a track sit up top;
-        # niche metadata (aliases, samples) and Advanced sit at the bottom.
-        self._tabs: List[_BaseTab] = []
-        self._add_tab("Basic", FieldFormTab("Basic", self.tracks, self.controller))
-        self._add_tab("Artists & Roles", RolesTab(self.tracks, self.controller))
-        self._add_tab("Albums", AlbumsTab(self.tracks, self.controller))
-        self._add_tab("Dates", FieldFormTab("Date", self.tracks, self.controller))
-        self._add_tab("Genres", GenresTab(self.tracks, self.controller))
+        # Tabs are built and loaded lazily, on first navigation to each one
+        # (see _ensure_tab_built), rather than all 18 up front -- some tabs
+        # (e.g. Samples, Roles) do real DB work in __init__/load(), which
+        # used to make every dialog open pay for every tab regardless of
+        # which ones the user actually visits. Only the sidebar row is
+        # cheap to build eagerly, so that's all _add_tab does here.
+        self._tab_factories: List = []
+        self._tabs: List[_BaseTab | None] = []
         self._add_tab(
-            "Description", FieldFormTab("Description", self.tracks, self.controller)
-        )
-        self._add_tab("Lyrics", LyricsTab(self.tracks, self.controller))
-        self._add_tab(
-            "Classical", FieldFormTab("Classical", self.tracks, self.controller)
+            "Basic", lambda: FieldFormTab("Basic", self.tracks, self.controller)
         )
         self._add_tab(
-            "Properties", FieldFormTab("Properties", self.tracks, self.controller)
+            "Artists & Roles", lambda: RolesTab(self.tracks, self.controller)
         )
-        self._add_tab("Moods", MoodsTab(self.tracks, self.controller))
-        self._add_tab("Places", PlacesTab(self.tracks, self.controller))
-        self._add_tab("Awards", AwardsTab(self.tracks, self.controller))
-        self._add_tab("User Data", FieldFormTab("User", self.tracks, self.controller))
-        self._add_tab("Identification", IdentificationTab(self.tracks, self.controller))
-        self._add_tab("Used In", UsedInTab(self.tracks, self.controller))
-        self._add_tab("Aliases", FieldFormTab("Alias", self.tracks, self.controller))
-        self._add_tab("Samples", SamplesTab(self.tracks, self.controller))
-        advanced_tab = AdvancedTab(self.tracks, self.controller)
-        advanced_tab.tracks_analyzed.connect(self._on_tracks_analyzed)
-        self._add_tab("Advanced", advanced_tab)
+        self._add_tab("Albums", lambda: AlbumsTab(self.tracks, self.controller))
+        self._add_tab(
+            "Dates", lambda: FieldFormTab("Date", self.tracks, self.controller)
+        )
+        self._add_tab("Genres", lambda: GenresTab(self.tracks, self.controller))
+        self._add_tab(
+            "Description",
+            lambda: FieldFormTab("Description", self.tracks, self.controller),
+        )
+        self._add_tab("Lyrics", lambda: LyricsTab(self.tracks, self.controller))
+        self._add_tab(
+            "Classical",
+            lambda: FieldFormTab("Classical", self.tracks, self.controller),
+        )
+        self._add_tab(
+            "Properties",
+            lambda: FieldFormTab("Properties", self.tracks, self.controller),
+        )
+        self._add_tab("Moods", lambda: MoodsTab(self.tracks, self.controller))
+        self._add_tab("Places", lambda: PlacesTab(self.tracks, self.controller))
+        self._add_tab("Awards", lambda: AwardsTab(self.tracks, self.controller))
+        self._add_tab(
+            "User Data", lambda: FieldFormTab("User", self.tracks, self.controller)
+        )
+        self._add_tab(
+            "Identification",
+            lambda: IdentificationTab(self.tracks, self.controller),
+        )
+        self._add_tab("Used In", lambda: UsedInTab(self.tracks, self.controller))
+        self._add_tab(
+            "Aliases", lambda: FieldFormTab("Alias", self.tracks, self.controller)
+        )
+        self._add_tab("Samples", lambda: SamplesTab(self.tracks, self.controller))
+        self._add_tab("Advanced", self._make_advanced_tab)
 
         # Keyboard shortcuts Ctrl+1 … Ctrl+9 for first 9 tabs
         for i in range(min(9, len(self._tabs))):
@@ -149,30 +169,54 @@ class TrackEditDialog(QDialog):
 
         self._sidebar.setCurrentRow(0)
 
-    def _add_tab(self, label: str, tab: _BaseTab):
+    def _make_advanced_tab(self):
+        advanced_tab = AdvancedTab(self.tracks, self.controller)
+        advanced_tab.tracks_analyzed.connect(self._on_tracks_analyzed)
+        return advanced_tab
+
+    def _add_tab(self, label: str, factory):
         self._sidebar.addItem(label)
-        self._stack.addWidget(tab)
-        self._tabs.append(tab)
+        self._stack.addWidget(QWidget())  # placeholder, replaced on first visit
+        self._tab_factories.append(factory)
+        self._tabs.append(None)
 
     def _on_nav(self, row: int):
+        self._ensure_tab_built(row)
         self._stack.setCurrentIndex(row)
+
+    def _ensure_tab_built(self, row: int) -> _BaseTab:
+        tab = self._tabs[row]
+        if tab is not None:
+            return tab
+
+        factory = self._tab_factories[row]
+        try:
+            tab = factory()
+            tab.load(self.tracks)
+        except Exception as e:
+            logger.error(
+                f"Error building/loading tab at row {row}: {e}", exc_info=True
+            )
+            tab = QWidget()
+
+        placeholder = self._stack.widget(row)
+        self._stack.insertWidget(row, tab)
+        self._stack.removeWidget(placeholder)
+        placeholder.deleteLater()
+        self._tabs[row] = tab
+        return tab
 
     # ── Data ──────────────────────────────────────────────────────────────
 
-    def _load_all(self):
-        for tab in self._tabs:
-            try:
-                tab.load(self.tracks)
-            except Exception as e:
-                logger.error(
-                    f"Error loading tab {type(tab).__name__}: {e}", exc_info=True
-                )
-
     def _on_tracks_analyzed(self):
         """Audio analysis updated the track(s) in place (e.g. bpm, key,
-        gain) — refresh every tab's displayed values. Unlike _load_all(),
-        this leaves any unsaved edits the user already made untouched."""
+        gain) — refresh every already-built tab's displayed values. This
+        leaves any unsaved edits the user already made untouched. Tabs the
+        user hasn't visited yet pick up the fresh values naturally when
+        they're built."""
         for tab in self._tabs:
+            if tab is None:
+                continue
             try:
                 tab.refresh_values(self.tracks)
             except Exception as e:
@@ -187,6 +231,8 @@ class TrackEditDialog(QDialog):
             # Collect scalar field changes from all tabs
             all_changes: Dict[str, Any] = {}
             for tab in self._tabs:
+                if tab is None:
+                    continue  # never visited -> no user edits to collect
                 try:
                     changes = tab.collect_changes()
                     all_changes.update(changes)
@@ -216,6 +262,8 @@ class TrackEditDialog(QDialog):
 
     def closeEvent(self, event) -> None:
         for tab in self._tabs:
+            if tab is None:
+                continue  # never built -> nothing to clean up
             try:
                 tab.cleanup()
             except Exception as e:
