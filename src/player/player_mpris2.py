@@ -180,8 +180,18 @@ class _MPRIS2DBusService(dbus.service.Object):
             from PySide6.QtCore import QTimer
 
             offset_ms = int(offset_microseconds) // 1000
-            target_ms = max(0, self._player.position + offset_ms)
-            QTimer.singleShot(0, lambda: self._player.seek(target_ms))
+            track_at_request = self._player.current_file
+
+            def _do_seek():
+                # If the track changed between the D-Bus call and this
+                # deferred execution (e.g. the track ended/advanced), the
+                # offset was computed against the wrong track's position.
+                if self._player.current_file != track_at_request:
+                    return
+                target_ms = max(0, self._player.position + offset_ms)
+                self._player.seek(target_ms)
+
+            QTimer.singleShot(0, _do_seek)
         except Exception as e:
             logger.error(f"MPRIS2 Seek error: {e}")
 
