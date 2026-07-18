@@ -4,7 +4,7 @@
 
 import os
 
-from PySide6.QtCore import QSettings, Qt, QUrl, Signal
+from PySide6.QtCore import QSettings, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QIntValidator
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -35,6 +35,10 @@ GENDERS = ["", "Male", "Female", "Other"]
 
 # QSettings key for remembering the last directory used in the picture browser
 _SETTINGS_LAST_PIC_DIR = "artist_editor/last_pic_dir"
+
+# Bounding box for the picture preview — the photo is scaled to fit inside
+# it while keeping its own aspect ratio, not stretched or cropped square.
+PIC_MAX_SIZE = QSize(180, 180)
 
 
 class BasicTab(QWidget):
@@ -216,7 +220,7 @@ class BasicTab(QWidget):
         pic_layout = QVBoxLayout(pic_grp)
 
         self.pic_label = QLabel()
-        self.pic_label.setFixedSize(180, 180)
+        self.pic_label.setMaximumSize(PIC_MAX_SIZE)
         self.pic_label.setAlignment(Qt.AlignCenter)
         self.pic_label.setStyleSheet(
             "border: 1px solid #888; border-radius: 4px; background: #222;"
@@ -368,9 +372,7 @@ class BasicTab(QWidget):
 
     def _refresh_pic_preview(self, path: str):
         self.pic_label.setText("")
-        self.pic_label.setPixmap(
-            load_pixmap_with_fallback(path, self.pic_label.size())
-        )
+        self.pic_label.setPixmap(load_pixmap_with_fallback(path, PIC_MAX_SIZE))
 
     def _open_wiki_link(self):
         if self._wiki_link:
