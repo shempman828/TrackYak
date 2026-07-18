@@ -528,8 +528,19 @@ class NowPlayingView(QWidget):
         self._countdown_lbl.setFixedHeight(28)
         self._countdown_lbl.setVisible(False)
 
-        lp.addWidget(self._karaoke_lbl, stretch=1)
-        lp.addWidget(self._next_lyric_lbl)  # fixed below karaoke line
+        # Current + next lyric are grouped so they stay close together;
+        # a stretch inside the group (not the karaoke label itself) absorbs
+        # the leftover vertical space instead of ballooning the gap between them.
+        karaoke_block = QWidget()
+        karaoke_block.setProperty("bgTransparent", True)
+        kb = QVBoxLayout(karaoke_block)
+        kb.setContentsMargins(0, 0, 0, 0)
+        kb.setSpacing(6)
+        kb.addWidget(self._karaoke_lbl)
+        kb.addWidget(self._next_lyric_lbl)
+        kb.addStretch(1)
+
+        lp.addWidget(karaoke_block, stretch=1)
         lp.addWidget(self._plain_area, stretch=1)
         lp.addWidget(self._no_lyrics_lbl, stretch=1)
         lp.addWidget(self._countdown_lbl)  # fixed height — sits below lyric
