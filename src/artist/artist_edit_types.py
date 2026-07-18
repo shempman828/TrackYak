@@ -1,6 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # Widget: Types (embedded in BasicTab, not its own dialog tab)
 # ══════════════════════════════════════════════════════════════════════════════
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -142,12 +143,20 @@ class ArtistTypesWidget(QWidget):
         deferred show (same fix already used for the same FlowLayout-rebuild
         -blank issue in album_view.py's _refresh_album_widgets).
 
+        Deferred via singleShot rather than pumped synchronously here: _add()
+        can itself run nested inside EntityCompleterEdit/QLineEdit's own
+        keyPressEvent (Enter -> returnPressed fires *during* that native
+        call), and processEvents() reentering the loop from inside that
+        stack frame corrupts Qt's internals (e.g. the QCompleter set_index()
+        just replaced) and crashes the process. Running it on the next
+        event-loop turn keeps the flush outside that call stack entirely.
+
         Only call this after adding a chip, never after removing one: a
         chip's own "x" click hands us straight into deleteLater() on that
         same widget, and pumping the loop here would let Qt destroy it
         while its own click handling is still unwinding on the stack.
         """
-        QApplication.processEvents()
+        QTimer.singleShot(0, QApplication.processEvents)
 
     def _add_chip(self, artist_type_id, type_name):
         chip = QPushButton(f"{type_name}  ×")
