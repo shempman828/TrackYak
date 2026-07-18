@@ -210,10 +210,26 @@ class MusicPlayer(QObject):
             # desync and bad header errors when skipping quickly.
             with self._reader_lock:
                 reader = self._sf_reader
-                frames_remaining = self._total_frames - self._current_frame
-                if frames_remaining <= 0 or reader is None:
+                if reader is None:
                     break
-                to_read = min(BLOCKSIZE, frames_remaining)
+                # Some files (streaming-encoded FLAC with an unset STREAMINFO
+                # total_samples, VBR MP3s missing a Xing/VBRI header, etc.)
+                # report an unreliable or zero frame count from the header.
+                # Trusting it to decide when to stop reading can leave the
+                # reader loop breaking before it ever reads a byte, which
+                # means end-of-track is never detected and the track just
+                # plays silence forever. When the count looks usable, use it
+                # to size reads; otherwise fall back to reading full blocks
+                # and let the short/empty read below signal real EOF.
+                known_length = self._total_frames > 0
+                if known_length:
+                    frames_remaining = self._total_frames - self._current_frame
+                    if frames_remaining <= 0:
+                        break
+                    to_read = min(BLOCKSIZE, frames_remaining)
+                else:
+                    to_read = BLOCKSIZE
+                unrecoverable = False
                 try:
                     chunk = reader.read(to_read, dtype="float32", always_2d=True)
                     self._current_frame += len(chunk)
@@ -222,7 +238,9 @@ class MusicPlayer(QObject):
                         f"Reader thread decode error, attempting to resync: {exc}"
                     )
                     try:
-                        skip_to = min(self._current_frame + BLOCKSIZE, self._total_frames)
+                        skip_to = self._current_frame + BLOCKSIZE
+                        if known_length:
+                            skip_to = min(skip_to, self._total_frames)
                         reader.seek(skip_to)
                         self._current_frame = skip_to
                     except Exception as seek_exc:
@@ -230,15 +248,23 @@ class MusicPlayer(QObject):
                             f"Reader thread could not resync after decode error, "
                             f"ending track: {seek_exc}"
                         )
-                        # Can't recover — mark the file exhausted so the callback
-                        # signals track-finished once the buffer drains, instead
-                        # of hanging silently forever.
-                        self._current_frame = self._total_frames
-                        break
-                    continue
+                        # Can't recover — push an empty chunk so the callback's
+                        # short-read check signals track-finished once the
+                        # buffer drains, instead of hanging silently forever.
+                        if known_length:
+                            self._current_frame = self._total_frames
+                        chunk = np.zeros((0, self.current_channels), dtype="float32")
+                        unrecoverable = True
+                    else:
+                        continue
 
             with self._buffer_lock:
                 self._audio_buffer.append(chunk)
+
+            if unrecoverable or len(chunk) < to_read:
+                # Decoder returned less than requested — genuine EOF,
+                # regardless of what the header's frame count claims.
+                break
 
     # =========================================================================
     #  Public playback controls
