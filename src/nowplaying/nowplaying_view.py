@@ -306,7 +306,7 @@ class NowPlayingView(QWidget):
         self._cinema_mode = False
 
         # Art slideshow state
-        self._art_images: List[QPixmap] = []
+        self._art_images: List[Tuple[QPixmap, bool]] = []
         self._art_slide_idx: int = 0
         self._art_slide_timer = QTimer(self)
         self._art_slide_timer.setInterval(6_000)  # 6 s per image
@@ -980,7 +980,7 @@ class NowPlayingView(QWidget):
 
     def _load_art(self, pixmap: Optional[QPixmap]):
         """Single-image path kept for clearUI / fallback use."""
-        self._start_art_slideshow([pixmap] if pixmap else [])
+        self._start_art_slideshow([(pixmap, False)] if pixmap else [])
 
     def _load_art_from_track(self, track):
         """Build slideshow from all available art images for this track."""
@@ -988,12 +988,14 @@ class NowPlayingView(QWidget):
         is_explicit = bool(getattr(album, "art_is_explicit", False)) if album else False
         cache = get_artwork_cache()
 
-        pixmaps: List[QPixmap] = []
+        # (pixmap, is_artist_photo) — artist photos are rendered without
+        # forcing a square crop, since they aren't necessarily square.
+        pixmaps: List[Tuple[QPixmap, bool]] = []
         if album and cache:
             for role in ("front", "rear", "liner"):
                 px = cache.get_pixmap(album, role, is_explicit)
                 if not px.isNull():
-                    pixmaps.append(px)
+                    pixmaps.append((px, False))
 
         # Also try artist-level image
         for artist in getattr(track, "artists", None) or []:
@@ -1001,25 +1003,25 @@ class NowPlayingView(QWidget):
             if p and Path(p).exists():
                 px = QPixmap(str(p))
                 if not px.isNull():
-                    pixmaps.append(px)
+                    pixmaps.append((px, True))
 
         if not pixmaps:
             default = self.default_art_path
             if default and Path(default).exists():
                 px = QPixmap(default)
                 if not px.isNull():
-                    pixmaps.append(px)
+                    pixmaps.append((px, False))
 
         self._start_art_slideshow(pixmaps)
 
-    def _start_art_slideshow(self, pixmaps: List[QPixmap]):
-        """Begin cycling through the given list of pixmaps."""
+    def _start_art_slideshow(self, pixmaps: List[Tuple[QPixmap, bool]]):
+        """Begin cycling through the given list of (pixmap, is_artist) pairs."""
         self._art_slide_timer.stop()
         self._art_images = pixmaps
         self._art_slide_idx = 0
 
-        first = pixmaps[0] if pixmaps else None
-        self._apply_art(first)
+        first = pixmaps[0] if pixmaps else (None, False)
+        self._apply_art(*first)
 
         if len(pixmaps) > 1:
             self._art_slide_timer.start()
@@ -1028,12 +1030,12 @@ class NowPlayingView(QWidget):
         if not self._art_images:
             return
         self._art_slide_idx = (self._art_slide_idx + 1) % len(self._art_images)
-        self._apply_art(self._art_images[self._art_slide_idx])
+        self._apply_art(*self._art_images[self._art_slide_idx])
 
-    def _apply_art(self, pixmap: Optional[QPixmap]):
+    def _apply_art(self, pixmap: Optional[QPixmap], is_artist: bool = False):
         """Push a single pixmap to the art card and backdrop with a fade."""
         self._current_pixmap = pixmap
-        self._art_card.set_art(pixmap)
+        self._art_card.set_art(pixmap, is_artist)
 
         if self._fade_anim:
             self._fade_anim.stop()
