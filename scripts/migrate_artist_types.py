@@ -1,5 +1,5 @@
 """
-One-off migration for bugs.txt #90: replace the single freetext
+One-off migration for bugs.md #90: replace the single freetext
 Artist.artist_type column with the new multi-valued ArtistType model.
 
 Run once, manually, from the repo root:
