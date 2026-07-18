@@ -14,7 +14,9 @@ from src.artist.artist_detail_dates import DateDisplayWidget
 from src.core.logger_config import logger
 from src.image.pixmap_with_fallback import load_pixmap_with_fallback
 
-PORTRAIT_SIZE = QSize(160, 160)
+# Bounding box for the portrait — the actual photo is scaled to fit inside
+# it while keeping its own aspect ratio, not stretched or cropped square.
+PORTRAIT_MAX_SIZE = QSize(160, 160)
 INFOBOX_WIDTH = 220
 
 
@@ -120,11 +122,12 @@ class ArtistInfobox(QGroupBox):
         # Portrait, centered
         portrait = QLabel()
         portrait.setObjectName("ArtistPortrait")
-        portrait.setFixedSize(PORTRAIT_SIZE)
+        portrait.setMaximumSize(PORTRAIT_MAX_SIZE)
         portrait.setAlignment(Qt.AlignCenter)
         portrait.setPixmap(
             load_pixmap_with_fallback(
-                getattr(self.artist, "profile_pic_path", "") or "", PORTRAIT_SIZE
+                getattr(self.artist, "profile_pic_path", "") or "",
+                PORTRAIT_MAX_SIZE,
             )
         )
         portrait_row = QHBoxLayout()
