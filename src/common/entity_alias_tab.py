@@ -11,7 +11,7 @@ MergeDB._preserve_alias_on_merge) and when importing/adding tracks (an
 alias name resolves to the canonical entity instead of creating a
 duplicate, see GetFromDB.resolve_entity_or_alias).
 
-Two optional hooks let a subclass cover richer alias models without
+Three optional hooks let a subclass cover richer alias models without
 forking the whole widget:
   - extra_field: adds a second free-text column (e.g. an alias "type")
     with autocomplete, backed by an attribute of that name on the alias
@@ -21,6 +21,11 @@ forking the whole widget:
     to the entity's primary name. Receives (alias_id, new_primary_name,
     extra_value) and should return True if the swap was performed (so the
     table reloads).
+  - on_before_add: called with the proposed alias name just before it is
+    saved. Return False to abort the add (e.g. because the name already
+    belongs to another entity and the subclass handled it, such as
+    offering a merge instead — see AliasesTab._check_existing_artist in
+    artist_edit_alias.py). Return True to proceed as normal.
 """
 
 from typing import Callable, Optional
@@ -181,6 +186,7 @@ class EntityAliasesTab(QWidget):
         extra_field_placeholder: str = "",
         extra_field_hint: str = "",
         on_swap: Optional[Callable[[int, str, str], bool]] = None,
+        on_before_add: Optional[Callable[[str], bool]] = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -194,6 +200,7 @@ class EntityAliasesTab(QWidget):
         self.extra_field_placeholder = extra_field_placeholder
         self.extra_field_hint = extra_field_hint
         self.on_swap = on_swap
+        self.on_before_add = on_before_add
         self._build_ui()
 
     def _build_ui(self):
@@ -310,6 +317,9 @@ class EntityAliasesTab(QWidget):
             parent=self,
         )
         if dlg.exec() != QDialog.Accepted:
+            return
+        if self.on_before_add and not self.on_before_add(dlg.alias_name):
+            self._reload_table()
             return
         kwargs = {self.id_field: self._entity_id(), "alias_name": dlg.alias_name}
         if self.extra_field:
