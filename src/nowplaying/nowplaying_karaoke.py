@@ -19,7 +19,7 @@ class _KaraokeLine(QLabel):
         self.setFont(font)
         self.setAlignment(Qt.AlignCenter)
         self.setWordWrap(True)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self._opacity: float = 1.0
         self._anim: Optional[QPropertyAnimation] = None
         self._set_opacity(1.0)
