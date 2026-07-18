@@ -11,15 +11,18 @@ _DEFAULT_PORTRAIT = asset("default_artist.svg")
 
 
 def load_pixmap_with_fallback(path: str, size: QSize) -> QPixmap:
-    """Load a QPixmap from `path`, scaled to `size`.
+    """Load a QPixmap from `path`, scaled to fit within `size`.
 
-    Falls back to rendering the default artist silhouette SVG when `path` is
-    empty, missing, or fails to load as an image — callers don't need to
-    special-case "no picture" themselves.
+    The image's own aspect ratio is preserved — `size` is a bounding box,
+    not a target shape, so portrait or landscape photos are never
+    stretched or cropped into a square. Falls back to rendering the
+    default artist silhouette SVG when `path` is empty, missing, or fails
+    to load as an image — callers don't need to special-case "no picture"
+    themselves.
     """
     pixmap = load_art_pixmap(path)
     if not pixmap.isNull():
-        return pixmap.scaled(size, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+        return pixmap.scaled(size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
     renderer = QSvgRenderer(_DEFAULT_PORTRAIT)
     if renderer.isValid():
