@@ -30,7 +30,7 @@ forking the whole widget:
 
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QStringListModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCompleter,
@@ -55,9 +55,10 @@ from src.core.status_utility import show_status_message
 
 class EntityAliasEditDialog(QDialog):
     """
-    Small dialog for entering or editing a single alias name, with an
-    optional second free-text field (e.g. an alias "type") for entities
-    that need per-alias metadata beyond the name.
+    Small dialog for editing an existing alias's name, with an optional
+    second free-text field (e.g. an alias "type") for entities that need
+    per-alias metadata beyond the name. Adding a new alias instead uses the
+    inline row in EntityAliasesTab.
     """
 
     def __init__(
@@ -72,7 +73,7 @@ class EntityAliasEditDialog(QDialog):
         parent=None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Add Alias" if not alias_name else "Edit Alias")
+        self.setWindowTitle("Edit Alias")
         self.setMinimumWidth(360 if extra_field_label else 340)
 
         layout = QVBoxLayout(self)
@@ -208,6 +209,43 @@ class EntityAliasesTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
+        add_row = QHBoxLayout()
+        add_row.setSpacing(6)
+
+        self.name_edit = QLineEdit()
+        if self.placeholder:
+            self.name_edit.setPlaceholderText(self.placeholder)
+        self.name_edit.textChanged.connect(self._on_add_name_changed)
+        self.name_edit.returnPressed.connect(self._add_alias)
+        add_row.addWidget(self.name_edit, 2)
+
+        self.extra_edit = None
+        self._extra_completer = None
+        if self.extra_field:
+            self.extra_edit = QLineEdit()
+            if self.extra_field_placeholder:
+                self.extra_edit.setPlaceholderText(self.extra_field_placeholder)
+            self.extra_edit.setClearButtonEnabled(True)
+            self.extra_edit.returnPressed.connect(self._add_alias)
+            self._extra_completer = QCompleter(self)
+            self._extra_completer.setCaseSensitivity(Qt.CaseInsensitive)
+            self._extra_completer.setFilterMode(Qt.MatchContains)
+            self._extra_completer.setCompletionMode(QCompleter.PopupCompletion)
+            self.extra_edit.setCompleter(self._extra_completer)
+            add_row.addWidget(self.extra_edit, 1)
+
+        self.add_btn = QPushButton("＋  Add Alias")
+        self.add_btn.setEnabled(False)
+        self.add_btn.clicked.connect(self._add_alias)
+        add_row.addWidget(self.add_btn)
+
+        layout.addLayout(add_row)
+
+        if self.extra_field and self.extra_field_hint:
+            hint = QLabel(f"<small><i>{self.extra_field_hint}</i></small>")
+            hint.setWordWrap(True)
+            layout.addWidget(hint)
+
         headers = ["Alias Name"]
         if self.extra_field:
             headers.append(self.extra_field_label)
@@ -230,10 +268,15 @@ class EntityAliasesTab(QWidget):
         self.table.setShowGrid(False)
         layout.addWidget(self.table)
 
-        add_btn = QPushButton("＋  Add Alias")
-        add_btn.setFixedHeight(28)
-        add_btn.clicked.connect(self._add_alias)
-        layout.addWidget(add_btn, alignment=Qt.AlignLeft)
+    def _on_add_name_changed(self, text: str):
+        self.add_btn.setEnabled(bool(text.strip()))
+
+    def _refresh_extra_completer(self):
+        if not self._extra_completer:
+            return
+        self._extra_completer.setModel(
+            QStringListModel(self._extra_completions(), self._extra_completer)
+        )
 
     def load(self, entity):
         self.entity = entity
@@ -262,6 +305,8 @@ class EntityAliasesTab(QWidget):
                 (getattr(alias, self.extra_field, "") or "") if self.extra_field else None
             )
             self._append_row(alias.alias_id, alias.alias_name, extra_value)
+
+        self._refresh_extra_completer()
 
     def _append_row(self, alias_id: int, alias_name: str, extra_value: Optional[str] = None):
         row = self.table.rowCount()
@@ -301,35 +346,33 @@ class EntityAliasesTab(QWidget):
 
     def _extra_completions(self) -> list[str]:
         """
-        Autocomplete suggestions offered in the extra-field edit dialog.
-        Override to add fixed suggestions beyond values already in use
-        (see artist_edit_alias.AliasesTab._extra_completions).
+        Autocomplete suggestions offered for the extra field, both on the
+        inline add row and in the edit dialog. Override to add fixed
+        suggestions beyond values already in use (see
+        artist_edit_alias.AliasesTab._extra_completions).
         """
         return self._existing_extra_values()
 
     def _add_alias(self):
-        dlg = EntityAliasEditDialog(
-            placeholder=self.placeholder,
-            extra_field_label=self.extra_field_label if self.extra_field else None,
-            extra_placeholder=self.extra_field_placeholder,
-            extra_completions=self._extra_completions() if self.extra_field else None,
-            extra_hint=self.extra_field_hint,
-            parent=self,
-        )
-        if dlg.exec() != QDialog.Accepted:
+        alias_name = self.name_edit.text().strip()
+        if not alias_name:
             return
-        if self.on_before_add and not self.on_before_add(dlg.alias_name):
+        extra_value = self.extra_edit.text().strip() if self.extra_edit else ""
+        if self.on_before_add and not self.on_before_add(alias_name):
             self._reload_table()
             return
-        kwargs = {self.id_field: self._entity_id(), "alias_name": dlg.alias_name}
+        kwargs = {self.id_field: self._entity_id(), "alias_name": alias_name}
         if self.extra_field:
-            kwargs[self.extra_field] = dlg.extra_value or None
+            kwargs[self.extra_field] = extra_value or None
         try:
             self.controller.add.add_entity(self.alias_model_name, **kwargs)
         except Exception as exc:
-            logger.exception("EntityAliasesTab: failed to add alias %r", dlg.alias_name)
+            logger.exception("EntityAliasesTab: failed to add alias %r", alias_name)
             QMessageBox.critical(self, "Error", f"Could not add alias:\n{exc}")
             return
+        self.name_edit.clear()
+        if self.extra_edit:
+            self.extra_edit.clear()
         self._reload_table()
 
     def _edit_alias(self, row: int):
