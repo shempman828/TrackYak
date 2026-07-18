@@ -2,6 +2,7 @@
 # Widget: Types (embedded in BasicTab, not its own dialog tab)
 # ══════════════════════════════════════════════════════════════════════════════
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -113,6 +114,8 @@ class ArtistTypesWidget(QWidget):
 
         self._empty_label.setVisible(not types)
         self._relayout()
+        if types:
+            self._flush_new_chip_paint()
 
     def _clear_chips(self):
         while self._chip_flow.count():
@@ -131,6 +134,20 @@ class ArtistTypesWidget(QWidget):
         self._chip_flow.activate()
         self._chip_area.updateGeometry()
         self.updateGeometry()
+
+    def _flush_new_chip_paint(self):
+        """Pump the event loop once so a chip just added in this call stack
+        is actually painted before we return -- activate() alone leaves its
+        geometry unresolved until the next event-loop turn processes its
+        deferred show (same fix already used for the same FlowLayout-rebuild
+        -blank issue in album_view.py's _refresh_album_widgets).
+
+        Only call this after adding a chip, never after removing one: a
+        chip's own "x" click hands us straight into deleteLater() on that
+        same widget, and pumping the loop here would let Qt destroy it
+        while its own click handling is still unwinding on the stack.
+        """
+        QApplication.processEvents()
 
     def _add_chip(self, artist_type_id, type_name):
         chip = QPushButton(f"{type_name}  ×")
@@ -200,6 +217,7 @@ class ArtistTypesWidget(QWidget):
             self._add_chip(entity.artist_type_id, entity.type_name)
             self._empty_label.setVisible(False)
             self._relayout()
+            self._flush_new_chip_paint()
 
     def _remove(self, artist_type_id):
         try:
