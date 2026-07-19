@@ -13,11 +13,34 @@ ID3_TRACK_MAPPINGS = {
     "TSRC": {"field": "isrc", "type": str, "entity": "Track"},
     "USLT": {"field": "lyrics", "type": str, "entity": "Track"},
     "TIT1": {"field": "work_name", "type": str, "entity": "Track"},
+    # MusicBrainz Picard convention: recording ID as a UFID frame (no text
+    # frame encoding byte), release-track ID as a TXXX frame. Both refer to
+    # the same track, so both land on Track.MBID (mirrors the Vorbis
+    # MUSICBRAINZ_TRACKID/MUSICBRAINZ_RELEASETRACKID pair below).
+    "UFID:http://musicbrainz.org": {"field": "MBID", "type": str, "entity": "Track"},
+    "TXXX:MusicBrainz Release Track Id": {
+        "field": "MBID",
+        "type": str,
+        "entity": "Track",
+    },
 }
 ID3_MOOD_MAPPINGS = {"TMOO": {"field": "mood_name", "type": str, "entity": "Mood"}}
 ID3_ALBUM_MAPPINGS = {
     "TALB": {"field": "album_name", "type": str, "entity": "Album"},
     "TLAN": {"field": "album_language", "type": str, "entity": "Album"},
+    # MusicBrainz Picard convention: written as TXXX frames since ID3v2 has
+    # no dedicated frames for these.
+    "TXXX:MusicBrainz Album Id": {"field": "MBID", "type": str, "entity": "Album"},
+    "TXXX:MusicBrainz Album Type": {
+        "field": "release_type",
+        "type": str,
+        "entity": "Album",
+    },
+    "TXXX:MusicBrainz Album Status": {
+        "field": "status",
+        "type": str,
+        "entity": "Album",
+    },
 }
 ID3_PUBLISHER_MAPPINGS = {
     "TPUB": {"field": "publisher_name", "type": str, "entity": "Publisher"},
@@ -465,9 +488,39 @@ MP4_TRACK_MAPPINGS = {
     "trkn": {"field": "track_number", "type": int, "entity": "Track"},
     "tmpo": {"field": "bpm", "type": float, "entity": "Track"},
     "cprt": {"field": "track_copyright", "type": str, "entity": "Track"},
+    # MusicBrainz Picard convention: freeform "----" atoms under the
+    # "com.apple.iTunes" namespace. Both the recording ID and the
+    # release-track ID refer to the same track, so both land on Track.MBID
+    # (mirrors the Vorbis MUSICBRAINZ_TRACKID/MUSICBRAINZ_RELEASETRACKID
+    # pair and the ID3 UFID/TXXX pair above).
+    "----:com.apple.iTunes:MusicBrainz Track Id": {
+        "field": "MBID",
+        "type": str,
+        "entity": "Track",
+    },
+    "----:com.apple.iTunes:MusicBrainz Release Track Id": {
+        "field": "MBID",
+        "type": str,
+        "entity": "Track",
+    },
 }
 MP4_ALBUM_MAPPINGS = {
     "\xa9alb": {"field": "album_name", "type": str, "entity": "Album"},
+    "----:com.apple.iTunes:MusicBrainz Album Id": {
+        "field": "MBID",
+        "type": str,
+        "entity": "Album",
+    },
+    "----:com.apple.iTunes:MusicBrainz Album Type": {
+        "field": "release_type",
+        "type": str,
+        "entity": "Album",
+    },
+    "----:com.apple.iTunes:MusicBrainz Album Status": {
+        "field": "status",
+        "type": str,
+        "entity": "Album",
+    },
 }
 MP4_DISC_MAPPINGS = {
     "disk": {"field": "disc_number", "type": int, "entity": "Disc"},
