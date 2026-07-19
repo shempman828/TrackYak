@@ -135,7 +135,31 @@ class RawTagExtractor:
 
             frame_content = frame_data[pos + 10 : pos + 10 + frame_size]
 
-            if frame_id == "TXXX":
+            if frame_id == "UFID":
+                # UFID structure: owner identifier <text> $00 + identifier
+                # <binary, up to 64 bytes> — unlike TXXX/text frames, there
+                # is no leading text-encoding byte. Picard writes the
+                # MusicBrainz recording (track) ID here, owner
+                # "http://musicbrainz.org", identifier as ASCII text.
+                try:
+                    sep = frame_content.find(b"\x00")
+                    if sep == -1:
+                        sep = len(frame_content)
+                    owner = frame_content[:sep].decode("latin-1", errors="ignore")
+                    identifier = (
+                        frame_content[sep + 1 :]
+                        .decode("ascii", errors="ignore")
+                        .strip("\x00")
+                    )
+
+                    storage_key = f"UFID:{owner}" if owner else "UFID"
+                    if storage_key not in raw_tags:
+                        raw_tags[storage_key] = []
+                    raw_tags[storage_key].append(identifier)
+
+                except Exception as e:
+                    logger.debug(f"Error parsing UFID frame: {e}")
+            elif frame_id == "TXXX":
                 # TXXX structure: encoding(1) + description(variable) + \x00[\x00] + value
                 # We need to extract the description to build the storage key.
                 try:
@@ -360,6 +384,23 @@ class RawTagExtractor:
                 return raw_tags
 
             for atom_type, child_start, child_end in iter_atoms(data, *ilst):
+                if atom_type == b"----":
+                    # Freeform atom (iTunes/Picard convention for tags with
+                    # no dedicated 4-char atom, e.g. MusicBrainz IDs). All
+                    # freeform atoms share this literal type, so they're
+                    # distinguished by their 'mean'/'name' children instead.
+                    freeform = self._parse_mp4_freeform_atom(
+                        data, child_start, child_end
+                    )
+                    if freeform is None:
+                        continue
+                    mean, name, value = freeform
+                    if not value:
+                        continue
+                    key = f"----:{mean}:{name}"
+                    raw_tags.setdefault(key, []).append(value)
+                    continue
+
                 value = self._parse_mp4_ilst_value(
                     data, atom_type, child_start, child_end
                 )
@@ -398,6 +439,37 @@ class RawTagExtractor:
 
         # type 1 (UTF-8 text) and most real-world atoms in practice
         return value_bytes.decode("utf-8", errors="ignore").strip("\x00")
+
+    def _parse_mp4_freeform_atom(self, data, start, end):
+        """Decode a '----' freeform atom's 'mean'/'name'/'data' children.
+
+        Returns (mean, name, value) — mean is the reverse-DNS namespace
+        (e.g. "com.apple.iTunes"), name is the tag's display name (e.g.
+        "MusicBrainz Album Id"), value is its decoded text. Returns None if
+        the atom is missing its 'name' or 'data' child.
+        """
+        mean = name = value = None
+
+        for child_type, child_start, child_end in iter_atoms(data, start, end):
+            # 'mean'/'name'/'data' are all full boxes: 4-byte
+            # version+flags header precedes their actual content.
+            if child_end - child_start < 4:
+                continue
+            content = data[child_start + 4 : child_end]
+
+            if child_type == b"mean":
+                mean = content.decode("utf-8", errors="ignore")
+            elif child_type == b"name":
+                name = content.decode("utf-8", errors="ignore")
+            elif child_type == b"data":
+                if len(content) >= 4:
+                    # skip the 4-byte locale field that follows the
+                    # already-stripped type-indicator+flags header
+                    value = content[4:].decode("utf-8", errors="ignore").strip("\x00")
+
+        if name is None or value is None:
+            return None
+        return mean, name, value
 
     # ------------------------------------------------------------------ WAV
 
