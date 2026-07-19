@@ -110,14 +110,16 @@ class AlbumImporter:
             "release_day": metadata.get("album_release_day")
             or metadata.get("release_day"),
             "album_description": metadata.get("album_description"),
+            "album_subtitle": metadata.get("album_subtitle"),
             "catalog_number": metadata.get("album_catalog_number"),
-            "is_compilation": metadata.get("is_compilation"),
+            "is_compilation": metadata.get("album_is_compilation"),
+            "is_live": metadata.get("album_is_live"),
             "album_language": metadata.get("album_language"),
             "album_gain": metadata.get("album_gain"),
             "album_peak": metadata.get("album_peak"),
             "release_type": metadata.get("album_release_type"),
-            "status": metadata.get("status"),
-            "estimated_sales": metadata.get("estimated_sales"),
+            "status": metadata.get("album_status"),
+            "estimated_sales": metadata.get("album_estimated_sales"),
             "MBID": metadata.get("album_MBID"),
         }
 
