@@ -675,7 +675,15 @@ def flatten_text_metadata(
             elif entity == "Album":
                 # For album fields, use lists for multi-value capable fields
                 multi_value_album_fields = {"album_description"}  # Add others as needed
-                album_field_name = f"album_{field_name}"
+                # Some mapping "field" names already start with "album_"
+                # (e.g. album_language, album_gain) — don't double-prefix
+                # those, or downstream readers looking up the un-doubled
+                # key (e.g. metadata.get("album_language")) never find it.
+                album_field_name = (
+                    field_name
+                    if field_name.startswith("album_")
+                    else f"album_{field_name}"
+                )
                 if field_name in multi_value_album_fields:
                     if album_field_name not in flattened:
                         flattened[album_field_name] = []
