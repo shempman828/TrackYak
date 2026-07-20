@@ -101,6 +101,7 @@ class Config:
             "root_directory": str(Path.home() / "Music"),
             "scan_on_startup": "true",
             "auto_refresh": "false",
+            "excluded_genres": "",
         }
 
         # Playback section
@@ -323,6 +324,17 @@ class Config:
     def set_auto_refresh(self, refresh: bool):
         """Set auto refresh setting"""
         self._set_bool("library", "auto_refresh", refresh)
+
+    def get_excluded_genres(self) -> list:
+        """Get genre names that should never be created during import."""
+        raw = self._get_str("library", "excluded_genres", fallback="")
+        return [g.strip() for g in raw.split(",") if g.strip()]
+
+    def set_excluded_genres(self, genres: list):
+        """Set genre names that should never be created during import."""
+        self._set_str(
+            "library", "excluded_genres", ",".join(g.strip() for g in genres if g.strip())
+        )
 
     # Playback properties
     def get_volume(self):
