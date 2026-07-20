@@ -30,6 +30,11 @@ class _ArtCard(QWidget):
     # Cap how far a small/low-res image is blown up so it doesn't turn to mush.
     _MAX_UPSCALE = 1.5
 
+    # Album art within this much of a perfect 1:1 ratio is shown at its native
+    # aspect ratio instead of being cropped to a square (many covers are
+    # scanned/exported slightly off-square).
+    _SQUARE_TOLERANCE = 0.08
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._pixmap: Optional[QPixmap] = None
@@ -73,7 +78,28 @@ class _ArtCard(QWidget):
         painter.end()
 
     def _paint_square_art(self, painter: QPainter, w: int, h: int):
-        """Album art: crop to a square that fills the available space."""
+        """Album art: fill the available space. Nearly-square art is shown at
+        its native aspect ratio; anything further off-square is cropped to a
+        perfect square, as before."""
+        pw, ph = self._pixmap.width(), self._pixmap.height()
+
+        if pw > 0 and ph > 0 and abs((pw / ph) - 1.0) <= self._SQUARE_TOLERANCE:
+            fit_scale = min(w / pw, h / ph)
+            scale = min(fit_scale, self._MAX_UPSCALE)
+            art_w = max(1, round(pw * scale))
+            art_h = max(1, round(ph * scale))
+            x, y = (w - art_w) // 2, (h - art_h) // 2
+
+            path = QPainterPath()
+            path.addRoundedRect(x, y, art_w, art_h, self._RADIUS, self._RADIUS)
+            painter.setClipPath(path)
+
+            scaled = self._pixmap.scaled(
+                art_w, art_h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation
+            )
+            painter.drawPixmap(x, y, scaled)
+            return
+
         side = min(w, h)
         x, y = (w - side) // 2, (h - side) // 2
 
