@@ -12,6 +12,7 @@ import psutil
 from PySide6.QtCore import Signal
 
 from src.common.cancellable_worker import CancellableWorker
+from src.core.config_setup import app_config
 from src.metadata.metadata_extraction import MetadataExtractor
 from src.importing.artist_field_extraction import (
     ALBUM_ARTIST_FIELDS,
@@ -561,8 +562,16 @@ class TrackImporter:
 
         logger.debug(f"Processing {len(genres)} genres for track: {genres}")
 
+        excluded_genres = {g.lower() for g in app_config.get_excluded_genres()}
+
         for genre_name in genres:
             if not genre_name:
+                continue
+
+            if genre_name.lower() in excluded_genres:
+                logger.debug(
+                    f"Skipping excluded genre '{genre_name}' for track: {track.track_name}"
+                )
                 continue
 
             try:
