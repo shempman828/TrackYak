@@ -10,7 +10,9 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QListWidget,
     QMessageBox,
     QPushButton,
     QSlider,
@@ -131,7 +133,53 @@ class ConfigDialog(QDialog):
         )
         layout.addRow("", self.auto_refresh_check)
 
+        # ---- Excluded genres ----
+        excluded_label = QLabel("Genres to Never Import")
+        excluded_label.setProperty("title", True)
+        layout.addRow(excluded_label)
+
+        info_label = QLabel(
+            "Tracks tagged with any genre listed here will import normally, "
+            "but that genre will be skipped and never created or attached."
+        )
+        info_label.setWordWrap(True)
+        info_label.setProperty("textRole", "muted")
+        layout.addRow(info_label)
+
+        self.excluded_genres_list = QListWidget()
+        self.excluded_genres_list.setMaximumHeight(120)
+        layout.addRow(self.excluded_genres_list)
+
+        excluded_buttons_layout = QHBoxLayout()
+        self.add_excluded_genre_btn = QPushButton("Add...")
+        self.add_excluded_genre_btn.clicked.connect(self._add_excluded_genre)
+        self.remove_excluded_genre_btn = QPushButton("Remove")
+        self.remove_excluded_genre_btn.clicked.connect(self._remove_excluded_genre)
+        excluded_buttons_layout.addWidget(self.add_excluded_genre_btn)
+        excluded_buttons_layout.addWidget(self.remove_excluded_genre_btn)
+        excluded_buttons_layout.addStretch()
+        layout.addRow("", excluded_buttons_layout)
+
         return widget
+
+    def _add_excluded_genre(self):
+        """Prompt for a genre name and add it to the never-import list."""
+        name, ok = QInputDialog.getText(self, "Add Genre", "Genre name:")
+        name = name.strip()
+        if not ok or not name:
+            return
+        existing = [
+            self.excluded_genres_list.item(i).text().lower()
+            for i in range(self.excluded_genres_list.count())
+        ]
+        if name.lower() in existing:
+            return
+        self.excluded_genres_list.addItem(name)
+
+    def _remove_excluded_genre(self):
+        """Remove the selected genre(s) from the never-import list."""
+        for item in self.excluded_genres_list.selectedItems():
+            self.excluded_genres_list.takeItem(self.excluded_genres_list.row(item))
 
     def _create_playback_tab(self):
         widget = QWidget()
@@ -423,6 +471,9 @@ class ConfigDialog(QDialog):
             self.scan_startup_check.setChecked(self.config.get_scan_on_startup())
             self.auto_refresh_check.setChecked(self.config.get_auto_refresh())
 
+            self.excluded_genres_list.clear()
+            self.excluded_genres_list.addItems(self.config.get_excluded_genres())
+
             # Playback settings
             volume = self.config.get_volume()
             self.volume_slider.setValue(volume)
@@ -558,6 +609,13 @@ class ConfigDialog(QDialog):
 
             self.config.set_scan_on_startup(self.scan_startup_check.isChecked())
             self.config.set_auto_refresh(self.auto_refresh_check.isChecked())
+
+            self.config.set_excluded_genres(
+                [
+                    self.excluded_genres_list.item(i).text()
+                    for i in range(self.excluded_genres_list.count())
+                ]
+            )
 
             # Playback settings
             self.config.set_volume(self.volume_slider.value())
