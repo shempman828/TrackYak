@@ -117,6 +117,7 @@ class MusicPlayer(QObject):
         self._next_total_frames: int = 0
         self._preload_lock = threading.Lock()
         self._preload_thread: Optional[threading.Thread] = None
+        self._preload_generation: int = 0
 
         # ── Gain ──────────────────────────────────────────────────────────────
         self._gain_factor: float = 1.0
@@ -237,26 +238,39 @@ class MusicPlayer(QObject):
                     logger.error(
                         f"Reader thread decode error, attempting to resync: {exc}"
                     )
+                    # Re-seek to the SAME position and retry once before giving
+                    # up on it. Jumping straight to current_frame + BLOCKSIZE
+                    # (the fallback below) permanently drops that span of
+                    # audio — harmless mid-track, but on the very first read
+                    # of a track (current_frame == 0) it silently skips the
+                    # opening of the file, which is the "track doesn't start
+                    # at the beginning" bug. Most decode errors here are a
+                    # transient decoder hiccup that a fresh seek clears up.
                     try:
-                        skip_to = self._current_frame + BLOCKSIZE
-                        if known_length:
-                            skip_to = min(skip_to, self._total_frames)
-                        reader.seek(skip_to)
-                        self._current_frame = skip_to
-                    except Exception as seek_exc:
-                        logger.error(
-                            f"Reader thread could not resync after decode error, "
-                            f"ending track: {seek_exc}"
-                        )
-                        # Can't recover — push an empty chunk so the callback's
-                        # short-read check signals track-finished once the
-                        # buffer drains, instead of hanging silently forever.
-                        if known_length:
-                            self._current_frame = self._total_frames
-                        chunk = np.zeros((0, self.current_channels), dtype="float32")
-                        unrecoverable = True
-                    else:
-                        continue
+                        reader.seek(self._current_frame)
+                        chunk = reader.read(to_read, dtype="float32", always_2d=True)
+                        self._current_frame += len(chunk)
+                    except Exception:
+                        try:
+                            skip_to = self._current_frame + BLOCKSIZE
+                            if known_length:
+                                skip_to = min(skip_to, self._total_frames)
+                            reader.seek(skip_to)
+                            self._current_frame = skip_to
+                        except Exception as seek_exc:
+                            logger.error(
+                                f"Reader thread could not resync after decode error, "
+                                f"ending track: {seek_exc}"
+                            )
+                            # Can't recover — push an empty chunk so the callback's
+                            # short-read check signals track-finished once the
+                            # buffer drains, instead of hanging silently forever.
+                            if known_length:
+                                self._current_frame = self._total_frames
+                            chunk = np.zeros((0, self.current_channels), dtype="float32")
+                            unrecoverable = True
+                        else:
+                            continue
 
             with self._buffer_lock:
                 self._audio_buffer.append(chunk)
@@ -670,11 +684,13 @@ class MusicPlayer(QObject):
         Determine the next track in the queue and open its SoundFile in a
         background thread so it is ready before the current track ends.
         """
-        # Cancel any in-flight preload
-        if self._preload_thread is not None and self._preload_thread.is_alive():
-            # We can't cancel it, but we mark the result stale by clearing _next_file.
-            with self._preload_lock:
-                self._next_file = None
+        # Cancel any in-flight preload. We can't actually kill the thread, so we
+        # bump a generation counter — when the in-flight preload finishes, it
+        # checks its own generation against the current one before storing its
+        # result, so a superseded preload can no longer clobber a newer one.
+        with self._preload_lock:
+            self._preload_generation += 1
+            my_generation = self._preload_generation
 
         q = self.queue_manager.queue
         next_index = 1  # index 0 = current, index 1 = next
@@ -693,8 +709,12 @@ class MusicPlayer(QObject):
             try:
                 reader = self.sf.SoundFile(str(next_path), mode="r")
                 with self._preload_lock:
-                    # Only store result if nobody cleared next_file in the meantime
-                    # (which would mean a different track became next)
+                    if my_generation != self._preload_generation:
+                        # A different track became "next" while we were
+                        # opening this one — discard it instead of storing
+                        # a result for a track we're no longer heading to.
+                        reader.close()
+                        return
                     self._next_sf_reader = reader
                     self._next_file = next_path
                     self._next_sample_rate = reader.samplerate
