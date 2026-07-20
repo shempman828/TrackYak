@@ -531,16 +531,16 @@ class NowPlayingView(QWidget):
         # Current + next lyric are grouped so they stay close together;
         # a stretch inside the group (not the karaoke label itself) absorbs
         # the leftover vertical space instead of ballooning the gap between them.
-        karaoke_block = QWidget()
-        karaoke_block.setProperty("bgTransparent", True)
-        kb = QVBoxLayout(karaoke_block)
+        self._karaoke_block = QWidget()
+        self._karaoke_block.setProperty("bgTransparent", True)
+        kb = QVBoxLayout(self._karaoke_block)
         kb.setContentsMargins(0, 0, 0, 0)
         kb.setSpacing(6)
         kb.addWidget(self._karaoke_lbl)
         kb.addWidget(self._next_lyric_lbl)
         kb.addStretch(1)
 
-        lp.addWidget(karaoke_block, stretch=1)
+        lp.addWidget(self._karaoke_block, stretch=1)
         lp.addWidget(self._plain_area, stretch=1)
         lp.addWidget(self._no_lyrics_lbl, stretch=1)
         lp.addWidget(self._countdown_lbl)  # fixed height — sits below lyric
@@ -619,6 +619,7 @@ class NowPlayingView(QWidget):
             text = "\n".join(t for _, t in self._lyrics_lines)
             self._karaoke_lbl.setVisible(False)
             self._next_lyric_lbl.setVisible(False)
+            self._karaoke_block.setVisible(False)
             self._countdown_lbl.setVisible(False)
             self._countdown_timer.stop()
             self._plain_lbl.setText(text)
@@ -628,6 +629,7 @@ class NowPlayingView(QWidget):
             self._toggle_mode_btn.setText("SHOW ALL")
             self._set_active(self._toggle_mode_btn, False)
             self._plain_area.setVisible(False)
+            self._karaoke_block.setVisible(True)
             self._karaoke_lbl.setVisible(True)
             # Re-trigger display at current position
             self._last_position_ms = -1
@@ -738,6 +740,7 @@ class NowPlayingView(QWidget):
         self._karaoke_lbl.setVisible(False)
         self._karaoke_lbl.clear_line()
         self._next_lyric_lbl.setVisible(False)
+        self._karaoke_block.setVisible(False)
         self._plain_area.setVisible(False)
         self._plain_lbl.setText("")
         self._no_lyrics_lbl.setVisible(False)
@@ -751,6 +754,7 @@ class NowPlayingView(QWidget):
         self._no_lyrics_lbl.setVisible(False)
         self._countdown_lbl.setVisible(False)
         self._next_lyric_lbl.setVisible(False)
+        self._karaoke_block.setVisible(True)
         self._karaoke_lbl.setVisible(True)
         # Restore saved slider value (already set in __init__, keep it)
         # Slider row stays hidden until user clicks the ⏱ toggle
@@ -763,6 +767,7 @@ class NowPlayingView(QWidget):
     def _set_lyrics_mode_plain(self, text: str):
         self._karaoke_lbl.setVisible(False)
         self._karaoke_lbl.clear_line()
+        self._karaoke_block.setVisible(False)
         self._no_lyrics_lbl.setVisible(False)
         self._countdown_lbl.setVisible(False)
         self._offset_row.setVisible(False)
