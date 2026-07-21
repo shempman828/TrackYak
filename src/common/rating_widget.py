@@ -1,6 +1,6 @@
 import math
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -22,11 +22,6 @@ class RatingStarsWidget(QWidget):
         self.is_hovering = False
         self.is_dragging = False
 
-        self.debounce_timer = QTimer(self)
-        self.debounce_timer.setSingleShot(True)
-        self.debounce_timer.timeout.connect(self._commit_rating_change)
-
-        self.pending_rating = None
         self.current_file = None
 
     def set_current_file(self, file_path):
@@ -59,9 +54,6 @@ class RatingStarsWidget(QWidget):
         """Finalize rating on mouse release."""
         if event.button() == Qt.LeftButton:
             self.is_dragging = False
-            if self.debounce_timer.isActive():
-                self.debounce_timer.stop()
-                self._commit_rating_change()
 
     def leaveEvent(self, event):
         """Reset hover when cursor leaves widget."""
@@ -70,17 +62,10 @@ class RatingStarsWidget(QWidget):
         self.update()
 
     def _update_rating(self, rating: float):
-        """Set rating and start debounce timer."""
+        """Set rating and notify listeners immediately."""
         self.rating = rating
-        self.pending_rating = rating
-        self.debounce_timer.start(500)
+        self.rating_changed.emit(rating)
         self.update()
-
-    def _commit_rating_change(self):
-        """Emit pending rating."""
-        if self.pending_rating is not None:
-            self.rating_changed.emit(self.pending_rating)
-            self.pending_rating = None
 
     def _star_geometry(self):
         """
@@ -151,18 +136,22 @@ class RatingStarsWidget(QWidget):
             logger.error(f"Error drawing star: {e}")
 
     def _calculate_rating_from_pos(self, pos) -> float:
-        """Return rating based on mouse position, 0.5 steps."""
+        """
+        Return rating based on mouse position, snapped to 0.5 steps.
+
+        Snaps to the nearest half-star across the full star+spacing cell
+        rather than only within the star's own width, so the half/full
+        split is centered on each star instead of favoring "full".
+        """
         try:
             star_size, spacing, start_x, _ = self._star_geometry()
+            cell = star_size + spacing
             rel_x = pos.x() - start_x
 
             if rel_x < 0:
                 return 0.0
-            star_index = int(rel_x / (star_size + spacing))
-            if star_index >= 10:
-                return 10.0
-            pos_in_star = (rel_x - star_index * (star_size + spacing)) / star_size
-            return star_index + 0.5 if pos_in_star < 0.5 else star_index + 1.0
+            rating = round((rel_x / cell) * 2) / 2.0
+            return max(0.0, min(10.0, rating))
         except Exception as e:
             logger.error(f"Error calculating rating from position: {e}")
             return 0.0
