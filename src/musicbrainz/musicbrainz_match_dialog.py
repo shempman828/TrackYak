@@ -1,0 +1,175 @@
+"""
+musicbrainz_match_dialog.py
+
+Generic "here are N possible MusicBrainz matches, pick one or skip" picker.
+Simpler single-column cousin of the pairwise merge-candidate dialogs in
+artist_fuzzy_match.py / publisher_fuzzy_match.py: one row per candidate,
+no radio-pair/merge semantics, just OK or Skip.
+
+Runs the search (and, for entities that need it, a short follow-up lookup
+after the user picks a candidate) on a MusicBrainzWorker so the UI never
+blocks on the network call.
+"""
+
+from __future__ import annotations
+
+from typing import Callable, Dict, List, Optional
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QProgressBar,
+    QVBoxLayout,
+)
+
+from src.core.logger_config import logger
+from src.musicbrainz.musicbrainz_client import MBCandidate
+from src.musicbrainz.musicbrainz_worker import MusicBrainzWorker
+
+
+class MusicBrainzMatchDialog(QDialog):
+    """
+    Args:
+        entity_label: short description shown in the status text, e.g.
+            "artist 'Radiohead'".
+        search_call: zero-arg callable returning List[MBCandidate].
+        complete_call: optional callable(MBCandidate) -> MBCandidate, run
+            once after the user picks a row, for enrichment fields the
+            search endpoint doesn't return (e.g. artist links, track ISRC).
+
+    After exec(), call `result_enrichment()` — returns the chosen
+    candidate's enrichment dict, or None if the user skipped/cancelled.
+    """
+
+    def __init__(
+        self,
+        entity_label: str,
+        search_call: Callable[[], List[MBCandidate]],
+        complete_call: Optional[Callable[[MBCandidate], MBCandidate]] = None,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self._entity_label = entity_label
+        self._search_call = search_call
+        self._complete_call = complete_call
+        self._candidates: List[MBCandidate] = []
+        self._result_enrichment: Optional[Dict] = None
+        self._worker: Optional[MusicBrainzWorker] = None
+
+        self.setWindowTitle("MusicBrainz Lookup")
+        self.setMinimumSize(520, 420)
+        self._build_ui()
+        self._start_search()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+
+        self.status_label = QLabel(f"Searching MusicBrainz for {self._entity_label}...")
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)  # indeterminate
+        layout.addWidget(self.progress_bar)
+
+        self.list_widget = QListWidget()
+        self.list_widget.itemSelectionChanged.connect(self._on_selection_changed)
+        self.list_widget.itemDoubleClicked.connect(lambda _item: self._on_accept())
+        layout.addWidget(self.list_widget, stretch=1)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttons.button(QDialogButtonBox.Ok).setText("Use Selected Match")
+        self.buttons.button(QDialogButtonBox.Cancel).setText("Skip")
+        self.buttons.button(QDialogButtonBox.Ok).setEnabled(False)
+        self.buttons.accepted.connect(self._on_accept)
+        self.buttons.rejected.connect(self.reject)
+        button_row.addWidget(self.buttons)
+        layout.addLayout(button_row)
+
+    # ------------------------------------------------------------------
+    # Search step
+    # ------------------------------------------------------------------
+
+    def _start_search(self):
+        self._worker = MusicBrainzWorker(self._search_call, self)
+        self._worker.finished.connect(self._on_search_finished)
+        self._worker.error.connect(self._on_error)
+        self._worker.start()
+
+    def _on_search_finished(self, candidates: List[MBCandidate]):
+        self._candidates = candidates
+        self.progress_bar.hide()
+        self.list_widget.clear()
+
+        if not candidates:
+            self.status_label.setText(
+                f"No MusicBrainz matches found for {self._entity_label}."
+            )
+            return
+
+        self.status_label.setText(
+            f"Found {len(candidates)} possible match(es) for {self._entity_label}:"
+        )
+        for candidate in candidates:
+            item = QListWidgetItem(candidate.label)
+            item.setData(Qt.UserRole, candidate)
+            self.list_widget.addItem(item)
+        self.list_widget.setCurrentRow(0)
+
+    def _on_error(self, message: str):
+        self.progress_bar.hide()
+        self.status_label.setText(f"MusicBrainz lookup failed: {message}")
+        logger.error(f"MusicBrainz lookup failed: {message}")
+
+    def _on_selection_changed(self):
+        has_selection = bool(self.list_widget.selectedItems())
+        self.buttons.button(QDialogButtonBox.Ok).setEnabled(has_selection)
+
+    # ------------------------------------------------------------------
+    # Accept step (optional follow-up enrichment call)
+    # ------------------------------------------------------------------
+
+    def _on_accept(self):
+        items = self.list_widget.selectedItems()
+        if not items:
+            return
+        candidate: MBCandidate = items[0].data(Qt.UserRole)
+
+        if self._complete_call is None:
+            self._result_enrichment = candidate.enrichment
+            self.accept()
+            return
+
+        self.buttons.setEnabled(False)
+        self.list_widget.setEnabled(False)
+        self.status_label.setText("Fetching additional details...")
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.show()
+
+        self._worker = MusicBrainzWorker(lambda: self._complete_call(candidate), self)
+        self._worker.finished.connect(self._on_complete_finished)
+        self._worker.error.connect(self._on_complete_error)
+        self._worker.start()
+
+    def _on_complete_finished(self, candidate: MBCandidate):
+        self._result_enrichment = candidate.enrichment
+        self.accept()
+
+    def _on_complete_error(self, message: str):
+        # Follow-up enrichment is best-effort -- fall back to whatever the
+        # search step already found rather than blocking the whole match.
+        logger.warning(f"MusicBrainz enrichment follow-up failed: {message}")
+        items = self.list_widget.selectedItems()
+        if items:
+            self._result_enrichment = items[0].data(Qt.UserRole).enrichment
+        self.accept()
+
+    def result_enrichment(self) -> Optional[Dict]:
+        return self._result_enrichment

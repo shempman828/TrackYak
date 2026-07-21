@@ -21,6 +21,7 @@ from src.player.music_controller import MusicController
 from src.player.player_mpris2 import MPRIS2Player
 from src.core.splash_screen import StartupSplash
 from src.core.startup_dialog import StartupDialog
+from src.musicbrainz.musicbrainz_client import configure as configure_musicbrainz
 
 try:
     from src.core.main_window import GUI
@@ -106,6 +107,9 @@ def initialize_application(splash, app, config: Config):
     """
     # Show a random fun message first
     show_status(splash, random.choice(_FUN_MESSAGES), delay=0.5)
+
+    # MusicBrainz client needs a User-Agent set before any lookup call
+    configure_musicbrainz()
 
     # Database initialization
     show_status(splash, "Initializing database...")

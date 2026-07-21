@@ -1,0 +1,46 @@
+"""
+musicbrainz_worker.py
+
+Runs a single MusicBrainz client call (search or a follow-up "complete"
+lookup) off the UI thread, matching the CancellableWorker pattern already
+used for artist fuzzy-matching, art caching, etc.
+"""
+
+from typing import Any, Callable
+
+from PySide6.QtCore import Signal
+
+from src.common.cancellable_worker import CancellableWorker
+from src.core.logger_config import logger
+
+
+class MusicBrainzWorker(CancellableWorker):
+    """
+    Generic background runner for one MusicBrainz client call.
+
+    Wraps a zero-arg callable (a search_* or complete_*_enrichment function
+    pre-bound with its arguments via functools.partial or a lambda) so the
+    same worker class serves every entity type and both the search step and
+    the post-selection enrichment step.
+
+    Signals:
+        finished(result) - whatever the callable returned
+        error(message)
+    """
+
+    finished = Signal(object)
+    error = Signal(str)
+
+    def __init__(self, call: Callable[[], Any], parent=None):
+        super().__init__(parent)
+        self._call = call
+
+    def run(self):
+        try:
+            result = self._call()
+        except Exception as e:
+            logger.error(f"MusicBrainzWorker call failed: {e}", exc_info=True)
+            self.error.emit(str(e))
+            return
+        if not self.is_cancelled:
+            self.finished.emit(result)
