@@ -21,6 +21,7 @@ class HtmlDelegate(QStyledItemDelegate):
             body { color: #0b0c10; }
             .place-name { color: #0b0c10; }
             .place-type { color: #0b0c10; }
+            .place-type-missing { color: #b00020; font-weight: bold; }
             .assoc-count { color: #0b0c10; }
             .no-assoc { color: #0b0c10; }
             """
@@ -29,6 +30,7 @@ class HtmlDelegate(QStyledItemDelegate):
             body { color: #b8c0f0; }
             .place-name { color: #8599ea; }
             .place-type { color: #ea8599; }
+            .place-type-missing { color: #ff5252; font-weight: bold; }
             .assoc-count { color: #99ea85; }
             .no-assoc { color: #777777; }
             """
