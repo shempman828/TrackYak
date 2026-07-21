@@ -37,6 +37,7 @@ from src.core.asset_paths import asset
 from src.core.censor import censor_text
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
+from src.album.album_art_worker import ArtCacheWorker
 from src.image.artwork_cache import get_artwork_cache
 from src.nowplaying.nowplaying_art import _ArtCard
 from src.nowplaying.nowplaying_backdrop import _BlurredBackdrop
@@ -311,6 +312,11 @@ class NowPlayingView(QWidget):
         self._art_slide_timer = QTimer(self)
         self._art_slide_timer.setInterval(6_000)  # 6 s per image
         self._art_slide_timer.timeout.connect(self._advance_art_slide)
+
+        # Background art-cache warming (avoids blocking the UI thread on a
+        # cold cache / audio-file decode - see _load_art_from_track)
+        self._art_worker: Optional[ArtCacheWorker] = None
+        self._art_generation = 0
 
         self._initUI()
         self._setup_cinema_shortcut()
@@ -690,6 +696,7 @@ class NowPlayingView(QWidget):
             self.clearUI()
 
     def clearUI(self):
+        self._cancel_art_worker()
         self.track = None
         self._title_lbl.setText("No Track Playing")
         self._artist_marquee.set_text("—")
@@ -989,6 +996,10 @@ class NowPlayingView(QWidget):
 
     def _load_art_from_track(self, track):
         """Build slideshow from all available art images for this track."""
+        self._cancel_art_worker()
+        self._art_generation += 1
+        gen = self._art_generation
+
         album = getattr(track, "album", None)
         is_explicit = bool(getattr(album, "art_is_explicit", False)) if album else False
         cache = get_artwork_cache()
@@ -997,10 +1008,20 @@ class NowPlayingView(QWidget):
         # forcing a square crop, since they aren't necessarily square.
         pixmaps: List[Tuple[QPixmap, bool]] = []
         if album and cache:
-            for role in ("front", "rear", "liner"):
-                px = cache.get_pixmap(album, role, is_explicit)
-                if not px.isNull():
-                    pixmaps.append((px, False))
+            # peek_has_art never reads/decodes the audio file. If the cache
+            # row is confirmed valid, front/rear/liner are all safe to fetch
+            # synchronously (get_pixmap warms all three roles in one pass,
+            # so a hit on "front" means the others are cache hits too). If
+            # it's unknown (cold cache/stale mtime), resolve it on a
+            # background thread instead of blocking the UI on a file decode.
+            known = cache.peek_has_art(album, "front")
+            if known is None:
+                self._start_art_worker(album, gen, track)
+            else:
+                for role in ("front", "rear", "liner"):
+                    px = cache.get_pixmap(album, role, is_explicit)
+                    if not px.isNull():
+                        pixmaps.append((px, False))
 
         # Also try artist-level image
         for artist in getattr(track, "artists", None) or []:
@@ -1018,6 +1039,28 @@ class NowPlayingView(QWidget):
                     pixmaps.append((px, False))
 
         self._start_art_slideshow(pixmaps)
+
+    def _cancel_art_worker(self):
+        if self._art_worker is not None:
+            self._art_worker.request_cancel()
+            self._art_worker.wait()
+            self._art_worker = None
+
+    def _start_art_worker(self, album, gen: int, track):
+        cache = get_artwork_cache()
+        self._art_worker = ArtCacheWorker([album], cache, "front")
+        self._art_worker.resolved.connect(
+            lambda _album_id, g=gen, t=track: self._on_art_resolved(g, t)
+        )
+        self._art_worker.start()
+
+    def _on_art_resolved(self, gen: int, track):
+        """Cache row for `track`'s album is now warm - re-run the (now
+        synchronous/cheap) art lookup, but only if nothing has superseded
+        this request in the meantime."""
+        if gen != self._art_generation or track is not self.track:
+            return
+        self._load_art_from_track(track)
 
     def _start_art_slideshow(self, pixmaps: List[Tuple[QPixmap, bool]]):
         """Begin cycling through the given list of (pixmap, is_artist) pairs."""
