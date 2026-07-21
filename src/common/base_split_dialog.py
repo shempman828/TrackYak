@@ -1,3 +1,5 @@
+import re
+
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -15,6 +17,15 @@ from sqlalchemy.orm import object_mapper
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.db.db_helpers import SplitDB
+
+# Common separators used when multiple artists/entities are combined into a
+# single name, e.g. "Simon & Garfunkel", "Paul Simon / Art Garfunkel",
+# "Artist1, Artist2", "Artist1 feat. Artist2".
+_SPLIT_DELIMITER_PATTERN = re.compile(
+    r"\s*(?:,|;|/|&|\bfeat\.?(?=\s|$)|\bfeaturing\b|\bft\.?(?=\s|$)|"
+    r"\bvs\.?(?=\s|$)|\band\b|\bx\b)\s*",
+    re.IGNORECASE,
+)
 
 
 class SplitDBDialog(QDialog):
@@ -59,9 +70,17 @@ class SplitDBDialog(QDialog):
         self.split_list = QListWidget()
         layout.addWidget(self.split_list)
 
-        # Add first two empty rows by default
-        for _ in range(2):
-            self._add_split_row("")
+        # Prefill rows with suggested split names based on common delimiters
+        # found in the original name (comma, semicolon, slash, ampersand,
+        # "feat."/"ft."/"featuring", "vs.", "and", "x"). Fall back to two
+        # empty rows if no delimiter-based split was found.
+        suggestions = self._suggest_split_names(original_name)
+        if len(suggestions) >= 2:
+            for name in suggestions:
+                self._add_split_row(name)
+        else:
+            for _ in range(2):
+                self._add_split_row("")
 
         # Add/Remove buttons
         btn_row = QHBoxLayout()
@@ -156,6 +175,24 @@ class SplitDBDialog(QDialog):
             if hasattr(obj, name_attr):
                 return name_attr
         return None
+
+    def _suggest_split_names(self, original_name: str) -> list:
+        """Suggest split names by breaking the original name on common
+        multi-entity delimiters (comma, semicolon, slash, ampersand,
+        feat./ft./featuring, vs., and, x)."""
+        if not original_name:
+            return []
+
+        parts = _SPLIT_DELIMITER_PATTERN.split(original_name)
+
+        seen = set()
+        suggestions = []
+        for part in parts:
+            name = part.strip()
+            if name and name.lower() not in seen:
+                seen.add(name.lower())
+                suggestions.append(name)
+        return suggestions
 
     def _add_split_row(self, default_text=""):
         """Add a new editable line for a split name."""
