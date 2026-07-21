@@ -3,7 +3,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QCursor, QPixmap
+from PySide6.QtGui import QCursor, QFontMetrics, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -13,9 +13,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QScrollArea,
     QSizePolicy,
-    QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -26,6 +26,14 @@ from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 
 _CHIP_ART_SIZE = 48
+_CHIP_WIDTH = 260
+_CHIP_MARGINS = (6, 6, 8, 6)  # left, top, right, bottom
+_CHIP_SPACING = 8
+# Text column gets whatever width is left after the margins, the art thumb,
+# and the spacing between them — used to elide long titles to one line.
+_CHIP_TEXT_WIDTH = (
+    _CHIP_WIDTH - _CHIP_MARGINS[0] - _CHIP_MARGINS[2] - _CHIP_SPACING - _CHIP_ART_SIZE
+)
 
 
 def _make_table(headers, editable=False):
@@ -58,13 +66,12 @@ def _append_row(table, values):
 class DiscographyTab(QWidget):
     """Read-only summary of album and track credits with role filtering.
 
-    Albums are shown as a compact flow of chips (name / year / album artist)
-    with the full role list on hover, since a table row-per-role was noisy
-    and album counts are usually small. Clicking a chip drills the track
-    table down to that album; clicking it again (or the "show all" link)
-    clears the drill-down. Track credits stay in a table since there are
-    typically many more of them, and the panel gets the larger share of
-    the splitter.
+    Albums and tracks live in separate subtabs. Albums are shown as a
+    compact flow of chips (name / year / album artist) with the full role
+    list on hover, since a table row-per-role was noisy and album counts
+    are usually small. Clicking a chip drills the track table down to that
+    album and switches to the Tracks subtab to show the result; clicking
+    it again (or the "show all" link) clears the drill-down.
     """
 
     def __init__(self, controller, artist, parent=None):
@@ -83,13 +90,12 @@ class DiscographyTab(QWidget):
         root.setContentsMargins(6, 6, 6, 6)
         root.setSpacing(4)
 
-        splitter = QSplitter(Qt.Vertical)
-        splitter.setChildrenCollapsible(False)
+        self._sub_tabs = QTabWidget()
 
-        # ── Albums panel ──────────────────────────────────────────────────
+        # ── Albums subtab ────────────────────────────────────────────────
         albums_widget = QWidget()
         al_layout = QVBoxLayout(albums_widget)
-        al_layout.setContentsMargins(0, 0, 0, 0)
+        al_layout.setContentsMargins(4, 4, 4, 4)
         al_layout.setSpacing(2)
 
         al_header = QHBoxLayout()
@@ -105,12 +111,12 @@ class DiscographyTab(QWidget):
         self._album_flow = _AlbumFlowArea()
         self._album_flow.album_clicked.connect(self._on_album_clicked)
         al_layout.addWidget(self._album_flow)
-        splitter.addWidget(albums_widget)
+        self._sub_tabs.addTab(albums_widget, "Albums")
 
-        # ── Tracks panel ──────────────────────────────────────────────────
+        # ── Tracks subtab ────────────────────────────────────────────────
         tracks_widget = QWidget()
         tr_layout = QVBoxLayout(tracks_widget)
-        tr_layout.setContentsMargins(0, 0, 0, 0)
+        tr_layout.setContentsMargins(4, 4, 4, 4)
         tr_layout.setSpacing(2)
 
         tr_header = QHBoxLayout()
@@ -130,15 +136,9 @@ class DiscographyTab(QWidget):
             ["Track", "Role", "Album", "Album Artist", "Year"]
         )
         tr_layout.addWidget(self.tracks_table)
-        splitter.addWidget(tracks_widget)
+        self._sub_tabs.addTab(tracks_widget, "Tracks")
 
-        # Tracks generally outnumber albums considerably; give that panel
-        # the larger share of space instead of a flat 50/50 split.
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 2)
-        splitter.setSizes([180, 420])
-
-        root.addWidget(splitter)
+        root.addWidget(self._sub_tabs)
 
     # ------------------------------------------------------------------ Load
 
@@ -224,6 +224,8 @@ class DiscographyTab(QWidget):
         )
         self._album_flow.set_selected(self._selected_album_id)
         self._apply_filters()
+        if self._selected_album_id is not None:
+            self._sub_tabs.setCurrentIndex(1)  # jump to Tracks to show the drill-down
 
     def _clear_album_selection(self, *_):
         self._selected_album_id = None
@@ -352,12 +354,15 @@ class _AlbumChip(QFrame):
         self.setObjectName("albumChip")
         self.setCursor(QCursor(Qt.PointingHandCursor))
         self.setFrameShape(QFrame.StyledPanel)
-        self.setMaximumWidth(260)
-        self.setToolTip(", ".join(sorted(self.roles)))
+        # Fixed (not just maximum) width keeps every chip the same size in
+        # the flow layout \u2014 letting width vary with content, combined with
+        # word-wrapped labels, made rows wrap unevenly and clipped tall
+        # chips whose sizeHint() didn't account for the wrap.
+        self.setFixedWidth(_CHIP_WIDTH)
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(6, 6, 8, 6)
-        lay.setSpacing(8)
+        lay.setContentsMargins(*_CHIP_MARGINS)
+        lay.setSpacing(_CHIP_SPACING)
 
         self._art_label = QLabel()
         self._art_label.setObjectName("albumChipArt")
@@ -370,20 +375,38 @@ class _AlbumChip(QFrame):
         text_col = QVBoxLayout()
         text_col.setSpacing(1)
 
-        title = QLabel(name or "Untitled")
+        title_text = name or "Untitled"
+        title = QLabel()
         title.setObjectName("albumChipTitle")
-        title.setWordWrap(True)
+        title.setWordWrap(False)
+        title.setText(
+            QFontMetrics(title.font()).elidedText(
+                title_text, Qt.ElideRight, _CHIP_TEXT_WIDTH
+            )
+        )
         text_col.addWidget(title)
 
         sub_bits = [str(year)] if year else []
         if album_artist:
             sub_bits.append(album_artist)
-        sub = QLabel(" \u00b7 ".join(sub_bits))
+        sub_text = " \u00b7 ".join(sub_bits)
+        sub = QLabel()
         sub.setObjectName("albumChipSub")
-        sub.setWordWrap(True)
+        sub.setWordWrap(False)
+        sub.setText(
+            QFontMetrics(sub.font()).elidedText(
+                sub_text, Qt.ElideRight, _CHIP_TEXT_WIDTH
+            )
+        )
         text_col.addWidget(sub)
 
         lay.addLayout(text_col)
+
+        tooltip_lines = [title_text]
+        if sub_text:
+            tooltip_lines.append(sub_text)
+        tooltip_lines.append(", ".join(sorted(self.roles)))
+        self.setToolTip("\n".join(tooltip_lines))
 
     def _load_art(self, album):
         """Load cover art through the shared artwork cache, same as every
