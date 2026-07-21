@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QIcon, QPainter
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -115,12 +115,16 @@ class MiniPlayerWindow(QWidget):
         self.track_label.setAlignment(Qt.AlignCenter)
         self.track_label.setWordWrap(True)
 
-        # Empty spacer
+        # Placeholder matching close_button's size so the two stretches
+        # compress symmetrically and track_label ends up centered.
+        placeholder = QWidget()
+        placeholder.setFixedSize(24, 24)
+
         top_row.addWidget(self.close_button)
         top_row.addStretch()
         top_row.addWidget(self.track_label, 1)
         top_row.addStretch()
-        top_row.addWidget(QLabel())  # Placeholder for symmetry
+        top_row.addWidget(placeholder)
 
         # Middle row: Position slider
         self.position_slider = QSlider(Qt.Horizontal)
@@ -369,19 +373,6 @@ class MiniPlayerWindow(QWidget):
         # Ensure it stays on top
         self.raise_()
         self.activateWindow()
-
-    def paintEvent(self, event):
-        """Paint the window with rounded corners and drop shadow."""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        # Draw drop shadow (simple implementation)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 50))
-        painter.drawRoundedRect(self.rect().adjusted(2, 2, -2, -2), 12, 12)
-
-        # The actual content is drawn by child widgets
-        super().paintEvent(event)
 
     def cleanup(self):
         """Clean up resources before closing."""
