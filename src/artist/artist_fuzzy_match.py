@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QRadioButton,
     QScrollArea,
@@ -122,6 +123,67 @@ class ArtistFuzzyMatchWorker(CancellableWorker):
         return matches
 
 
+# ---------------------------------------------------------------------------
+# Background merge worker
+# ---------------------------------------------------------------------------
+
+
+class _ArtistMergeWorker(CancellableWorker):
+    """Runs the checked merges off the UI thread so a large batch doesn't
+    freeze the dialog (or starve other threads, e.g. audio playback) and
+    reports progress as each pair completes."""
+
+    progress = Signal(int, int)  # current, total
+    finished = Signal(int, int)  # success_count, total
+
+    def __init__(self, controller, jobs: list, parent=None):
+        super().__init__(parent)
+        self.controller = controller
+        # jobs: list of (old_artist, new_artist)
+        self.jobs = jobs
+
+    def run(self) -> None:
+        total = len(self.jobs)
+        success_count = 0
+
+        for idx, (old_artist, new_artist) in enumerate(self.jobs):
+            try:
+                logger.info(
+                    f"Merging {old_artist.artist_name} (ID: {old_artist.artist_id}) "
+                    f"into {new_artist.artist_name} (ID: {new_artist.artist_id})"
+                )
+                merged = self.controller.merge.merge_entities(
+                    "Artist",
+                    old_artist.artist_id,
+                    new_artist.artist_id,
+                )
+                if not merged:
+                    logger.error(
+                        f"Failed to merge {old_artist.artist_name} → "
+                        f"{new_artist.artist_name}: merge_entities returned False"
+                    )
+                    self.progress.emit(idx + 1, total)
+                    continue
+
+                logger.info(
+                    f"adding alias for {old_artist.artist_name} to {new_artist.artist_name}"
+                )
+                self.controller.add.add_entity(
+                    "ArtistAlias",
+                    artist_id=new_artist.artist_id,
+                    alias_name=old_artist.artist_name,
+                )
+                success_count += 1
+            except Exception as e:
+                logger.error(
+                    f"Failed to merge {old_artist.artist_name} → {new_artist.artist_name}: {e}"
+                )
+
+            self.progress.emit(idx + 1, total)
+
+        self.finished.emit(success_count, total)
+
+
 # Fuzzy Match Dialog
 # -------------------------
 class FuzzyMatchDialog(QDialog):
@@ -185,20 +247,32 @@ class FuzzyMatchDialog(QDialog):
 
         # Action buttons
         btn_box = QHBoxLayout()
-        btn_merge = QPushButton("Merge Checked Pairs")
-        btn_merge.clicked.connect(self._perform_merge)
-        btn_box.addWidget(btn_merge)
+        self.btn_merge = QPushButton("Merge Checked Pairs")
+        self.btn_merge.clicked.connect(self._perform_merge)
+        btn_box.addWidget(self.btn_merge)
 
-        btn_cancel = QPushButton("Cancel")
-        btn_cancel.clicked.connect(self.reject)
-        btn_box.addWidget(btn_cancel)
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self.reject)
+        btn_box.addWidget(self.btn_cancel)
 
         layout.addLayout(btn_box)
 
+        # Progress bar (hidden until a merge is running)
+        self._progress = QProgressBar()
+        self._progress.hide()
+        layout.addWidget(self._progress)
+
+        self._status_label = QLabel()
+        self._status_label.hide()
+        layout.addWidget(self._status_label)
+
+        self._worker: _ArtistMergeWorker | None = None
+
     def _perform_merge(self) -> None:
-        """Only merge checked pairs with user-selected canonical artist."""
-        success_count = 0
-        for idx, (chk_merge, radio_a, radio_b) in enumerate(self.match_widgets):
+        """Kick off a background merge of the checked pairs with the
+        user-selected canonical artist, showing progress as it runs."""
+        jobs = []
+        for chk_merge, radio_a, radio_b in self.match_widgets:
             if not chk_merge.isChecked():
                 continue  # Skip unchecked pairs
 
@@ -210,40 +284,44 @@ class FuzzyMatchDialog(QDialog):
                 old_artist = radio_a.artist
                 new_artist = radio_b.artist
 
-            try:
-                logger.info(
-                    f"Merging {old_artist.artist_name} (ID: {old_artist.artist_id}) into {new_artist.artist_name} (ID: {new_artist.artist_id})"
-                )
-                merged = self.controller.merge.merge_entities(
-                    "Artist",
-                    old_artist.artist_id,
-                    new_artist.artist_id,
-                )
-                if not merged:
-                    logger.error(
-                        f"Failed to merge {old_artist.artist_name} → "
-                        f"{new_artist.artist_name}: merge_entities returned False"
-                    )
-                    continue
-                logger.info(
-                    f"adding alias for {old_artist.artist_name} to {new_artist.artist_name}"
-                )
-                self.controller.add.add_entity(
-                    "ArtistAlias",
-                    artist_id=new_artist.artist_id,
-                    alias_name=old_artist.artist_name,
-                )
-                success_count += 1
-            except Exception as e:
-                logger.error(
-                    f"Failed to merge {old_artist.artist_name} → {new_artist.artist_name}: {e}"
-                )
+            jobs.append((old_artist, new_artist))
+
+        if not jobs:
+            QMessageBox.warning(
+                self,
+                "No Merges",
+                "No pairs were merged (none checked or errors occurred)",
+            )
+            return
+
+        self.btn_merge.setEnabled(False)
+        self.btn_cancel.setEnabled(False)
+        self._progress.setRange(0, len(jobs))
+        self._progress.setValue(0)
+        self._progress.show()
+        self._status_label.setText(f"Merging 0/{len(jobs)}…")
+        self._status_label.show()
+
+        self._worker = _ArtistMergeWorker(self.controller, jobs, parent=self)
+        self._worker.progress.connect(self._on_merge_progress)
+        self._worker.finished.connect(self._on_merge_finished)
+        self._worker.start()
+
+    def _on_merge_progress(self, current: int, total: int) -> None:
+        self._progress.setValue(current)
+        self._status_label.setText(f"Merging {current}/{total}…")
+
+    def _on_merge_finished(self, success_count: int, total: int) -> None:
+        self._progress.hide()
+        self._status_label.hide()
+        self.btn_merge.setEnabled(True)
+        self.btn_cancel.setEnabled(True)
 
         if success_count > 0:
             QMessageBox.information(
                 self,
                 "Merge Complete",
-                f"Successfully merged {success_count}/{len(self.match_widgets)} pairs",
+                f"Successfully merged {success_count}/{total} pairs",
             )
             self.accept()
         else:
@@ -252,3 +330,10 @@ class FuzzyMatchDialog(QDialog):
                 "No Merges",
                 "No pairs were merged (none checked or errors occurred)",
             )
+
+    def reject(self) -> None:
+        # Cancel button is disabled while a merge is running, but guard
+        # against Escape/close-button closing the dialog mid-merge anyway.
+        if self._worker is not None and self._worker.isRunning():
+            return
+        super().reject()
