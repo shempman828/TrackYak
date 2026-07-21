@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.cancellable_worker import CancellableWorker
 from src.common.hierarchy_tree_style import (
     configure_hierarchy_tree,
     icon_for_depth,
@@ -35,6 +36,24 @@ from src.playlist.playlist_smart_builder import SmartPlaylistBuilder
 from src.playlist.playlist_smart_edit import SmartPlaylistEditDialog
 from src.playlist.playlist_smart_new import SmartPlaylistCreateDialog
 from src.playlist.playlist_tracks_window import PlaylistTracksWindow
+
+
+class _SmartPlaylistRefreshWorker(CancellableWorker):
+    """Runs SmartPlaylistBuilder.refresh_playlist() off the UI thread so
+    re-evaluating criteria against a large library can't block the UI or
+    starve other threads (e.g. audio playback's reader thread) while it
+    queries and rewrites the track list."""
+
+    finished = Signal(bool, int)  # success, playlist_id
+
+    def __init__(self, builder: SmartPlaylistBuilder, playlist_id: int, parent=None):
+        super().__init__(parent)
+        self._builder = builder
+        self._playlist_id = playlist_id
+
+    def run(self) -> None:
+        success = self._builder.refresh_playlist(self._playlist_id)
+        self.finished.emit(success, self._playlist_id)
 
 
 class PlaylistView(QWidget):
@@ -57,6 +76,9 @@ class PlaylistView(QWidget):
         self.init_ui()
         self.load_playlists()
         self.builder = SmartPlaylistBuilder(self.controller)
+        # Keep references to in-flight refresh workers so they aren't
+        # garbage-collected mid-run; keyed by playlist_id.
+        self._refresh_workers: dict[int, _SmartPlaylistRefreshWorker] = {}
 
     def init_ui(self) -> None:
         """Initialize UI components with a modern layout and styling."""
@@ -501,19 +523,32 @@ class PlaylistView(QWidget):
                             type=criterion.get("type", "String"),
                         )
 
-                # Immediately populate the playlist with matching tracks
-                self.builder.refresh_playlist(playlist.playlist_id)
-
-                # Refresh the UI
-                self.load_playlists()
-                self.playlist_updated.emit()
-                logger.info(f"Created new smart playlist: {name}")
+                # Immediately populate the playlist with matching tracks,
+                # off the UI thread — a large library can make this slow.
+                self._start_smart_playlist_refresh(
+                    playlist.playlist_id,
+                    lambda success, pid: self._on_created_playlist_refreshed(
+                        success, pid, name
+                    ),
+                )
 
             except Exception as e:
                 logger.error(f"Failed to create smart playlist: {str(e)}")
                 QMessageBox.critical(
                     self, "Error", f"Could not create smart playlist: {e}"
                 )
+
+    def _on_created_playlist_refreshed(
+        self, success: bool, playlist_id: int, name: str
+    ) -> None:
+        # Whether or not the initial match found tracks, the playlist and
+        # its criteria already exist — always refresh the UI to show it.
+        self.load_playlists()
+        self.playlist_updated.emit()
+        if success:
+            logger.info(f"Created new smart playlist: {name}")
+        else:
+            logger.error(f"Created smart playlist '{name}' but initial refresh failed")
 
     def delete_selected(self) -> None:
         item = self.tree.currentItem()
@@ -704,22 +739,31 @@ class PlaylistView(QWidget):
         """Open the edit dialog for a smart playlist, then refresh it."""
         dialog = SmartPlaylistEditDialog(self.controller, playlist_id, self)
         if dialog.exec_() == QDialog.Accepted:
-            # Dialog saved changes — now re-evaluate which tracks match
-            success = self.builder.refresh_playlist(playlist_id)
-            if success:
-                self.load_playlists()
-                self.playlist_updated.emit()
-            else:
-                QMessageBox.warning(
-                    self,
-                    "Refresh Failed",
-                    "Criteria were saved, but the track list could not be updated. "
-                    "Try right-clicking the playlist and choosing Refresh.",
-                )
+            # Dialog saved changes — now re-evaluate which tracks match,
+            # off the UI thread.
+            self._start_smart_playlist_refresh(
+                playlist_id, self._on_edited_playlist_refreshed
+            )
+
+    def _on_edited_playlist_refreshed(self, success: bool, playlist_id: int) -> None:
+        if success:
+            self.load_playlists()
+            self.playlist_updated.emit()
+        else:
+            QMessageBox.warning(
+                self,
+                "Refresh Failed",
+                "Criteria were saved, but the track list could not be updated. "
+                "Try right-clicking the playlist and choosing Refresh.",
+            )
 
     def _refresh_smart_playlist(self, playlist_id: int):
         """Refresh a smart playlist and show the user a result message."""
-        success = self.builder.refresh_playlist(playlist_id)
+        self._start_smart_playlist_refresh(
+            playlist_id, self._on_manual_playlist_refreshed
+        )
+
+    def _on_manual_playlist_refreshed(self, success: bool, playlist_id: int) -> None:
         if success:
             self.load_playlists()
             self.playlist_updated.emit()
@@ -743,3 +787,26 @@ class PlaylistView(QWidget):
                 "Refresh Failed",
                 "Could not refresh the playlist. Check the log for details.",
             )
+
+    def _start_smart_playlist_refresh(self, playlist_id: int, on_finished) -> None:
+        """Launch a background refresh for ``playlist_id``, off the UI
+        thread, so re-evaluating criteria against a large library can't
+        block the UI or starve other threads (e.g. audio playback).
+
+        ``on_finished(success, playlist_id)`` runs on the UI thread once
+        the worker completes.
+        """
+        if playlist_id in self._refresh_workers:
+            # A refresh for this playlist is already running — let it finish
+            # rather than starting a second one against the same rows.
+            return
+
+        worker = _SmartPlaylistRefreshWorker(self.builder, playlist_id, parent=self)
+
+        def _handle_finished(success: bool, pid: int) -> None:
+            self._refresh_workers.pop(pid, None)
+            on_finished(success, pid)
+
+        worker.finished.connect(_handle_finished)
+        self._refresh_workers[playlist_id] = worker
+        worker.start()
