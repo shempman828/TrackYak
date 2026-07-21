@@ -133,6 +133,7 @@ class GenreView(QWidget):
                 "Genre",  # entity_type
                 genre_obj,  # entity object
                 self,  # parent
+                get_helper=self.controller.get,
             )
 
             # Run dialog and refresh if accepted
