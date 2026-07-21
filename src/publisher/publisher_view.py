@@ -228,6 +228,7 @@ class PublisherView(QWidget):
                 "Publisher",
                 publisher_obj,
                 self,
+                get_helper=self.controller.get,
             )
 
             if split_dialog.exec_() == QDialog.Accepted:
