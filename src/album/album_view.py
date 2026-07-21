@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.album.album_art_worker import ArtCacheWorker
 from src.album.album_delete_dialog import DeleteEmptyAlbumsDialog
 from src.album.album_flowlayout import FlowLayout
 from src.album.album_merge import AlbumMerge
@@ -120,6 +121,20 @@ class AlbumView(QWidget):
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(180)
         self._search_timer.timeout.connect(self._apply_filters)
+
+        # Background resolution of album-art cache misses for the Art
+        # filter (see _cancel_art_worker/_start_art_worker) — lets albums
+        # with an uncached/stale artwork_cache row populate into the grid
+        # as they're discovered instead of blocking the filter pass on
+        # every miss.
+        self._art_worker: ArtCacheWorker | None = None
+        self._art_filter_generation = 0
+        self._art_batch: list = []
+        self._art_needs_resort = False
+        self._art_batch_timer = QTimer(self)
+        self._art_batch_timer.setSingleShot(True)
+        self._art_batch_timer.setInterval(150)
+        self._art_batch_timer.timeout.connect(self._flush_art_batch)
 
         self._init_ui()
         self.load_albums()
@@ -519,14 +534,21 @@ class AlbumView(QWidget):
 
     def _apply_filters(self):
         """Apply all active filters (search text, year range, track count, possibly_incomplete, is_fixed)."""
+        self._cancel_art_worker()
+
         text = self.search_bar.text().strip().lower()
         year_from = self.year_from.value()
         year_to = self.year_to.value()
         min_tracks = self.min_tracks.value()
         incomplete_mode = self.incomplete_combo.currentText()
         fixed_mode = self.fixed_combo.currentText()
+        art_mode = self.art_combo.currentText()
+        art_generation = self._art_filter_generation
+        needs_art_cache = art_mode != "Any" or self._sort_criteria == "art_dimensions"
+        art_cache = get_artwork_cache() if needs_art_cache else None
 
         results = []
+        pending_art = []
         for album in self.all_albums:
             # ── Text search ──────────────────────────────────────────────
             if text:
@@ -580,10 +602,19 @@ class AlbumView(QWidget):
                     continue
 
             # ── Album Art filter ──────────────────────────────────────────
-            art_mode = self.art_combo.currentText()
             if art_mode != "Any":
-                cache = get_artwork_cache()
-                has_art = bool(cache.has_art(album, "front")) if cache else False
+                if art_cache is None:
+                    has_art = False
+                else:
+                    known = art_cache.peek_has_art(album, "front")
+                    if known is None:
+                        # Cache miss/stale - resolving it means reading and
+                        # decoding the audio file, which is too slow to do
+                        # inline for every album in this loop. Queue it for
+                        # the background worker instead of blocking here.
+                        pending_art.append(album)
+                        continue
+                    has_art = known
                 if art_mode == "No Art" and has_art:
                     continue
                 if art_mode == "Has Art" and not has_art:
@@ -591,11 +622,118 @@ class AlbumView(QWidget):
 
             results.append(album)
 
+        # ── Art Size sort ──────────────────────────────────────────────────
+        # Sorting by pixel area needs each album's dimensions, which have the
+        # same cold-cache cost as the Art filter above - queue anything
+        # unresolved rather than blocking the sort.
+        if self._sort_criteria == "art_dimensions" and art_cache is not None:
+            for album in results:
+                known, _ = art_cache.peek_dimensions(album, "front")
+                if not known:
+                    pending_art.append(album)
+
         self.filtered_albums = results
         self._sort_filtered()
         self._update_stats()
 
         self.display_count = self.load_chunk
+        self._refresh_album_widgets()
+        QTimer.singleShot(100, self._check_viewport_fill)
+
+        if pending_art:
+            self._start_art_worker(pending_art, art_mode, self._sort_criteria, art_generation)
+
+    def _cancel_art_worker(self):
+        """Stop any in-flight background art-cache resolution and
+        invalidate its results, since a new filter/sort run supersedes it.
+
+        `wait()` here only blocks on however long is left of the single
+        file the worker is mid-extraction on - far cheaper than the old
+        behavior of blocking the filter pass on every pending album.
+        Bumping the generation counter also guards against a `resolved`
+        signal that was already queued on the event loop before
+        request_cancel() took effect from being applied to the new filter.
+        """
+        if self._art_worker is not None and self._art_worker.isRunning():
+            self._art_worker.request_cancel()
+            self._art_worker.wait()
+        self._art_worker = None
+        self._art_batch_timer.stop()
+        self._art_batch.clear()
+        self._art_needs_resort = False
+        self._art_filter_generation += 1
+
+    def _start_art_worker(
+        self, pending_albums: list, art_mode: str, sort_criteria: str, generation: int
+    ):
+        cache = get_artwork_cache()
+        if cache is None:
+            return
+
+        worker = ArtCacheWorker(pending_albums, cache, "front")
+        worker.resolved.connect(
+            lambda album_id, gen=generation, mode=art_mode, sort_c=sort_criteria: (
+                self._on_art_resolved(album_id, gen, mode, sort_c)
+            )
+        )
+        self._art_worker = worker
+        worker.start()
+
+    def _on_art_resolved(
+        self, album_id: int, generation: int, art_mode: str, sort_criteria: str
+    ):
+        if generation != self._art_filter_generation:
+            return  # A newer filter/sort run has already superseded this one.
+
+        cache = get_artwork_cache()
+        if cache is None:
+            return
+
+        already_shown = any(
+            getattr(a, "album_id", None) == album_id for a in self.filtered_albums
+        )
+
+        if not already_shown:
+            # This album was excluded by the Art filter while its status was
+            # still unknown - now that the worker has warmed its cache row,
+            # re-check whether it actually belongs.
+            if art_mode == "Any":
+                return
+            album = next(
+                (a for a in self.all_albums if getattr(a, "album_id", None) == album_id),
+                None,
+            )
+            if album is None:
+                return
+            has_art = bool(cache.peek_has_art(album, "front"))
+            matches = (art_mode == "No Art" and not has_art) or (
+                art_mode == "Has Art" and has_art
+            )
+            if not matches:
+                return
+            self._art_batch.append(album)
+        elif sort_criteria != "art_dimensions":
+            # Already in the grid and nothing about its sort position needs
+            # updating - the resolved dimensions are irrelevant right now.
+            return
+
+        self._art_needs_resort = True
+        self._art_batch_timer.start()
+
+    def _flush_art_batch(self):
+        """Apply everything the background worker has resolved since the
+        last flush: add newly-matching albums to the grid and/or re-sort
+        for updated Art Size positions. Batched on a timer rather than
+        applied one album at a time so a cold cache doesn't trigger a full
+        re-sort + widget rebuild per album."""
+        if not self._art_batch and not self._art_needs_resort:
+            return
+        if self._art_batch:
+            self.filtered_albums.extend(self._art_batch)
+            self._art_batch.clear()
+        self._art_needs_resort = False
+        self._sort_filtered()
+        self._update_stats()
         self._refresh_album_widgets()
         QTimer.singleShot(100, self._check_viewport_fill)
 
@@ -711,9 +849,13 @@ class AlbumView(QWidget):
                 return self._random_keys.setdefault(key, random.random())
 
             elif c == "art_dimensions":
-                # Sort by pixel area of the front cover image.
+                # Sort by pixel area of the front cover image. Uses the
+                # non-blocking peek - any album whose cache row is missing
+                # or stale sorts as 0 for now and gets queued for the
+                # background worker by the caller (_apply_filters), which
+                # re-sorts once its real dimensions are known.
                 cache = get_artwork_cache()
-                dims = cache.get_dimensions(album, "front") if cache else None
+                _, dims = cache.peek_dimensions(album, "front") if cache else (True, None)
                 if dims:
                     return dims[0] * dims[1]
                 return 0
@@ -869,6 +1011,8 @@ class AlbumView(QWidget):
     def _apply_filters_preserve_scroll(self):
         """Re-run filters and rebuild the grid while preserving scroll position
         and the current display_count (lazy-load progress)."""
+        self._cancel_art_worker()
+
         saved_scroll = self.scroll_area.verticalScrollBar().value()
         saved_display = self.display_count
 
@@ -879,8 +1023,12 @@ class AlbumView(QWidget):
         incomplete_mode = self.incomplete_combo.currentText()
         fixed_mode = self.fixed_combo.currentText()
         art_mode = self.art_combo.currentText()
+        art_generation = self._art_filter_generation
+        needs_art_cache = art_mode != "Any" or self._sort_criteria == "art_dimensions"
+        art_cache = get_artwork_cache() if needs_art_cache else None
 
         results = []
+        pending_art = []
         for album in self.all_albums:
             if text:
                 title = getattr(album, "album_name", "").lower()
@@ -927,14 +1075,26 @@ class AlbumView(QWidget):
                     continue
 
             if art_mode != "Any":
-                cache = get_artwork_cache()
-                has_art = bool(cache.has_art(album, "front")) if cache else False
+                if art_cache is None:
+                    has_art = False
+                else:
+                    known = art_cache.peek_has_art(album, "front")
+                    if known is None:
+                        pending_art.append(album)
+                        continue
+                    has_art = known
                 if art_mode == "No Art" and has_art:
                     continue
                 if art_mode == "Has Art" and not has_art:
                     continue
 
             results.append(album)
+
+        if self._sort_criteria == "art_dimensions" and art_cache is not None:
+            for album in results:
+                known, _ = art_cache.peek_dimensions(album, "front")
+                if not known:
+                    pending_art.append(album)
 
         self.filtered_albums = results
         self._sort_filtered()
@@ -949,6 +1109,9 @@ class AlbumView(QWidget):
         QTimer.singleShot(
             0, lambda: self.scroll_area.verticalScrollBar().setValue(saved_scroll)
         )
+
+        if pending_art:
+            self._start_art_worker(pending_art, art_mode, self._sort_criteria, art_generation)
 
     # =========================================================================
     # Helpers
