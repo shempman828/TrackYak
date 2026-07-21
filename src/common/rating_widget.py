@@ -139,9 +139,9 @@ class RatingStarsWidget(QWidget):
         """
         Return rating based on mouse position, snapped to 0.5 steps.
 
-        Snaps to the nearest half-star across the full star+spacing cell
-        rather than only within the star's own width, so the half/full
-        split is centered on each star instead of favoring "full".
+        The half/full boundary is based on the star's own drawn width
+        (not the wider star+spacing cell), matching how _draw_star fills
+        each star so the visual boundary lines up with the click zone.
         """
         try:
             star_size, spacing, start_x, _ = self._star_geometry()
@@ -150,7 +150,13 @@ class RatingStarsWidget(QWidget):
 
             if rel_x < 0:
                 return 0.0
-            rating = round((rel_x / cell) * 2) / 2.0
+
+            star_index = int(rel_x / cell)
+            if star_index >= 10:
+                return 10.0
+
+            pos_in_star = (rel_x - star_index * cell) / star_size
+            rating = star_index + (0.5 if pos_in_star < 0.5 else 1.0)
             return max(0.0, min(10.0, rating))
         except Exception as e:
             logger.error(f"Error calculating rating from position: {e}")
