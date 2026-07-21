@@ -93,6 +93,11 @@ class Track(Base):
     track_barcode = Column(String)
     track_wikipedia_link = Column(String)
 
+    # Acoustic fingerprint (AcoustID/chromaprint) — used for audio-content
+    # duplicate detection independent of tag/title accuracy
+    acoustid_fingerprint = Column(Text)
+    acoustid_fingerprint_duration = Column(Integer)
+
     # Audio Characteristics
     bpm = Column(Float)
     track_gain = Column(Float)

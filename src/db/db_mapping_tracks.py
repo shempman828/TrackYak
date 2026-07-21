@@ -315,6 +315,22 @@ TRACK_FIELDS = {
         tooltip="A link to the track's Wikipedia page.",
         placeholder="e.g., https://en.wikipedia.org/wiki/Track_Name",
     ),
+    "acoustid_fingerprint": FieldSpec(
+        category="Identification",
+        friendly="Acoustic Fingerprint",
+        short="Fingerprint",
+        tooltip="Chromaprint audio fingerprint, computed during audio analysis. "
+        "Used to detect duplicate tracks by audio content instead of tags.",
+        editable=False,
+    ),
+    "acoustid_fingerprint_duration": FieldSpec(
+        type=int,
+        category="Identification",
+        friendly="Fingerprint Duration",
+        short="FP Duration",
+        tooltip="Seconds of audio the fingerprint above was computed from.",
+        editable=False,
+    ),
     "bpm": FieldSpec(
         type=int,
         category="Properties",
