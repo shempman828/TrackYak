@@ -50,6 +50,14 @@ class _ArtCard(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
+
+        # Clear any stale pixels from a previous paint (e.g. the prior
+        # slideshow image) before drawing, since we only ever paint into a
+        # centered sub-rect of the widget, not the full rect.
+        painter.setCompositionMode(QPainter.CompositionMode_Source)
+        painter.fillRect(self.rect(), Qt.transparent)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+
         w, h = self.width(), self.height()
 
         if self._pixmap and not self._pixmap.isNull() and self._is_artist:
