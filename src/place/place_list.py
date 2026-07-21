@@ -201,13 +201,16 @@ class ListView(QWidget):
     def format_list_item(self, place):
         """Return HTML-formatted text for the place entry."""
         place_name = self._escape_html(place.place_name)
-        place_type = (
-            self._escape_html(place.place_type) if place.place_type else "Unknown"
-        )
+        if place.place_type:
+            place_type = self._escape_html(place.place_type)
+            type_class = "place-type"
+        else:
+            place_type = "No type"
+            type_class = "place-type-missing"
 
         base_text = (
             f"<span class='place-name'>{place_name}</span> "
-            f"(<span class='place-type'>{place_type}</span>)"
+            f"(<span class='{type_class}'>{place_type}</span>)"
         )
 
         direct = place.association_count
