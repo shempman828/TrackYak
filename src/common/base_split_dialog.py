@@ -65,14 +65,14 @@ class SplitDBDialog(QDialog):
 
         # Add/Remove buttons
         btn_row = QHBoxLayout()
-        add_btn = QPushButton("Add")
-        remove_btn = QPushButton("Remove")
-        btn_row.addWidget(add_btn)
-        btn_row.addWidget(remove_btn)
+        self.add_btn = QPushButton("Add")
+        self.remove_btn = QPushButton("Remove")
+        btn_row.addWidget(self.add_btn)
+        btn_row.addWidget(self.remove_btn)
         layout.addLayout(btn_row)
 
-        add_btn.clicked.connect(lambda: self._add_split_row(""))
-        remove_btn.clicked.connect(self._remove_selected_row)
+        self.add_btn.clicked.connect(lambda: self._add_split_row(""))
+        self.remove_btn.clicked.connect(self._remove_selected_row)
 
         # Warning label
         self.warning_label = QLabel("")
@@ -82,14 +82,16 @@ class SplitDBDialog(QDialog):
         # Split/Cancel buttons
         btn_layout = QHBoxLayout()
         self.split_btn = QPushButton("Split")
-        cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = QPushButton("Cancel")
         btn_layout.addStretch()
         btn_layout.addWidget(self.split_btn)
-        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(self.cancel_btn)
         layout.addLayout(btn_layout)
 
         self.split_btn.clicked.connect(self._on_split)
-        cancel_btn.clicked.connect(self.reject)
+        self.cancel_btn.clicked.connect(self.reject)
+
+        self._update_tab_order()
 
     def _find_name_attribute(self) -> str:
         """Find the name attribute for the current entity."""
@@ -169,7 +171,14 @@ class SplitDBDialog(QDialog):
         widget.textChanged.connect(self._validate_input)
         self.split_list.addItem(item)
         self.split_list.setItemWidget(item, widget)
-        item.setSizeHint(widget.sizeHint())
+
+        # Ensure the style (incl. QSS padding) is applied before measuring the
+        # size hint, otherwise the row is sized too short and clips the text.
+        widget.ensurePolished()
+        size_hint = widget.sizeHint()
+        item.setSizeHint(size_hint)
+
+        self._update_tab_order()
 
     def _remove_selected_row(self):
         """Remove selected name row."""
@@ -177,6 +186,28 @@ class SplitDBDialog(QDialog):
         if row >= 0:
             self.split_list.takeItem(row)
         self._validate_input()
+        self._update_tab_order()
+
+    def _update_tab_order(self):
+        """Rebuild the Tab focus chain so it walks through every split-name
+        row (including ones added/removed after dialog init) before reaching
+        the action buttons."""
+        if not hasattr(self, "add_btn"):
+            # Buttons aren't built yet (called while pre-populating the
+            # initial rows during __init__); the chain is finalized once
+            # _init_ui() creates them.
+            return
+        prev = self.relationship_info
+        for i in range(self.split_list.count()):
+            item = self.split_list.item(i)
+            widget = self.split_list.itemWidget(item)
+            if widget is not None:
+                self.setTabOrder(prev, widget)
+                prev = widget
+        self.setTabOrder(prev, self.add_btn)
+        self.setTabOrder(self.add_btn, self.remove_btn)
+        self.setTabOrder(self.remove_btn, self.split_btn)
+        self.setTabOrder(self.split_btn, self.cancel_btn)
 
     def _validate_input(self):
         """Validate user input and update UI state."""
