@@ -1,6 +1,8 @@
 import re
 
+from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtWidgets import (
+    QCompleter,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -27,18 +29,59 @@ _SPLIT_DELIMITER_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Cache of entity display names for autocomplete, keyed by model name, so
+# reopening the dialog doesn't re-query the DB every time.
+_entity_name_cache = {}
+
+
+def _find_name_attr_for_entity(entity, model_name: str):
+    """Find the name attribute for an entity of the given model type."""
+    for attr in (f"{model_name.lower()}_name", "name", "title", f"{model_name.lower()}_title"):
+        if hasattr(entity, attr):
+            return attr
+    return None
+
+
+def _get_cached_entity_names(get_helper, model_name: str) -> list:
+    """Return cached display names for a model type, fetching once via
+    get_helper.get_all_entities() and reusing the result on subsequent calls."""
+    if model_name in _entity_name_cache:
+        return _entity_name_cache[model_name]
+
+    names = set()
+    if get_helper is not None:
+        try:
+            for entity in get_helper.get_all_entities(model_name) or []:
+                attr = _find_name_attr_for_entity(entity, model_name)
+                value = getattr(entity, attr, None) if attr else None
+                if value:
+                    names.add(value)
+        except Exception as e:
+            logger.warning(f"Could not fetch {model_name} names for completer: {e}")
+
+    result = sorted(names)
+    _entity_name_cache[model_name] = result
+    return result
+
 
 class SplitDBDialog(QDialog):
     """Dialog for splitting a combined ORM entity (e.g., 'Paul Simon / Art Garfunkel')."""
 
-    def __init__(self, split_helper: SplitDB, model_name: str, entity_obj, parent=None):
+    def __init__(self, split_helper: SplitDB, model_name: str, entity_obj, parent=None, get_helper=None):
         super().__init__(parent)
         self.split_helper = split_helper
         self.model_name = model_name
         self.entity_obj = entity_obj
+        self.get_helper = get_helper
         self.setWindowTitle(f"Split {model_name}")
         self.setMinimumWidth(400)
         self.setMinimumHeight(500)
+
+        # Shared backing model for the row completers; built once from the
+        # cached name list so every row's QCompleter reuses the same data.
+        self._name_completer_model = QStringListModel(
+            _get_cached_entity_names(self.get_helper, self.model_name), self
+        )
 
         self._init_ui()
         self._load_relationship_info()
@@ -206,6 +249,13 @@ class SplitDBDialog(QDialog):
         widget.setPlaceholderText("Enter new name...")
         widget.setMinimumWidth(300)
         widget.textChanged.connect(self._validate_input)
+
+        completer = QCompleter(widget)
+        completer.setModel(self._name_completer_model)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        widget.setCompleter(completer)
+
         self.split_list.addItem(item)
         self.split_list.setItemWidget(item, widget)
 
