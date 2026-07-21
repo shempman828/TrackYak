@@ -645,6 +645,23 @@ class Config:
         self._set_int("influences", "legend_width", int(width))
         self._set_int("influences", "legend_height", int(height))
 
+    def get_influence_legend_position(self):
+        """Get the persisted (x, y) of the cluster legend overlay, or None if
+        the user has never dragged it (falls back to the default bottom-left
+        anchor in that case)."""
+        if not self.config.has_option("influences", "legend_x") or not self.config.has_option(
+            "influences", "legend_y"
+        ):
+            return None
+        return self._get_int("influences", "legend_x", fallback=0), self._get_int(
+            "influences", "legend_y", fallback=0
+        )
+
+    def set_influence_legend_position(self, x: int, y: int):
+        """Persist the (x, y) of the cluster legend overlay after a manual drag."""
+        self._set_int("influences", "legend_x", int(x))
+        self._set_int("influences", "legend_y", int(y))
+
     def get_influence_cluster_names(self) -> dict:
         """Get persisted Louvain cluster names, keyed by anchor artist ID (as string).
 
