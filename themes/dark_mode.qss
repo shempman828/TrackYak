@@ -1062,6 +1062,15 @@ QLabel#PlayerPositionLabel {
     font-size: 1.4em;
 }
 
+/* ── SPECIAL: Mini Player ─────────────────────────────────────────────────────── */
+QPushButton#miniButton,
+QPushButton#closeButton,
+QPushButton#titleCloseButton {
+    border: none;
+    background: transparent;
+    padding: 0;
+}
+
 /* ── SPECIAL: Queue Dock (QueueDockWidget) ───────────────────────────────────── */
 QFrame#NowPlayingCard {
     background: qlineargradient(

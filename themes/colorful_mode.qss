@@ -20,6 +20,16 @@ QGroupBox, QFrame, QDialog, QMainWindow {
     padding: 12px;
 }
 
+/* QLabel is a QFrame subclass in Qt, so without this reset every plain
+   label inherits the card look above (border/radius/12px padding),
+   clipping or hiding label text app-wide. */
+QLabel {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 6px;
+}
+
 QDialog #qt_dialog_titlebar {
     background-color: qlineargradient(
         x1:0, y1:0, x2:1, y2:0,
@@ -307,4 +317,13 @@ StatusBarWidget[mode="float"] QLabel {
 
 StatusBarWidget[mode="float"] QPushButton {
     color: #1c1c21;
+}
+
+/* ── SPECIAL: Mini Player ─────────────────────────────────────────────────────── */
+QPushButton#miniButton,
+QPushButton#closeButton,
+QPushButton#titleCloseButton {
+    border: none;
+    background: transparent;
+    padding: 0;
 }

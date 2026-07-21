@@ -387,3 +387,12 @@ StatusBarWidget[mode="float"] QLabel {
 StatusBarWidget[mode="float"] QPushButton {
     color: #2b2c36;
 }
+
+/* ── SPECIAL: Mini Player ─────────────────────────────────────────────────────── */
+QPushButton#miniButton,
+QPushButton#closeButton,
+QPushButton#titleCloseButton {
+    border: none;
+    background: transparent;
+    padding: 0;
+}
