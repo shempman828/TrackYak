@@ -344,6 +344,30 @@ class FieldFormTab(_BaseTab):
                     )
                 )
 
+    def set_if_empty(self, values: Dict[str, Any]) -> None:
+        """Fill fields from a MusicBrainz enrichment dict, but only where
+        this tab's own widget is currently blank -- never overwrites
+        something the user already filled in or typed moments ago.
+
+        Unlike load()/refresh_values(), applied fields are explicitly
+        marked dirty so collect_changes() picks them up on Save, exactly
+        as if the user had typed them (collect_changes() only includes
+        fields present in self._dirty). Not offered in multi-track mode --
+        a single MusicBrainz recording match doesn't apply to a batch of
+        different tracks.
+        """
+        if self.is_multi:
+            return
+        for field_name, value in values.items():
+            widget = self._widgets.get(field_name)
+            if widget is None:
+                continue
+            current = _read_widget(widget)
+            if current not in (None, "", 0, 0.0, False):
+                continue
+            _write_widget(widget, value)
+            self._mark_dirty(field_name)
+
     def collect_changes(self) -> Dict[str, Any]:
         changes = {}
         for field_name in self._dirty:
