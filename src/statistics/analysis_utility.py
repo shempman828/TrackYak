@@ -1054,21 +1054,23 @@ class AudioCalculations:
     def calculate_fidelity_score(self) -> float:
         """
         Heuristic audio fidelity estimate combining:
-          - Dynamic range (higher DR = less limiting/compression = better)
-          - Spectral extension (is high-frequency content present?)
-          - Clipping detection (values at or very near ±1.0)
+          - Spectral extension (is full-range high-frequency content present,
+            or has it been squashed by a lossy codec / tiny driver?)
+          - Clipping / distortion detection (values at or very near ±1.0)
+          - Dynamic range (has the track been brickwalled/blown out, or
+            does it still have headroom?)
 
-        Returns 0–1 (1 = excellent, 0 = very compressed/clipped).
+        Returns 0–1 (1 = pure audiophile bliss, 0 = a bluetooth speaker in
+        a blender). Unlike most other heuristics in this module, failing to
+        load or analyze the audio returns 0.0 rather than an optimistic
+        default — a track we can't even read is not a hifi track.
         """
         if not self._ensure_loaded():
-            return 0.8
+            return 0.0
         try:
-            # Dynamic range score: map DR 6–24 dB → 0–1
-            dr = self.calculate_dynamic_range()
-            dr_score = float(np.clip((dr - 6.0) / 18.0, 0.0, 1.0))
-
-            # High frequency extension: a 128 kbps MP3 has steep rolloff above 16 kHz;
-            # a FLAC will have content to 20 kHz+
+            # High frequency extension: a 128 kbps MP3 or a cheap Bluetooth
+            # codec rolls off steeply above ~16 kHz; a clean lossless source
+            # carries real content out past 20 kHz.
             mono = self._mono()
             seg = self._segment(mono, 10.0)
             f, mag = self._stft_magnitude(seg, nperseg=4096)
@@ -1077,18 +1079,26 @@ class AudioCalculations:
             hf_ratio = mag[hf_mask].sum() / total_e if np.any(hf_mask) else 0.0
             hf_score = float(np.clip(hf_ratio * 20.0, 0.0, 1.0))
 
-            # Clipping: fraction of samples at or beyond 99.9 % of full scale
+            # Clipping: fraction of samples at or beyond 99.9 % of full scale —
+            # the clearest single signal of harsh, distorted audio.
             clipped = np.mean(np.abs(self.samples) >= 0.999)
             clip_penalty = float(np.clip(clipped * 200.0, 0.0, 1.0))
             clip_score = 1.0 - clip_penalty
 
+            # Dynamic range: only penalize masters that have actually been
+            # brickwalled/blown out (DR <= 5 dB). A normally-mastered, even
+            # fairly loud, lossless track (DR ~10 dB+) still gets full
+            # credit — loudness is a mastering choice, not a fidelity defect.
+            dr = self.calculate_dynamic_range()
+            dr_score = float(np.clip((dr - 5.0) / 9.0, 0.0, 1.0))
+
             return float(
-                np.clip(dr_score * 0.50 + hf_score * 0.30 + clip_score * 0.20, 0.0, 1.0)
+                np.clip(hf_score * 0.40 + clip_score * 0.35 + dr_score * 0.25, 0.0, 1.0)
             )
 
         except Exception as e:
             logger.error(f"Fidelity score calculation failed: {e}")
-            return 0.8
+            return 0.0
 
     # ------------------------------------------------------------------
     # Run all metrics in one call
@@ -1183,7 +1193,7 @@ class AudioCalculations:
             "acousticness": 0.5,
             "liveness": 0.2,
             "valence": 0.5,
-            "fidelity_score": 0.8,
+            "fidelity_score": 0.0,
         }
 
 
