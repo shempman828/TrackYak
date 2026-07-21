@@ -16,6 +16,18 @@ Performance strategy — "blocking":
   punctuation stripped). Tracks that can't possibly match (e.g. "Bohemian Rhapsody"
   vs "Stairway to Heaven") never get compared at all.
 
+Two mutually-exclusive search modes (never blended):
+  - "metadata"    (default): the title/artist/album/year string-similarity
+                  scan described above.
+  - "fingerprint": matches by AcoustID/chromaprint audio fingerprint instead
+                  of tags entirely, catching duplicates that were mislabeled
+                  or retitled. Blocks by a 4-second duration bucket instead
+                  of by title, then compares fingerprints within each bucket
+                  via acoustid.compare_fingerprints() -- a local, offline
+                  Hamming-distance comparison (no AcoustID web service call).
+                  Only tracks with a fingerprint already computed by the
+                  audio analysis pipeline (analysis_utility.py) are eligible.
+
 Architecture:
   - DuplicateScanWorker  : QThread — all comparison work off the UI thread
   - DuplicateFinderDialog: QDialog — UI opened from the File menu
@@ -27,8 +39,10 @@ from collections import defaultdict
 from difflib import SequenceMatcher
 from typing import Dict, List
 
+import acoustid
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QDialog,
     QGroupBox,
@@ -39,6 +53,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QSlider,
     QSplitter,
     QVBoxLayout,
@@ -146,6 +161,7 @@ class DuplicateScanWorker(CancellableWorker):
         use_artist: bool,
         use_album: bool,
         use_year: bool,
+        match_mode: str = "metadata",
         parent=None,
     ):
         super().__init__(parent)
@@ -154,6 +170,7 @@ class DuplicateScanWorker(CancellableWorker):
         self._use_artist = use_artist
         self._use_album = use_album
         self._use_year = use_year
+        self._match_mode = match_mode
         self._stopped_early = False
 
     def run(self):
@@ -170,18 +187,58 @@ class DuplicateScanWorker(CancellableWorker):
 
     def _build_blocks(self) -> Dict[str, list]:
         """
-        Group tracks by blocking key (first 3 chars of normalised name).
-        Only returns blocks with >= 2 tracks — single-track blocks can
-        never produce a duplicate pair.
+        Group tracks by blocking key. Only returns blocks with >= 2 tracks —
+        single-track blocks can never produce a duplicate pair.
+
+        "metadata" mode blocks by the first 3 chars of the normalised track
+        name. "fingerprint" mode instead blocks tracks with a computed
+        AcoustID fingerprint by a 4-second duration bucket -- true
+        duplicates (same recording) have essentially identical durations,
+        while mislabeled/retitled duplicates would never share a
+        title-prefix block at all.
         """
         blocks: Dict[str, list] = defaultdict(list)
-        for track in self._tracks:
-            key = _blocking_key(getattr(track, "track_name", "") or "")
-            if key:
-                blocks[key].append(track)
+        if self._match_mode == "fingerprint":
+            for track in self._tracks:
+                if not getattr(track, "acoustid_fingerprint", None):
+                    continue
+                duration = getattr(track, "duration", None)
+                if not duration:
+                    continue
+                blocks[int(duration // 4)].append(track)
+        else:
+            for track in self._tracks:
+                key = _blocking_key(getattr(track, "track_name", "") or "")
+                if key:
+                    blocks[key].append(track)
         return {k: v for k, v in blocks.items() if len(v) >= 2}
 
     def _score_pair(self, a, b) -> float:
+        if self._match_mode == "fingerprint":
+            return self._score_pair_fingerprint(a, b)
+        return self._score_pair_metadata(a, b)
+
+    def _score_pair_fingerprint(self, a, b) -> float:
+        """Local, offline chromaprint similarity score [0,1] -- a failure to
+        decode either fingerprint (e.g. corrupt/legacy data) safely scores
+        as 0.0 rather than raising, matching this file's other scoring
+        methods.
+
+        Fingerprints are stored as str (Track.acoustid_fingerprint is a Text
+        column), but acoustid.compare_fingerprints requires the raw bytes
+        form it originally returned from fingerprint_file() -- chromaprint
+        fingerprints are plain-ASCII base64, so encode() round-trips exactly.
+        """
+        try:
+            return acoustid.compare_fingerprints(
+                (a.acoustid_fingerprint_duration, a.acoustid_fingerprint.encode()),
+                (b.acoustid_fingerprint_duration, b.acoustid_fingerprint.encode()),
+            )
+        except Exception as e:
+            logger.warning(f"Fingerprint comparison failed: {e}")
+            return 0.0
+
+    def _score_pair_metadata(self, a, b) -> float:
         """
         Weighted similarity score for a pair of tracks.
         track_name always contributes (weight 2).
@@ -389,10 +446,41 @@ class DuplicateFinderDialog(QDialog):
 
     def _build_settings_group(self) -> QGroupBox:
         group = QGroupBox("Scan Settings")
-        layout = QHBoxLayout(group)
-        layout.setSpacing(16)
+        outer = QVBoxLayout(group)
+        outer.setSpacing(8)
 
-        layout.addWidget(QLabel("Compare fields:"))
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(16)
+        mode_row.addWidget(QLabel("Match by:"))
+
+        self.mode_group = QButtonGroup(self)
+        self.radio_metadata = QRadioButton("Metadata (title/artist/album)")
+        self.radio_metadata.setChecked(True)
+        self.radio_metadata.setToolTip(
+            "Compare tags: track title, artist, album, year. Only takes "
+            "effect on the next scan."
+        )
+        self.radio_fingerprint = QRadioButton("Audio Fingerprint")
+        self.radio_fingerprint.setToolTip(
+            "Compare actual audio content via AcoustID/chromaprint, "
+            "regardless of tags -- catches mislabeled or retitled "
+            "duplicates. Only tracks already analysed (Statistics > Audio "
+            "Analysis) are eligible. Only takes effect on the next scan."
+        )
+        self.mode_group.addButton(self.radio_metadata)
+        self.mode_group.addButton(self.radio_fingerprint)
+        self.radio_metadata.toggled.connect(self._on_mode_changed)
+        mode_row.addWidget(self.radio_metadata)
+        mode_row.addWidget(self.radio_fingerprint)
+        mode_row.addStretch()
+        outer.addLayout(mode_row)
+
+        layout = QHBoxLayout()
+        layout.setSpacing(16)
+        outer.addLayout(layout)
+
+        self.compare_fields_label = QLabel("Compare fields:")
+        layout.addWidget(self.compare_fields_label)
 
         self.chk_artist = QCheckBox("Artist")
         self.chk_artist.setChecked(True)
@@ -536,6 +624,7 @@ class DuplicateFinderDialog(QDialog):
             use_artist=self.chk_artist.isChecked(),
             use_album=self.chk_album.isChecked(),
             use_year=self.chk_year.isChecked(),
+            match_mode="metadata" if self.radio_metadata.isChecked() else "fingerprint",
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.status.connect(self.status_label.setText)
@@ -677,6 +766,18 @@ class DuplicateFinderDialog(QDialog):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _on_mode_changed(self, metadata_checked: bool):
+        """Toggling match mode disables the fields that don't apply to the
+        other mode and resets the threshold to a mode-appropriate default --
+        AcoustID similarity scores cluster much closer to 1.0 for true
+        duplicates than title-similarity scores do."""
+        self.compare_fields_label.setEnabled(metadata_checked)
+        self.chk_artist.setEnabled(metadata_checked)
+        self.chk_album.setEnabled(metadata_checked)
+        self.chk_year.setEnabled(metadata_checked)
+        self.threshold_slider.setValue(85 if metadata_checked else 90)
+        self._on_settings_changed()
 
     def _on_threshold_changed(self, value: int):
         self.threshold_label.setText(f"{value}%")
