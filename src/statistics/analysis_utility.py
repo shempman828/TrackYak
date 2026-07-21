@@ -22,6 +22,7 @@ import threading
 import warnings
 from pathlib import Path
 
+import acoustid
 import numpy as np
 from pydub import AudioSegment
 from PySide6.QtCore import QObject, Signal
@@ -1100,6 +1101,33 @@ class AudioCalculations:
             logger.error(f"Fidelity score calculation failed: {e}")
             return 0.0
 
+    def calculate_fingerprint(self) -> tuple:
+        """
+        Compute a chromaprint/AcoustID audio fingerprint for duplicate
+        detection by audio content rather than tags.
+
+        Decodes the file itself via chromaprint's own path (fpcalc/audioread)
+        instead of reusing self.samples — chromaprint needs a specific PCM
+        format and this avoids any risk of a mismatch with the pydub-decoded
+        buffer used by the other metrics. Capped at the first 120s of audio,
+        matching AcoustID convention and keeping comparisons fast.
+
+        Returns (fingerprint: str | None, duration: int | None). A failure
+        here (corrupt file, missing native chromaprint library) is not fatal
+        to the rest of the analysis — it just leaves fingerprint fields
+        unset, same as any other calculate_* method's safe-default handling.
+        """
+        try:
+            duration, fingerprint = acoustid.fingerprint_file(
+                self.audio_file_path, maxlength=120
+            )
+            return fingerprint.decode() if isinstance(fingerprint, bytes) else fingerprint, duration
+        except Exception as e:
+            logger.warning(
+                f"Fingerprint calculation failed for {self.audio_file_path}: {e}"
+            )
+            return None, None
+
     # ------------------------------------------------------------------
     # Run all metrics in one call
     # ------------------------------------------------------------------
@@ -1134,6 +1162,9 @@ class AudioCalculations:
             liveness = self.calculate_liveness()
             valence = self.calculate_valence()
             fidelity_score = self.calculate_fidelity_score()
+            acoustid_fingerprint, acoustid_fingerprint_duration = (
+                self.calculate_fingerprint()
+            )
 
             return {
                 "bpm": bpm,
@@ -1159,6 +1190,8 @@ class AudioCalculations:
                 "liveness": liveness,
                 "valence": valence,
                 "fidelity_score": fidelity_score,
+                "acoustid_fingerprint": acoustid_fingerprint,
+                "acoustid_fingerprint_duration": acoustid_fingerprint_duration,
             }
         except Exception as e:
             logger.error(
@@ -1194,6 +1227,8 @@ class AudioCalculations:
             "liveness": 0.2,
             "valence": 0.5,
             "fidelity_score": 0.0,
+            "acoustid_fingerprint": None,
+            "acoustid_fingerprint_duration": None,
         }
 
 
