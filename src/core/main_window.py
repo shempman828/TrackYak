@@ -233,6 +233,13 @@ class GUI(QMainWindow, MenuBar):
 
         self.stacked_widget.setCurrentIndex(self.view_registry[view_name])
 
+        # Force an immediate synchronous repaint of the newly-shown view.
+        # Without this, the widget's first paint can be deferred a frame,
+        # leaving the previous view's pixels briefly visible underneath
+        # (most noticeable behind NowPlayingView's translucent-margin art
+        # card).
+        self.stacked_widget.currentWidget().repaint()
+
         # On revisits, trigger a data refresh.  On the first visit the view's
         # own __init__ already loaded data, so we skip the extra round-trip.
         if not first_visit:
