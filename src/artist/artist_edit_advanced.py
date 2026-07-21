@@ -2,7 +2,15 @@
 # Tab: Advanced
 # ══════════════════════════════════════════════════════════════════════════════
 
-from PySide6.QtWidgets import QCheckBox, QFormLayout, QLabel, QLineEdit, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QWidget,
+)
 
 from src.common.edit_dirty import value_changed
 from src.core.logger_config import logger
@@ -18,9 +26,18 @@ class AdvancedTab(QWidget):
     def _build_ui(self):
         form = QFormLayout(self)
 
+        mbid_row = QHBoxLayout()
         self.mbid_edit = QLineEdit()
         self.mbid_edit.setPlaceholderText("MusicBrainz ID")
-        form.addRow("MBID:", self.mbid_edit)
+        mbid_row.addWidget(self.mbid_edit)
+        self.lookup_button = QPushButton("🎵 Look Up on MusicBrainz")
+        self.lookup_button.setToolTip(
+            "Search MusicBrainz by artist name and fill in blank fields "
+            "(MBID, links, dates, gender) from the selected match. Never "
+            "overwrites fields you've already filled in."
+        )
+        mbid_row.addWidget(self.lookup_button)
+        form.addRow("MBID:", mbid_row)
 
         self.wiki_edit = QLineEdit()
         self.wiki_edit.setPlaceholderText("https://en.wikipedia.org/...")
@@ -57,3 +74,14 @@ class AdvancedTab(QWidget):
             for field, new in candidates.items()
             if value_changed(getattr(self.artist, field, None), new)
         }
+
+    def set_if_empty(self, values: dict):
+        """Fill MBID/link fields from a MusicBrainz enrichment dict, but only
+        where this tab's own field is currently blank -- never overwrites
+        something the user already filled in or typed moments ago."""
+        if "MBID" in values and not self.mbid_edit.text().strip():
+            self.mbid_edit.setText(values["MBID"])
+        if "wikipedia_link" in values and not self.wiki_edit.text().strip():
+            self.wiki_edit.setText(values["wikipedia_link"])
+        if "website_link" in values and not self.website_edit.text().strip():
+            self.website_edit.setText(values["website_link"])

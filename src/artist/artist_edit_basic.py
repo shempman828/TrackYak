@@ -311,6 +311,47 @@ class BasicTab(QWidget):
             if value_changed(getattr(self.artist, field, None), new)
         }
 
+    def set_if_empty(self, values: dict):
+        """Fill fields from a MusicBrainz enrichment dict, but only where
+        this tab's own widget is currently blank -- never overwrites
+        something the user already filled in or typed moments ago.
+
+        isgroup has no blank widget state (it's always Person or Group), so
+        it uses the originally-loaded artist's value as the "unset" signal
+        instead -- applied only when the widget is still at the default
+        (Person/unchecked), so a deliberate manual toggle just before the
+        lookup is never clobbered.
+        """
+        if (
+            "isgroup" in values
+            and getattr(self.artist, "isgroup", None) is None
+            and not self.isgroup_check.isChecked()
+        ):
+            self.isgroup_check.setChecked(bool(values["isgroup"]))
+            self._on_isgroup_changed(bool(values["isgroup"]))
+
+        if "gender" in values and not self.gender_combo.currentText():
+            g_idx = self.gender_combo.findText(values["gender"])
+            if g_idx >= 0:
+                self.gender_combo.setCurrentIndex(g_idx)
+
+        for field_name, edit in (
+            ("begin_year", self.begin_year_edit),
+            ("begin_month", self.begin_month_edit),
+            ("begin_day", self.begin_day_edit),
+            ("end_year", self.end_year_edit),
+            ("end_month", self.end_month_edit),
+            ("end_day", self.end_day_edit),
+        ):
+            if field_name in values and edit.get_value_or_none() is None:
+                edit.set_from_db(values[field_name])
+
+        # An end date implies the artist isn't active -- surface the end
+        # date fields the same way toggling "Alive/Active" off would.
+        if any(k in values for k in ("end_year", "end_month", "end_day")):
+            if self.end_year_edit.get_value_or_none() is not None:
+                self.is_active_check.setChecked(False)
+
     # ── Internal slots ─────────────────────────────────────────────────────
 
     def _on_isgroup_changed(self, is_group: bool):

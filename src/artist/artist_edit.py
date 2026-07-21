@@ -23,6 +23,8 @@ from src.artist.artist_edit_influences import InfluencesTab
 from src.artist.artist_edit_member import MembersTab
 from src.artist.artist_edit_placesawards import PlacesAwardsTab
 from src.core.logger_config import logger
+from src.musicbrainz.musicbrainz_client import complete_artist_enrichment, search_artists
+from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzMatchDialog
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Main dialog shell
@@ -72,6 +74,7 @@ class ArtistEditor(QDialog):
 
         # Wire isgroup checkbox -> MembersTab so the right panel shows immediately
         self.tab_basic.isgroup_check.toggled.connect(self.tab_members.update_visibility)
+        self.tab_advanced.lookup_button.clicked.connect(self._lookup_musicbrainz)
 
         tabs = QTabWidget()
         tabs.addTab(self.tab_basic, "Basic")
@@ -130,3 +133,27 @@ class ArtistEditor(QDialog):
                 return
 
         self.accept()
+
+    def _lookup_musicbrainz(self):
+        name = self.tab_basic.name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(
+                self, "MusicBrainz Lookup", "Enter an artist name before looking it up."
+            )
+            return
+
+        dialog = MusicBrainzMatchDialog(
+            entity_label=f"artist '{name}'",
+            search_call=lambda: search_artists(name),
+            complete_call=complete_artist_enrichment,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        enrichment = dialog.result_enrichment()
+        if not enrichment:
+            return
+
+        self.tab_basic.set_if_empty(enrichment)
+        self.tab_advanced.set_if_empty(enrichment)
