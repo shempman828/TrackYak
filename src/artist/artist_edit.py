@@ -112,9 +112,17 @@ class ArtistEditor(QDialog):
 
         if kwargs:
             try:
-                self.controller.update.update_entity(
+                success = self.controller.update.update_entity(
                     "Artist", self.artist.artist_id, **kwargs
                 )
+                if not success:
+                    QMessageBox.warning(
+                        self,
+                        "Save Error",
+                        "Could not save artist: the update was rejected "
+                        "(e.g. the name may already be used by another artist).",
+                    )
+                    return
                 logger.info(f"Saved artist {self.artist.artist_id} '{name}'")
             except Exception as e:
                 QMessageBox.critical(self, "Save Error", f"Could not save artist:\n{e}")
