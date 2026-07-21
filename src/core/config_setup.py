@@ -362,12 +362,12 @@ class Config:
         self._set_str("playback", "repeat", mode)
 
     def get_fade_duration(self):
-        """Get fade duration"""
-        return self._get_int("playback", "fade_duration", fallback=0)
+        """Get fade duration in seconds (0.1s granularity)"""
+        return self._get_float("playback", "fade_duration", fallback=0.0)
 
-    def set_fade_duration(self, duration: int):
-        """Set fade duration"""
-        self._set_int("playback", "fade_duration", duration)
+    def set_fade_duration(self, duration: float):
+        """Set fade duration in seconds (0.1s granularity)"""
+        self._set_float("playback", "fade_duration", duration)
 
     def get_crossfade(self):
         """Get crossfade setting"""
