@@ -4,7 +4,7 @@ import random
 from collections import deque
 
 import networkx as nx
-from PySide6.QtCore import QPointF, QRect, Qt, QTimer
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QDialog,
@@ -152,20 +152,33 @@ class _LegendRow(QWidget):
 class _LegendPanel(QFrame):
     """Small floating overlay explaining what the node colors mean.
 
-    User-resizable (drag the top-right corner) so cluster lists longer than
-    the default size can be reviewed without a hard-coded row cap; overflow
-    beyond the chosen size just scrolls. Size is persisted across sessions.
+    User-resizable from any edge or corner, and movable by dragging the
+    title bar, so cluster lists longer than the default size can be
+    reviewed without a hard-coded row cap; overflow beyond the chosen size
+    just scrolls. Size and position are persisted across sessions once the
+    user interacts with either.
     """
 
     _MIN_WIDTH = 160
     _MIN_HEIGHT = 90
     _MAX_WIDTH = 480
     _MAX_HEIGHT = 640
-    _GRIP_SIZE = 14
+    _EDGE_MARGIN = 8
 
-    def __init__(self, parent=None, on_resize=None):
+    _CURSOR_BY_MODE = {
+        "left": Qt.SizeHorCursor,
+        "right": Qt.SizeHorCursor,
+        "top": Qt.SizeVerCursor,
+        "bottom": Qt.SizeVerCursor,
+        "top-left": Qt.SizeFDiagCursor,
+        "bottom-right": Qt.SizeFDiagCursor,
+        "top-right": Qt.SizeBDiagCursor,
+        "bottom-left": Qt.SizeBDiagCursor,
+    }
+
+    def __init__(self, parent=None, on_interact=None):
         super().__init__(parent)
-        self._on_resize = on_resize
+        self._on_interact = on_interact
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(
             "_LegendPanel { background-color: rgba(17, 18, 26, 205);"
@@ -185,6 +198,8 @@ class _LegendPanel(QFrame):
 
         self._title = QLabel("Clusters")
         self._title.setStyleSheet("font-weight: 600; font-size: 11px;")
+        self._title.setCursor(Qt.SizeAllCursor)
+        self._title.installEventFilter(self)
         self._layout.addWidget(self._title)
 
         self._scroll = QScrollArea()
@@ -198,9 +213,12 @@ class _LegendPanel(QFrame):
         self._scroll.setWidget(self._rows_widget)
         self._layout.addWidget(self._scroll, 1)
 
-        self._resizing = False
+        self._resize_mode = ""
         self._resize_start_pos = QPointF()
-        self._resize_start_size = None
+        self._resize_start_geom = None
+        self._dragging = False
+        self._drag_start_pos = QPointF()
+        self._drag_start_geom = None
         self.setMouseTracking(True)
 
         width, height = app_config.get_influence_legend_size()
@@ -208,7 +226,30 @@ class _LegendPanel(QFrame):
             self._clamp(width, self._MIN_WIDTH, self._MAX_WIDTH),
             self._clamp(height, self._MIN_HEIGHT, self._MAX_HEIGHT),
         )
+        saved_pos = app_config.get_influence_legend_position()
+        self._user_positioned = saved_pos is not None
+        if saved_pos is not None:
+            self.move(*saved_pos)
         self.hide()
+
+    def has_custom_position(self):
+        """True once the user has dragged or resized the panel, meaning it
+        no longer tracks the default bottom-left anchor."""
+        return self._user_positioned
+
+    def clamp_to_parent(self):
+        """Keep the panel fully inside the parent view after a window resize."""
+        if self.parentWidget() is None:
+            return
+        self.move(self._clamp_point_to_parent(self.pos()))
+
+    def _clamp_point_to_parent(self, point):
+        parent = self.parentWidget()
+        if parent is None:
+            return point
+        max_x = max(0, parent.width() - self.width())
+        max_y = max(0, parent.height() - self.height())
+        return QPoint(self._clamp(point.x(), 0, max_x), self._clamp(point.y(), 0, max_y))
 
     def set_communities(self, rows, on_rename=None):
         while self._rows_layout.count():
@@ -230,65 +271,111 @@ class _LegendPanel(QFrame):
         self.show()
 
     # -----------------------
-    # Resize (top-right corner grip)
-    #
-    # The panel is anchored at its bottom-left (see
-    # InfluenceGraphView._reposition_legend), so growing it taller pushes the
-    # top edge up while the bottom stays put. The corner that actually
-    # tracks the cursor 1:1 during a drag is therefore top-right, not the
-    # more common bottom-right.
+    # Resize (drag any edge or corner) and move (drag the title bar)
     # -----------------------
-    def _grip_rect(self):
-        return QRect(self.width() - self._GRIP_SIZE, 0, self._GRIP_SIZE, self._GRIP_SIZE)
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        painter = QPainter(self)
-        painter.setPen(QPen(QColor(133, 153, 234, 140), 1))
-        grip = self._grip_rect()
-        for offset in (4, 8, 12):
-            painter.drawLine(
-                grip.right() - offset, grip.top(), grip.right(), grip.top() + offset
-            )
+    def _hit_test(self, pos):
+        m = self._EDGE_MARGIN
+        w, h = self.width(), self.height()
+        left = pos.x() <= m
+        right = pos.x() >= w - m
+        top = pos.y() <= m
+        bottom = pos.y() >= h - m
+        if top and left:
+            return "top-left"
+        if top and right:
+            return "top-right"
+        if bottom and left:
+            return "bottom-left"
+        if bottom and right:
+            return "bottom-right"
+        if left:
+            return "left"
+        if right:
+            return "right"
+        if top:
+            return "top"
+        if bottom:
+            return "bottom"
+        return ""
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self._grip_rect().contains(
-            event.position().toPoint()
-        ):
-            self._resizing = True
-            self._resize_start_pos = event.globalPosition()
-            self._resize_start_size = self.size()
-            event.accept()
-        else:
-            super().mousePressEvent(event)
+        if event.button() == Qt.LeftButton:
+            mode = self._hit_test(event.position().toPoint())
+            if mode:
+                self._resize_mode = mode
+                self._resize_start_pos = event.globalPosition()
+                self._resize_start_geom = self.geometry()
+                event.accept()
+                return
+        super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self._resizing:
-            delta = event.globalPosition() - self._resize_start_pos
-            new_width = self._clamp(
-                self._resize_start_size.width() + delta.x(), self._MIN_WIDTH, self._MAX_WIDTH
-            )
-            new_height = self._clamp(
-                self._resize_start_size.height() - delta.y(), self._MIN_HEIGHT, self._MAX_HEIGHT
-            )
-            self.resize(int(new_width), int(new_height))
-            if self._on_resize is not None:
-                self._on_resize()
+        if self._resize_mode:
+            self._apply_resize(event.globalPosition())
             event.accept()
-        elif self._grip_rect().contains(event.position().toPoint()):
-            self.setCursor(Qt.SizeBDiagCursor)
+            return
+        mode = self._hit_test(event.position().toPoint())
+        cursor = self._CURSOR_BY_MODE.get(mode)
+        if cursor is not None:
+            self.setCursor(cursor)
         else:
             self.unsetCursor()
-            super().mouseMoveEvent(event)
+        super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self._resizing and event.button() == Qt.LeftButton:
-            self._resizing = False
-            app_config.set_influence_legend_size(self.width(), self.height())
-            app_config.save()
+        if self._resize_mode and event.button() == Qt.LeftButton:
+            self._resize_mode = ""
+            self._persist_geometry()
             event.accept()
         else:
             super().mouseReleaseEvent(event)
+
+    def _apply_resize(self, global_pos):
+        start = self._resize_start_geom
+        delta = global_pos - self._resize_start_pos
+        x, y = start.x(), start.y()
+        width, height = start.width(), start.height()
+
+        if "left" in self._resize_mode:
+            width = self._clamp(start.width() - delta.x(), self._MIN_WIDTH, self._MAX_WIDTH)
+            x = start.x() + (start.width() - width)
+        elif "right" in self._resize_mode:
+            width = self._clamp(start.width() + delta.x(), self._MIN_WIDTH, self._MAX_WIDTH)
+
+        if "top" in self._resize_mode:
+            height = self._clamp(start.height() - delta.y(), self._MIN_HEIGHT, self._MAX_HEIGHT)
+            y = start.y() + (start.height() - height)
+        elif "bottom" in self._resize_mode:
+            height = self._clamp(start.height() + delta.y(), self._MIN_HEIGHT, self._MAX_HEIGHT)
+
+        self.setGeometry(int(x), int(y), int(width), int(height))
+        self._user_positioned = True
+        if self._on_interact is not None:
+            self._on_interact()
+
+    def eventFilter(self, obj, event):
+        if obj is self._title:
+            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                self._dragging = True
+                self._drag_start_pos = event.globalPosition()
+                self._drag_start_geom = self.geometry()
+                return True
+            if event.type() == QEvent.MouseMove and self._dragging:
+                delta = event.globalPosition() - self._drag_start_pos
+                new_pos = self._drag_start_geom.topLeft() + delta.toPoint()
+                self.move(self._clamp_point_to_parent(new_pos))
+                return True
+            if event.type() == QEvent.MouseButtonRelease and self._dragging:
+                self._dragging = False
+                self._user_positioned = True
+                self._persist_geometry()
+                return True
+        return super().eventFilter(obj, event)
+
+    def _persist_geometry(self):
+        app_config.set_influence_legend_size(self.width(), self.height())
+        app_config.set_influence_legend_position(self.x(), self.y())
+        app_config.save()
 
     @staticmethod
     def _clamp(value, minimum, maximum):
@@ -325,7 +412,7 @@ class InfluenceGraphView(QGraphicsView):
         self.setScene(self.scene)
         self._apply_theme_palette()
 
-        self._legend = _LegendPanel(self, on_resize=self._reposition_legend)
+        self._legend = _LegendPanel(self, on_interact=self._reposition_legend)
 
         # Force-directed layout timer
         self.force_layout_timer = QTimer()
@@ -496,8 +583,11 @@ class InfluenceGraphView(QGraphicsView):
         self._reposition_legend()
 
     def _reposition_legend(self):
-        margin = 14
-        self._legend.move(margin, self.height() - self._legend.height() - margin)
+        if self._legend.has_custom_position():
+            self._legend.clamp_to_parent()
+        else:
+            margin = 14
+            self._legend.move(margin, self.height() - self._legend.height() - margin)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
