@@ -89,6 +89,7 @@ class MusicPlayer(QObject):
         # ── Current track state ───────────────────────────────────────────────
         # We keep a SoundFile reader open instead of the whole array.
         self.current_file: Optional[Path] = None
+        self._resolved_file_path: Optional[Path] = None  # on-disk path for current_file
         self._sf_reader: Optional[object] = None  # soundfile.SoundFile
         self.current_sample_rate: int = 44100
         self.current_channels: int = 2
@@ -174,7 +175,18 @@ class MusicPlayer(QObject):
             logger.error("MusicPlayer: audio backend failed to initialize")
 
     def _start_reader_thread(self):
-        """Start background thread that decodes audio into the buffer."""
+        """Start background thread that decodes audio into the buffer.
+
+        No-op if a reader thread is already running for the current reader —
+        load_track() always starts one, and play() may call this again right
+        after (e.g. when it has to open a new device stream for a sample-rate/
+        channel change). Restarting here would orphan the already-running
+        thread (nothing ever stops it) and wipe out whatever it already
+        decoded without resetting _current_frame, silently dropping the start
+        of the track.
+        """
+        if self._reader_thread is not None and self._reader_thread.is_alive():
+            return
         self._reader_stop.clear()
         with self._buffer_lock:
             self._audio_buffer.clear()
@@ -251,26 +263,58 @@ class MusicPlayer(QObject):
                         chunk = reader.read(to_read, dtype="float32", always_2d=True)
                         self._current_frame += len(chunk)
                     except Exception:
-                        try:
-                            skip_to = self._current_frame + BLOCKSIZE
-                            if known_length:
-                                skip_to = min(skip_to, self._total_frames)
-                            reader.seek(skip_to)
-                            self._current_frame = skip_to
-                        except Exception as seek_exc:
-                            logger.error(
-                                f"Reader thread could not resync after decode error, "
-                                f"ending track: {seek_exc}"
-                            )
-                            # Can't recover — push an empty chunk so the callback's
-                            # short-read check signals track-finished once the
-                            # buffer drains, instead of hanging silently forever.
-                            if known_length:
-                                self._current_frame = self._total_frames
-                            chunk = np.zeros((0, self.current_channels), dtype="float32")
-                            unrecoverable = True
-                        else:
-                            continue
+                        # Same-handle retry also failed. If we're still at frame 0,
+                        # the handle itself is the likely culprit rather than a
+                        # transient decode hiccup — this is the common case for a
+                        # preloaded reader that was opened well before playback
+                        # started (only forward/skip-next swaps in a reader that was
+                        # preloaded ahead of time; going backward always opens a
+                        # fresh handle immediately before use, which is why this
+                        # failure mode only ever shows up going forward). Reopen a
+                        # brand new handle from disk and retry once more before
+                        # resorting to the destructive skip-forward below.
+                        recovered = False
+                        if self._current_frame == 0 and self._resolved_file_path is not None:
+                            try:
+                                fresh_reader = self.sf.SoundFile(
+                                    str(self._resolved_file_path), mode="r"
+                                )
+                                chunk = fresh_reader.read(
+                                    to_read, dtype="float32", always_2d=True
+                                )
+                                self._current_frame += len(chunk)
+                                try:
+                                    reader.close()
+                                except Exception:
+                                    pass
+                                reader = fresh_reader
+                                self._sf_reader = fresh_reader
+                                recovered = True
+                            except Exception as reopen_exc:
+                                logger.error(
+                                    f"Fresh reopen after decode error also failed: {reopen_exc}"
+                                )
+                        if not recovered:
+                            try:
+                                skip_to = self._current_frame + BLOCKSIZE
+                                if known_length:
+                                    skip_to = min(skip_to, self._total_frames)
+                                reader.seek(skip_to)
+                                self._current_frame = skip_to
+                            except Exception as seek_exc:
+                                logger.error(
+                                    f"Reader thread could not resync after decode error, "
+                                    f"ending track: {seek_exc}"
+                                )
+                                # Can't recover — push an empty chunk so the callback's
+                                # short-read check signals track-finished once the
+                                # buffer drains, instead of hanging silently forever.
+                                if known_length:
+                                    self._current_frame = self._total_frames
+                                chunk = np.zeros((0, self.current_channels), dtype="float32")
+                                unrecoverable = True
+                            else:
+                                continue
 
             with self._buffer_lock:
                 self._audio_buffer.append(chunk)
@@ -640,6 +684,7 @@ class MusicPlayer(QObject):
 
             logger.debug(f"file opened at {time.time()}")
             self.current_file = original_path
+            self._resolved_file_path = file_path
             self.current_format = file_path.suffix.lower()
             self.current_bit_depth = 32
             self._duration = int(new_frames / new_sr * 1000)
