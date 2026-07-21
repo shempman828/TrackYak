@@ -633,7 +633,9 @@ class ArtistView(QWidget):
         if not artist:
             return
 
-        dialog = SplitDBDialog(self.controller.split, "Artist", artist, self)
+        dialog = SplitDBDialog(
+            self.controller.split, "Artist", artist, self, get_helper=self.controller.get
+        )
         if dialog.exec_() == QDialog.Accepted:
             self.load_artists()
 
