@@ -26,7 +26,7 @@ ALBUM_FIELDS = {
     "MBID": FieldSpec(
         friendly="MusicBrainz ID",
         short="MBID",
-        tooltip="The MusicBrainz ID number for the release",
+        tooltip="The MusicBrainz release group ID for the album",
     ),
     "release_type": FieldSpec(
         friendly="Release Type",

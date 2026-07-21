@@ -44,6 +44,8 @@ from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 from src.metadata.metadata_artwork import ArtworkExtractor
 from src.metadata.metadata_writer import MetadataWriter
+from src.musicbrainz.musicbrainz_client import search_release_groups
+from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzMatchDialog
 
 
 # Fallback suggestions used if the controller can't supply distinct values
@@ -412,6 +414,16 @@ class AlbumEditor(QDialog):
         self._links_row = QHBoxLayout()
         self._links_row.setSpacing(8)
 
+        self.lookup_button = QPushButton("🎵 Look Up on MusicBrainz")
+        self.lookup_button.setToolTip(
+            "Search MusicBrainz release groups by album title/artist and fill "
+            "in blank fields (MBID, release type, live/compilation, release "
+            "date) from the selected match. Never overwrites fields you've "
+            "already filled in."
+        )
+        self.lookup_button.clicked.connect(self._lookup_musicbrainz)
+        self._links_row.addWidget(self.lookup_button)
+
         self._wiki_btn = None
         self._mb_btn = None
 
@@ -456,7 +468,7 @@ class AlbumEditor(QDialog):
 
         mbid = getattr(self.album, "MBID", None)
         if mbid:
-            mb_url = f"https://musicbrainz.org/release/{mbid}"
+            mb_url = f"https://musicbrainz.org/release-group/{mbid}"
             self._mb_btn = QPushButton("🎵 MusicBrainz")
             self._mb_btn.setToolTip(mb_url)
             self._mb_btn.clicked.connect(lambda: webbrowser.open(mb_url))
@@ -877,6 +889,72 @@ class AlbumEditor(QDialog):
 
         if cover_type == "front":
             self._load_album_cover()
+
+    # =========================================================================
+    # MusicBrainz lookup
+    # =========================================================================
+
+    def _lookup_musicbrainz(self):
+        title_widget = self.field_widgets.get("album_name")
+        album_name = (
+            title_widget.text().strip()
+            if isinstance(title_widget, QLineEdit)
+            else (self.album.album_name or "")
+        ).strip()
+        if not album_name:
+            QMessageBox.warning(
+                self, "MusicBrainz Lookup", "Enter an album title before looking it up."
+            )
+            return
+
+        artist_names = getattr(self.album, "album_artist_names", None)
+        if artist_names in (None, "Unknown Artist"):
+            artist_names = None
+
+        dialog = MusicBrainzMatchDialog(
+            entity_label=f"album '{album_name}'",
+            search_call=lambda: search_release_groups(album_name, artist_names),
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        enrichment = dialog.result_enrichment()
+        if enrichment:
+            self._apply_musicbrainz_enrichment(enrichment)
+
+    def _apply_musicbrainz_enrichment(self, enrichment: dict):
+        """Fill field widgets from a MusicBrainz enrichment dict, but only
+        where the widget is still at its blank/default state -- never
+        overwrites something the user already filled in or typed moments ago.
+
+        QSpinBox fields with no nullable wrapper (release_year/month/day)
+        default to their minimum when unset, per init_editable_widgets()'s
+        own convention -- so "still at minimum" is this codebase's existing
+        signal for "blank" on those fields.
+
+        QCheckBox fields (is_live/is_compilation) have no blank state at
+        all, so they fall back to the originally-loaded album's value being
+        None, combined with the widget still being unchecked -- applied
+        only when both hold, so a deliberate manual uncheck just before the
+        lookup is never clobbered.
+        """
+        for field_name, value in enrichment.items():
+            widget = self.field_widgets.get(field_name)
+            if widget is None:
+                continue
+            if isinstance(widget, QLineEdit):
+                if not widget.text().strip():
+                    widget.setText(str(value))
+            elif isinstance(widget, QSpinBox):
+                if widget.value() == widget.minimum():
+                    widget.setValue(int(value))
+            elif isinstance(widget, QCheckBox):
+                if (
+                    getattr(self.album, field_name, None) is None
+                    and not widget.isChecked()
+                ):
+                    widget.setChecked(bool(value))
 
     # =========================================================================
     # Save / refresh
