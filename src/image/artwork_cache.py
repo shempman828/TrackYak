@@ -158,6 +158,59 @@ class ArtworkCache:
         row = self._lookup_or_refresh(album, role)
         return row is not None and row["thumb_data"] is not None
 
+    def _peek_row(self, album, role: str) -> Tuple[bool, Optional[sqlite3.Row]]:
+        """Shared lookup for peek_has_art/peek_dimensions: consults only
+        the cache row and a cheap os.stat, never the audio file itself.
+        Returns (known, row). known=False means the answer requires a real
+        _refresh() (cache miss or stale mtime) - callers should hand the
+        album to a background has_art()/get_dimensions() call instead of
+        calling it inline. When known=True, row may still be None, which is
+        a confirmed "no art" (e.g. no embeddable track at all)."""
+        track = _pick_representative_track(album)
+        if track is None:
+            return True, None
+
+        try:
+            current_mtime = os.stat(track.track_file_path).st_mtime
+        except OSError:
+            return True, None
+
+        row = self._select(album.album_id, role)
+        if (
+            row is not None
+            and row["source_track_path"] == track.track_file_path
+            and row["source_mtime"] == current_mtime
+        ):
+            return True, row
+        return False, None
+
+    def peek_has_art(self, album, role: str = "front") -> Optional[bool]:
+        """Like has_art, but never reads/decodes the audio file. Returns
+        True/False when the cached row is confirmed still valid, or None
+        when the answer would require a real _refresh(). Callers on the UI
+        thread should use this to avoid blocking on extraction, and hand
+        anything that comes back None off to a background has_art()/
+        get_dimensions() call instead."""
+        known, row = self._peek_row(album, role)
+        if not known:
+            return None
+        return row is not None and row["thumb_data"] is not None
+
+    def peek_dimensions(
+        self, album, role: str = "front"
+    ) -> Tuple[bool, Optional[Tuple[int, int]]]:
+        """Like get_dimensions, but never reads/decodes the audio file.
+        Returns (known, dims). known=False means resolving this requires a
+        real get_dimensions() call off the UI thread; when known=True,
+        dims is (width, height) or None if there's confirmed to be no art
+        for this role."""
+        known, row = self._peek_row(album, role)
+        if not known:
+            return False, None
+        if row is None or row["width"] is None:
+            return True, None
+        return True, (row["width"], row["height"])
+
     def store(self, album, role: str, image_bytes: Optional[bytes]) -> None:
         """Directly populate the cache for album/role from image_bytes the
         caller already has in hand (e.g. right after the editor embeds new
