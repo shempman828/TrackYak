@@ -209,11 +209,17 @@ class ConfigDialog(QDialog):
         self.crossfade_check = QCheckBox("Crossfade between tracks")
         layout.addRow("", self.crossfade_check)
 
-        # Fade duration
-        self.fade_spin = QSpinBox()
-        self.fade_spin.setRange(0, 10)
-        self.fade_spin.setSuffix(" seconds")
-        layout.addRow("Fade Duration:", self.fade_spin)
+        # Fade duration (0.0-10.0 seconds, 0.1s steps)
+        fade_layout = QHBoxLayout()
+        self.fade_slider = QSlider(Qt.Horizontal)
+        self.fade_slider.setRange(0, 100)
+        self.fade_label = QLabel("0.0s")
+        self.fade_slider.valueChanged.connect(
+            lambda v: self.fade_label.setText(f"{v / 10:.1f}s")
+        )
+        fade_layout.addWidget(self.fade_slider)
+        fade_layout.addWidget(self.fade_label)
+        layout.addRow("Fade Duration:", fade_layout)
 
         # Queue persistence
         self.queue_persist_check = QCheckBox("Remember queue between sessions")
@@ -485,7 +491,9 @@ class ConfigDialog(QDialog):
 
             self.shuffle_check.setChecked(self.config.get_shuffle())
             self.crossfade_check.setChecked(self.config.get_crossfade())
-            self.fade_spin.setValue(self.config.get_fade_duration())
+            fade_duration = self.config.get_fade_duration()
+            self.fade_slider.setValue(round(fade_duration * 10))
+            self.fade_label.setText(f"{fade_duration:.1f}s")
 
             # Queue persistence
             self.queue_persist_check.setChecked(
@@ -625,11 +633,12 @@ class ConfigDialog(QDialog):
 
             self.config.set_shuffle(self.shuffle_check.isChecked())
             self.config.set_crossfade(self.crossfade_check.isChecked())
-            self.config.set_fade_duration(self.fade_spin.value())
+            fade_duration = self.fade_slider.value() / 10
+            self.config.set_fade_duration(fade_duration)
 
             if self.music_player is not None:
                 self.music_player.enable_crossfade(self.crossfade_check.isChecked())
-                self.music_player.set_crossfade_duration(self.fade_spin.value() * 1000)
+                self.music_player.set_crossfade_duration(round(fade_duration * 1000))
 
             # Queue persistence
             self.config.config.set(
