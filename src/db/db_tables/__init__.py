@@ -36,6 +36,7 @@ from src.db.db_tables.playlist import (
     SmartPlaylistCriteria,
 )
 from src.db.db_tables.publisher import Publisher, PublisherAlias
+from src.db.db_tables.religion import Religion
 from src.db.db_tables.role import Role
 from src.db.db_tables.track import Samples, Track, TrackUsage
 
@@ -66,6 +67,7 @@ __all__ = [
     "MoodTrackAssociation",
     "Publisher",
     "PublisherAlias",
+    "Religion",
     "Place",
     "PlaceAssociation",
     "PlaceAssociationType",
