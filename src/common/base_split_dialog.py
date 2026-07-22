@@ -111,6 +111,7 @@ class SplitDBDialog(QDialog):
 
         # List of splits
         self.split_list = QListWidget()
+        self.split_list.setObjectName("splitList")
         layout.addWidget(self.split_list)
 
         # Prefill rows with suggested split names based on common delimiters
