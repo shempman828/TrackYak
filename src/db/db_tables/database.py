@@ -59,6 +59,7 @@ class MusicDatabase:
                 "artist_types",
                 "artist_type_associations",
                 "genres",
+                "religions",
                 "moods",
                 "publishers",
                 "places",
