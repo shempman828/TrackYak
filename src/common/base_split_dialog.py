@@ -363,12 +363,6 @@ class SplitDBDialog(QDialog):
                 split_attributes,
             )
 
-            # Show success message
-            QMessageBox.information(
-                self,
-                "Split Successful",
-                f"Successfully split into {len(names)} new entities.",
-            )
             logger.info(
                 f"Split {self.model_name} (id={entity_id}) into {len(names)} new entities: {names}"
             )
