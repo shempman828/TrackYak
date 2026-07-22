@@ -25,7 +25,9 @@ from PySide6.QtWidgets import (
 
 from src.artist.artist_edit_types import ArtistTypesWidget
 from src.artist.artist_image_manager import move_to_artist_images_dir
+from src.artist.religion_manager import ReligionManagerDialog
 from src.common.edit_dirty import value_changed
+from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
 from src.core.logger_config import logger
 from src.image.pixmap_with_fallback import load_pixmap_with_fallback
 
@@ -101,6 +103,17 @@ class BasicTab(QWidget):
         self.gender_combo.addItems(GENDERS)
         self._gender_label = QLabel("Gender:")
         form.addRow(self._gender_label, self.gender_combo)
+
+        religion_row = QHBoxLayout()
+        self.religion_edit = EntityCompleterEdit("Search or add a religion…")
+        religion_row.addWidget(self.religion_edit, 1)
+        self.religion_manage_btn = QPushButton("Manage…")
+        self.religion_manage_btn.setFlat(True)
+        self.religion_manage_btn.setToolTip("Rename, delete, or set parent religions")
+        self.religion_manage_btn.clicked.connect(self._open_religion_manager)
+        religion_row.addWidget(self.religion_manage_btn)
+        form.addRow("Religion:", religion_row)
+        self._refresh_religion_index()
 
         return grp
 
@@ -240,10 +253,44 @@ class BasicTab(QWidget):
         pic_layout.addStretch()
         return pic_grp
 
+    def _refresh_religion_index(self):
+        try:
+            self._known_religions = self.controller.get.get_all_entities("Religion") or []
+        except Exception as e:
+            logger.warning(f"Could not fetch Religion for completer: {e}")
+            self._known_religions = []
+        index = {
+            r.religion_name: r.religion_id for r in self._known_religions if r.religion_name
+        }
+        self.religion_edit.set_index(index)
+
+    def _open_religion_manager(self):
+        dialog = ReligionManagerDialog(self.controller, self)
+        dialog.exec()
+        self._refresh_religion_index()
+
+    def _resolve_religion_id(self):
+        """Resolve the religion text field to an id, creating a new Religion
+        row if the typed name doesn't match an existing one (mirrors the
+        gender/types find-or-create pattern used elsewhere in this tab)."""
+        name = self.religion_edit.text().strip()
+        if not name:
+            return None
+
+        matched_id = self.religion_edit.matched_id()
+        if matched_id is not None:
+            return matched_id
+
+        entity = find_or_create_by_name(
+            self.controller, "Religion", "religion_name", name, self._known_religions
+        )
+        return entity.religion_id if entity else None
+
     def load(self, artist):
         self.artist = artist
         self.name_edit.setText(artist.artist_name or "")
         self.types_widget.load(artist)
+        self.religion_edit.setText(artist.religion.religion_name if artist.religion else "")
 
         is_group = bool(artist.isgroup)
         self.isgroup_check.blockSignals(True)
@@ -297,6 +344,7 @@ class BasicTab(QWidget):
             artist_name=self.name_edit.text().strip(),
             isgroup=1 if self.isgroup_check.isChecked() else 0,
             gender=self.gender_combo.currentText() or None,
+            religion_id=self._resolve_religion_id(),
             begin_year=self.begin_year_edit.get_value_or_none(),
             begin_month=self.begin_month_edit.get_value_or_none(),
             begin_day=self.begin_day_edit.get_value_or_none(),
