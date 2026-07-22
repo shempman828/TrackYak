@@ -728,12 +728,24 @@ class AlbumView(QWidget):
         re-sort + widget rebuild per album."""
         if not self._art_batch and not self._art_needs_resort:
             return
+        prev_visible_ids = [
+            getattr(a, "album_id", None) for a in self.filtered_albums[: self.display_count]
+        ]
         if self._art_batch:
             self.filtered_albums.extend(self._art_batch)
             self._art_batch.clear()
         self._art_needs_resort = False
         self._sort_filtered()
         self._update_stats()
+        new_visible_ids = [
+            getattr(a, "album_id", None) for a in self.filtered_albums[: self.display_count]
+        ]
+        if new_visible_ids == prev_visible_ids:
+            # Nothing about the currently visible slice moved - e.g. the
+            # newly-resolved album sorts below the display cutoff. Its
+            # widget will appear on its own via _append_more_album_widgets
+            # once the user scrolls to it, so there's nothing to redraw.
+            return
         self._refresh_album_widgets()
         QTimer.singleShot(100, self._check_viewport_fill)
 
