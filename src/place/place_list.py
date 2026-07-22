@@ -96,6 +96,7 @@ class ListView(QWidget):
         super().__init__()
         self.controller = controller
         self.parent_view = None
+        self.sort_mode = "alphabetical"
         self.init_ui()
 
     def set_parent_view(self, parent_view):
@@ -112,6 +113,13 @@ class ListView(QWidget):
         control_layout.addWidget(self.add_button)
         control_layout.addStretch()
 
+        self.sort_toggle_button = QPushButton("Sort: A-Z")
+        self.sort_toggle_button.setToolTip(
+            "Toggle sorting between alphabetical and total association count"
+        )
+        self.sort_toggle_button.clicked.connect(self.toggle_sort_mode)
+        control_layout.addWidget(self.sort_toggle_button)
+
         # tree widget with proper selection styling
         self.tree_widget = DraggableTreeWidget(self)
         self.tree_widget.setHeaderHidden(True)
@@ -127,6 +135,16 @@ class ListView(QWidget):
 
         main_layout.addLayout(control_layout)
         main_layout.addWidget(self.tree_widget)
+
+    def toggle_sort_mode(self):
+        """Toggle place list sorting between alphabetical and recursive association count."""
+        if self.sort_mode == "alphabetical":
+            self.sort_mode = "associations"
+            self.sort_toggle_button.setText("Sort: Most Associations")
+        else:
+            self.sort_mode = "alphabetical"
+            self.sort_toggle_button.setText("Sort: A-Z")
+        self.load_places()
 
     def load_places(self):
         """Load places into the tree with hierarchical indentation."""
@@ -170,7 +188,7 @@ class ListView(QWidget):
         menu.exec_(self.tree_widget.viewport().mapToGlobal(position))
 
     def _build_hierarchy(self, places):
-        """Build a dictionary of parent-child relationships, each level sorted alphabetically."""
+        """Build a dictionary of parent-child relationships, each level sorted per self.sort_mode."""
         hierarchy = {}
         for place in places:
             parent_id = place.parent_id
@@ -179,7 +197,15 @@ class ListView(QWidget):
             hierarchy[parent_id].append(place)
 
         for children in hierarchy.values():
-            children.sort(key=lambda p: (p.place_name or "").lower())
+            if self.sort_mode == "associations":
+                children.sort(
+                    key=lambda p: (
+                        -p.recursive_association_count,
+                        (p.place_name or "").lower(),
+                    )
+                )
+            else:
+                children.sort(key=lambda p: (p.place_name or "").lower())
 
         return hierarchy
 
