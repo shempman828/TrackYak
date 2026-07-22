@@ -548,20 +548,6 @@ class MergeDBDialog(QDialog):
 
     def _build_conflict_ui(self):
         """Conflict resolution UI with radio buttons."""
-        # Confirm before proceeding to conflict resolution
-        reply = QMessageBox.question(
-            self,
-            "Confirm Merge",
-            f"Merge '{getattr(self.source_entity, self.name_attr)}' into "
-            f"'{getattr(self.target_entity, self.name_attr)}'?\n\n"
-            f"You will now resolve conflicts between the two entries.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes,
-        )
-
-        if reply != QMessageBox.Yes:
-            return
-
         resolve_page = QWidget()
         layout = QVBoxLayout(resolve_page)
 
