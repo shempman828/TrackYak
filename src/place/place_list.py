@@ -321,9 +321,12 @@ class ListView(QWidget):
             if not new_place:
                 raise ValueError("Failed to create new place")
 
-            self.controller.update.update_entity(
-                "Place", new_place.place_id, parent_id=place.parent_id
-            )
+            if new_place_data["parent_id"] is None:
+                # User didn't pick a parent for the new place in the
+                # dialog, so default to preserving the grandparent chain.
+                self.controller.update.update_entity(
+                    "Place", new_place.place_id, parent_id=place.parent_id
+                )
             self.controller.update.update_entity(
                 "Place", place.place_id, parent_id=new_place.place_id
             )
