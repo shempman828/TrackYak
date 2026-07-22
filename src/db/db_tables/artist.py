@@ -30,7 +30,11 @@ class Artist(Base):
     profile_pic_path = Column(String)
     wikipedia_link = Column(String)
     website_link = Column(String)
+    religion_id = Column(
+        Integer, ForeignKey("religions.religion_id", ondelete="SET NULL")
+    )
 
+    religion = relationship("Religion", back_populates="artists")
     aliases = relationship(
         "ArtistAlias",
         back_populates="artist",
