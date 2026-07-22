@@ -716,7 +716,9 @@ class MergeDBDialog(QDialog):
         return conflicts
 
     def _on_merge(self):
-        """Final execution of the merge with confirmation."""
+        """Confirm, then execute the merge. Subclasses that show their own
+        confirmation should call `_execute_merge()` directly instead of
+        overriding this, to avoid a double confirmation prompt."""
 
         reply = QMessageBox.question(
             self,
@@ -734,6 +736,10 @@ class MergeDBDialog(QDialog):
         if reply != QMessageBox.Yes:
             return
 
+        self._execute_merge()
+
+    def _execute_merge(self):
+        """Run the merge without any confirmation prompt of its own."""
         try:
             # Build a dictionary of the user's chosen values.
             # Do NOT modify the ORM objects here.
