@@ -181,6 +181,14 @@ QTreeView::item {
     color: #b8c0f0;
 }
 
+/* Split dialog rows host a QLineEdit that already supplies its own padding
+   and border; the item padding above stacks on top of it and squeezes the
+   row height, clipping the artist name text. */
+QListWidget#splitList::item {
+    padding: 0;
+    border-radius: 0;
+}
+
 QListView::item:hover,
 QTreeView::item:hover {
     background-color: rgba(234, 133, 153, 0.12);

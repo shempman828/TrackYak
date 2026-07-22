@@ -130,6 +130,14 @@ QListWidget::item, QTreeWidget::item {
     border-radius: 4px;
 }
 
+/* Split dialog rows host a QLineEdit that already supplies its own padding
+   and border; the generic item padding above stacks on top of it and
+   squeezes the row height, clipping the artist name text. */
+QListWidget#splitList::item {
+    padding: 0;
+    border-radius: 0;
+}
+
 QListWidget::item:hover,
 QTreeWidget::item:hover {
     background-color: #ea8599;
