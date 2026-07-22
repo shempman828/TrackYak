@@ -101,7 +101,7 @@ class PlaceEditDialog(QDialog):
         try:
             query = f"{place_name}, {region}" if region else place_name
             locations = self.geolocator.geocode(
-                query, exactly_one=False, limit=5
+                query, exactly_one=False, limit=5, language="en"
             )  # Get up to 5 results
 
             if locations:
