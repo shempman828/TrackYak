@@ -1,7 +1,6 @@
 from geopy import Nominatim
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
 from PySide6.QtWidgets import (
-    QCompleter,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -11,6 +10,7 @@ from PySide6.QtWidgets import (
     QPushButton,
 )
 
+from src.common.entity_completer_edit import EntityCompleterEdit
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.place.place_search_dialog import SearchResultsDialog
@@ -36,7 +36,7 @@ class PlaceEditDialog(QDialog):
         self.lat_edit = QLineEdit()
         self.lon_edit = QLineEdit()
         self.desc_edit = QLineEdit()
-        self.parent_edit = QLineEdit()
+        self.parent_edit = EntityCompleterEdit("Search places…")
         self.region_edit = QLineEdit()
 
         # Add search buttons
@@ -45,11 +45,18 @@ class PlaceEditDialog(QDialog):
         self.search_coord_button.clicked.connect(self.search_coordinates)
         search_layout.addWidget(self.search_coord_button)
 
-        # Setup autocompletion for parent_edit
+        # Setup autocompletion for parent_edit. Keying on place_name locks
+        # in the selected place_id when a completion is picked, so save-time
+        # doesn't have to re-resolve the parent by a name that could collide
+        # with another place or no longer exist.
         places = self.controller.get.get_all_entities("Place")
-        place_names = [p.place_name for p in places]
-        self.parent_completer = QCompleter(place_names)
-        self.parent_edit.setCompleter(self.parent_completer)
+        parent_index = {p.place_name: p.place_id for p in places if p.place_name}
+        self.parent_edit.set_index(parent_index)
+        # EntityCompleterEdit claims Enter/Return for its own use (see its
+        # docstring) instead of letting it reach the dialog's default
+        # button -- reconnect it here so Enter still submits this form like
+        # every other field does via QDialogButtonBox.
+        self.parent_edit.returnPressed.connect(self.validate_and_accept)
 
         # Populate if editing
         if self.place:
@@ -125,11 +132,17 @@ class PlaceEditDialog(QDialog):
         parent_id = None
 
         if parent_name:
-            # Look up the parent_id from the parent place name
-            parent_object = self.controller.get.get_entity_object(
-                "Place", place_name=parent_name
-            )
-            parent_id = parent_object.place_id if parent_object else None
+            # Prefer the id locked in when the user picked a completion --
+            # avoids re-resolving by name (ambiguous with same-named places)
+            # or missing a place created after this dialog's index was
+            # built. Falls back to a name lookup for the edit-mode prefill,
+            # which sets the text directly and never locks an id.
+            parent_id = self.parent_edit.matched_id()
+            if parent_id is None:
+                parent_object = self.controller.get.get_entity_object(
+                    "Place", place_name=parent_name
+                )
+                parent_id = parent_object.place_id if parent_object else None
             if not parent_id:
                 QMessageBox.warning(
                     self, "Invalid Parent", f"Parent place '{parent_name}' not found."
