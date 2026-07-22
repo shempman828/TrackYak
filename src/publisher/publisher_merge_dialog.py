@@ -113,5 +113,6 @@ class PublisherMergeDialog(MergeDBDialog):
             )
 
         if reply == QMessageBox.Yes:
-            # Call parent merge logic
-            super()._on_merge()
+            # Call parent merge logic, skipping its generic confirmation
+            # since we've already shown a publisher-specific one above.
+            super()._execute_merge()
