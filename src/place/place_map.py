@@ -366,7 +366,7 @@ class MapView(QWidget):
 
     def _create_markers_js(self, places: List[Dict]) -> str:
         """Create JavaScript code for map markers with dynamic coloring."""
-        markers_js = ""
+        marker_chunks = []
         for place in places:
             # Use the new dynamic color helper
             marker_color = self._get_color_for_type(place.get("type", ""))
@@ -381,30 +381,30 @@ class MapView(QWidget):
             # Escape single quotes in the tooltip name so they don't break the JS string
             tooltip_name = place["name"].replace("'", "\\'")
 
-            markers_js += f"""
-                L.marker([{place["lat"]}, {place["lon"]}], {{
+            marker_chunks.append(f"""
+                markerClusterGroup.addLayer(L.marker([{place["lat"]}, {place["lon"]}], {{
                     icon: L.divIcon({{
                         className: 'custom-div-icon',
                         html: '<div style="background-color: {marker_color}; width: 18px; height: 18px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.5);"></div>',
                         iconSize: [18, 18],
                         iconAnchor: [9, 9]
                     }})
-                }}).addTo(map)
+                }})
                 .bindPopup(`{popup_content_escaped}`)
-                .bindTooltip('{tooltip_name}');
-                """
-        return markers_js
+                .bindTooltip('{tooltip_name}'));
+                """)
+        return "".join(marker_chunks)
 
     def _create_bounds_js(self, places: List[Dict]) -> str:
         """Create JavaScript code for map bounds."""
         if not places:
             return ""
 
-        bounds_js = "var bounds = L.latLngBounds([\n"
+        bounds_chunks = ["var bounds = L.latLngBounds([\n"]
         for place in places:
-            bounds_js += f"    [{place['lat']}, {place['lon']}],\n"
-        bounds_js += "]);\nmap.fitBounds(bounds, { padding: [20, 20] });"
-        return bounds_js
+            bounds_chunks.append(f"    [{place['lat']}, {place['lon']}],\n")
+        bounds_chunks.append("]);\nmap.fitBounds(bounds, { padding: [20, 20] });")
+        return "".join(bounds_chunks)
 
     def _get_fallback_template(self) -> str:
         """Get a fallback HTML template if file is not found."""
@@ -420,6 +420,9 @@ class MapView(QWidget):
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
             integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
             crossorigin=""></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
     <style>
         body { margin: 0; padding: 0; }
@@ -440,12 +443,14 @@ class MapView(QWidget):
                 }}));
             }}
         }};
-        var map = L.map('map').setView([{center_lat}, {center_lon}], {zoom});
+        var map = L.map('map', {{ worldCopyJump: true }}).setView([{center_lat}, {center_lon}], {zoom});
         L.tileLayer('https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
             attribution: '© OpenStreetMap, © CARTO',
             maxZoom: 18
         }}).addTo(map);
+        var markerClusterGroup = L.markerClusterGroup();
         {markers_js}
+        map.addLayer(markerClusterGroup);
         {bounds_js}
     </script>
 </body>
