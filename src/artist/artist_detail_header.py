@@ -207,10 +207,22 @@ class HeaderWidget(QWidget):
         title_col = QVBoxLayout()
         title_col.setSpacing(8)
 
+        name_row = QHBoxLayout()
+        name_row.setSpacing(8)
+
         self.name_label = QLabel(self.artist.artist_name)
         self.name_label.setObjectName("ArtistName")
         self.name_label.setWordWrap(True)
-        title_col.addWidget(self.name_label)
+        name_row.addWidget(self.name_label)
+
+        career_span = getattr(self.artist, "career_span", None)
+        if career_span:
+            self.years_label = QLabel(f"({career_span})")
+            self.years_label.setObjectName("ArtistYears")
+            name_row.addWidget(self.years_label)
+
+        name_row.addStretch()
+        title_col.addLayout(name_row)
 
         aliases = getattr(self.artist, "aliases_list", []) or []
         if aliases:
