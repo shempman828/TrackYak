@@ -91,7 +91,7 @@ class PublisherView(QWidget):
                 menu.addAction(rename_action)
 
                 edit_action = QAction("Edit Publisher", self)
-                edit_action.triggered.connect(lambda: self.on_publisher_selected(item))
+                edit_action.triggered.connect(lambda: self._edit_publisher(item))
                 menu.addAction(edit_action)
 
                 merge_action = QAction("Merge Publisher...", self)
@@ -236,6 +236,21 @@ class PublisherView(QWidget):
 
         except Exception as e:
             logger.error(f"Error in _split_publisher(): {e}", exc_info=True)
+
+    def _edit_publisher(self, item):
+        """Open the edit dialog for the selected publisher."""
+        publisher_id = item.data(0, Qt.UserRole)
+        publisher = self.controller.get.get_entity_object(
+            "Publisher", publisher_id=publisher_id
+        )
+        if not publisher:
+            show_status_message(self, "The selected publisher no longer exists.")
+            return
+
+        dialog = PublisherEditDialog(self.controller, publisher=publisher, parent=self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.load_publishers()
+            self.detail_tab.load_publisher_data(publisher_id)
 
     def create_new_parent_publisher(self, item):
         """Create a new publisher and insert it as the parent of the given publisher.
