@@ -2,6 +2,7 @@ from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
 
 from src.album.base_album_widget import ScrollableAlbumFlow
 from src.core.logger_config import logger
+from src.publisher.publisher_hierarchy import get_publisher_albums
 
 
 class PublisherAlbumsWindow(QDialog):
@@ -27,16 +28,9 @@ class PublisherAlbumsWindow(QDialog):
 
     def _load_albums(self):
         try:
-            album_links = self.controller.get.get_entity_links(
-                "AlbumPublisher", publisher_id=self.publisher.publisher_id
+            albums = get_publisher_albums(
+                self.controller, self.publisher.publisher_id
             )
-            albums = []
-            for link in album_links:
-                album = self.controller.get.get_entity_object(
-                    "Album", album_id=link.album_id
-                )
-                if album:
-                    albums.append(album)
 
             self.flow.set_albums(albums)
             count = len(albums)
