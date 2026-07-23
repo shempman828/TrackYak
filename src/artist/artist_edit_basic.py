@@ -57,6 +57,7 @@ class BasicTab(QWidget):
         self.controller = controller
         self.artist = artist
         self._wiki_link = ""  # Read from the artist record; never set from here
+        self._mb_link = ""  # Read from the artist record; never set from here
         self._pic_path = ""  # Stores the current profile picture path
         self._settings = QSettings()
         self._build_ui()
@@ -223,6 +224,15 @@ class BasicTab(QWidget):
 
         v.addLayout(wiki_box)
 
+        mb_box = QHBoxLayout()
+        self.mb_open_btn = QPushButton("🎵 Open in MusicBrainz")
+        self.mb_open_btn.setToolTip("Open the MusicBrainz artist page in your browser")
+        self.mb_open_btn.clicked.connect(self._open_mb_link)
+        mb_box.addWidget(self.mb_open_btn)
+        mb_box.addStretch()
+
+        v.addLayout(mb_box)
+
         # Hidden entirely until load() finds a link on the artist record
         grp.setVisible(False)
         return grp
@@ -335,7 +345,13 @@ class BasicTab(QWidget):
         # Wikipedia link is read-only here: display if present, otherwise
         # hide the section entirely. Nothing in this tab ever writes it.
         self._wiki_link = getattr(artist, "wikipedia_url", None) or ""
-        self._links_group.setVisible(bool(self._wiki_link))
+        self.wiki_open_btn.setVisible(bool(self._wiki_link))
+
+        mbid = getattr(artist, "MBID", None)
+        self._mb_link = f"https://musicbrainz.org/artist/{mbid}" if mbid else ""
+        self.mb_open_btn.setVisible(bool(self._mb_link))
+
+        self._links_group.setVisible(bool(self._wiki_link or self._mb_link))
 
     def collect_changes(self):
         """Return a dict of only the basic fields whose value actually
@@ -466,6 +482,10 @@ class BasicTab(QWidget):
     def _open_wiki_link(self):
         if self._wiki_link:
             QDesktopServices.openUrl(QUrl(self._wiki_link))
+
+    def _open_mb_link(self):
+        if self._mb_link:
+            QDesktopServices.openUrl(QUrl(self._mb_link))
 
 
 class SegmentedToggle(QWidget):
