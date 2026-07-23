@@ -10,6 +10,9 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
             integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
             crossorigin=""></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
     <!-- Add QWebChannel support -->
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
     <style>
@@ -76,6 +79,19 @@
         .custom-div-icon {
             background: transparent;
             border: none;
+        }
+
+        /* Cluster bubbles tinted to match the theme accent color */
+        .marker-cluster-small,
+        .marker-cluster-medium,
+        .marker-cluster-large {
+            background-color: rgba(133, 153, 234, 0.35);
+        }
+        .marker-cluster-small div,
+        .marker-cluster-medium div,
+        .marker-cluster-large div {
+            background-color: rgba(133, 153, 234, 0.75);
+            color: #ffffff;
         }
 
         /* Enhanced zoom controls */
@@ -148,8 +164,11 @@
             }
         };
 
-        // Initialize the map
-        var map = L.map('map').setView([{center_lat}, {center_lon}], {zoom});
+        // Initialize the map. worldCopyJump keeps markers in sync with the
+        // tile layer's repeating world copies — without it, panning far
+        // enough left/right shows a repeated copy of the map but markers
+        // (which only exist at their original longitude) disappear.
+        var map = L.map('map', { worldCopyJump: true }).setView([{center_lat}, {center_lon}], {zoom});
 
         // Add dark mode tile layer (CartoDB Dark Matter)
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
@@ -158,8 +177,17 @@
             subdomains: 'abcd'
         }).addTo(map);
 
+        // Group markers into clusters so large numbers of places render
+        // and pan/zoom smoothly instead of drawing every pin individually
+        var markerClusterGroup = L.markerClusterGroup({
+            maxClusterRadius: 50,
+            spiderfyOnMaxZoom: true,
+            showCoverageOnHover: false
+        });
+
         // Add markers
         {markers_js}
+        map.addLayer(markerClusterGroup);
 
         // Fit bounds to show all markers if we have any
         {bounds_js}
