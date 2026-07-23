@@ -8,6 +8,7 @@ from src.db.db_tables import (
     Genre,
     Mood,
     MoodTrackAssociation,
+    Publisher,
     Track,
     TrackArtistRole,
     TrackGenre,
@@ -60,7 +61,7 @@ class MusicStatistics:
             leaderboards_data = self._get_leaderboards(session)
             stats["leaderboards"] = leaderboards_data
 
-            # Metadata completeness — 4 axes using is_fixed / is_complete flags
+            # Metadata completeness — 5 axes using is_fixed / is_complete flags
             completeness_stats = self._get_metadata_completeness(
                 session, total_tracks, total_artists, total_albums
             )
@@ -189,11 +190,12 @@ class MusicStatistics:
     ):
         """Calculate metadata completeness using is_fixed flags.
 
-        Four axes:
-          - tracks:  tracks with is_fixed == 1
-          - artists: artists with is_fixed == 1
-          - albums:  albums  with is_fixed == 1
-          - total:   average of the three percentages above
+        Five axes:
+          - tracks:     tracks with is_fixed == 1
+          - artists:    artists with is_fixed == 1
+          - albums:     albums  with is_fixed == 1
+          - publishers: publishers with is_fixed == 1
+          - total:      average of the four percentages above
         """
         if total_tracks is None:
             total_tracks = session.query(func.count(Track.track_id)).scalar() or 0
@@ -201,12 +203,21 @@ class MusicStatistics:
             total_artists = session.query(func.count(Artist.artist_id)).scalar() or 0
         if total_albums is None:
             total_albums = session.query(func.count(Album.album_id)).scalar() or 0
+        total_publishers = (
+            session.query(func.count(Publisher.publisher_id)).scalar() or 0
+        )
 
-        if total_tracks == 0 and total_artists == 0 and total_albums == 0:
+        if (
+            total_tracks == 0
+            and total_artists == 0
+            and total_albums == 0
+            and total_publishers == 0
+        ):
             return {
                 "tracks_complete": 0.0,
                 "artists_complete": 0.0,
                 "albums_complete": 0.0,
+                "publishers_complete": 0.0,
                 "total_complete": 0.0,
             }
 
@@ -228,6 +239,12 @@ class MusicStatistics:
             .scalar()
             or 0
         )
+        fixed_publishers = (
+            session.query(func.count(Publisher.publisher_id))
+            .filter(Publisher.is_fixed == 1)
+            .scalar()
+            or 0
+        )
 
         tracks_pct = round(
             (fixed_tracks / total_tracks * 100) if total_tracks else 0, 1
@@ -238,12 +255,18 @@ class MusicStatistics:
         albums_pct = round(
             (fixed_albums / total_albums * 100) if total_albums else 0, 1
         )
-        total_pct = round((tracks_pct + artists_pct + albums_pct) / 3, 1)
+        publishers_pct = round(
+            (fixed_publishers / total_publishers * 100) if total_publishers else 0, 1
+        )
+        total_pct = round(
+            (tracks_pct + artists_pct + albums_pct + publishers_pct) / 4, 1
+        )
 
         return {
             "tracks_complete": tracks_pct,
             "artists_complete": artists_pct,
             "albums_complete": albums_pct,
+            "publishers_complete": publishers_pct,
             "total_complete": total_pct,
         }
 
