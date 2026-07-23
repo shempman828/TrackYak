@@ -201,7 +201,10 @@ class PublisherDetailTab(QWidget):
 
     def _display_publisher_info(self, publisher):
         """Update publisher information display."""
-        self.name_label.setText(publisher.publisher_name)
+        if publisher.is_fixed:
+            self.name_label.setText(f"{publisher.publisher_name} ✓")
+        else:
+            self.name_label.setText(publisher.publisher_name)
 
         # Status and years
         status = "Active" if publisher.is_active == 1 else "Inactive"
