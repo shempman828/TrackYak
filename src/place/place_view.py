@@ -60,7 +60,8 @@ class PlaceView(QWidget):
         self.map_button.setEnabled(False)
         self.list_button.setEnabled(True)
         if self._map_dirty:
-            self.map_view.load_places()
+            # refresh_place_types() already calls load_places() internally,
+            # so calling both here would rebuild the map twice.
             self.map_view.refresh_place_types()
             self._map_dirty = False
 
@@ -76,7 +77,8 @@ class PlaceView(QWidget):
         self.current_places = self.controller.get.get_all_entities("Place")
         self.list_view.load_places()
         if self.stacked_widget.currentIndex() == 0:
-            self.map_view.load_places()
+            # refresh_place_types() already calls load_places() internally,
+            # so calling both here would rebuild the map twice.
             self.map_view.refresh_place_types()
             self._map_dirty = False
         else:
