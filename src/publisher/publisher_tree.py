@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QTreeWidgetItemIterator,
 )
 
+from src.core.asset_paths import icon
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.db.db_tables import AlbumPublisher
@@ -70,6 +71,8 @@ class PublisherTreeWidget(QTreeWidget):
             album_count = recursive_counts.get(publisher.publisher_id, 0)
             item = QTreeWidgetItem()
             item.setText(0, publisher.publisher_name)
+            if publisher.is_fixed:
+                item.setIcon(0, icon("checkmark.svg"))
             item.setFlags(item.flags() | Qt.ItemIsEditable)
             item.setData(1, Qt.DisplayRole, album_count)
             item.setData(0, Qt.UserRole, publisher.publisher_id)
