@@ -139,11 +139,17 @@ class MusicStatsDialog(QDialog):
         completeness_layout.addWidget(self.albums_completeness_progress, 2, 1)
         completeness_layout.addWidget(self.albums_completeness_label, 2, 2)
 
-        completeness_layout.addWidget(QLabel("Overall:"), 3, 0)
+        completeness_layout.addWidget(QLabel("Publishers:"), 3, 0)
+        self.publishers_completeness_progress = QProgressBar()
+        self.publishers_completeness_label = QLabel("0%")
+        completeness_layout.addWidget(self.publishers_completeness_progress, 3, 1)
+        completeness_layout.addWidget(self.publishers_completeness_label, 3, 2)
+
+        completeness_layout.addWidget(QLabel("Overall:"), 4, 0)
         self.overall_completeness_progress = QProgressBar()
         self.overall_completeness_label = QLabel("0%")
-        completeness_layout.addWidget(self.overall_completeness_progress, 3, 1)
-        completeness_layout.addWidget(self.overall_completeness_label, 3, 2)
+        completeness_layout.addWidget(self.overall_completeness_progress, 4, 1)
+        completeness_layout.addWidget(self.overall_completeness_label, 4, 2)
 
         layout.addWidget(completeness_group)
 
@@ -378,7 +384,7 @@ class MusicStatsDialog(QDialog):
             f"Metadata Complete: {self.format_stat_value(overall, False)}%"
         )
 
-        # 4-axis completeness progress bars
+        # 5-axis completeness progress bars
         completeness = stats.get("metadata_completeness", {})
 
         tracks_pct = completeness.get("tracks_complete", 0)
@@ -392,6 +398,10 @@ class MusicStatsDialog(QDialog):
         albums_pct = completeness.get("albums_complete", 0)
         self.albums_completeness_progress.setValue(int(albums_pct))
         self.albums_completeness_label.setText(f"{albums_pct:.1f}%")
+
+        publishers_pct = completeness.get("publishers_complete", 0)
+        self.publishers_completeness_progress.setValue(int(publishers_pct))
+        self.publishers_completeness_label.setText(f"{publishers_pct:.1f}%")
 
         total_pct = completeness.get("total_complete", overall)
         self.overall_completeness_progress.setValue(int(total_pct))
