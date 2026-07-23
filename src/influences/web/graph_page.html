@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Influences Graph</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #0b0c10; overflow: hidden; }
+  #cy { width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<div id="cy"></div>
+<script src="vendor/cytoscape.min.js"></script>
+<script src="vendor/layout-base.js"></script>
+<script src="vendor/cose-base.js"></script>
+<script src="vendor/cytoscape-fcose.js"></script>
+<script>
+  cytoscape.use(cytoscapeFcose);
+</script>
+<script src="graph.js"></script>
+</body>
+</html>
