@@ -23,6 +23,7 @@ from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.publisher.publisher_albums import PublisherAlbumsWindow
 from src.publisher.publisher_association_dialog import PublisherAssociationDialog
+from src.publisher.publisher_hierarchy import get_publisher_albums
 
 
 class PublisherDetailTab(QWidget):
@@ -213,10 +214,8 @@ class PublisherDetailTab(QWidget):
             years_text += f" - {publisher.end_year}"
         self.years_label.setText(years_text or "Years not specified")
 
-        album_links = self.controller.get.get_entity_links(
-            "AlbumPublisher", publisher_id=publisher.publisher_id
-        )
-        album_count = len(album_links) if album_links else 0
+        albums = get_publisher_albums(self.controller, publisher.publisher_id)
+        album_count = len(albums)
         self.tracks_label.setText(f"Albums: {album_count}")
         self.associations_btn.setText(f"View Albums ({album_count})")
 
@@ -229,19 +228,9 @@ class PublisherDetailTab(QWidget):
 
     def calculate_publisher_track_count(self, publisher_id):
         """Calculate total tracks for this publisher."""
-        # This is a simplified version - you might want to use the recursive method from tree
         try:
-            album_links = self.controller.get.get_entity_links(
-                "AlbumPublisher", publisher_id=publisher_id
-            )
-            total_tracks = 0
-            for link in album_links:
-                album = self.controller.get.get_entity_object(
-                    "Album", album_id=link.album_id
-                )
-                if album and album.track_count:
-                    total_tracks += album.track_count
-            return total_tracks
+            albums = get_publisher_albums(self.controller, publisher_id)
+            return sum(album.track_count or 0 for album in albums)
         except Exception as e:
             logger.error(f"Error calculating track count: {str(e)}")
             return 0
@@ -282,41 +271,6 @@ class PublisherDetailTab(QWidget):
         except Exception as e:
             logger.error(f"Error loading places: {str(e)}")
             self.places_list.addItem("Error loading places")
-
-    def _load_publisher_albums(self, publisher_id):
-        """Load and display associated albums using BaseAlbumFlowWidget."""
-        try:
-            # Get album associations for this publisher
-            album_links = self.controller.get.get_entity_links(
-                "AlbumPublisher", publisher_id=publisher_id
-            )
-
-            albums = []
-            for link in album_links:
-                album = self.controller.get.get_entity_object(
-                    "Album", album_id=link.album_id
-                )
-                if album:
-                    albums.append(album)
-
-            # Only update if albums changed
-            current_album_ids = (
-                [a.album_id for a in self.current_albums]
-                if hasattr(self, "current_albums")
-                else []
-            )
-            new_album_ids = [a.album_id for a in albums]
-
-            if set(current_album_ids) != set(new_album_ids):
-                self.current_albums = albums
-                if hasattr(self, "albums_flow"):
-                    self.albums_flow.set_albums(albums)
-
-        except Exception as e:
-            logger.error(f"Error loading albums: {str(e)}")
-            self.current_albums = []
-            if hasattr(self, "albums_flow"):
-                self.albums_flow.set_albums([])
 
     def save_publisher_logo(self, publisher, image_data):
         """Save selected logo for publisher."""
@@ -401,16 +355,16 @@ class PublisherDetailTab(QWidget):
 
         tracks = []
         try:
-            # Get all albums associated with this publisher
-            album_links = self.controller.get.get_entity_links(
-                "AlbumPublisher", publisher_id=self.current_publisher.publisher_id
+            # Get all albums associated with this publisher (including child publishers)
+            albums = get_publisher_albums(
+                self.controller, self.current_publisher.publisher_id
             )
 
-            for album_link in album_links:
+            for album in albums:
                 # Get all tracks for this album using direct relationship
                 # Tracks have a foreign key to album_id
                 album_tracks = self.controller.get.get_all_entities(
-                    "Track", album_id=album_link.album_id
+                    "Track", album_id=album.album_id
                 )
 
                 for track in album_tracks:
