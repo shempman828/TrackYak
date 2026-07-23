@@ -156,6 +156,7 @@ class AlbumFlowWidget(QWidget):
         self.album_size = album_size
         self.columns = columns
         self.widgets = []
+        self.current_columns = None
 
         self.layout = QGridLayout(self)
         self.layout.setContentsMargins(10, 10, 10, 10)
@@ -175,18 +176,25 @@ class AlbumFlowWidget(QWidget):
         return max(1, width // (self.album_size + 40))
 
     def refresh_grid(self):
-        # Properly remove each widget from the layout AND schedule it for deletion
+        """Full rebuild: destroys and recreates every AlbumWidget. Call only when
+        the album list itself changes, not on resize (see relayout())."""
+        # Properly remove each widget from the layout AND schedule it for deletion.
+        # Hide immediately so the deferred deleteLater() doesn't leave a stale
+        # widget visibly overlapping the newly added one at the same grid cell.
         while self.layout.count():
             item = self.layout.takeAt(0)
             w = item.widget()
             if w is not None:
+                w.hide()
                 w.deleteLater()
         self.widgets.clear()
 
         if not self.albums:
+            self.current_columns = None
             return
 
         cols = self.calculate_columns()
+        self.current_columns = cols
         for i, album in enumerate(self.albums):
             w = AlbumWidget(album, self.album_size)
             w.clicked.connect(self.albumClicked.emit)
@@ -195,12 +203,25 @@ class AlbumFlowWidget(QWidget):
             self.layout.addWidget(w, i // cols, i % cols)
             self.widgets.append(w)
 
+    def relayout(self):
+        """Reposition existing widgets into the grid without recreating them.
+        Cheap, flicker-free response to a resize; only moves widgets when the
+        column count actually changes."""
+        if not self.widgets:
+            return
+
+        cols = self.calculate_columns()
+        if cols == self.current_columns:
+            return
+
+        self.current_columns = cols
+        for i, w in enumerate(self.widgets):
+            self.layout.addWidget(w, i // cols, i % cols)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # Simple debounce-free refresh for smoother window snapping
-        # If performance drops with 1000+ albums, re-add the QTimer debounce
         if not self.columns:
-            self.refresh_grid()
+            self.relayout()
 
 
 class ScrollableAlbumFlow(QScrollArea):
