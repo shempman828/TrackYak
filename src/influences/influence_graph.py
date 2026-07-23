@@ -1,30 +1,30 @@
 import colorsys
+import json
 import math
-import random
 from collections import deque
+from pathlib import Path
 
 import networkx as nx
-from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QTimer
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QUrl
+from PySide6.QtGui import QColor
+from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
-    QGraphicsLineItem,
-    QGraphicsPolygonItem,
-    QGraphicsScene,
-    QGraphicsView,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
 from src.core.config_setup import app_config
-from src.influences.cluster_name_dialog import ClusterNameDialog
-from src.influences.influence_artist_node import ArtistNode
+from src.influences.cluster_name_dialog import ClusterNamesDialog
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
+
+_WEB_DIR = Path(__file__).resolve().parent / "web"
 
 
 def _generate_community_palette(count):
@@ -37,8 +37,8 @@ def _generate_community_palette(count):
     clearly different from one another, rather than only being guaranteed
     distinct once all `count` colors are in use. Saturation/value cycle
     across a few bands as a secondary cue for hues that land close together,
-    and stay in a mid-high range so the fixed dark node-label text
-    (see ArtistNode.text_color) keeps enough contrast against every swatch.
+    and stay in a mid-high range so the fixed dark node-label text keeps
+    enough contrast against every swatch.
     """
     golden_ratio_conjugate = 0.6180339887498949
     hue = 0.58  # anchors the first color near the app's existing indigo accent
@@ -56,73 +56,11 @@ def _generate_community_palette(count):
     return palette
 
 
-class _GraphScene(QGraphicsScene):
-    """Scene background: a theme-matched flat fill plus a faint dot grid.
-
-    Replaces the previous default white canvas, which stayed white regardless
-    of the app's active theme.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.base_color = QColor("#0b0c10")
-        self.dot_color = QColor(133, 153, 234, 26)
-        self.grid_spacing = 42
-
-    def set_palette(self, base_color, dot_color):
-        self.base_color = base_color
-        self.dot_color = dot_color
-        self.update()
-
-    def drawBackground(self, painter, rect):
-        painter.fillRect(rect, self.base_color)
-
-        # Skip the dot grid when zoomed out far enough that dots would either
-        # be denser than the eye can resolve or require drawing an impractical
-        # number of points (the scene rect is effectively unbounded).
-        scale = painter.worldTransform().m11()
-        spacing = self.grid_spacing
-        if scale * spacing < 8:
-            return
-
-        estimated_dots = (rect.width() / spacing) * (rect.height() / spacing)
-        if estimated_dots > 20000:
-            return
-
-        painter.setPen(QPen(self.dot_color, 1.6))
-        left = int(rect.left()) - (int(rect.left()) % spacing)
-        top = int(rect.top()) - (int(rect.top()) % spacing)
-
-        y = top
-        while y < rect.bottom():
-            x = left
-            while x < rect.right():
-                painter.drawPoint(QPointF(x, y))
-                x += spacing
-            y += spacing
-
-
 class _LegendRow(QWidget):
-    """One legend entry. Double-click to rename the cluster it represents."""
+    """One legend entry: a color swatch plus the cluster's name/count."""
 
-    def __init__(
-        self,
-        community_index,
-        color,
-        count,
-        name,
-        on_rename,
-        representative_artists=None,
-        parent=None,
-    ):
+    def __init__(self, color, count, name, parent=None):
         super().__init__(parent)
-        self._community_index = community_index
-        self._name = name
-        self._on_rename = on_rename
-        self._representative_artists = representative_artists or []
-        if on_rename is not None:
-            self.setCursor(Qt.PointingHandCursor)
-            self.setToolTip("Double-click to rename this cluster")
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
@@ -138,15 +76,6 @@ class _LegendRow(QWidget):
         )
         row.addWidget(QLabel(label_text))
         row.addStretch()
-
-    def mouseDoubleClickEvent(self, event):
-        if self._on_rename is None:
-            super().mouseDoubleClickEvent(event)
-            return
-        dialog = ClusterNameDialog(self._representative_artists, self._name, parent=self)
-        if dialog.exec() == QDialog.Accepted:
-            self._on_rename(self._community_index, dialog.cluster_name())
-        event.accept()
 
 
 class _LegendPanel(QFrame):
@@ -176,7 +105,7 @@ class _LegendPanel(QFrame):
         "bottom-left": Qt.SizeBDiagCursor,
     }
 
-    def __init__(self, parent=None, on_interact=None):
+    def __init__(self, parent=None, on_interact=None, on_rename_all=None):
         super().__init__(parent)
         self._on_interact = on_interact
         self.setAttribute(Qt.WA_StyledBackground, True)
@@ -191,16 +120,29 @@ class _LegendPanel(QFrame):
             " border-radius: 3px; min-height: 24px; }"
             " QScrollBar::handle:vertical:hover { background: rgba(133,153,234,0.6); }"
             " QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+            " QPushButton { color: #8599ea; background: transparent; border: none;"
+            " font-size: 11px; padding: 0; }"
+            " QPushButton:hover { color: #b8c0f0; text-decoration: underline; }"
         )
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(10, 8, 10, 8)
         self._layout.setSpacing(4)
 
+        header = QHBoxLayout()
+        header.setSpacing(6)
         self._title = QLabel("Clusters")
         self._title.setStyleSheet("font-weight: 600; font-size: 11px;")
         self._title.setCursor(Qt.SizeAllCursor)
         self._title.installEventFilter(self)
-        self._layout.addWidget(self._title)
+        header.addWidget(self._title)
+        header.addStretch()
+        if on_rename_all is not None:
+            rename_button = QPushButton("Rename…")
+            rename_button.setCursor(Qt.PointingHandCursor)
+            rename_button.setFlat(True)
+            rename_button.clicked.connect(on_rename_all)
+            header.addWidget(rename_button)
+        self._layout.addLayout(header)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -251,7 +193,7 @@ class _LegendPanel(QFrame):
         max_y = max(0, parent.height() - self.height())
         return QPoint(self._clamp(point.x(), 0, max_x), self._clamp(point.y(), 0, max_y))
 
-    def set_communities(self, rows, on_rename=None):
+    def set_communities(self, rows):
         while self._rows_layout.count():
             item = self._rows_layout.takeAt(0)
             if item.widget():
@@ -261,12 +203,8 @@ class _LegendPanel(QFrame):
             self.hide()
             return
 
-        for community_index, color, count, name, representative_artists in rows:
-            self._rows_layout.addWidget(
-                _LegendRow(
-                    community_index, color, count, name, on_rename, representative_artists
-                )
-            )
+        for _community_index, color, count, name, _representative_artists in rows:
+            self._rows_layout.addWidget(_LegendRow(color, count, name))
         self._rows_layout.addStretch()
         self.show()
 
@@ -382,21 +320,23 @@ class _LegendPanel(QFrame):
         return max(minimum, min(maximum, value))
 
 
-class InfluenceGraphView(QGraphicsView):
+class InfluenceGraphView(QWidget):
     """
-    ForceAtlas2-style layout with Louvain modularity-based communities.
-    Retains directional arrows visually but uses undirected physics forces.
+    Influence graph rendered by Cytoscape.js (in an embedded QWebEngineView)
+    using its fcose layout: a compound-node-aware force-directed algorithm
+    that groups each Louvain community into an (invisible) parent node and
+    lays the whole graph out without overlap. This replaces an earlier
+    hand-rolled per-tick Python physics simulation (repulsion/attraction/
+    collision), which repeatedly fought itself under hand-tuning.
     """
 
-    ARROW_ZOOM_THRESHOLD = 0.35
-
-    # Canvas base/dot-grid colors per app theme, so the graph doesn't stay a
-    # hardcoded white rectangle inside a dark/colorful/accessibility theme.
-    _THEME_CANVAS = {
-        "dark_mode": (QColor("#0b0c10"), QColor(133, 153, 234, 26)),
-        "light_mode": (QColor("#f5f6fa"), QColor(43, 44, 54, 20)),
-        "colorful_mode": (QColor("#ffffff"), QColor(133, 153, 234, 24)),
-        "accessibility_mode": (QColor("#ffffff"), QColor(28, 28, 33, 32)),
+    # Canvas background per app theme, so the graph doesn't stay a
+    # hardcoded dark rectangle inside a light/colorful/accessibility theme.
+    _THEME_BACKGROUND = {
+        "dark_mode": "#0b0c10",
+        "light_mode": "#f5f6fa",
+        "colorful_mode": "#ffffff",
+        "accessibility_mode": "#ffffff",
     }
 
     # Generated, not hand-picked: supports up to 50 communities with maximal
@@ -408,79 +348,61 @@ class InfluenceGraphView(QGraphicsView):
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
-        self.scene = _GraphScene()
-        self.setScene(self.scene)
-        self._apply_theme_palette()
 
-        self._legend = _LegendPanel(self, on_interact=self._reposition_legend)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self._web = QWebEngineView(self)
+        layout.addWidget(self._web)
 
-        # Force-directed layout timer
-        self.force_layout_timer = QTimer()
-        self.force_layout_timer.timeout.connect(self.update_force_layout)
-        self.layout_running = False
+        self._page_ready = False
+        self._pending_js = []
+        self._web.loadFinished.connect(self._on_page_loaded)
+        self._web.load(QUrl.fromLocalFile(str(_WEB_DIR / "graph_page.html")))
 
-        # Graph model
-        self.nodes = {}  # node_id -> ArtistNode
+        self._legend = _LegendPanel(
+            self,
+            on_interact=self._reposition_legend,
+            on_rename_all=self._open_rename_all_dialog,
+        )
+        self._legend.raise_()
+
+        # Graph model (pure data -- Cytoscape/fcose owns layout & rendering)
         self.node_names = {}  # node_id -> name
         self.edges = []  # list of (source_id, target_id) tuples, directed
-        self.positions = {}  # node_id -> QPointF
-        self.velocities = {}  # node_id -> QPointF
-        self.node_mass = {}  # node_id -> mass for FA2 repulsion
+        self.node_mass = {}  # node_id -> mass (degree-based), used for anchor picking
         self.community_id = {}  # node_id -> Louvain community
         self.community_names = {}  # community_index -> user-given name (this session)
         self._community_anchor = {}  # community_index -> anchor node_id (naming key)
-        self._node_radii = {}  # node_id -> (half_w, half_h) cached each render tick
+        self.influence_scores = {}  # node_id -> influence_score
 
         self.legend_enabled = app_config.get_influence_legend_visible()
 
-        # Rendering items
-        self.edge_lines = {}  # (source_id, target_id) -> QGraphicsLineItem
+    # -----------------------
+    # JS bridge
+    # -----------------------
+    def _on_page_loaded(self, ok):
+        self._page_ready = ok
+        pending = self._pending_js
+        self._pending_js = []
+        for code in pending:
+            self._web.page().runJavaScript(code)
 
-        # Layout tuning parameters
-        self.attraction_force = 0.1  # FA2 edge attraction
-        self.repulsion_force = 1500.0  # FA2 repulsion
-        self.damping = 0.85
-        self.max_velocity = 5.0
-        self.gravity = 0.01  # global gravity
-        self.community_force = 0.05  # intra-community cohesion
-
-        # View setup for infinite plane
-        self.setDragMode(QGraphicsView.ScrollHandDrag)
-        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setRenderHint(QPainter.Antialiasing)
-        self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
-
-        # Remove scrollbars for infinite plane feel
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-
-        # Infinite scene rect
-        self.scene.setSceneRect(-10000, -10000, 20000, 20000)
-
-        self.zoom_factor = 1.15
-        self.scale(1.0, 1.0)
-
-        self.influence_scores = {}  # node_id -> influence_score
-
-        # Panning state
-        self._panning = False
-        self._pan_start_pos = QPointF()
+    def _run_js(self, code):
+        if self._page_ready:
+            self._web.page().runJavaScript(code)
+        else:
+            self._pending_js.append(code)
 
     # -----------------------
     # Theming
     # -----------------------
-    def _apply_theme_palette(self):
-        """Match the canvas background/dot-grid to the app's active theme."""
+    def _theme_background(self):
         theme_name = None
         try:
             theme_name = app_config.get_display_theme()
         except Exception:
             pass
-        base_color, dot_color = self._THEME_CANVAS.get(
-            theme_name, self._THEME_CANVAS["dark_mode"]
-        )
-        self.scene.set_palette(base_color, dot_color)
+        return self._THEME_BACKGROUND.get(theme_name, self._THEME_BACKGROUND["dark_mode"])
 
     def get_community_color(self, community_index):
         """Map a Louvain community id to a stable, visually distinct color.
@@ -522,22 +444,36 @@ class InfluenceGraphView(QGraphicsView):
             if str(anchor_id) in saved_names
         }
 
-    def rename_community(self, community_index, name):
-        """Rename a cluster and persist it against its anchor artist."""
-        anchor_id = self._community_anchor.get(community_index)
-        if anchor_id is None:
-            return
-        name = name.strip()
+    def rename_communities(self, new_names_by_index):
+        """Rename any number of clusters at once and persist each against
+        its anchor artist (see ClusterNamesDialog, opened from the legend
+        panel's "Rename…" button)."""
         saved_names = app_config.get_influence_cluster_names()
-        if name:
-            self.community_names[community_index] = name
-            saved_names[str(anchor_id)] = name
-        else:
-            self.community_names.pop(community_index, None)
-            saved_names.pop(str(anchor_id), None)
+        for community_index, name in new_names_by_index.items():
+            anchor_id = self._community_anchor.get(community_index)
+            if anchor_id is None:
+                continue
+            name = name.strip()
+            if name:
+                self.community_names[community_index] = name
+                saved_names[str(anchor_id)] = name
+            else:
+                self.community_names.pop(community_index, None)
+                saved_names.pop(str(anchor_id), None)
+            self._run_js(
+                f"setLabel({json.dumps(f'c{community_index}')}, {json.dumps(name)})"
+            )
         app_config.set_influence_cluster_names(saved_names)
         app_config.save()
         self._update_legend()
+
+    def _open_rename_all_dialog(self):
+        rows = self._legend_rows()
+        if not rows:
+            return
+        dialog = ClusterNamesDialog(rows, parent=self)
+        if dialog.exec() == QDialog.Accepted:
+            self.rename_communities(dialog.cluster_names())
 
     def set_legend_visible(self, visible: bool):
         """Show/hide the cluster legend overlay, persisting the preference."""
@@ -559,14 +495,14 @@ class InfluenceGraphView(QGraphicsView):
         )
         return [self.node_names.get(node_id, "") for node_id in members[:limit]]
 
-    def _update_legend(self):
+    def _legend_rows(self):
         counts = {}
         members_by_community = {}
         for node_id, community_index in self.community_id.items():
             counts[community_index] = counts.get(community_index, 0) + 1
             members_by_community.setdefault(community_index, []).append(node_id)
         sized = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
-        rows = [
+        return [
             (
                 community_index,
                 self.get_community_color(community_index),
@@ -576,8 +512,11 @@ class InfluenceGraphView(QGraphicsView):
             )
             for community_index, count in sized
         ]
+
+    def _update_legend(self):
+        rows = self._legend_rows()
         if self.legend_enabled:
-            self._legend.set_communities(rows, on_rename=self.rename_community)
+            self._legend.set_communities(rows)
         else:
             self._legend.hide()
         self._reposition_legend()
@@ -594,83 +533,26 @@ class InfluenceGraphView(QGraphicsView):
         self._reposition_legend()
 
     # -----------------------
-    # Interaction / zoom
+    # Interaction
     # -----------------------
-    def wheelEvent(self, event):
-        if event.angleDelta().y() > 0:
-            self.scale(self.zoom_factor, self.zoom_factor)
-        else:
-            self.scale(1 / self.zoom_factor, 1 / self.zoom_factor)
-        self._sync_arrow_visibility()
-
     def fit_to_view(self):
         """Zoom/pan so the whole graph is visible at once."""
-        if not self.positions:
-            return
-        rect = self.scene.itemsBoundingRect()
-        if rect.isEmpty():
-            return
-        margin = 60
-        rect = rect.adjusted(-margin, -margin, margin, margin)
-        self.fitInView(rect, Qt.KeepAspectRatio)
-        self._sync_arrow_visibility()
-
-    def zoom_in(self):
-        self.scale(self.zoom_factor, self.zoom_factor)
-
-    def zoom_out(self):
-        self.scale(1 / self.zoom_factor, 1 / self.zoom_factor)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self._panning = True
-            self._pan_start_pos = event.position()
-            self._last_scene_pos = self.mapToScene(event.position().toPoint())
-            self.setCursor(Qt.ClosedHandCursor)
-            event.accept()
-        else:
-            super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if self._panning:
-            current_pos = event.position()
-            current_scene_pos = self.mapToScene(current_pos.toPoint())
-
-            # Calculate the movement in scene coordinates
-            delta = current_scene_pos - self._last_scene_pos
-            self._last_scene_pos = current_scene_pos
-
-            # Move all node positions in the SAME direction as the mouse drag
-            # This creates the intuitive "grab and pull" feeling
-            for node_id in self.positions:
-                self.positions[node_id] += delta  # Changed from -= to +
-
-            # Update the visualization
-            self.update_node_positions()
-            self.update_edge_positions()
-
-            event.accept()
-        else:
-            super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton and self._panning:
-            self._panning = False
-            self.setCursor(Qt.ArrowCursor)
-            event.accept()
-        else:
-            super().mouseReleaseEvent(event)
+        self._run_js("fitView()")
 
     # -----------------------
     # Entry point
     # -----------------------
     def display_global_network(self):
-        self.stop_force_layout()
-        self.clear_scene()
-        self._apply_theme_palette()
+        self.node_names = {}
+        self.edges = []
+        self.node_mass = {}
+        self.community_id = {}
+        self.community_names = {}
+        self._community_anchor = {}
+        self.influence_scores = {}
+
         nodes, edges = self.extract_global_graph()
 
-        # Add this check
         if not nodes:
             show_status_message(
                 self,
@@ -678,7 +560,6 @@ class InfluenceGraphView(QGraphicsView):
             )
             return
 
-        self.influence_scores.clear()
         node_ids = [n[0] for n in nodes]
         node_id_set = set(node_ids)
         self.node_names = {node_id: name for node_id, name in nodes}
@@ -693,13 +574,13 @@ class InfluenceGraphView(QGraphicsView):
                     deduped_edges.append(key)
         self.edges = deduped_edges
 
-        self.initialize_random_layout(node_ids)
+        self._update_node_mass(node_ids)
         self.assign_louvain_communities(node_ids, self.edges)
         self._resolve_community_names()
+        self.calculate_influence_scores(node_ids, self.edges)
         self._update_legend()
-        self.render_graph()
+        self._push_graph()
         self.debug_size_distribution()
-        self.start_force_layout()
 
     # -----------------------
     # Graph extraction
@@ -816,25 +697,18 @@ class InfluenceGraphView(QGraphicsView):
             return [], []
 
     # -----------------------
-    # Layout initialization & caching
+    # Node bookkeeping
     # -----------------------
-    def initialize_random_layout(self, node_ids):
-        width, height = 800, 600
+    def _update_node_mass(self, node_ids):
+        """Recompute each node's degree-based mass (used to pick a stable
+        per-community "anchor" artist for persisted cluster names)."""
         for node_id in node_ids:
-            if node_id not in self.positions:
-                self.positions[node_id] = QPointF(
-                    random.uniform(-width / 2, width / 2),
-                    random.uniform(-height / 2, height / 2),
-                )
-            self.velocities.setdefault(node_id, QPointF(0, 0))
             self.node_mass[node_id] = 1 + sum(
                 1 for a, b in self.edges if a == node_id or b == node_id
             )
         current_set = set(node_ids)
-        for nid in list(self.positions.keys()):
+        for nid in list(self.node_mass.keys()):
             if nid not in current_set:
-                self.positions.pop(nid, None)
-                self.velocities.pop(nid, None)
                 self.node_mass.pop(nid, None)
                 self.community_id.pop(nid, None)
 
@@ -854,522 +728,205 @@ class InfluenceGraphView(QGraphicsView):
             self.community_id = {nid: 0 for nid in node_ids}
 
     # -----------------------
-    # Force layout
+    # Cytoscape data/style/layout building
     # -----------------------
-    def start_force_layout(self):
-        if not self.layout_running:
-            self.layout_running = True
-            self.force_layout_timer.start(16)
+    def _build_elements(self):
+        elements = []
+        seen_clusters = set()
+        for node_id, name in self.node_names.items():
+            community_index = self.community_id.get(node_id, 0)
+            cluster_id = f"c{community_index}"
+            if cluster_id not in seen_clusters:
+                seen_clusters.add(cluster_id)
+                elements.append(
+                    {
+                        "data": {
+                            "id": cluster_id,
+                            "label": self.community_names.get(community_index, ""),
+                        }
+                    }
+                )
+            size = self.get_node_size(node_id)
+            color = self.get_community_color(community_index)
+            elements.append(
+                {
+                    "data": {
+                        "id": str(node_id),
+                        "label": name,
+                        "parent": cluster_id,
+                        "width": size,
+                        "height": size * 0.5,
+                        "color": color.name(),
+                        # background-gradient-stop-colors takes its whole
+                        # value from a single data field already containing
+                        # the space-separated stop colors -- it can't be
+                        # built from two separate data() calls in one
+                        # property string.
+                        "gradientColors": f"{color.lighter(130).name()} {color.name()}",
+                        "borderColor": color.darker(140).name(),
+                    }
+                }
+            )
 
-    def stop_force_layout(self):
-        if self.layout_running:
-            self.layout_running = False
-            self.force_layout_timer.stop()
-
-    def update_force_layout(self):
-        if not self.layout_running or not self.positions:
-            return
-
-        # ── Tuning ───────────────────────────────────────────────────────────
-        # Repulsion is now purely for macro-scale cluster separation.
-        # Micro-level overlap is handled by _resolve_collisions instead.
-        REPULSION_CONST = 80000.0  # stronger global spread
-        DAMPING = 0.55
-        MAX_SPEED = 50.0  # raised — collisions handle the hard stops
-        COMMUNITY_REPULSION_FACTOR = 4.0
-        SPRING_REST = 60.0  # slightly longer natural edge length
-        # ─────────────────────────────────────────────────────────────────────
-
-        forces = {nid: QPointF(0, 0) for nid in self.positions}
-        node_ids = list(self.positions.keys())
-
-        # ── 1. Repulsion (macro-scale, size-aware cutoff) ────────────────────
-        for i in range(len(node_ids)):
-            id1 = node_ids[i]
-            p1 = self.positions[id1]
-            c1 = self.community_id.get(id1, 0)
-            hw1, hh1 = self._node_radii.get(id1, (30.0, 15.0))
-
-            for j in range(i + 1, len(node_ids)):
-                id2 = node_ids[j]
-                p2 = self.positions[id2]
-                c2 = self.community_id.get(id2, 0)
-                hw2, hh2 = self._node_radii.get(id2, (30.0, 15.0))
-
-                dx = p1.x() - p2.x()
-                dy = p1.y() - p2.y()
-
-                dist_sq = dx * dx + dy * dy
-                if dist_sq < 1.0:
-                    dist_sq = 1.0
-                    dx, dy = float(i - j), 1.0  # reproducible nudge direction
-
-                dist = math.sqrt(dist_sq)
-
-                force_mag = REPULSION_CONST / dist_sq
-
-                if c1 != c2:
-                    force_mag *= COMMUNITY_REPULSION_FACTOR
-
-                fx = force_mag * (dx / dist)
-                fy = force_mag * (dy / dist)
-
-                forces[id1] += QPointF(fx, fy)
-                forces[id2] -= QPointF(fx, fy)
-
-        # ── 2. Attraction (springs along edges) ──────────────────────────────
+        # Edge opacity by source influence score, matching the original
+        # visual language: important influencers get prominent edges, weak
+        # ones fade out. sqrt eases the curve for large score ranges.
+        MIN_OPACITY, MAX_OPACITY = 0.18, 0.82
+        max_score = max(self.influence_scores.values()) if self.influence_scores else 0
         for source_id, target_id in self.edges:
-            if source_id in self.positions and target_id in self.positions:
-                p1 = self.positions[source_id]
-                p2 = self.positions[target_id]
-
-                dx = p2.x() - p1.x()
-                dy = p2.y() - p1.y()
-                dist = math.sqrt(dx * dx + dy * dy)
-
-                if dist > SPRING_REST:
-                    force = self.attraction_force * (dist - SPRING_REST)
-                    fx = force * (dx / dist)
-                    fy = force * (dy / dist)
-                    forces[source_id] += QPointF(fx, fy)
-                    forces[target_id] -= QPointF(fx, fy)
-
-        # ── 3. Integration ────────────────────────────────────────────────────
-        max_movement = 0.0  # track the FASTEST single node, not the sum
-        for nid, force in forces.items():
-            v = self.velocities.get(nid, QPointF(0, 0))
-            v = (v + force) * DAMPING
-
-            speed = math.hypot(v.x(), v.y())
-            if speed > MAX_SPEED:
-                v *= MAX_SPEED / speed
-
-            if speed < 0.1:
-                v = QPointF(0, 0)
-
-            self.velocities[nid] = v
-            self.positions[nid] += v
-            if speed > max_movement:
-                max_movement = speed
-
-        # ── 4. Hard collision resolution (bypasses velocity system) ──────────
-        self._resolve_collisions()
-
-        self.update_node_positions()
-        self.update_edge_positions()
-
-        # Use max speed rather than total — total never drops below 0.5 when
-        # there are hundreds of nodes doing tiny residual movements, so the
-        # simulation would run forever. Max speed is node-count-independent:
-        # if no single node is moving more than the threshold, the graph has
-        # visually settled regardless of how many nodes exist.
-        if max_movement < 0.5:
-            self.stop_force_layout()
-            logger.info("Graph settled.")
-
-    # -----------------------
-    # Scene & rendering
-    # -----------------------
-    def render_graph(self):
-        """Render nodes and edges with arrow indicators for direction."""
-        try:
-            # Calculate influence scores if not already done
-            if not self.influence_scores and self.positions and self.edges:
-                self.calculate_influence_scores(list(self.positions.keys()), self.edges)
-
-            # Make sure every node in positions has an ArtistNode in scene
-            for node_id, pos in self.positions.items():
-                name = self.node_names.get(node_id, f"Artist {node_id}")
-
-                # Calculate node size based on influence
-                node_size = self.get_node_size(node_id)
-                width = node_size
-                height = node_size * 0.5  # Maintain aspect ratio
-
-                community_color = self.get_community_color(
-                    self.community_id.get(node_id, 0)
-                )
-
-                if node_id in self.nodes:
-                    # Update existing node size
-                    node_item = self.nodes[node_id]
-                    node_item.setRect(-width / 2, -height / 2, width, height)
-
-                    # Update text if changed
-                    if getattr(node_item, "artist_name", None) != name:
-                        try:
-                            node_item.update_text(name)
-                        except Exception:
-                            pass
-
-                    node_item.set_community_color(community_color)
-                    node_item.setPos(pos)
-                    if node_item.scene() is None:
-                        self.scene.addItem(node_item)
-                else:
-                    # Create new node with calculated size
-                    node_item = ArtistNode(
-                        node_id, name, pos.x(), pos.y(), width, height
-                    )
-                    node_item.set_community_color(community_color)
-                    self.nodes[node_id] = node_item
-                    node_item.setZValue(1)  # Nodes above edges
-                    self.scene.addItem(node_item)
-
-            # Remove any node items that are no longer present
-            current_nodes = set(self.positions.keys())
-            orphan_ids = [nid for nid in self.nodes if nid not in current_nodes]
-            for nid in orphan_ids:
-                try:
-                    self.scene.removeItem(self.nodes[nid])
-                except Exception:
-                    pass
-                self.nodes.pop(nid, None)
-                self.velocities.pop(nid, None)
-                self.positions.pop(nid, None)
-            self._rebuild_node_radii()
-            # Update/create edge lines with arrows and remove obsolete ones
-            existing_edge_keys = set(self.edge_lines.keys())
-            desired_edge_keys = set(self.edges)
-
-            # Remove edges not desired
-            for key in existing_edge_keys - desired_edge_keys:
-                try:
-                    # Remove both line and arrow if they exist
-                    if key in self.edge_lines:
-                        line_item, arrow_item = self.edge_lines[key]
-                        self.scene.removeItem(line_item)
-                        if arrow_item:
-                            self.scene.removeItem(arrow_item)
-                except Exception:
-                    pass
-                self.edge_lines.pop(key, None)
-
-            # Create new edges if missing, and update existing ones
-            for source_id, target_id in self.edges:
-                if source_id in self.positions and target_id in self.positions:
-                    source_pos = self.positions[source_id]
-                    target_pos = self.positions[target_id]
-                    key = (source_id, target_id)
-
-                    if key in self.edge_lines:
-                        # Update existing edge
-                        line_item, arrow_item = self.edge_lines[key]
-                        line_item.setLine(
-                            source_pos.x(),
-                            source_pos.y(),
-                            target_pos.x(),
-                            target_pos.y(),
-                        )
-
-                        # Update arrow position
-                        if arrow_item:
-                            self.update_arrow_position(
-                                arrow_item, source_pos, target_pos
-                            )
-                    else:
-                        # Create new edge with arrow
-                        line_item, arrow_item = self.create_arrow_line(
-                            source_pos, target_pos, source_id, target_id
-                        )
-                        if line_item:
-                            line_item.setZValue(0)  # Edges below nodes
-                            self.scene.addItem(line_item)
-                        if arrow_item:
-                            arrow_item.setZValue(0)  # Arrows same level as edges
-                            self.scene.addItem(arrow_item)
-
-                        self.edge_lines[key] = (line_item, arrow_item)
-                else:
-                    logger.debug(f"Skipping edge {source_id}->{target_id}: missing pos")
-
-            self.debug_graph_structure()
-
-        except Exception as e:
-            logger.error(f"Error rendering graph: {e}")
-
-    def _rebuild_node_radii(self):
-        """Cache each node's half-dimensions for the physics loop."""
-        self._node_radii = {}
-        for node_id, node_item in self.nodes.items():
-            r = node_item.rect()
-            self._node_radii[node_id] = (abs(r.width()) / 2.0, abs(r.height()) / 2.0)
-
-    def create_arrow_line(self, start_pos, end_pos, source_id, target_id):
-        """
-        Create a directed edge from start_pos to end_pos.
-
-        Visual design for large graphs (hundreds-to-thousands of nodes):
-        - Arrow placed near the TARGET node boundary, not the midpoint,
-        so direction is unambiguous even in dense clusters.
-        - Edge opacity is proportional to the source node's influence score
-        (high-influence edges are prominent; weak ones fade to 25%).
-        - Arrow inherits the same opacity so it never conflicts with the line.
-        """
-        try:
-            dx = end_pos.x() - start_pos.x()
-            dy = end_pos.y() - start_pos.y()
-            length = math.sqrt(dx * dx + dy * dy)
-
-            if length < 1:
-                # Coincident nodes — return invisible placeholder
-                line = QGraphicsLineItem(
-                    start_pos.x(), start_pos.y(), end_pos.x(), end_pos.y()
-                )
-                line.setPen(QPen(QColor(100, 100, 100, 0), 0))
-                return line, None
-
-            # --- Influence-based opacity ---
-            # Source node drives visibility: important influencers get opaque edges.
+            if source_id not in self.node_names or target_id not in self.node_names:
+                continue
             src_score = self.influence_scores.get(source_id, 0)
-            max_score = (
-                max(self.influence_scores.values()) if self.influence_scores else 1
-            )
-            # Normalise to [0,1], then map to [MIN_ALPHA, MAX_ALPHA]
-            MIN_ALPHA, MAX_ALPHA = 45, 210
-            t = (src_score / max_score) ** 0.5  # sqrt eases the curve for large ranges
-            edge_alpha = int(MIN_ALPHA + t * (MAX_ALPHA - MIN_ALPHA))
-
-            # --- Line ---
-            # Accent-tinted rather than a plain unrelated gray, so edges read
-            # as part of the same palette as the nodes across every theme.
-            line = QGraphicsLineItem(
-                start_pos.x(), start_pos.y(), end_pos.x(), end_pos.y()
-            )
-            pen = QPen(QColor(133, 153, 234, edge_alpha), 1.2)
-            pen.setCapStyle(Qt.RoundCap)
-            line.setPen(pen)
-
-            # --- Arrow placement: offset from target boundary ---
-            # Estimate how far to pull back along the edge so the tip lands
-            # just outside (or at) the target node's rectangular boundary.
-            if target_id in self.nodes:
-                t_rect = self.nodes[target_id].rect()
-                half_w = abs(t_rect.width()) / 2
-                half_h = abs(t_rect.height()) / 2
-            else:
-                half_w = 30
-                half_h = 15
-
-            # Distance from node centre to its boundary along this edge direction
-            ux, uy = dx / length, dy / length
-            if abs(ux) > 1e-6:
-                t_w = half_w / abs(ux)
-            else:
-                t_w = float("inf")
-            if abs(uy) > 1e-6:
-                t_h = half_h / abs(uy)
-            else:
-                t_h = float("inf")
-            boundary_offset = min(t_w, t_h) + 4  # 4px gap so tip clears the border
-
-            # Clamp so the arrow doesn't jump behind the source node
-            boundary_offset = min(boundary_offset, length * 0.45)
-
-            arrow_x = end_pos.x() - ux * boundary_offset
-            arrow_y = end_pos.y() - uy * boundary_offset
-
-            # --- Arrowhead ---
-            arrow_size = 7
-            arrow_polygon = QPolygonF(
-                [
-                    QPointF(0, 0),
-                    QPointF(-arrow_size * 1.6, -arrow_size * 0.6),
-                    QPointF(-arrow_size * 1.6, arrow_size * 0.6),
-                ]
-            )
-
-            # Arrow tinted by the community it's flowing into, reinforcing the
-            # cluster coloring instead of a fixed, unrelated green.
-            arrow = QGraphicsPolygonItem(arrow_polygon)
+            t = (src_score / max_score) ** 0.5 if max_score else 0.0
+            opacity = MIN_OPACITY + t * (MAX_OPACITY - MIN_OPACITY)
             arrow_color = self.get_community_color(self.community_id.get(target_id, 0))
-            arrow_color.setAlpha(edge_alpha)
-            arrow.setBrush(QBrush(arrow_color))
-            arrow.setPen(QPen(Qt.NoPen))
-            arrow.setPos(arrow_x, arrow_y)
-            arrow_angle = math.degrees(math.atan2(dy, dx))
-            arrow.setRotation(arrow_angle)
-
-            return line, arrow
-
-        except Exception as e:
-            logger.error(f"Error creating arrow line: {e}")
-            line = QGraphicsLineItem(
-                start_pos.x(), start_pos.y(), end_pos.x(), end_pos.y()
+            elements.append(
+                {
+                    "data": {
+                        "id": f"e{source_id}_{target_id}",
+                        "source": str(source_id),
+                        "target": str(target_id),
+                        "opacity": opacity,
+                        "arrowColor": arrow_color.name(),
+                    }
+                }
             )
-            line.setPen(QPen(QColor(100, 100, 100, 150), 1))
-            return line, None
+        return elements
 
-    def _resolve_collisions(self):
-        """
-        Directly separate any overlapping nodes by pushing each half the overlap
-        distance apart. This runs AFTER force integration so it cannot be
-        throttled by MAX_SPEED or damping.
+    def _build_stylesheet(self):
+        return [
+            {
+                "selector": "node:parent",
+                "style": {
+                    "background-opacity": 0,
+                    "border-width": 0,
+                    "label": "data(label)",
+                    "color": "#8599ea",
+                    "font-size": 11,
+                    "text-valign": "top",
+                    "text-halign": "center",
+                    # Compounds are invisible but still hit-testable by
+                    # default, and their bounding box covers most of the
+                    # canvas -- without this, a click-drag meant to pan
+                    # the viewport lands on the compound (nothing visible,
+                    # nothing happens, since nodes are separately locked
+                    # via autoungrabify) instead of reaching the
+                    # background almost everywhere except directly on a
+                    # node. This makes compounds click-through.
+                    "events": "no",
+                },
+            },
+            {
+                "selector": "node[parent]",
+                "style": {
+                    "shape": "round-rectangle",
+                    "corner-radius": 9,
+                    "width": "data(width)",
+                    "height": "data(height)",
+                    # Soft top-to-bottom gradient instead of a flat fill,
+                    # closer to the original hand-painted glassy look than
+                    # a plain solid rectangle.
+                    "background-fill": "linear-gradient",
+                    "background-gradient-direction": "to-bottom",
+                    "background-gradient-stop-colors": "data(gradientColors)",
+                    "border-width": 1,
+                    "border-color": "data(borderColor)",
+                    "border-opacity": 0.55,
+                    "label": "data(label)",
+                    "color": "#0b0c10",
+                    "font-size": 12,
+                    "font-weight": 600,
+                    "text-valign": "center",
+                    "text-halign": "center",
+                    "text-wrap": "ellipsis",
+                    "text-max-width": "data(width)",
+                    # A faint light halo keeps the dark label legible
+                    # across the full 50-color community palette, some of
+                    # which sit darker/more saturated than others.
+                    "text-outline-width": 0.6,
+                    "text-outline-color": "#ffffff",
+                    "text-outline-opacity": 0.25,
+                },
+            },
+            {
+                "selector": "node[parent].hovered",
+                "style": {
+                    "border-width": 2.5,
+                    "border-opacity": 1,
+                    "border-color": "#ffffff",
+                },
+            },
+            {
+                "selector": "edge",
+                "style": {
+                    "curve-style": "bezier",
+                    "width": 1.1,
+                    "line-cap": "round",
+                    "line-color": "#8599ea",
+                    "target-arrow-color": "data(arrowColor)",
+                    "target-arrow-shape": "triangle-backcurve",
+                    "arrow-scale": 1.0,
+                    "opacity": "data(opacity)",
+                },
+            },
+        ]
 
-        Uses axis-aligned bounding box (AABB) overlap — cheap and correct for
-        rectangular nodes.  GAP adds breathing room so nodes settle with space
-        between them rather than just touching.
-        """
-        GAP = 18  # minimum clear space between node edges (px)
-        ITERATIONS = 3  # multiple passes per tick converges faster for clusters
+    def _build_layout_options(self):
+        # fcose (Fast Compound Spring Embedder) -- a proven force-directed
+        # layout with first-class support for compound nodes (our
+        # per-community groups): it pulls same-parent nodes together,
+        # pushes separate compounds apart, and guarantees no overlap by
+        # construction. Replaces the earlier hand-rolled repulsion/
+        # cohesion/collision system. All values here are tunable knobs if
+        # the grouping still needs to feel tighter/looser.
+        return {
+            "name": "fcose",
+            "quality": "default",
+            "randomize": True,
+            "animate": True,
+            # fcose computes the final layout instantly, then tweens nodes
+            # from their random starting scatter into place over this
+            # duration -- stretched well past the library default (1000ms)
+            # so the resolve is actually enjoyable to watch, the way the
+            # old per-tick simulation was, without the computation itself
+            # being slow.
+            "animationDuration": 2200,
+            "animationEasing": "ease-out",
+            "fit": True,
+            "padding": 40,
+            "nodeRepulsion": 9000,
+            "idealEdgeLength": 90,
+            "edgeElasticity": 0.45,
+            "nestingFactor": 0.12,
+            "gravity": 0.3,
+            "gravityRange": 3.8,
+            "gravityCompound": 1.2,
+            "gravityRangeCompound": 1.8,
+            "numIter": 2500,
+            "tile": True,
+            "tilingPaddingVertical": 20,
+            "tilingPaddingHorizontal": 20,
+        }
 
-        node_ids = list(self.positions.keys())
-
-        for _ in range(ITERATIONS):
-            for i in range(len(node_ids)):
-                id1 = node_ids[i]
-                p1 = self.positions[id1]
-                hw1, hh1 = self._node_radii.get(id1, (30.0, 15.0))
-
-                for j in range(i + 1, len(node_ids)):
-                    id2 = node_ids[j]
-                    p2 = self.positions[id2]
-                    hw2, hh2 = self._node_radii.get(id2, (30.0, 15.0))
-
-                    # AABB overlap test
-                    overlap_x = (hw1 + hw2 + GAP) - abs(p1.x() - p2.x())
-                    overlap_y = (hh1 + hh2 + GAP) - abs(p1.y() - p2.y())
-
-                    # Only colliding if BOTH axes overlap
-                    if overlap_x <= 0 or overlap_y <= 0:
-                        continue
-
-                    # Separate along the axis of least overlap (minimal movement)
-                    if overlap_x < overlap_y:
-                        # Push apart horizontally
-                        push = overlap_x / 2.0
-                        if p1.x() >= p2.x():
-                            self.positions[id1] = QPointF(p1.x() + push, p1.y())
-                            self.positions[id2] = QPointF(p2.x() - push, p2.y())
-                        else:
-                            self.positions[id1] = QPointF(p1.x() - push, p1.y())
-                            self.positions[id2] = QPointF(p2.x() + push, p2.y())
-                    else:
-                        # Push apart vertically
-                        push = overlap_y / 2.0
-                        if p1.y() >= p2.y():
-                            self.positions[id1] = QPointF(p1.x(), p1.y() + push)
-                            self.positions[id2] = QPointF(p2.x(), p2.y() - push)
-                        else:
-                            self.positions[id1] = QPointF(p1.x(), p1.y() - push)
-                            self.positions[id2] = QPointF(p2.x(), p2.y() + push)
-
-                    # Re-read p1 since it may have been updated this iteration
-                    p1 = self.positions[id1]
-
-    def update_arrow_position(self, arrow_item, start_pos, end_pos, target_id=None):
-        """
-        Update arrowhead to stay near the target node boundary.
-        Mirrors the placement logic in create_arrow_line.
-        """
-        try:
-            dx = end_pos.x() - start_pos.x()
-            dy = end_pos.y() - start_pos.y()
-            length = math.sqrt(dx * dx + dy * dy)
-
-            if length < 10:
-                arrow_item.setVisible(False)
-                return
-
-            ux, uy = dx / length, dy / length
-
-            if target_id and target_id in self.nodes:
-                t_rect = self.nodes[target_id].rect()
-                half_w = abs(t_rect.width()) / 2
-                half_h = abs(t_rect.height()) / 2
-            else:
-                half_w = 30
-                half_h = 15
-
-            if abs(ux) > 1e-6:
-                t_w = half_w / abs(ux)
-            else:
-                t_w = float("inf")
-            if abs(uy) > 1e-6:
-                t_h = half_h / abs(uy)
-            else:
-                t_h = float("inf")
-            boundary_offset = min(t_w, t_h) + 4
-            boundary_offset = min(boundary_offset, length * 0.45)
-
-            arrow_x = end_pos.x() - ux * boundary_offset
-            arrow_y = end_pos.y() - uy * boundary_offset
-
-            arrow_item.setPos(arrow_x, arrow_y)
-            arrow_angle = math.degrees(math.atan2(dy, dx))
-            arrow_item.setRotation(arrow_angle)
-
-            # Respect zoom-based visibility (set by _sync_arrow_visibility)
-            # Only make it visible if it was previously hidden due to length,
-            # not due to zoom — zoom visibility is managed separately.
-            if not arrow_item.isVisible():
-                zoom = self.transform().m11()
-                arrow_item.setVisible(zoom >= self.ARROW_ZOOM_THRESHOLD)
-
-        except Exception as e:
-            logger.error(f"Error updating arrow position: {e}")
-
-    def update_node_positions(self):
-        """Update positions of node QGraphicsItems from self.positions"""
-        for node_id, pos in self.positions.items():
-            if node_id in self.nodes:
-                try:
-                    self.nodes[node_id].setPos(pos)
-                except Exception:
-                    logger.debug(f"Failed to setPos for node {node_id}")
-
-    def update_edge_positions(self):
-        """Update the positions of existing edge lines and arrows."""
-        for (source_id, target_id), (line_item, arrow_item) in self.edge_lines.items():
-            if source_id in self.positions and target_id in self.positions:
-                sp = self.positions[source_id]
-                tp = self.positions[target_id]
-                try:
-                    line_item.setLine(sp.x(), sp.y(), tp.x(), tp.y())
-                    if arrow_item:
-                        self.update_arrow_position(arrow_item, sp, tp, target_id)
-                except Exception:
-                    logger.debug(f"Failed to update edge line {source_id}->{target_id}")
-
-    def _sync_arrow_visibility(self):
-        """Show/hide arrowheads based on current zoom level to reduce clutter at scale."""
-        zoom = self.transform().m11()
-        visible = zoom >= self.ARROW_ZOOM_THRESHOLD
-        for _, (_, arrow_item) in self.edge_lines.items():
-            if arrow_item:
-                arrow_item.setVisible(visible)
+    def _push_graph(self):
+        elements = json.dumps(self._build_elements())
+        style = json.dumps(self._build_stylesheet())
+        layout = json.dumps(self._build_layout_options())
+        bg = json.dumps(self._theme_background())
+        self._run_js(f"loadGraph({elements}, {style}, {layout}, {bg})")
+        self.debug_graph_structure()
 
     # -----------------------
     # Utilities
     # -----------------------
-    def clear_scene(self):
-        """Clear the entire scene and reset all graph data"""
-        # Stop force layout first
-        self.stop_force_layout()
-
-        # Clear all items from scene
-        self.scene.clear()
-
-        # Reset all graph data structures
-        self.nodes.clear()
-        self.edge_lines.clear()
-        self.positions.clear()
-        self.velocities.clear()
-        self.node_mass.clear()
-        self.community_id.clear()
-        self.community_names.clear()
-        self._community_anchor.clear()
-        self._legend.hide()
-
     def debug_graph_structure(self):
         """Log summary info about the graph"""
         try:
             logger.info(
-                f"Graph has {len(self.nodes)} nodes and {len(self.edges)} edges"
+                f"Graph has {len(self.node_names)} nodes and {len(self.edges)} edges"
             )
 
-            # Count connections per node
-            connection_counts = {nid: 0 for nid in self.nodes.keys()}
+            connection_counts = {nid: 0 for nid in self.node_names.keys()}
             for a, b in self.edges:
                 if a in connection_counts:
                     connection_counts[a] += 1
@@ -1381,12 +938,7 @@ class InfluenceGraphView(QGraphicsView):
             )
             logger.info("Top connected nodes:")
             for node_id, count in sorted_nodes[:5]:
-                node_name = (
-                    self.nodes[node_id].artist_name
-                    if node_id in self.nodes
-                    and hasattr(self.nodes[node_id], "artist_name")
-                    else self.node_names.get(node_id, f"Artist {node_id}")
-                )
+                node_name = self.node_names.get(node_id, f"Artist {node_id}")
                 logger.info(f"  {node_name}: {count} connections")
         except Exception as e:
             logger.error(f"Error in debug_graph_structure: {e}")
@@ -1456,8 +1008,6 @@ class InfluenceGraphView(QGraphicsView):
             # 2. Decayed PageRank influence weighting
             # -----------------------------
             try:
-                # Your previously added function:
-                # compute_decayed_pagerank(G, decay_factor=0.85)
                 decayed_pr = self.compute_decayed_pagerank(G)
 
                 # Store for later use (visualization, layout, scoring)
@@ -1552,52 +1102,66 @@ class InfluenceGraphView(QGraphicsView):
                 )
                 return
 
-            # If this artist is already in the graph, just update the name
-            if artist_id in self.positions:
+            # If this artist is already in the graph, just update the label
+            if artist_id in self.node_names:
                 self.node_names[artist_id] = artist_name
-                if artist_id in self.nodes:
-                    self.nodes[artist_id].update_text(artist_name)
+                self._run_js(
+                    f"setLabel({json.dumps(str(artist_id))}, {json.dumps(artist_name)})"
+                )
                 return
 
-            # Add new artist to the graph data structures
             self.node_names[artist_id] = artist_name
-
-            # Rest of the method remains the same...
-            width, height = 800, 600
-            self.positions[artist_id] = QPointF(
-                random.uniform(-width / 2, width / 2),
-                random.uniform(-height / 2, height / 2),
-            )
-            self.velocities[artist_id] = QPointF(0, 0)
-
-            # Calculate initial mass (will be updated properly later)
             self.node_mass[artist_id] = 1
+            community_index = self.community_id.get(artist_id, 0)
+            cluster_id = f"c{community_index}"
+            size = self.get_node_size(artist_id)
+            color = self.get_community_color(community_index)
 
-            # Create and add the node to the scene
-            node_size = self.get_node_size(artist_id)
-            width = node_size
-            height = node_size * 0.5
-
-            node_item = ArtistNode(
-                artist_id,
-                artist_name,
-                self.positions[artist_id].x(),
-                self.positions[artist_id].y(),
-                width,
-                height,
-            )
-            node_item.set_community_color(
-                self.get_community_color(self.community_id.get(artist_id, 0))
-            )
-            self.nodes[artist_id] = node_item
-            node_item.setZValue(0)
-            self.scene.addItem(node_item)
-
-            # Restart force layout to incorporate the new node
-            self.start_force_layout()
+            elements = [
+                {
+                    "data": {
+                        "id": str(artist_id),
+                        "label": artist_name,
+                        "parent": cluster_id,
+                        "width": size,
+                        "height": size * 0.5,
+                        "color": color.name(),
+                        "gradientColors": f"{color.lighter(130).name()} {color.name()}",
+                        "borderColor": color.darker(140).name(),
+                    }
+                }
+            ]
+            self._run_js(f"addElements({json.dumps(elements)})")
 
         except Exception as e:
             logger.error(f"Error adding single artist {artist_id}: {e}")
+
+    def add_edge(self, source_id, target_id):
+        """Add one influence edge to the live graph model + canvas, without
+        a full reload."""
+        key = (source_id, target_id)
+        if key in self.edges:
+            return
+        if source_id not in self.node_names or target_id not in self.node_names:
+            return
+
+        self.edges.append(key)
+        self.node_mass[source_id] = self.node_mass.get(source_id, 1) + 1
+        self.node_mass[target_id] = self.node_mass.get(target_id, 1) + 1
+
+        arrow_color = self.get_community_color(self.community_id.get(target_id, 0))
+        elements = [
+            {
+                "data": {
+                    "id": f"e{source_id}_{target_id}",
+                    "source": str(source_id),
+                    "target": str(target_id),
+                    "opacity": 0.5,
+                    "arrowColor": arrow_color.name(),
+                }
+            }
+        ]
+        self._run_js(f"addElements({json.dumps(elements)})")
 
     def debug_size_distribution(self):
         """Log the size distribution for analysis"""
@@ -1605,7 +1169,7 @@ class InfluenceGraphView(QGraphicsView):
             return
 
         sizes = []
-        for node_id in self.positions.keys():
+        for node_id in self.node_names.keys():
             size = self.get_node_size(node_id)
             sizes.append((node_id, size, self.influence_scores.get(node_id, 0)))
 

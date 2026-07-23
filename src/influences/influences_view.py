@@ -1,8 +1,6 @@
-from PySide6.QtGui import QColor, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
-    QGraphicsLineItem,
     QHBoxLayout,
     QMessageBox,
     QPushButton,
@@ -140,43 +138,12 @@ class InfluencesView(QWidget):
             recent_influences = influences[-5:]  # Get last 5 to be safe
 
             for influence in recent_influences:
-                edge_key = (influence.influencer_id, influence.influenced_id)
-
-                # Only add if this edge doesn't already exist in our graph
-                if edge_key not in self.graph_view.edges:
-                    self.graph_view.edges.append(edge_key)
-
-                    # Create the visual edge if both nodes exist
-                    if (
-                        influence.influencer_id in self.graph_view.positions
-                        and influence.influenced_id in self.graph_view.positions
-                    ):
-                        source_pos = self.graph_view.positions[influence.influencer_id]
-                        target_pos = self.graph_view.positions[influence.influenced_id]
-
-                        line = QGraphicsLineItem(
-                            source_pos.x(),
-                            source_pos.y(),
-                            target_pos.x(),
-                            target_pos.y(),
-                        )
-                        line.setPen(QPen(QColor(133, 153, 234, 150), 1.2))
-                        line.setZValue(-1)
-                        self.graph_view.scene.addItem(line)
-                        self.graph_view.edge_lines[edge_key] = line
-
-                        logger.info(
-                            f"Added new edge: {influence.influencer_id} -> {influence.influenced_id}"
-                        )
-
-            # Update node masses for the force layout (since connections changed)
-            for node_id in self.graph_view.positions:
-                self.graph_view.node_mass[node_id] = 1 + sum(
-                    1 for a, b in self.graph_view.edges if a == node_id or b == node_id
+                self.graph_view.add_edge(
+                    influence.influencer_id, influence.influenced_id
                 )
-
-            # Restart force layout to incorporate new edges
-            self.graph_view.start_force_layout()
+                logger.info(
+                    f"Added new edge: {influence.influencer_id} -> {influence.influenced_id}"
+                )
 
         except Exception as e:
             logger.error(f"Error adding new influence edges: {e}")
@@ -190,9 +157,6 @@ class InfluencesView(QWidget):
     def on_influence_modified(self):
         """Handle complex influence modifications that require full refresh"""
         try:
-            # Clear cache since relationships changed significantly
-            self.cache.clear_all()
-
             # Refresh the entire graph (only for complex changes)
             self.refresh_graph()
 
@@ -204,7 +168,6 @@ class InfluencesView(QWidget):
 
     def closeEvent(self, event):
         """Clean up when closing"""
-        self.graph_view.stop_force_layout()
         super().closeEvent(event)
 
     def refresh_graph(self):
