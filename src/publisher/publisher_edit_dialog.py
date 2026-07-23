@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.entity_alias_tab import EntityAliasesTab
-from src.common.entity_completer_edit import EntityCompleterEdit
+from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
 from src.core.asset_paths import icon
 from src.core.logger_config import logger
 from src.publisher.publisher_hierarchy import get_descendant_publisher_ids
@@ -85,6 +85,10 @@ class PublisherEditDialog(QDialog):
                 )
             )
         publishers = self.controller.get.get_all_entities("Publisher")
+        # Kept unfiltered (unlike parent_index below) so find-or-create in
+        # validate() can still recognize an excluded descendant by name --
+        # the cycle check there is what rejects it, not a missing lookup.
+        self._known_publishers = publishers
         parent_index = {
             p.publisher_name: p.publisher_id
             for p in publishers
@@ -236,10 +240,17 @@ class PublisherEditDialog(QDialog):
                 )
                 parent_id = parent_obj.publisher_id if parent_obj else None
             if parent_id is None:
-                QMessageBox.warning(
-                    self, "Invalid Parent", f"Parent publisher '{parent_name}' not found."
+                # No existing publisher matches what was typed -- create one
+                # on the fly rather than blocking the save, mirroring the
+                # find-or-create pattern used by the other completer fields.
+                parent_obj = find_or_create_by_name(
+                    self.controller,
+                    "Publisher",
+                    "publisher_name",
+                    parent_name,
+                    self._known_publishers,
                 )
-                return
+                parent_id = parent_obj.publisher_id if parent_obj else None
             if self.publisher and parent_id in get_descendant_publisher_ids(
                 self.controller, self.publisher.publisher_id
             ):
