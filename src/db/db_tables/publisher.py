@@ -21,6 +21,7 @@ class Publisher(Base):
     end_year = Column(Integer)
     is_active = Column(Integer, CheckConstraint("is_active IN (0, 1)"))
     wikipedia_link = Column(String)
+    is_fixed = Column(Integer)
 
     album_associations = relationship(
         "AlbumPublisher",
