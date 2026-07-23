@@ -38,6 +38,9 @@ class BaseDBHelper:
                 continue
 
             value = values[column.name]
+            if value is None:
+                continue
+
             conflict = self.session.scalar(
                 select(entity_class).where(
                     column == value,
@@ -66,6 +69,9 @@ class BaseDBHelper:
                 continue
 
             value = values[column.name]
+            if value is None:
+                continue
+
             conflict = self.session.scalar(
                 select(entity_class).where(
                     column == value,
