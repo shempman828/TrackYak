@@ -1655,6 +1655,12 @@ HeaderWidget QLabel#ArtistName {
     color: #b8c0f0;
 }
 
+HeaderWidget QLabel#ArtistYears {
+    font-size: 18px;
+    font-weight: normal;
+    color: #7d84ad;
+}
+
 HeaderWidget QLabel#TypeBadge {
     background-color: #1a1b26;
     color: #8599ea;
