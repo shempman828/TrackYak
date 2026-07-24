@@ -26,6 +26,7 @@ class Artist(Base):
     end_month = Column(Integer)
     end_day = Column(Integer)
     biography = Column(String)
+    disambiguation = Column(String)
     MBID = Column(String)
     profile_pic_path = Column(String)
     wikipedia_link = Column(String)
