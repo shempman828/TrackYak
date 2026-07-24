@@ -455,6 +455,8 @@ class InfluenceGraphView(QWidget):
                         "parent": cluster_id,
                         "width": size,
                         "height": size * 0.5,
+                        "labelWidth": self.get_label_width(size, name),
+                        "fontSize": self.get_label_font_size(size),
                         "color": color.name(),
                         # background-gradient-stop-colors takes its whole
                         # value from a single data field already containing
@@ -533,12 +535,13 @@ class InfluenceGraphView(QWidget):
                     "border-opacity": 0.55,
                     "label": "data(label)",
                     "color": "#0b0c10",
-                    "font-size": 12,
+                    "font-size": "data(fontSize)",
+                    "font-family": "Helvetica Neue, Helvetica, Arial, sans-serif",
                     "font-weight": 600,
                     "text-valign": "center",
                     "text-halign": "center",
                     "text-wrap": "ellipsis",
-                    "text-max-width": "data(width)",
+                    "text-max-width": "data(labelWidth)",
                     # A faint light halo keeps the dark label legible
                     # across the full 50-color community palette, some of
                     # which sit darker/more saturated than others.
@@ -783,6 +786,26 @@ class InfluenceGraphView(QWidget):
         size = min_size + normalized * (max_size - min_size)
         return size
 
+    @staticmethod
+    def get_label_width(size, name, min_width=70):
+        """Width available to a node's label, in the same graph units as
+        its box `size`. Small/low-influence nodes get a box far too
+        narrow for most names -- decoupling the label from the box lets
+        short and medium names render in full (the label simply overflows
+        the small pill) while still capping to something sane for very
+        long names, so the ellipsis only kicks in when it's genuinely
+        needed rather than on almost every small node."""
+        return max(size, min(min_width + len(name) * 3.2, 260))
+
+    @staticmethod
+    def get_label_font_size(size, min_font=8, max_font=13):
+        """Scale label font size down for small/low-influence nodes so
+        more characters fit before eliding, instead of a fixed size that
+        barely shows 2-3 letters on the smallest pills."""
+        normalized = (size - 25) / (160 - 25)
+        normalized = max(0.0, min(1.0, normalized))
+        return min_font + normalized * (max_font - min_font)
+
     def add_single_artist(self, artist_id, artist_name):
         """Add a single artist to the existing graph only if it has relationships"""
         try:
@@ -824,6 +847,8 @@ class InfluenceGraphView(QWidget):
                         "parent": cluster_id,
                         "width": size,
                         "height": size * 0.5,
+                        "labelWidth": self.get_label_width(size, artist_name),
+                        "fontSize": self.get_label_font_size(size),
                         "color": color.name(),
                         "gradientColors": f"{color.lighter(130).name()} {color.name()}",
                         "borderColor": color.darker(140).name(),
