@@ -34,8 +34,8 @@ from src.album.base_album_edit_tabs import (
     DetailsTab,
     TracksTab,
 )
-from src.album.nullable_spinbox import NullableSpinBox
 from src.common.edit_dirty import value_changed
+from src.common.nullable_spinbox import NullableSpinBox
 from src.core.config_setup import Config
 from src.db.db_mapping_albums import ALBUM_FIELDS
 from src.core.logger_config import logger
@@ -142,11 +142,14 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         plain QSpinBox so the user can clear the value back to NULL.
         """
         NULLABLE_INT_FIELDS = {
-            "recording_day",
-            "recording_month",
-            "recording_year",
+            "release_day",
+            "release_month",
+            "release_year",
             "estimated_sales",
         }
+        # These three sit side by side in a cramped 70px-wide date row, so
+        # they get an icon-only checkbox instead of the full "Set" label.
+        COMPACT_FIELDS = {"release_year", "release_month", "release_day"}
 
         for field_name, field_config in ALBUM_FIELDS.items():
             if not field_config.editable:
@@ -162,6 +165,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                     min_val=int(min_val),
                     max_val=int(max_val),
                     current_value=current_value,
+                    checkbox_text="" if field_name in COMPACT_FIELDS else "Set",
                 )
             else:
                 widget = AlbumUIComponents.create_editable_field(
@@ -333,7 +337,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 col.setSpacing(2)
                 lbl = QLabel(label_text)
                 lbl.setProperty("textRole", "muted")
-                w.setFixedWidth(70)
+                w.setFixedWidth(90)
                 col.addWidget(lbl)
                 col.addWidget(w)
                 date_group.addLayout(col)
