@@ -3,7 +3,7 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout
 
 from src.common.style_utils import set_style_property
-from src.sync.sync_utility import SyncProfile
+from src.sync.sync_profile import SyncProfile
 
 
 def format_file_size(bytes_size):
