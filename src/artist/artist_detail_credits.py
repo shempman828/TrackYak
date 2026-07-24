@@ -214,21 +214,14 @@ class RoleSection(QGroupBox):
 class CreditsWidget(QWidget):
     """Credits section widget displaying all roles an artist is associated with"""
 
-    def __init__(self, artist):
+    def __init__(self, artist, controller=None):
         super().__init__()
         self.artist = artist
-        self.controller = None  # Will be set by parent
+        self.controller = controller
         self.role_sections = {}  # role_name -> RoleSection
-
-        # Try to get controller from artist if available
-        if hasattr(artist, "controller"):
-            self.controller = artist.controller
 
         self.init_ui()
 
-    def set_controller(self, controller):
-        """Set the controller for database access"""
-        self.controller = controller
         if self.controller:
             self.load_role_counts()
 
@@ -280,6 +273,12 @@ class CreditsWidget(QWidget):
             album_roles = self.controller.get.get_all_entities(
                 "AlbumRoleAssociation", artist_id=self.artist.artist_id
             )
+
+            self.role_sections = {}
+            while self.sections_layout.count():
+                item = self.sections_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
 
             # Count roles
             role_counts = {}
