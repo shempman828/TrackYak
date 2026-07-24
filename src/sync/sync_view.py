@@ -29,16 +29,12 @@ from src.common.style_utils import set_style_property
 from src.core.logger_config import logger
 from src.core.status_utility import StatusManager, show_status_message
 from src.sync.device_card import DeviceCard
+from src.sync.mtp_manager import MtpManager, mtp_available
 from src.sync.sync_execution_mixin import SyncExecutionMixin
+from src.sync.sync_manager import SyncManager
+from src.sync.sync_profile import SyncProfile, SyncProfileStore
 from src.sync.sync_selection_mixin import SyncSelectionMixin
-from src.sync.sync_utility import (
-    MtpManager,
-    SyncManager,
-    SyncProfile,
-    SyncProfileStore,
-    SyncWorker,
-    mtp_available,
-)
+from src.sync.sync_worker import SyncWorker
 
 
 # ---------------------------------------------------------------------------
