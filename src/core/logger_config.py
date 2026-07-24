@@ -1,13 +1,13 @@
 import logging
 from logging.handlers import RotatingFileHandler
-import os
+
+from src.core.asset_paths import LOGS_DIR
 
 
 def setup_logging(config=None):
     """Setup logging with optional configuration"""
-    LOG_DIR = "logs"
-    os.makedirs(LOG_DIR, exist_ok=True)
-    LOG_FILE = os.path.join(LOG_DIR, "app.log")
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_FILE = str(LOGS_DIR / "app.log")
 
     # Get logger
     logger = logging.getLogger("musiclib")
