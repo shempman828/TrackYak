@@ -448,7 +448,12 @@ class MapView(QWidget):
             attribution: '© OpenStreetMap, © CARTO',
             maxZoom: 18
         }}).addTo(map);
-        var markerClusterGroup = L.markerClusterGroup();
+        var markerClusterGroup = L.markerClusterGroup({{
+            maxClusterRadius: 25,
+            disableClusteringAtZoom: 15,
+            spiderfyOnMaxZoom: true,
+            showCoverageOnHover: false
+        }});
         {markers_js}
         map.addLayer(markerClusterGroup);
         {bounds_js}
