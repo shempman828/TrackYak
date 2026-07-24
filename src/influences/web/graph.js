@@ -40,6 +40,53 @@
     tooltipEl.style.display = "none";
   }
 
+  // fcose is a force-directed heuristic: it settles at an energy
+  // equilibrium that usually keeps nodes apart but has no hard
+  // non-overlap constraint, so dense communities can still resolve with
+  // pairs touching or overlapping. This deterministic pass runs after
+  // every layout settles and pushes any remaining overlapping pairs
+  // apart along their shallower axis until none overlap, guaranteeing
+  // the end state is overlap-free regardless of what the physics
+  // simulation converged to.
+  function resolveOverlaps() {
+    if (!cy) return;
+    const nodes = cy.nodes("[parent]");
+    const n = nodes.length;
+    if (n < 2) return;
+    const padding = 4;
+    const maxIterations = 80;
+    for (let iter = 0; iter < maxIterations; iter++) {
+      let moved = false;
+      for (let i = 0; i < n; i++) {
+        const a = nodes[i];
+        const aBB = a.boundingBox({ includeLabels: true });
+        for (let j = i + 1; j < n; j++) {
+          const b = nodes[j];
+          const bBB = b.boundingBox({ includeLabels: true });
+          const overlapX = Math.min(aBB.x2, bBB.x2) - Math.max(aBB.x1, bBB.x1);
+          const overlapY = Math.min(aBB.y2, bBB.y2) - Math.max(aBB.y1, bBB.y1);
+          if (overlapX <= -padding || overlapY <= -padding) continue;
+
+          moved = true;
+          const aPos = a.position();
+          const bPos = b.position();
+          if (overlapX < overlapY) {
+            const push = (overlapX + padding) / 2;
+            const sign = bPos.x - aPos.x >= 0 ? 1 : -1;
+            a.position("x", aPos.x - sign * push);
+            b.position("x", bPos.x + sign * push);
+          } else {
+            const push = (overlapY + padding) / 2;
+            const sign = bPos.y - aPos.y >= 0 ? 1 : -1;
+            a.position("y", aPos.y - sign * push);
+            b.position("y", bPos.y + sign * push);
+          }
+        }
+      }
+      if (!moved) break;
+    }
+  }
+
   function attachInteractionHandlers() {
     // Only leaf artist nodes carry a `parent` data field (the invisible
     // per-community compound node); this selector excludes the compounds
@@ -80,6 +127,7 @@
       // layout view, not an editor, so lock every element in place.
       autoungrabify: true,
     });
+    cy.on("layoutstop", resolveOverlaps);
     attachInteractionHandlers();
   };
 
