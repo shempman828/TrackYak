@@ -3,24 +3,19 @@ base_album_edit.py
 """
 
 import webbrowser
-from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QCompleter,
     QDialog,
     QDialogButtonBox,
-    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
     QSizePolicy,
-    QSpinBox,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -28,7 +23,9 @@ from PySide6.QtWidgets import (
 )
 
 from src.album.album_components import AlbumUIComponents
+from src.album.album_cover_art_mixin import AlbumCoverArtMixin
 from src.album.album_editing_relationship_helpers import RelationshipHelpers
+from src.album.album_musicbrainz_mixin import AlbumMusicBrainzMixin
 from src.album.album_tab import AlbumTabBuilder
 from src.album.base_album_edit_tabs import (
     AdvancedTab,
@@ -37,15 +34,12 @@ from src.album.base_album_edit_tabs import (
     DetailsTab,
     TracksTab,
 )
+from src.album.nullable_spinbox import NullableSpinBox
 from src.common.edit_dirty import value_changed
 from src.core.config_setup import Config
 from src.db.db_mapping_albums import ALBUM_FIELDS
 from src.core.logger_config import logger
-from src.image.artwork_cache import get_artwork_cache
-from src.metadata.metadata_artwork import ArtworkExtractor
 from src.metadata.metadata_writer import MetadataWriter
-from src.musicbrainz.musicbrainz_client import search_release_groups
-from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzMatchDialog
 
 
 # Fallback suggestions used if the controller can't supply distinct values
@@ -80,59 +74,11 @@ RELEASE_TYPE_SUGGESTIONS = [
 
 
 # =============================================================================
-# NullableSpinBox — a SpinBox that can be explicitly cleared to None
-# =============================================================================
-
-
-class NullableSpinBox(QWidget):
-    """A QSpinBox paired with a 'Set' checkbox.
-
-    When the checkbox is unchecked the value is treated as NULL on save.
-    When checked the spin-box value is used.
-
-    This solves the problem of not being able to clear a QSpinBox back to NULL
-    once a value has been entered.
-    """
-
-    def __init__(
-        self, min_val: int = 0, max_val: int = 9999, current_value=None, parent=None
-    ):
-        super().__init__(parent)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-
-        self._spin = QSpinBox()
-        self._spin.setRange(min_val, max_val)
-
-        self._check = QCheckBox("Set")
-        self._check.setToolTip("Uncheck to save this field as empty (no value).")
-
-        if current_value is not None:
-            self._spin.setValue(int(current_value))
-            self._check.setChecked(True)
-        else:
-            self._spin.setValue(min_val)
-            self._check.setChecked(False)
-            self._spin.setEnabled(False)
-
-        self._check.toggled.connect(self._spin.setEnabled)
-
-        layout.addWidget(self._check)
-        layout.addWidget(self._spin)
-        layout.addStretch()
-
-    def value(self):
-        """Return the int value, or None if the checkbox is unchecked."""
-        return self._spin.value() if self._check.isChecked() else None
-
-
-# =============================================================================
 # AlbumEditor — main dialog
 # =============================================================================
 
 
-class AlbumEditor(QDialog):
+class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     """
     Comprehensive album editor dialog with tabbed interface.
 
@@ -621,340 +567,6 @@ class AlbumEditor(QDialog):
                 changes["album_description"] = desc_val
 
         return changes
-
-    # =========================================================================
-    # Cover art — loading helpers
-    # =========================================================================
-
-    def _load_album_cover(self):
-        """Load the front cover thumbnail into the header label."""
-        cache = get_artwork_cache()
-        is_explicit = bool(getattr(self.album, "art_is_explicit", False))
-        px = cache.get_pixmap(self.album, "front", is_explicit) if cache else None
-        if px and not px.isNull():
-            self.cover_label.setPixmap(
-                px.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            )
-            return
-        self.cover_label.setText("No Cover\nImage")
-
-    def _load_artwork_previews(self):
-        """Populate all three artwork displays from the current album object."""
-        cache = get_artwork_cache()
-        is_explicit = bool(getattr(self.album, "art_is_explicit", False))
-        for cover_type in ("front", "rear", "liner"):
-            display = getattr(self, f"{cover_type}_cover_display", None)
-            path_label = getattr(self, f"{cover_type}_path_label", None)
-            if display is None:
-                continue
-            px = cache.get_pixmap(self.album, cover_type, is_explicit) if cache else None
-            if px and not px.isNull():
-                display.setPixmap(
-                    px.scaled(250, 250, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                )
-                if path_label:
-                    dims = cache.get_dimensions(self.album, cover_type) if cache else None
-                    info_parts = ["Embedded in track file(s)"]
-                    if dims:
-                        info_parts.append(f"{dims[0]} × {dims[1]} px")
-                    path_label.setText("  |  ".join(info_parts))
-                continue
-            display.setText(f"No {cover_type.title()} Cover")
-            if path_label:
-                path_label.setText("")
-
-    def _load_image_to_label(self, source, label, size=250):
-        """Generic helper: load a file path or bytes into a QLabel."""
-        px = QPixmap()
-        if isinstance(source, bytes):
-            px.loadFromData(source)
-        else:
-            px.load(str(source))
-
-        if not px.isNull():
-            label.setPixmap(
-                px.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            )
-        else:
-            label.setText("Invalid Image")
-
-    # =========================================================================
-    # Cover art — picking & saving
-    # =========================================================================
-
-    def change_front_cover(self):
-        self._pick_cover("front")
-
-    def change_rear_cover(self):
-        self._pick_cover("rear")
-
-    def _pick_cover(self, cover_type: str):
-        """Open a file dialog and embed the picked image into every track."""
-        try:
-            last_dir = self._config.get_last_art_dir()
-        except AttributeError:
-            last_dir = str(Path.home())
-
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            f"Select {cover_type.title()} Cover",
-            last_dir,
-            "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)",
-        )
-        if not path:
-            return
-
-        try:
-            self._config.set_last_art_dir(str(Path(path).parent))
-            self._config.save()
-        except AttributeError:
-            pass
-
-        try:
-            image_bytes = Path(path).read_bytes()
-
-            failed = self._embed_cover_to_tracks(cover_type, image_bytes)
-            self._warn_if_embed_failures(cover_type, failed)
-
-            cache = get_artwork_cache()
-            if cache:
-                cache.store(self.album, cover_type, image_bytes)
-
-            # Update the Artwork tab preview
-            display = getattr(self, f"{cover_type}_cover_display", None)
-            path_label = getattr(self, f"{cover_type}_path_label", None)
-            if display:
-                self._load_image_to_label(image_bytes, display, 250)
-            if path_label:
-                dims = cache.get_dimensions(self.album, cover_type) if cache else None
-                info_parts = ["Embedded in track file(s)"]
-                if dims:
-                    info_parts.append(f"{dims[0]} × {dims[1]} px")
-                path_label.setText("  |  ".join(info_parts))
-
-            # IMPORTANT: always refresh the header thumbnail when front cover changes
-            if cover_type == "front":
-                self._load_album_cover()
-
-        except Exception as e:
-            logger.error(f"Error saving {cover_type} cover: {e}")
-            QMessageBox.critical(self, "Error", f"Could not save cover art:\n{e}")
-
-    _EMBEDDABLE_EXTENSIONS = ArtworkExtractor.SUPPORTED_EXTENSIONS
-
-    def _embed_cover_to_tracks(self, cover_type: str, image_bytes):
-        """Embed (image_bytes given) or strip (image_bytes=None) the given
-        cover role into every FLAC/MP3 track of this album. Returns the
-        list of track file paths that failed, so callers can surface one
-        warning."""
-        failed = []
-        for track in getattr(self.album, "tracks", None) or []:
-            file_path = getattr(track, "track_file_path", None)
-            if not file_path or Path(file_path).suffix.lower() not in self._EMBEDDABLE_EXTENSIONS:
-                continue
-            try:
-                success = self._metadata_writer.write_artwork_to_file(
-                    file_path, cover_type, image_bytes
-                )
-            except Exception as e:
-                logger.error(f"Error embedding {cover_type} cover into {file_path}: {e}")
-                success = False
-            if not success:
-                failed.append(file_path)
-        return failed
-
-    def _warn_if_embed_failures(self, cover_type: str, failed_paths):
-        if not failed_paths:
-            return
-        preview = "\n".join(failed_paths[:10])
-        if len(failed_paths) > 10:
-            preview += f"\n… and {len(failed_paths) - 10} more"
-        QMessageBox.warning(
-            self,
-            "Some Files Not Updated",
-            f"The {cover_type} cover was saved, but could not be embedded into "
-            f"{len(failed_paths)} track file(s):\n\n{preview}",
-        )
-
-    def _clear_cover(self, cover_type: str):
-        failed = self._embed_cover_to_tracks(cover_type, None)
-        self._warn_if_embed_failures(cover_type, failed)
-
-        cache = get_artwork_cache()
-        if cache:
-            cache.store(self.album, cover_type, None)
-
-        display = getattr(self, f"{cover_type}_cover_display", None)
-        path_label = getattr(self, f"{cover_type}_path_label", None)
-        if display:
-            display.clear()
-            display.setText(f"No {cover_type.title()} Cover")
-        if path_label:
-            path_label.setText("")
-
-        if cover_type == "front":
-            self.cover_label.setText("No Cover\nImage")
-
-    # =========================================================================
-    # Wikipedia search
-    # =========================================================================
-
-    def _search_wikipedia(self):
-        try:
-            from src.wikipedia_seach import download_wikipedia_image, search_wikipedia
-        except ImportError as e:
-            QMessageBox.critical(
-                self, "Import Error", f"Wikipedia module not found: {e}"
-            )
-            return
-
-        query = self.album.album_name or ""
-        title, summary, _full, link, images = search_wikipedia(query, self)
-
-        if not title:
-            return
-
-        try:
-            from src.album_wikipedia import AlbumWikipediaImportDialog
-        except ImportError as e:
-            QMessageBox.critical(self, "Import Error", f"Import dialog not found: {e}")
-            return
-
-        dlg = AlbumWikipediaImportDialog(title, summary, link, images, parent=self)
-        if dlg.exec() != QDialog.Accepted:
-            return
-
-        selected = dlg.get_selected_imports()
-
-        if selected.get("description"):
-            self._set_desc_widget(selected["description"])
-
-        if selected.get("link"):
-            w = self.field_widgets.get("album_wikipedia_link")
-            if w is not None and hasattr(w, "setText"):
-                w.setText(selected["link"])
-            # Update the album object so _rebuild_link_buttons picks up the new URL
-            self.album.album_wikipedia_link = selected["link"]
-            self._rebuild_link_buttons()
-
-        role_to_cover = {
-            "Front Cover": "front",
-            "Rear Cover": "rear",
-            "Liner Art": "liner",
-        }
-        for img_info in selected.get("images", []):
-            url = img_info["url"]
-            role = img_info["role"]
-            cover_type = role_to_cover.get(role)
-            if not cover_type:
-                continue
-            self._save_wikipedia_image(url, cover_type, download_wikipedia_image)
-
-    def _set_desc_widget(self, text: str):
-        if self.desc_widget is None:
-            return
-        if hasattr(self.desc_widget, "setPlainText"):
-            self.desc_widget.setPlainText(text)
-        elif hasattr(self.desc_widget, "setText"):
-            self.desc_widget.setText(text)
-
-    def _save_wikipedia_image(self, url: str, cover_type: str, download_fn):
-        """Download url and save it as the given cover type."""
-        image_bytes = download_fn(url)
-        if not image_bytes:
-            QMessageBox.warning(
-                self,
-                "Download Failed",
-                f"Could not download image for {cover_type} cover:\n{url}",
-            )
-            return
-
-        failed = self._embed_cover_to_tracks(cover_type, image_bytes)
-        self._warn_if_embed_failures(cover_type, failed)
-
-        cache = get_artwork_cache()
-        if cache:
-            cache.store(self.album, cover_type, image_bytes)
-
-        display = getattr(self, f"{cover_type}_cover_display", None)
-        path_label = getattr(self, f"{cover_type}_path_label", None)
-        if display:
-            self._load_image_to_label(image_bytes, display, 250)
-        if path_label:
-            dims = cache.get_dimensions(self.album, cover_type) if cache else None
-            info_parts = ["Embedded in track file(s)"]
-            if dims:
-                info_parts.append(f"{dims[0]} × {dims[1]} px")
-            path_label.setText("  |  ".join(info_parts))
-
-        if cover_type == "front":
-            self._load_album_cover()
-
-    # =========================================================================
-    # MusicBrainz lookup
-    # =========================================================================
-
-    def _lookup_musicbrainz(self):
-        title_widget = self.field_widgets.get("album_name")
-        album_name = (
-            title_widget.text().strip()
-            if isinstance(title_widget, QLineEdit)
-            else (self.album.album_name or "")
-        ).strip()
-        if not album_name:
-            QMessageBox.warning(
-                self, "MusicBrainz Lookup", "Enter an album title before looking it up."
-            )
-            return
-
-        artist_names = getattr(self.album, "album_artist_names", None)
-        if artist_names in (None, "Unknown Artist"):
-            artist_names = None
-
-        dialog = MusicBrainzMatchDialog(
-            entity_label=f"album '{album_name}'",
-            search_call=lambda: search_release_groups(album_name, artist_names),
-            parent=self,
-        )
-        if dialog.exec() != QDialog.Accepted:
-            return
-
-        enrichment = dialog.result_enrichment()
-        if enrichment:
-            self._apply_musicbrainz_enrichment(enrichment)
-
-    def _apply_musicbrainz_enrichment(self, enrichment: dict):
-        """Fill field widgets from a MusicBrainz enrichment dict, but only
-        where the widget is still at its blank/default state -- never
-        overwrites something the user already filled in or typed moments ago.
-
-        QSpinBox fields with no nullable wrapper (release_year/month/day)
-        default to their minimum when unset, per init_editable_widgets()'s
-        own convention -- so "still at minimum" is this codebase's existing
-        signal for "blank" on those fields.
-
-        QCheckBox fields (is_live/is_compilation) have no blank state at
-        all, so they fall back to the originally-loaded album's value being
-        None, combined with the widget still being unchecked -- applied
-        only when both hold, so a deliberate manual uncheck just before the
-        lookup is never clobbered.
-        """
-        for field_name, value in enrichment.items():
-            widget = self.field_widgets.get(field_name)
-            if widget is None:
-                continue
-            if isinstance(widget, QLineEdit):
-                if not widget.text().strip():
-                    widget.setText(str(value))
-            elif isinstance(widget, QSpinBox):
-                if widget.value() == widget.minimum():
-                    widget.setValue(int(value))
-            elif isinstance(widget, QCheckBox):
-                if (
-                    getattr(self.album, field_name, None) is None
-                    and not widget.isChecked()
-                ):
-                    widget.setChecked(bool(value))
 
     # =========================================================================
     # Save / refresh
