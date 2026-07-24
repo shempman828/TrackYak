@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.nullable_spinbox import NullableSpinBox
 from src.core.logger_config import logger
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.track.track_edit_basetab import _BaseTab
@@ -25,31 +26,6 @@ from src.track.track_edit_basetab import _BaseTab
 # ---------------------------------------------------------------------------
 # Helpers shared by all tabs
 # ---------------------------------------------------------------------------
-
-
-class _NoScrollSpinBox(QSpinBox):
-    """QSpinBox that ignores wheel events unless it already has focus.
-
-    Qt delivers wheel events to whatever widget is under the cursor,
-    regardless of focus, so merely scrolling the form past a spin box
-    silently bumps its value and fires valueChanged.
-    """
-
-    def wheelEvent(self, event):
-        if not self.hasFocus():
-            event.ignore()
-        else:
-            super().wheelEvent(event)
-
-
-class _NoScrollDoubleSpinBox(QDoubleSpinBox):
-    """QDoubleSpinBox variant of _NoScrollSpinBox — see its docstring."""
-
-    def wheelEvent(self, event):
-        if not self.hasFocus():
-            event.ignore()
-        else:
-            super().wheelEvent(event)
 
 
 def _make_widget_for_field(field_name: str, field_config, on_change_cb):
@@ -61,24 +37,27 @@ def _make_widget_for_field(field_name: str, field_config, on_change_cb):
         w = QCheckBox()
         w.toggled.connect(lambda _checked, fn=field_name: on_change_cb(fn))
     elif field_config.type == int:  # noqa: E721
-        w = _NoScrollSpinBox()
-        w.setRange(
-            int(field_config.min) if field_config.min is not None else -2_147_483_648,
-            int(field_config.max) if field_config.max is not None else 2_147_483_647,
+        # Every int field on Track is nullable in the DB, so we always give
+        # the user a way to clear it back to NULL rather than being stuck
+        # with whatever number is left in a plain QSpinBox.
+        w = NullableSpinBox(
+            min_val=(
+                int(field_config.min) if field_config.min is not None else -2_147_483_648
+            ),
+            max_val=(
+                int(field_config.max) if field_config.max is not None else 2_147_483_647
+            ),
         )
-        w.valueChanged.connect(lambda _v, fn=field_name: on_change_cb(fn))
+        w.valueChanged.connect(lambda fn=field_name: on_change_cb(fn))
     elif field_config.type == float:  # noqa: E721
-        w = _NoScrollDoubleSpinBox()
-        w.setDecimals(
-            field_config.decimals if field_config.decimals is not None else 4
+        w = NullableSpinBox(
+            min_val=field_config.min if field_config.min is not None else -1e9,
+            max_val=field_config.max if field_config.max is not None else 1e9,
+            is_float=True,
+            decimals=field_config.decimals if field_config.decimals is not None else 4,
+            step=field_config.step,
         )
-        w.setRange(
-            field_config.min if field_config.min is not None else -1e9,
-            field_config.max if field_config.max is not None else 1e9,
-        )
-        if field_config.step is not None:
-            w.setSingleStep(field_config.step)
-        w.valueChanged.connect(lambda _v, fn=field_name: on_change_cb(fn))
+        w.valueChanged.connect(lambda fn=field_name: on_change_cb(fn))
     elif field_config.longtext:
         w = QTextEdit()
         w.textChanged.connect(lambda fn=field_name: on_change_cb(fn))
@@ -100,7 +79,7 @@ def _read_widget(widget) -> Any:
     """Return the current value from any supported widget type."""
     if isinstance(widget, QCheckBox):
         return widget.isChecked()
-    if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+    if isinstance(widget, (NullableSpinBox, QSpinBox, QDoubleSpinBox)):
         return widget.value()
     if isinstance(widget, QTextEdit):
         return widget.toPlainText()
@@ -122,6 +101,8 @@ def _write_widget(widget, value) -> None:
             widget.setChecked(
                 bool(value_for_widget) if value_for_widget is not None else False
             )
+        elif isinstance(widget, NullableSpinBox):
+            widget.setValue(value_for_widget)
         elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
             widget.setValue(value_for_widget if value_for_widget is not None else 0)
         elif isinstance(widget, QTextEdit):
