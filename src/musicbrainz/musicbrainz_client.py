@@ -17,6 +17,7 @@ by musicbrainzngs, enabled by default).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -29,6 +30,14 @@ _APP_VERSION = "0.4"
 _CONTACT = "https://github.com/babyyakstudios/trackyak"
 
 _configured = False
+
+# Same special-character set musicbrainzngs escapes internally for
+# field-restricted queries (see musicbrainzngs.musicbrainz.LUCENE_SPECIAL).
+_LUCENE_SPECIAL = re.compile(r'([+\-&|!(){}\[\]^"~*?:\\/])')
+
+
+def _escape_lucene(value: str) -> str:
+    return _LUCENE_SPECIAL.sub(r"\\\1", value)
 
 
 class MusicBrainzLookupError(Exception):
@@ -85,10 +94,15 @@ def _life_span_label(life_span: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
-def search_artists(name: str, limit: int = 10) -> List[MBCandidate]:
+def search_artists(name: str, limit: int = 25) -> List[MBCandidate]:
     configure()
     try:
-        result = musicbrainzngs.search_artists(artist=name, limit=limit)
+        # Pass the term as an unrestricted query (not `artist=name`) so it's
+        # matched against MusicBrainz's default search field, which covers
+        # name, sort-name, AND alias -- same as a plain musicbrainz.org
+        # search box query. `artist=name` restricts to the name field only
+        # and misses alias-only matches.
+        result = musicbrainzngs.search_artists(_escape_lucene(name), limit=limit)
     except Exception as e:
         raise MusicBrainzLookupError(str(e)) from e
 
@@ -151,14 +165,19 @@ def complete_artist_enrichment(candidate: MBCandidate) -> MBCandidate:
 
 
 def search_release_groups(
-    album_name: str, artist_name: Optional[str] = None, limit: int = 10
+    album_name: str, artist_name: Optional[str] = None, limit: int = 25
 ) -> List[MBCandidate]:
     configure()
-    kwargs = {"releasegroup": album_name, "limit": limit}
+    # Album title is passed as an unrestricted query (not `releasegroup=`) so
+    # it also matches the release group's aliases, same as the artist fix
+    # above. Artist stays a field-restricted AND-ed refinement.
+    # NB: artist_name is passed as a field kwarg, which musicbrainzngs
+    # escapes internally -- only the positional query needs pre-escaping.
+    kwargs: Dict[str, Any] = {"limit": limit}
     if artist_name:
         kwargs["artist"] = artist_name
     try:
-        result = musicbrainzngs.search_release_groups(**kwargs)
+        result = musicbrainzngs.search_release_groups(_escape_lucene(album_name), **kwargs)
     except Exception as e:
         raise MusicBrainzLookupError(str(e)) from e
 
@@ -205,16 +224,22 @@ def search_recordings(
     track_name: str,
     artist_name: Optional[str] = None,
     album_name: Optional[str] = None,
-    limit: int = 10,
+    limit: int = 25,
 ) -> List[MBCandidate]:
     configure()
-    kwargs = {"recording": track_name, "limit": limit}
+    # Track title is passed as an unrestricted query (not `recording=`) so it
+    # also matches the recording's aliases, same as the artist fix above.
+    # Artist/release stay field-restricted AND-ed refinements.
+    # NB: artist_name/album_name are passed as field kwargs, which
+    # musicbrainzngs escapes internally -- only the positional query needs
+    # pre-escaping.
+    kwargs: Dict[str, Any] = {"limit": limit}
     if artist_name:
         kwargs["artist"] = artist_name
     if album_name:
         kwargs["release"] = album_name
     try:
-        result = musicbrainzngs.search_recordings(**kwargs)
+        result = musicbrainzngs.search_recordings(_escape_lucene(track_name), **kwargs)
     except Exception as e:
         raise MusicBrainzLookupError(str(e)) from e
 
