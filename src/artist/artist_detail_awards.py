@@ -134,21 +134,14 @@ class AwardBadge(QFrame):
 class AwardsWidget(QWidget):
     """Widget for displaying artist awards in a grid of badges"""
 
-    def __init__(self, artist: Any):
+    def __init__(self, artist: Any, controller: Any = None):
         super().__init__()
         self.artist = artist
-        self.controller = None
+        self.controller = controller
         self.awards_data = []
-
-        # Try to get controller from artist if available
-        if hasattr(artist, "controller"):
-            self.controller = artist.controller
 
         self.init_ui()
 
-    def set_controller(self, controller):
-        """Set the controller for database access"""
-        self.controller = controller
         if self.controller:
             self.load_awards()
 
@@ -194,6 +187,8 @@ class AwardsWidget(QWidget):
             return
 
         try:
+            self.awards_data = []
+
             # Get awards associated with this artist
             award_associations = self.controller.get.get_all_entities(
                 "AwardAssociation",
