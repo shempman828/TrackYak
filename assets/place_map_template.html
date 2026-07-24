@@ -180,7 +180,8 @@
         // Group markers into clusters so large numbers of places render
         // and pan/zoom smoothly instead of drawing every pin individually
         var markerClusterGroup = L.markerClusterGroup({
-            maxClusterRadius: 50,
+            maxClusterRadius: 25,
+            disableClusteringAtZoom: 15,
             spiderfyOnMaxZoom: true,
             showCoverageOnHover: false
         });
