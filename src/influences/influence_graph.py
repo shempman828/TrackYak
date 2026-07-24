@@ -576,11 +576,17 @@ class InfluenceGraphView(QWidget):
     def _build_layout_options(self):
         # fcose (Fast Compound Spring Embedder) -- a proven force-directed
         # layout with first-class support for compound nodes (our
-        # per-community groups): it pulls same-parent nodes together,
-        # pushes separate compounds apart, and guarantees no overlap by
-        # construction. Replaces the earlier hand-rolled repulsion/
-        # cohesion/collision system. All values here are tunable knobs if
-        # the grouping still needs to feel tighter/looser.
+        # per-community groups): it pulls same-parent nodes together and
+        # pushes separate compounds apart. NOTE: fcose is a force-directed
+        # heuristic, not a hard collision constraint solver -- it settles
+        # at an energy equilibrium that usually keeps nodes apart but can
+        # still leave pairs overlapping, especially inside a densely
+        # packed community. The actual overlap-free guarantee comes from
+        # a deterministic separation pass (resolveOverlaps in graph.js)
+        # that runs after every layout settles. Replaces the earlier
+        # hand-rolled repulsion/cohesion/collision system. All values here
+        # are tunable knobs if the grouping still needs to feel
+        # tighter/looser.
         return {
             "name": "fcose",
             "quality": "default",
