@@ -3,8 +3,6 @@ from pathlib import Path
 import sys
 from PySide6.QtGui import QIcon
 
-from src.core.logger_config import logger
-
 # --- Base Directories --------------------------------------------------------
 
 # Handle both development and frozen (PyInstaller / fbs) modes
@@ -68,6 +66,8 @@ def config(name: str) -> str:
 
 def ensure_directories_exist():
     """Create any missing project directories."""
+    from src.core.logger_config import logger
+
     for path in [
         ASSETS_DIR,
         IMAGES_DIR,
