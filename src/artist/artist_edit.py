@@ -22,9 +22,17 @@ from src.artist.artist_edit_discog import DiscographyTab
 from src.artist.artist_edit_influences import InfluencesTab
 from src.artist.artist_edit_member import MembersTab
 from src.artist.artist_edit_placesawards import PlacesAwardsTab
+from src.artist.artist_enrichment_review_dialog import ArtistEnrichmentReviewDialog
 from src.core.logger_config import logger
-from src.musicbrainz.musicbrainz_client import complete_artist_enrichment, search_artists
-from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzMatchDialog
+from src.musicbrainz.musicbrainz_client import (
+    complete_artist_enrichment,
+    fetch_artist_by_mbid,
+    search_artists,
+)
+from src.musicbrainz.musicbrainz_match_dialog import (
+    MusicBrainzImportDialog,
+    MusicBrainzMatchDialog,
+)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Main dialog shell
@@ -135,6 +143,12 @@ class ArtistEditor(QDialog):
         self.accept()
 
     def _lookup_musicbrainz(self):
+        if self.tab_advanced.is_import_mode():
+            self._import_from_musicbrainz()
+        else:
+            self._search_musicbrainz()
+
+    def _search_musicbrainz(self):
         name = self.tab_basic.name_edit.text().strip()
         if not name:
             QMessageBox.warning(
@@ -151,9 +165,45 @@ class ArtistEditor(QDialog):
         if dialog.exec() != QDialog.Accepted:
             return
 
-        enrichment = dialog.result_enrichment()
-        if not enrichment:
+        self._apply_candidate(dialog.result_candidate())
+
+    def _import_from_musicbrainz(self):
+        mbid = self.tab_advanced.current_mbid()
+
+        dialog = MusicBrainzImportDialog(
+            entity_label=f"artist '{self.artist.artist_name}'",
+            fetch_call=lambda: fetch_artist_by_mbid(mbid),
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted:
             return
 
-        self.tab_basic.set_if_empty(enrichment)
-        self.tab_advanced.set_if_empty(enrichment)
+        self._apply_candidate(dialog.result_candidate())
+
+    def _apply_candidate(self, candidate):
+        if candidate is None or not candidate.enrichment:
+            return
+
+        self.tab_basic.set_if_empty(candidate.enrichment)
+        self.tab_advanced.set_if_empty(candidate.enrichment)
+
+        if candidate.relations is not None:
+            review = ArtistEnrichmentReviewDialog(
+                self.controller, self.artist, candidate.relations, parent=self
+            )
+            if review.has_content and review.exec() == QDialog.Accepted:
+                self._reload_after_enrichment()
+
+    def _reload_after_enrichment(self):
+        try:
+            refreshed = self.controller.get.get_entity_object(
+                "Artist", artist_id=self.artist.artist_id
+            )
+            if refreshed:
+                self.artist = refreshed
+        except Exception as e:
+            logger.warning(f"Could not reload artist after enrichment: {e}")
+            return
+        self.tab_aliases.load(self.artist)
+        self.tab_members.load(self.artist)
+        self.tab_places_awards.load(self.artist)
