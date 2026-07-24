@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import QCheckBox, QDialog, QLineEdit, QMessageBox, QSpinBox
 
+from src.common.nullable_spinbox import NullableSpinBox
 from src.musicbrainz.musicbrainz_client import search_release_groups
 from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzMatchDialog
 
@@ -46,10 +47,8 @@ class AlbumMusicBrainzMixin:
         where the widget is still at its blank/default state -- never
         overwrites something the user already filled in or typed moments ago.
 
-        QSpinBox fields with no nullable wrapper (release_year/month/day)
-        default to their minimum when unset, per init_editable_widgets()'s
-        own convention -- so "still at minimum" is this codebase's existing
-        signal for "blank" on those fields.
+        NullableSpinBox fields (release_year/month/day, estimated_sales) are
+        "blank" when their checkbox is unchecked -- value() returns None.
 
         QCheckBox fields (is_live/is_compilation) have no blank state at
         all, so they fall back to the originally-loaded album's value being
@@ -64,6 +63,9 @@ class AlbumMusicBrainzMixin:
             if isinstance(widget, QLineEdit):
                 if not widget.text().strip():
                     widget.setText(str(value))
+            elif isinstance(widget, NullableSpinBox):
+                if widget.value() is None:
+                    widget.setValue(int(value))
             elif isinstance(widget, QSpinBox):
                 if widget.value() == widget.minimum():
                     widget.setValue(int(value))
