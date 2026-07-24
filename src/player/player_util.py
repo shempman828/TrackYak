@@ -17,6 +17,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from src.core.config_setup import app_config
 from src.equalizer.equalizer_utility import EqualizerUtility
 from src.core.logger_config import logger
+from src.player.gain_calculator import calculate_gain_factor
 from src.player.queue_utility import QueueManager
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1110,55 +1111,12 @@ class MusicPlayer(QObject):
         Returns the multiplier applied to every audio chunk.
         Uses ReplayGain from the DB when available; falls back to 1.0.
         """
-        if not self.normalization_enabled or self.current_file is None:
-            return 1.0
-
-        try:
-            track_gain, track_peak = self._get_track_gain_from_db()
-
-            if track_gain is not None:
-                # ReplayGain stores the adjustment needed to reach reference loudness.
-                # We then shift that reference to our target (default -14 LUFS).
-                # Reference loudness for ReplayGain is -18 LUFS (older standard) or
-                # -23 LUFS (EBU R128). We offset from -18 as a safe middle ground.
-                REPLAYGAIN_REFERENCE_LUFS = -18.0
-                target_offset = self.normalization_target - REPLAYGAIN_REFERENCE_LUFS
-                gain_db = track_gain + target_offset
-                gain_factor = 10.0 ** (gain_db / 20.0)
-
-                # Peak limiter: only clamp if the boosted signal would clip.
-                # This runs AFTER gain is set so quiet tracks still get lifted.
-                if track_peak and track_peak > 0:
-                    max_output = gain_factor * float(track_peak)
-                    if max_output > 0.99:
-                        gain_factor = 0.99 / float(track_peak)
-
-                logger.debug(
-                    f"Gain factor (ReplayGain): {gain_factor:.4f}  (track_gain={track_gain:.2f} dB, target={self.normalization_target} LUFS)"
-                )
-                return float(gain_factor)
-
-        except Exception as exc:
-            logger.error(f"Gain calculation error: {exc}")
-
-        return 1.0  # Safe default
-
-    def _get_track_gain_from_db(self):
-        """Fetch track_gain and track_peak from the DB for the current file."""
-        try:
-            if self.current_file is None:
-                return None, None
-            track = self.controller.get.get_entity_object(
-                "Track", track_file_path=str(self.current_file)
-            )
-            if track:
-                gain = getattr(track, "track_gain", None)
-                peak = getattr(track, "track_peak", None)
-                if gain is not None and peak is not None:
-                    return float(gain), float(peak)
-        except Exception as exc:
-            logger.error(f"DB gain lookup error: {exc}")
-        return None, None
+        return calculate_gain_factor(
+            self.controller,
+            self.current_file,
+            self.normalization_enabled,
+            self.normalization_target,
+        )
 
     # =========================================================================
     #  Internal — volume persistence

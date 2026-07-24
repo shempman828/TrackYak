@@ -15,8 +15,8 @@ from src.core.logger_config import logger
 
 warnings.filterwarnings("ignore")
 
-# Must match player_util.py's REPLAYGAIN_REFERENCE_LUFS — both sides assume
-# track_gain is a ReplayGain-style adjustment relative to this reference.
+# Must match gain_calculator.py's REPLAYGAIN_REFERENCE_LUFS — both sides
+# assume track_gain is a ReplayGain-style adjustment relative to this reference.
 REFERENCE_LUFS = -18.0
 
 
