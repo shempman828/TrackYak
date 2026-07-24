@@ -2,29 +2,18 @@
 NowPlayingView module — Cinematic redesign.
 """
 
-import re
 import time
 import traceback
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QRect, Qt, QTimer
-from PySide6.QtGui import (
-    QColor,
-    QFont,
-    QFontMetrics,
-    QKeySequence,
-    QLinearGradient,
-    QPainter,
-    QPixmap,
-    QShortcut,
-)
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
+from PySide6.QtGui import QFont, QFontMetrics, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QSlider,
     QStackedWidget,
@@ -44,6 +33,8 @@ from src.nowplaying.nowplaying_backdrop import _BlurredBackdrop
 from src.nowplaying.nowplaying_chip import _Chip, _ScrollingChipRow
 from src.nowplaying.nowplaying_credits import _CreditsPanel
 from src.nowplaying.nowplaying_karaoke import _KaraokeLine
+from src.nowplaying.nowplaying_lyrics_parser import active_index, parse_lyrics
+from src.nowplaying.nowplaying_marquee import FadedScrollArea, MarqueeLabel
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Constants
@@ -56,205 +47,8 @@ _LYRIC_GAP_THRESHOLD_MS = 5_000
 # Debounce delay (ms) before persisting the sync-offset slider to config.
 _OFFSET_DEBOUNCE_MS = 600
 
-# ──────────────────────────────────────────────────────────────────────────────
-#  Lyrics parsing
-# ──────────────────────────────────────────────────────────────────────────────
-
-_TS_RE = re.compile(r"^\[(\d{1,2}):(\d{2})(?:[.,](\d+))?\](.*)")
-
-
-def _parse_lyrics(raw: str) -> Tuple[bool, List[Tuple[int, str]]]:
-    """
-    Parse raw lyrics string.
-
-    Returns (is_synced, lines) where lines is a list of (timestamp_ms, text).
-    For plain lyrics, all timestamps are 0.
-    """
-    lines = []
-    is_synced = False
-    for line in raw.splitlines():
-        m = _TS_RE.match(line.strip())
-        if m:
-            is_synced = True
-            mins, secs = int(m.group(1)), int(m.group(2))
-            frac = m.group(3) or "0"
-            # Normalise fraction to milliseconds (handles 2- or 3-digit fracs)
-            ms = (mins * 60 + secs) * 1000 + int(frac.ljust(3, "0")[:3])
-            text = m.group(4).strip()
-            lines.append((ms, text))
-        else:
-            lines.append((0, line.strip()))
-
-    if not lines:
-        return False, []
-
-    # If mixed (some timed, some not), treat as plain
-    if is_synced:
-        lines.sort(key=lambda x: x[0])
-
-    return is_synced, lines
-
-
-def _active_index(lines: List[Tuple[int, str]], position_ms: int) -> int:
-    """Return the index of the line that should be shown at position_ms."""
-    idx = 0
-    for i, (ts, _) in enumerate(lines):
-        if ts <= position_ms:
-            idx = i
-        else:
-            break
-    return idx
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Faded scroll area (for plain lyrics)
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-class _FadedScrollArea(QScrollArea):
-    """Scroll area — just a clean wrapper for plain lyrics."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFrameShape(QFrame.NoFrame)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.setObjectName("NowPlayingLyricsScrollArea")
-        self.setWidgetResizable(True)
-
-
 # Tab and toggle button visuals live in themes/dark_mode.qss under the
 # [npTab="true"] / [npToggle="true"] / [active=...] selectors — see _set_active().
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Marquee (panning) label — used for artist names that may be very long
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-class _MarqueeLabel(QWidget):
-    """
-    A single-line label that scrolls (pans) its text horizontally when the
-    text is wider than the widget.  No album-art space is consumed.
-    """
-
-    _SCROLL_STEP_PX = 1  # pixels per tick
-    _SCROLL_INTERVAL_MS = 30  # ~33 fps
-    _PAUSE_TICKS = 60  # ticks to pause at each end (~1.8 s)
-    _FADE_WIDTH = 18  # px of fade-out at edges when scrolling
-
-    def __init__(self, text: str, font: QFont, color: str, parent=None):
-        super().__init__(parent)
-        self._text = text
-        self._font = font
-        self._color = color
-        self._offset = 0  # current horizontal scroll offset
-        self._direction = 1  # 1 = scrolling right-to-left, -1 = back
-        self._pause_remaining = self._PAUSE_TICKS
-        self._text_width = 0
-
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setProperty("bgTransparent", True)
-
-        self._timer = QTimer(self)
-        self._timer.setInterval(self._SCROLL_INTERVAL_MS)
-        self._timer.timeout.connect(self._tick)
-
-    def set_text(self, text: str):
-        self._text = text
-        self._offset = 0
-        self._direction = 1
-        self._pause_remaining = self._PAUSE_TICKS
-        self._timer.stop()
-        # Update width immediately so the new text isn't clipped against the
-        # previous string's stale width before the deferred check below runs.
-        self._text_width = self.fontMetrics().horizontalAdvance(self._text)
-        self.update()
-        # Defer scroll check until after first paint gives us real geometry
-        QTimer.singleShot(200, self._check_scroll_needed)
-
-    def _check_scroll_needed(self):
-        fm = self.fontMetrics()
-        self._text_width = fm.horizontalAdvance(self._text)
-        if self._text_width > self.width():
-            self._timer.start()
-        else:
-            self._timer.stop()
-            self._offset = 0
-            self.update()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._check_scroll_needed()
-
-    def _tick(self):
-        if self._pause_remaining > 0:
-            self._pause_remaining -= 1
-            return
-        max_offset = self._text_width - self.width() + self._FADE_WIDTH
-        self._offset += self._SCROLL_STEP_PX * self._direction
-        if self._offset >= max_offset:
-            self._offset = max_offset
-            self._direction = -1
-            self._pause_remaining = self._PAUSE_TICKS
-        elif self._offset <= 0:
-            self._offset = 0
-            self._direction = 1
-            self._pause_remaining = self._PAUSE_TICKS
-        self.update()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setFont(self._font)
-
-        # Parse colour string into QColor
-        c = QColor(self._color) if not self._color.startswith("rgba") else None
-        if c is None:
-            # Handle rgba(r,g,b,a) where a is 0–1
-            nums = [
-                x.strip() for x in self._color.lstrip("rgba(").rstrip(")").split(",")
-            ]
-            try:
-                r, g, b = int(nums[0]), int(nums[1]), int(nums[2])
-                a = int(float(nums[3]) * 255) if len(nums) > 3 else 255
-            except Exception:
-                r, g, b, a = 180, 190, 240, 178
-            c = QColor(r, g, b, a)
-
-        painter.setPen(c)
-        painter.drawText(
-            QRect(-self._offset, 0, self._text_width + 4, self.height()),
-            Qt.AlignVCenter | Qt.AlignLeft,
-            self._text,
-        )
-
-        # Fade edges when scrolling
-        if self._text_width > self.width():
-            w = self.width()
-            h = self.height()
-            bg = QColor(0, 0, 0, 0)  # transparent
-            for x, fade_right in ((0, False), (w - self._FADE_WIDTH, True)):
-                grad = QLinearGradient(
-                    QPoint(x, 0),
-                    QPoint(x + self._FADE_WIDTH * (1 if fade_right else -1), 0),
-                )
-                grad.setColorAt(0.0, QColor(0, 0, 0, 200))
-                grad.setColorAt(1.0, bg)
-                painter.setCompositionMode(QPainter.CompositionMode_DestinationOut)
-                painter.fillRect(
-                    x if fade_right else x - self._FADE_WIDTH,
-                    0,
-                    self._FADE_WIDTH,
-                    h,
-                    grad,
-                )
-            painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-
-        painter.end()
-
-    def fontMetrics(self):
-        return QFontMetrics(self._font)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -417,7 +211,7 @@ class NowPlayingView(QWidget):
         right_layout.addWidget(self._title_lbl)
 
         # Artist — scrolling marquee so long names pan rather than truncate
-        self._artist_marquee = _MarqueeLabel(
+        self._artist_marquee = MarqueeLabel(
             "—", self._ARTIST_FONT, "rgba(180,190,240,0.70)"
         )
         # Match the title/album labels' natural line height instead of a
@@ -510,7 +304,7 @@ class NowPlayingView(QWidget):
         self._next_lyric_lbl.setWordWrap(True)
         self._next_lyric_lbl.setVisible(False)
 
-        self._plain_area = _FadedScrollArea()
+        self._plain_area = FadedScrollArea()
         self._plain_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._plain_lbl = QLabel()
         self._plain_lbl.setFont(self._PLAIN_FONT)
@@ -727,7 +521,7 @@ class NowPlayingView(QWidget):
             self._set_lyrics_mode_none()
             return
 
-        is_synced, lines = _parse_lyrics(raw)
+        is_synced, lines = parse_lyrics(raw)
         self._lyrics_lines = lines
         self._is_synced = is_synced
 
@@ -799,7 +593,7 @@ class NowPlayingView(QWidget):
         effective_ms = position_ms + self._sync_offset_ms
 
         # Find which line is current and what the next line's timestamp is
-        new_idx = _active_index(self._lyrics_lines, effective_ms)
+        new_idx = active_index(self._lyrics_lines, effective_ms)
 
         # Check gap to next upcoming lyric
         next_ts = self._find_next_lyric_ts(effective_ms)
