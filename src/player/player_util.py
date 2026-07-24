@@ -24,7 +24,12 @@ from src.player.queue_utility import QueueManager
 # ─────────────────────────────────────────────────────────────────────────────
 
 BLOCKSIZE = 16384  # Frames per audio callback buffer. Larger = more stable.
-READ_AHEAD_BLOCKS = 16  # How many blocks to read ahead into the ring buffer.
+# How many blocks to read ahead into the ring buffer. At 44.1kHz this is
+# ~37s of lookahead (100 * 16384 / 44100) -- deliberately generous so the
+# reader thread has enough banked audio to absorb OS scheduling stalls
+# (e.g. a CPU-heavy game elsewhere on the system delaying this process)
+# without the callback ever seeing an empty buffer.
+READ_AHEAD_BLOCKS = 100
 POSITION_INTERVAL_MS = 50  # UI position update interval (20 fps).
 PLAY_COUNT_THRESHOLD = 0.90
 RESTART_THRESHOLD_MS = 10_000
@@ -190,6 +195,34 @@ class MusicPlayer(QObject):
         self._reader_stop.clear()
         with self._buffer_lock:
             self._audio_buffer.clear()
+
+        # Prime the buffer with one chunk synchronously before returning. When
+        # a track change reuses the existing stream (see play()), the live
+        # callback keeps firing on its own real-time thread the whole time —
+        # handing the very first decode off to a background thread leaves a
+        # window (up to one callback period, ~BLOCKSIZE/samplerate) where the
+        # callback sees an empty buffer and outputs silence, heard as a hitch.
+        # This is most likely to bite on a cold-cache read of a large file.
+        # Errors here are swallowed; the reader loop below retries from
+        # scratch with its full resync/reopen handling.
+        try:
+            with self._reader_lock:
+                reader = self._sf_reader
+                if reader is not None:
+                    known_length = self._total_frames > 0
+                    if known_length:
+                        to_read = min(BLOCKSIZE, self._total_frames - self._current_frame)
+                    else:
+                        to_read = BLOCKSIZE
+                    if to_read > 0:
+                        chunk = reader.read(to_read, dtype="float32", always_2d=True)
+                        self._current_frame += len(chunk)
+                        if len(chunk):
+                            with self._buffer_lock:
+                                self._audio_buffer.append(chunk)
+        except Exception as exc:
+            logger.warning(f"Buffer priming failed, deferring to reader thread: {exc}")
+
         self._reader_thread = threading.Thread(
             target=self._reader_loop, daemon=True, name="AudioReader"
         )
