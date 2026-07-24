@@ -29,15 +29,12 @@ class AdvancedTab(QWidget):
         mbid_row = QHBoxLayout()
         self.mbid_edit = QLineEdit()
         self.mbid_edit.setPlaceholderText("MusicBrainz ID")
+        self.mbid_edit.textChanged.connect(self._update_lookup_button_mode)
         mbid_row.addWidget(self.mbid_edit)
-        self.lookup_button = QPushButton("🎵 Look Up on MusicBrainz")
-        self.lookup_button.setToolTip(
-            "Search MusicBrainz by artist name and fill in blank fields "
-            "(MBID, links, dates, gender) from the selected match. Never "
-            "overwrites fields you've already filled in."
-        )
+        self.lookup_button = QPushButton()
         mbid_row.addWidget(self.lookup_button)
         form.addRow("MBID:", mbid_row)
+        self._update_lookup_button_mode()
 
         self.wiki_edit = QLineEdit()
         self.wiki_edit.setPlaceholderText("https://en.wikipedia.org/...")
@@ -53,6 +50,32 @@ class AdvancedTab(QWidget):
         self.artist_id_label = QLabel()
         self.artist_id_label.setProperty("textRole", "muted")
         form.addRow("Artist ID (read-only):", self.artist_id_label)
+
+    def is_import_mode(self) -> bool:
+        """True once an MBID is present -- the lookup button switches from
+        'search by name' to 're-fetch this exact MusicBrainz record'."""
+        return bool(self.mbid_edit.text().strip())
+
+    def current_mbid(self) -> str:
+        return self.mbid_edit.text().strip()
+
+    def _update_lookup_button_mode(self):
+        if self.is_import_mode():
+            self.lookup_button.setText("⬇ Import from MusicBrainz")
+            self.lookup_button.setToolTip(
+                "Re-fetch this exact MusicBrainz record by its MBID and fill "
+                "in blank fields, plus review new aliases, birthplace/"
+                "deathplace, and band-membership matches. Never overwrites "
+                "fields you've already filled in. Clear the MBID field to "
+                "search by name instead."
+            )
+        else:
+            self.lookup_button.setText("🔍 Search MusicBrainz")
+            self.lookup_button.setToolTip(
+                "Search MusicBrainz by artist name and fill in blank fields "
+                "(MBID, links, dates, gender) from the selected match. Never "
+                "overwrites fields you've already filled in."
+            )
 
     def load(self, artist):
         self.artist = artist
