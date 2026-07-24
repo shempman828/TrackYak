@@ -90,8 +90,8 @@ class ArtistDetailTab(QWidget):
 
         candidates += [
             ("Membership", lambda: MembershipWidget(self.artist)),
-            ("Credits", lambda: CreditsWidget(self.artist)),
-            ("Awards", lambda: AwardsWidget(self.artist)),
+            ("Credits", lambda: CreditsWidget(self.artist, self.controller)),
+            ("Awards", lambda: AwardsWidget(self.artist, self.controller)),
             ("Influences", lambda: InfluencesWidget(self.artist, self.controller)),
         ]
 
