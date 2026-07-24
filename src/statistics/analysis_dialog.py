@@ -29,10 +29,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.statistics.analysis_utility import (
-    BatchAnalysisScheduler,
-    analysis_cache,
-)
+from src.statistics.analysis_cache import analysis_cache
+from src.statistics.batch_analysis_scheduler import BatchAnalysisScheduler
 from src.core.logger_config import logger
 from src.core.status_utility import StatusManager, show_status_message
 
