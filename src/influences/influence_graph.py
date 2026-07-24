@@ -1,323 +1,22 @@
-import colorsys
 import json
 import math
 from collections import deque
 from pathlib import Path
 
 import networkx as nx
-from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QUrl
+from PySide6.QtCore import QUrl
 from PySide6.QtGui import QColor
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import (
-    QDialog,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QWidget
 
 from src.core.config_setup import app_config
 from src.influences.cluster_name_dialog import ClusterNamesDialog
+from src.influences.community_palette import generate_community_palette
+from src.influences.influence_legend import LegendPanel
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 
 _WEB_DIR = Path(__file__).resolve().parent / "web"
-
-
-def _generate_community_palette(count):
-    """Generate `count` maximally-distinct hex colors for Louvain community
-    coloring.
-
-    Hues step around the wheel by the golden-angle conjugate, which spreads
-    every prefix of the sequence (not just the full set) roughly evenly
-    around the circle — so even the first handful of communities look
-    clearly different from one another, rather than only being guaranteed
-    distinct once all `count` colors are in use. Saturation/value cycle
-    across a few bands as a secondary cue for hues that land close together,
-    and stay in a mid-high range so the fixed dark node-label text keeps
-    enough contrast against every swatch.
-    """
-    golden_ratio_conjugate = 0.6180339887498949
-    hue = 0.58  # anchors the first color near the app's existing indigo accent
-    saturations = (0.68, 0.55, 0.78, 0.62)
-    values = (0.90, 0.78, 0.95, 0.84)
-    palette = []
-    for i in range(count):
-        hue = (hue + golden_ratio_conjugate) % 1.0
-        s = saturations[i % len(saturations)]
-        v = values[i % len(values)]
-        r, g, b = colorsys.hsv_to_rgb(hue, s, v)
-        palette.append(
-            "#{:02x}{:02x}{:02x}".format(round(r * 255), round(g * 255), round(b * 255))
-        )
-    return palette
-
-
-class _LegendRow(QWidget):
-    """One legend entry: a color swatch plus the cluster's name/count."""
-
-    def __init__(self, color, count, name, parent=None):
-        super().__init__(parent)
-
-        row = QHBoxLayout(self)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
-
-        swatch = QLabel()
-        swatch.setFixedSize(10, 10)
-        swatch.setStyleSheet(f"background-color: {color.name()}; border-radius: 3px;")
-        row.addWidget(swatch)
-
-        label_text = (
-            f"{name} ({count})" if name else f"{count} artist{'s' if count != 1 else ''}"
-        )
-        row.addWidget(QLabel(label_text))
-        row.addStretch()
-
-
-class _LegendPanel(QFrame):
-    """Small floating overlay explaining what the node colors mean.
-
-    User-resizable from any edge or corner, and movable by dragging the
-    title bar, so cluster lists longer than the default size can be
-    reviewed without a hard-coded row cap; overflow beyond the chosen size
-    just scrolls. Size and position are persisted across sessions once the
-    user interacts with either.
-    """
-
-    _MIN_WIDTH = 160
-    _MIN_HEIGHT = 90
-    _MAX_WIDTH = 480
-    _MAX_HEIGHT = 640
-    _EDGE_MARGIN = 8
-
-    _CURSOR_BY_MODE = {
-        "left": Qt.SizeHorCursor,
-        "right": Qt.SizeHorCursor,
-        "top": Qt.SizeVerCursor,
-        "bottom": Qt.SizeVerCursor,
-        "top-left": Qt.SizeFDiagCursor,
-        "bottom-right": Qt.SizeFDiagCursor,
-        "top-right": Qt.SizeBDiagCursor,
-        "bottom-left": Qt.SizeBDiagCursor,
-    }
-
-    def __init__(self, parent=None, on_interact=None, on_rename_all=None):
-        super().__init__(parent)
-        self._on_interact = on_interact
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(
-            "_LegendPanel { background-color: rgba(17, 18, 26, 205);"
-            " border: 1px solid rgba(133, 153, 234, 90); border-radius: 8px; }"
-            " QLabel { color: #b8c0f0; background: transparent; font-size: 11px; }"
-            " QScrollArea { background: transparent; border: none; }"
-            " QScrollArea > QWidget > QWidget { background: transparent; }"
-            " QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }"
-            " QScrollBar::handle:vertical { background: rgba(133,153,234,0.35);"
-            " border-radius: 3px; min-height: 24px; }"
-            " QScrollBar::handle:vertical:hover { background: rgba(133,153,234,0.6); }"
-            " QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
-            " QPushButton { color: #8599ea; background: transparent; border: none;"
-            " font-size: 11px; padding: 0; }"
-            " QPushButton:hover { color: #b8c0f0; text-decoration: underline; }"
-        )
-        self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(10, 8, 10, 8)
-        self._layout.setSpacing(4)
-
-        header = QHBoxLayout()
-        header.setSpacing(6)
-        self._title = QLabel("Clusters")
-        self._title.setStyleSheet("font-weight: 600; font-size: 11px;")
-        self._title.setCursor(Qt.SizeAllCursor)
-        self._title.installEventFilter(self)
-        header.addWidget(self._title)
-        header.addStretch()
-        if on_rename_all is not None:
-            rename_button = QPushButton("Rename…")
-            rename_button.setCursor(Qt.PointingHandCursor)
-            rename_button.setFlat(True)
-            rename_button.clicked.connect(on_rename_all)
-            header.addWidget(rename_button)
-        self._layout.addLayout(header)
-
-        self._scroll = QScrollArea()
-        self._scroll.setWidgetResizable(True)
-        self._scroll.setFrameShape(QFrame.NoFrame)
-        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._rows_widget = QWidget()
-        self._rows_layout = QVBoxLayout(self._rows_widget)
-        self._rows_layout.setContentsMargins(0, 0, 0, 0)
-        self._rows_layout.setSpacing(4)
-        self._scroll.setWidget(self._rows_widget)
-        self._layout.addWidget(self._scroll, 1)
-
-        self._resize_mode = ""
-        self._resize_start_pos = QPointF()
-        self._resize_start_geom = None
-        self._dragging = False
-        self._drag_start_pos = QPointF()
-        self._drag_start_geom = None
-        self.setMouseTracking(True)
-
-        width, height = app_config.get_influence_legend_size()
-        self.resize(
-            self._clamp(width, self._MIN_WIDTH, self._MAX_WIDTH),
-            self._clamp(height, self._MIN_HEIGHT, self._MAX_HEIGHT),
-        )
-        saved_pos = app_config.get_influence_legend_position()
-        self._user_positioned = saved_pos is not None
-        if saved_pos is not None:
-            self.move(*saved_pos)
-        self.hide()
-
-    def has_custom_position(self):
-        """True once the user has dragged or resized the panel, meaning it
-        no longer tracks the default bottom-left anchor."""
-        return self._user_positioned
-
-    def clamp_to_parent(self):
-        """Keep the panel fully inside the parent view after a window resize."""
-        if self.parentWidget() is None:
-            return
-        self.move(self._clamp_point_to_parent(self.pos()))
-
-    def _clamp_point_to_parent(self, point):
-        parent = self.parentWidget()
-        if parent is None:
-            return point
-        max_x = max(0, parent.width() - self.width())
-        max_y = max(0, parent.height() - self.height())
-        return QPoint(self._clamp(point.x(), 0, max_x), self._clamp(point.y(), 0, max_y))
-
-    def set_communities(self, rows):
-        while self._rows_layout.count():
-            item = self._rows_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        if len(rows) <= 1:
-            self.hide()
-            return
-
-        for _community_index, color, count, name, _representative_artists in rows:
-            self._rows_layout.addWidget(_LegendRow(color, count, name))
-        self._rows_layout.addStretch()
-        self.show()
-
-    # -----------------------
-    # Resize (drag any edge or corner) and move (drag the title bar)
-    # -----------------------
-    def _hit_test(self, pos):
-        m = self._EDGE_MARGIN
-        w, h = self.width(), self.height()
-        left = pos.x() <= m
-        right = pos.x() >= w - m
-        top = pos.y() <= m
-        bottom = pos.y() >= h - m
-        if top and left:
-            return "top-left"
-        if top and right:
-            return "top-right"
-        if bottom and left:
-            return "bottom-left"
-        if bottom and right:
-            return "bottom-right"
-        if left:
-            return "left"
-        if right:
-            return "right"
-        if top:
-            return "top"
-        if bottom:
-            return "bottom"
-        return ""
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            mode = self._hit_test(event.position().toPoint())
-            if mode:
-                self._resize_mode = mode
-                self._resize_start_pos = event.globalPosition()
-                self._resize_start_geom = self.geometry()
-                event.accept()
-                return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if self._resize_mode:
-            self._apply_resize(event.globalPosition())
-            event.accept()
-            return
-        mode = self._hit_test(event.position().toPoint())
-        cursor = self._CURSOR_BY_MODE.get(mode)
-        if cursor is not None:
-            self.setCursor(cursor)
-        else:
-            self.unsetCursor()
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if self._resize_mode and event.button() == Qt.LeftButton:
-            self._resize_mode = ""
-            self._persist_geometry()
-            event.accept()
-        else:
-            super().mouseReleaseEvent(event)
-
-    def _apply_resize(self, global_pos):
-        start = self._resize_start_geom
-        delta = global_pos - self._resize_start_pos
-        x, y = start.x(), start.y()
-        width, height = start.width(), start.height()
-
-        if "left" in self._resize_mode:
-            width = self._clamp(start.width() - delta.x(), self._MIN_WIDTH, self._MAX_WIDTH)
-            x = start.x() + (start.width() - width)
-        elif "right" in self._resize_mode:
-            width = self._clamp(start.width() + delta.x(), self._MIN_WIDTH, self._MAX_WIDTH)
-
-        if "top" in self._resize_mode:
-            height = self._clamp(start.height() - delta.y(), self._MIN_HEIGHT, self._MAX_HEIGHT)
-            y = start.y() + (start.height() - height)
-        elif "bottom" in self._resize_mode:
-            height = self._clamp(start.height() + delta.y(), self._MIN_HEIGHT, self._MAX_HEIGHT)
-
-        self.setGeometry(int(x), int(y), int(width), int(height))
-        self._user_positioned = True
-        if self._on_interact is not None:
-            self._on_interact()
-
-    def eventFilter(self, obj, event):
-        if obj is self._title:
-            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-                self._dragging = True
-                self._drag_start_pos = event.globalPosition()
-                self._drag_start_geom = self.geometry()
-                return True
-            if event.type() == QEvent.MouseMove and self._dragging:
-                delta = event.globalPosition() - self._drag_start_pos
-                new_pos = self._drag_start_geom.topLeft() + delta.toPoint()
-                self.move(self._clamp_point_to_parent(new_pos))
-                return True
-            if event.type() == QEvent.MouseButtonRelease and self._dragging:
-                self._dragging = False
-                self._user_positioned = True
-                self._persist_geometry()
-                return True
-        return super().eventFilter(obj, event)
-
-    def _persist_geometry(self):
-        app_config.set_influence_legend_size(self.width(), self.height())
-        app_config.set_influence_legend_position(self.x(), self.y())
-        app_config.save()
-
-    @staticmethod
-    def _clamp(value, minimum, maximum):
-        return max(minimum, min(maximum, value))
 
 
 class InfluenceGraphView(QWidget):
@@ -341,9 +40,9 @@ class InfluenceGraphView(QWidget):
 
     # Generated, not hand-picked: supports up to 50 communities with maximal
     # visual distinction (golden-angle hue spread — see
-    # _generate_community_palette). Communities beyond 50 wrap around and
+    # generate_community_palette). Communities beyond 50 wrap around and
     # reuse these hues at alternating lighter/darker strengths.
-    _COMMUNITY_PALETTE = _generate_community_palette(50)
+    _COMMUNITY_PALETTE = generate_community_palette(50)
 
     def __init__(self, controller):
         super().__init__()
@@ -359,7 +58,7 @@ class InfluenceGraphView(QWidget):
         self._web.loadFinished.connect(self._on_page_loaded)
         self._web.load(QUrl.fromLocalFile(str(_WEB_DIR / "graph_page.html")))
 
-        self._legend = _LegendPanel(
+        self._legend = LegendPanel(
             self,
             on_interact=self._reposition_legend,
             on_rename_all=self._open_rename_all_dialog,
