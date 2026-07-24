@@ -8,11 +8,14 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
 )
 
@@ -64,14 +67,22 @@ class PublisherEditDialog(QDialog):
 
     def setup_ui(self):
         self.setWindowTitle("Edit Publisher" if self.publisher else "New Publisher")
-        self.setMinimumWidth(300)
+        if self.publisher:
+            self.setMinimumSize(480, 560)
+            self.resize(520, 640)
+        else:
+            self.setMinimumWidth(420)
 
-        layout = QFormLayout(self)
+        root = QVBoxLayout(self)
+
+        # -- Basic information -------------------------------------------------
+        basic_group = QGroupBox("Basic Information")
+        basic_form = QFormLayout(basic_group)
         self.name_input = QLineEdit()
-        layout.addRow("Publisher Name:", self.name_input)
+        basic_form.addRow("Publisher Name:", self.name_input)
 
         self.desc_input = QLineEdit()
-        layout.addRow("Description:", self.desc_input)
+        basic_form.addRow("Description:", self.desc_input)
 
         # Parent publisher picker. Excludes this publisher and its own
         # descendants from the index so a completion can never introduce a
@@ -96,33 +107,46 @@ class PublisherEditDialog(QDialog):
         }
         self.parent_edit.set_index(parent_index)
         self.parent_edit.returnPressed.connect(self.validate)
-        layout.addRow("Parent Publisher:", self.parent_edit)
+        basic_form.addRow("Parent Publisher:", self.parent_edit)
+        root.addWidget(basic_group)
+
+        # -- Details: dates, status, links -------------------------------------
+        details_group = QGroupBox("Details")
+        details_grid = QGridLayout(details_group)
 
         self.begin_year_edit = OptionalIntEdit("YYYY")
-        layout.addRow("Begin Year:", self.begin_year_edit)
-
         self.end_year_edit = OptionalIntEdit("YYYY")
-        layout.addRow("End Year:", self.end_year_edit)
+        details_grid.addWidget(QLabel("Begin Year:"), 0, 0)
+        details_grid.addWidget(self.begin_year_edit, 0, 1)
+        details_grid.addWidget(QLabel("End Year:"), 0, 2)
+        details_grid.addWidget(self.end_year_edit, 0, 3)
 
         self.is_active_check = QCheckBox("Active")
-        layout.addRow("Status:", self.is_active_check)
+        self.is_fixed_check = QCheckBox("Mark metadata as complete")
+        details_grid.addWidget(self.is_active_check, 1, 0, 1, 2)
+        details_grid.addWidget(self.is_fixed_check, 1, 2, 1, 2)
 
         self.wiki_input = QLineEdit()
         self.wiki_input.setPlaceholderText("https://en.wikipedia.org/...")
-        layout.addRow("Wikipedia:", self.wiki_input)
-
-        self.is_fixed_check = QCheckBox("Mark metadata as complete")
-        layout.addRow("Metadata Complete:", self.is_fixed_check)
+        details_grid.addWidget(QLabel("Wikipedia:"), 2, 0)
+        details_grid.addWidget(self.wiki_input, 2, 1, 1, 3)
+        details_grid.setColumnStretch(1, 1)
+        details_grid.setColumnStretch(3, 1)
+        root.addWidget(details_group)
 
         # Logo picker only makes sense once the publisher exists -- like
         # the artist profile picture, the picked file is moved into the
         # managed images dir immediately using publisher_id in its
         # filename, so this section is edit-only.
         if self.publisher:
+            logo_group = QGroupBox("Logo")
+            logo_row = QHBoxLayout(logo_group)
+
             self.logo_label = QLabel()
             self.logo_label.setFixedSize(LOGO_MAX_SIZE)
             self.logo_label.setAlignment(Qt.AlignCenter)
             self.logo_label.setStyleSheet("border: 1px solid palette(mid);")
+            logo_row.addWidget(self.logo_label)
 
             logo_buttons = QVBoxLayout()
             self.logo_browse_button = QPushButton("Browse...")
@@ -132,18 +156,15 @@ class PublisherEditDialog(QDialog):
             logo_buttons.addWidget(self.logo_browse_button)
             logo_buttons.addWidget(self.logo_clear_button)
             logo_buttons.addStretch()
-
-            logo_row = QHBoxLayout()
-            logo_row.addWidget(self.logo_label)
             logo_row.addLayout(logo_buttons)
             logo_row.addStretch()
-            layout.addRow("Logo:", logo_row)
+            root.addWidget(logo_group)
 
         # Aliases only make sense once the publisher exists (they need a
         # publisher_id to point at), so this section is edit-only.
         if self.publisher:
-            self.setMinimumSize(420, 420)
-            layout.addRow(QLabel("Aliases:"))
+            aliases_group = QGroupBox("Aliases")
+            aliases_layout = QVBoxLayout(aliases_group)
             self.tab_aliases = EntityAliasesTab(
                 self.controller,
                 self.publisher,
@@ -151,12 +172,14 @@ class PublisherEditDialog(QDialog):
                 "publisher_id",
                 placeholder="e.g. EMI Records",
             )
-            layout.addRow(self.tab_aliases)
+            aliases_layout.addWidget(self.tab_aliases)
+            aliases_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            root.addWidget(aliases_group, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.validate)
         buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
+        root.addWidget(buttons)
 
     def load_data(self):
         if self.publisher:
