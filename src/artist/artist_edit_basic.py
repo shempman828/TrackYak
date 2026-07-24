@@ -95,6 +95,12 @@ class BasicTab(QWidget):
         self.name_edit.setPlaceholderText("Artist name")
         form.addRow("Name *:", self.name_edit)
 
+        self.disambiguation_edit = QLineEdit()
+        self.disambiguation_edit.setPlaceholderText(
+            "e.g. film composer — distinguishes from other artists with this name"
+        )
+        form.addRow("Disambiguation:", self.disambiguation_edit)
+
         self.isgroup_check = SegmentedToggle("Person", "Group")
         form.addRow("Is Group:", self.isgroup_check)
         self.isgroup_check.toggled.connect(self._on_isgroup_changed)
@@ -299,6 +305,7 @@ class BasicTab(QWidget):
     def load(self, artist):
         self.artist = artist
         self.name_edit.setText(artist.artist_name or "")
+        self.disambiguation_edit.setText(artist.disambiguation or "")
         self.types_widget.load(artist)
         self.religion_edit.setText(artist.religion.religion_name if artist.religion else "")
 
@@ -358,6 +365,7 @@ class BasicTab(QWidget):
         differs from the loaded artist — untouched fields are omitted."""
         candidates = dict(
             artist_name=self.name_edit.text().strip(),
+            disambiguation=self.disambiguation_edit.text().strip() or None,
             isgroup=1 if self.isgroup_check.isChecked() else 0,
             gender=self.gender_combo.currentText() or None,
             religion_id=self._resolve_religion_id(),
@@ -386,6 +394,9 @@ class BasicTab(QWidget):
         (Person/unchecked), so a deliberate manual toggle just before the
         lookup is never clobbered.
         """
+        if "disambiguation" in values and not self.disambiguation_edit.text().strip():
+            self.disambiguation_edit.setText(values["disambiguation"])
+
         if (
             "isgroup" in values
             and getattr(self.artist, "isgroup", None) is None
