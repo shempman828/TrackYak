@@ -26,7 +26,7 @@ Two mutually-exclusive search modes (never blended):
                   via acoustid.compare_fingerprints() -- a local, offline
                   Hamming-distance comparison (no AcoustID web service call).
                   Only tracks with a fingerprint already computed by the
-                  audio analysis pipeline (analysis_utility.py) are eligible.
+                  audio analysis pipeline (audio_calculations.py) are eligible.
 
 Architecture:
   - DuplicateScanWorker  : QThread — all comparison work off the UI thread
