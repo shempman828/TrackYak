@@ -586,6 +586,14 @@ class InfluenceGraphView(QWidget):
             "quality": "default",
             "randomize": True,
             "animate": True,
+            # Labels can render wider than a node's own box (small/
+            # low-influence pills let their name overflow rather than
+            # ellipsize -- see get_label_width). Without this, fcose only
+            # keeps the boxes themselves from overlapping and two nearby
+            # nodes' overflowing labels can still visually collide; this
+            # makes the layout treat each node's true on-screen footprint
+            # (box + label) as its collision size.
+            "nodeDimensionsIncludeLabels": True,
             # fcose computes the final layout instantly, then tweens nodes
             # from their random starting scatter into place over this
             # duration -- stretched well past the library default (1000ms)
