@@ -58,6 +58,41 @@ class MBCandidate:
     id: str
     label: str
     enrichment: Dict[str, Any] = field(default_factory=dict)
+    relations: Optional["MBArtistRelations"] = None
+
+
+@dataclass
+class MBAlias:
+    name: str
+    type: str  # MusicBrainz alias type, e.g. "Legal name", "Artist name"
+
+
+@dataclass
+class MBGroupRelation:
+    """One 'member of band' relation to another MusicBrainz artist. Which
+    side (group vs. member) `mbid`/`name` refers to depends on whether the
+    enriched candidate itself is a group -- see MBArtistRelations.is_group."""
+
+    mbid: str
+    name: str
+    role: Optional[str]
+    begin_year: Optional[int]
+    end_year: Optional[int]
+    is_current: bool
+
+
+@dataclass
+class MBArtistRelations:
+    """Relational enrichment data that can't just be dropped into a blank
+    form field the way scalar enrichment is -- each of these needs
+    find-or-skip dedup against existing local data before it's safe to
+    write, so callers should review/confirm before applying."""
+
+    is_group: bool = False
+    aliases: List[MBAlias] = field(default_factory=list)
+    birthplace: Optional[str] = None
+    deathplace: Optional[str] = None
+    group_relations: List[MBGroupRelation] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -81,12 +116,42 @@ def _parse_partial_date(date_str: Optional[str], prefix: str) -> Dict[str, int]:
     return result
 
 
+def _parse_year(date_str: Optional[str]) -> Optional[int]:
+    """Parse just the leading year out of a MusicBrainz partial date."""
+    if not date_str:
+        return None
+    try:
+        return int(date_str.split("-")[0])
+    except ValueError:
+        return None
+
+
 def _life_span_label(life_span: dict) -> str:
     begin = life_span.get("begin") or ""
     if not begin:
         return ""
     end = life_span.get("end") or ("present" if life_span.get("ended") == "false" else "")
     return f"[{begin}–{end}]" if end else f"[{begin}]"
+
+
+def _extract_scalar_enrichment(a: Dict[str, Any]) -> Dict[str, Any]:
+    """Pull the flat ORM-field-name -> value pairs common to both a search
+    result list-item and a full get_artist_by_id lookup -- same shape
+    either way, so both search_artists() and fetch_artist_by_mbid() (which
+    skips search entirely) populate the same scalar fields."""
+    life_span = a.get("life-span") or {}
+    enrichment: Dict[str, Any] = {"MBID": a["id"]}
+
+    artist_type = a.get("type")
+    if artist_type:
+        enrichment["isgroup"] = 0 if artist_type == "Person" else 1
+    if a.get("gender"):
+        enrichment["gender"] = a["gender"]
+    if a.get("disambiguation"):
+        enrichment["disambiguation"] = a["disambiguation"]
+    enrichment.update(_parse_partial_date(life_span.get("begin"), "begin"))
+    enrichment.update(_parse_partial_date(life_span.get("end"), "end"))
+    return enrichment
 
 
 # ---------------------------------------------------------------------------
@@ -109,17 +174,10 @@ def search_artists(name: str, limit: int = 25) -> List[MBCandidate]:
     candidates = []
     for a in result.get("artist-list", []):
         life_span = a.get("life-span") or {}
-        enrichment: Dict[str, Any] = {"MBID": a["id"]}
-
-        artist_type = a.get("type")
-        if artist_type:
-            enrichment["isgroup"] = 0 if artist_type == "Person" else 1
-        if a.get("gender"):
-            enrichment["gender"] = a["gender"]
-        enrichment.update(_parse_partial_date(life_span.get("begin"), "begin"))
-        enrichment.update(_parse_partial_date(life_span.get("end"), "end"))
+        enrichment = _extract_scalar_enrichment(a)
 
         label_bits = [a.get("name", "?")]
+        artist_type = a.get("type")
         if artist_type:
             label_bits.append(f"({artist_type})")
         span_label = _life_span_label(life_span)
@@ -141,22 +199,101 @@ _ARTIST_LINK_RELATIONS = {
 }
 
 
-def complete_artist_enrichment(candidate: MBCandidate) -> MBCandidate:
-    """Follow up a search result with a lookup for wikipedia/website links,
-    which the search endpoint doesn't return. Best-effort: any failure just
-    leaves the candidate's enrichment as-is."""
+def _fetch_full_artist(mbid: str) -> Dict[str, Any]:
+    """Raw get_artist_by_id call with every include this module uses.
+    Raises MusicBrainzLookupError on failure -- callers decide whether that
+    should be best-effort (complete_artist_enrichment) or surfaced
+    (fetch_artist_by_mbid)."""
     configure()
     try:
-        result = musicbrainzngs.get_artist_by_id(candidate.id, includes=["url-rels"])
+        result = musicbrainzngs.get_artist_by_id(
+            mbid, includes=["url-rels", "aliases", "artist-rels"]
+        )
     except Exception as e:
-        logger.warning(f"MusicBrainz artist link lookup failed for {candidate.id}: {e}")
-        return candidate
+        raise MusicBrainzLookupError(str(e)) from e
+    return result.get("artist", {})
 
-    for rel in result.get("artist", {}).get("url-relation-list", []) or []:
+
+def _apply_full_artist(candidate: MBCandidate, artist: Dict[str, Any]) -> MBCandidate:
+    """Populate a candidate's scalar enrichment and .relations from a full
+    get_artist_by_id response. Pure parsing, no network -- shared by
+    complete_artist_enrichment (best-effort follow-up after a search pick)
+    and fetch_artist_by_mbid (direct fetch when the MBID is already known)."""
+    candidate.enrichment.update(_extract_scalar_enrichment(artist))
+
+    for rel in artist.get("url-relation-list", []) or []:
         field_name = _ARTIST_LINK_RELATIONS.get(rel.get("type"))
         if field_name and field_name not in candidate.enrichment:
             candidate.enrichment[field_name] = rel.get("target")
+
+    own_name = (artist.get("name") or "").strip().lower()
+    aliases = []
+    for al in artist.get("alias-list", []) or []:
+        alias_name = al.get("alias")
+        alias_type = al.get("type") or ""
+        # "Search hint" aliases are typos/misspellings MB indexes for
+        # search matching (e.g. "Jhon Williams") -- not real names.
+        if not alias_name or alias_type == "Search hint":
+            continue
+        if alias_name.strip().lower() == own_name:
+            continue
+        aliases.append(MBAlias(name=alias_name, type=alias_type))
+
+    birthplace = (artist.get("begin-area") or {}).get("name")
+    deathplace = (artist.get("end-area") or {}).get("name")
+
+    artist_type = artist.get("type")
+    is_group = bool(artist_type) and artist_type != "Person"
+
+    group_relations = []
+    for rel in artist.get("artist-relation-list", []) or []:
+        if rel.get("type") != "member of band":
+            continue
+        target = rel.get("artist") or {}
+        if not target.get("id") or not target.get("name"):
+            continue
+        group_relations.append(
+            MBGroupRelation(
+                mbid=target["id"],
+                name=target["name"],
+                role=", ".join(rel.get("attribute-list", []) or []) or None,
+                begin_year=_parse_year(rel.get("begin")),
+                end_year=_parse_year(rel.get("end")),
+                is_current=rel.get("ended") == "false",
+            )
+        )
+
+    candidate.relations = MBArtistRelations(
+        is_group=is_group,
+        aliases=aliases,
+        birthplace=birthplace,
+        deathplace=deathplace,
+        group_relations=group_relations,
+    )
     return candidate
+
+
+def complete_artist_enrichment(candidate: MBCandidate) -> MBCandidate:
+    """Follow up a search result with a lookup for wikipedia/website links,
+    aliases, birth/death area, and band-membership relations -- none of
+    which the search endpoint returns. Best-effort: any failure just leaves
+    the candidate's enrichment as-is."""
+    try:
+        artist = _fetch_full_artist(candidate.id)
+    except MusicBrainzLookupError as e:
+        logger.warning(f"MusicBrainz artist lookup failed for {candidate.id}: {e}")
+        return candidate
+    return _apply_full_artist(candidate, artist)
+
+
+def fetch_artist_by_mbid(mbid: str) -> MBCandidate:
+    """Fetch full enrichment for an artist already matched to a MusicBrainz
+    ID (the MBID field is already filled in), skipping the name-search
+    step entirely. Raises MusicBrainzLookupError on failure -- unlike
+    complete_artist_enrichment, there's no search result to fall back to."""
+    artist = _fetch_full_artist(mbid)
+    candidate = MBCandidate(id=mbid, label=artist.get("name") or mbid)
+    return _apply_full_artist(candidate, artist)
 
 
 # ---------------------------------------------------------------------------
