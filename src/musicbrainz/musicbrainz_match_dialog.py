@@ -59,6 +59,7 @@ class MusicBrainzMatchDialog(QDialog):
         self._complete_call = complete_call
         self._candidates: List[MBCandidate] = []
         self._result_enrichment: Optional[Dict] = None
+        self._result_candidate: Optional[MBCandidate] = None
         self._worker: Optional[MusicBrainzWorker] = None
 
         self.setWindowTitle("MusicBrainz Lookup")
@@ -144,6 +145,7 @@ class MusicBrainzMatchDialog(QDialog):
 
         if self._complete_call is None:
             self._result_enrichment = candidate.enrichment
+            self._result_candidate = candidate
             self.accept()
             return
 
@@ -160,6 +162,7 @@ class MusicBrainzMatchDialog(QDialog):
 
     def _on_complete_finished(self, candidate: MBCandidate):
         self._result_enrichment = candidate.enrichment
+        self._result_candidate = candidate
         self.accept()
 
     def _on_complete_error(self, message: str):
@@ -168,8 +171,76 @@ class MusicBrainzMatchDialog(QDialog):
         logger.warning(f"MusicBrainz enrichment follow-up failed: {message}")
         items = self.list_widget.selectedItems()
         if items:
-            self._result_enrichment = items[0].data(Qt.UserRole).enrichment
+            candidate = items[0].data(Qt.UserRole)
+            self._result_enrichment = candidate.enrichment
+            self._result_candidate = candidate
         self.accept()
 
     def result_enrichment(self) -> Optional[Dict]:
         return self._result_enrichment
+
+    def result_candidate(self) -> Optional[MBCandidate]:
+        """The full picked candidate, including any relational data
+        (aliases, places, group membership) a `complete_call` populated on
+        `candidate.relations`. Most callers only need `result_enrichment()`;
+        this is for entities that follow up with a review dialog."""
+        return self._result_candidate
+
+
+class MusicBrainzImportDialog(QDialog):
+    """
+    Single-step sibling of MusicBrainzMatchDialog for when the MBID is
+    already known (e.g. re-fetching an artist that was matched previously)
+    -- no search, no picker list, just run `fetch_call` on a worker and
+    report back the resulting candidate.
+
+    After exec(), call `result_candidate()` -- returns the fetched
+    candidate, or None if the fetch failed or the user cancelled.
+    """
+
+    def __init__(
+        self,
+        entity_label: str,
+        fetch_call: Callable[[], MBCandidate],
+        parent=None,
+    ):
+        super().__init__(parent)
+        self._fetch_call = fetch_call
+        self._result_candidate: Optional[MBCandidate] = None
+        self._worker: Optional[MusicBrainzWorker] = None
+
+        self.setWindowTitle("MusicBrainz Import")
+        self.setMinimumSize(420, 140)
+
+        layout = QVBoxLayout(self)
+        self.status_label = QLabel(f"Importing details for {entity_label}...")
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)  # indeterminate
+        layout.addWidget(self.progress_bar)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        self.buttons.rejected.connect(self.reject)
+        button_row.addWidget(self.buttons)
+        layout.addLayout(button_row)
+
+        self._worker = MusicBrainzWorker(self._fetch_call, self)
+        self._worker.finished.connect(self._on_finished)
+        self._worker.error.connect(self._on_error)
+        self._worker.start()
+
+    def _on_finished(self, candidate: MBCandidate):
+        self._result_candidate = candidate
+        self.accept()
+
+    def _on_error(self, message: str):
+        logger.warning(f"MusicBrainz import failed: {message}")
+        self.progress_bar.hide()
+        self.status_label.setText(f"MusicBrainz import failed: {message}")
+
+    def result_candidate(self) -> Optional[MBCandidate]:
+        return self._result_candidate
