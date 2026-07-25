@@ -131,12 +131,12 @@ class AdvancedTab(_BaseTab):
     def _on_copy(self):
         """Serialise current Advanced field values and put them on the clipboard."""
         try:
-            changes = self._inner.collect_changes()
-            if not changes:
+            values = self._inner.collect_all_values()
+            if not values:
                 show_status_message(self, "No Advanced fields have values to copy.")
                 return
 
-            lines = [f"{field}: {value}" for field, value in changes.items()]
+            lines = [f"{field}: {value}" for field, value in values.items()]
             QApplication.clipboard().setText("\n".join(lines))
             logger.info(f"AdvancedTab: copied {len(lines)} field(s) to clipboard")
         except Exception as e:
