@@ -345,6 +345,21 @@ class ConfigDialog(QDialog):
         self.buffer_combo.addItems(["256", "512", "1024", "2048"])
         layout.addRow("Buffer Size:", self.buffer_combo)
 
+        # ---- Bit-Perfect Playback ----
+        self.exclusive_mode_check = QCheckBox("Bit-Perfect / Exclusive Mode")
+        layout.addRow("", self.exclusive_mode_check)
+
+        exclusive_info_label = QLabel(
+            "Opens the output device directly, with no volume/format processing "
+            "in between. Only works with a direct hardware device — pick one "
+            "labeled \"(Direct)\" above, not \"(Shared)\". If the device is busy "
+            "(e.g. held by PulseAudio/PipeWire), playback falls back to the "
+            "default output."
+        )
+        exclusive_info_label.setWordWrap(True)
+        exclusive_info_label.setProperty("textRole", "muted")
+        layout.addRow(exclusive_info_label)
+
         # ---- Loudness Normalization ----
         normalization_label = QLabel("Loudness Normalization")
         normalization_label.setProperty("title", True)
@@ -448,6 +463,7 @@ class ConfigDialog(QDialog):
                 is_default = device.get("default", False)
 
                 display_name = device_name
+                display_name += " (Direct)" if device.get("direct") else " (Shared)"
                 if is_default:
                     display_name += " (Default)"
 
@@ -572,6 +588,12 @@ class ConfigDialog(QDialog):
             buffer_map = {256: 0, 512: 1, 1024: 2, 2048: 3}
             self.buffer_combo.setCurrentIndex(buffer_map.get(buffer_size, 2))
 
+            self.exclusive_mode_check.setChecked(
+                getattr(self.music_player, "exclusive_mode", None)
+                if self.music_player is not None
+                else self.config.get_exclusive_mode()
+            )
+
             if self.music_player is not None:
                 norm_enabled = getattr(
                     self.music_player, "normalization_enabled", False
@@ -676,11 +698,33 @@ class ConfigDialog(QDialog):
             buffer_size = int(self.buffer_combo.currentText())
             self.config.set_buffer_size(buffer_size)
 
+            exclusive_mode = self.exclusive_mode_check.isChecked()
+            self.config.set_exclusive_mode(exclusive_mode)
+
             if self.music_player is not None:
                 if self.device_combo is not None:
                     device_data = self.device_combo.currentData()
+                    if exclusive_mode and device_data:
+                        device_info = next(
+                            (
+                                d
+                                for d in self.music_player.get_audio_devices()
+                                if d["id"] == device_data
+                            ),
+                            None,
+                        )
+                        if device_info is not None and not device_info.get("direct"):
+                            show_status_message(
+                                self,
+                                f'"{device_info["name"]}" is a shared device — '
+                                "bit-perfect mode needs a direct hardware device "
+                                'labeled "(Direct)".',
+                                6000,
+                            )
                     self.music_player.set_audio_device(device_data)
                     self.config.set_output_device(str(device_data) if device_data else "default")
+
+                self.music_player.set_exclusive_mode(exclusive_mode)
 
                 self.music_player.enable_normalization(
                     self.normalization_check.isChecked()
