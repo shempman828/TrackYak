@@ -157,7 +157,7 @@ class MusicPlayer(QObject):
         self.normalization_target: float = -14.0  # LUFS (music streaming standard)
 
         # ── Audio device ──────────────────────────────────────────────────────
-        self.exclusive_mode: bool = False
+        self.exclusive_mode: bool = app_config.get_exclusive_mode()
         self.current_device = None
         self.available_devices: list = []
 
@@ -179,6 +179,8 @@ class MusicPlayer(QObject):
         self._audio_initialized = self._initialize_audio_backend()
         if not self._audio_initialized:
             logger.error("MusicPlayer: audio backend failed to initialize")
+        else:
+            self._load_saved_output_device()
 
     def _start_reader_thread(self):
         """Start background thread that decodes audio into the buffer.
@@ -438,12 +440,26 @@ class MusicPlayer(QObject):
                 self.audio_stream = _open_stream(device_config["device"])
             except Exception as exc:
                 if device_config["device"] is not None:
-                    # The configured/previous device likely disconnected mid-session
-                    # (e.g. PortAudio "Device unavailable"). Fall back to whatever the
-                    # system now considers the default output device.
+                    # The configured/previous device likely disconnected mid-session,
+                    # or (in exclusive mode) a raw hw: device is already claimed by
+                    # PipeWire/PulseAudio (e.g. PortAudio "Device unavailable"). Fall
+                    # back to the system default so playback still works, but surface
+                    # it — this used to fail silently except for a log line.
                     logger.warning(
                         f"Output device unavailable ({exc}); falling back to default device"
                     )
+                    if self.exclusive_mode:
+                        self.error_occurred.emit(
+                            "Bit-perfect device unavailable (likely in use by "
+                            "PulseAudio/PipeWire) — falling back to the default "
+                            "output. Close other apps using the device, or select "
+                            "a different one, and try again."
+                        )
+                    else:
+                        self.error_occurred.emit(
+                            f"Output device unavailable ({exc}); falling back to "
+                            "the default device."
+                        )
                     self.current_device = None
                     fallback_config = self._get_device_config()
                     self.audio_stream = _open_stream(fallback_config["device"])
@@ -834,10 +850,21 @@ class MusicPlayer(QObject):
         self.audio_device_changed.emit(device_name)
         self._restart_playback_if_active()
 
+    def set_exclusive_mode(self, enabled: bool):
+        if enabled == self.exclusive_mode:
+            return
+        self.exclusive_mode = enabled
+        self._restart_playback_if_active()
+
     def get_audio_devices(self) -> list:
         try:
             return [
-                {"id": i, "name": d["name"], "default": d.get("default", False)}
+                {
+                    "id": i,
+                    "name": d["name"],
+                    "default": d.get("default", False),
+                    "direct": self.is_direct_output_device(d["name"]),
+                }
                 for i, d in enumerate(self.available_devices)
                 if d["max_output_channels"] > 0
             ]
@@ -930,6 +957,44 @@ class MusicPlayer(QObject):
             logger.error(f"Audio backend init error: {exc}")
             self.error_occurred.emit(f"Audio system error: {exc}")
             return False
+
+    def _load_saved_output_device(self):
+        """Restore the output device saved in config, if it still exists.
+
+        Runs once at startup, after `available_devices` has been populated,
+        so a stale index (device unplugged/renumbered since last run) is
+        detected here rather than surfacing as a failed stream open later.
+        """
+        saved = app_config.get_output_device()
+        if not saved or saved == "default":
+            return
+        try:
+            saved_id = int(saved)
+        except ValueError:
+            return
+        if 0 <= saved_id < len(self.available_devices):
+            self.current_device = saved_id
+        else:
+            logger.warning(
+                f"Saved output device index {saved_id} no longer exists; "
+                "using system default."
+            )
+
+    @staticmethod
+    def is_direct_output_device(name: str) -> bool:
+        """Best-effort check for whether a PortAudio device name is a raw
+        ALSA hardware device (e.g. "...(hw:1,0)") as opposed to a shared/
+        resampling virtual device (pulse, pipewire, default, sysdefault,
+        dmix, ...). Only raw hw devices can be opened bit-perfect —
+        anything else is mixed/resampled by the sound server first.
+        """
+        lname = name.lower()
+        if any(
+            token in lname
+            for token in ("pulse", "pipewire", "sysdefault", "default", "dmix", "jack")
+        ):
+            return False
+        return "hw:" in lname
 
     def _get_device_config(self) -> dict:
         try:
