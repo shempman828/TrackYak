@@ -64,6 +64,9 @@ class GUI(QMainWindow, MenuBar):
         self.import_worker = None
 
         self.mediaplayer.track_changed.connect(self.update_now_playing_view)
+        self.mediaplayer.error_occurred.connect(
+            lambda msg: StatusManager.show_message(msg, 6000)
+        )
         self._init_ui()
         self._init_status_system()
 
