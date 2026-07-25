@@ -349,6 +349,24 @@ class FieldFormTab(_BaseTab):
             _write_widget(widget, value)
             self._mark_dirty(field_name)
 
+    def collect_all_values(self) -> Dict[str, Any]:
+        """Return every currently displayed field with a value, editable or
+        read-only -- unlike collect_changes(), this isn't limited to fields
+        the user has actively edited this session."""
+        values: Dict[str, Any] = {}
+        for field_name, w in self._widgets.items():
+            cfg = TRACK_FIELDS.get(field_name)
+            if cfg is None:
+                continue
+            val = _coerce(_read_widget(w), cfg)
+            if val is not None:
+                values[field_name] = val
+        for field_name, lbl in self._labels.items():
+            text = lbl.text()
+            if text and text != "—":
+                values[field_name] = text
+        return values
+
     def collect_changes(self) -> Dict[str, Any]:
         changes = {}
         for field_name in self._dirty:
