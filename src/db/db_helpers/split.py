@@ -9,22 +9,57 @@ from src.db.db_tables import (
     AlbumPublisher,
     AlbumRoleAssociation,
     Artist,
+    ArtistAlias,
     Genre,
+    GenreAlias,
     Mood,
     MoodTrackAssociation,
     Publisher,
+    PublisherAlias,
     Role,
     TrackArtistRole,
     TrackGenre,
 )
+
+# For these entity types, a split name that doesn't match an existing entity's
+# own name is also checked against its alias table before a new entity is
+# created, so e.g. splitting "O. Osbourne & Z.Wylde" resolves "Z.Wylde" to the
+# existing "Zakk Wylde" artist instead of creating a duplicate. Mood and Role
+# have no alias tables. Maps model name -> (alias model, relationship attr).
+_ALIAS_REGISTRY: dict = {
+    "Artist": (ArtistAlias, "artist"),
+    "Publisher": (PublisherAlias, "publisher"),
+    "Genre": (GenreAlias, "genre"),
+}
 
 
 class SplitDB(BaseDBHelper):
     """Class for splitting different database models."""
 
     # ------------------------------------------------------------------
-    # Internal helper
+    # Internal helpers
     # ------------------------------------------------------------------
+
+    def _resolve_existing(self, entity_class, name_field: str, name: str):
+        """Find an existing entity by its own name column, or by an alias
+        pointing at it (see `_ALIAS_REGISTRY`). Returns None if neither matches.
+        """
+        existing = self.session.scalar(
+            select(entity_class).where(getattr(entity_class, name_field) == name)
+        )
+        if existing:
+            return existing
+
+        alias_info = _ALIAS_REGISTRY.get(entity_class.__name__)
+        if alias_info:
+            alias_model, relation_attr = alias_info
+            alias = self.session.scalar(
+                select(alias_model).where(alias_model.alias_name == name)
+            )
+            if alias:
+                return getattr(alias, relation_attr)
+
+        return None
 
     def _safe_add(self, obj) -> bool:
         """
@@ -61,9 +96,7 @@ class SplitDB(BaseDBHelper):
             new_publishers = []
 
             for name in new_names:
-                existing = self.session.scalar(
-                    select(Publisher).where(Publisher.publisher_name == name)
-                )
+                existing = self._resolve_existing(Publisher, "publisher_name", name)
                 if existing:
                     logger.debug(
                         f"Using existing publisher: {name} (ID: {existing.publisher_id})"
@@ -85,8 +118,8 @@ class SplitDB(BaseDBHelper):
                     else:
                         # Race condition: someone inserted the same name between
                         # our SELECT and our INSERT — re-fetch and reuse.
-                        refetched = self.session.scalar(
-                            select(Publisher).where(Publisher.publisher_name == name)
+                        refetched = self._resolve_existing(
+                            Publisher, "publisher_name", name
                         )
                         if refetched:
                             new_publishers.append(refetched)
@@ -144,9 +177,7 @@ class SplitDB(BaseDBHelper):
             new_artists = []
 
             for name in new_names:
-                existing = self.session.scalar(
-                    select(Artist).where(Artist.artist_name == name)
-                )
+                existing = self._resolve_existing(Artist, "artist_name", name)
                 if existing:
                     logger.debug(
                         f"Using existing artist: {name} (ID: {existing.artist_id})"
@@ -157,9 +188,7 @@ class SplitDB(BaseDBHelper):
                     if self._safe_add(new_artist):
                         new_artists.append(new_artist)
                     else:
-                        refetched = self.session.scalar(
-                            select(Artist).where(Artist.artist_name == name)
-                        )
+                        refetched = self._resolve_existing(Artist, "artist_name", name)
                         if refetched:
                             new_artists.append(refetched)
 
@@ -246,9 +275,7 @@ class SplitDB(BaseDBHelper):
             new_genres = []
 
             for name in new_names:
-                existing = (
-                    self.session.query(Genre).filter(Genre.genre_name == name).first()
-                )
+                existing = self._resolve_existing(Genre, "genre_name", name)
                 if existing and existing.genre_id != genre_id:
                     logger.info(
                         f"Reusing existing genre '{name}' (ID: {existing.genre_id})"
@@ -263,11 +290,7 @@ class SplitDB(BaseDBHelper):
                     if self._safe_add(new_genre):
                         new_genres.append(new_genre)
                     else:
-                        refetched = (
-                            self.session.query(Genre)
-                            .filter(Genre.genre_name == name)
-                            .first()
-                        )
+                        refetched = self._resolve_existing(Genre, "genre_name", name)
                         if refetched:
                             new_genres.append(refetched)
 
@@ -328,9 +351,7 @@ class SplitDB(BaseDBHelper):
             new_moods = []
 
             for name in new_names:
-                existing = (
-                    self.session.query(Mood).filter(Mood.mood_name == name).first()
-                )
+                existing = self._resolve_existing(Mood, "mood_name", name)
                 if existing and existing.mood_id != mood_id:
                     logger.info(
                         f"Reusing existing mood '{name}' (ID: {existing.mood_id})"
@@ -345,11 +366,7 @@ class SplitDB(BaseDBHelper):
                     if self._safe_add(new_mood):
                         new_moods.append(new_mood)
                     else:
-                        refetched = (
-                            self.session.query(Mood)
-                            .filter(Mood.mood_name == name)
-                            .first()
-                        )
+                        refetched = self._resolve_existing(Mood, "mood_name", name)
                         if refetched:
                             new_moods.append(refetched)
 
@@ -405,9 +422,7 @@ class SplitDB(BaseDBHelper):
             new_roles = []
 
             for name in new_names:
-                existing = (
-                    self.session.query(Role).filter(Role.role_name == name).first()
-                )
+                existing = self._resolve_existing(Role, "role_name", name)
                 if existing and existing.role_id != role_id:
                     logger.info(
                         f"Reusing existing role '{name}' (ID: {existing.role_id})"
@@ -424,11 +439,7 @@ class SplitDB(BaseDBHelper):
                     if self._safe_add(new_role):
                         new_roles.append(new_role)
                     else:
-                        refetched = (
-                            self.session.query(Role)
-                            .filter(Role.role_name == name)
-                            .first()
-                        )
+                        refetched = self._resolve_existing(Role, "role_name", name)
                         if refetched:
                             new_roles.append(refetched)
 
