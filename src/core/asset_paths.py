@@ -59,6 +59,16 @@ def theme(name: str) -> str:
     return str(THEMES_DIR / name)
 
 
+def resolve_theme_assets(stylesheet: str) -> str:
+    """Substitute the ASSETS_DIR_PLACEHOLDER token in a QSS stylesheet.
+
+    Qt resolves relative url() paths in a stylesheet against the process's
+    working directory, which breaks in packaged/frozen builds or when the
+    app is launched from elsewhere. ASSETS_DIR already accounts for that.
+    """
+    return stylesheet.replace("ASSETS_DIR_PLACEHOLDER", ASSETS_DIR.as_posix())
+
+
 def config(name: str) -> str:
     """Return absolute path to a config file inside /config."""
     return str(CONFIG_DIR / name)
