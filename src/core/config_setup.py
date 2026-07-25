@@ -118,6 +118,7 @@ class Config:
             "output_device": "default",
             "sample_rate": "44100",
             "buffer_size": "1024",
+            "exclusive_mode": "false",
         }
 
         # Logging section
@@ -401,6 +402,14 @@ class Config:
     def set_buffer_size(self, size: int):
         """Set buffer size"""
         self._set_int("audio", "buffer_size", size)
+
+    def get_exclusive_mode(self):
+        """Get bit-perfect/exclusive output mode"""
+        return self._get_bool("audio", "exclusive_mode", fallback=False)
+
+    def set_exclusive_mode(self, enabled: bool):
+        """Set bit-perfect/exclusive output mode"""
+        self._set_bool("audio", "exclusive_mode", enabled)
 
     # Theme management
     def get_available_themes(self):
