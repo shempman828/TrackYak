@@ -5,6 +5,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
+from src.core.asset_paths import resolve_theme_assets
 from src.core.logger_config import logger
 
 
@@ -80,7 +81,7 @@ class DisplaySettings(QObject):
 
         qss = qss_path.read_text(encoding="utf-8")
 
-        self.app.setStyleSheet(qss)
+        self.app.setStyleSheet(resolve_theme_assets(qss))
         self.theme_name = theme_name
 
         if self.config:
