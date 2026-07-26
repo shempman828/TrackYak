@@ -13,7 +13,7 @@ Responsibilities
   show live progress immediately.
 """
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import QThread, Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QDialog,
     QGroupBox,
@@ -28,7 +28,9 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QVBoxLayout,
 )
+from sqlalchemy.orm import selectinload
 
+from src.db.db_tables import Track, TrackArtistRole
 from src.statistics.analysis_cache import analysis_cache
 from src.statistics.batch_analysis_scheduler import BatchAnalysisScheduler
 from src.core.logger_config import logger
@@ -55,6 +57,47 @@ def _track_needs_analysis(track) -> bool:
         if val is None or val == 0 or val == 0.0:
             return True
     return False
+
+
+class _PendingTracksWorker(QThread):
+    """
+    Scans the library for tracks needing analysis off the GUI thread.
+
+    On large libraries a flat Track query plus a lazy-loaded ``track.artists``
+    access per row turns into tens of thousands of extra round trips if run on
+    the main thread inside a dialog's __init__ — freezing the UI before it
+    even shows. This worker does the same scan on a background thread and
+    eager-loads the artist relationship in one extra query instead.
+    """
+
+    tracks_loaded = Signal(list)
+    failed = Signal(str)
+
+    def __init__(self, controller, parent=None):
+        super().__init__(parent)
+        self._controller = controller
+
+    def run(self):
+        try:
+            all_tracks = self._controller.get.get_all_entities(
+                "Track",
+                load_options=[
+                    selectinload(Track.artist_roles).selectinload(
+                        TrackArtistRole.artist
+                    )
+                ],
+            )
+        except Exception as e:
+            self.failed.emit(str(e))
+            return
+
+        pending = [
+            track
+            for track in all_tracks
+            if not analysis_cache.is_analysed(track.track_id)
+            and _track_needs_analysis(track)
+        ]
+        self.tracks_loaded.emit(pending)
 
 
 class AudioAnalysisDialog(QDialog):
@@ -86,10 +129,11 @@ class AudioAnalysisDialog(QDialog):
 
         self._tracks_pending: list = []  # tracks not yet in the cache
         self._track_id_to_item: dict = {}  # track_id → QListWidgetItem
+        self._scan_worker: _PendingTracksWorker | None = None
 
         self._build_ui()
         self._connect_scheduler_signals()
-        self._load_pending_tracks()
+        self._start_pending_scan()
 
         # If the scheduler is already running (dialog was closed and reopened),
         # reflect the live state immediately.
@@ -192,33 +236,35 @@ class AudioAnalysisDialog(QDialog):
     # Data loading
     # ------------------------------------------------------------------
 
-    def _load_pending_tracks(self):
+    def _start_pending_scan(self):
         """
-        Find tracks that need analysis.
+        Kick off a background scan for tracks that need analysis.
 
-        Fast path: if the track_id is already in the analysis cache, skip it
-        without inspecting the DB fields at all.  Only for tracks NOT in the
-        cache do we check individual fields — this keeps the scan fast even
-        on large libraries.
+        Runs on a _PendingTracksWorker thread so opening this dialog never
+        blocks the GUI, even on large libraries — see that class for why.
         """
-        try:
-            all_tracks = self.controller.get.get_all_entities("Track")
-        except Exception as e:
-            logger.error(f"AudioAnalysisDialog: failed to load tracks — {e}")
-            self._summary_label.setText("Error loading library.")
-            return
+        self._summary_label.setText("Scanning library…")
+        self._start_btn.setEnabled(False)
 
-        self._tracks_pending = []
-        self._track_id_to_item = {}
+        self._scan_worker = _PendingTracksWorker(self.controller, self)
+        self._scan_worker.tracks_loaded.connect(self._on_pending_tracks_loaded)
+        self._scan_worker.failed.connect(self._on_pending_scan_failed)
+        self._scan_worker.start()
 
-        for track in all_tracks:
-            tid = track.track_id
-            if analysis_cache.is_analysed(tid):
-                continue
-            if _track_needs_analysis(track):
-                self._tracks_pending.append(track)
-
+    @Slot(list)
+    def _on_pending_tracks_loaded(self, pending_tracks: list):
+        self._tracks_pending = pending_tracks
         self._refresh_list()
+
+        # If the scheduler is already running, reflect the live state now
+        # that the pending list has (re)loaded.
+        if self._scheduler.is_running:
+            self._sync_running_state()
+
+    @Slot(str)
+    def _on_pending_scan_failed(self, message: str):
+        logger.error(f"AudioAnalysisDialog: failed to load tracks — {message}")
+        self._summary_label.setText("Error loading library.")
 
     def _refresh_list(self):
         """Repopulate the QListWidget from self._tracks_pending."""
@@ -336,7 +382,7 @@ class AudioAnalysisDialog(QDialog):
     @Slot(int)
     def _on_all_done(self, total: int):
         self._set_idle_ui()
-        self._load_pending_tracks()  # Refresh list (should now be empty / much smaller)
+        self._start_pending_scan()  # Refresh list (should now be empty / much smaller)
 
         StatusManager.end_task(f"Analysis complete: {total} tracks processed", 5000)
 
@@ -375,7 +421,7 @@ class AudioAnalysisDialog(QDialog):
         # If it's not already in the pending list, reload so it appears
         pending_ids = {t.track_id for t in self._tracks_pending}
         if track_id not in pending_ids:
-            self._load_pending_tracks()
+            self._start_pending_scan()
         else:
             self._refresh_list()
 
@@ -423,6 +469,17 @@ class AudioAnalysisDialog(QDialog):
     # ------------------------------------------------------------------
 
     def closeEvent(self, event):
+        if self._scan_worker is not None and self._scan_worker.isRunning():
+            # Disconnect so a scan that finishes after the dialog is gone
+            # doesn't try to update widgets that no longer exist.
+            try:
+                self._scan_worker.tracks_loaded.disconnect(
+                    self._on_pending_tracks_loaded
+                )
+                self._scan_worker.failed.disconnect(self._on_pending_scan_failed)
+            except RuntimeError:
+                pass  # Already disconnected
+
         if self._scheduler.is_running:
             # Disconnect signals from this dialog instance so stale callbacks
             # don't try to update widgets that no longer exist.
