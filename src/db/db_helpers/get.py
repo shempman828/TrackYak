@@ -11,8 +11,15 @@ from src.db.db_tables import AlbumRoleAssociation, Album
 class GetFromDB(BaseDBHelper):
     """Class for retrieving data from the database"""
 
-    def query_entities(self, entity_class: str, multiple: bool = True, **filters):
-        """Generic entity query supporting simple and advanced filtering."""
+    def query_entities(
+        self, entity_class: str, multiple: bool = True, load_options=None, **filters
+    ):
+        """Generic entity query supporting simple and advanced filtering.
+
+        ``load_options`` accepts a list of SQLAlchemy loader options (e.g.
+        ``selectinload(...)``) so callers that need related data can eager-load
+        it in one extra query instead of triggering a lazy-load per row.
+        """
         logger.debug(
             f"Querying {entity_class} (multiple={multiple}) with filters: {filters}"
         )
@@ -25,6 +32,9 @@ class GetFromDB(BaseDBHelper):
 
         try:
             stmt = select(entity_class_obj)
+
+            if load_options:
+                stmt = stmt.options(*load_options)
 
             # Check for direct filter_expression
             filter_expression = filters.pop("filter_expression", None)
@@ -108,8 +118,10 @@ class GetFromDB(BaseDBHelper):
             logger.error(f"Database error querying {entity_class}: {e}")
             return [] if multiple else None
 
-    def get_all_entities(self, model_name: str, **kwargs):
-        return self.query_entities(model_name, multiple=True, **kwargs)
+    def get_all_entities(self, model_name: str, load_options=None, **kwargs):
+        return self.query_entities(
+            model_name, multiple=True, load_options=load_options, **kwargs
+        )
 
     def get_entity_object(self, model_name: str, **kwargs):
         return self.query_entities(model_name, multiple=False, **kwargs)
