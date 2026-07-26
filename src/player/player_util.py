@@ -4,6 +4,9 @@ Streaming music playback engine.
 """
 
 import collections
+import json
+import re
+import subprocess
 import threading
 import time
 import unicodedata
@@ -160,6 +163,10 @@ class MusicPlayer(QObject):
         self.exclusive_mode: bool = app_config.get_exclusive_mode()
         self.current_device = None
         self.available_devices: list = []
+        # Name of the PipeWire/PulseAudio sink suspended to grab raw hw:
+        # access for the current exclusive-mode stream, if any — resumed
+        # when the stream closes so system sounds work again.
+        self._suspended_sink_name: Optional[str] = None
 
         # ── Position timer ────────────────────────────────────────────────────
         self._position_timer = QTimer(self)
@@ -436,9 +443,31 @@ class MusicPlayer(QObject):
                 stream.start()
                 return stream
 
+            open_device = device_config["device"]
+            open_attempts = 1
+            if self.exclusive_mode:
+                grabbed_index = self._prepare_exclusive_device(open_device)
+                if grabbed_index is not None:
+                    open_device = grabbed_index
+                    open_attempts = 3
+
             try:
-                self.audio_stream = _open_stream(device_config["device"])
+                last_exc = None
+                for attempt in range(open_attempts):
+                    try:
+                        self.audio_stream = _open_stream(open_device)
+                        last_exc = None
+                        break
+                    except Exception as exc:
+                        last_exc = exc
+                        if attempt < open_attempts - 1:
+                            time.sleep(0.1)
+                if last_exc is not None:
+                    raise last_exc
             except Exception as exc:
+                if self._suspended_sink_name is not None:
+                    self._suspend_sink(self._suspended_sink_name, False)
+                    self._suspended_sink_name = None
                 if device_config["device"] is not None:
                     # The configured/previous device likely disconnected mid-session,
                     # or (in exclusive mode) a raw hw: device is already claimed by
@@ -996,6 +1025,144 @@ class MusicPlayer(QObject):
             return False
         return "hw:" in lname
 
+    def _resolve_exclusive_target(self, device):
+        """Resolve `device` (a PortAudio index, or None/"" for the system
+        default) to the ALSA (card, device) hw ids plus the name of the
+        PipeWire/PulseAudio sink currently backing it, if any.
+
+        PortAudio's device enumeration queries each PCM at startup to learn
+        its capabilities; a hw: node that PipeWire already has open (e.g.
+        the desktop's default output) fails that query and is silently
+        dropped from the list. So the device the user actually wants for
+        bit-perfect output may not be selectable/visible at all — this
+        looks it up directly from PipeWire's sink properties instead,
+        which also lets the caller suspend that sink to free the hw node.
+
+        Returns ((card, dev), sink_name); either half is None if not
+        resolvable (pactl unavailable, no PipeWire sink involved, or not a
+        hw: device).
+        """
+        sink_name = None
+        hw_ids = None
+
+        # `device` is normally an already-resolved PortAudio index by the time
+        # this is called (`_get_device_config` resolves None -> sd.default.device
+        # before returning), so "no explicit device" shows up as an index whose
+        # *name* is one of ALSA's virtual default aliases, not as None itself.
+        device_name = None
+        if device is not None and device != "":
+            try:
+                device_name = self.available_devices[device]["name"]
+            except (IndexError, TypeError):
+                return None, None
+
+        is_default_alias = device is None or device == "" or (
+            device_name is not None
+            and device_name.strip().lower() in ("default", "pulse", "pipewire", "sysdefault")
+        )
+
+        if is_default_alias:
+            try:
+                result = subprocess.run(
+                    ["pactl", "get-default-sink"],
+                    capture_output=True, text=True, timeout=2, check=True,
+                )
+                sink_name = result.stdout.strip() or None
+            except Exception as exc:
+                logger.debug(f"pactl get-default-sink failed: {exc}")
+                return None, None
+            if sink_name is None:
+                return None, None
+        else:
+            match = re.search(r"hw:(\d+),(\d+)", device_name)
+            if not match:
+                return None, None
+            hw_ids = (int(match.group(1)), int(match.group(2)))
+
+        try:
+            result = subprocess.run(
+                ["pactl", "-f", "json", "list", "sinks"],
+                capture_output=True, text=True, timeout=2, check=True,
+            )
+            sinks = json.loads(result.stdout)
+        except Exception as exc:
+            logger.debug(f"pactl sink lookup failed: {exc}")
+            return None, None
+
+        for sink in sinks:
+            if sink_name is not None and sink.get("name") != sink_name:
+                continue
+            props = sink.get("properties", {})
+            card, dev = props.get("alsa.card"), props.get("alsa.device")
+            if card is None or dev is None:
+                continue
+            found_ids = (int(card), int(dev))
+            if hw_ids is not None and found_ids != hw_ids:
+                continue
+            return found_ids, sink.get("name")
+
+        return None, None
+
+    def _suspend_sink(self, sink_name: str, suspend: bool) -> bool:
+        """Suspend (or resume) a PipeWire/PulseAudio sink via pactl so its
+        underlying ALSA hw node can be grabbed directly (or given back)."""
+        try:
+            subprocess.run(
+                ["pactl", "suspend-sink", sink_name, "1" if suspend else "0"],
+                capture_output=True, timeout=2, check=True,
+            )
+            return True
+        except Exception as exc:
+            logger.debug(
+                f"pactl suspend-sink {sink_name} {'1' if suspend else '0'} failed: {exc}"
+            )
+            return False
+
+    def _prepare_exclusive_device(self, device) -> Optional[int]:
+        """Try to grab the real hw:card,device node behind `device` for
+        bit-perfect playback.
+
+        PortAudio's ALSA backend builds its device list once when it's
+        initialized; a hw: node that PipeWire has open fails that scan and
+        never shows up — even a fresh `query_devices()` call still returns
+        the stale list from the last init. So this suspends the owning
+        PipeWire/PulseAudio sink (via `_resolve_exclusive_target`), then
+        tears down and reinitializes the sounddevice/PortAudio session so
+        the now-free node is picked up, and returns its new device index.
+
+        On success, `self._suspended_sink_name` is set so the caller can
+        resume the sink once the stream is closed. Returns None if the
+        device can't be resolved to a hw: node, or it still isn't visible
+        after a few retries — in which case nothing is left suspended.
+        """
+        hw_ids, sink_name = self._resolve_exclusive_target(device)
+        if hw_ids is None or sink_name is None:
+            return None
+
+        if not self._suspend_sink(sink_name, True):
+            return None
+        self._suspended_sink_name = sink_name
+
+        target = f"hw:{hw_ids[0]},{hw_ids[1]}"
+        for attempt in range(5):
+            time.sleep(0.15)
+            try:
+                self.sd._terminate()
+                self.sd._initialize()
+                self.available_devices = list(self.sd.query_devices())
+            except Exception as exc:
+                logger.debug(f"PortAudio re-init failed: {exc}")
+                continue
+            for i, d in enumerate(self.available_devices):
+                if target in d["name"]:
+                    return i
+
+        # Couldn't grab it — undo the suspend so we don't leave the sink
+        # (and the user's system audio) stuck.
+        self._suspend_sink(sink_name, False)
+        self._suspended_sink_name = None
+        return None
+
     def _get_device_config(self) -> dict:
         try:
             # An empty string ("Default Output Device" in the settings UI) or None
@@ -1031,6 +1198,9 @@ class MusicPlayer(QObject):
                 pass
             finally:
                 self.audio_stream = None
+        if self._suspended_sink_name is not None:
+            self._suspend_sink(self._suspended_sink_name, False)
+            self._suspended_sink_name = None
 
     def _restart_playback_if_active(self):
         if self.current_file and (self.playing or self.paused):
