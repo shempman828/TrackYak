@@ -1244,35 +1244,49 @@ class MusicPlayer(QObject):
             outdata.fill(0)
             return
 
-        # Pop a pre-decoded chunk from the buffer
-        with self._buffer_lock:
-            if self._audio_buffer:
-                chunk = self._audio_buffer.popleft()
-            else:
-                # Buffer underrun — reader thread hasn't caught up
-                outdata.fill(0)
-                if self._total_frames > 0 and self._current_frame >= self._total_frames:
-                    self._emit_track_finished_once()
-                return
-
-        # Apply gain
-        effective_gain = self._gain_factor * (self.volume_level / 100.0)
-        chunk = chunk * effective_gain
-
-        # Apply equalizer
-        if len(chunk) >= 32:
-            chunk = self.equalizer.process_audio(chunk)
-
-        outdata[: len(chunk)] = chunk
-        self._frames_played += len(chunk)
-        if len(chunk) < frames:
-            outdata[len(chunk) :] = 0
-            self._emit_track_finished_once()
-        elif self._total_frames > 0 and self._current_frame >= self._total_frames:
+        # This runs on PortAudio's realtime callback thread. Every other
+        # audio-processing path in this codebase (AudioCalculations,
+        # Equalizer.process_audio) catches its own exceptions and falls back
+        # to a safe default so one bad buffer can't take anything down with
+        # it — this callback didn't, and an exception here is not a
+        # CallbackStop/CallbackAbort, so sounddevice lets it propagate
+        # straight to the PortAudio/CFFI boundary instead of just glitching
+        # the audio. That's especially reachable when something CPU/GIL-heavy
+        # (e.g. batch audio analysis) is running concurrently on the main
+        # process and this thread ends up starved mid-buffer.
+        try:
+            # Pop a pre-decoded chunk from the buffer
             with self._buffer_lock:
-                buffer_empty = len(self._audio_buffer) == 0
-            if buffer_empty:
+                if self._audio_buffer:
+                    chunk = self._audio_buffer.popleft()
+                else:
+                    # Buffer underrun — reader thread hasn't caught up
+                    outdata.fill(0)
+                    if self._total_frames > 0 and self._current_frame >= self._total_frames:
+                        self._emit_track_finished_once()
+                    return
+
+            # Apply gain
+            effective_gain = self._gain_factor * (self.volume_level / 100.0)
+            chunk = chunk * effective_gain
+
+            # Apply equalizer
+            if len(chunk) >= 32:
+                chunk = self.equalizer.process_audio(chunk)
+
+            outdata[: len(chunk)] = chunk
+            self._frames_played += len(chunk)
+            if len(chunk) < frames:
+                outdata[len(chunk) :] = 0
                 self._emit_track_finished_once()
+            elif self._total_frames > 0 and self._current_frame >= self._total_frames:
+                with self._buffer_lock:
+                    buffer_empty = len(self._audio_buffer) == 0
+                if buffer_empty:
+                    self._emit_track_finished_once()
+        except Exception as exc:
+            logger.error(f"Audio callback error (generation={generation}): {exc}")
+            outdata.fill(0)
 
     # =========================================================================
     #  Internal — playback finished handler (runs on the main thread)
