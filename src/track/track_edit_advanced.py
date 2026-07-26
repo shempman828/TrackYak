@@ -233,7 +233,7 @@ class AdvancedTab(_BaseTab):
                 )
                 return
 
-        self._scheduler = BatchAnalysisScheduler(self.controller, num_workers=2)
+        self._scheduler = BatchAnalysisScheduler(self.controller)
 
         # Wire signals — all delivered on the main thread via Qt's queued
         # connection, so it's safe to touch widgets directly in these slots.
