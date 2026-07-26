@@ -32,7 +32,11 @@ from sqlalchemy.orm import selectinload
 
 from src.db.db_tables import Track, TrackArtistRole
 from src.statistics.analysis_cache import analysis_cache
-from src.statistics.batch_analysis_scheduler import BatchAnalysisScheduler
+from src.statistics.batch_analysis_scheduler import (
+    BatchAnalysisScheduler,
+    max_worker_count,
+    recommended_worker_count,
+)
 from src.core.logger_config import logger
 from src.core.status_utility import StatusManager, show_status_message
 
@@ -120,7 +124,7 @@ class AudioAnalysisDialog(QDialog):
             self._scheduler = scheduler
             self._owns_scheduler = False
         else:
-            self._scheduler = BatchAnalysisScheduler(controller, num_workers=2)
+            self._scheduler = BatchAnalysisScheduler(controller)
             self._owns_scheduler = True
 
         self.setWindowTitle("Audio Analysis Manager")
@@ -177,15 +181,18 @@ class AudioAnalysisDialog(QDialog):
         settings_group = QGroupBox("Settings")
         settings_layout = QHBoxLayout(settings_group)
 
+        recommended = recommended_worker_count()
         settings_layout.addWidget(QLabel("Worker threads:"))
         self._workers_spin = QSpinBox()
-        self._workers_spin.setRange(1, 8)
-        self._workers_spin.setValue(2)
+        self._workers_spin.setRange(1, max_worker_count())
+        self._workers_spin.setValue(recommended)
         self._workers_spin.setToolTip(
             "Number of parallel analysis workers.  More workers = faster but "
-            "higher CPU and memory usage.  2 is a good default."
+            f"higher CPU and memory usage.  {recommended} is recommended for "
+            "this machine (CPU cores minus one)."
         )
         settings_layout.addWidget(self._workers_spin)
+        settings_layout.addWidget(QLabel(f"(recommended: {recommended})"))
         settings_layout.addStretch()
 
         root.addWidget(settings_group)
