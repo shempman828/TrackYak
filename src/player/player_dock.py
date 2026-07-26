@@ -104,9 +104,9 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
 
         # Volume slider
         self.volume_slider = QSlider(Qt.Horizontal)
-        self.volume_slider.setToolTip("Volume")
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(app_config.get_volume())
+        self._update_volume_tooltip(self.volume_slider.value())
         self.volume_slider.setFixedWidth(80)
         self.volume_slider.setSingleStep(5)
 
@@ -467,6 +467,7 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
             self.volume_slider.valueChanged.connect(
                 self.controller.mediaplayer.set_volume
             )
+            self.volume_slider.valueChanged.connect(self._update_volume_tooltip)
             self.position_slider.sliderPressed.connect(self._on_seek_pressed)
             self.position_slider.sliderReleased.connect(self._on_seek_released)
             self.repeat_button.clicked.connect(self._on_repeat_clicked)
@@ -519,6 +520,11 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
         self.volume_slider.blockSignals(True)
         self.volume_slider.setValue(value)
         self.volume_slider.blockSignals(False)
+        self._update_volume_tooltip(value)
+
+    def _update_volume_tooltip(self, value: int):
+        """Show the current volume percentage in the slider's tooltip."""
+        self.volume_slider.setToolTip(f"Volume: {value}%")
 
     def update_position(self, position: int = None):
         """Update position slider and label."""
