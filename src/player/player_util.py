@@ -1175,9 +1175,16 @@ class MusicPlayer(QObject):
                     self.current_device = info[1]
 
             if self.exclusive_mode and self.current_device is not None:
+                # Bit-perfect output is about grabbing the raw hw: node so
+                # PipeWire/PulseAudio can't resample or mix it — it has nothing
+                # to do with minimizing latency. Requesting "low" here gave
+                # PortAudio very little internal buffer to absorb scheduling
+                # jitter from the Python-side reader thread, which surfaced as
+                # frequent underrun hitches once a hw: device was actually
+                # grabbed. "high" keeps the same bit-perfect path with margin.
                 return {
                     "device": self.current_device,
-                    "latency": "low",
+                    "latency": "high",
                 }
 
             return {
