@@ -47,6 +47,14 @@ _LYRIC_GAP_THRESHOLD_MS = 5_000
 # Debounce delay (ms) before persisting the sync-offset slider to config.
 _OFFSET_DEBOUNCE_MS = 600
 
+# Art slideshow dwell times. Album covers get more screen time than artist
+# photos so the cover art still dominates the rotation.
+_COVER_DWELL_MS = 6_000
+_ARTIST_DWELL_MS = 2_500
+
+# Duration of the crossfade between successive art-slideshow images.
+_ART_TRANSITION_MS = 650
+
 # Tab and toggle button visuals live in themes/dark_mode.qss under the
 # [npTab="true"] / [npToggle="true"] / [active=...] selectors — see _set_active().
 
@@ -74,6 +82,7 @@ class NowPlayingView(QWidget):
         self.default_art_path = asset("default_album.svg")
         self._current_pixmap: Optional[QPixmap] = None
         self._fade_anim: Optional[QPropertyAnimation] = None
+        self._art_transition_anim: Optional[QPropertyAnimation] = None
 
         self._is_synced = False
         self._show_all_lyrics = False  # Toggle: karaoke vs full plain view
@@ -101,10 +110,10 @@ class NowPlayingView(QWidget):
         self._cinema_mode = False
 
         # Art slideshow state
-        self._art_images: List[Tuple[QPixmap, bool]] = []
+        self._art_images: List[Tuple[QPixmap, bool, Optional[str]]] = []
         self._art_slide_idx: int = 0
         self._art_slide_timer = QTimer(self)
-        self._art_slide_timer.setInterval(6_000)  # 6 s per image
+        self._art_slide_timer.setInterval(_COVER_DWELL_MS)
         self._art_slide_timer.timeout.connect(self._advance_art_slide)
 
         # Background art-cache warming (avoids blocking the UI thread on a
@@ -786,7 +795,7 @@ class NowPlayingView(QWidget):
 
     def _load_art(self, pixmap: Optional[QPixmap]):
         """Single-image path kept for clearUI / fallback use."""
-        self._start_art_slideshow([(pixmap, False)] if pixmap else [])
+        self._start_art_slideshow([(pixmap, False, None)] if pixmap else [])
 
     def _load_art_from_track(self, track):
         """Build slideshow from all available art images for this track."""
@@ -798,9 +807,10 @@ class NowPlayingView(QWidget):
         is_explicit = bool(getattr(album, "art_is_explicit", False)) if album else False
         cache = get_artwork_cache()
 
-        # (pixmap, is_artist_photo) — artist photos are rendered without
-        # forcing a square crop, since they aren't necessarily square.
-        pixmaps: List[Tuple[QPixmap, bool]] = []
+        # (pixmap, is_artist_photo, label) — artist photos are rendered
+        # without forcing a square crop, since they aren't necessarily
+        # square, and carry the artist's name to caption the photo.
+        pixmaps: List[Tuple[QPixmap, bool, Optional[str]]] = []
         if album and cache:
             # peek_has_art never reads/decodes the audio file. If the cache
             # row is confirmed valid, front/rear/liner are all safe to fetch
@@ -815,7 +825,7 @@ class NowPlayingView(QWidget):
                 for role in ("front", "rear", "liner"):
                     px = cache.get_pixmap(album, role, is_explicit)
                     if not px.isNull():
-                        pixmaps.append((px, False))
+                        pixmaps.append((px, False, None))
 
         # Also try artist-level image
         for artist in getattr(track, "artists", None) or []:
@@ -823,14 +833,15 @@ class NowPlayingView(QWidget):
             if p and Path(p).exists():
                 px = QPixmap(str(p))
                 if not px.isNull():
-                    pixmaps.append((px, True))
+                    name = getattr(artist, "artist_name", None) or None
+                    pixmaps.append((px, True, name))
 
         if not pixmaps:
             default = self.default_art_path
             if default and Path(default).exists():
                 px = QPixmap(default)
                 if not px.isNull():
-                    pixmaps.append((px, False))
+                    pixmaps.append((px, False, None))
 
         self._start_art_slideshow(pixmaps)
 
@@ -856,28 +867,46 @@ class NowPlayingView(QWidget):
             return
         self._load_art_from_track(track)
 
-    def _start_art_slideshow(self, pixmaps: List[Tuple[QPixmap, bool]]):
-        """Begin cycling through the given list of (pixmap, is_artist) pairs."""
+    def _start_art_slideshow(self, pixmaps: List[Tuple[QPixmap, bool, Optional[str]]]):
+        """Begin cycling through the given list of (pixmap, is_artist, label)
+        triples."""
         self._art_slide_timer.stop()
         self._art_images = pixmaps
         self._art_slide_idx = 0
 
-        first = pixmaps[0] if pixmaps else (None, False)
+        first = pixmaps[0] if pixmaps else (None, False, None)
         self._apply_art(*first)
 
         if len(pixmaps) > 1:
+            self._art_slide_timer.setInterval(_ARTIST_DWELL_MS if first[1] else _COVER_DWELL_MS)
             self._art_slide_timer.start()
 
     def _advance_art_slide(self):
         if not self._art_images:
             return
         self._art_slide_idx = (self._art_slide_idx + 1) % len(self._art_images)
-        self._apply_art(*self._art_images[self._art_slide_idx])
+        current = self._art_images[self._art_slide_idx]
+        self._apply_art(*current)
+        # Album covers get more screen time than artist photos in the
+        # rotation, so the cover art still dominates overall.
+        self._art_slide_timer.setInterval(_ARTIST_DWELL_MS if current[1] else _COVER_DWELL_MS)
 
-    def _apply_art(self, pixmap: Optional[QPixmap], is_artist: bool = False):
-        """Push a single pixmap to the art card and backdrop with a fade."""
+    def _apply_art(
+        self, pixmap: Optional[QPixmap], is_artist: bool = False, label: Optional[str] = None
+    ):
+        """Push a single pixmap to the art card and backdrop with a crossfade."""
         self._current_pixmap = pixmap
-        self._art_card.set_art(pixmap, is_artist)
+        self._art_card.set_art(pixmap, is_artist, label)
+
+        if self._art_transition_anim:
+            self._art_transition_anim.stop()
+
+        self._art_transition_anim = QPropertyAnimation(self._art_card, b"transitionProgress")
+        self._art_transition_anim.setDuration(_ART_TRANSITION_MS)
+        self._art_transition_anim.setStartValue(0.0)
+        self._art_transition_anim.setEndValue(1.0)
+        self._art_transition_anim.setEasingCurve(QEasingCurve.InOutCubic)
+        self._art_transition_anim.start()
 
         if self._fade_anim:
             self._fade_anim.stop()
