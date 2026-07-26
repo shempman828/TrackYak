@@ -1,3 +1,4 @@
+import re
 from difflib import SequenceMatcher
 
 from PySide6.QtCore import Qt, Signal
@@ -29,12 +30,53 @@ from src.core.logger_config import logger
 
 def _tokenset(text: str) -> set:
     """Lowercase, strip punctuation, return set of tokens."""
-    import re
-
     if not text:
         return set()
     text = re.sub(r"[^\w\s]", " ", text.lower())
     return set(text.split())
+
+
+# Parenthetical/bracketed tags that describe a repackaging of the same
+# underlying release rather than a different album. Stripped before
+# comparison so two unrelated albums that happen to share a tag (e.g. two
+# different movie soundtracks) aren't scored as similar just because of it,
+# while an album that only differs from another by one of these tags (e.g.
+# 'Abbey Road' vs 'Abbey Road (Remastered)') is recognised as the same
+# release.
+_EDITION_TAG_RE = re.compile(
+    r"[\(\[][^\)\]]*\b("
+    r"deluxe|remaster(?:ed)?|expanded(?:\s+edition)?|anniversary(?:\s+edition)?|"
+    r"special\s+edition|bonus\s+tracks?(?:\s+version)?|collector'?s\s+edition|"
+    r"limited\s+edition|reissue|explicit|clean(?:\s+version)?|"
+    r"mono(?:\s+version)?|stereo(?:\s+version)?|"
+    r"(?:original\s+motion\s+picture\s+)?soundtrack"
+    r")\b[^\)\]]*[\)\]]",
+    re.IGNORECASE,
+)
+
+# Series markers ('Vol. 1', 'Part 2', 'Disc 3', ...) — a strong signal two
+# albums are *different* entries in the same series, even when the rest of
+# the title matches closely.
+_VOLUME_RE = re.compile(
+    r"\b(?:vol(?:ume)?s?|pt|part|disc|disk|book)\.?\s*(\d+)\b",
+    re.IGNORECASE,
+)
+
+_UNKNOWN_ARTIST_NAMES = {"unknown artist", "unknown", "various", "various artists"}
+
+
+def _strip_edition_tags(text: str) -> str:
+    """Remove edition/soundtrack tags that don't distinguish one release
+    from another (deluxe, remastered, original motion picture soundtrack...)."""
+    return _EDITION_TAG_RE.sub("", text).strip()
+
+
+def _volume_number(text: str):
+    """Extract a series/volume number, e.g. 'Vol. 2' -> '2', else None."""
+    if not text:
+        return None
+    m = _VOLUME_RE.search(text)
+    return m.group(1) if m else None
 
 
 def _name_similarity(a: str, b: str) -> float:
@@ -43,7 +85,13 @@ def _name_similarity(a: str, b: str) -> float:
 
     Uses SequenceMatcher as the base score but boosts when one name is
     contained within the other (handles 'Swings with Billy Mays' vs
-    'Frank Sinatra Swings with Billy Mays').
+    'Frank Sinatra Swings with Billy Mays'). Edition/soundtrack tags
+    ('(Remastered)', '(Original Motion Picture Soundtrack)', ...) are
+    stripped before comparing so shared boilerplate doesn't inflate the
+    score of otherwise-unrelated albums, and titles that are identical
+    once such a tag is removed are treated as a near-certain match.
+    Differing volume/part/disc numbers cap the score, since those mark
+    distinct entries in a series rather than duplicates.
     """
     if not a or not b:
         return 0.0
@@ -51,25 +99,43 @@ def _name_similarity(a: str, b: str) -> float:
     if al == bl:
         return 1.0
 
-    base = SequenceMatcher(None, al, bl).ratio()
+    core_a = _strip_edition_tags(al)
+    core_b = _strip_edition_tags(bl)
+
+    if core_a and core_a == core_b:
+        return 0.97
+
+    base = SequenceMatcher(None, core_a, core_b).ratio()
 
     # Containment boost — one name is a substring of the other
-    if al in bl or bl in al:
+    if core_a in core_b or core_b in core_a:
         base = min(base + 0.25, 1.0)
 
     # Token overlap boost
-    ta, tb = _tokenset(a), _tokenset(b)
+    ta, tb = _tokenset(core_a), _tokenset(core_b)
     if ta and tb:
         overlap = len(ta & tb) / max(len(ta | tb), 1)
         base = min(base + overlap * 0.15, 1.0)
+
+    # A volume/part/disc number present on only one side, or differing
+    # between the two, strongly suggests different entries in a series
+    # (e.g. 'Greatest Hits' vs 'Greatest Hits Vol. 2', or 'Vol. 1' vs 'Vol. 2').
+    vol_a, vol_b = _volume_number(al), _volume_number(bl)
+    if vol_a != vol_b:
+        base = min(base, 0.35)
 
     return base
 
 
 def _artist_similarity(a: str, b: str) -> float:
     """Token-set similarity for artist name strings."""
-    if not a or not b:
-        return 0.5  # unknown artist — don't penalise
+    a_unknown = not a or a.strip().lower() in _UNKNOWN_ARTIST_NAMES
+    b_unknown = not b or b.strip().lower() in _UNKNOWN_ARTIST_NAMES
+    if a_unknown or b_unknown:
+        # Missing/placeholder artist tag — don't penalise, let name/year
+        # drive the decision so real duplicates aren't hidden just because
+        # one side was never tagged with an artist.
+        return 0.5
     ta, tb = _tokenset(a), _tokenset(b)
     if not ta or not tb:
         return 0.5
