@@ -6,6 +6,7 @@ saves cache every 25 tracks, and fires a progress callback on the main
 thread via Qt signals.
 """
 
+import os
 import queue
 import threading
 
@@ -14,6 +15,20 @@ from PySide6.QtCore import QObject, Signal
 from src.core.logger_config import logger
 from src.statistics.analysis_cache import CACHE_SAVE_INTERVAL, analysis_cache
 from src.statistics.audio_calculations import AudioCalculations
+
+
+def max_worker_count() -> int:
+    """Return the number of CPU cores available, for sizing UI controls."""
+    return os.cpu_count() or 2
+
+
+def recommended_worker_count() -> int:
+    """Return a safe default analysis worker count for this machine.
+
+    Leaves one core free for the UI/OS so a full batch run doesn't stall
+    playback or the rest of the app.
+    """
+    return max(1, max_worker_count() - 1)
 
 
 class _SchedulerSignals(QObject):
@@ -32,7 +47,7 @@ class BatchAnalysisScheduler:
 
     Usage
     -----
-        scheduler = BatchAnalysisScheduler(controller, num_workers=2)
+        scheduler = BatchAnalysisScheduler(controller)  # uses recommended_worker_count()
         scheduler.start(tracks)           # non-blocking
         scheduler.pause()
         scheduler.resume()
@@ -46,9 +61,9 @@ class BatchAnalysisScheduler:
         error(track_id, message)
     """
 
-    def __init__(self, controller, num_workers: int = 2):
+    def __init__(self, controller, num_workers: int | None = None):
         self.controller = controller
-        self.num_workers = num_workers
+        self.num_workers = num_workers if num_workers is not None else recommended_worker_count()
 
         self.signals = _SchedulerSignals()
         self._queue: queue.Queue = queue.Queue()
