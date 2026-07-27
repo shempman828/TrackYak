@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -67,6 +69,11 @@ class PublisherEditDialog(QDialog):
         self.tab_aliases = None
         self._logo_path = None
         self._hq_association_id = None
+        # (artist_id, artist_name) pairs -- staged in memory and synced to
+        # PublisherFounder rows on save (see _save_founders), the same
+        # after-save-sync approach _save_headquarters uses so this also
+        # works when creating a brand-new publisher.
+        self._founder_ids = []
         self._settings = QSettings()
         self.setup_ui()
         self.load_data()
@@ -128,6 +135,35 @@ class PublisherEditDialog(QDialog):
         self.hq_edit.returnPressed.connect(self.validate)
         basic_form.addRow("Headquarters:", self.hq_edit)
         root.addWidget(basic_group)
+
+        # -- Founders -----------------------------------------------------------
+        # Artists credited with founding this record company. Staged in
+        # self._founder_ids and synced to PublisherFounder rows on save (see
+        # _save_founders) so it works for both new and existing publishers.
+        founders_group = QGroupBox("Founded By")
+        founders_layout = QVBoxLayout(founders_group)
+
+        self.founders_list = QListWidget()
+        self.founders_list.setMaximumHeight(90)
+        founders_layout.addWidget(self.founders_list)
+
+        founder_add_row = QHBoxLayout()
+        self.founder_edit = EntityCompleterEdit("Search artist…")
+        artists = self.controller.get.get_all_entities("Artist") or []
+        self._known_artists = artists
+        self.founder_edit.set_index(
+            {a.artist_name: a.artist_id for a in artists if a.artist_name}
+        )
+        self.founder_edit.returnPressed.connect(self._add_founder)
+        founder_add_btn = QPushButton("Add")
+        founder_add_btn.clicked.connect(self._add_founder)
+        founder_remove_btn = QPushButton("Remove Selected")
+        founder_remove_btn.clicked.connect(self._remove_selected_founder)
+        founder_add_row.addWidget(self.founder_edit, 1)
+        founder_add_row.addWidget(founder_add_btn)
+        founder_add_row.addWidget(founder_remove_btn)
+        founders_layout.addLayout(founder_add_row)
+        root.addWidget(founders_group)
 
         # -- Details: dates, status, links -------------------------------------
         details_group = QGroupBox("Details")
@@ -226,6 +262,15 @@ class PublisherEditDialog(QDialog):
             if hq_assoc and hq_assoc.place:
                 self.hq_edit.setText(hq_assoc.place.place_name)
                 self._hq_association_id = hq_assoc.association_id
+            founder_assocs = self.controller.get.get_all_entities(
+                "PublisherFounder", publisher_id=self.publisher.publisher_id
+            ) or []
+            self._founder_ids = [
+                (assoc.artist.artist_id, assoc.artist.artist_name)
+                for assoc in founder_assocs
+                if assoc.artist
+            ]
+            self._refresh_founders_list()
             self.begin_year_edit.set_from_db(self.publisher.begin_year)
             self.end_year_edit.set_from_db(self.publisher.end_year)
             self.is_active_check.setChecked(bool(self.publisher.is_active))
@@ -377,6 +422,7 @@ class PublisherEditDialog(QDialog):
                     is_fixed=is_fixed,
                 )
             self._save_headquarters(self.result_publisher.publisher_id, hq_place_id)
+            self._save_founders(self.result_publisher.publisher_id)
             self.accept()
         except Exception as e:
             logger.error(f"Error saving publisher: {str(e)}")
@@ -409,3 +455,75 @@ class PublisherEditDialog(QDialog):
                 association_type_id=hq_type.association_type_id if hq_type else None,
             )
             self._hq_association_id = assoc.association_id
+
+    def _refresh_founders_list(self):
+        self.founders_list.clear()
+        for artist_id, artist_name in self._founder_ids:
+            item = QListWidgetItem(artist_name)
+            item.setData(Qt.UserRole, artist_id)
+            self.founders_list.addItem(item)
+
+    def _add_founder(self):
+        name = self.founder_edit.text().strip()
+        if not name:
+            return
+
+        # Same resolution order as the parent publisher/headquarters fields:
+        # prefer the id locked in by picking a completion, else an exact-name
+        # lookup, else create a new Artist on the fly.
+        artist_id = self.founder_edit.matched_id()
+        artist_name = name
+        if artist_id is None:
+            artist_obj = self.controller.get.get_entity_object(
+                "Artist", artist_name=name
+            )
+            if artist_obj is None:
+                artist_obj = find_or_create_by_name(
+                    self.controller, "Artist", "artist_name", name, self._known_artists
+                )
+            if artist_obj is not None:
+                artist_id = artist_obj.artist_id
+                artist_name = artist_obj.artist_name
+
+        if artist_id is None:
+            return
+
+        if any(fid == artist_id for fid, _ in self._founder_ids):
+            QMessageBox.information(
+                self, "Already Added", f"{artist_name} is already listed as a founder."
+            )
+        else:
+            self._founder_ids.append((artist_id, artist_name))
+            self._refresh_founders_list()
+
+        self.founder_edit.reset()
+
+    def _remove_selected_founder(self):
+        item = self.founders_list.currentItem()
+        if not item:
+            return
+        artist_id = item.data(Qt.UserRole)
+        self._founder_ids = [
+            (fid, fname) for fid, fname in self._founder_ids if fid != artist_id
+        ]
+        self._refresh_founders_list()
+
+    def _save_founders(self, publisher_id):
+        """Sync this publisher's PublisherFounder rows to self._founder_ids."""
+        existing = self.controller.get.get_all_entities(
+            "PublisherFounder", publisher_id=publisher_id
+        ) or []
+        existing_ids = {assoc.artist_id for assoc in existing}
+        target_ids = {artist_id for artist_id, _ in self._founder_ids}
+
+        for assoc in existing:
+            if assoc.artist_id not in target_ids:
+                self.controller.delete.delete_entity(
+                    "PublisherFounder",
+                    publisher_id=publisher_id,
+                    artist_id=assoc.artist_id,
+                )
+        for artist_id in target_ids - existing_ids:
+            self.controller.add.add_entity(
+                "PublisherFounder", publisher_id=publisher_id, artist_id=artist_id
+            )
