@@ -99,6 +99,16 @@ class MusicDatabase:
             else:
                 logger.info("Table integrity check passed.")
 
+            # ── Step 1b: One-off column renames ──────────────────────────────
+            # Renamed columns aren't "missing" from the ORM's perspective, so
+            # the additive Step 2 check below would just add a fresh, empty
+            # column and silently orphan the old one (and its data). Handle
+            # known renames explicitly first, preserving existing values.
+            if "tracks" in existing_tables:
+                self._rename_column_if_needed(
+                    "tracks", "fidelity_score", "audiophile_score"
+                )
+
             # ── Step 2: Column check ─────────────────────────────────────────
             # For every ORM model, compare the columns defined in Python against
             # the columns that actually exist in the database file. Simple
@@ -136,6 +146,36 @@ class MusicDatabase:
         except Exception as e:
             logger.error(f"Integrity check failed: {e}")
             raise
+
+    def _rename_column_if_needed(
+        self, table_name: str, old_name: str, new_name: str
+    ) -> None:
+        """Rename a column in-place via SQLite's RENAME COLUMN, if the old
+        name is still present and the new one isn't already there. This is
+        for renames only — SQLite's ADD COLUMN path in _try_add_column can't
+        express "this is the same data under a new name", so without this
+        step a rename would look like an add and leave the old column (and
+        its data) behind as dead weight.
+        """
+        try:
+            inspector = inspect(self.engine)
+            columns = {col["name"] for col in inspector.get_columns(table_name)}
+            if old_name not in columns or new_name in columns:
+                return
+            ddl = (
+                f'ALTER TABLE "{table_name}" RENAME COLUMN "{old_name}" '
+                f'TO "{new_name}"'
+            )
+            with self.engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info(
+                f"Renamed column {table_name}.{old_name} to {new_name}."
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to rename column {table_name}.{old_name} to "
+                f"{new_name}: {e}"
+            )
 
     def _try_add_column(self, table_name: str, column) -> bool:
         """Attempt to add a missing column to an existing table via ALTER TABLE.
