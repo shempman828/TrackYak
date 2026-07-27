@@ -22,10 +22,12 @@ from src.db.db_helpers import SplitDB
 
 # Common separators used when multiple artists/entities are combined into a
 # single name, e.g. "Simon & Garfunkel", "Paul Simon / Art Garfunkel",
-# "Artist1, Artist2", "Artist1 feat. Artist2".
+# "Artist1, Artist2", "Artist1 feat. Artist2", "Artist1 - Artist2".
+# The dash requires surrounding whitespace so it only matches when used as a
+# separator, not inside hyphenated names like "Jean-Paul" or "T-Pain".
 _SPLIT_DELIMITER_PATTERN = re.compile(
     r"\s*(?:,|;|/|&|\bfeat\.?(?=\s|$)|\bfeaturing\b|\bft\.?(?=\s|$)|"
-    r"\bvs\.?(?=\s|$)|\band\b|\bx\b)\s*",
+    r"\bvs\.?(?=\s|$)|\band\b|\bx\b)\s*|\s+-\s+",
     re.IGNORECASE,
 )
 
