@@ -13,6 +13,7 @@ from src.db.db_tables.associations import (
     AlbumPublisher,
     AlbumRoleAssociation,
     ArtistTypeAssociation,
+    PublisherFounder,
     TrackArtistRole,
     TrackGenre,
 )
@@ -68,6 +69,9 @@ Index(
 # --- Publisher ---
 Index("ix_album_publisher_unique", "album_id", "publisher_id", unique=True)
 Index("idx_album_publisher_publisher_id", AlbumPublisher.publisher_id)
+Index(
+    "idx_publisher_founders_artist_id", PublisherFounder.artist_id
+)  # Reverse lookup: artist → publishers founded
 
 # --- Place associations ---
 Index("idx_place_associations", PlaceAssociation.place_id, PlaceAssociation.entity_id)
