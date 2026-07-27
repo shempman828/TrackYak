@@ -7,6 +7,7 @@ from PySide6.QtCore import QObject, QSettings, Slot
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -25,6 +26,9 @@ from src.place.place_map_filter import MultiSelectWidget
 # QSettings key for remembering the selected place type filters
 _SETTINGS_SELECTED_TYPES = "place_map/selected_types"
 
+# QSettings key for remembering the marker clustering aggressiveness
+_SETTINGS_CLUSTER_LEVEL = "place_map/cluster_level"
+
 
 class MapView(QWidget):
     """Interactive map display with color-coded markers based on place type."""
@@ -42,6 +46,19 @@ class MapView(QWidget):
         "default": "#8599ea",  # Your theme accent color
     }
 
+    # How aggressively nearby markers snap together into a single cluster.
+    # "radius" is Leaflet.markercluster's maxClusterRadius (pixels around a
+    # cluster center that will absorb other markers); "disable_zoom" is the
+    # zoom level past which clustering stops entirely. A radius of 0 disables
+    # clustering outright.
+    CLUSTER_LEVELS = {
+        "Off": {"radius": 0, "disable_zoom": 20},
+        "Low": {"radius": 15, "disable_zoom": 16},
+        "Medium": {"radius": 25, "disable_zoom": 15},
+        "High": {"radius": 60, "disable_zoom": 13},
+    }
+    DEFAULT_CLUSTER_LEVEL = "Medium"
+
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
@@ -51,6 +68,7 @@ class MapView(QWidget):
         self._map_initialized = False
         self._page_ready = False
         self._pending_js = []
+        self.cluster_level = self._load_saved_cluster_level()
         self.init_ui()
         self.setup_js_communication()
 
@@ -68,6 +86,14 @@ class MapView(QWidget):
 
         header_layout.addWidget(self.toggle_filter_button)
         header_layout.addStretch()
+
+        header_layout.addWidget(QLabel("Marker stacking:"))
+        self.cluster_combo = QComboBox()
+        self.cluster_combo.addItems(list(self.CLUSTER_LEVELS.keys()))
+        self.cluster_combo.setCurrentText(self.cluster_level)
+        self.cluster_combo.currentTextChanged.connect(self.apply_cluster_level)
+        header_layout.addWidget(self.cluster_combo)
+
         layout.addLayout(header_layout)
 
         # 2. Filter Container (The part that hides/shows)
@@ -280,6 +306,46 @@ class MapView(QWidget):
         self._save_selected_types(self.selected_types)
         self.load_places()
 
+    def apply_cluster_level(self, level_name):
+        """Handle the user picking a new marker-stacking aggressiveness level."""
+        if level_name not in self.CLUSTER_LEVELS:
+            return
+        self.cluster_level = level_name
+        self._settings.setValue(_SETTINGS_CLUSTER_LEVEL, level_name)
+        self._apply_cluster_options_to_map()
+
+    def _apply_cluster_options_to_map(self):
+        """Recreate the marker cluster group in-page with the current level's
+        options, then repopulate it. Leaflet.markercluster options like
+        maxClusterRadius can't be changed on an existing group, so the group
+        itself has to be swapped out rather than reconfigured in place."""
+        if not self._map_initialized:
+            return
+        opts = self.CLUSTER_LEVELS[self.cluster_level]
+        js = f"""
+            if (typeof markerClusterGroup !== 'undefined') {{
+                map.removeLayer(markerClusterGroup);
+            }}
+            markerClusterGroup = L.markerClusterGroup({{
+                maxClusterRadius: {opts["radius"]},
+                disableClusteringAtZoom: {opts["disable_zoom"]},
+                spiderfyOnMaxZoom: true,
+                showCoverageOnHover: false
+            }});
+            map.addLayer(markerClusterGroup);
+        """
+        self._run_js(js)
+        self.load_places()
+
+    def _load_saved_cluster_level(self):
+        """Return the previously saved clustering aggressiveness, or the default."""
+        saved = self._settings.value(
+            _SETTINGS_CLUSTER_LEVEL, self.DEFAULT_CLUSTER_LEVEL, type=str
+        )
+        if saved not in self.CLUSTER_LEVELS:
+            return self.DEFAULT_CLUSTER_LEVEL
+        return saved
+
     def _load_saved_selected_types(self):
         """Return the previously saved set of selected types, or None if unset."""
         saved = self._settings.value(_SETTINGS_SELECTED_TYPES, None, type=str)
@@ -387,12 +453,16 @@ class MapView(QWidget):
         # Generate bounds JavaScript
         bounds_js = self._create_bounds_js(places)
 
+        cluster_opts = self.CLUSTER_LEVELS[self.cluster_level]
+
         # Use .replace() instead of .format() to avoid CSS brace conflicts
         html = template.replace("{center_lat}", str(center_lat))
         html = html.replace("{center_lon}", str(center_lon))
         html = html.replace("{zoom}", str(zoom))
         html = html.replace("{markers_js}", markers_js)
         html = html.replace("{bounds_js}", bounds_js)
+        html = html.replace("{cluster_radius}", str(cluster_opts["radius"]))
+        html = html.replace("{cluster_disable_zoom}", str(cluster_opts["disable_zoom"]))
 
         return html
 
@@ -481,8 +551,8 @@ class MapView(QWidget):
             maxZoom: 18
         }}).addTo(map);
         var markerClusterGroup = L.markerClusterGroup({{
-            maxClusterRadius: 25,
-            disableClusteringAtZoom: 15,
+            maxClusterRadius: {cluster_radius},
+            disableClusteringAtZoom: {cluster_disable_zoom},
             spiderfyOnMaxZoom: true,
             showCoverageOnHover: false
         }});
