@@ -211,7 +211,7 @@ VORBIS_TRACK_MAPPINGS = {
         "entity": "Track",
     },
     "CRESTFACTOR": {"field": "crest_factor", "type": float, "entity": "Track"},
-    "FIDELITYSCORE": {"field": "fidelity_score", "type": float, "entity": "Track"},
+    "AUDIOPHILESCORE": {"field": "audiophile_score", "type": float, "entity": "Track"},
     "SPECTRALCENTROID": {
         "field": "spectral_centroid",
         "type": float,
