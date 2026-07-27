@@ -638,9 +638,9 @@ class AudioCalculations:
     def calculate_channel_coherence(self) -> float:
         """
         Inter-channel coherence — how similar the left and right channels
-        are, via magnitude-squared coherence (Welch's method) averaged
-        across the spectrum.  0 = unrelated channels, 1 = identical.
-        Mono tracks are trivially self-coherent → 1.0.
+        are, via magnitude-squared coherence (Welch's method), weighted by
+        where the track's energy actually lives.  0 = unrelated channels,
+        1 = identical.  Mono tracks are trivially self-coherent → 1.0.
         """
         if not self._ensure_loaded():
             return 1.0
@@ -654,7 +654,22 @@ class AudioCalculations:
 
             nperseg = min(2048, len(l))
             _, cxy = signal.coherence(l, r, fs=self.sr, nperseg=nperseg)
-            return float(np.clip(np.mean(cxy), 0.0, 1.0))
+
+            # An unweighted mean over frequency bins gives equal say to the
+            # near-silent bins between spectral peaks/formants — those are
+            # dominated by uncorrelated dither/quantisation noise floor and
+            # are trivially incoherent, which drags the average down even
+            # for tracks whose actual musical content is near-identical
+            # between channels. Weight each bin by the power present there
+            # so the program material (not the noise floor) sets the score.
+            _, pxx = signal.welch(l, fs=self.sr, nperseg=nperseg)
+            _, pyy = signal.welch(r, fs=self.sr, nperseg=nperseg)
+            weight = pxx + pyy
+            if weight.sum() < 1e-12:
+                return 1.0
+
+            weighted_coherence = float(np.sum(cxy * weight) / weight.sum())
+            return float(np.clip(weighted_coherence, 0.0, 1.0))
 
         except Exception as e:
             logger.error(f"Channel coherence calculation failed: {e}")
@@ -683,26 +698,47 @@ class AudioCalculations:
             # Analytic envelope via Hilbert
             envelope = np.abs(signal.hilbert(filtered))
 
-            # Smooth envelope (10 ms)
-            win = max(3, int(self.sr * 0.01))
-            smooth_env = np.convolve(envelope, np.ones(win) / win, mode="same")
+            # Downsample to a frame rate matched to attack timescales (~500 Hz),
+            # keeping the peak of each hop so sharp attacks survive. A per-sample
+            # derivative of the raw envelope structurally caps the normalised
+            # rate of change at ~1/window_samples, drowning out genuine
+            # transients regardless of source material.
+            hop = max(1, int(self.sr / 500))
+            n_frames = len(envelope) // hop
+            if n_frames < 2:
+                return 0.1
+            frame_env = np.array(
+                [np.max(envelope[i * hop : (i + 1) * hop]) for i in range(n_frames)]
+            )
+            frame_sr = self.sr / hop
+
+            # Light smoothing (~4 ms) to denoise without erasing attacks
+            win = max(3, int(frame_sr * 0.004))
+            smooth_env = np.convolve(frame_env, np.ones(win) / win, mode="same")
+
+            if smooth_env.max() < 1e-9:
+                return 0.0
 
             # First derivative of smoothed envelope → onset events
             diff = np.diff(smooth_env)
             diff = np.maximum(diff, 0.0)  # only rises
 
-            if smooth_env.max() < 1e-9:
-                return 0.0
-
-            # Normalise diff by overall envelope level
+            # Normalise diff by local envelope level
             normalised = diff / (smooth_env[:-1] + 1e-9)
 
-            # Mean of the top 5 % of values → captures attack sharpness
-            threshold = np.percentile(normalised, 95)
-            transient_score = float(np.mean(normalised[normalised >= threshold]))
+            # Find actual onset peaks — real transients are rare events, not
+            # the top 5 % of all frames, so a blanket percentile mostly picks
+            # up noise instead of attacks.
+            peaks, props = signal.find_peaks(
+                normalised, height=0.05, distance=max(1, int(frame_sr * 0.05))
+            )
+            if len(peaks) == 0:
+                return 0.0
 
-            # Clip to [0, 1] — values above ~0.5 are uncommon
-            return float(np.clip(transient_score * 2.0, 0.0, 1.0))
+            transient_score = float(np.mean(props["peak_heights"]))
+
+            # Clip to [0, 1] — values above ~2.0 are uncommon
+            return float(np.clip(transient_score * 0.5, 0.0, 1.0))
 
         except Exception as e:
             logger.error(f"Transient strength calculation failed: {e}")
@@ -856,9 +892,10 @@ class AudioCalculations:
         """
         Estimates the probability of a live recording.
 
-        Live recordings tend to have more diffuse high-frequency noise
-        (room reflections, crowd) and less perfectly consistent spectral
-        distribution across time.
+        Live recordings tend to have a persistent, diffuse (noise-like)
+        room/crowd presence that never fully drops away, even in quiet
+        passages — whereas studio recordings can reach much closer to true
+        silence between notes.
 
         This is a heuristic — confidence is inherently limited without
         a labelled training set.
@@ -871,19 +908,40 @@ class AudioCalculations:
             f, mag = self._stft_magnitude(seg, nperseg=2048)
 
             eps = 1e-9
-            total = np.mean(mag) + eps
 
-            # High-frequency noise ratio
+            # High-frequency *noise-like-ness*, not raw level. Bright, tonal
+            # content (cymbals, synth shimmer, sibilance) is common in
+            # polished studio mixes and was previously mistaken for diffuse
+            # room/crowd noise just because it sits above 8 kHz. Spectral
+            # flatness tells true broadband noise (high flatness) apart from
+            # tonal energy (low flatness) in that band — but flatness alone
+            # is degenerate when the band is near-silent (a uniform noise
+            # floor of all-eps values is technically "flat" too), so gate it
+            # by how much real energy is actually up there.
             noise_mask = f > 8000
-            noise_ratio = (
-                np.mean(mag[noise_mask]) / total if np.any(noise_mask) else 0.0
-            )
-            noise_factor = float(np.clip(noise_ratio * 3.0, 0.0, 1.0))
+            if np.any(noise_mask):
+                hf = mag[noise_mask]
+                level_ratio = np.mean(hf) / (np.mean(mag) + eps)
+                flatness = self._flatness_from_magnitude(hf)
+                noise_factor = float(np.clip(level_ratio * 3.0, 0.0, 1.0)) * flatness
+            else:
+                noise_factor = 0.0
 
-            # Temporal spectral variance (how much the spectrum changes over time)
-            frame_means = np.mean(mag, axis=0)
-            temporal_var = np.std(frame_means) / (np.mean(frame_means) + eps)
-            variance_factor = float(np.clip(temporal_var * 2.0, 0.0, 1.0))
+            # Noise-floor persistence: how elevated the quietest frames are
+            # relative to the loudest. A live recording's crowd/room tone
+            # never truly drops out, so quiet passages stay close to loud
+            # ones; a studio recording can fall toward true silence between
+            # phrases. (Previously this measured overall loudness variance,
+            # which just tracked the song's arrangement/dynamics — a *good*,
+            # dynamic studio mix scored as more "live" than a constant wall
+            # of crowd noise.)
+            frame_totals = np.mean(mag, axis=0)
+            order = np.argsort(frame_totals)
+            tenth = max(1, len(order) // 10)
+            quiet = frame_totals[order[:tenth]]
+            loud = frame_totals[order[-tenth:]]
+            floor_ratio = np.mean(quiet) / (np.mean(loud) + eps)
+            variance_factor = float(np.clip(floor_ratio * 3.0, 0.0, 1.0))
 
             return float(
                 np.clip(noise_factor * 0.55 + variance_factor * 0.45, 0.0, 1.0)
@@ -992,7 +1050,7 @@ class AudioCalculations:
             # fairly loud, lossless track (DR ~10 dB+) still gets full
             # credit — loudness is a mastering choice, not a fidelity defect.
             dr = self.calculate_dynamic_range()
-            dr_score = float(np.clip((dr - 5.0) / 9.0, 0.0, 1.0))
+            dr_score = float(np.clip((dr - 5.0) / 5.0, 0.0, 1.0))
 
             return float(
                 np.clip(hf_score * 0.40 + clip_score * 0.35 + dr_score * 0.25, 0.0, 1.0)
