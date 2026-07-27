@@ -17,6 +17,33 @@ from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create
 from src.core.logger_config import logger
 
 
+class _ChipArea(QWidget):
+    """Container widget for the type chips' FlowLayout.
+
+    FlowLayout.sizeHint()/minimumSize() can only account for a single chip
+    (a flow layout's real height depends on how many rows it wraps into at
+    a given width, which isn't knowable until it's actually given that
+    width). Left alone, the enclosing "Types" group box reserves space for
+    just one row, so once an artist has enough types to wrap onto a second
+    or third row, the chips get squished/overlapped instead of the group
+    box growing to fit them. Recomputing minimumHeight from heightForWidth()
+    whenever the width changes (or a chip is added/removed, via
+    refresh_height()) keeps the reserved space accurate.
+    """
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.refresh_height()
+
+    def refresh_height(self):
+        layout = self.layout()
+        if layout is None:
+            return
+        height = layout.heightForWidth(self.width())
+        if height != self.minimumHeight():
+            self.setMinimumHeight(height)
+
+
 class ArtistTypesWidget(QWidget):
     """
     Compact tag editor for an artist's canonical type(s) -- Composer, Producer,
@@ -63,7 +90,7 @@ class ArtistTypesWidget(QWidget):
 
         layout.addLayout(search_row)
 
-        self._chip_area = QWidget()
+        self._chip_area = _ChipArea()
         self._chip_flow = FlowLayout(self._chip_area, margin=0, h_spacing=6, v_spacing=4)
         layout.addWidget(self._chip_area)
 
@@ -133,6 +160,7 @@ class ArtistTypesWidget(QWidget):
         # showing stale/blank geometry until something else (e.g. a window
         # resize) triggers a real layout pass.
         self._chip_flow.activate()
+        self._chip_area.refresh_height()
         self._chip_area.updateGeometry()
         self.updateGeometry()
 
