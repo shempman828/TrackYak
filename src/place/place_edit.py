@@ -62,8 +62,10 @@ class PlaceEditDialog(QDialog):
         if self.place:
             self.name_edit.setText(self.place.place_name)
             self.type_edit.setText(self.place.place_type)
-            self.lat_edit.setText(str(self.place.place_latitude))
-            self.lon_edit.setText(str(self.place.place_longitude))
+            if self.place.place_latitude is not None:
+                self.lat_edit.setText(str(self.place.place_latitude))
+            if self.place.place_longitude is not None:
+                self.lon_edit.setText(str(self.place.place_longitude))
             self.desc_edit.setText(self.place.place_description)
             place = self.controller.get.get_entity_object(
                 "Place", place_id=self.place.parent_id
@@ -164,11 +166,9 @@ class PlaceEditDialog(QDialog):
 
     def validate_and_accept(self):
         """Validate form data and accept the dialog if valid."""
-        place_data = self.get_place_data()
-        if place_data is None:
-            return  # Validation failed, do not close the dialog
-
-        # Validate latitude and longitude (if provided)
+        # Validate latitude and longitude (if provided) before get_place_data()
+        # converts them with an unguarded float(), which would otherwise raise
+        # an uncaught ValueError on non-numeric text (e.g. a stale "None").
         lat_text = self.lat_edit.text().strip()
         lon_text = self.lon_edit.text().strip()
         if lat_text or lon_text:
@@ -184,5 +184,9 @@ class PlaceEditDialog(QDialog):
                     "Latitude and Longitude must be numbers.",
                 )
                 return
+
+        place_data = self.get_place_data()
+        if place_data is None:
+            return  # Validation failed, do not close the dialog
 
         self.accept()
