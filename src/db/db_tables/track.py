@@ -146,7 +146,7 @@ class Track(Base):
     acousticness = Column(Float)  # 0-1 acoustic vs electric
     liveness = Column(Float)  # 0-1 performed live
     valence = Column(Float)  # 0-1 musical positiveness
-    fidelity_score = Column(Float)  # 0-1: HF extension * 0.40 + no-clipping * 0.35 + dynamic range * 0.25
+    audiophile_score = Column(Float)  # 0-1: HF extension * 0.40 + no-clipping * 0.35 + dynamic range * 0.25
 
     album = relationship("Album", back_populates="tracks")
     album_name = association_proxy("album", "album_name")
