@@ -110,7 +110,18 @@
     currentLayoutOptions = layoutOptions;
 
     if (cy) {
-      cy.destroy();
+      // Update the existing Cytoscape instance in place instead of
+      // destroying and recreating it. cy.destroy() tears down the whole
+      // rendering canvas, which blanks the entire graph view for a frame
+      // on every refresh -- visible as a whole-screen flash since the
+      // graph fills nearly the whole tab. Event handlers (layoutstop,
+      // hover) are bound once below, at creation, so they must not be
+      // re-attached here.
+      cy.style(style);
+      cy.elements().remove();
+      cy.add(elements);
+      cy.layout(layoutOptions).run();
+      return;
     }
     cy = cytoscape({
       container: document.getElementById("cy"),
