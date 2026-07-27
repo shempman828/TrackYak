@@ -1,14 +1,15 @@
 import json
 import math
-from collections import deque
+from collections import Counter
 from pathlib import Path
 
 import networkx as nx
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QUrl, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QWidget
 
+from src.common.cancellable_worker import CancellableWorker
 from src.core.config_setup import app_config
 from src.influences.cluster_name_dialog import ClusterNamesDialog
 from src.influences.community_palette import generate_community_palette
@@ -17,6 +18,33 @@ from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 
 _WEB_DIR = Path(__file__).resolve().parent / "web"
+
+
+class _GlobalGraphWorker(CancellableWorker):
+    """Background worker for InfluenceGraphView.display_global_network.
+
+    Extraction and scoring (DB queries + networkx computation) only ever
+    touch plain data on the view -- self.controller, self.edges,
+    self.node_mass, etc -- never Qt widgets, so it's safe to run them here.
+    The Cytoscape push and legend update stay on the main thread, wired up
+    through the `finished`/`error` signals, mirroring
+    library.duplicate_finder.DuplicateScanWorker.
+    """
+
+    finished = Signal(bool)  # True if a graph was computed, False if empty
+    error = Signal(str)
+
+    def __init__(self, view, parent=None):
+        super().__init__(parent)
+        self._view = view
+
+    def run(self):
+        try:
+            has_graph = self._view._compute_global_graph()
+            self.finished.emit(has_graph)
+        except Exception as e:
+            logger.error(f"Error computing influence graph: {e}", exc_info=True)
+            self.error.emit(str(e))
 
 
 class InfluenceGraphView(QWidget):
@@ -75,6 +103,7 @@ class InfluenceGraphView(QWidget):
         self.influence_scores = {}  # node_id -> influence_score
 
         self.legend_enabled = app_config.get_influence_legend_visible()
+        self._graph_worker = None
 
     # -----------------------
     # JS bridge
@@ -242,6 +271,19 @@ class InfluenceGraphView(QWidget):
     # Entry point
     # -----------------------
     def display_global_network(self):
+        """Kick off a background extraction/scoring pass for the whole
+        influence graph. Returns immediately; the Cytoscape push happens
+        asynchronously once `_GlobalGraphWorker` reports back via
+        `_on_global_graph_computed`/`_on_global_graph_error`.
+
+        A large influence graph makes this the most expensive operation in
+        the tab (DB extraction + Louvain + descendant/PageRank scoring), so
+        it runs off the UI thread rather than freezing the app on every
+        refresh.
+        """
+        if self._graph_worker is not None and self._graph_worker.isRunning():
+            return
+
         self.node_names = {}
         self.edges = []
         self.node_mass = {}
@@ -250,14 +292,19 @@ class InfluenceGraphView(QWidget):
         self._community_anchor = {}
         self.influence_scores = {}
 
+        self._graph_worker = _GlobalGraphWorker(self)
+        self._graph_worker.finished.connect(self._on_global_graph_computed)
+        self._graph_worker.error.connect(self._on_global_graph_error)
+        self._graph_worker.start()
+
+    def _compute_global_graph(self):
+        """Runs on the worker thread. Populates node_names/edges/node_mass/
+        community_id/influence_scores; returns False if there was nothing
+        to graph."""
         nodes, edges = self.extract_global_graph()
 
         if not nodes:
-            show_status_message(
-                self,
-                "No artists with influence relationships found. Add some influence relationships first.",
-            )
-            return
+            return False
 
         node_ids = [n[0] for n in nodes]
         node_id_set = set(node_ids)
@@ -275,11 +322,27 @@ class InfluenceGraphView(QWidget):
 
         self._update_node_mass(node_ids)
         self.assign_louvain_communities(node_ids, self.edges)
-        self._resolve_community_names()
         self.calculate_influence_scores(node_ids, self.edges)
+        return True
+
+    def _on_global_graph_computed(self, has_graph):
+        """Main-thread slot: the only part of this pipeline allowed to
+        touch Qt widgets (legend, Cytoscape push)."""
+        self._graph_worker = None
+        if not has_graph:
+            show_status_message(
+                self,
+                "No artists with influence relationships found. Add some influence relationships first.",
+            )
+            return
+        self._resolve_community_names()
         self._update_legend()
         self._push_graph()
         self.debug_size_distribution()
+
+    def _on_global_graph_error(self, message):
+        self._graph_worker = None
+        show_status_message(self, f"Failed to build influence graph: {message}")
 
     # -----------------------
     # Graph extraction
@@ -287,53 +350,57 @@ class InfluenceGraphView(QWidget):
     def extract_subgraph(self, center_artist_id, degrees):
         """Extract artists and relationships within n degrees of center artist"""
         try:
-            visited = set()
-            nodes = []  # (artist_id, artist_name)
+            visited = {center_artist_id}
             edges = []  # (influencer_id, influenced_id)
 
-            queue = deque([(center_artist_id, 0)])
-            visited.add(center_artist_id)
+            # Expand one BFS level at a time, batching the two lookups
+            # ("who influenced this frontier" / "who did this frontier
+            # influence") into a single query per direction per level
+            # instead of two queries per individual artist. For a
+            # `degrees`-hop search this bounds the DB round trips at
+            # 2*degrees total, regardless of how many artists are visited.
+            frontier = [center_artist_id]
+            for _ in range(degrees):
+                if not frontier:
+                    break
 
-            while queue:
-                current_id, current_degree = queue.popleft()
-
-                # Get artist info only if needed for nodes
-                # We'll collect all at the end to avoid duplicate lookups
-
-                if current_degree < degrees:
-                    # Get influencers (artists who influenced this one)
-                    influences = self.controller.get.get_all_entities(
-                        "ArtistInfluence", influenced_id=current_id
-                    )
-                    logger.debug(
-                        f"Found {len(influences)} influencers for artist {current_id}"
-                    )
-
-                    for influence in influences:
-                        edges.append((influence.influencer_id, current_id))
-                        if influence.influencer_id not in visited:
-                            visited.add(influence.influencer_id)
-                            queue.append((influence.influencer_id, current_degree + 1))
-
-                    # Get influenced (artists influenced by this one)
-                    influenced = self.controller.get.get_all_entities(
-                        "ArtistInfluence", influencer_id=current_id
-                    )
-                    logger.debug(
-                        f"Found {len(influenced)} influenced artists for artist {current_id}"
-                    )
-
-                    for influence in influenced:
-                        edges.append((current_id, influence.influenced_id))
-                        if influence.influenced_id not in visited:
-                            visited.add(influence.influenced_id)
-                            queue.append((influence.influenced_id, current_degree + 1))
-
-            # Now get artist names for all visited nodes
-            for artist_id in visited:
-                artist = self.controller.get.get_entity_object(
-                    "Artist", artist_id=artist_id
+                influences = self.controller.get.get_all_entities(
+                    "ArtistInfluence", influenced_id__in=frontier
                 )
+                influenced = self.controller.get.get_all_entities(
+                    "ArtistInfluence", influencer_id__in=frontier
+                )
+
+                for influence in influences:
+                    edges.append((influence.influencer_id, influence.influenced_id))
+                for influence in influenced:
+                    edges.append((influence.influencer_id, influence.influenced_id))
+
+                next_frontier = []
+                for influence in influences:
+                    if influence.influencer_id not in visited:
+                        visited.add(influence.influencer_id)
+                        next_frontier.append(influence.influencer_id)
+                for influence in influenced:
+                    if influence.influenced_id not in visited:
+                        visited.add(influence.influenced_id)
+                        next_frontier.append(influence.influenced_id)
+
+                frontier = next_frontier
+
+            # Dedupe edges (frontiers from different levels can rediscover
+            # the same relationship from either endpoint).
+            edges = list(dict.fromkeys(edges))
+
+            # Fetch all visited artists' names in one query instead of one
+            # `get_entity_object` round trip per artist.
+            artists = self.controller.get.get_all_entities(
+                "Artist", artist_id__in=list(visited)
+            )
+            artists_by_id = {artist.artist_id: artist for artist in artists}
+            nodes = []
+            for artist_id in visited:
+                artist = artists_by_id.get(artist_id)
                 if artist:
                     nodes.append((artist_id, artist.artist_name))
                 else:
@@ -375,12 +442,15 @@ class InfluenceGraphView(QWidget):
                 f"Found {len(involved_artist_ids)} artists with influence relationships"
             )
 
-            # Get only the involved artists from the database
+            # Get only the involved artists from the database in one batched
+            # query instead of one round trip per artist.
+            artists = self.controller.get.get_all_entities(
+                "Artist", artist_id__in=list(involved_artist_ids)
+            )
+            artists_by_id = {artist.artist_id: artist for artist in artists}
             nodes = []
             for artist_id in involved_artist_ids:
-                artist = self.controller.get.get_entity_object(
-                    "Artist", artist_id=artist_id
-                )
+                artist = artists_by_id.get(artist_id)
                 if artist:
                     nodes.append((artist_id, artist.artist_name))
                 else:
@@ -401,10 +471,14 @@ class InfluenceGraphView(QWidget):
     def _update_node_mass(self, node_ids):
         """Recompute each node's degree-based mass (used to pick a stable
         per-community "anchor" artist for persisted cluster names)."""
+        # Single O(e) pass over the edge list building degree counts,
+        # instead of rescanning the whole edge list once per node (O(n*e)).
+        degree = Counter()
+        for a, b in self.edges:
+            degree[a] += 1
+            degree[b] += 1
         for node_id in node_ids:
-            self.node_mass[node_id] = 1 + sum(
-                1 for a, b in self.edges if a == node_id or b == node_id
-            )
+            self.node_mass[node_id] = 1 + degree.get(node_id, 0)
         current_set = set(node_ids)
         for nid in list(self.node_mass.keys()):
             if nid not in current_set:
@@ -698,6 +772,32 @@ class InfluenceGraphView(QWidget):
             logger.error(f"Error checking database relationships: {e}")
             return False
 
+    @staticmethod
+    def _compute_descendant_counts(G):
+        """Number of distinct nodes reachable from each node in G.
+
+        Equivalent to ``{n: len(nx.descendants(G, n)) for n in G}``, but
+        without a full traversal per node: condenses G into its
+        strongly-connected-component DAG, accumulates each SCC's downstream
+        reachable set once in reverse topological order, then shares that
+        set across every member node. This turns an O(n * (n + e)) scan
+        into a single O(n + e) pass.
+        """
+        condensation = nx.condensation(G)
+        mapping = condensation.graph["mapping"]
+
+        reachable = {}
+        for scc_index in reversed(list(nx.topological_sort(condensation))):
+            reach = set(condensation.nodes[scc_index]["members"])
+            for successor in condensation.successors(scc_index):
+                reach |= reachable[successor]
+            reachable[scc_index] = reach
+
+        return {
+            node_id: len(reachable[mapping[node_id]] - {node_id})
+            for node_id in G.nodes()
+        }
+
     def calculate_influence_scores(self, node_ids, edges):
         """Calculate influence scores and merge with decayed PageRank."""
         try:
@@ -711,14 +811,10 @@ class InfluenceGraphView(QWidget):
             # -----------------------------
             # 1. Classic descendant-based influence score
             # -----------------------------
-            self.influence_scores = {}
-
-            for node_id in node_ids:
-                if node_id in G:
-                    descendants = nx.descendants(G, node_id)
-                    self.influence_scores[node_id] = len(descendants)
-                else:
-                    self.influence_scores[node_id] = 0
+            descendant_counts = self._compute_descendant_counts(G)
+            self.influence_scores = {
+                node_id: descendant_counts.get(node_id, 0) for node_id in node_ids
+            }
 
             # -----------------------------
             # 2. Decayed PageRank influence weighting
