@@ -94,7 +94,7 @@ class PlaceEditDialog(QDialog):
 
         place_name = self.name_edit.text().strip()
         region = self.region_edit.text().strip()
-        logger.debug("Searching for place {place_name} in region {region}")
+        logger.debug(f"Searching for place {place_name} in region {region}")
 
         if not place_name:
             show_status_message(self, "Please enter a place name to search.")
