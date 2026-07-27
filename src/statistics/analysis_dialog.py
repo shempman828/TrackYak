@@ -15,6 +15,7 @@ Responsibilities
 
 from PySide6.QtCore import QThread, Qt, Signal, Slot
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QGroupBox,
     QHBoxLayout,
@@ -77,9 +78,10 @@ class _PendingTracksWorker(QThread):
     tracks_loaded = Signal(list)
     failed = Signal(str)
 
-    def __init__(self, controller, parent=None):
+    def __init__(self, controller, force_all: bool = False, parent=None):
         super().__init__(parent)
         self._controller = controller
+        self._force_all = force_all
 
     def run(self):
         try:
@@ -95,12 +97,18 @@ class _PendingTracksWorker(QThread):
             self.failed.emit(str(e))
             return
 
-        pending = [
-            track
-            for track in all_tracks
-            if not analysis_cache.is_analysed(track.track_id)
-            and _track_needs_analysis(track)
-        ]
+        if self._force_all:
+            # Ignore both the cache and each track's existing field values —
+            # every track queues, e.g. after a scoring-formula change that
+            # invalidates previously-computed values still sitting in the DB.
+            pending = list(all_tracks)
+        else:
+            pending = [
+                track
+                for track in all_tracks
+                if not analysis_cache.is_analysed(track.track_id)
+                and _track_needs_analysis(track)
+            ]
         self.tracks_loaded.emit(pending)
 
 
@@ -197,6 +205,15 @@ class AudioAnalysisDialog(QDialog):
 
         root.addWidget(settings_group)
 
+        self._force_all_checkbox = QCheckBox("Re-analyze all tracks (ignore existing values)")
+        self._force_all_checkbox.setToolTip(
+            "Queue every track regardless of the cache or already-populated "
+            "fields — use this after a scoring formula changes, so tracks "
+            "analysed under the old formula get refreshed too."
+        )
+        self._force_all_checkbox.toggled.connect(self._on_force_all_toggled)
+        root.addWidget(self._force_all_checkbox)
+
         # --- Progress ---
         progress_group = QGroupBox("Progress")
         progress_layout = QVBoxLayout(progress_group)
@@ -253,10 +270,17 @@ class AudioAnalysisDialog(QDialog):
         self._summary_label.setText("Scanning library…")
         self._start_btn.setEnabled(False)
 
-        self._scan_worker = _PendingTracksWorker(self.controller, self)
+        self._scan_worker = _PendingTracksWorker(
+            self.controller,
+            force_all=self._force_all_checkbox.isChecked(),
+            parent=self,
+        )
         self._scan_worker.tracks_loaded.connect(self._on_pending_tracks_loaded)
         self._scan_worker.failed.connect(self._on_pending_scan_failed)
         self._scan_worker.start()
+
+    def _on_force_all_toggled(self, _checked: bool):
+        self._start_pending_scan()
 
     @Slot(list)
     def _on_pending_tracks_loaded(self, pending_tracks: list):
@@ -293,10 +317,16 @@ class AudioAnalysisDialog(QDialog):
         total_cached = analysis_cache.count()
         pending = len(self._tracks_pending)
 
-        self._summary_label.setText(
-            f"{total_cached} tracks already analysed in cache.  "
-            f"{pending} track{'s' if pending != 1 else ''} pending."
-        )
+        if self._force_all_checkbox.isChecked():
+            self._summary_label.setText(
+                f"Re-analyzing all tracks: {pending} queued "
+                "(ignoring cache and existing values)."
+            )
+        else:
+            self._summary_label.setText(
+                f"{total_cached} tracks already analysed in cache.  "
+                f"{pending} track{'s' if pending != 1 else ''} pending."
+            )
         self._progress_bar.setMaximum(max(pending, 1))
         self._progress_bar.setValue(0)
         self._progress_label.setText(f"0 / {pending} tracks processed")
@@ -338,7 +368,9 @@ class AudioAnalysisDialog(QDialog):
 
         self._set_running_ui(len(self._tracks_pending))
         StatusManager.start_task(f"Analysing {len(self._tracks_pending)} tracks…")
-        self._scheduler.start(self._tracks_pending)
+        self._scheduler.start(
+            self._tracks_pending, ignore_cache=self._force_all_checkbox.isChecked()
+        )
 
     def _on_pause_resume(self):
         if self._scheduler.is_paused:
@@ -451,6 +483,7 @@ class AudioAnalysisDialog(QDialog):
         self._pause_btn.setText("Pause")
         self._stop_btn.setEnabled(True)
         self._workers_spin.setEnabled(False)
+        self._force_all_checkbox.setEnabled(False)
         self._progress_bar.setMaximum(max(total, 1))
         self._status_label.setText("Analysing…")
 
@@ -460,6 +493,7 @@ class AudioAnalysisDialog(QDialog):
         self._pause_btn.setText("Pause")
         self._stop_btn.setEnabled(False)
         self._workers_spin.setEnabled(True)
+        self._force_all_checkbox.setEnabled(True)
         self._status_label.setText("Ready.")
 
     def _update_progress_display(self, completed: int, total: int):
