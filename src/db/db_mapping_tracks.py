@@ -645,11 +645,11 @@ TRACK_FIELDS = {
         max=1.0,
         editable=False,
     ),
-    "fidelity_score": FieldSpec(
+    "audiophile_score": FieldSpec(
         type=float,
         category="Advanced",
-        friendly="Fidelity Score",
-        short="Fidelity",
+        friendly="Audiophile Score",
+        short="Audiophile",
         tooltip="Quantifies the overall audio fidelity of the track, combining high-frequency extension, clipping/distortion, and dynamic range to indicate how true and detailed the recording is to the original sound.",
         min=0.0,
         max=1.0,
