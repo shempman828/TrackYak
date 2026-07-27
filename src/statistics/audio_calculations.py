@@ -1011,7 +1011,7 @@ class AudioCalculations:
             logger.error(f"Valence calculation failed: {e}")
             return 0.5
 
-    def calculate_fidelity_score(self) -> float:
+    def calculate_audiophile_score(self) -> float:
         """
         Heuristic audio fidelity estimate combining:
           - Spectral extension (is full-range high-frequency content present,
@@ -1057,7 +1057,7 @@ class AudioCalculations:
             )
 
         except Exception as e:
-            logger.error(f"Fidelity score calculation failed: {e}")
+            logger.error(f"Audiophile score calculation failed: {e}")
             return 0.0
 
     def calculate_fingerprint(self) -> tuple:
@@ -1125,7 +1125,7 @@ class AudioCalculations:
                 key_confidence=key_confidence,
                 centroid=spectral_centroid,
             )
-            fidelity_score = self.calculate_fidelity_score()
+            audiophile_score = self.calculate_audiophile_score()
             acoustid_fingerprint, acoustid_fingerprint_duration = (
                 self.calculate_fingerprint()
             )
@@ -1153,7 +1153,7 @@ class AudioCalculations:
                 "acousticness": acousticness,
                 "liveness": liveness,
                 "valence": valence,
-                "fidelity_score": fidelity_score,
+                "audiophile_score": audiophile_score,
                 "acoustid_fingerprint": acoustid_fingerprint,
                 "acoustid_fingerprint_duration": acoustid_fingerprint_duration,
             }
@@ -1190,7 +1190,7 @@ class AudioCalculations:
             "acousticness": 0.5,
             "liveness": 0.2,
             "valence": 0.5,
-            "fidelity_score": 0.0,
+            "audiophile_score": 0.0,
             "acoustid_fingerprint": None,
             "acoustid_fingerprint_duration": None,
         }
