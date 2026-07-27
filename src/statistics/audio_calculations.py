@@ -35,8 +35,11 @@ class AudioCalculations:
       the whole batch.
     * Segment lengths are chosen per-metric: short for spectral snapshots,
       longer where temporal structure matters (BPM, key).
-    * No metric calls another metric that requires a full STFT — intermediate
-      results are shared where practical to avoid duplicate transforms.
+    * No metric calls another metric that requires a full STFT — run_all()
+      computes each distinct (segment, nperseg) STFT once and passes it into
+      every calculate_* method that needs it via an optional `stft` param
+      (same pattern as the existing bpm=/centroid=/mode= passthroughs).
+      Each method still computes its own if called standalone.
     """
 
     def __init__(self, audio_file_path: str):
@@ -45,10 +48,7 @@ class AudioCalculations:
         self.samples: np.ndarray | None = None  # shape: (channels, n_samples)
         self.sr: int | None = None
         self._loaded = False
-
-        # Cached intermediate results so we don't recompute full-track STFT
-        # more than once.
-        self._mono_stft_cache: dict = {}  # nperseg -> (f, magnitude)
+        self._mono_cache: np.ndarray | None = None
 
     # ------------------------------------------------------------------
     # Load / release
@@ -96,7 +96,7 @@ class AudioCalculations:
         """Explicitly free memory after all calculations are done."""
         self._audio = None
         self.samples = None
-        self._mono_stft_cache.clear()
+        self._mono_cache = None
         self._loaded = False
 
     # ------------------------------------------------------------------
@@ -104,11 +104,15 @@ class AudioCalculations:
     # ------------------------------------------------------------------
 
     def _mono(self) -> np.ndarray:
-        """Return a mono float32 array."""
+        """Return a mono float32 array. Computed once per file and reused —
+        this is called by nearly every metric below."""
         self._ensure_loaded()
-        if self.samples.shape[0] == 1:
-            return self.samples[0]
-        return np.mean(self.samples, axis=0)
+        if self._mono_cache is None:
+            if self.samples.shape[0] == 1:
+                self._mono_cache = self.samples[0]
+            else:
+                self._mono_cache = np.mean(self.samples, axis=0)
+        return self._mono_cache
 
     def _segment(self, audio: np.ndarray, max_seconds: float) -> np.ndarray:
         """Return at most max_seconds worth of samples from the centre of the
@@ -123,17 +127,17 @@ class AudioCalculations:
     def _stft_magnitude(
         self, audio: np.ndarray, nperseg: int = 2048
     ) -> tuple[np.ndarray, np.ndarray]:
+        """Return (frequencies, magnitude_matrix) for one STFT call.
+
+        Callers that need the same (segment, nperseg) STFT in more than one
+        place should compute it once and pass it through explicitly (see the
+        `stft=` params below and how run_all() wires them up) rather than
+        relying on this method to cache — a cache keyed on id(audio) can't
+        actually hit across calls since _segment() returns a fresh array view
+        each time.
         """
-        Return (frequencies, magnitude_matrix).
-        Results for a given nperseg are cached for the lifetime of this object.
-        The key includes a hash of the audio pointer so different segments
-        produce different cache entries.
-        """
-        cache_key = (id(audio), nperseg)
-        if cache_key not in self._mono_stft_cache:
-            f, _, Zxx = signal.stft(audio, fs=self.sr, window="hann", nperseg=nperseg)
-            self._mono_stft_cache[cache_key] = (f, np.abs(Zxx))
-        return self._mono_stft_cache[cache_key]
+        f, _, Zxx = signal.stft(audio, fs=self.sr, window="hann", nperseg=nperseg)
+        return f, np.abs(Zxx)
 
     # ------------------------------------------------------------------
     # BPM  (onset-strength + multi-resolution autocorrelation)
@@ -169,12 +173,7 @@ class AudioCalculations:
             # Downsample to ~200 Hz for efficiency
             hop = max(1, self.sr // 200)
             frames = len(half_wave) // hop
-            envelope = np.array(
-                [
-                    np.max(np.abs(half_wave[i * hop : (i + 1) * hop]))
-                    for i in range(frames)
-                ]
-            )
+            envelope = np.abs(half_wave[: frames * hop]).reshape(frames, hop).max(axis=1)
             envelope_sr = self.sr / hop  # sample rate of envelope
 
             # Smooth to extract rhythmic pulses
@@ -348,15 +347,19 @@ class AudioCalculations:
             if window == 0:
                 return 0.0
 
-            rms_values = []
-            for start in range(0, len(mono) - window, window):
-                chunk = mono[start : start + window]
-                rms = np.sqrt(np.mean(chunk**2))
-                if rms > 1e-9:
-                    rms_values.append(20.0 * np.log10(rms))
-
-            if not rms_values:
+            # Same windows as range(0, len(mono) - window, window) — one
+            # reshape + per-row RMS instead of a Python loop.
+            n_windows = len(range(0, len(mono) - window, window))
+            if n_windows == 0:
                 return 0.0
+            chunks = mono[: n_windows * window].reshape(n_windows, window)
+            rms_per_window = np.sqrt(np.mean(chunks**2, axis=1))
+            rms_per_window = rms_per_window[rms_per_window > 1e-9]
+
+            if len(rms_per_window) == 0:
+                return 0.0
+
+            rms_values = (20.0 * np.log10(rms_per_window)).tolist()
 
             # Mean of the top 70% of windows (ignores silent gaps)
             rms_values.sort(reverse=True)
@@ -415,32 +418,50 @@ class AudioCalculations:
         arith_mean = np.mean(mag, axis=0) + eps
         return float(np.clip(np.mean(geo_mean / arith_mean), 0.0, 1.0))
 
-    def calculate_spectral_flatness(self) -> float:
+    def calculate_spectral_flatness(
+        self, stft: tuple[np.ndarray, np.ndarray] | None = None
+    ) -> float:
         """Spectral flatness (Wiener entropy) of the track, 0 (tonal) – 1
-        (noise-like).  See _flatness_from_magnitude() for the formula."""
+        (noise-like).  See _flatness_from_magnitude() for the formula.
+
+        `stft` may be passed in by a caller that already computed the 20s/
+        nperseg=4096 STFT (e.g. run_all(), shared with calculate_acousticness)
+        to avoid redoing it.
+        """
         if not self._ensure_loaded():
             return 0.2
         try:
-            mono = self._mono()
-            seg = self._segment(mono, 20.0)
-            _, mag = self._stft_magnitude(seg, nperseg=4096)
+            if stft is not None:
+                _, mag = stft
+            else:
+                mono = self._mono()
+                seg = self._segment(mono, 20.0)
+                _, mag = self._stft_magnitude(seg, nperseg=4096)
             return self._flatness_from_magnitude(mag)
         except Exception as e:
             logger.error(f"Spectral flatness calculation failed: {e}")
             return 0.2
 
-    def calculate_spectral_flux(self) -> float:
+    def calculate_spectral_flux(
+        self, stft: tuple[np.ndarray, np.ndarray] | None = None
+    ) -> float:
         """
         Mean frame-to-frame change in the (energy-normalised) magnitude
         spectrum.  Low = static/sustained timbre (drones, pads); high =
         rapidly changing timbre (busy arrangements, percussive material).
+
+        `stft` may be passed in by a caller that already computed the 30s/
+        nperseg=2048 STFT (e.g. run_all()) to avoid redoing it.
         """
         if not self._ensure_loaded():
             return 0.1
         try:
-            mono = self._mono()
-            seg = self._segment(mono, 30.0)
-            _, mag = self._stft_magnitude(seg, nperseg=2048)
+            if stft is not None:
+                _, mag = stft
+            else:
+                mono = self._mono()
+                seg = self._segment(mono, 30.0)
+                _, mag = self._stft_magnitude(seg, nperseg=2048)
             if mag.shape[1] < 2:
                 return 0.1
 
@@ -459,18 +480,26 @@ class AudioCalculations:
             logger.error(f"Spectral flux calculation failed: {e}")
             return 0.1
 
-    def calculate_spectral_centroid(self) -> float:
+    def calculate_spectral_centroid(
+        self, stft: tuple[np.ndarray, np.ndarray] | None = None
+    ) -> float:
         """
         Frequency-weighted mean of the spectrum — perceptual 'brightness'.
         Median across frames for robustness against transient spikes.
         Returns Hz.
+
+        `stft` may be passed in by a caller that already computed the 30s/
+        nperseg=2048 STFT (e.g. run_all()) to avoid redoing it.
         """
         if not self._ensure_loaded():
             return 2000.0
         try:
-            mono = self._mono()
-            seg = self._segment(mono, 30.0)
-            f, mag = self._stft_magnitude(seg, nperseg=2048)
+            if stft is not None:
+                f, mag = stft
+            else:
+                mono = self._mono()
+                seg = self._segment(mono, 30.0)
+                f, mag = self._stft_magnitude(seg, nperseg=2048)
 
             total = mag.sum(axis=0)
             nonzero = total > 1e-8
@@ -483,30 +512,41 @@ class AudioCalculations:
             logger.error(f"Spectral centroid failed: {e}")
             return 2000.0
 
-    def calculate_spectral_rolloff(self) -> float:
+    def calculate_spectral_rolloff(
+        self, stft: tuple[np.ndarray, np.ndarray] | None = None
+    ) -> float:
         """
         Frequency below which 85 % of spectral energy is contained.
         Median across frames. Returns Hz.
+
+        `stft` may be passed in by a caller that already computed the 30s/
+        nperseg=2048 STFT (e.g. run_all()) to avoid redoing it.
         """
         if not self._ensure_loaded():
             return 8000.0
         try:
-            mono = self._mono()
-            seg = self._segment(mono, 30.0)
-            f, mag = self._stft_magnitude(seg, nperseg=2048)
+            if stft is not None:
+                f, mag = stft
+            else:
+                mono = self._mono()
+                seg = self._segment(mono, 30.0)
+                f, mag = self._stft_magnitude(seg, nperseg=2048)
 
-            rolloffs = []
-            for i in range(mag.shape[1]):
-                frame = mag[:, i]
-                total = frame.sum()
-                if total < 1e-8:
-                    continue
-                cumsum = np.cumsum(frame)
-                idx = np.searchsorted(cumsum, 0.85 * total)
-                if idx < len(f):
-                    rolloffs.append(f[idx])
+            totals = mag.sum(axis=0)
+            valid = totals >= 1e-8
+            if not np.any(valid):
+                return 8000.0
 
-            return float(np.median(rolloffs)) if rolloffs else 8000.0
+            # Same per-frame result as np.searchsorted(cumsum, 0.85*total)
+            # (leftmost index where cumsum reaches the threshold), but done
+            # as one vectorised pass across all frames instead of a Python
+            # loop over each one.
+            cumsum = np.cumsum(mag, axis=0)
+            thresholds = 0.85 * totals
+            idx = np.argmax(cumsum >= thresholds[None, :], axis=0)
+            rolloffs = f[idx[valid]]
+
+            return float(np.median(rolloffs)) if len(rolloffs) else 8000.0
         except Exception as e:
             logger.error(f"Spectral rolloff failed: {e}")
             return 8000.0
@@ -532,17 +572,14 @@ class AudioCalculations:
             if n_blocks < 2:
                 return 12.0
 
-            rms_blocks = []
-            peak_blocks = []
-            for i in range(n_blocks):
-                chunk = mono[i * block : (i + 1) * block]
-                rms = np.sqrt(np.mean(chunk**2))
-                pk = np.max(np.abs(chunk))
-                if rms > 1e-9:
-                    rms_blocks.append(rms)
-                    peak_blocks.append(pk)
+            chunks = mono[: n_blocks * block].reshape(n_blocks, block)
+            rms_per_block = np.sqrt(np.mean(chunks**2, axis=1))
+            peak_per_block = np.max(np.abs(chunks), axis=1)
+            valid = rms_per_block > 1e-9
+            rms_blocks = rms_per_block[valid]
+            peak_blocks = peak_per_block[valid]
 
-            if not rms_blocks:
+            if len(rms_blocks) == 0:
                 return 12.0
 
             rms_avg = np.mean(rms_blocks)
@@ -708,9 +745,7 @@ class AudioCalculations:
             n_frames = len(envelope) // hop
             if n_frames < 2:
                 return 0.1
-            frame_env = np.array(
-                [np.max(envelope[i * hop : (i + 1) * hop]) for i in range(n_frames)]
-            )
+            frame_env = envelope[: n_frames * hop].reshape(n_frames, hop).max(axis=1)
             frame_sr = self.sr / hop
 
             # Light smoothing (~4 ms) to denoise without erasing attacks
@@ -749,10 +784,15 @@ class AudioCalculations:
     # Derived perceptual metrics
     # ------------------------------------------------------------------
 
-    def calculate_energy(self) -> float:
+    def calculate_energy(
+        self, stft: tuple[np.ndarray, np.ndarray] | None = None
+    ) -> float:
         """
         Perceptual energy: blend of integrated loudness and spectral brightness.
         0 = quiet/flat, 1 = loud and bright.
+
+        `stft` may be passed in by a caller that already computed the 30s/
+        nperseg=2048 STFT (e.g. run_all()) to avoid redoing it.
         """
         if not self._ensure_loaded():
             return 0.5
@@ -765,7 +805,7 @@ class AudioCalculations:
             rms_db = 20.0 * np.log10(rms + 1e-9)
             loudness_factor = np.clip((rms_db + 40.0) / 34.0, 0.0, 1.0)
 
-            f, mag = self._stft_magnitude(seg, nperseg=2048)
+            f, mag = stft if stft is not None else self._stft_magnitude(seg, nperseg=2048)
             total_e = mag.sum()
             if total_e < 1e-8:
                 brightness_factor = 0.0
@@ -783,7 +823,11 @@ class AudioCalculations:
             logger.error(f"Energy calculation failed: {e}")
             return 0.5
 
-    def calculate_danceability(self, bpm: float | None = None) -> float:
+    def calculate_danceability(
+        self,
+        bpm: float | None = None,
+        stft: tuple[np.ndarray, np.ndarray] | None = None,
+    ) -> float:
         """
         Danceability based on three independently-normalised factors:
           - Beat strength (variance in sub-200 Hz energy over time)
@@ -792,13 +836,17 @@ class AudioCalculations:
 
         `bpm` may be passed in by a caller that already computed it (e.g.
         run_all()) to avoid redoing the onset-envelope/autocorrelation work.
+        `stft` likewise skips redoing the 30s/nperseg=2048 STFT.
         """
         if not self._ensure_loaded():
             return 0.5
         try:
-            mono = self._mono()
-            seg = self._segment(mono, 30.0)
-            f, mag = self._stft_magnitude(seg, nperseg=2048)
+            if stft is not None:
+                f, mag = stft
+            else:
+                mono = self._mono()
+                seg = self._segment(mono, 30.0)
+                f, mag = self._stft_magnitude(seg, nperseg=2048)
 
             # Beat strength
             bass_mask = f <= 200
@@ -844,7 +892,11 @@ class AudioCalculations:
             logger.error(f"Danceability calculation failed: {e}")
             return 0.5
 
-    def calculate_acousticness(self, centroid: float | None = None) -> float:
+    def calculate_acousticness(
+        self,
+        centroid: float | None = None,
+        stft: tuple[np.ndarray, np.ndarray] | None = None,
+    ) -> float:
         """
         Estimates how acoustic (vs. electronic) the recording sounds.
 
@@ -854,14 +906,19 @@ class AudioCalculations:
           - Lower spectral centroid
 
         `centroid` may be passed in by a caller that already computed it
-        (e.g. run_all()) to avoid redoing the STFT.
+        (e.g. run_all()) to avoid redoing the STFT. `stft` likewise skips
+        redoing the 20s/nperseg=4096 STFT (shared with
+        calculate_spectral_flatness in run_all()).
         """
         if not self._ensure_loaded():
             return 0.5
         try:
-            mono = self._mono()
-            seg = self._segment(mono, 20.0)
-            f, mag = self._stft_magnitude(seg, nperseg=4096)
+            if stft is not None:
+                f, mag = stft
+            else:
+                mono = self._mono()
+                seg = self._segment(mono, 20.0)
+                f, mag = self._stft_magnitude(seg, nperseg=4096)
 
             # 1. Spectral flatness per frame (Wiener entropy) — low = tonal = acoustic
             flatness = self._flatness_from_magnitude(mag)
@@ -889,7 +946,9 @@ class AudioCalculations:
             logger.error(f"Acousticness calculation failed: {e}")
             return 0.5
 
-    def calculate_liveness(self) -> float:
+    def calculate_liveness(
+        self, stft: tuple[np.ndarray, np.ndarray] | None = None
+    ) -> float:
         """
         Estimates the probability of a live recording.
 
@@ -900,13 +959,19 @@ class AudioCalculations:
 
         This is a heuristic — confidence is inherently limited without
         a labelled training set.
+
+        `stft` may be passed in by a caller that already computed the 30s/
+        nperseg=2048 STFT (e.g. run_all()) to avoid redoing it.
         """
         if not self._ensure_loaded():
             return 0.2
         try:
-            mono = self._mono()
-            seg = self._segment(mono, 30.0)
-            f, mag = self._stft_magnitude(seg, nperseg=2048)
+            if stft is not None:
+                f, mag = stft
+            else:
+                mono = self._mono()
+                seg = self._segment(mono, 30.0)
+                f, mag = self._stft_magnitude(seg, nperseg=2048)
 
             eps = 1e-9
 
@@ -1093,12 +1158,8 @@ class AudioCalculations:
         n_frames = len(mono) // frame
         if n_frames < 20:
             return 0.5
-        frame_rms = np.array(
-            [
-                np.sqrt(np.mean(mono[i * frame : (i + 1) * frame] ** 2))
-                for i in range(n_frames)
-            ]
-        )
+        chunks = mono[: n_frames * frame].reshape(n_frames, frame)
+        frame_rms = np.sqrt(np.mean(chunks**2, axis=1))
         # Exclude digital-silence padding (leading/trailing zeros, encoder
         # gaps) — that's not the recording's noise floor, it's silence.
         active = frame_rms[frame_rms > 1e-6]
@@ -1376,24 +1437,34 @@ class AudioCalculations:
 
         try:
             # --- Metrics that share intermediate STFT results ---
+            # Six methods below independently need the same centre-30s/
+            # nperseg=2048 STFT, and two more need the same 20s/nperseg=4096
+            # STFT — compute each exactly once here and pass it through
+            # instead of letting every method redo its own full STFT.
+            mono = self._mono()
+            stft_30_2048 = self._stft_magnitude(self._segment(mono, 30.0), nperseg=2048)
+            stft_20_4096 = self._stft_magnitude(self._segment(mono, 20.0), nperseg=4096)
+
             bpm, tempo_confidence = self.calculate_bpm()
             key, mode, key_confidence = self.calculate_key()
             track_gain = self.calculate_track_gain()
             track_peak = self.calculate_track_peak()
-            spectral_centroid = self.calculate_spectral_centroid()
-            spectral_rolloff = self.calculate_spectral_rolloff()
+            spectral_centroid = self.calculate_spectral_centroid(stft=stft_30_2048)
+            spectral_rolloff = self.calculate_spectral_rolloff(stft=stft_30_2048)
             dynamic_range = self.calculate_dynamic_range()
             stereo_width = self.calculate_stereo_width()
             ms_energy_ratio = self.calculate_ms_energy_ratio()
             channel_coherence = self.calculate_channel_coherence()
             crest_factor = self.calculate_crest_factor()
-            spectral_flatness = self.calculate_spectral_flatness()
-            spectral_flux = self.calculate_spectral_flux()
+            spectral_flatness = self.calculate_spectral_flatness(stft=stft_20_4096)
+            spectral_flux = self.calculate_spectral_flux(stft=stft_30_2048)
             transient_strength = self.calculate_transient_strength()
-            energy = self.calculate_energy()
-            danceability = self.calculate_danceability(bpm=bpm)
-            acousticness = self.calculate_acousticness(centroid=spectral_centroid)
-            liveness = self.calculate_liveness()
+            energy = self.calculate_energy(stft=stft_30_2048)
+            danceability = self.calculate_danceability(bpm=bpm, stft=stft_30_2048)
+            acousticness = self.calculate_acousticness(
+                centroid=spectral_centroid, stft=stft_20_4096
+            )
+            liveness = self.calculate_liveness(stft=stft_30_2048)
             valence = self.calculate_valence(
                 bpm=bpm,
                 mode=mode,
