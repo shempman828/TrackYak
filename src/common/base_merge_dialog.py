@@ -698,7 +698,12 @@ class MergeDBDialog(QDialog):
     def _get_conflicts(self):
         """Detect differences between source and target, excluding non-mergeable fields."""
         conflicts = {}
-        for attr in vars(self.source_entity):
+        # Use the mapper's column list rather than vars(self.source_entity): the
+        # instance __dict__ is emptied by SQLAlchemy whenever the shared session
+        # commits (expire_on_commit), which made every merge after the first in a
+        # batch report zero conflicts.
+        attr_names = type(self.source_entity).__mapper__.column_attrs.keys()
+        for attr in attr_names:
             if attr.startswith("_") or attr in ("metadata", self.id_attr):
                 continue
 
