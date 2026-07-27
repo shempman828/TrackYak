@@ -18,6 +18,7 @@ from src.db.db_tables.associations import (
     AlbumPublisher,
     AlbumRoleAssociation,
     ArtistTypeAssociation,
+    PublisherFounder,
     TrackArtistRole,
     TrackGenre,
 )
@@ -79,6 +80,7 @@ __all__ = [
     "SmartPlaylistCriteria",
     "Role",
     "AlbumPublisher",
+    "PublisherFounder",
     "TrackGenre",
     "TrackArtistRole",
     "AlbumRoleAssociation",
