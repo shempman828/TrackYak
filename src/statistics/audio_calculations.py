@@ -746,12 +746,15 @@ class AudioCalculations:
             logger.error(f"Energy calculation failed: {e}")
             return 0.5
 
-    def calculate_danceability(self) -> float:
+    def calculate_danceability(self, bpm: float | None = None) -> float:
         """
         Danceability based on three independently-normalised factors:
           - Beat strength (variance in sub-200 Hz energy over time)
           - Spectral balance (strong bass + mids, not top-heavy)
           - Tempo proximity to dance range 90–140 BPM
+
+        `bpm` may be passed in by a caller that already computed it (e.g.
+        run_all()) to avoid redoing the onset-envelope/autocorrelation work.
         """
         if not self._ensure_loaded():
             return 0.5
@@ -783,7 +786,8 @@ class AudioCalculations:
             balance_factor = float(np.clip(balance, 0.0, 1.0))
 
             # Tempo
-            bpm, _ = self.calculate_bpm()
+            if bpm is None:
+                bpm, _ = self.calculate_bpm()
             if 90 <= bpm <= 140:
                 tempo_factor = 1.0
             elif 70 <= bpm < 90 or 140 < bpm <= 160:
@@ -803,7 +807,7 @@ class AudioCalculations:
             logger.error(f"Danceability calculation failed: {e}")
             return 0.5
 
-    def calculate_acousticness(self) -> float:
+    def calculate_acousticness(self, centroid: float | None = None) -> float:
         """
         Estimates how acoustic (vs. electronic) the recording sounds.
 
@@ -811,6 +815,9 @@ class AudioCalculations:
           - Strong harmonic content (low spectral flatness)
           - Energy concentrated below 5 kHz
           - Lower spectral centroid
+
+        `centroid` may be passed in by a caller that already computed it
+        (e.g. run_all()) to avoid redoing the STFT.
         """
         if not self._ensure_loaded():
             return 0.5
@@ -831,7 +838,8 @@ class AudioCalculations:
             freq_factor = float(np.clip(low_ratio * 1.2, 0.0, 1.0))
 
             # 3. Spectral centroid
-            centroid = self.calculate_spectral_centroid()
+            if centroid is None:
+                centroid = self.calculate_spectral_centroid()
             centroid_factor = float(np.clip(1.0 - centroid / 6000.0, 0.0, 1.0))
 
             return float(
@@ -885,25 +893,38 @@ class AudioCalculations:
             logger.error(f"Liveness calculation failed: {e}")
             return 0.2
 
-    def calculate_valence(self) -> float:
+    def calculate_valence(
+        self,
+        bpm: float | None = None,
+        mode: str | None = None,
+        key_confidence: float | None = None,
+        centroid: float | None = None,
+    ) -> float:
         """
         Musical 'positiveness'.  This is the hardest metric to calculate
         without ML — we use mode (major/minor) as the primary signal,
         weighted with tempo and brightness.
+
+        `bpm`, `mode`, `key_confidence` and `centroid` may be passed in by a
+        caller that already computed them (e.g. run_all()) to avoid redoing
+        the BPM/key/centroid analysis.
 
         Note: the confidence of this metric is inherently limited.
         """
         if not self._ensure_loaded():
             return 0.5
         try:
-            bpm, _ = self.calculate_bpm()
-            _, mode, key_conf = self.calculate_key()
-            centroid = self.calculate_spectral_centroid()
+            if bpm is None:
+                bpm, _ = self.calculate_bpm()
+            if mode is None or key_confidence is None:
+                _, mode, key_confidence = self.calculate_key()
+            if centroid is None:
+                centroid = self.calculate_spectral_centroid()
 
             # Mode: major → positive, minor → negative
             # Weight by key confidence so uncertain detections approach 0.5
             mode_score = 0.65 if mode == "major" else 0.35
-            mode_factor = 0.5 + (mode_score - 0.5) * key_conf
+            mode_factor = 0.5 + (mode_score - 0.5) * key_confidence
 
             # Tempo: 90–140 BPM correlates with positive/energetic music
             if bpm < 60:
@@ -1037,10 +1058,15 @@ class AudioCalculations:
             spectral_flux = self.calculate_spectral_flux()
             transient_strength = self.calculate_transient_strength()
             energy = self.calculate_energy()
-            danceability = self.calculate_danceability()
-            acousticness = self.calculate_acousticness()
+            danceability = self.calculate_danceability(bpm=bpm)
+            acousticness = self.calculate_acousticness(centroid=spectral_centroid)
             liveness = self.calculate_liveness()
-            valence = self.calculate_valence()
+            valence = self.calculate_valence(
+                bpm=bpm,
+                mode=mode,
+                key_confidence=key_confidence,
+                centroid=spectral_centroid,
+            )
             fidelity_score = self.calculate_fidelity_score()
             acoustid_fingerprint, acoustid_fingerprint_duration = (
                 self.calculate_fingerprint()
