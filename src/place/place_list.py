@@ -35,9 +35,10 @@ class DraggableTreeWidget(QTreeWidget):
 
     def dropEvent(self, event):
         """Called when a drag-and-drop is completed inside the tree."""
-        # IMPORTANT: Read the dragged item and drop target BEFORE calling super().
-        dragged_item = self.currentItem()
-        if not dragged_item:
+        # IMPORTANT: Read the dragged items and drop target BEFORE calling super().
+        # Multi-selection means several rows can be dragged at once.
+        dragged_items = self.selectedItems()
+        if not dragged_items:
             event.ignore()
             return
 
@@ -50,35 +51,39 @@ class DraggableTreeWidget(QTreeWidget):
         indicator = self.dropIndicatorPosition()
 
         try:
-            moved_place = dragged_item.data(0, Qt.UserRole)
+            moved_places = []
+            for dragged_item in dragged_items:
+                moved_place = dragged_item.data(0, Qt.UserRole)
 
-            if target_item is None or target_item is dragged_item:
-                # Dropped on empty space or on itself — ignore, becomes top-level
-                new_parent_id = None
-            elif indicator == QAbstractItemView.OnItem:
-                # Dropped directly onto an item — nest under it
-                parent_place = target_item.data(0, Qt.UserRole)
-                new_parent_id = parent_place.place_id
-            else:
-                # Dropped above/below an item — become a sibling of that item
-                sibling_parent_item = target_item.parent()
-                if sibling_parent_item is None:
+                if target_item is None or target_item in dragged_items:
+                    # Dropped on empty space or on one of the dragged items — becomes top-level
                     new_parent_id = None
-                else:
-                    parent_place = sibling_parent_item.data(0, Qt.UserRole)
+                elif indicator == QAbstractItemView.OnItem:
+                    # Dropped directly onto an item — nest under it
+                    parent_place = target_item.data(0, Qt.UserRole)
                     new_parent_id = parent_place.place_id
+                else:
+                    # Dropped above/below an item — become a sibling of that item
+                    sibling_parent_item = target_item.parent()
+                    if sibling_parent_item is None:
+                        new_parent_id = None
+                    else:
+                        parent_place = sibling_parent_item.data(0, Qt.UserRole)
+                        new_parent_id = parent_place.place_id
+
+                moved_places.append((moved_place, new_parent_id))
 
             # Now let Qt handle the visual repositioning
             super().dropEvent(event)
 
-            # Save the new parent to the database
-            self.list_view.controller.update.update_entity(
-                "Place", moved_place.place_id, parent_id=new_parent_id
-            )
-
-            logger.info(
-                f"Updated parent for {moved_place.place_name} to {new_parent_id}"
-            )
+            # Save the new parents to the database
+            for moved_place, new_parent_id in moved_places:
+                self.list_view.controller.update.update_entity(
+                    "Place", moved_place.place_id, parent_id=new_parent_id
+                )
+                logger.info(
+                    f"Updated parent for {moved_place.place_name} to {new_parent_id}"
+                )
 
             # Reload both views so tree items always reflect the real database state
             if self.list_view.parent_view:
@@ -186,7 +191,7 @@ class ListView(QWidget):
         self.tree_widget.setHeaderHidden(True)
         self.tree_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree_widget.customContextMenuRequested.connect(self.show_context_menu)
-        self.tree_widget.setSelectionMode(QTreeWidget.SingleSelection)
+        self.tree_widget.setSelectionMode(QTreeWidget.ExtendedSelection)
         self.tree_widget.setItemDelegate(HtmlDelegate())
         self.tree_widget.setObjectName("placeList")
         self.tree_widget.setDragEnabled(True)
@@ -243,29 +248,41 @@ class ListView(QWidget):
         if not item:
             return
 
-        # Capture the place into a local variable. Each lambda below uses a
-        # default argument (p=place) to lock in this value at menu-creation
-        # time, so the action always operates on the right place even if
-        # something triggers a re-render before the user clicks.
-        place = item.data(0, Qt.UserRole)
+        selected_items = self.tree_widget.selectedItems()
 
         menu = QMenu(self)
-        menu.addAction(
-            "View Associations", lambda p=place: self.show_association_details_for(p)
-        )
-        menu.addAction("View Details", lambda p=place: self.view_place_details_for(p))
-        menu.addAction("Edit", lambda p=place: self.edit_place_for(p))
-        menu.addAction("Merge", lambda p=place: self.merge_place(p))
-        menu.addAction("Split", lambda p=place: self._split_place())
-        menu.addSeparator()
-        menu.addAction(
-            "New Parent Place", lambda p=place: self.create_new_parent_place(p)
-        )
-        menu.addAction(
-            "New Child Place", lambda p=place: self.create_new_child_place(p)
-        )
-        menu.addSeparator()
-        menu.addAction("Delete", lambda p=place: self.delete_place_for(p))
+
+        # Only show single-place actions when exactly one item is selected
+        if len(selected_items) <= 1:
+            # Capture the place into a local variable. Each lambda below uses a
+            # default argument (p=place) to lock in this value at menu-creation
+            # time, so the action always operates on the right place even if
+            # something triggers a re-render before the user clicks.
+            place = item.data(0, Qt.UserRole)
+
+            menu.addAction(
+                "View Associations",
+                lambda p=place: self.show_association_details_for(p),
+            )
+            menu.addAction(
+                "View Details", lambda p=place: self.view_place_details_for(p)
+            )
+            menu.addAction("Edit", lambda p=place: self.edit_place_for(p))
+            menu.addAction("Merge", lambda p=place: self.merge_place(p))
+            menu.addAction("Split", lambda p=place: self._split_place())
+            menu.addSeparator()
+            menu.addAction(
+                "New Parent Place", lambda p=place: self.create_new_parent_place(p)
+            )
+            menu.addAction(
+                "New Child Place", lambda p=place: self.create_new_child_place(p)
+            )
+            menu.addSeparator()
+
+        # Delete works for single or multiple selection
+        count = len(selected_items)
+        delete_label = f"Delete {count} Places" if count > 1 else "Delete"
+        menu.addAction(delete_label, self.delete_selected_places)
 
         menu.exec_(self.tree_widget.viewport().mapToGlobal(position))
 
@@ -470,30 +487,59 @@ class ListView(QWidget):
             logger.error(f"Failed to create new child place: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to create new child place")
 
-    def delete_place_for(self, place):
-        """Delete the given place after confirmation."""
+    def delete_place(self):
+        """Delete the currently selected place(s)."""
+        self.delete_selected_places()
+
+    def delete_selected_places(self):
+        """Delete all currently selected places after a single confirmation.
+
+        Supports single and multi-selection, listing the places to be
+        deleted in the confirmation dialog before anything is removed.
+        """
+        selected_items = self.tree_widget.selectedItems()
+        if not selected_items:
+            show_status_message(self, "Please select a place to delete.")
+            return
+
+        places = [item.data(0, Qt.UserRole) for item in selected_items]
+        count = len(places)
+        if count == 1:
+            message = f"Delete {places[0].place_name} permanently?"
+        else:
+            names_preview = ", ".join(p.place_name for p in places[:5])
+            if count > 5:
+                names_preview += f", … (+{count - 5} more)"
+            message = f"Delete {count} places permanently?\n\n{names_preview}"
+
         confirm = QMessageBox.question(
             self,
             "Confirm Delete",
-            f"Delete {place.place_name} permanently?",
+            message,
             QMessageBox.Yes | QMessageBox.No,
         )
-        if confirm == QMessageBox.Yes:
+        if confirm != QMessageBox.Yes:
+            return
+
+        errors = []
+        for place in places:
             try:
                 self.controller.delete.delete_entity("Place", place.place_id)
-                if self.parent_view:
-                    self.parent_view.refresh_views()
-                logger.info("Place deleted successfully")
             except Exception as e:
-                logger.error(f"Failed to delete place: {str(e)}")
-                QMessageBox.critical(self, "Error", "Failed to delete place")
+                errors.append(place.place_name)
+                logger.error(f"Failed to delete place '{place.place_name}': {str(e)}")
 
-    def delete_place(self):
-        """Delete the currently selected place."""
-        selected = self.tree_widget.currentItem()
-        if not selected:
-            return
-        self.delete_place_for(selected.data(0, Qt.UserRole))
+        if self.parent_view:
+            self.parent_view.refresh_views()
+
+        if errors:
+            QMessageBox.critical(
+                self,
+                "Error",
+                "Could not delete the following places:\n" + "\n".join(errors),
+            )
+        else:
+            logger.info(f"Deleted {count} place(s) successfully")
 
     def merge_place(self, place):
         """Merge this place into another. Not yet implemented."""
