@@ -23,10 +23,15 @@ from src.common.entity_alias_tab import EntityAliasesTab
 from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
 from src.core.asset_paths import icon
 from src.core.logger_config import logger
+from src.place.place_association_types import (
+    fetch_association_types,
+    find_or_create_association_type,
+)
 from src.publisher.publisher_hierarchy import get_descendant_publisher_ids
 from src.publisher.publisher_image_manager import move_to_publisher_logos_dir
 
 _SETTINGS_LAST_LOGO_DIR = "publisher_editor/last_logo_dir"
+_HEADQUARTERS_TYPE_NAME = "Headquarters"
 LOGO_MAX_SIZE = QSize(100, 100)
 
 
@@ -61,6 +66,7 @@ class PublisherEditDialog(QDialog):
         self.result_publisher = None
         self.tab_aliases = None
         self._logo_path = None
+        self._hq_association_id = None
         self._settings = QSettings()
         self.setup_ui()
         self.load_data()
@@ -108,6 +114,19 @@ class PublisherEditDialog(QDialog):
         self.parent_edit.set_index(parent_index)
         self.parent_edit.returnPressed.connect(self.validate)
         basic_form.addRow("Parent Publisher:", self.parent_edit)
+
+        # Headquarters place picker -- same find-or-create completer pattern
+        # as the parent publisher field above, backed by a Place row linked
+        # through the generic PlaceAssociation table (type "Headquarters"),
+        # the same mechanism used for e.g. artist birthplaces.
+        self.hq_edit = EntityCompleterEdit("Search place…")
+        places = self.controller.get.get_all_entities("Place") or []
+        self._known_places = places
+        self.hq_edit.set_index(
+            {p.place_name: p.place_id for p in places if p.place_name}
+        )
+        self.hq_edit.returnPressed.connect(self.validate)
+        basic_form.addRow("Headquarters:", self.hq_edit)
         root.addWidget(basic_group)
 
         # -- Details: dates, status, links -------------------------------------
@@ -190,6 +209,23 @@ class PublisherEditDialog(QDialog):
                     "Publisher", publisher_id=self.publisher.parent_id
                 )
                 self.parent_edit.setText(parent.publisher_name if parent else "")
+            hq_assocs = self.controller.get.get_all_entities(
+                "PlaceAssociation",
+                entity_type="Publisher",
+                entity_id=self.publisher.publisher_id,
+            ) or []
+            hq_assoc = next(
+                (
+                    a
+                    for a in hq_assocs
+                    if a.association_type
+                    and a.association_type.type_name == _HEADQUARTERS_TYPE_NAME
+                ),
+                None,
+            )
+            if hq_assoc and hq_assoc.place:
+                self.hq_edit.setText(hq_assoc.place.place_name)
+                self._hq_association_id = hq_assoc.association_id
             self.begin_year_edit.set_from_db(self.publisher.begin_year)
             self.end_year_edit.set_from_db(self.publisher.end_year)
             self.is_active_check.setChecked(bool(self.publisher.is_active))
@@ -284,6 +320,28 @@ class PublisherEditDialog(QDialog):
                 )
                 return
 
+        hq_name = self.hq_edit.text().strip()
+        hq_place_id = None
+        if hq_name:
+            # Same resolution order as the parent publisher field: prefer
+            # the id locked in by picking a completion, else an exact-name
+            # lookup, else create a new Place on the fly.
+            hq_place_id = self.hq_edit.matched_id()
+            if hq_place_id is None:
+                place_obj = self.controller.get.get_entity_object(
+                    "Place", place_name=hq_name
+                )
+                hq_place_id = place_obj.place_id if place_obj else None
+            if hq_place_id is None:
+                place_obj = find_or_create_by_name(
+                    self.controller,
+                    "Place",
+                    "place_name",
+                    hq_name,
+                    self._known_places,
+                )
+                hq_place_id = place_obj.place_id if place_obj else None
+
         begin_year = self.begin_year_edit.get_value_or_none()
         end_year = self.end_year_edit.get_value_or_none()
         is_active = 1 if self.is_active_check.isChecked() else 0
@@ -318,7 +376,36 @@ class PublisherEditDialog(QDialog):
                     wikipedia_link=wikipedia_link,
                     is_fixed=is_fixed,
                 )
+            self._save_headquarters(self.result_publisher.publisher_id, hq_place_id)
             self.accept()
         except Exception as e:
             logger.error(f"Error saving publisher: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to save publisher: {str(e)}")
+
+    def _save_headquarters(self, publisher_id, hq_place_id):
+        """Sync this publisher's single "Headquarters" PlaceAssociation to hq_place_id."""
+        if hq_place_id is None:
+            if self._hq_association_id is not None:
+                self.controller.delete.delete_entity(
+                    "PlaceAssociation", self._hq_association_id
+                )
+                self._hq_association_id = None
+            return
+
+        if self._hq_association_id is not None:
+            self.controller.update.update_entity(
+                "PlaceAssociation", self._hq_association_id, place_id=hq_place_id
+            )
+        else:
+            known_types = fetch_association_types(self.controller)
+            hq_type = find_or_create_association_type(
+                self.controller, _HEADQUARTERS_TYPE_NAME, known_types
+            )
+            assoc = self.controller.add.add_entity(
+                "PlaceAssociation",
+                entity_id=publisher_id,
+                entity_type="Publisher",
+                place_id=hq_place_id,
+                association_type_id=hq_type.association_type_id if hq_type else None,
+            )
+            self._hq_association_id = assoc.association_id
