@@ -118,18 +118,22 @@ class BatchAnalysisScheduler:
     # Public control methods
     # ------------------------------------------------------------------
 
-    def start(self, tracks: list):
+    def start(self, tracks: list, ignore_cache: bool = False):
         """
         Populate the queue with tracks and spin up a worker process pool.
-        Tracks already in the cache are skipped automatically.
+        Tracks already in the cache are skipped automatically, unless
+        `ignore_cache` is set (e.g. the dialog's "re-analyze all" option).
         """
         with self._lock:
             if self._running:
                 logger.warning("BatchAnalysisScheduler: already running")
                 return
 
-            # Filter out cached tracks
-            pending = [t for t in tracks if not analysis_cache.is_analysed(t.track_id)]
+            pending = (
+                list(tracks)
+                if ignore_cache
+                else [t for t in tracks if not analysis_cache.is_analysed(t.track_id)]
+            )
             if not pending:
                 logger.info("BatchAnalysisScheduler: all tracks already analysed")
                 self.signals.all_done.emit(0)
