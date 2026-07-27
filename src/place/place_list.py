@@ -5,11 +5,14 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QHBoxLayout,
+    QLabel,
+    QLineEdit,
     QMenu,
     QMessageBox,
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
+    QTreeWidgetItemIterator,
     QVBoxLayout,
     QWidget,
 )
@@ -88,6 +91,54 @@ class DraggableTreeWidget(QTreeWidget):
             if self.list_view.parent_view:
                 self.list_view.parent_view.refresh_views()
 
+    def count_total(self):
+        """Count all place items in the tree, regardless of visibility."""
+        count = 0
+        iterator = QTreeWidgetItemIterator(self)
+        while iterator.value():
+            count += 1
+            iterator += 1
+        return count
+
+    def count_visible(self):
+        """Count place items currently visible (not hidden by search filter)."""
+        count = 0
+        iterator = QTreeWidgetItemIterator(self)
+        while iterator.value():
+            if not iterator.value().isHidden():
+                count += 1
+            iterator += 1
+        return count
+
+    def filter_items(self, search_text):
+        """Filter tree items based on search text, matching against place name."""
+
+        def filter_item(item, text):
+            text_lower = text.lower()
+            place = item.data(0, Qt.UserRole)
+            name_lower = (place.place_name or "").lower() if place else ""
+            matches = text_lower in name_lower
+
+            child_matches = False
+            for i in range(item.childCount()):
+                if filter_item(item.child(i), text):
+                    child_matches = True
+
+            should_show = matches or child_matches
+            item.setHidden(not should_show)
+
+            if text and should_show:
+                item.setExpanded(True)
+                parent = item.parent()
+                while parent:
+                    parent.setExpanded(True)
+                    parent = parent.parent()
+
+            return should_show
+
+        for i in range(self.topLevelItemCount()):
+            filter_item(self.topLevelItem(i), search_text)
+
 
 class ListView(QWidget):
     """List view with CRUD operations for places"""
@@ -97,6 +148,7 @@ class ListView(QWidget):
         self.controller = controller
         self.parent_view = None
         self.sort_mode = "alphabetical"
+        self.filter_text = ""
         self.init_ui()
 
     def set_parent_view(self, parent_view):
@@ -120,6 +172,15 @@ class ListView(QWidget):
         self.sort_toggle_button.clicked.connect(self.toggle_sort_mode)
         control_layout.addWidget(self.sort_toggle_button)
 
+        # Search bar
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Search places...")
+        self.search_bar.textChanged.connect(self.filter_places)
+
+        # Count label — shows "N places" or "Showing X of Y" while filtering
+        self.count_label = QLabel()
+        self.count_label.setProperty("textRole", "muted")
+
         # tree widget with proper selection styling
         self.tree_widget = DraggableTreeWidget(self)
         self.tree_widget.setHeaderHidden(True)
@@ -134,6 +195,8 @@ class ListView(QWidget):
         self.tree_widget.setDragDropMode(QTreeWidget.InternalMove)
 
         main_layout.addLayout(control_layout)
+        main_layout.addWidget(self.search_bar)
+        main_layout.addWidget(self.count_label)
         main_layout.addWidget(self.tree_widget)
 
     def toggle_sort_mode(self):
@@ -154,6 +217,25 @@ class ListView(QWidget):
 
         # Add places to the tree with expand/collapse capability
         self._add_places_to_tree(hierarchy, None, self.tree_widget.invisibleRootItem())
+
+        # Reapply any active search filter, since the tree was just rebuilt
+        self.tree_widget.filter_items(self.filter_text)
+        self._update_count_label()
+
+    def filter_places(self, text):
+        """Filter places based on search text."""
+        self.filter_text = text
+        self.tree_widget.filter_items(text)
+        self._update_count_label()
+
+    def _update_count_label(self):
+        """Refresh the "N places" / "Showing X of Y" count label."""
+        total = self.tree_widget.count_total()
+        visible = self.tree_widget.count_visible()
+        if visible == total:
+            self.count_label.setText(f"{total} place{'s' if total != 1 else ''}")
+        else:
+            self.count_label.setText(f"{visible} of {total} places")
 
     def show_context_menu(self, position):
         """Show context menu for tree items."""
