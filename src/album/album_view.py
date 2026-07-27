@@ -70,6 +70,8 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
             [
                 ("Track Count (Most First)", "track_count", True),
                 ("Track Count (Fewest First)", "track_count", False),
+                ("Album Artist Count (Most First)", "album_artist_count", True),
+                ("Album Artist Count (Fewest First)", "album_artist_count", False),
                 ("Duration (Longest First)", "length", True),
                 ("Duration (Shortest First)", "length", False),
                 ("Art Size (Largest First)", "art_dimensions", True),
@@ -622,6 +624,9 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
             elif c == "track_count":
                 return self._get_track_count(album)
 
+            elif c == "album_artist_count":
+                return self._get_album_artist_count(album)
+
             elif c == "play_count":
                 return getattr(album, "total_plays", 0) or 0
 
@@ -847,6 +852,11 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
             except (TypeError, ValueError):
                 pass
         return 0
+
+    @staticmethod
+    def _get_album_artist_count(album) -> int:
+        artists = getattr(album, "album_artists", None)
+        return len(artists) if artists else 0
 
     @staticmethod
     def _get_artist_names(album) -> list[str]:
