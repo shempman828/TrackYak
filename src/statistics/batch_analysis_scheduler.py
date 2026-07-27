@@ -1,11 +1,13 @@
 """
-BatchAnalysisScheduler — background thread manager.
+BatchAnalysisScheduler — background process pool manager.
 
 Accepts a list of tracks, processes them with a configurable worker count,
 saves cache every 25 tracks, and fires a progress callback on the main
 thread via Qt signals.
 """
 
+import concurrent.futures
+import multiprocessing
 import os
 import queue
 import threading
@@ -31,6 +33,24 @@ def recommended_worker_count() -> int:
     return max(1, max_worker_count() - 1)
 
 
+def _analyze_track_worker(
+    track_id: int, track_file_path: str
+) -> tuple[int, dict | None, str | None]:
+    """
+    Entry point run inside a worker *process* (see BatchAnalysisScheduler).
+
+    Only picklable plain values may cross the process boundary in either
+    direction — no SQLAlchemy session, no Qt object, no analysis_cache
+    singleton. Those all stay on the coordinator thread in the main process.
+    """
+    try:
+        calc = AudioCalculations(track_file_path)
+        metadata = calc.run_all()
+        return track_id, metadata, None
+    except Exception as e:
+        return track_id, None, str(e)
+
+
 class _SchedulerSignals(QObject):
     """Qt signals for cross-thread communication."""
 
@@ -42,8 +62,22 @@ class _SchedulerSignals(QObject):
 
 class BatchAnalysisScheduler:
     """
-    Manages a pool of worker threads that pull tracks from a queue and run
-    AudioCalculations.run_all() on each one.
+    Manages a pool of worker *processes* that run AudioCalculations.run_all()
+    on each track, coordinated by a lightweight thread in the main process.
+
+    Analysis is partly CPU-bound pure-Python work (onset/envelope framing,
+    autocorrelation, etc. alongside the vectorised numpy/scipy calls), so
+    real OS processes are used instead of threads — threads would serialize
+    on the GIL for those sections and never approach num_workers-way
+    parallelism. Workers use the 'spawn' start method rather than fork, since
+    forking a process that already has Qt/PySide6 initialised (internal
+    threads, mutexes) is a known source of rare, hard-to-diagnose deadlocks.
+
+    Only a (track_id, file_path) pair crosses into a worker process, and
+    only a metadata dict (or an error string) comes back. DB writes, the
+    analysis_cache, and Qt signal emission all happen on the coordinator
+    thread here, in the main process — exactly as before, just no longer on
+    the same thread that decoded/analysed the audio.
 
     Usage
     -----
@@ -66,14 +100,17 @@ class BatchAnalysisScheduler:
         self.num_workers = num_workers if num_workers is not None else recommended_worker_count()
 
         self.signals = _SchedulerSignals()
-        self._queue: queue.Queue = queue.Queue()
-        self._workers: list[_AnalysisWorker] = []
+        self._pending: queue.Queue = queue.Queue()
         self._lock = threading.Lock()
+
+        self._executor: concurrent.futures.ProcessPoolExecutor | None = None
+        self._coordinator: threading.Thread | None = None
 
         self._total = 0
         self._completed = 0
         self._running = False
         self._paused = False
+        self._stop_flag = False
         self._pause_event = threading.Event()
         self._pause_event.set()  # not paused initially
 
@@ -83,7 +120,7 @@ class BatchAnalysisScheduler:
 
     def start(self, tracks: list):
         """
-        Populate the queue with tracks and spin up worker threads.
+        Populate the queue with tracks and spin up a worker process pool.
         Tracks already in the cache are skipped automatically.
         """
         with self._lock:
@@ -102,30 +139,23 @@ class BatchAnalysisScheduler:
             self._completed = 0
             self._running = True
             self._paused = False
+            self._stop_flag = False
             self._pause_event.set()
 
             for track in pending:
-                self._queue.put(track)
+                self._pending.put((track.track_id, track.track_file_path))
 
-            # Sentinel values so workers know when to exit
-            for _ in range(self.num_workers):
-                self._queue.put(None)
-
-            self._workers = []
-            for i in range(self.num_workers):
-                w = _AnalysisWorker(
-                    worker_id=i,
-                    task_queue=self._queue,
-                    pause_event=self._pause_event,
-                    controller=self.controller,
-                    on_done=self._on_track_done,
-                    on_error=self._on_track_error,
-                )
-                w.start()
-                self._workers.append(w)
+            self._executor = concurrent.futures.ProcessPoolExecutor(
+                max_workers=self.num_workers,
+                mp_context=multiprocessing.get_context("spawn"),
+            )
+            self._coordinator = threading.Thread(
+                target=self._coordinate, daemon=True, name="AnalysisCoordinator"
+            )
+            self._coordinator.start()
 
             logger.info(
-                f"BatchAnalysisScheduler: started {self.num_workers} workers "
+                f"BatchAnalysisScheduler: started {self.num_workers} worker processes "
                 f"for {self._total} tracks"
             )
 
@@ -145,22 +175,25 @@ class BatchAnalysisScheduler:
 
     def stop(self):
         """
-        Signal all workers to stop after their current track finishes,
-        then save the cache.
+        Signal the coordinator to stop submitting new work. Tracks already
+        in flight in a worker process are left to finish and are still
+        recorded (matching the previous thread-pool behaviour, where a
+        worker's current track always ran to completion before exiting).
         """
         with self._lock:
+            self._stop_flag = True
             self._running = False
             self._pause_event.set()  # unblock if paused
 
-            for w in self._workers:
-                w.stop()
-
-            # Drain the queue so workers can exit
-            while not self._queue.empty():
+            # Drain anything not yet dispatched to a worker
+            while not self._pending.empty():
                 try:
-                    self._queue.get_nowait()
+                    self._pending.get_nowait()
                 except queue.Empty:
                     break
+
+        if self._executor is not None:
+            self._executor.shutdown(wait=False, cancel_futures=True)
 
         analysis_cache.save()
         logger.info("BatchAnalysisScheduler: stopped and cache saved")
@@ -179,7 +212,7 @@ class BatchAnalysisScheduler:
         return self._completed, self._total
 
     # ------------------------------------------------------------------
-    # Internal callbacks (called from worker threads)
+    # Internal callbacks (called from the coordinator thread)
     # ------------------------------------------------------------------
 
     def _on_track_done(self, track_id: int, metadata: dict):
@@ -206,68 +239,66 @@ class BatchAnalysisScheduler:
 
         self.signals.error.emit(track_id, message)
 
+    # ------------------------------------------------------------------
+    # Coordinator (runs on its own thread in the main process)
+    # ------------------------------------------------------------------
 
-class _AnalysisWorker(threading.Thread):
-    """
-    Pulls tracks from the shared queue, runs AudioCalculations.run_all(),
-    and writes results to the database via the controller.
-    """
+    def _coordinate(self):
+        """
+        Keeps up to num_workers futures in flight in the process pool, and
+        handles each one (DB write, cache update, signal emit) as it
+        completes. None of that ever runs inside a worker process.
+        """
+        in_flight: dict[concurrent.futures.Future, tuple[int, str]] = {}
 
-    def __init__(
-        self,
-        worker_id: int,
-        task_queue: queue.Queue,
-        pause_event: threading.Event,
-        controller,
-        on_done,
-        on_error,
+        while True:
+            if not self._stop_flag:
+                while len(in_flight) < self.num_workers:
+                    if not self._pause_event.wait(timeout=1.0):
+                        break  # still paused
+                    try:
+                        track_id, file_path = self._pending.get_nowait()
+                    except queue.Empty:
+                        break
+                    future = self._executor.submit(
+                        _analyze_track_worker, track_id, file_path
+                    )
+                    in_flight[future] = (track_id, file_path)
+
+            if not in_flight:
+                break  # nothing left to do and nothing pending/in flight
+
+            done, _ = concurrent.futures.wait(
+                in_flight.keys(),
+                timeout=1.0,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            for future in done:
+                track_id, file_path = in_flight.pop(future)
+                self._handle_result(track_id, file_path, future)
+
+        logger.debug("AnalysisCoordinator: exiting")
+
+    def _handle_result(
+        self, track_id: int, file_path: str, future: concurrent.futures.Future
     ):
-        super().__init__(daemon=True, name=f"AnalysisWorker-{worker_id}")
-        self.worker_id = worker_id
-        self._queue = task_queue
-        self._pause_event = pause_event
-        self.controller = controller
-        self._on_done = on_done
-        self._on_error = on_error
-        self._stop_flag = False
-
-    def stop(self):
-        self._stop_flag = True
-
-    def run(self):
-        logger.debug(f"{self.name}: started")
-        while not self._stop_flag:
-            self._pause_event.wait()  # blocks if paused
-
-            try:
-                track = self._queue.get(timeout=1.0)
-            except queue.Empty:
-                continue
-
-            if track is None:  # sentinel → no more work
-                break
-
-            if self._stop_flag:
-                self._queue.task_done()
-                break
-
-            try:
-                self._process(track)
-            finally:
-                self._queue.task_done()
-
-        logger.debug(f"{self.name}: exiting")
-
-    def _process(self, track):
         try:
-            logger.info(f"{self.name}: analysing {track.track_file_path}")
-            calc = AudioCalculations(track.track_file_path)
-            metadata = calc.run_all()  # releases memory inside
-
-            self.controller.update.update_entity("Track", track.track_id, **metadata)
-            self._on_done(track.track_id, metadata)
-
+            _, metadata, error = future.result()
         except Exception as e:
-            msg = f"Worker error on track {track.track_id}: {e}"
+            metadata, error = None, str(e)
+
+        if error is not None or metadata is None:
+            msg = f"Worker error on track {file_path} (id={track_id}): {error}"
+            logger.error(msg)
+            self._on_track_error(track_id, msg)
+            return
+
+        try:
+            self.controller.update.update_entity("Track", track_id, **metadata)
+        except Exception as e:
+            msg = f"DB write failed for track {file_path} (id={track_id}): {e}"
             logger.error(msg, exc_info=True)
-            self._on_error(track.track_id, msg)
+            self._on_track_error(track_id, msg)
+            return
+
+        self._on_track_done(track_id, metadata)
