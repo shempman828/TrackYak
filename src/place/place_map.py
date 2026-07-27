@@ -48,6 +48,9 @@ class MapView(QWidget):
         self.selected_types = set()  # Track selected types
         self.all_place_types = set()  # Track all available types
         self._settings = QSettings()
+        self._map_initialized = False
+        self._page_ready = False
+        self._pending_js = []
         self.init_ui()
         self.setup_js_communication()
 
@@ -95,9 +98,23 @@ class MapView(QWidget):
 
         # 3. Map Widget
         self.map_widget = QWebEngineView()
+        self.map_widget.loadFinished.connect(self._on_page_loaded)
         layout.addWidget(self.map_widget, 1)
 
         self.refresh_place_types()
+
+    def _on_page_loaded(self, ok):
+        self._page_ready = ok
+        pending = self._pending_js
+        self._pending_js = []
+        for code in pending:
+            self.map_widget.page().runJavaScript(code)
+
+    def _run_js(self, code):
+        if self._page_ready:
+            self.map_widget.page().runJavaScript(code)
+        else:
+            self._pending_js.append(code)
 
     def _get_color_for_type(self, place_type: str) -> str:
         """Returns a mapped color or generates a stable dynamic color for new types."""
@@ -315,10 +332,25 @@ class MapView(QWidget):
             else:
                 avg_lat, avg_lon, zoom_level = 30, 0, 2
 
-            html_content = self._create_map_html(
-                valid_places, avg_lat, avg_lon, zoom_level
-            )
-            self.map_widget.setHtml(html_content)
+            if not self._map_initialized:
+                # Only the very first render needs a full document load
+                # (Leaflet/map/tile-layer init). Later refreshes (filter
+                # changes, place add/edit/delete, tab revisits) push an
+                # incremental marker update instead -- a full setHtml()
+                # reload tears down and rebuilds the whole Chromium page,
+                # which is what caused the visible whole-screen flash.
+                html_content = self._create_map_html(
+                    valid_places, avg_lat, avg_lon, zoom_level
+                )
+                self._page_ready = False
+                self.map_widget.setHtml(html_content)
+                self._map_initialized = True
+            else:
+                markers_js = self._create_markers_js(valid_places)
+                bounds_js = self._create_bounds_js(valid_places)
+                self._run_js(
+                    f"markerClusterGroup.clearLayers();\n{markers_js}\n{bounds_js}"
+                )
 
             logger.info(
                 f"Map generated with {len(valid_places)} valid places "
@@ -569,4 +601,6 @@ class MapView(QWidget):
         </body>
         </html>
         """
+        self._map_initialized = False
+        self._page_ready = False
         self.map_widget.setHtml(fallback_html)
