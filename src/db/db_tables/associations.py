@@ -81,6 +81,22 @@ class TrackArtistRole(Base):
         return self.artist.artist_name if self.artist else None
 
 
+class PublisherFounder(Base):
+    """An artist credited as a founder of a record company (Publisher)."""
+
+    __tablename__ = "publisher_founders"
+
+    publisher_id = Column(
+        Integer, ForeignKey("publishers.publisher_id", ondelete="CASCADE"), primary_key=True
+    )
+    artist_id = Column(
+        Integer, ForeignKey("artists.artist_id", ondelete="CASCADE"), primary_key=True
+    )
+
+    publisher = relationship("Publisher", back_populates="founder_associations")
+    artist = relationship("Artist", back_populates="founded_publisher_associations")
+
+
 class AlbumRoleAssociation(Base):
     __tablename__ = "album_role_association"
     __table_args__ = (
