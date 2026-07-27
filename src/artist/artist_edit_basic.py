@@ -12,12 +12,14 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -76,7 +78,20 @@ class BasicTab(QWidget):
         left_col.addWidget(self._build_links_group())
         left_col.addStretch()
 
-        outer.addLayout(left_col, 1)
+        # Wrapped in a scroll area so a tall combination of sections (e.g.
+        # many artist types, or the dialog resized short) scrolls instead of
+        # every group box being compressed toward its minimum size -- same
+        # pattern used for variable-height content elsewhere in the editor
+        # (base_merge_dialog.py, artist_edit_discog.py).
+        left_container = QWidget()
+        left_container.setLayout(left_col)
+
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QFrame.NoFrame)
+        left_scroll.setWidget(left_container)
+
+        outer.addWidget(left_scroll, 1)
 
         # ── Right: profile picture ───────────────────────────────────────────
         outer.addWidget(self._build_picture_group())
