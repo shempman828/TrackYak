@@ -40,6 +40,14 @@ class Publisher(Base):
     )
     aliases_list = association_proxy("aliases", "alias_name")
 
+    founder_associations = relationship(
+        "PublisherFounder",
+        back_populates="publisher",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    founders = association_proxy("founder_associations", "artist")
+
 
 class PublisherAlias(Base):
     """An alternate name for a publisher that always resolves to it.
