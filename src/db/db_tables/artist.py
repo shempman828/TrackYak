@@ -110,6 +110,14 @@ class Artist(Base):
         passive_deletes=True,
     )
 
+    founded_publisher_associations = relationship(
+        "PublisherFounder",
+        back_populates="artist",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    founded_publishers = association_proxy("founded_publisher_associations", "publisher")
+
     @property
     def albums(self):
         """Return albums where this artist is an Album Artist (role_id=1)."""
