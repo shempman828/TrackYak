@@ -239,7 +239,6 @@ class DiscManagementView(QWidget):
                     album_id=self.album.album_id,
                     disc_number=next_number,
                     disc_title=disc_data.get("disc_title"),
-                    media_type=disc_data.get("media_type"),
                 )
 
                 if success:
