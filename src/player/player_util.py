@@ -155,6 +155,21 @@ class MusicPlayer(QObject):
         self._has_reached_threshold: bool = False
         self._play_count_recorded: bool = False
 
+        # ── Deferred callback diagnostics ───────────────────────────────────────
+        # The audio callback runs on PortAudio's realtime thread, so it must never
+        # log directly (a blocking disk write there can itself cause the next
+        # underrun, cascading into the very hitches it's reporting). It just
+        # counts occurrences here; _update_position flushes them to the log from
+        # the main thread instead.
+        self._pending_status_count: int = 0
+        self._last_status_value = None
+        self._pending_error_count: int = 0
+        self._last_error_message: Optional[str] = None
+        # App-level buffer underrun (reader thread fell behind) — distinct from
+        # PortAudio's own `status` flag above: this one never reaches PortAudio
+        # late, so PortAudio never flags it, but it's heard as the same hitch.
+        self._pending_buffer_underrun_count: int = 0
+
         # ── Normalization ─────────────────────────────────────────────────────
         self.normalization_enabled: bool = False
         self.normalization_target: float = -14.0  # LUFS (music streaming standard)
@@ -1237,11 +1252,9 @@ class MusicPlayer(QObject):
         _t0 = _time.perf_counter()
 
         if status:
-            logger.warning(
-                f"Audio callback status: {status} "
-                f"(generation={generation}, playing={self.playing}, "
-                f"advancing={self._is_advancing}, frames_done={self._current_frame})"
-            )
+            # Don't log here — see _pending_status_count above.
+            self._pending_status_count += 1
+            self._last_status_value = status
 
         if generation != self._stream_generation:
             outdata.fill(0)
@@ -1268,6 +1281,7 @@ class MusicPlayer(QObject):
                     chunk = self._audio_buffer.popleft()
                 else:
                     # Buffer underrun — reader thread hasn't caught up
+                    self._pending_buffer_underrun_count += 1
                     outdata.fill(0)
                     if self._total_frames > 0 and self._current_frame >= self._total_frames:
                         self._emit_track_finished_once()
@@ -1292,7 +1306,9 @@ class MusicPlayer(QObject):
                 if buffer_empty:
                     self._emit_track_finished_once()
         except Exception as exc:
-            logger.error(f"Audio callback error (generation={generation}): {exc}")
+            # Don't log here — see _pending_status_count above.
+            self._pending_error_count += 1
+            self._last_error_message = str(exc)
             outdata.fill(0)
 
     # =========================================================================
@@ -1318,6 +1334,28 @@ class MusicPlayer(QObject):
             return
         self._position = int(self._frames_played / self.current_sample_rate * 1000)
         self.position_changed.emit(self._position)
+
+        if self._pending_status_count:
+            count, status = self._pending_status_count, self._last_status_value
+            self._pending_status_count = 0
+            logger.warning(
+                f"Audio callback status: {status} x{count} since last check "
+                f"(playing={self.playing}, advancing={self._is_advancing}, "
+                f"frames_done={self._current_frame})"
+            )
+        if self._pending_error_count:
+            count, msg = self._pending_error_count, self._last_error_message
+            self._pending_error_count = 0
+            logger.error(f"Audio callback error x{count} since last check: {msg}")
+        if self._pending_buffer_underrun_count:
+            count = self._pending_buffer_underrun_count
+            self._pending_buffer_underrun_count = 0
+            with self._buffer_lock:
+                buf_len = len(self._audio_buffer)
+            logger.warning(
+                f"Audio buffer underrun x{count} since last check "
+                f"(reader thread fell behind; buffer now has {buf_len} chunks)"
+            )
 
         if (
             self._duration > 0
