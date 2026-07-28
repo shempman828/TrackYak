@@ -18,6 +18,7 @@ class Place(Base):
     place_longitude = Column(Float)
     place_description = Column(String)
     parent_id = Column(Integer, ForeignKey("places.place_id"))
+    MBID = Column(String)
 
     parent = relationship("Place", remote_side=[place_id], backref="children")
     associations = relationship(
