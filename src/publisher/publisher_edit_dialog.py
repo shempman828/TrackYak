@@ -236,6 +236,7 @@ class PublisherEditDialog(QDialog):
                 "Publisher",
                 "publisher_id",
                 placeholder="e.g. EMI Records",
+                list_style=True,
             )
             aliases_layout.addWidget(self.tab_aliases)
             aliases_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
