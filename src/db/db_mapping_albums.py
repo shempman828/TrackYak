@@ -73,13 +73,15 @@ ALBUM_FIELDS = {
         type=float,
         friendly="Album Gain",
         short="Gain",
-        tooltip="Relative volume of the album to reference.",
+        tooltip="Relative volume of the album to reference, computed automatically from track analysis.",
+        editable=False,
     ),
     "album_peak": FieldSpec(
         type=float,
-        friendly="Track Peak",
+        friendly="Album Peak",
         short="Peak",
-        tooltip="The largest amplitude in the album",
+        tooltip="The largest true-peak amplitude across the album's tracks, computed automatically from track analysis.",
+        editable=False,
     ),
     "album_wikipedia_link": FieldSpec(
         friendly="Album Wikipedia Link",
