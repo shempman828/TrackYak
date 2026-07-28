@@ -37,6 +37,7 @@ class Album(Base):
     status = Column(
         String
     )  # official, promotion, bootleg, withdrawn, expunged, cancelled
+    discogs_master_url = Column(String)
 
     album_roles = relationship(
         "AlbumRoleAssociation",
