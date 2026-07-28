@@ -7,6 +7,7 @@ import webbrowser
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QCompleter,
     QDialog,
     QDialogButtonBox,
@@ -37,10 +38,9 @@ from src.album.base_album_edit_tabs import (
 from src.common.edit_dirty import value_changed
 from src.common.nullable_spinbox import NullableSpinBox
 from src.core.config_setup import Config
-from src.db.db_mapping_albums import ALBUM_FIELDS
 from src.core.logger_config import logger
+from src.db.db_mapping_albums import ALBUM_FIELDS
 from src.metadata.metadata_writer import MetadataWriter
-
 
 # Fallback suggestions used if the controller can't supply distinct values
 # already present in the database.
@@ -71,6 +71,14 @@ RELEASE_TYPE_SUGGESTIONS = [
     "Broadcast",
     "Demo",
 ]
+STATUS_SUGGESTIONS = [
+    "Official",
+    "Promotional",
+    "Bootleg",
+    "Withdrawn",
+    "Expunged",
+    "Cancelled",
+]
 
 
 # =============================================================================
@@ -99,6 +107,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     # app session, not once per album edit dialog.
     _album_language_cache = None
     _release_type_cache = None
+    _status_cache = None
 
     def __init__(self, controller, album, parent=None):
         super().__init__(parent)
@@ -170,6 +179,28 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
         self._attach_completer("album_language", self._get_album_language_suggestions())
         self._attach_completer("release_type", self._get_release_type_suggestions())
+        self._setup_status_combo()
+
+    def _setup_status_combo(self):
+        """Replace the plain status field with a dropdown of known statuses."""
+        field_config = ALBUM_FIELDS.get("status")
+        if not field_config or not field_config.editable:
+            return
+        current_value = getattr(self.album, "status", None)
+        combo = QComboBox()
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.NoInsert)
+        combo.addItem("")  # allows clearing the field back to NULL
+        combo.addItems(self._get_status_suggestions())
+        if current_value:
+            idx = combo.findText(current_value, Qt.MatchFixedString)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+            else:
+                combo.setEditText(current_value)
+        else:
+            combo.setCurrentIndex(0)
+        self.field_widgets["status"] = combo
 
     def _attach_completer(self, field_name, suggestions):
         """Wire a popup QCompleter onto a QLineEdit field widget."""
@@ -195,6 +226,13 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             )
         return AlbumEditor._release_type_cache
 
+    def _get_status_suggestions(self):
+        if AlbumEditor._status_cache is None:
+            AlbumEditor._status_cache = self._fetch_field_suggestions(
+                "status", STATUS_SUGGESTIONS
+            )
+        return AlbumEditor._status_cache
+
     def _fetch_field_suggestions(self, field_name, fallback):
         """Distinct values already used for `field_name` across the library,
         merged with a small generic fallback list in case lookup fails."""
@@ -206,7 +244,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 if value:
                     suggestions.add(value)
         except Exception:
-            pass
+            logger.debug(f"Could not fetch suggestions for {field_name!r}", exc_info=True)
         return sorted(suggestions, key=str.lower)
 
     # =========================================================================
@@ -512,7 +550,6 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
     def setup_connections(self):
         """Wire up any extra signal connections."""
-        pass  # Extend as needed
 
     # =========================================================================
     # Unsaved-changes guard
