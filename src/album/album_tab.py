@@ -14,15 +14,18 @@ Changes (this revision)
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
+    QCompleter,
     QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from src.common.entity_completer_edit import build_entity_search_widget
 from src.core.logger_config import logger
 
 
@@ -67,10 +70,7 @@ class AlbumTabBuilder:
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        add_btn = QPushButton("Add Artist Credit")
-        add_btn.clicked.connect(self.helper.add_artist_credit)
-        layout.addWidget(add_btn)
-
+        layout.addWidget(self._build_add_artist_credit_row())
         layout.addWidget(self._build_artists_list())
         layout.addStretch()
         return tab
@@ -78,6 +78,67 @@ class AlbumTabBuilder:
     # =========================================================================
     # Internal section builders
     # =========================================================================
+
+    def _build_add_artist_credit_row(self):
+        """Inline artist + role entry row, replacing the old popup dialog.
+
+        Mirrors the search bar in track_edit_roles.py: a bare entity
+        completer for the artist plus a plain (completer-assisted) text
+        field for the role, with an Add button — no modal.
+        """
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 8)
+        row_layout.setSpacing(6)
+
+        artist_search = build_entity_search_widget(
+            self.controller, "Artist", "artist_name", "artist_id", "Search artists…"
+        )
+
+        role_edit = QLineEdit()
+        role_edit.setPlaceholderText("Role (e.g. Performer, Composer…)")
+        existing_roles = [
+            r.role_name
+            for r in (self.controller.get.get_all_entities("Role") or [])
+            if r.role_name
+        ]
+        if existing_roles:
+            completer = QCompleter(existing_roles, role_edit)
+            completer.setCaseSensitivity(Qt.CaseInsensitive)
+            completer.setFilterMode(Qt.MatchContains)
+            role_edit.setCompleter(completer)
+
+        add_btn = QPushButton("Add Artist Credit")
+        add_btn.setEnabled(False)
+
+        def _update_add_btn(*_args):
+            add_btn.setEnabled(
+                len(artist_search.text().strip()) >= 2
+                and len(role_edit.text().strip()) >= 2
+            )
+
+        artist_search.textChanged.connect(_update_add_btn)
+        role_edit.textChanged.connect(_update_add_btn)
+
+        def _handle_add():
+            artist_name = artist_search.text().strip()
+            role_name = role_edit.text().strip()
+            if not artist_name or not role_name:
+                return
+            self.helper.add_artist_credit(
+                artist_name, role_name, matched_artist_id=artist_search.matched_id()
+            )
+            artist_search.reset()
+            role_edit.clear()
+
+        add_btn.clicked.connect(_handle_add)
+        role_edit.returnPressed.connect(_handle_add)
+        artist_search.returnPressed.connect(_handle_add)
+
+        row_layout.addWidget(artist_search, 3)
+        row_layout.addWidget(role_edit, 2)
+        row_layout.addWidget(add_btn)
+        return row
 
     def _build_publishers_section(self):
         """Build publishers section"""
