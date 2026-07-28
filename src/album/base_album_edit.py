@@ -92,14 +92,14 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
     Tabs
     ────
-    Details          – core metadata (language, type, catalog #, live/compilation flags, sales, MBID)
+    Details          – core metadata (language, type, catalog #, live/compilation flags, sales, MBID, Wikipedia link)
     Tracks           – DiscManagementView for disc / track structure
     Artwork          – front cover, rear cover, liner art with pickers
     Aliases          – add / remove / type album aliases
     Artist Credits   – relationship helpers (built by AlbumTabBuilder)
     Publishers & Places – relationship helpers (built by AlbumTabBuilder)
     Awards           – relationship helpers (built by AlbumTabBuilder)
-    Advanced         – metadata-complete flag, ReplayGain, Wikipedia link, library stats
+    Advanced         – metadata-complete flag, ReplayGain, library stats
     """
 
     # Caches shared across all AlbumEditor instances/openings so the (expensive)

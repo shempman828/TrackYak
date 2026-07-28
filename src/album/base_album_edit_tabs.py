@@ -61,6 +61,7 @@ class DetailsTab:
         _row("MBID:", "MBID")
         _row("Status:", "status")
         _row("Est. Sales:", "estimated_sales")
+        _row("Wikipedia Link:", "album_wikipedia_link")
         left.addStretch()
 
         right = QVBoxLayout()
@@ -214,7 +215,7 @@ class AliasesTab:
 
 
 class AdvancedTab:
-    """Metadata-complete flag, ReplayGain, Wikipedia link, and read-only library stats."""
+    """Metadata-complete flag, ReplayGain, and read-only library stats."""
 
     def __init__(self, editor: AlbumEditor):
         self.editor = editor
@@ -238,8 +239,6 @@ class AdvancedTab:
         is_fixed_widget = self.editor.field_widgets.get("is_fixed")
         if is_fixed_widget:
             layout.addWidget(is_fixed_widget)
-
-        _row("Wikipedia Link:", "album_wikipedia_link")
 
         def _read_only_row(label_text, value_text):
             row = QHBoxLayout()
