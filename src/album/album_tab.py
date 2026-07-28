@@ -11,24 +11,18 @@ Changes (this revision)
   needed here for the reload-on-close requirement.
 """
 
-from PySide6.QtGui import QFont
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QFormLayout,
     QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
-    QSpinBox,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from src.db.db_mapping_albums import ALBUM_FIELDS
 from src.core.logger_config import logger
 
 
@@ -44,21 +38,6 @@ class AlbumTabBuilder:
     # =========================================================================
     # Public tab builders
     # =========================================================================
-
-    def build_metadata_tab(self):
-        """Build the technical metadata tab using field mapping"""
-        tab = QWidget()
-        layout = QFormLayout(tab)
-        layout.setVerticalSpacing(10)
-
-        desc_widget = self.view.field_widgets.get("album_description", QLineEdit())
-        desc_widget.setText(self.album.album_description or "")
-        layout.addRow("Description:", desc_widget)
-
-        self._add_metadata_fields(layout)
-        layout.addRow(QWidget(), QWidget())  # Spacer
-
-        return tab
 
     def build_relationships_tab(self):
         """Build tab for publishers and place associations"""
@@ -96,52 +75,9 @@ class AlbumTabBuilder:
         layout.addStretch()
         return tab
 
-    def build_statistics_tab(self):
-        """Build the statistics and analytics tab"""
-        tab = QWidget()
-        layout = QFormLayout(tab)
-        layout.setVerticalSpacing(10)
-        self._add_statistics_fields(layout)
-        layout.addRow(QWidget(), QWidget())  # Spacer
-        return tab
-
     # =========================================================================
     # Internal section builders
     # =========================================================================
-
-    def _add_metadata_fields(self, layout):
-        """Add metadata fields to form layout"""
-        if self.album.album_gain:
-            gain_widget = self.view.field_widgets.get(
-                "album_gain", QLabel(f"{self.album.album_gain:.2f} dB")
-            )
-            gain_widget.setText(f"{self.album.album_gain:.2f}")
-            layout.addRow("Album Gain:", gain_widget)
-
-        actual_track_count = len(self.album.tracks) if self.album.tracks else 0
-        layout.addRow("Track Count:", QLabel(str(actual_track_count)))
-
-        wiki_widget = self.view.field_widgets.get("album_wikipedia_link", QLineEdit())
-        wiki_widget.setText(self.album.album_wikipedia_link or "")
-        layout.addRow("Wikipedia:", wiki_widget)
-
-        metadata_fields = ["album_language", "MBID", "status"]
-        for field_name in metadata_fields:
-            field_config = ALBUM_FIELDS.get(field_name)
-            if not field_config:
-                continue
-            current_value = getattr(self.album, field_name, None)
-            widget = self.view.field_widgets.get(field_name)
-            if widget and current_value is not None:
-                if isinstance(widget, (QLineEdit, QTextEdit)):
-                    widget.setText(str(current_value))
-                elif isinstance(widget, QSpinBox):
-                    widget.setValue(int(current_value))
-                elif isinstance(widget, QCheckBox):
-                    widget.setChecked(bool(current_value))
-                layout.addRow(f"{field_config.friendly}:", widget or QLineEdit())
-            elif current_value:
-                layout.addRow(f"{field_config.friendly}:", QLabel(str(current_value)))
 
     def _build_publishers_section(self):
         """Build publishers section"""
@@ -292,7 +228,7 @@ class AlbumTabBuilder:
 
         except Exception as e:
             logger.error(f"Error displaying award {award}: {e}")
-            layout.addWidget(QLabel(f"Error displaying award: {str(e)}"))
+            layout.addWidget(QLabel(f"Error displaying award: {e!s}"))
 
         return widget
 
@@ -393,39 +329,3 @@ class AlbumTabBuilder:
             layout.addWidget(role_group)
 
         return container
-
-    def _add_statistics_fields(self, layout):
-        """Add statistics fields to form layout"""
-        total_plays = getattr(self.album, "total_plays", 0)
-        layout.addRow("Total Plays:", QLabel(f"{total_plays:,}"))
-
-        avg_rating = getattr(self.album, "average_rating", None)
-        if avg_rating:
-            rating_stars = "★" * int(round(avg_rating))
-            layout.addRow(
-                "Average Rating:", QLabel(f"{rating_stars} ({avg_rating:.1f}/5)")
-            )
-
-        if self.album.tracks:
-            rated_tracks = len([t for t in self.album.tracks if t.user_rating])
-            played_tracks = len(
-                [t for t in self.album.tracks if t.play_count and t.play_count > 0]
-            )
-            layout.addRow(
-                "Rated Tracks:", QLabel(f"{rated_tracks}/{len(self.album.tracks)}")
-            )
-            layout.addRow(
-                "Played Tracks:", QLabel(f"{played_tracks}/{len(self.album.tracks)}")
-            )
-
-        if self.album.total_duration:
-            layout.addRow(
-                "Total Duration:",
-                QLabel(self.view.format_duration(self.album.total_duration)),
-            )
-            if self.album.tracks:
-                avg_dur = self.album.total_duration / len(self.album.tracks)
-                layout.addRow(
-                    "Average Track Duration:",
-                    QLabel(self.view.format_duration(avg_dur)),
-                )
