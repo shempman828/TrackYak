@@ -1,5 +1,4 @@
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -39,13 +38,6 @@ class DiscEditDialog(QDialog):
         self.title_input.setPlaceholderText("Optional disc title")
         form_layout.addRow("Title:", self.title_input)
 
-        # Media type
-        self.type_combo = QComboBox()
-        self.type_combo.addItems(
-            ["CD", "Vinyl", "Cassette", "Digital", "DVD", "Blu-ray", "Other"]
-        )
-        form_layout.addRow("Media Type:", self.type_combo)
-
         form_group.setLayout(form_layout)
         layout.addWidget(form_group)
 
@@ -59,5 +51,4 @@ class DiscEditDialog(QDialog):
         """Get entered disc data"""
         return {
             "disc_title": self.title_input.text().strip() or None,
-            "media_type": self.type_combo.currentText(),
         }
