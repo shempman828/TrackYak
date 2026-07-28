@@ -194,19 +194,36 @@ class MusicBrainzImportDialog(QDialog):
     -- no search, no picker list, just run `fetch_call` on a worker and
     report back the resulting candidate.
 
-    After exec(), call `result_candidate()` -- returns the fetched
-    candidate, or None if the fetch failed or the user cancelled.
+    After exec(), call `result_candidate()` -- returns whatever `fetch_call`
+    returned (an `MBCandidate` for the simple re-fetch case, or any other
+    payload for callers reusing this dialog for a different fetch shape),
+    or None if the fetch failed or the user cancelled.
+
+    Pass `supports_progress=True` for a `fetch_call` that accepts a single
+    `progress_callback(current, total)` positional argument (e.g.
+    `fetch_release_detail`'s recording-location resolution) -- the dialog
+    then switches its progress bar from an indeterminate spinner to a
+    determinate "(n of total)" counter once more than 5 steps are queued,
+    so a long-running fetch doesn't look hung. Callers that don't need this
+    can leave it False and keep passing a plain zero-arg `fetch_call`.
     """
+
+    # Below this many queued steps, the determinate counter isn't worth
+    # showing -- a couple of quick lookups just keep the plain spinner.
+    _PROGRESS_DISPLAY_THRESHOLD = 5
 
     def __init__(
         self,
         entity_label: str,
-        fetch_call: Callable[[], MBCandidate],
+        fetch_call: Callable[..., MBCandidate],
         parent=None,
+        supports_progress: bool = False,
     ):
         super().__init__(parent)
         self._fetch_call = fetch_call
-        self._result_candidate: Optional[MBCandidate] = None
+        self._supports_progress = supports_progress
+        self._entity_label = entity_label
+        self._result_candidate = None
         self._worker: Optional[MusicBrainzWorker] = None
 
         self.setWindowTitle("MusicBrainz Import")
@@ -228,12 +245,31 @@ class MusicBrainzImportDialog(QDialog):
         button_row.addWidget(self.buttons)
         layout.addLayout(button_row)
 
-        self._worker = MusicBrainzWorker(self._fetch_call, self)
+        # The worker is constructed with a placeholder call so `_call` can
+        # be a closure over `self._worker.progress.emit` -- the worker has
+        # to exist before that closure can reference it.
+        self._worker = MusicBrainzWorker(lambda: None, self)
+        if supports_progress:
+            self._worker._call = lambda: fetch_call(self._worker.progress.emit)
+            self._worker.progress.connect(self._on_progress)
+        else:
+            self._worker._call = lambda: fetch_call()
         self._worker.finished.connect(self._on_finished)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
-    def _on_finished(self, candidate: MBCandidate):
+    def _on_progress(self, current: int, total: int):
+        if total <= self._PROGRESS_DISPLAY_THRESHOLD:
+            return
+        if self.progress_bar.maximum() == 0:
+            self.progress_bar.setRange(0, total)
+        self.progress_bar.setValue(current)
+        self.status_label.setText(
+            f"Resolving recording locations for {self._entity_label}… "
+            f"({current} of {total})"
+        )
+
+    def _on_finished(self, candidate):
         self._result_candidate = candidate
         self.accept()
 
@@ -242,5 +278,5 @@ class MusicBrainzImportDialog(QDialog):
         self.progress_bar.hide()
         self.status_label.setText(f"MusicBrainz import failed: {message}")
 
-    def result_candidate(self) -> Optional[MBCandidate]:
+    def result_candidate(self):
         return self._result_candidate
