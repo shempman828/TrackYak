@@ -211,7 +211,6 @@ class AlbumImporter:
             "album_id": album_id,
             "disc_number": disc_number,
             "disc_title": metadata.get("disc_title"),
-            "media_type": metadata.get("media_type"),
         }
         disc_data = {k: v for k, v in disc_data.items() if v is not None}
 
