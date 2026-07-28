@@ -231,16 +231,6 @@ class AdvancedTab:
 
         _row("Wikipedia Link:", "album_wikipedia_link")
 
-        rg_label = QLabel("ReplayGain")
-        rg_label.setProperty("title", True)
-        layout.addWidget(rg_label)
-        _row("Album Gain (dB):", "album_gain")
-        _row("Album Peak:", "album_peak")
-
-        stats_label = QLabel("Library Stats")
-        stats_label.setProperty("title", True)
-        layout.addWidget(stats_label)
-
         def _read_only_row(label_text, value_text):
             row = QHBoxLayout()
             lbl = QLabel(label_text)
@@ -252,6 +242,24 @@ class AdvancedTab:
             layout.addLayout(row)
 
         album = self.editor.album
+
+        rg_label = QLabel("ReplayGain")
+        rg_label.setProperty("title", True)
+        layout.addWidget(rg_label)
+        album_gain = getattr(album, "album_gain", None)
+        _read_only_row(
+            "Album Gain (dB):",
+            f"{album_gain:.2f}" if album_gain is not None else "—",
+        )
+        album_peak = getattr(album, "album_peak", None)
+        _read_only_row(
+            "Album Peak:",
+            f"{album_peak:.4f}" if album_peak is not None else "—",
+        )
+
+        stats_label = QLabel("Library Stats")
+        stats_label.setProperty("title", True)
+        layout.addWidget(stats_label)
         track_count = len(album.tracks) if album.tracks else 0
         _read_only_row("Track Count:", str(track_count))
 
