@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from difflib import SequenceMatcher
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -34,6 +34,7 @@ from src.place.place_association_types import (
     fetch_association_types,
     find_or_create_association_type,
 )
+from src.place.place_chain_resolver import resolve_place_chain
 
 # Same threshold used by the "Find Duplicates" artist merge tool
 # (artist_view.py) -- keeps the two fuzzy-match features in agreement about
@@ -60,8 +61,8 @@ class ArtistEnrichmentReviewDialog(QDialog):
         self.artist = artist
         self.relations = relations
         self._alias_checks: List[Tuple[QCheckBox, MBAlias]] = []
-        self._birthplace: Optional[Tuple[QCheckBox, str]] = None
-        self._deathplace: Optional[Tuple[QCheckBox, str]] = None
+        self._birthplace: Optional[Tuple[QCheckBox, str, List[Dict[str, Any]]]] = None
+        self._deathplace: Optional[Tuple[QCheckBox, str, List[Dict[str, Any]]]] = None
         self._member_checks: List[Tuple[QCheckBox, MBGroupRelation, object]] = []
         self.has_content = False
 
@@ -236,21 +237,25 @@ class ArtistEnrichmentReviewDialog(QDialog):
         existing_types = self._existing_place_association_types()
         place_rows = []
         if self.relations.birthplace and "Birthplace" not in existing_types:
-            place_rows.append(("Birthplace", self.relations.birthplace))
+            place_rows.append(
+                ("Birthplace", self.relations.birthplace, self.relations.birthplace_chain)
+            )
         if self.relations.deathplace and "Deathplace" not in existing_types:
-            place_rows.append(("Deathplace", self.relations.deathplace))
+            place_rows.append(
+                ("Deathplace", self.relations.deathplace, self.relations.deathplace_chain)
+            )
         if place_rows:
             self.has_content = True
             box = QGroupBox("Places")
             box_layout = QVBoxLayout(box)
-            for assoc_type, place_name in place_rows:
+            for assoc_type, place_name, chain in place_rows:
                 cb = QCheckBox(f"{assoc_type}: {place_name}")
                 cb.setChecked(True)
                 box_layout.addWidget(cb)
                 if assoc_type == "Birthplace":
-                    self._birthplace = (cb, place_name)
+                    self._birthplace = (cb, place_name, chain)
                 else:
-                    self._deathplace = (cb, place_name)
+                    self._deathplace = (cb, place_name, chain)
             inner_layout.addWidget(box)
 
         matched = self._matched_group_relations()
@@ -327,12 +332,13 @@ class ArtistEnrichmentReviewDialog(QDialog):
             except Exception as e:
                 logger.warning(f"Could not import MB alias '{alias.name}': {e}")
 
+        place_cache: Dict[str, Any] = {}
         for entry, assoc_type in ((self._birthplace, "Birthplace"), (self._deathplace, "Deathplace")):
             if entry is None:
                 continue
-            cb, place_name = entry
+            cb, place_name, chain = entry
             if cb.isChecked():
-                self._apply_place(place_name, assoc_type)
+                self._apply_place(place_name, chain, assoc_type, place_cache)
 
         for cb, rel, counterpart in self._member_checks:
             if not cb.isChecked():
@@ -358,11 +364,31 @@ class ArtistEnrichmentReviewDialog(QDialog):
 
         self.accept()
 
-    def _apply_place(self, place_name: str, assoc_type: str):
+    def _apply_place(
+        self,
+        place_name: str,
+        chain: List[Dict[str, Any]],
+        assoc_type: str,
+        cache: Dict[str, Any],
+    ):
         try:
-            place = self.controller.get.get_entity_object("Place", place_name=place_name)
+            if chain:
+                # Walk the full MusicBrainz area chain (city -> county ->
+                # state -> country, etc) so the place is linked with its
+                # complete parent hierarchy, not just a bare name.
+                place = resolve_place_chain(self.controller, chain, cache)
+            else:
+                # MusicBrainz didn't return an area MBID (rare) -- fall
+                # back to the old flat by-name find-or-create.
+                place = self.controller.get.get_entity_object(
+                    "Place", place_name=place_name
+                )
+                if place is None:
+                    place = self.controller.add.add_entity(
+                        "Place", place_name=place_name
+                    )
             if place is None:
-                place = self.controller.add.add_entity("Place", place_name=place_name)
+                return
             known_types = fetch_association_types(self.controller)
             assoc_type_obj = find_or_create_association_type(
                 self.controller, assoc_type, known_types
