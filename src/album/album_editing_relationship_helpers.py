@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.credited_as_dialog import CreditedAsDialog
+from src.common.entity_completer_edit import register_cached_entity
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.place.place_association_types import (
@@ -103,51 +104,41 @@ class RelationshipHelpers:
     # Artist credit management
     # =========================================================================
 
-    def add_artist_credit(self):
-        """Add a new artist credit with role to the album."""
-        existing_artists = self._get_existing_entities("Artist", "artist_name")
-        existing_roles = self._get_existing_entities("Role", "role_name")
+    def add_artist_credit(self, artist_name, role_name, matched_artist_id=None):
+        """Add a new artist credit with role to the album.
 
-        result = AutocompleteDialog.get_inputs(
-            [
-                {
-                    "name": "artist_name",
-                    "label": "Artist:",
-                    "type": "text",
-                    "completer_data": existing_artists,
-                    "placeholder": "Start typing to search artists...",
-                },
-                {
-                    "name": "role_name",
-                    "label": "Role:",
-                    "type": "text",
-                    "completer_data": existing_roles,
-                    "placeholder": "Enter role (composer, performer, etc.)",
-                },
-            ],
-            title="Add Artist Credit",
-            parent=None,
-        )
-
-        if not result or not result["artist_name"] or not result["role_name"]:
+        `artist_name`/`role_name` come from the inline entity-completer row
+        in the Artists tab (album_tab.py) rather than a popup dialog.
+        `matched_artist_id`, when set, skips the name lookup entirely --
+        the user picked an existing artist from the completer.
+        """
+        artist_name = (artist_name or "").strip()
+        role_name = (role_name or "").strip()
+        if not artist_name or not role_name:
             show_status_message(self.widget, "Both artist and role are required.")
             return
 
         try:
-            artist = self.controller.get.get_entity_object(
-                "Artist", artist_name=result["artist_name"]
-            )
-            if not artist:
-                artist = self.controller.add.add_entity(
-                    "Artist", artist_name=result["artist_name"]
+            if matched_artist_id is not None:
+                artist = self.controller.get.get_entity_object(
+                    "Artist", artist_id=matched_artist_id
                 )
+            else:
+                artist = self.controller.get.get_entity_object(
+                    "Artist", artist_name=artist_name
+                )
+                if not artist:
+                    artist = self.controller.add.add_entity(
+                        "Artist", artist_name=artist_name
+                    )
+                    register_cached_entity("Artist", artist)
 
             role = self.controller.get.get_entity_object(
-                "Role", role_name=result["role_name"]
+                "Role", role_name=role_name
             )
             if not role:
                 role = self.controller.add.add_entity(
-                    "Role", role_name=result["role_name"]
+                    "Role", role_name=role_name
                 )
 
             # New credits go to the end of their role group rather than
