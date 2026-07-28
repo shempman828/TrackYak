@@ -1,16 +1,57 @@
-from PySide6.QtWidgets import QCheckBox, QDialog, QLineEdit, QMessageBox, QSpinBox
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QLineEdit,
+    QMessageBox,
+    QSpinBox,
+)
 
+from src.album.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
 from src.common.nullable_spinbox import NullableSpinBox
-from src.musicbrainz.musicbrainz_client import search_release_groups
-from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzMatchDialog
+from src.core.logger_config import logger
+from src.musicbrainz.musicbrainz_client import (
+    fetch_release_detail,
+    fetch_release_group_aliases,
+    search_canonical_releases,
+)
+from src.musicbrainz.musicbrainz_match_dialog import (
+    MusicBrainzImportDialog,
+    MusicBrainzMatchDialog,
+)
+
+# Album-level scalar fields filled onto the open editor's widgets (fill-blank
+# only, via _apply_musicbrainz_enrichment) -- everything else a release
+# carries (credits, recording locations, discs, track numbers, aliases,
+# barcode, Discogs link) is relational/track-level and applied directly to
+# the database by AlbumMusicBrainzReviewDialog instead, since there's no
+# corresponding open form widget for most of it.
+_SCALAR_ENRICHMENT_FIELDS = (
+    "status",
+    "album_language",
+    "catalog_number",
+    "release_year",
+    "release_month",
+    "release_day",
+)
 
 
 class AlbumMusicBrainzMixin:
     """
-    MusicBrainz release-group lookup and enrichment for AlbumEditor.
+    MusicBrainz release lookup and enrichment for AlbumEditor.
 
-    Expects the host class to provide: self.album, self.field_widgets, and
-    to be a QWidget subclass.
+    Expects the host class to provide: self.controller, self.album,
+    self.field_widgets, self._refresh_from_database(), and to be a QWidget
+    subclass.
+
+    Three steps:
+      1. Search the `release` endpoint (not release-group) and let the user
+         confirm/override the auto-ranked canonical pick.
+      2. Fetch full per-release detail (credits, recording locations, disc
+         layout, aliases) for that one release.
+      3. Fill blank album-level scalar widgets, then hand everything else to
+         AlbumMusicBrainzReviewDialog for track matching and checkbox-gated
+         apply.
     """
 
     def _lookup_musicbrainz(self):
@@ -32,15 +73,82 @@ class AlbumMusicBrainzMixin:
 
         dialog = MusicBrainzMatchDialog(
             entity_label=f"album '{album_name}'",
-            search_call=lambda: search_release_groups(album_name, artist_names),
+            search_call=lambda: search_canonical_releases(album_name, artist_names),
             parent=self,
         )
         if dialog.exec() != QDialog.Accepted:
             return
 
-        enrichment = dialog.result_enrichment()
-        if enrichment:
-            self._apply_musicbrainz_enrichment(enrichment)
+        picked = dialog.result_candidate()
+        if picked is None:
+            return
+        self._fetch_release_and_review(picked.id, album_name)
+
+    def _fetch_release_and_review(self, release_mbid: str, album_name: str):
+        def _fetch_all(progress):
+            detail = fetch_release_detail(release_mbid, progress_callback=progress)
+            aliases = []
+            if detail.release_group_mbid:
+                try:
+                    aliases = fetch_release_group_aliases(detail.release_group_mbid)
+                except Exception as e:
+                    logger.warning(f"Could not fetch album aliases for {album_name}: {e}")
+            return detail, aliases
+
+        dialog = MusicBrainzImportDialog(
+            entity_label=f"release details for '{album_name}'",
+            fetch_call=_fetch_all,
+            supports_progress=True,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        result = dialog.result_candidate()
+        if result is None:
+            return
+        detail, aliases = result
+        self._apply_release_detail(detail, aliases)
+
+    def _apply_release_detail(self, detail, aliases):
+        scalar_enrichment = {}
+        if detail.status:
+            scalar_enrichment["status"] = detail.status
+        if detail.language:
+            scalar_enrichment["album_language"] = detail.language
+        if detail.catalog_number:
+            scalar_enrichment["catalog_number"] = detail.catalog_number
+        if detail.release_year:
+            scalar_enrichment["release_year"] = detail.release_year
+        if detail.release_month:
+            scalar_enrichment["release_month"] = detail.release_month
+        if detail.release_day:
+            scalar_enrichment["release_day"] = detail.release_day
+        if scalar_enrichment:
+            self._apply_musicbrainz_enrichment(scalar_enrichment)
+
+        if detail.discogs_master_url and not self.album.discogs_master_url:
+            try:
+                self.controller.update.update_entity(
+                    "Album",
+                    self.album.album_id,
+                    discogs_master_url=detail.discogs_master_url,
+                )
+            except Exception as e:
+                logger.warning(f"Could not save Discogs master link: {e}")
+
+        review = AlbumMusicBrainzReviewDialog(
+            self.controller, self.album, detail, aliases, parent=self
+        )
+        # Disc creation + fill-blank track_number/side/barcode for tracks
+        # that auto-matched cleanly happen immediately -- no confirmation
+        # needed, same rule as any other scalar enrichment. Only credits,
+        # recording locations, aliases, and manual track-match picks are
+        # gated behind the checkbox review.
+        review.apply_immediate_scalars()
+        if review.has_content:
+            review.exec()
+        self._refresh_from_database()
 
     def _apply_musicbrainz_enrichment(self, enrichment: dict):
         """Fill field widgets from a MusicBrainz enrichment dict, but only
@@ -56,12 +164,23 @@ class AlbumMusicBrainzMixin:
         None, combined with the widget still being unchecked -- applied
         only when both hold, so a deliberate manual uncheck just before the
         lookup is never clobbered.
+
+        QComboBox fields (status) are "blank" at their empty first entry --
+        applied by selecting a matching existing item, or setting the edit
+        text directly if the value isn't one of the preset choices.
         """
         for field_name, value in enrichment.items():
             widget = self.field_widgets.get(field_name)
             if widget is None:
                 continue
-            if isinstance(widget, QLineEdit):
+            if isinstance(widget, QComboBox):
+                if not widget.currentText().strip():
+                    idx = widget.findText(str(value))
+                    if idx >= 0:
+                        widget.setCurrentIndex(idx)
+                    else:
+                        widget.setEditText(str(value))
+            elif isinstance(widget, QLineEdit):
                 if not widget.text().strip():
                     widget.setText(str(value))
             elif isinstance(widget, NullableSpinBox):
