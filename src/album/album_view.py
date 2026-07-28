@@ -229,9 +229,9 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         row.addWidget(self.min_tracks)
 
         # Possibly Incomplete filter
-        row.addWidget(QLabel("Incomplete:"))
+        row.addWidget(QLabel("Completeness:"))
         self.incomplete_combo = QComboBox()
-        self.incomplete_combo.addItems(["Any", "Possibly Incomplete", "Complete"])
+        self.incomplete_combo.addItems(["Any", "Possibly Incomplete", "Likely Complete"])
         self.incomplete_combo.currentIndexChanged.connect(self._apply_filters)
         row.addWidget(self.incomplete_combo)
 
@@ -365,7 +365,7 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
                 is_incomplete = bool(getattr(album, "possibly_incomplete", False))
                 if incomplete_mode == "Possibly Incomplete" and not is_incomplete:
                     continue
-                if incomplete_mode == "Complete" and is_incomplete:
+                if incomplete_mode == "Likely Complete" and is_incomplete:
                     continue
 
             # ── Is Fixed filter ───────────────────────────────────────────
