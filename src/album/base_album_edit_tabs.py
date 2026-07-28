@@ -12,8 +12,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.core.logger_config import logger
 from src.disc.disc_view import DiscManagementView
+
+
+def _format_duration(total_seconds):
+    """Render a duration in seconds as H:MM:SS, or M:SS under an hour."""
+    total_seconds = int(total_seconds or 0)
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes}:{seconds:02d}"
+
 
 # =========================================================================
 # Inner tab classes
@@ -23,7 +33,7 @@ from src.disc.disc_view import DiscManagementView
 class DetailsTab:
     """Core metadata: language, type, catalog #, live/compilation flags, sales, MBID."""
 
-    def __init__(self, editor: "AlbumEditor"):
+    def __init__(self, editor: AlbumEditor):
         self.editor = editor
 
     def build(self) -> QWidget:
@@ -72,7 +82,7 @@ class DetailsTab:
 class TracksTab:
     """Disc / track management view."""
 
-    def __init__(self, editor: "AlbumEditor"):
+    def __init__(self, editor: AlbumEditor):
         self.editor = editor
 
     def build(self) -> QWidget:
@@ -96,7 +106,7 @@ class ArtworkTab:
     immediately so the two stay in sync.
     """
 
-    def __init__(self, editor: "AlbumEditor"):
+    def __init__(self, editor: AlbumEditor):
         self.editor = editor
 
     def build(self) -> QWidget:
@@ -153,7 +163,7 @@ class ArtworkTab:
 class AliasesTab:
     """List existing aliases; allow adding and removing them inline."""
 
-    def __init__(self, editor: "AlbumEditor"):
+    def __init__(self, editor: AlbumEditor):
         self.editor = editor
 
     def build(self) -> QWidget:
@@ -206,7 +216,7 @@ class AliasesTab:
 class AdvancedTab:
     """Metadata-complete flag, ReplayGain, Wikipedia link, and read-only library stats."""
 
-    def __init__(self, editor: "AlbumEditor"):
+    def __init__(self, editor: AlbumEditor):
         self.editor = editor
 
     def build(self) -> QWidget:
@@ -263,6 +273,15 @@ class AdvancedTab:
         track_count = len(album.tracks) if album.tracks else 0
         _read_only_row("Track Count:", str(track_count))
 
+        total_duration = getattr(album, "total_duration", None)
+        if total_duration:
+            _read_only_row("Total Duration:", _format_duration(total_duration))
+            if track_count:
+                _read_only_row(
+                    "Average Track Duration:",
+                    _format_duration(total_duration / track_count),
+                )
+
         total_plays = getattr(album, "total_plays", None)
         _read_only_row(
             "Total Plays:", str(total_plays) if total_plays is not None else "—"
@@ -277,6 +296,14 @@ class AdvancedTab:
         else:
             display_rating = "—"
         _read_only_row("Average Rating:", display_rating)
+
+        if album.tracks:
+            rated_tracks = len([t for t in album.tracks if t.user_rating])
+            played_tracks = len(
+                [t for t in album.tracks if t.play_count and t.play_count > 0]
+            )
+            _read_only_row("Rated Tracks:", f"{rated_tracks}/{track_count}")
+            _read_only_row("Played Tracks:", f"{played_tracks}/{track_count}")
 
         possibly_incomplete = getattr(album, "possibly_incomplete", None)
         inc_text = (
