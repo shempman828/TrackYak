@@ -3,6 +3,8 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
+import webbrowser
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -32,6 +34,8 @@ _ART_SIZE = 96
 class AlbumsTab(_BaseTab):
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
+        self._wiki_link = ""
+        self._mb_link = ""
         self._build_ui()
 
     # ── UI ────────────────────────────────────────────────────────────────
@@ -97,6 +101,18 @@ class AlbumsTab(_BaseTab):
         )
         self._change_album_btn.toggled.connect(self._on_change_album_toggled)
         btn_row.addWidget(self._change_album_btn)
+
+        self._wiki_open_btn = QPushButton("🌐 Wikipedia")
+        self._wiki_open_btn.setToolTip("Open the album's Wikipedia page in your browser")
+        self._wiki_open_btn.clicked.connect(self._open_wiki_link)
+        self._wiki_open_btn.setVisible(False)
+        btn_row.addWidget(self._wiki_open_btn)
+
+        self._mb_open_btn = QPushButton("🎵 MusicBrainz")
+        self._mb_open_btn.setToolTip("Open the album's MusicBrainz page in your browser")
+        self._mb_open_btn.clicked.connect(self._open_mb_link)
+        self._mb_open_btn.setVisible(False)
+        btn_row.addWidget(self._mb_open_btn)
 
         btn_row.addStretch(1)
         current_layout.addLayout(btn_row)
@@ -217,6 +233,10 @@ class AlbumsTab(_BaseTab):
                 self._primary_artist_label.setText("")
                 self._primary_year_label.setText("")
                 self._art_label.clear()
+                self._wiki_link = ""
+                self._mb_link = ""
+                self._wiki_open_btn.setVisible(False)
+                self._mb_open_btn.setVisible(False)
                 self._remove_primary_btn.setEnabled(True)
             self._open_primary_btn.setEnabled(False)
             self._set_primary_btn.setEnabled(len(self._album_search.text().strip()) >= 2)
@@ -253,6 +273,10 @@ class AlbumsTab(_BaseTab):
             self._primary_artist_label.setText("")
             self._primary_year_label.setText("")
             self._art_label.clear()
+            self._wiki_link = ""
+            self._mb_link = ""
+            self._wiki_open_btn.setVisible(False)
+            self._mb_open_btn.setVisible(False)
             return
 
         self._primary_label.setText(album.album_name or "—")
@@ -262,6 +286,13 @@ class AlbumsTab(_BaseTab):
         year = getattr(album, "release_year", None)
         self._primary_year_label.setText(str(year) if year else "Year unknown")
         self._load_album_art(album)
+
+        self._wiki_link = getattr(album, "album_wikipedia_link", None) or ""
+        self._wiki_open_btn.setVisible(bool(self._wiki_link))
+
+        mbid = getattr(album, "MBID", None)
+        self._mb_link = f"https://musicbrainz.org/release-group/{mbid}" if mbid else ""
+        self._mb_open_btn.setVisible(bool(self._mb_link))
 
     def _load_album_art(self, album) -> None:
         pixmap = None
@@ -467,6 +498,14 @@ class AlbumsTab(_BaseTab):
         album = getattr(self.track, "album", None)
         if album:
             self._open_album_by_id(album.album_id)
+
+    def _open_wiki_link(self):
+        if self._wiki_link:
+            webbrowser.open(self._wiki_link)
+
+    def _open_mb_link(self):
+        if self._mb_link:
+            webbrowser.open(self._mb_link)
 
     # ── Virtual appearance search / add / remove ──────────────────────────
 
