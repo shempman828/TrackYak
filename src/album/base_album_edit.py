@@ -147,10 +147,6 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             "release_year",
             "estimated_sales",
         }
-        # These three sit side by side in a cramped 70px-wide date row, so
-        # they get an icon-only checkbox instead of the full "Set" label.
-        COMPACT_FIELDS = {"release_year", "release_month", "release_day"}
-
         for field_name, field_config in ALBUM_FIELDS.items():
             if not field_config.editable:
                 continue
@@ -165,7 +161,6 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                     min_val=int(min_val),
                     max_val=int(max_val),
                     current_value=current_value,
-                    checkbox_text="" if field_name in COMPACT_FIELDS else "Set",
                 )
             else:
                 widget = AlbumUIComponents.create_editable_field(
