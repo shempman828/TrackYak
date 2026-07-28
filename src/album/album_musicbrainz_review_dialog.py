@@ -18,6 +18,7 @@ credits, recording locations, album aliases) go behind the checkbox review.
 
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtWidgets import (
@@ -76,10 +77,16 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         self._build_ui()
 
     # ------------------------------------------------------------------
-    # Track matching (no DB writes) -- see plan for the two-pass approach:
-    # exact (disc_number, track_number) match, then ordinal fallback for a
-    # single-medium release, then a manual QComboBox for anything left.
+    # Track matching (no DB writes) -- exact (disc_number, track_number)
+    # match, then a title-similarity guess for a single-medium release,
+    # then a manual QComboBox for anything left.
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _title_similarity(a: Optional[str], b: Optional[str]) -> float:
+        if not a or not b:
+            return 0.0
+        return SequenceMatcher(None, a.lower().strip(), b.lower().strip()).ratio()
 
     def _match_tracks(self):
         local_tracks = list(self.album.tracks or [])
@@ -103,14 +110,37 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             key=lambda t: (t.track_number is None, t.track_number or 0, t.track_id),
         )
 
-        # Only safe to guess ordinal pairing automatically for a single
-        # medium -- a multi-disc release with untagged local tracks has no
-        # reliable signal for which disc a given local track belongs to.
+        # Only safe to guess pairing automatically for a single medium -- a
+        # multi-disc release with untagged local tracks has no reliable
+        # signal for which disc a given local track belongs to.
         single_medium = len({mbt.disc_number for mbt in self.detail.tracks}) <= 1
         guesses: Dict[int, Any] = {}
-        if single_medium:
-            for mbt, local in zip(remaining_mb, remaining_local):
+        if single_medium and remaining_mb and remaining_local:
+            # Greedily pair by title similarity first -- highest-scoring
+            # pairs win -- so a missing/extra track in the middle of the
+            # list doesn't shift every later track's guess out of position
+            # the way a plain positional zip() would. Position is only a
+            # tiebreaker, for when titles give no signal (e.g. blank
+            # local track names).
+            candidates = [
+                (
+                    self._title_similarity(mbt.title, local.track_name),
+                    abs((mbt.track_number or 0) - (local.track_number or 0)),
+                    mbt,
+                    local,
+                )
+                for mbt in remaining_mb
+                for local in remaining_local
+            ]
+            candidates.sort(key=lambda c: (-c[0], c[1]))
+            used_mb_ids = set()
+            used_local_ids = set()
+            for _score, _dist, mbt, local in candidates:
+                if id(mbt) in used_mb_ids or local.track_id in used_local_ids:
+                    continue
                 guesses[id(mbt)] = local
+                used_mb_ids.add(id(mbt))
+                used_local_ids.add(local.track_id)
 
         self._matched = matched
         self._remaining_mb = remaining_mb
