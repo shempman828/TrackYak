@@ -48,7 +48,8 @@ class AlbumMusicBrainzMixin:
         overwrites something the user already filled in or typed moments ago.
 
         NullableSpinBox fields (release_year/month/day, estimated_sales) are
-        "blank" when their checkbox is unchecked -- value() returns None.
+        "blank" when the spin box sits on its empty sentinel -- value()
+        returns None.
 
         QCheckBox fields (is_live/is_compilation) have no blank state at
         all, so they fall back to the originally-loaded album's value being
