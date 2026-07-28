@@ -451,7 +451,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
         mbid = getattr(self.album, "MBID", None)
         if mbid:
-            mb_url = f"https://musicbrainz.org/release-group/{mbid}"
+            mb_url = f"https://musicbrainz.org/release/{mbid}"
             self._mb_btn = QPushButton("🎵 MusicBrainz")
             self._mb_btn.setToolTip(mb_url)
             self._mb_btn.clicked.connect(lambda: webbrowser.open(mb_url))
