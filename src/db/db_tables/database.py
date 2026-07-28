@@ -6,8 +6,11 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from src.db.db_engine import engine as _shared_engine
+from src.db.db_tables.album import Album
 from src.db.db_tables.base import Base
+from src.db.db_tables.track import Track
 from src.core.logger_config import logger
+from src.statistics.album_gain_peak import compute_album_gain_peak
 
 _DEFAULT_DB_PATH = "sqlite:///music_library.db"
 
@@ -143,6 +146,10 @@ class MusicDatabase:
             else:
                 logger.info("Column integrity check passed.")
 
+            # ── Step 3: One-off data backfill ────────────────────────────────
+            if "albums" in existing_tables and "tracks" in existing_tables:
+                self._backfill_album_gain_peak()
+
         except Exception as e:
             logger.error(f"Integrity check failed: {e}")
             raise
@@ -176,6 +183,46 @@ class MusicDatabase:
                 f"Failed to rename column {table_name}.{old_name} to "
                 f"{new_name}: {e}"
             )
+
+    def _backfill_album_gain_peak(self) -> None:
+        """One-time catch-up for albums analyzed before album_gain/album_peak
+        became a computed field (see src/statistics/album_gain_peak.py).
+        Only touches albums that have never been computed (album_gain IS
+        NULL), so it's a no-op on every startup after the first, and it
+        never overwrites a value produced by the normal analysis pipeline.
+        """
+        try:
+            with self.Session() as session:
+                albums = (
+                    session.query(Album).filter(Album.album_gain.is_(None)).all()
+                )
+                if not albums:
+                    return
+
+                updated = 0
+                for album in albums:
+                    tracks = (
+                        session.query(Track)
+                        .filter(Track.album_id == album.album_id)
+                        .all()
+                    )
+                    if not tracks:
+                        continue
+                    album_gain, album_peak = compute_album_gain_peak(tracks)
+                    if album_gain is None and album_peak is None:
+                        continue
+                    album.album_gain = album_gain
+                    album.album_peak = album_peak
+                    updated += 1
+
+                if updated:
+                    session.commit()
+                    logger.info(
+                        f"Backfilled album_gain/album_peak for {updated} album(s) "
+                        f"from existing track analysis data."
+                    )
+        except Exception as e:
+            logger.error(f"Album gain/peak backfill failed: {e}")
 
     def _try_add_column(self, table_name: str, column) -> bool:
         """Attempt to add a missing column to an existing table via ALTER TABLE.
