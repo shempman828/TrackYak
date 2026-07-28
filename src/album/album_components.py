@@ -1,6 +1,7 @@
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -35,7 +36,7 @@ class AlbumUIComponents:
     @staticmethod
     def create_editable_field(field_config, current_value=None):
         """Create appropriate widget for a field based on its configuration"""
-        if field_config.type == str:  # noqa: E721
+        if field_config.type == str:
             if field_config.longtext:
                 widget = QTextEdit()
                 if current_value is not None:
@@ -47,7 +48,7 @@ class AlbumUIComponents:
             if field_config.placeholder:
                 widget.setPlaceholderText(field_config.placeholder)
 
-        elif field_config.type == int:  # noqa: E721
+        elif field_config.type == int:
             widget = QSpinBox()
             # Set range — use 0 as minimum unless field_config specifies otherwise
             min_val = field_config.min if field_config.min is not None else 0
@@ -61,13 +62,13 @@ class AlbumUIComponents:
             else:
                 widget.setValue(int(min_val))  # default to min, not QSpinBox internal
 
-        elif field_config.type == float:  # noqa: E721
+        elif field_config.type == float:
             widget = QLineEdit()
             if current_value is not None:
                 widget.setText(str(current_value))
             widget.setValidator(QDoubleValidator())
 
-        elif field_config.type == bool:  # noqa: E721
+        elif field_config.type == bool:
             label = field_config.friendly or field_config.short or ""
             widget = QCheckBox(label)
             if current_value is not None:
@@ -115,5 +116,9 @@ class AlbumUIComponents:
 
         elif isinstance(widget, QCheckBox):
             return int(widget.isChecked())
+
+        elif isinstance(widget, QComboBox):
+            text = widget.currentText().strip()
+            return text if text else None
 
         return None
