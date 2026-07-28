@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -17,8 +18,10 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
+    QWidget,
 )
 
 from src.common.entity_alias_tab import EntityAliasesTab
@@ -88,6 +91,13 @@ class PublisherEditDialog(QDialog):
 
         root = QVBoxLayout(self)
 
+        # All the group boxes below are stacked in a single column that can
+        # get taller than the dialog (e.g. an existing publisher with many
+        # founders/aliases). Wrapped in a scroll area so that content scrolls
+        # instead of every group being compressed toward its minimum size --
+        # same pattern used for artist_edit_basic.py.
+        content = QVBoxLayout()
+
         # -- Basic information -------------------------------------------------
         basic_group = QGroupBox("Basic Information")
         basic_form = QFormLayout(basic_group)
@@ -134,7 +144,7 @@ class PublisherEditDialog(QDialog):
         )
         self.hq_edit.returnPressed.connect(self.validate)
         basic_form.addRow("Headquarters:", self.hq_edit)
-        root.addWidget(basic_group)
+        content.addWidget(basic_group)
 
         # -- Founders -----------------------------------------------------------
         # Artists credited with founding this record company. Staged in
@@ -163,7 +173,7 @@ class PublisherEditDialog(QDialog):
         founder_add_row.addWidget(founder_add_btn)
         founder_add_row.addWidget(founder_remove_btn)
         founders_layout.addLayout(founder_add_row)
-        root.addWidget(founders_group)
+        content.addWidget(founders_group)
 
         # -- Details: dates, status, links -------------------------------------
         details_group = QGroupBox("Details")
@@ -187,7 +197,7 @@ class PublisherEditDialog(QDialog):
         details_grid.addWidget(self.wiki_input, 2, 1, 1, 3)
         details_grid.setColumnStretch(1, 1)
         details_grid.setColumnStretch(3, 1)
-        root.addWidget(details_group)
+        content.addWidget(details_group)
 
         # Logo picker only makes sense once the publisher exists -- like
         # the artist profile picture, the picked file is moved into the
@@ -213,7 +223,7 @@ class PublisherEditDialog(QDialog):
             logo_buttons.addStretch()
             logo_row.addLayout(logo_buttons)
             logo_row.addStretch()
-            root.addWidget(logo_group)
+            content.addWidget(logo_group)
 
         # Aliases only make sense once the publisher exists (they need a
         # publisher_id to point at), so this section is edit-only.
@@ -229,7 +239,18 @@ class PublisherEditDialog(QDialog):
             )
             aliases_layout.addWidget(self.tab_aliases)
             aliases_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            root.addWidget(aliases_group, 1)
+            content.addWidget(aliases_group, 1)
+
+        content.addStretch()
+
+        content_container = QWidget()
+        content_container.setLayout(content)
+
+        content_scroll = QScrollArea()
+        content_scroll.setWidgetResizable(True)
+        content_scroll.setFrameShape(QFrame.NoFrame)
+        content_scroll.setWidget(content_container)
+        root.addWidget(content_scroll, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.validate)
