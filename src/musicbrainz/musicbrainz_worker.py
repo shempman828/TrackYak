@@ -26,10 +26,18 @@ class MusicBrainzWorker(CancellableWorker):
     Signals:
         finished(result) - whatever the callable returned
         error(message)
+        progress(current, total) - emitted by calls that accept a
+            `progress_callback` kwarg (e.g. fetch_release_detail resolving
+            recording-location area chains); not every call reports this.
+
+    `call` may be a placeholder (e.g. `lambda: None`) at construction time
+    and reassigned via `worker._call = ...` before `start()` if it needs to
+    reference `worker.progress.emit` as its own progress_callback.
     """
 
     finished = Signal(object)
     error = Signal(str)
+    progress = Signal(int, int)
 
     def __init__(self, call: Callable[[], Any], parent=None):
         super().__init__(parent)
