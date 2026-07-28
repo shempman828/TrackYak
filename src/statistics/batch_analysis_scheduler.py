@@ -15,6 +15,7 @@ import threading
 from PySide6.QtCore import QObject, Signal
 
 from src.core.logger_config import logger
+from src.statistics.album_gain_peak import recompute_album_gain_peak
 from src.statistics.analysis_cache import CACHE_SAVE_INTERVAL, analysis_cache
 from src.statistics.audio_calculations import AudioCalculations
 
@@ -57,6 +58,7 @@ class _SchedulerSignals(QObject):
     track_done = Signal(int, dict)  # track_id, metadata
     batch_done = Signal(int, int)  # completed_so_far, total
     all_done = Signal(int)  # total tracks processed
+    albums_updated = Signal(list)  # album_ids whose gain/peak were recomputed
     error = Signal(int, str)  # track_id, error message
 
 
@@ -108,6 +110,8 @@ class BatchAnalysisScheduler:
 
         self._total = 0
         self._completed = 0
+        self._track_album_ids: dict[int, int | None] = {}
+        self._dirty_albums: set[int] = set()
         self._running = False
         self._paused = False
         self._stop_flag = False
@@ -141,6 +145,10 @@ class BatchAnalysisScheduler:
 
             self._total = len(pending)
             self._completed = 0
+            self._track_album_ids = {
+                track.track_id: getattr(track, "album_id", None) for track in pending
+            }
+            self._dirty_albums = set()
             self._running = True
             self._paused = False
             self._stop_flag = False
@@ -226,6 +234,9 @@ class BatchAnalysisScheduler:
             total = self._total
 
         analysis_cache.mark_analysed(track_id)
+        album_id = self._track_album_ids.get(track_id)
+        if album_id is not None:
+            self._dirty_albums.add(album_id)
         self.signals.track_done.emit(track_id, metadata)
 
         if completed % CACHE_SAVE_INTERVAL == 0:
@@ -234,8 +245,22 @@ class BatchAnalysisScheduler:
         if completed >= total:
             analysis_cache.save()
             self._running = False
+            self._recompute_dirty_albums()
             self.signals.all_done.emit(total)
             logger.info(f"BatchAnalysisScheduler: all {total} tracks complete")
+
+    def _recompute_dirty_albums(self):
+        """Roll freshly analyzed track_gain/track_peak values up into
+        album_gain/album_peak for every album touched by this batch."""
+        albums = sorted(self._dirty_albums)
+        self._dirty_albums = set()
+        for album_id in albums:
+            try:
+                recompute_album_gain_peak(self.controller, album_id)
+            except Exception as e:
+                logger.error(f"Failed to recompute album gain/peak for album {album_id}: {e}")
+        if albums:
+            self.signals.albums_updated.emit(albums)
 
     def _on_track_error(self, track_id: int, message: str):
         with self._lock:
