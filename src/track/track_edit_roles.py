@@ -7,7 +7,6 @@ from sqlalchemy import select
 
 from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QThread, Signal
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
     QHBoxLayout,
     QHeaderView,
@@ -22,12 +21,37 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.credited_as_dialog import CreditedAsDialog
+from src.common.entity_completer_edit import (
+    build_entity_search_widget,
+    register_cached_entity,
+)
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.db.db_tables import Artist, ArtistAlias, Role, TrackArtistRole
 from src.track.track_edit_basetab import _BaseTab
 
 PRIMARY_ARTIST_ROLE = "Primary Artist"
+
+
+def _build_artist_index(artists) -> dict:
+    """display_name -> artist_id, with automatic disambiguation for
+    duplicate names (appends artist_id when two artists share a name).
+    Mirrors artist_edit_influences.py's _build_artist_index.
+    """
+    index: dict = {}
+    seen_names: dict = {}
+    for a in artists:
+        display = a.artist_name
+        if not display:
+            continue
+        aid = a.artist_id
+        if display in seen_names and seen_names[display] != aid:
+            index.pop(display, None)
+            index[f"{display} #{seen_names[display]}"] = seen_names[display]
+            display = f"{display} #{aid}"
+        seen_names[display] = aid
+        index[display] = aid
+    return index
 
 
 def _fetch_role_rows(session, track_ids: list):
@@ -238,15 +262,16 @@ class RolesTab(_BaseTab):
         search_row = QHBoxLayout()
         search_row.setSpacing(8)
 
-        self._artist_search = QLineEdit()
-        self._artist_search.setPlaceholderText("Search artists… (min 2 chars)")
-        self._artist_search.textChanged.connect(self._on_artist_search)
+        self._artist_search = build_entity_search_widget(
+            self.controller,
+            "Artist",
+            "artist_name",
+            "artist_id",
+            "Search artists…",
+            index_builder=_build_artist_index,
+        )
+        self._artist_search.textChanged.connect(self._update_add_btn)
         search_row.addWidget(self._artist_search)
-
-        self._artist_combo = QComboBox()
-        self._artist_combo.setVisible(False)
-        self._artist_combo.currentIndexChanged.connect(self._on_artist_selected)
-        search_row.addWidget(self._artist_combo)
 
         self._role_edit = QLineEdit()
         self._role_edit.setPlaceholderText("Role (e.g. Performer, Composer…)")
@@ -449,34 +474,6 @@ class RolesTab(_BaseTab):
 
     # ── Search ────────────────────────────────────────────────────────────
 
-    def _on_artist_search(self, text: str):
-        text = text.strip()
-        self._artist_combo.blockSignals(True)
-        self._artist_combo.clear()
-        if len(text) >= 2:
-            results = self.controller.get.get_entity_object("Artist", artist_name=text)
-            self._artist_combo.addItem(f"Create new: '{text}'", "new")
-            if results is not None:
-                items = results if isinstance(results, list) else [results]
-                for a in items:
-                    self._artist_combo.addItem(a.artist_name, a.artist_id)
-                # Auto-select the first real match so "Create new" isn't the default
-                # when matching artists already exist.
-                if items:
-                    self._artist_combo.setCurrentIndex(1)
-            self._artist_combo.setVisible(self._artist_combo.count() > 1)
-        else:
-            self._artist_combo.setVisible(False)
-        self._artist_combo.blockSignals(False)
-        self._update_add_btn()
-
-    def _on_artist_selected(self, index: int):
-        if index > 0:
-            self._artist_search.blockSignals(True)
-            self._artist_search.setText(self._artist_combo.currentText())
-            self._artist_search.blockSignals(False)
-        self._update_add_btn()
-
     def _update_add_btn(self):
         artist_ok = len(self._artist_search.text().strip()) >= 2
         role_ok = len(self._role_edit.text().strip()) >= 2
@@ -485,18 +482,21 @@ class RolesTab(_BaseTab):
     # ── Resolution helpers ────────────────────────────────────────────────
 
     def _resolve_artist(self, artist_name: str):
-        combo_data = (
-            self._artist_combo.currentData() if self._artist_combo.isVisible() else None
-        )
-        if combo_data and combo_data != "new":
-            return self.controller.get.get_entity_object("Artist", artist_id=combo_data)
+        matched_id = self._artist_search.matched_id()
+        if matched_id is not None:
+            return self.controller.get.get_entity_object("Artist", artist_id=matched_id)
 
         existing = self.controller.get.get_entity_object(
             "Artist", artist_name=artist_name
         )
-        if existing:
-            return existing if not isinstance(existing, list) else existing[0]
-        return self.controller.add.add_entity("Artist", artist_name=artist_name)
+        artist = existing[0] if isinstance(existing, list) else existing
+        if not artist:
+            artist = self.controller.add.add_entity("Artist", artist_name=artist_name)
+
+        if artist:
+            self._artist_search.add_to_index(artist.artist_name, artist.artist_id)
+            register_cached_entity("Artist", artist)
+        return artist
 
     def _resolve_role(self, role_name: str):
         existing_role = self.controller.get.get_entity_object(
@@ -533,9 +533,8 @@ class RolesTab(_BaseTab):
             artist.artist_id, role.role_id, credited_alias_id=credited_alias_id
         )
 
-        self._artist_search.clear()
+        self._artist_search.reset()
         self._role_edit.clear()
-        self._artist_combo.setVisible(False)
         self.load(self.tracks)
 
     def _prompt_add_role_for_artist(self, artist_id, artist_name):
