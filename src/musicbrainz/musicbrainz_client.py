@@ -91,7 +91,15 @@ class MBArtistRelations:
     is_group: bool = False
     aliases: List[MBAlias] = field(default_factory=list)
     birthplace: Optional[str] = None
+    birthplace_mbid: Optional[str] = None
+    # Full containing chain for birthplace/deathplace (immediate area first,
+    # then its parents up to the outermost country) -- see resolve_area_chain
+    # and _resolve_artist_place_chains. Each entry is
+    # {"mbid", "name", "type", "latitude", "longitude"}.
+    birthplace_chain: List[Dict[str, Any]] = field(default_factory=list)
     deathplace: Optional[str] = None
+    deathplace_mbid: Optional[str] = None
+    deathplace_chain: List[Dict[str, Any]] = field(default_factory=list)
     group_relations: List[MBGroupRelation] = field(default_factory=list)
 
 
@@ -239,8 +247,12 @@ def _apply_full_artist(candidate: MBCandidate, artist: Dict[str, Any]) -> MBCand
             continue
         aliases.append(MBAlias(name=alias_name, type=alias_type))
 
-    birthplace = (artist.get("begin-area") or {}).get("name")
-    deathplace = (artist.get("end-area") or {}).get("name")
+    begin_area = artist.get("begin-area") or {}
+    end_area = artist.get("end-area") or {}
+    birthplace = begin_area.get("name")
+    birthplace_mbid = begin_area.get("id")
+    deathplace = end_area.get("name")
+    deathplace_mbid = end_area.get("id")
 
     artist_type = artist.get("type")
     is_group = bool(artist_type) and artist_type != "Person"
@@ -267,23 +279,55 @@ def _apply_full_artist(candidate: MBCandidate, artist: Dict[str, Any]) -> MBCand
         is_group=is_group,
         aliases=aliases,
         birthplace=birthplace,
+        birthplace_mbid=birthplace_mbid,
         deathplace=deathplace,
+        deathplace_mbid=deathplace_mbid,
         group_relations=group_relations,
     )
     return candidate
 
 
+def _resolve_artist_place_chains(candidate: MBCandidate) -> None:
+    """Walk the candidate's birth/death areas up to their full containing
+    chain (city -> county -> state -> country, etc) via resolve_area_chain.
+    Separate from _apply_full_artist (which is pure parsing) because this
+    makes network calls -- run once per fetch, after relations are populated,
+    by both complete_artist_enrichment and fetch_artist_by_mbid. Best-effort:
+    a failed chain walk just leaves that place as a bare name, same as
+    before this existed."""
+    relations = candidate.relations
+    if relations is None:
+        return
+    cache: Dict[str, List[Dict[str, Any]]] = {}
+    if relations.birthplace_mbid:
+        try:
+            relations.birthplace_chain = resolve_area_chain(
+                relations.birthplace_mbid, cache
+            )
+        except MusicBrainzLookupError as e:
+            logger.warning(f"Could not resolve birthplace area chain: {e}")
+    if relations.deathplace_mbid:
+        try:
+            relations.deathplace_chain = resolve_area_chain(
+                relations.deathplace_mbid, cache
+            )
+        except MusicBrainzLookupError as e:
+            logger.warning(f"Could not resolve deathplace area chain: {e}")
+
+
 def complete_artist_enrichment(candidate: MBCandidate) -> MBCandidate:
     """Follow up a search result with a lookup for wikipedia/website links,
-    aliases, birth/death area, and band-membership relations -- none of
-    which the search endpoint returns. Best-effort: any failure just leaves
-    the candidate's enrichment as-is."""
+    aliases, birth/death area (plus its full containing place chain), and
+    band-membership relations -- none of which the search endpoint returns.
+    Best-effort: any failure just leaves the candidate's enrichment as-is."""
     try:
         artist = _fetch_full_artist(candidate.id)
     except MusicBrainzLookupError as e:
         logger.warning(f"MusicBrainz artist lookup failed for {candidate.id}: {e}")
         return candidate
-    return _apply_full_artist(candidate, artist)
+    candidate = _apply_full_artist(candidate, artist)
+    _resolve_artist_place_chains(candidate)
+    return candidate
 
 
 def fetch_artist_by_mbid(mbid: str) -> MBCandidate:
@@ -293,7 +337,9 @@ def fetch_artist_by_mbid(mbid: str) -> MBCandidate:
     complete_artist_enrichment, there's no search result to fall back to."""
     artist = _fetch_full_artist(mbid)
     candidate = MBCandidate(id=mbid, label=artist.get("name") or mbid)
-    return _apply_full_artist(candidate, artist)
+    candidate = _apply_full_artist(candidate, artist)
+    _resolve_artist_place_chains(candidate)
+    return candidate
 
 
 # ---------------------------------------------------------------------------
