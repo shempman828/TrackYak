@@ -11,7 +11,9 @@ confirms what gets imported rather than it happening silently.
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from collections import defaultdict
+from difflib import SequenceMatcher
+from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -19,17 +21,24 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QGroupBox,
     QLabel,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+from src.artist.artist_fuzzy_match import FuzzyMatchDialog, _normalise
 from src.core.logger_config import logger
 from src.musicbrainz.musicbrainz_client import MBAlias, MBArtistRelations, MBGroupRelation
 from src.place.place_association_types import (
     fetch_association_types,
     find_or_create_association_type,
 )
+
+# Same threshold used by the "Find Duplicates" artist merge tool
+# (artist_view.py) -- keeps the two fuzzy-match features in agreement about
+# what counts as a likely duplicate.
+ALIAS_MERGE_THRESHOLD = 0.85
 
 
 class ArtistEnrichmentReviewDialog(QDialog):
@@ -79,6 +88,50 @@ class ArtistEnrichmentReviewDialog(QDialog):
                 continue  # belongs to a different artist -- skip silently
             out.append(alias)
         return out
+
+    def _find_alias_merge_candidates(
+        self, aliases: List[MBAlias]
+    ) -> Dict[str, Tuple[object, int]]:
+        """Fuzzy-match each usable alias against every *other* local artist
+        name, to catch near-duplicates (punctuation, spelling, spacing)
+        that `_usable_aliases()`'s exact-match check lets through -- e.g. an
+        alias of "Guns N´ Roses" wouldn't exact-match a local "Guns N Roses"
+        but is almost certainly the same artist. Uses the same first-3-char
+        blocking strategy as ArtistFuzzyMatchWorker so this stays cheap even
+        with tens of thousands of local artists.
+
+        Returns alias.name -> (matching Artist, score_pct), one best match
+        per alias, for any alias that scored above ALIAS_MERGE_THRESHOLD.
+        """
+        if not aliases:
+            return {}
+        try:
+            all_artists = self.controller.get.get_all_entities("Artist") or []
+        except Exception as e:
+            logger.warning(f"Could not load artists for alias merge check: {e}")
+            return {}
+
+        blocks = defaultdict(list)
+        for artist in all_artists:
+            if artist.artist_id == self.artist.artist_id:
+                continue
+            key = _normalise(artist.artist_name)[:3]
+            if key:
+                blocks[key].append(artist)
+
+        candidates: Dict[str, Tuple[object, int]] = {}
+        for alias in aliases:
+            norm_alias = _normalise(alias.name)
+            best_artist, best_ratio = None, 0.0
+            for other in blocks.get(norm_alias[:3], []):
+                ratio = SequenceMatcher(
+                    None, norm_alias, _normalise(other.artist_name)
+                ).ratio()
+                if ratio >= ALIAS_MERGE_THRESHOLD and ratio > best_ratio:
+                    best_artist, best_ratio = other, ratio
+            if best_artist is not None:
+                candidates[alias.name] = (best_artist, round(best_ratio * 100))
+        return candidates
 
     def _existing_place_association_types(self) -> set:
         try:
@@ -146,6 +199,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
         aliases = self._usable_aliases()
         if aliases:
             self.has_content = True
+            merge_candidates = self._find_alias_merge_candidates(aliases)
             box = QGroupBox("Aliases")
             box_layout = QVBoxLayout(box)
             for alias in aliases:
@@ -154,6 +208,29 @@ class ArtistEnrichmentReviewDialog(QDialog):
                 cb.setChecked(True)
                 box_layout.addWidget(cb)
                 self._alias_checks.append((cb, alias))
+
+                candidate = merge_candidates.get(alias.name)
+                if candidate is not None:
+                    match_artist, score = candidate
+                    warning = QLabel(
+                        f"⚠ {score}% similar to existing artist "
+                        f"'{match_artist.artist_name}' -- possible duplicate. "
+                        "Consider merging instead of adding this alias."
+                    )
+                    warning.setWordWrap(True)
+                    warning.setStyleSheet("color: #b06a00; margin-left: 20px;")
+                    box_layout.addWidget(warning)
+
+                    merge_btn = QPushButton(
+                        f"Review possible merge with '{match_artist.artist_name}'…"
+                    )
+                    merge_btn.setStyleSheet("margin-left: 20px;")
+                    merge_btn.clicked.connect(
+                        lambda _checked=False, box=cb, a=match_artist, s=score: (
+                            self._review_alias_merge(box, a, s)
+                        )
+                    )
+                    box_layout.addWidget(merge_btn)
             inner_layout.addWidget(box)
 
         existing_types = self._existing_place_association_types()
@@ -205,6 +282,32 @@ class ArtistEnrichmentReviewDialog(QDialog):
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _review_alias_merge(self, cb: QCheckBox, candidate_artist, score: int) -> None:
+        """Open the existing single-pair merge dialog (same one "Find
+        Duplicates" uses) scoped to just this alias's candidate, instead of
+        re-implementing merge logic here.
+        """
+        dialog = FuzzyMatchDialog(
+            [(self.artist, candidate_artist, score)], self.controller, self
+        )
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        if (
+            self.controller.get.get_entity_object(
+                "Artist", artist_id=self.artist.artist_id
+            )
+            is None
+        ):
+            # self.artist was the one merged away -- nothing left to enrich.
+            self.reject()
+            return
+
+        # The alias name is now covered by the merge's own alias
+        # preservation, so don't also add it as a separate alias here.
+        cb.setChecked(False)
+        cb.setEnabled(False)
 
     # ------------------------------------------------------------------
     # Apply
