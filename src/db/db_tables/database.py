@@ -146,13 +146,76 @@ class MusicDatabase:
             else:
                 logger.info("Column integrity check passed.")
 
-            # ── Step 3: One-off data backfill ────────────────────────────────
+            # ── Step 3: Index check ──────────────────────────────────────────
+            # Drop indexes retired/superseded in indexes.py that may still
+            # linger on an existing database file, then create whatever's
+            # missing: create_all() only emits DDL (including indexes) for
+            # tables that don't already exist, so an Index() added to a table
+            # that was created under an earlier version of the schema is
+            # silently never applied to an existing database file.
+            self._drop_legacy_indexes()
+            self._create_missing_indexes(inspector, existing_tables)
+
+            # ── Step 4: One-off data backfill ────────────────────────────────
             if "albums" in existing_tables and "tracks" in existing_tables:
                 self._backfill_album_gain_peak()
 
         except Exception as e:
             logger.error(f"Integrity check failed: {e}")
             raise
+
+    # Indexes retired from indexes.py because they duplicated a PK/UNIQUE
+    # constraint, duplicated another explicit index, or matched no real query
+    # pattern in the app. Named explicitly (rather than dropping "anything not
+    # in metadata") so this can't accidentally drop an index this code doesn't
+    # know about.
+    _RETIRED_INDEXES = {
+        "idx_artists_name",  # duplicate of the artist_name unique constraint
+        "idx_tracks_path",  # duplicate of the track_file_path unique constraint
+        "idx_tracks_disc_id",  # exact duplicate of idx_track_disc_id
+        "idx_artist_begin_end",  # no query filters/sorts on begin_year/end_year
+        "idx_track_genres",  # duplicate of the track_genres composite primary key
+        "idx_artist_type_assoc",  # duplicate of the artist_type_associations composite primary key
+        "idx_mood_track_association",  # duplicate of the mood_track_association composite primary key
+        "ix_album_publisher_unique",  # duplicate of the album_publisher composite primary key
+        "idx_track_usages_type",  # usage_type is never filtered on its own
+        "idx_album_roles",  # redundant leftmost prefix of uq_album_artist_role
+        "idx_place_assoc_entity_type",  # superseded by idx_place_assoc_entity_type_id
+        "idx_award_assoc_entity_type",  # superseded by idx_award_assoc_entity_type_id
+    }
+
+    def _drop_legacy_indexes(self) -> None:
+        """Drop indexes named in _RETIRED_INDEXES if they still exist."""
+        try:
+            inspector = inspect(self.engine)
+            for table_name in inspector.get_table_names():
+                present = {idx["name"] for idx in inspector.get_indexes(table_name)}
+                for index_name in present & self._RETIRED_INDEXES:
+                    with self.engine.begin() as conn:
+                        conn.execute(text(f'DROP INDEX "{index_name}"'))
+                    logger.info(f"Dropped retired index {index_name} on {table_name}.")
+        except Exception as e:
+            logger.error(f"Failed to drop retired indexes: {e}")
+
+    def _create_missing_indexes(self, inspector, existing_tables) -> None:
+        """Create any Index(...) defined on the ORM models that isn't yet
+        present on the corresponding (already-existing) database table.
+        """
+        for table_name, table in Base.metadata.tables.items():
+            if table_name not in existing_tables:
+                continue  # create_all() already created it, indexes included
+
+            existing_indexes = {
+                idx["name"] for idx in inspector.get_indexes(table_name)
+            }
+            for index in table.indexes:
+                if index.name in existing_indexes:
+                    continue
+                try:
+                    index.create(bind=self.engine)
+                    logger.info(f"Created missing index {index.name} on {table_name}.")
+                except Exception as e:
+                    logger.error(f"Failed to create index {index.name}: {e}")
 
     def _rename_column_if_needed(
         self, table_name: str, old_name: str, new_name: str
