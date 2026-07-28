@@ -188,6 +188,7 @@ class EntityAliasesTab(QWidget):
         extra_field_hint: str = "",
         on_swap: Optional[Callable[[int, str, str], bool]] = None,
         on_before_add: Optional[Callable[[str], bool]] = None,
+        list_style: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -202,6 +203,11 @@ class EntityAliasesTab(QWidget):
         self.extra_field_hint = extra_field_hint
         self.on_swap = on_swap
         self.on_before_add = on_before_add
+        # A bare list of rows (name + actions) instead of a QTableWidget --
+        # used where a full table with headers is overkill, e.g. publisher
+        # aliases which have no extra field. See publisher_edit_dialog.py.
+        self.list_style = list_style
+        self._list_rows = []
         self._build_ui()
 
     def _build_ui(self):
@@ -246,6 +252,15 @@ class EntityAliasesTab(QWidget):
             hint.setWordWrap(True)
             layout.addWidget(hint)
 
+        if self.list_style:
+            self.table = None
+            self.list_container = QWidget()
+            self.list_layout = QVBoxLayout(self.list_container)
+            self.list_layout.setContentsMargins(0, 0, 0, 0)
+            self.list_layout.setSpacing(2)
+            layout.addWidget(self.list_container)
+            return
+
         headers = ["Alias Name"]
         if self.extra_field:
             headers.append(self.extra_field_label)
@@ -285,8 +300,27 @@ class EntityAliasesTab(QWidget):
     def _entity_id(self):
         return getattr(self.entity, self.id_field)
 
+    def _clear_rows(self):
+        if not self.list_style:
+            self.table.setRowCount(0)
+            return
+        while self.list_layout.count():
+            item = self.list_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                # setParent(None) detaches it immediately so it stops
+                # painting at its old position right away -- deleteLater()
+                # alone leaves it a visible, stale child until the event
+                # loop gets around to the deferred delete.
+                widget.setParent(None)
+                widget.deleteLater()
+        self._list_rows = []
+
+    def _row_count(self) -> int:
+        return len(self._list_rows) if self.list_style else self.table.rowCount()
+
     def _reload_table(self):
-        self.table.setRowCount(0)
+        self._clear_rows()
         try:
             aliases = self.controller.get.get_all_entities(
                 self.alias_model_name, **{self.id_field: self._entity_id()}
@@ -306,9 +340,17 @@ class EntityAliasesTab(QWidget):
             )
             self._append_row(alias.alias_id, alias.alias_name, extra_value)
 
+        if self.list_style and not aliases:
+            empty = QLabel("No aliases yet.")
+            empty.setProperty("textRole", "muted")
+            self.list_layout.addWidget(empty)
+
         self._refresh_extra_completer()
 
     def _append_row(self, alias_id: int, alias_name: str, extra_value: Optional[str] = None):
+        if self.list_style:
+            self._append_list_row(alias_id, alias_name, extra_value)
+            return
         row = self.table.rowCount()
         self.table.insertRow(row)
 
@@ -327,12 +369,51 @@ class EntityAliasesTab(QWidget):
         self.table.setCellWidget(row, self.table.columnCount() - 1, actions)
         self.table.setRowHeight(row, 36 if self.on_swap else 32)
 
+    def _append_list_row(
+        self, alias_id: int, alias_name: str, extra_value: Optional[str] = None
+    ):
+        row_widget = QWidget()
+        row_widget.setProperty("aliasId", alias_id)
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(2, 2, 2, 2)
+        row_layout.setSpacing(8)
+
+        name_label = QLabel(alias_name)
+        row_layout.addWidget(name_label, 1)
+
+        extra_label = None
+        if self.extra_field:
+            extra_label = QLabel(extra_value or "")
+            extra_label.setProperty("textRole", "muted")
+            row_layout.addWidget(extra_label)
+
+        row = len(self._list_rows)
+        actions = EntityAliasRowWidget(
+            edit_cb=lambda checked=False, r=row: self._edit_alias(r),
+            delete_cb=lambda checked=False, r=row: self._delete_alias(r),
+            swap_cb=(lambda checked=False, r=row: self._swap_alias(r)) if self.on_swap else None,
+        )
+        row_layout.addWidget(actions)
+
+        self.list_layout.addWidget(row_widget)
+        self._list_rows.append((row_widget, name_label, extra_label))
+
     def _row_alias_id(self, row: int) -> int:
+        if self.list_style:
+            return self._list_rows[row][0].property("aliasId")
         return self.table.item(row, 0).data(Qt.UserRole)
+
+    def _row_alias_name(self, row: int) -> str:
+        if self.list_style:
+            return self._list_rows[row][1].text()
+        return self.table.item(row, 0).text()
 
     def _row_extra_value(self, row: int) -> str:
         if not self.extra_field:
             return ""
+        if self.list_style:
+            extra_label = self._list_rows[row][2]
+            return extra_label.text().strip() if extra_label else ""
         item = self.table.item(row, 1)
         return item.text().strip() if item else ""
 
@@ -340,7 +421,7 @@ class EntityAliasesTab(QWidget):
         """Distinct extra-field values already in the table, for autocomplete."""
         if not self.extra_field:
             return []
-        values = {self._row_extra_value(r) for r in range(self.table.rowCount())}
+        values = {self._row_extra_value(r) for r in range(self._row_count())}
         values.discard("")
         return sorted(values)
 
@@ -377,7 +458,7 @@ class EntityAliasesTab(QWidget):
 
     def _edit_alias(self, row: int):
         alias_id = self._row_alias_id(row)
-        alias_name = self.table.item(row, 0).text()
+        alias_name = self._row_alias_name(row)
         dlg = EntityAliasEditDialog(
             alias_name=alias_name,
             placeholder=self.placeholder,
@@ -407,7 +488,7 @@ class EntityAliasesTab(QWidget):
 
     def _delete_alias(self, row: int):
         alias_id = self._row_alias_id(row)
-        alias_name = self.table.item(row, 0).text()
+        alias_name = self._row_alias_name(row)
         reply = QMessageBox.question(
             self,
             "Delete Alias",
@@ -429,7 +510,7 @@ class EntityAliasesTab(QWidget):
         if not self.on_swap:
             return
         alias_id = self._row_alias_id(row)
-        new_primary = self.table.item(row, 0).text()
+        new_primary = self._row_alias_name(row)
         extra_value = self._row_extra_value(row)
         if self.on_swap(alias_id, new_primary, extra_value):
             self._reload_table()
