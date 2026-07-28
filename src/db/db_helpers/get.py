@@ -1,6 +1,6 @@
 """Class for retrieving data from the database."""
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
@@ -186,6 +186,21 @@ class GetFromDB(BaseDBHelper):
 
     def get_entity_links(self, link_type: str, **kwargs):
         return self.query_entities(link_type, multiple=True, **kwargs)
+
+    def count_entities(self, model_name: str) -> int:
+        """Cheap SELECT count(*) -- used to decide whether a table is small
+        enough to safely preload in full (e.g. into a completer index)."""
+        try:
+            entity_class_obj = MODEL_REGISTRY[model_name]
+        except KeyError:
+            logger.error(f"Entity class '{model_name}' not found in globals()")
+            return 0
+        try:
+            stmt = select(func.count()).select_from(entity_class_obj)
+            return self.session.scalar(stmt) or 0
+        except SQLAlchemyError as e:
+            logger.error(f"Database error counting {model_name}: {e}")
+            return 0
 
     def resolve_entity_or_alias(self, model_name: str, name_field: str, name: str):
         """Resolve `name` to an entity of `model_name` by its own name field,
