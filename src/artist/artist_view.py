@@ -3,6 +3,7 @@
 import webbrowser
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -33,7 +34,7 @@ from src.artist.artist_place import PlaceSelectionDialog
 from src.award.award_new import AddAwardDialog
 from src.common.base_merge_dialog import MergeDBDialog
 from src.common.base_split_dialog import SplitDBDialog
-from src.db.db_tables import TrackArtistRole
+from src.db.db_tables import Artist, TrackArtistRole
 from src.track.base_track_view import BaseTrackView
 from src.influences.influences_dialog import AddInfluenceDialog
 from src.core.logger_config import logger
@@ -176,7 +177,9 @@ class ArtistView(QWidget):
         """Load all artists from DB, pre-filtered by individual/group mode."""
         try:
             all_artists = sorted(
-                self.controller.get.get_all_entities("Artist"),
+                self.controller.get.get_all_entities(
+                    "Artist", load_options=[selectinload(Artist.types)]
+                ),
                 key=lambda a: a.artist_name.lower(),
             )
 
