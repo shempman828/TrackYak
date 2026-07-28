@@ -291,7 +291,7 @@ class AlbumsTab(_BaseTab):
         self._wiki_open_btn.setVisible(bool(self._wiki_link))
 
         mbid = getattr(album, "MBID", None)
-        self._mb_link = f"https://musicbrainz.org/release-group/{mbid}" if mbid else ""
+        self._mb_link = f"https://musicbrainz.org/release/{mbid}" if mbid else ""
         self._mb_open_btn.setVisible(bool(self._mb_link))
 
     def _load_album_art(self, album) -> None:
