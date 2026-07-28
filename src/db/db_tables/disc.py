@@ -17,7 +17,6 @@ class Disc(Base):
     )
     disc_number = Column(Integer, nullable=False)
     disc_title = Column(String)
-    media_type = Column(String)
 
     album = relationship("Album", backref="discs")
     tracks = relationship(
