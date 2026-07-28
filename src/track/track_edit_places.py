@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtWidgets import (
-    QComboBox,
     QCompleter,
     QHBoxLayout,
     QHeaderView,
@@ -17,30 +16,18 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.common.entity_completer_edit import find_or_create_by_name
+from src.common.entity_completer_edit import (
+    build_entity_search_widget,
+    find_or_create_by_name,
+    get_cached_entities,
+    register_cached_entity,
+)
 from src.core.logger_config import logger
 from src.place.place_association_types import (
     fetch_association_types,
     find_or_create_association_type,
 )
 from src.track.track_edit_basetab import _BaseTab
-
-# Search results are capped and fetched on demand (min 2 chars) instead of
-# preloading every Place row into a completer index on tab open -- see
-# track_edit_samples.py for the tab that made this expensive with the
-# library's Track table; Place is small today but would hit the same wall
-# as it grows.
-_MAX_SEARCH_RESULTS = 50
-
-
-def _search_places(controller, text: str):
-    """Bounded, on-demand lookup of places whose name contains `text`."""
-    try:
-        matches = controller.get.get_all_entities("Place", place_name__contains=text) or []
-        return matches[:_MAX_SEARCH_RESULTS]
-    except Exception as e:
-        logger.warning(f"Could not search places: {e}")
-        return []
 
 
 def _find_or_create_place(controller, name, known_places):
@@ -56,7 +43,6 @@ def _find_or_create_place(controller, name, known_places):
 class PlacesTab(_BaseTab):
     def __init__(self, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
-        self._known_places: list = []
         self._build_ui()
         self._refresh_type_completer()
 
@@ -64,16 +50,12 @@ class PlacesTab(_BaseTab):
         layout = QVBoxLayout(self)
 
         search_row = QHBoxLayout()
-        self._search = QLineEdit()
-        self._search.setPlaceholderText("Search places… (min 2 chars)")
+        self._search = build_entity_search_widget(
+            self.controller, "Place", "place_name", "place_id", "Search places…"
+        )
         self._search.textChanged.connect(self._on_search_text_changed)
         self._search.returnPressed.connect(self._add)
         search_row.addWidget(self._search)
-
-        self._place_combo = QComboBox()
-        self._place_combo.setVisible(False)
-        self._place_combo.currentIndexChanged.connect(self._on_place_selected)
-        search_row.addWidget(self._place_combo)
 
         self._type_edit = QLineEdit()
         self._type_edit.setPlaceholderText("Type (Recording Location, Origin, etc.)")
@@ -96,25 +78,16 @@ class PlacesTab(_BaseTab):
         layout.addWidget(self._table)
 
     def _on_search_text_changed(self, text: str):
-        text = text.strip()
-        self._add_btn.setEnabled(bool(text))
-        self._place_combo.blockSignals(True)
-        self._place_combo.clear()
-        if len(text) >= 2:
-            self._known_places = _search_places(self.controller, text)
-            for p in self._known_places:
-                if p.place_name:
-                    self._place_combo.addItem(p.place_name, p.place_id)
-            self._place_combo.setVisible(self._place_combo.count() > 0)
-        else:
-            self._place_combo.setVisible(False)
-        self._place_combo.blockSignals(False)
+        self._add_btn.setEnabled(bool(text.strip()))
 
-    def _on_place_selected(self, index: int):
-        if index >= 0:
-            self._search.blockSignals(True)
-            self._search.setText(self._place_combo.currentText())
-            self._search.blockSignals(False)
+    def _known_places(self) -> list:
+        """Candidate set for _find_or_create_place's case-insensitive
+        duplicate check: the full cached table when small enough to
+        preload, or the bounded search widget's last on-demand query."""
+        cached = get_cached_entities(self.controller, "Place")
+        if cached is not None:
+            return cached
+        return self._search.known_matches()
 
     def _refresh_type_completer(self):
         # Association types (Recording Location, Origin, ...) are a small,
@@ -190,19 +163,16 @@ class PlacesTab(_BaseTab):
         if not place_name:
             return
 
-        combo_data = (
-            self._place_combo.currentData() if self._place_combo.isVisible() else None
-        )
+        matched_id = self._search.matched_id()
         try:
-            if combo_data is not None:
+            if matched_id is not None:
                 place = self.controller.get.get_entity_object(
-                    "Place", place_id=combo_data
+                    "Place", place_id=matched_id
                 )
             else:
-                # Bounded candidate set for the duplicate check, fetched
-                # fresh rather than kept as a stale full-table cache.
-                known_places = _search_places(self.controller, place_name)
-                place = _find_or_create_place(self.controller, place_name, known_places)
+                place = _find_or_create_place(
+                    self.controller, place_name, self._known_places()
+                )
         except Exception as e:
             logger.error(f"Failed to find/create place: {e}")
             return
@@ -227,11 +197,12 @@ class PlacesTab(_BaseTab):
             self.controller.add.add_entities("PlaceAssociation", rows)
         except Exception as e:
             logger.error(f"Failed to add place to tracks: {e}")
-        self._search.clear()
-        self._place_combo.blockSignals(True)
-        self._place_combo.clear()
-        self._place_combo.setVisible(False)
-        self._place_combo.blockSignals(False)
+
+        if matched_id is None:
+            self._search.add_to_index(place.place_name, place.place_id)
+            register_cached_entity("Place", place)
+
+        self._search.reset()
         self._type_edit.clear()
         self._refresh_type_completer()
         self.load(self.tracks)
