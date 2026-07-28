@@ -254,7 +254,6 @@ VORBIS_DISC_MAPPINGS = {
     "DISCNUMBER": {"field": "disc_number", "type": int, "entity": "Disc"},
     "DISCTITLE": {"field": "disc_title", "type": str, "entity": "Disc"},
     "DISCSUBTITLE": {"field": "disc_title", "type": str, "entity": "Disc"},
-    "MEDIA": {"field": "media_type", "type": str, "entity": "Disc"},
 }
 VORBIS_MOOD_MAPPINGS = {
     "MOOD": {"field": "mood_name", "type": str, "entity": "Mood"},
