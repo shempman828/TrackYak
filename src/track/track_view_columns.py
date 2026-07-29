@@ -65,9 +65,11 @@ class TrackViewColumnsMixin:
         }
         for i, (field_name, _) in enumerate(self.columns.items()):
             field_config = self.track_fields.get(field_name)
-            if field_config and field_config.category == "Technical":
-                self.table.setColumnHidden(i, True)
-            elif field_name in hidden_by_default:
+            if (
+                field_config
+                and field_config.category == "Technical"
+                or field_name in hidden_by_default
+            ):
                 self.table.setColumnHidden(i, True)
 
     # =========================================================================
