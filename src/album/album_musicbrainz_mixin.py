@@ -41,7 +41,7 @@ class AlbumMusicBrainzMixin:
     MusicBrainz release lookup and enrichment for AlbumEditor.
 
     Expects the host class to provide: self.controller, self.album,
-    self.field_widgets, self._refresh_from_database(), and to be a QWidget
+    self.field_widgets, self.refresh_view(), and to be a QWidget
     subclass.
 
     Three steps:
@@ -148,7 +148,7 @@ class AlbumMusicBrainzMixin:
         review.apply_immediate_scalars()
         if review.has_content:
             review.exec()
-        self._refresh_from_database()
+        self.refresh_view()
 
     def _apply_musicbrainz_enrichment(self, enrichment: dict):
         """Fill field widgets from a MusicBrainz enrichment dict, but only
