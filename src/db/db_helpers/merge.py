@@ -1,7 +1,7 @@
 """Class for merging database entries."""
 
-from sqlalchemy import select, update
 from sqlalchemy import delete as sql_delete
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from src.core.logger_config import logger
@@ -139,9 +139,11 @@ class MergeDB(BaseDBHelper):
                                     )
                                     skipped_tables.add(table.name)
 
-            for assoc_table, type_col_name, id_col_name in (
-                _POLYMORPHIC_ASSOCIATION_TABLES
-            ):
+            for (
+                assoc_table,
+                type_col_name,
+                id_col_name,
+            ) in _POLYMORPHIC_ASSOCIATION_TABLES:
                 type_col = assoc_table.c[type_col_name]
                 id_col = assoc_table.c[id_col_name]
 
