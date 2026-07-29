@@ -24,6 +24,7 @@ from src.album.album_context_menu import AlbumContextMenuMixin
 from src.album.album_flowlayout import FlowLayout
 from src.album.base_album_edit import AlbumEditor
 from src.album.base_album_widget import AlbumWidget
+from src.common.layout_utils import clear_layout
 from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 
@@ -673,7 +674,7 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
 
     def _refresh_album_widgets(self):
         """Rebuild the grid from scratch up to display_count."""
-        self._clear_layout(self.grid_layout)
+        clear_layout(self.grid_layout)
         QApplication.processEvents()
         for album in self.filtered_albums[: self.display_count]:
             self._add_album_widget(album)
@@ -883,16 +884,6 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
             elif isinstance(g, str):
                 names.append(g.lower())
         return names
-
-    @staticmethod
-    def _clear_layout(layout):
-        while layout.count():
-            item = layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-            elif item.layout():
-                AlbumView._clear_layout(item.layout())
 
 
 class _AnySpinBox(QSpinBox):
