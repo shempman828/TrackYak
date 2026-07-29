@@ -37,6 +37,7 @@ from src.album.base_album_edit_tabs import (
     AliasesTab,
     ArtworkTab,
     DetailsTab,
+    GenresTab,
     TracksTab,
 )
 from src.common.edit_dirty import value_changed
@@ -90,6 +91,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     Tracks           – DiscManagementView for disc / track structure
     Artwork          – front cover, rear cover, liner art with pickers
     Aliases          – add / remove / type album aliases
+    Genres           – genres common to all album tracks; edits trickle down to every track
     Artist Credits   – relationship helpers (built by AlbumTabBuilder)
     Publishers & Places – relationship helpers (built by AlbumTabBuilder)
     Awards           – relationship helpers (built by AlbumTabBuilder)
@@ -261,6 +263,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         self._tracks_tab = TracksTab(self)
         self._artwork_tab = ArtworkTab(self)
         self._aliases_tab = AliasesTab(self)
+        self._genres_tab = GenresTab(self)
         self._advanced_tab = AdvancedTab(self)
 
         self.tabs.addTab(self._build_header_section(), "Overview")
@@ -268,6 +271,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         self.tabs.addTab(self._tracks_tab.build(), "Tracks")
         self.tabs.addTab(self._artwork_tab.build(), "Artwork")
         self.tabs.addTab(self._aliases_tab.build(), "Aliases")
+        self.tabs.addTab(self._genres_tab.build(), "Genres")
         self.tabs.addTab(self.tab_builder.build_artists_tab(), "Artist Credits")
         self.tabs.addTab(
             self.tab_builder.build_relationships_tab(), "Publishers && Places"
@@ -669,6 +673,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             "Tracks": lambda: TracksTab(self).build(),
             "Artwork": lambda: ArtworkTab(self).build(),
             "Aliases": lambda: AliasesTab(self).build(),
+            "Genres": lambda: GenresTab(self).build(),
             "Artist Credits": self.tab_builder.build_artists_tab,
             "Publishers && Places": self.tab_builder.build_relationships_tab,
             "Awards": self.tab_builder.build_awards_tab,
