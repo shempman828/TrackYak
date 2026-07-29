@@ -12,7 +12,11 @@ class DeleteDB(BaseDBHelper):
     """Minimal class for deleting database entities and associated files."""
 
     def delete_entity(
-        self, model_name: str, entity_id: int = None, entity_ids: list = None, **filters
+        self,
+        model_name: str,
+        entity_id: int | None = None,
+        entity_ids: list | None = None,
+        **filters,
     ):
         """
         Delete one or many database entities.
@@ -108,9 +112,9 @@ class DeleteDB(BaseDBHelper):
 
     def delete_file(
         self,
-        file_path: str = None,
-        model_name: str = None,
-        entity_id: int = None,
+        file_path: str | None = None,
+        model_name: str | None = None,
+        entity_id: int | None = None,
         **filters,
     ):
         """Delete a file from disk after deleting its database entry."""
