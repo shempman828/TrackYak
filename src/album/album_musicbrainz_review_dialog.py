@@ -19,7 +19,7 @@ credits, recording locations, album aliases) go behind the checkbox review.
 from __future__ import annotations
 
 from difflib import SequenceMatcher
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -44,6 +44,17 @@ from src.place.place_chain_resolver import resolve_place_chain
 
 _SKIP = "— Skip —"
 
+# Floor for the position-match title sanity check in _match_tracks: a real
+# discrepancy (different song at the same position -- wrong regional
+# tracklist, mis-tagged file, etc.) should be well below this, while
+# formatting noise (remaster tags, case, punctuation) should clear it.
+_POSITION_MATCH_TITLE_FLOOR = 0.4
+
+
+def _format_mb_track_label(mbt: MBReleaseTrack) -> str:
+    side = f"Side {mbt.side}, " if mbt.side else ""
+    return f"Disc {mbt.disc_number}, {side}Track {mbt.track_number or '?'}: {mbt.title}"
+
 
 class AlbumMusicBrainzReviewDialog(QDialog):
     def __init__(
@@ -51,7 +62,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         controller,
         album,
         detail: MBReleaseDetail,
-        aliases: List[MBAlias],
+        aliases: list[MBAlias],
         parent=None,
     ):
         super().__init__(parent)
@@ -61,12 +72,12 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         self.aliases = aliases
         self.has_content = False
 
-        self._disc_by_number: Dict[int, Any] = {}
-        self._matched: Dict[int, Any] = {}  # id(MBReleaseTrack) -> Track
-        self._manual_combos: List[Tuple[QComboBox, MBReleaseTrack]] = []
-        self._alias_checks: List[Tuple[QCheckBox, MBAlias]] = []
-        self._credit_checks: List[Tuple[QCheckBox, MBReleaseTrack, Any]] = []
-        self._location_checks: List[Tuple[QCheckBox, str, List[MBReleaseTrack]]] = []
+        self._disc_by_number: dict[int, Any] = {}
+        self._matched: dict[int, Any] = {}  # id(MBReleaseTrack) -> Track
+        self._manual_combos: list[tuple[QComboBox, MBReleaseTrack]] = []
+        self._alias_checks: list[tuple[QCheckBox, MBAlias]] = []
+        self._credit_checks: list[tuple[QCheckBox, MBReleaseTrack, Any]] = []
+        self._location_checks: list[tuple[QCheckBox, str, list[MBReleaseTrack]]] = []
 
         self.setWindowTitle("Review MusicBrainz Album Details")
         self.setMinimumSize(560, 540)
@@ -78,16 +89,33 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         self._build_ui()
 
     # ------------------------------------------------------------------
-    # Track matching (no DB writes) -- exact (disc_number, track_number)
-    # match, then a title-similarity guess for a single-medium release,
-    # then a manual QComboBox for anything left.
+    # Track matching (no DB writes) -- exact (disc_number, absolute
+    # position) match confirmed by title agreement, then a title-similarity
+    # guess for a single-medium release, then a manual QComboBox for
+    # anything left.
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _title_similarity(a: Optional[str], b: Optional[str]) -> float:
+    def _title_similarity(a: str | None, b: str | None) -> float:
         if not a or not b:
             return 0.0
         return SequenceMatcher(None, a.lower().strip(), b.lower().strip()).ratio()
+
+    @classmethod
+    def _position_match_confirmed(cls, mbt: MBReleaseTrack, local) -> bool:
+        """Position alone (disc_number, absolute_position) isn't sufficient
+        confirmation that two tracks are the same recording -- it's just
+        where each happens to sit in its own list. If the local track has
+        no name yet there's nothing to contradict the position, so trust
+        it. Otherwise require the titles to reasonably agree; a real title
+        conflict at the same position is a discrepancy that needs manual
+        review, not something to silently paper over."""
+        if not local.track_name:
+            return True
+        return (
+            cls._title_similarity(mbt.title, local.track_name)
+            >= _POSITION_MATCH_TITLE_FLOOR
+        )
 
     def _match_tracks(self):
         local_tracks = list(self.album.tracks or [])
@@ -98,10 +126,23 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                 local_by_key[(disc_num, t.track_number)] = t
 
         used_ids = set()
-        matched: Dict[int, Any] = {}
+        matched: dict[int, Any] = {}
         for mbt in self.detail.tracks:
-            local = local_by_key.get((mbt.disc_number, mbt.track_number))
-            if local is not None and local.track_id not in used_ids:
+            # Local track numbering is absolute (sequential across a
+            # vinyl disc's sides), while mbt.track_number is deliberately
+            # side-relative (e.g. "B1" -> 1) for display/apply purposes.
+            # Matching must use the medium-sequential absolute_position
+            # instead, or vinyl releases would never auto-match and would
+            # always fall through to manual review.
+            key_number = mbt.absolute_position
+            if key_number is None:
+                key_number = mbt.track_number
+            local = local_by_key.get((mbt.disc_number, key_number))
+            if (
+                local is not None
+                and local.track_id not in used_ids
+                and self._position_match_confirmed(mbt, local)
+            ):
                 matched[id(mbt)] = local
                 used_ids.add(local.track_id)
 
@@ -115,7 +156,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         # multi-disc release with untagged local tracks has no reliable
         # signal for which disc a given local track belongs to.
         single_medium = len({mbt.disc_number for mbt in self.detail.tracks}) <= 1
-        guesses: Dict[int, Any] = {}
+        guesses: dict[int, Any] = {}
         if single_medium and remaining_mb and remaining_local:
             # Greedily pair by title similarity first -- highest-scoring
             # pairs win -- so a missing/extra track in the middle of the
@@ -126,7 +167,10 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             candidates = [
                 (
                     self._title_similarity(mbt.title, local.track_name),
-                    abs((mbt.track_number or 0) - (local.track_number or 0)),
+                    abs(
+                        (mbt.absolute_position or mbt.track_number or 0)
+                        - (local.track_number or 0)
+                    ),
                     mbt,
                     local,
                 )
@@ -195,12 +239,28 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                     continue
             self._disc_by_number[num] = disc
 
-    def _apply_track_scalars(self, track, mbt: MBReleaseTrack):
+    def _apply_track_scalars(self, track, mbt: MBReleaseTrack, *, force: bool = False):
+        """force=True is for manual matches: the user just told us this MB
+        track *is* this local track even though their track_number/side
+        disagreed (that disagreement is exactly why it needed a manual
+        match), so MB's values should win rather than only filling blanks."""
         kwargs = {}
-        if track.track_number is None and mbt.track_number is not None:
+        if mbt.track_number is not None and (force or track.track_number is None):
             kwargs["track_number"] = mbt.track_number
-        if not track.side and mbt.side:
+        if mbt.side and (force or not track.side):
             kwargs["side"] = mbt.side
+        # Manual match means the user just confirmed these are the same
+        # recording, whatever their titles look like -- no fuzzy gate
+        # needed, that confirmation is the gate. Take MB's title as the
+        # corrected one whenever it isn't already what's stored locally,
+        # e.g. a locally-truncated "Good Riddance" becoming "Good
+        # Riddance (Time of Your Life)".
+        if (
+            force
+            and mbt.title
+            and mbt.title.strip().lower() != (track.track_name or "").strip().lower()
+        ):
+            kwargs["track_name"] = mbt.title
         if not track.track_barcode and self.detail.barcode:
             kwargs["track_barcode"] = self.detail.barcode
         if track.disc_id is None:
@@ -217,9 +277,10 @@ class AlbumMusicBrainzReviewDialog(QDialog):
     # UI
     # ------------------------------------------------------------------
 
-    def _usable_aliases(self) -> List[MBAlias]:
+    def _usable_aliases(self) -> list[MBAlias]:
         existing = {
-            (a.alias_name or "").strip().lower() for a in (self.album.album_aliases or [])
+            (a.alias_name or "").strip().lower()
+            for a in (self.album.album_aliases or [])
         }
         own_name = (self.album.album_name or "").strip().lower()
         out = []
@@ -244,15 +305,14 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             box = QGroupBox("Unmatched Tracks — pick a local track or skip")
             box_layout = QVBoxLayout(box)
             for mbt in self._remaining_mb:
-                row_label = QLabel(
-                    f"Disc {mbt.disc_number}, Track {mbt.track_number or '?'}: {mbt.title}"
-                )
+                row_label = QLabel(_format_mb_track_label(mbt))
                 box_layout.addWidget(row_label)
                 combo = QComboBox()
                 combo.addItem(_SKIP, None)
                 for local in self._remaining_local_options:
+                    local_side = f", side {local.side}" if local.side else ""
                     combo.addItem(
-                        f"{local.track_name} (currently track {local.track_number or '?'})",
+                        f"{local.track_name} (currently track {local.track_number or '?'}{local_side})",
                         local,
                     )
                 guess = self._guesses.get(id(mbt))
@@ -281,9 +341,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             if not mbt.credits:
                 continue
             self.has_content = True
-            box = QGroupBox(
-                f"Disc {mbt.disc_number}, Track {mbt.track_number or '?'}: {mbt.title}"
-            )
+            box = QGroupBox(_format_mb_track_label(mbt))
             box_layout = QVBoxLayout(box)
             for credit in mbt.credits:
                 cb = QCheckBox(f"{credit.artist_name} — {credit.role_name}")
@@ -304,7 +362,9 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                 ]
                 if not tracks_here:
                     continue
-                chain_label = ", ".join(node["name"] for node in chain if node.get("name"))
+                chain_label = ", ".join(
+                    node["name"] for node in chain if node.get("name")
+                )
                 track_titles = ", ".join(mbt.title for mbt in tracks_here)
                 cb = QCheckBox(f"{chain_label}\n  → {track_titles}")
                 cb.setChecked(True)
@@ -336,7 +396,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         for combo, mbt in self._manual_combos:
             track = combo.currentData()
             if track is not None:
-                self._apply_track_scalars(track, mbt)
+                self._apply_track_scalars(track, mbt, force=True)
 
         for cb, alias in self._alias_checks:
             if not cb.isChecked():
@@ -361,7 +421,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             self._apply_credit(track, credit, known_roles)
 
         known_place_types = fetch_association_types(self.controller)
-        place_cache: Dict[str, Any] = {}
+        place_cache: dict[str, Any] = {}
         for cb, place_mbid, mb_tracks in self._location_checks:
             if not cb.isChecked():
                 continue
@@ -369,7 +429,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
 
         self.accept()
 
-    def _resolve_artist(self, credit) -> Optional[Any]:
+    def _resolve_artist(self, credit) -> Any | None:
         if credit.artist_mbid:
             artist = self.controller.get.get_entity_object(
                 "Artist", MBID=credit.artist_mbid
@@ -385,7 +445,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             "Artist", artist_name=credit.artist_name, MBID=credit.artist_mbid
         )
 
-    def _apply_credit(self, track, credit, known_roles: List[Any]):
+    def _apply_credit(self, track, credit, known_roles: list[Any]):
         try:
             artist = self._resolve_artist(credit)
             if artist is None:
@@ -419,9 +479,9 @@ class AlbumMusicBrainzReviewDialog(QDialog):
     def _apply_location(
         self,
         place_mbid: str,
-        mb_tracks: List[MBReleaseTrack],
-        place_cache: Dict[str, Any],
-        known_place_types: List[Any],
+        mb_tracks: list[MBReleaseTrack],
+        place_cache: dict[str, Any],
+        known_place_types: list[Any],
     ):
         chain = self.detail.place_chains.get(place_mbid)
         if not chain:
