@@ -23,7 +23,9 @@ from src.track.track_view_actions import TrackViewActionsMixin
 from src.track.track_view_columns import TrackViewColumnsMixin
 from src.track.track_view_data import TrackViewDataMixin
 from src.track.track_view_editing import TrackViewEditingMixin
-from src.track.track_view_filter import FilterWorker  # noqa: F401 (re-exported for callers)
+from src.track.track_view_filter import (
+    FilterWorker,
+)
 from src.track.track_view_search import TrackViewSearchMixin
 from src.track.track_view_toolbar import TrackViewToolbarMixin
 
