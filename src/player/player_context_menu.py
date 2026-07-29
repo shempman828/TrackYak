@@ -2,8 +2,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu, QMessageBox
 
-from src.artist.artist_edit import ArtistEditor
 from src.album.base_album_edit import AlbumEditor
+from src.artist.artist_edit import ArtistEditor
 from src.core.logger_config import logger
 from src.core.status_utility import StatusManager, show_status_message
 from src.track.track_edit import TrackEditDialog
@@ -86,7 +86,7 @@ class PlayerContextMenuMixin:
                 }
 
             # Build hierarchy map
-            playlist_map = {p.playlist_id: p for p in playlists}
+            {p.playlist_id: p for p in playlists}
             children_map = {}
             for playlist in playlists:
                 parent_id = getattr(playlist, "parent_id", None)
@@ -95,8 +95,8 @@ class PlayerContextMenuMixin:
                 children_map[parent_id].append(playlist)
 
             # Sort playlists alphabetically at each level
-            for parent_id in children_map:
-                children_map[parent_id].sort(key=lambda x: x.playlist_name.lower())
+            for children in children_map.values():
+                children.sort(key=lambda x: x.playlist_name.lower())
 
             # Build hierarchical menu starting from root (None parent)
             self._build_playlist_hierarchy(
@@ -182,7 +182,7 @@ class PlayerContextMenuMixin:
                 track_mood_ids = {mood.mood_id for mood in self.current_track.moods}
 
             # Build hierarchy map
-            mood_map = {m.mood_id: m for m in moods}
+            {m.mood_id: m for m in moods}
             children_map = {}
             for mood in moods:
                 parent_id = getattr(mood, "parent_id", None)
@@ -191,8 +191,8 @@ class PlayerContextMenuMixin:
                 children_map[parent_id].append(mood)
 
             # Sort moods alphabetically at each level
-            for parent_id in children_map:
-                children_map[parent_id].sort(key=lambda x: x.mood_name.lower())
+            for children in children_map.values():
+                children.sort(key=lambda x: x.mood_name.lower())
 
             # Build hierarchical menu starting from root (None parent)
             self._build_mood_hierarchy(submenu, None, children_map, track_mood_ids)
