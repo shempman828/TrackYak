@@ -319,12 +319,20 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
         self.cover_label = QLabel()
         self.cover_label.setAlignment(Qt.AlignCenter)
-        self.cover_label.setFixedSize(150, 150)  # FIX: smaller, was 200
+        self._cover_size = self._compute_cover_size()
+        self.cover_label.setFixedSize(self._cover_size, self._cover_size)
         self.cover_label.setProperty("coverPlaceholder", True)
         self._load_album_cover()
         layout.addWidget(self.cover_label)
 
         return widget
+
+    @staticmethod
+    def _compute_cover_size():
+        """Stay compact on typical displays, scale up modestly on larger ones."""
+        screen = QApplication.primaryScreen()
+        available_height = screen.availableGeometry().height() if screen else 1080
+        return max(150, min(220, round(available_height * 0.15)))
 
     def _build_info_section(self):
         """Right-hand side of the header: title, subtitle, artists, date, description, links."""
