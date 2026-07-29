@@ -2,7 +2,7 @@
 Artist-related ORM models: Artist, ArtistAlias, ArtistInfluence, and GroupMembership.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import CheckConstraint, Column, ForeignKey, Integer, String, Text
 from sqlalchemy.ext.associationproxy import association_proxy
@@ -116,7 +116,9 @@ class Artist(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    founded_publishers = association_proxy("founded_publisher_associations", "publisher")
+    founded_publishers = association_proxy(
+        "founded_publisher_associations", "publisher"
+    )
 
     @property
     def albums(self):
@@ -131,7 +133,7 @@ class Artist(Base):
     def age(self):
         """Calculate artist's age or age at end."""
         if self.begin_year:
-            end_year = self.end_year or datetime.now().year
+            end_year = self.end_year or datetime.now(timezone.utc).year
             return end_year - self.begin_year
         return None
 
