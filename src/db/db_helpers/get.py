@@ -5,7 +5,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.db.db_helpers.registry import MODEL_REGISTRY, BaseDBHelper
-from src.db.db_tables import AlbumRoleAssociation, Album
+from src.db.db_tables import Album, AlbumRoleAssociation
 
 
 class GetFromDB(BaseDBHelper):
@@ -155,18 +155,18 @@ class GetFromDB(BaseDBHelper):
                 return None
 
             # For each candidate album, check if it has exactly the expected album artists
-            for album_id, album_name in candidate_albums:
+            for album_id, candidate_album_name in candidate_albums:
                 # Get all album artists (role_id=1) for this album
                 artist_stmt = select(AlbumRoleAssociation.artist_id).where(
                     AlbumRoleAssociation.album_id == album_id,
                     AlbumRoleAssociation.role_id == 1,  # Album Artist role
                 )
-                album_artist_ids = sorted(
-                    [row[0] for row in self.session.execute(artist_stmt).all()]
-                )
+                album_artist_ids = sorted([
+                    row[0] for row in self.session.execute(artist_stmt).all()
+                ])
 
                 logger.debug(
-                    f"Album '{album_name}' (ID: {album_id}) has album artists: {album_artist_ids}"
+                    f"Album '{candidate_album_name}' (ID: {album_id}) has album artists: {album_artist_ids}"
                 )
 
                 if album_artist_ids == expected_artist_ids:
@@ -177,7 +177,7 @@ class GetFromDB(BaseDBHelper):
                     )
                     return album
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error in album existence check: {e}")
             return None
 
