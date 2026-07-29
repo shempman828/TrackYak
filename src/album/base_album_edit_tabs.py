@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.disc.disc_view import DiscManagementView
+from src.track.track_edit_genres import GenresTab as TrackGenresTab
 
 
 def _format_duration(total_seconds):
@@ -208,6 +209,46 @@ class AliasesTab:
 
         layout.addWidget(add_group)
         layout.addStretch()
+        return tab
+
+
+# -------------------------------------------------------------------------
+
+
+class GenresTab:
+    """Genres common to every track on the album.
+
+    Reuses the track editor's association-tab widget with the full set of
+    the album's tracks: adding/removing a genre here writes it to every
+    track, so the widget's existing common-items intersection and
+    write-to-all-tracks behavior double as the album-level view and the
+    trickle-down edit mechanism.
+    """
+
+    def __init__(self, editor: AlbumEditor):
+        self.editor = editor
+
+    def build(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        tracks = self.editor.album.tracks or []
+        if not tracks:
+            layout.addWidget(QLabel("This album has no tracks yet."))
+            return tab
+
+        info = QLabel(
+            "Genres common to every track on this album. Adding or "
+            "removing a genre here applies it to all of the album's tracks."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        genres_widget = TrackGenresTab(tracks, self.editor.controller, parent=tab)
+        genres_widget.load(tracks)
+        layout.addWidget(genres_widget)
         return tab
 
 
