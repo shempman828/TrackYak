@@ -31,8 +31,9 @@ class AlbumCoverArtMixin:
         is_explicit = bool(getattr(self.album, "art_is_explicit", False))
         px = cache.get_pixmap(self.album, "front", is_explicit) if cache else None
         if px and not px.isNull():
+            size = getattr(self, "_cover_size", 150)
             self.cover_label.setPixmap(
-                px.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                px.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
             return
         self.cover_label.setText("No Cover\nImage")
