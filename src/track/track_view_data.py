@@ -3,13 +3,12 @@ track_view_data.py — lazy DB loading, batch pagination, sorting, and status
 text for TrackView.
 """
 
-from sqlalchemy import select
-
 from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtGui import QStandardItem
+from sqlalchemy import select
 
-from src.db.db_tables import Album, Artist, Disc, Role, TrackArtistRole
 from src.core.logger_config import logger
+from src.db.db_tables import Album, Artist, Disc, Role, TrackArtistRole
 from src.track.track_view_filter import LAZY_BATCH_SIZE, SortWorker
 
 # Track fields whose value comes from a relationship rather than a plain
@@ -20,7 +19,11 @@ from src.track.track_view_filter import LAZY_BATCH_SIZE, SortWorker
 _ALBUM_DERIVED_FIELDS = ("album_name", "release_year", "release_month", "release_day")
 
 # Relationship-derived columns that a lookup-cache refresh can change.
-_CACHE_DEPENDENT_FIELDS = frozenset({"primary_artist_names", "disc_number", *_ALBUM_DERIVED_FIELDS})
+_CACHE_DEPENDENT_FIELDS = frozenset({
+    "primary_artist_names",
+    "disc_number",
+    *_ALBUM_DERIVED_FIELDS,
+})
 
 
 def _oxford_join(names: list) -> str:
@@ -32,7 +35,9 @@ def _oxford_join(names: list) -> str:
     return f"{', '.join(names[:-1])}, & {names[-1]}"
 
 
-def _format_primary_artist_names(primary_names: list, featured_names: list | None = None) -> str:
+def _format_primary_artist_names(
+    primary_names: list, featured_names: list | None = None
+) -> str:
     """Oxford-comma join, mirroring Track.primary_artist_names in src/db_tables/track.py."""
     primary_names = [n.strip() for n in primary_names if n and n.strip()]
     if not primary_names:
@@ -232,7 +237,9 @@ class TrackViewDataMixin:
 
         self._lookup_thread.start()
 
-    def _on_lookup_caches_loaded(self, album_cache, disc_number_cache, artist_name_cache):
+    def _on_lookup_caches_loaded(
+        self, album_cache, disc_number_cache, artist_name_cache
+    ):
         """Called on the main thread once TrackLookupCacheWorker finishes."""
         self._album_cache = album_cache
         self._disc_number_cache = disc_number_cache
@@ -275,7 +282,9 @@ class TrackViewDataMixin:
                 )
 
     @staticmethod
-    def _format_primary_artist_names(primary_names: list, featured_names: list | None = None) -> str:
+    def _format_primary_artist_names(
+        primary_names: list, featured_names: list | None = None
+    ) -> str:
         """Oxford-comma join, mirroring Track.primary_artist_names in src/db_tables/track.py."""
         return _format_primary_artist_names(primary_names, featured_names)
 
