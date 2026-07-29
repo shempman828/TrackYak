@@ -1,5 +1,4 @@
 from collections import defaultdict
-from typing import Optional
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtGui import QBrush, QColor
@@ -106,7 +105,7 @@ class RoleView(QWidget):
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
-        self.current_role_id: Optional[int] = None
+        self.current_role_id: int | None = None
 
         # These are populated after background loading finishes.
         # We keep them on the instance so _on_role_selected can use them
@@ -119,7 +118,7 @@ class RoleView(QWidget):
         self.sort_mode = "name"
 
         # Keep a reference to the running thread so it isn't garbage-collected.
-        self._loader_thread: Optional[QThread] = None
+        self._loader_thread: QThread | None = None
 
         self._setup_ui()
         self._connect_signals()
@@ -298,7 +297,7 @@ class RoleView(QWidget):
             self._rebuild_tree()
 
         except Exception as e:
-            logger.error(f"Failed to populate role tree: {str(e)}", exc_info=True)
+            logger.error(f"Failed to populate role tree: {e!s}", exc_info=True)
             self.role_tree.clear()
             error_item = QTreeWidgetItem(["Error loading roles"])
             error_item.setFlags(error_item.flags() & ~Qt.ItemIsEditable)
@@ -527,7 +526,7 @@ class RoleView(QWidget):
                 self.detail_tab._load_data()
 
         except Exception as e:
-            logger.error(f"Error handling role selection: {str(e)}", exc_info=True)
+            logger.error(f"Error handling role selection: {e!s}", exc_info=True)
             self._clear_detail_view()
 
     def _get_hierarchy_info(self, role):
@@ -612,7 +611,7 @@ class RoleView(QWidget):
             show_status_message(self, str(e))
             item.setText(0, old_text)  # Revert to old text
         except Exception as e:
-            logger.error(f"Error renaming role: {str(e)}")
+            logger.error(f"Error renaming role: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to rename role")
             item.setText(0, old_text)  # Revert to old text
 
@@ -659,7 +658,7 @@ class RoleView(QWidget):
                 event.ignore()
 
         except Exception as e:
-            logger.error(f"Error moving role: {str(e)}")
+            logger.error(f"Error moving role: {e!s}")
             event.ignore()
 
     def show_context_menu(self, pos):
@@ -700,7 +699,7 @@ class RoleView(QWidget):
                 self.role_updated.emit()
 
         except Exception as e:
-            logger.error(f"Error creating role: {str(e)}")
+            logger.error(f"Error creating role: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to create role")
 
     def edit_role(self, role_id):
@@ -716,7 +715,7 @@ class RoleView(QWidget):
                 self.load_roles()
                 self.role_updated.emit()
         except Exception as e:
-            logger.error(f"Error editing role: {str(e)}")
+            logger.error(f"Error editing role: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to edit role")
 
     def merge_role(self, source_role_id):
@@ -737,8 +736,8 @@ class RoleView(QWidget):
                 self.status_bar.setText("Role merge completed successfully")
 
         except Exception as e:
-            logger.error(f"Error merging role: {str(e)}")
-            QMessageBox.critical(self, "Error", f"Failed to merge role: {str(e)}")
+            logger.error(f"Error merging role: {e!s}")
+            QMessageBox.critical(self, "Error", f"Failed to merge role: {e!s}")
 
     def create_new_parent_role(self, role_id):
         """Create a new role and insert it as the parent of the given role.
@@ -769,7 +768,7 @@ class RoleView(QWidget):
                 f"Created '{new_role.role_name}' as parent of '{role.role_name}'"
             )
         except Exception as e:
-            logger.error(f"Error creating new parent role: {str(e)}")
+            logger.error(f"Error creating new parent role: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to create new parent role")
 
     def create_new_child_role(self, role_id):
@@ -794,7 +793,7 @@ class RoleView(QWidget):
                 f"Created '{new_role.role_name}' as child of '{role.role_name}'"
             )
         except Exception as e:
-            logger.error(f"Error creating new child role: {str(e)}")
+            logger.error(f"Error creating new child role: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to create new child role")
 
     def delete_role(self, role_id):
@@ -827,5 +826,5 @@ class RoleView(QWidget):
                 self.status_bar.setText(f"Deleted {role.role_name}")
 
         except Exception as e:
-            logger.error(f"Error deleting role: {str(e)}")
+            logger.error(f"Error deleting role: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to delete role")
