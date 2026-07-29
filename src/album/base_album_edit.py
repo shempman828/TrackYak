@@ -36,6 +36,7 @@ from src.album.base_album_edit_tabs import (
     TracksTab,
 )
 from src.common.edit_dirty import value_changed
+from src.common.layout_utils import clear_layout
 from src.common.nullable_spinbox import NullableSpinBox
 from src.core.config_setup import Config
 from src.core.logger_config import logger
@@ -440,6 +441,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             btn = getattr(self, btn_attr, None)
             if btn is not None:
                 self._links_row.removeWidget(btn)
+                btn.hide()
                 btn.deleteLater()
                 setattr(self, btn_attr, None)
 
@@ -473,10 +475,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
     def _refresh_aliases_list(self):
         """Rebuild the alias list widget from the current album object."""
-        while self.aliases_layout.count():
-            item = self.aliases_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        clear_layout(self.aliases_layout)
 
         aliases = getattr(self.album, "album_aliases", []) or []
         if not aliases:
