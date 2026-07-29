@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.layout_utils import clear_layout
 from src.core.logger_config import logger
 
 
@@ -239,10 +240,7 @@ class AwardsWidget(QWidget):
             return
 
         # Clear existing awards
-        while self.awards_layout.count():
-            item = self.awards_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        clear_layout(self.awards_layout)
 
         # Determine grid columns based on available width
         # We'll use 3 columns as default, but adjust dynamically if needed

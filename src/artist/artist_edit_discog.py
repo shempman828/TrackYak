@@ -313,6 +313,7 @@ class _FilterBar(QScrollArea):
         # Remove old checkboxes
         for cb in self._checkboxes.values():
             self._layout.removeWidget(cb)
+            cb.hide()
             cb.deleteLater()
         self._checkboxes.clear()
 

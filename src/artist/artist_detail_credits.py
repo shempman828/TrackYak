@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.layout_utils import clear_layout
 from src.core.logger_config import logger
 
 
@@ -275,10 +276,7 @@ class CreditsWidget(QWidget):
             )
 
             self.role_sections = {}
-            while self.sections_layout.count():
-                item = self.sections_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
+            clear_layout(self.sections_layout)
 
             # Count roles
             role_counts = {}

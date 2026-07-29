@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.layout_utils import clear_layout
 from src.core.logger_config import logger
 
 # ── Palette constants (mirror dark_mode.qss) ─────────────────────────────────
@@ -638,10 +639,7 @@ class CalendarWidget(QWidget):
     def update_calendar(self):
         """Rebuild the day-cell grid for the current month/year."""
         # Remove old cells
-        while self.calendar_grid.count():
-            item = self.calendar_grid.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        clear_layout(self.calendar_grid)
 
         days_in_month = self._days_in_month(self.year, self.current_month)
         first_weekday = self._first_weekday(self.year, self.current_month)

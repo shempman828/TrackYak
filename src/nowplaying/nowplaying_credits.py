@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.layout_utils import clear_layout
 from src.core.logger_config import logger
 
 
@@ -69,10 +70,7 @@ class _CreditsPanel(QWidget):
         self._paused = True
         self._area.verticalScrollBar().setValue(0)
 
-        while self._cards_layout.count():
-            item = self._cards_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        clear_layout(self._cards_layout)
 
         if not track:
             self._show_placeholder("No track loaded")

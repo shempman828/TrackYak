@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.layout_utils import clear_layout
 from src.core.config_setup import app_config
 
 
@@ -150,10 +151,7 @@ class LegendPanel(QFrame):
         return QPoint(self._clamp(point.x(), 0, max_x), self._clamp(point.y(), 0, max_y))
 
     def set_communities(self, rows):
-        while self._rows_layout.count():
-            item = self._rows_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        clear_layout(self._rows_layout)
 
         if len(rows) <= 1:
             self.hide()

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.layout_utils import clear_layout
 from src.core.logger_config import logger
 
 # Cap the dropdown's collapsed-button width so it stays compact in a filter
@@ -110,10 +111,7 @@ class MultiSelectWidget(QWidget):
         can control it by passing items pre-sorted.
         """
         # Clear existing checkboxes
-        for i in reversed(range(self.popup.content_layout.count())):
-            widget = self.popup.content_layout.itemAt(i).widget()
-            if widget:
-                widget.deleteLater()
+        clear_layout(self.popup.content_layout)
 
         self.checkboxes.clear()
         self.selected_items.clear()

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.layout_utils import clear_layout
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.equalizer.equalizer_utility import EqualizerUtility
@@ -236,11 +237,7 @@ class EqualizerDialog(QDialog):
             h_layout.addLayout(vbox)
 
         # Clear previous widgets in the group box layout
-        while self.bands_layout.count():
-            item = self.bands_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
+        clear_layout(self.bands_layout)
 
         # Add the horizontal slider container to the group box layout
         self.bands_layout.addWidget(self.slider_container)
