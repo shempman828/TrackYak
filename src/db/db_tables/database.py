@@ -3,13 +3,14 @@ MusicDatabase: engine/session setup plus schema and integrity verification.
 """
 
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
+from src.core.logger_config import logger
 from src.db.db_engine import engine as _shared_engine
 from src.db.db_tables.album import Album
 from src.db.db_tables.base import Base
 from src.db.db_tables.track import Track
-from src.core.logger_config import logger
 from src.statistics.album_gain_peak import compute_album_gain_peak
 
 _DEFAULT_DB_PATH = "sqlite:///music_library.db"
@@ -23,12 +24,14 @@ class MusicDatabase:
             # same SQLite file as MusicController/db_helpers. A non-default
             # path (e.g. for tests) still gets its own dedicated engine.
             self.engine = (
-                _shared_engine if db_path == _DEFAULT_DB_PATH else create_engine(db_path, echo=False)
+                _shared_engine
+                if db_path == _DEFAULT_DB_PATH
+                else create_engine(db_path, echo=False)
             )
             self.Session = sessionmaker(bind=self.engine)
             self._initialize_database()
             self._verify_integrity()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to initialize database: {e}")
             raise
 
@@ -37,7 +40,7 @@ class MusicDatabase:
         try:
             Base.metadata.create_all(self.engine)
             logger.info("Database tables initialized successfully.")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error initializing database: {e}")
             raise
 
@@ -160,7 +163,7 @@ class MusicDatabase:
             if "albums" in existing_tables and "tracks" in existing_tables:
                 self._backfill_album_gain_peak()
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Integrity check failed: {e}")
             raise
 
@@ -194,7 +197,7 @@ class MusicDatabase:
                     with self.engine.begin() as conn:
                         conn.execute(text(f'DROP INDEX "{index_name}"'))
                     logger.info(f"Dropped retired index {index_name} on {table_name}.")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to drop retired indexes: {e}")
 
     def _create_missing_indexes(self, inspector, existing_tables) -> None:
@@ -214,7 +217,7 @@ class MusicDatabase:
                 try:
                     index.create(bind=self.engine)
                     logger.info(f"Created missing index {index.name} on {table_name}.")
-                except Exception as e:
+                except SQLAlchemyError as e:
                     logger.error(f"Failed to create index {index.name}: {e}")
 
     def _rename_column_if_needed(
@@ -233,18 +236,14 @@ class MusicDatabase:
             if old_name not in columns or new_name in columns:
                 return
             ddl = (
-                f'ALTER TABLE "{table_name}" RENAME COLUMN "{old_name}" '
-                f'TO "{new_name}"'
+                f'ALTER TABLE "{table_name}" RENAME COLUMN "{old_name}" TO "{new_name}"'
             )
             with self.engine.begin() as conn:
                 conn.execute(text(ddl))
-            logger.info(
-                f"Renamed column {table_name}.{old_name} to {new_name}."
-            )
-        except Exception as e:
+            logger.info(f"Renamed column {table_name}.{old_name} to {new_name}.")
+        except SQLAlchemyError as e:
             logger.error(
-                f"Failed to rename column {table_name}.{old_name} to "
-                f"{new_name}: {e}"
+                f"Failed to rename column {table_name}.{old_name} to {new_name}: {e}"
             )
 
     def _backfill_album_gain_peak(self) -> None:
@@ -256,16 +255,15 @@ class MusicDatabase:
         """
         try:
             with self.Session() as session:
-                albums = (
-                    session.query(Album).filter(Album.album_gain.is_(None)).all()
-                )
+                albums = session.query(Album).filter(Album.album_gain.is_(None)).all()
                 if not albums:
                     return
 
                 updated = 0
                 for album in albums:
                     tracks = (
-                        session.query(Track)
+                        session
+                        .query(Track)
                         .filter(Track.album_id == album.album_id)
                         .all()
                     )
@@ -284,7 +282,7 @@ class MusicDatabase:
                         f"Backfilled album_gain/album_peak for {updated} album(s) "
                         f"from existing track analysis data."
                     )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Album gain/peak backfill failed: {e}")
 
     def _try_add_column(self, table_name: str, column) -> bool:
@@ -323,6 +321,6 @@ class MusicDatabase:
             with self.engine.begin() as conn:
                 conn.execute(text(ddl))
             return True
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to auto-add column {table_name}.{column.name}: {e}")
             return False
