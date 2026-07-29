@@ -6,6 +6,9 @@ re-exported here so existing code can keep doing `from src.db.db_tables import X
 or `import src.db.db_tables` unchanged.
 """
 
+# Registers all Index(...) definitions against the tables above; must be
+# imported last, after every model class exists.
+from src.db.db_tables import indexes  # noqa: F401
 from src.db.db_tables.album import Album, AlbumAlias, AlbumVirtualTrack
 from src.db.db_tables.artist import (
     Artist,
@@ -41,47 +44,43 @@ from src.db.db_tables.religion import Religion
 from src.db.db_tables.role import Role
 from src.db.db_tables.track import Samples, Track, TrackUsage
 
-# Registers all Index(...) definitions against the tables above; must be
-# imported last, after every model class exists.
-from src.db.db_tables import indexes  # noqa: E402, F401
-
 __all__ = [
-    "Base",
-    "set_sqlite_pragma",
-    "MusicDatabase",
     "Album",
     "AlbumAlias",
+    "AlbumPublisher",
+    "AlbumRoleAssociation",
     "AlbumVirtualTrack",
-    "Samples",
-    "Track",
-    "TrackUsage",
-    "Disc",
     "Artist",
     "ArtistAlias",
     "ArtistInfluence",
     "ArtistType",
     "ArtistTypeAssociation",
-    "GroupMembership",
+    "Award",
+    "AwardAssociation",
+    "Base",
+    "Disc",
     "Genre",
     "GenreAlias",
+    "GroupMembership",
     "Mood",
     "MoodTrackAssociation",
-    "Publisher",
-    "PublisherAlias",
-    "Religion",
+    "MusicDatabase",
     "Place",
     "PlaceAssociation",
     "PlaceAssociationType",
-    "Award",
-    "AwardAssociation",
     "Playlist",
-    "SmartPlaylist",
     "PlaylistTracks",
-    "SmartPlaylistCriteria",
-    "Role",
-    "AlbumPublisher",
+    "Publisher",
+    "PublisherAlias",
     "PublisherFounder",
-    "TrackGenre",
+    "Religion",
+    "Role",
+    "Samples",
+    "SmartPlaylist",
+    "SmartPlaylistCriteria",
+    "Track",
     "TrackArtistRole",
-    "AlbumRoleAssociation",
+    "TrackGenre",
+    "TrackUsage",
+    "set_sqlite_pragma",
 ]
