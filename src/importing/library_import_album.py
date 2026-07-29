@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional
 
+from src.album.release_type_utils import normalize_release_type
 from src.importing.artist_field_extraction import (
     ALBUM_ARTIST_FIELDS,
     extract_artists_from_metadata,
@@ -117,7 +118,7 @@ class AlbumImporter:
             "album_language": metadata.get("album_language"),
             "album_gain": metadata.get("album_gain"),
             "album_peak": metadata.get("album_peak"),
-            "release_type": metadata.get("album_release_type"),
+            "release_type": normalize_release_type(metadata.get("album_release_type")),
             "status": metadata.get("album_status"),
             "estimated_sales": metadata.get("album_estimated_sales"),
             "MBID": metadata.get("album_MBID"),
