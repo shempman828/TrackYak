@@ -58,7 +58,7 @@ class AddToDB(BaseDBHelper):
 
             return new_entity
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             self.session.rollback()
             logger.error(f"Failed to add entity: {e}")
             return None
