@@ -13,7 +13,6 @@ import json
 import re
 import subprocess
 import time
-from typing import Optional
 
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
@@ -116,16 +115,24 @@ class PlayerDeviceMixin:
             except (IndexError, TypeError):
                 return None, None
 
-        is_default_alias = device is None or device == "" or (
-            device_name is not None
-            and device_name.strip().lower() in ("default", "pulse", "pipewire", "sysdefault")
+        is_default_alias = (
+            device is None
+            or device == ""
+            or (
+                device_name is not None
+                and device_name.strip().lower()
+                in ("default", "pulse", "pipewire", "sysdefault")
+            )
         )
 
         if is_default_alias:
             try:
                 result = subprocess.run(
                     ["pactl", "get-default-sink"],
-                    capture_output=True, text=True, timeout=2, check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    check=True,
                 )
                 sink_name = result.stdout.strip() or None
             except Exception as exc:
@@ -142,7 +149,10 @@ class PlayerDeviceMixin:
         try:
             result = subprocess.run(
                 ["pactl", "-f", "json", "list", "sinks"],
-                capture_output=True, text=True, timeout=2, check=True,
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=True,
             )
             sinks = json.loads(result.stdout)
         except Exception as exc:
@@ -169,7 +179,9 @@ class PlayerDeviceMixin:
         try:
             subprocess.run(
                 ["pactl", "suspend-sink", sink_name, "1" if suspend else "0"],
-                capture_output=True, timeout=2, check=True,
+                capture_output=True,
+                timeout=2,
+                check=True,
             )
             return True
         except Exception as exc:
@@ -178,7 +190,7 @@ class PlayerDeviceMixin:
             )
             return False
 
-    def _prepare_exclusive_device(self, device) -> Optional[int]:
+    def _prepare_exclusive_device(self, device) -> int | None:
         """Try to grab the real hw:card,device node behind `device` for
         bit-perfect playback.
 
@@ -258,11 +270,14 @@ class PlayerDeviceMixin:
 
     def _close_stream(self):
         if self.audio_stream is not None:
+            stream_exceptions = (OSError, RuntimeError)
+            if hasattr(self, "sd") and hasattr(self.sd, "PortAudioError"):
+                stream_exceptions += (self.sd.PortAudioError,)
             try:
                 self.audio_stream.stop()
                 self.audio_stream.close()
-            except Exception:
-                pass
+            except stream_exceptions as exc:
+                logger.debug(f"audio stream stop/close failed: {exc}")
             finally:
                 self.audio_stream = None
         if self._suspended_sink_name is not None:
