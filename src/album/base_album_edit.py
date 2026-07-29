@@ -544,7 +544,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         """Save + Cancel."""
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.save_changes)
-        button_box.rejected.connect(self.reject)
+        button_box.rejected.connect(self.close)
 
         layout.addWidget(button_box)
 
@@ -650,22 +650,6 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             logger.info("Album view refreshed")
         except Exception as e:
             logger.error(f"Error refreshing album view: {e}")
-
-    def _refresh_from_database(self):
-        """Reload all editable widgets from the latest DB state."""
-        try:
-            updated = self.controller.get.get_entity_object(
-                "Album", album_id=self.album.album_id
-            )
-            if updated:
-                self.album = updated
-                self.helper.album = updated
-                self.tab_builder.album = updated
-            self.init_editable_widgets()
-            self._rebuild_current_tab()
-        except Exception as e:
-            logger.error(f"Error refreshing from database: {e}")
-            QMessageBox.critical(self, "Error", f"Could not refresh: {e}")
 
     # =========================================================================
     # Tab rebuild helpers
