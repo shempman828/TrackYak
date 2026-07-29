@@ -65,16 +65,18 @@ class TrackViewActionsMixin:
             return cache.get(track.track_id, "Unknown Artist")
         try:
             name = getattr(track, "primary_artist_names", None)
-            if name:
-                return name
-        except Exception:
-            pass
+        except AttributeError as exc:
+            logger.debug(f"Unable to read primary_artist_names: {exc}")
+            name = None
+        if name:
+            return name
         try:
             artists = getattr(track, "artists", None) or []
-            if artists:
-                return getattr(artists[0], "artist_name", "") or ""
-        except Exception:
-            pass
+        except AttributeError as exc:
+            logger.debug(f"Unable to read artists: {exc}")
+            artists = []
+        if artists:
+            return getattr(artists[0], "artist_name", "") or ""
         return ""
 
     def _format_value(self, value, field_name: str, field_config) -> str:
