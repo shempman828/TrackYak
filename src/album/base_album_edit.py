@@ -28,6 +28,10 @@ from src.album.album_cover_art_mixin import AlbumCoverArtMixin
 from src.album.album_editing_relationship_helpers import RelationshipHelpers
 from src.album.album_musicbrainz_mixin import AlbumMusicBrainzMixin
 from src.album.album_tab import AlbumTabBuilder
+from src.album.release_type_utils import (
+    RELEASE_TYPE_SUGGESTIONS,
+    normalize_release_type,
+)
 from src.album.base_album_edit_tabs import (
     AdvancedTab,
     AliasesTab,
@@ -59,19 +63,8 @@ ALBUM_LANGUAGE_SUGGESTIONS = [
     "Instrumental",
     "Multiple",
 ]
-RELEASE_TYPE_SUGGESTIONS = [
-    "Album",
-    "Single",
-    "EP",
-    "Compilation",
-    "Soundtrack",
-    "Live",
-    "Remix",
-    "Mixtape",
-    "Bootleg",
-    "Broadcast",
-    "Demo",
-]
+# RELEASE_TYPE_SUGGESTIONS lives in release_type_utils.py alongside the
+# normalization helper, since both need the same canonical casing.
 STATUS_SUGGESTIONS = [
     "Official",
     "Promotional",
@@ -236,17 +229,21 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
     def _fetch_field_suggestions(self, field_name, fallback):
         """Distinct values already used for `field_name` across the library,
-        merged with a small generic fallback list in case lookup fails."""
-        suggestions = set(fallback)
+        merged with a small generic fallback list in case lookup fails.
+        Deduplicated case-insensitively so e.g. "Album" and "album" don't
+        show up as two separate suggestions; the first casing seen wins."""
+        suggestions = {}
+        for value in fallback:
+            suggestions.setdefault(value.lower(), value)
         try:
             albums = self.controller.get.get_all_entities("Album") or []
             for a in albums:
                 value = (getattr(a, field_name, None) or "").strip()
                 if value:
-                    suggestions.add(value)
+                    suggestions.setdefault(value.lower(), value)
         except Exception:
             logger.debug(f"Could not fetch suggestions for {field_name!r}", exc_info=True)
-        return sorted(suggestions, key=str.lower)
+        return sorted(suggestions.values(), key=str.lower)
 
     # =========================================================================
     # Main UI layout
@@ -595,6 +592,8 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 current = widget.value()
             else:
                 current = AlbumUIComponents.get_field_value(widget, field_config.type)
+            if field_name == "release_type":
+                current = normalize_release_type(current)
             original = getattr(self.album, field_name, None)
             if value_changed(original, current):
                 changes[field_name] = current
