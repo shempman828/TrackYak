@@ -422,6 +422,13 @@ class MBReleaseTrack:
     recording_mbid: str
     credits: List[MBTrackCredit] = field(default_factory=list)
     location_place_mbid: Optional[str] = None
+    # Sequential position within the medium's tracklist, spanning both
+    # sides for vinyl (e.g. "B1" on a 7-track-per-side LP is absolute
+    # position 8). Same value as track_number for non-vinyl releases
+    # (no side letter to make them diverge). Local track numbering is
+    # absolute, so matching against local tracks must use this, not the
+    # side-relative track_number.
+    absolute_position: Optional[int] = None
 
 
 @dataclass
@@ -684,6 +691,10 @@ def fetch_release_detail(
             side, track_number = _parse_track_number_side(
                 track.get("number"), track.get("position")
             )
+            try:
+                absolute_position = int(track.get("position"))
+            except (TypeError, ValueError):
+                absolute_position = None
             mb_track = MBReleaseTrack(
                 disc_number=disc_number,
                 disc_title=disc_title,
@@ -692,6 +703,7 @@ def fetch_release_detail(
                 title=recording.get("title") or track.get("title") or "",
                 recording_mbid=recording.get("id") or "",
                 credits=_parse_recording_credits(recording),
+                absolute_position=absolute_position,
             )
             location = _parse_recording_location(recording)
             if location:
