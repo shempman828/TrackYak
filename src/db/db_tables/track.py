@@ -2,10 +2,18 @@
 Track-related ORM models: Samples (self-referential sampling), Track, and TrackUsage.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text
-from sqlalchemy import CheckConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
@@ -146,7 +154,9 @@ class Track(Base):
     acousticness = Column(Float)  # 0-1 acoustic vs electric
     liveness = Column(Float)  # 0-1 performed live
     valence = Column(Float)  # 0-1 musical positiveness
-    audiophile_score = Column(Float)  # 0-1: HF extension * 0.40 + no-clipping * 0.35 + dynamic range * 0.25
+    audiophile_score = Column(
+        Float
+    )  # 0-1: HF extension * 0.40 + no-clipping * 0.35 + dynamic range * 0.25
 
     album = relationship("Album", back_populates="tracks")
     album_name = association_proxy("album", "album_name")
@@ -319,7 +329,7 @@ class Track(Base):
     @property
     def all_albums(self):
         """Returns the primary album plus all albums that 'borrow' this track."""
-        albums = [self.album] if self.album else []  #
+        albums = [self.album] if self.album else []
         borrowed_albums = [link.album for link in self.virtual_appearances]
         return albums + borrowed_albums
 
@@ -342,9 +352,7 @@ class Track(Base):
         """Return True if track has all album-level metadata filled in, False otherwise."""
         if not self.album:
             return False
-        if self.album.is_fixed == 1:
-            return True
-        return False
+        return self.album.is_fixed == 1
 
     @property
     def is_complete(self):
@@ -368,7 +376,7 @@ class Track(Base):
     def age_in_years(self):
         """Return how many years ago the track was recorded, or None if unknown."""
         if self.recorded_year:
-            return datetime.now().year - self.recorded_year
+            return date.today().year - self.recorded_year  # ruff: ignore[call-date-today]
         return None
 
     @property
