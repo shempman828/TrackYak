@@ -6,6 +6,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
+from src.album.release_type_utils import normalize_release_type
 from src.core.logger_config import logger
 from src.db.db_engine import engine as _shared_engine
 from src.db.db_tables.album import Album
@@ -162,6 +163,8 @@ class MusicDatabase:
             # ── Step 4: One-off data backfill ────────────────────────────────
             if "albums" in existing_tables and "tracks" in existing_tables:
                 self._backfill_album_gain_peak()
+            if "albums" in existing_tables:
+                self._normalize_release_type_casing()
 
         except SQLAlchemyError as e:
             logger.error(f"Integrity check failed: {e}")
@@ -284,6 +287,34 @@ class MusicDatabase:
                     )
         except SQLAlchemyError as e:
             logger.error(f"Album gain/peak backfill failed: {e}")
+
+    def _normalize_release_type_casing(self) -> None:
+        """One-time catch-up for albums saved before release_type was
+        normalized to a canonical casing (see src/album/release_type_utils.py),
+        so pre-existing rows like "album" and "Album" collapse onto the same
+        value instead of being treated as distinct types. Only touches rows
+        that actually differ from their normalized form, so it's a no-op on
+        every startup after the first.
+        """
+        try:
+            with self.Session() as session:
+                albums = (
+                    session.query(Album).filter(Album.release_type.isnot(None)).all()
+                )
+                updated = 0
+                for album in albums:
+                    normalized = normalize_release_type(album.release_type)
+                    if normalized != album.release_type:
+                        album.release_type = normalized
+                        updated += 1
+
+                if updated:
+                    session.commit()
+                    logger.info(
+                        f"Normalized release_type casing for {updated} album(s)."
+                    )
+        except SQLAlchemyError as e:
+            logger.error(f"release_type casing normalization failed: {e}")
 
     def _try_add_column(self, table_name: str, column) -> bool:
         """Attempt to add a missing column to an existing table via ALTER TABLE.
