@@ -26,7 +26,7 @@ class GenresTab(_BaseTrackAssociationTab):
             self.model_name,
             self.name_field,
             name,
-            self._known_entities,
+            self._known_entities(),
             extra_lookup=lambda: self.controller.get.resolve_entity_or_alias(
                 "Genre", "genre_name", name
             ),
