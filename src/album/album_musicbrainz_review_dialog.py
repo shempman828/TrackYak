@@ -21,19 +21,25 @@ from __future__ import annotations
 from difflib import SequenceMatcher
 from typing import Any
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QGroupBox,
+    QHeaderView,
     QLabel,
     QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 from src.common.entity_completer_edit import find_or_create_by_name
+from src.common.match_confidence import confidence_color, confidence_label
 from src.core.logger_config import logger
 from src.musicbrainz.musicbrainz_client import MBAlias, MBReleaseDetail, MBReleaseTrack
 from src.place.place_association_types import (
@@ -157,6 +163,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         # signal for which disc a given local track belongs to.
         single_medium = len({mbt.disc_number for mbt in self.detail.tracks}) <= 1
         guesses: dict[int, Any] = {}
+        guess_scores: dict[int, float] = {}
         if single_medium and remaining_mb and remaining_local:
             # Greedily pair by title similarity first -- highest-scoring
             # pairs win -- so a missing/extra track in the middle of the
@@ -180,10 +187,11 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             candidates.sort(key=lambda c: (-c[0], c[1]))
             used_mb_ids = set()
             used_local_ids = set()
-            for _score, _dist, mbt, local in candidates:
+            for score, _dist, mbt, local in candidates:
                 if id(mbt) in used_mb_ids or local.track_id in used_local_ids:
                     continue
                 guesses[id(mbt)] = local
+                guess_scores[id(mbt)] = score
                 used_mb_ids.add(id(mbt))
                 used_local_ids.add(local.track_id)
 
@@ -191,6 +199,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         self._remaining_mb = remaining_mb
         self._remaining_local_options = remaining_local
         self._guesses = guesses
+        self._guess_scores = guess_scores
 
     def _resolved_track(self, mbt: MBReleaseTrack):
         """The local Track this MB track ultimately maps to -- auto-matched,
@@ -304,9 +313,23 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             self.has_content = True
             box = QGroupBox("Unmatched Tracks — pick a local track or skip")
             box_layout = QVBoxLayout(box)
-            for mbt in self._remaining_mb:
-                row_label = QLabel(_format_mb_track_label(mbt))
-                box_layout.addWidget(row_label)
+
+            table = QTableWidget(len(self._remaining_mb), 3)
+            table.setHorizontalHeaderLabels(
+                ["MusicBrainz Track", "Match to Local Track", "Confidence"]
+            )
+            table.verticalHeader().setVisible(False)
+            table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            table.setSelectionMode(QAbstractItemView.NoSelection)
+            header = table.horizontalHeader()
+            header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.Stretch)
+            header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+
+            for row, mbt in enumerate(self._remaining_mb):
+                mb_item = QTableWidgetItem(_format_mb_track_label(mbt))
+                table.setItem(row, 0, mb_item)
+
                 combo = QComboBox()
                 combo.addItem(_SKIP, None)
                 for local in self._remaining_local_options:
@@ -316,12 +339,34 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                         local,
                     )
                 guess = self._guesses.get(id(mbt))
+                score = self._guess_scores.get(id(mbt))
                 if guess is not None:
                     idx = combo.findData(guess)
                     if idx >= 0:
                         combo.setCurrentIndex(idx)
-                box_layout.addWidget(combo)
+                table.setCellWidget(row, 1, combo)
                 self._manual_combos.append((combo, mbt))
+
+                if guess is not None:
+                    conf_text = confidence_label(score)
+                    conf_color = confidence_color(score)
+                else:
+                    conf_text = "No suggestion"
+                    conf_color = confidence_color(0.0)
+                conf_item = QTableWidgetItem(conf_text)
+                conf_item.setForeground(conf_color)
+                conf_item.setTextAlignment(Qt.AlignCenter)
+                table.setItem(row, 2, conf_item)
+
+            table.resizeRowsToContents()
+            table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            row_height_total = sum(
+                table.rowHeight(r) for r in range(table.rowCount())
+            )
+            table.setFixedHeight(
+                header.height() + row_height_total + 2 * table.frameWidth()
+            )
+            box_layout.addWidget(table)
             inner_layout.addWidget(box)
 
         aliases = self._usable_aliases()
@@ -375,7 +420,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         if not self.has_content:
             inner_layout.addWidget(QLabel("Nothing further to review."))
 
-        inner_layout.addStretch()
+        inner_layout.addStretch(1)
         scroll.setWidget(inner)
         layout.addWidget(scroll, stretch=1)
 
