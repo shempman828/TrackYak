@@ -6,21 +6,21 @@ This code handles importing audio files into a music library database and parsin
 
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, ClassVar
 
 import psutil
 from PySide6.QtCore import Signal
 
 from src.common.cancellable_worker import CancellableWorker
 from src.core.config_setup import app_config
-from src.metadata.metadata_extraction import MetadataExtractor
+from src.core.logger_config import logger
 from src.importing.artist_field_extraction import (
     ALBUM_ARTIST_FIELDS,
     TRACK_ARTIST_FIELDS,
     extract_artists_from_metadata,
 )
 from src.importing.library_import_album import AlbumImporter
-from src.core.logger_config import logger
+from src.metadata.metadata_extraction import MetadataExtractor
 
 
 class ImportResult(Enum):
@@ -42,7 +42,15 @@ class TrackImporter:
     - Ensure robust error handling and continue-on-error behavior
     """
 
-    SUPPORTED_EXTENSIONS = {".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".opus"}
+    SUPPORTED_EXTENSIONS: ClassVar = {
+        ".mp3",
+        ".flac",
+        ".wav",
+        ".m4a",
+        ".aac",
+        ".ogg",
+        ".opus",
+    }
 
     def __init__(self, controller):
         self.controller = controller
@@ -124,10 +132,10 @@ class TrackImporter:
             return ImportResult.IMPORTED
 
         except Exception as e:
-            logger.error(f"Error importing track {file_path}: {str(e)}", exc_info=True)
+            logger.error(f"Error importing track {file_path}: {e!s}", exc_info=True)
             return ImportResult.FAILED
 
-    def _process_artists(self, metadata: Dict[str, Any], album) -> Dict[str, List]:
+    def _process_artists(self, metadata: dict[str, Any], album) -> dict[str, list]:
         """Process all artist types and return organized dictionary."""
         # Use proper display names as keys from the start
         artists_dict = {
@@ -152,9 +160,7 @@ class TrackImporter:
         }
 
         # Process primary artists
-        primary_artists = extract_artists_from_metadata(
-            metadata, TRACK_ARTIST_FIELDS
-        )
+        primary_artists = extract_artists_from_metadata(metadata, TRACK_ARTIST_FIELDS)
         artists_dict["Primary Artist"] = self._create_artists_list(primary_artists)
 
         # Process album artists (same field priority AlbumImporter uses when
@@ -190,7 +196,7 @@ class TrackImporter:
 
         return artists_dict
 
-    def _create_artists_list(self, artist_names: List[str]) -> List[Any]:
+    def _create_artists_list(self, artist_names: list[str]) -> list[Any]:
         """
         Create artist objects from a list of artist names.
 
@@ -208,7 +214,7 @@ class TrackImporter:
 
         return artists
 
-    def _log_artist_processing_results(self, artists_dict: Dict[str, List]):
+    def _log_artist_processing_results(self, artists_dict: dict[str, list]):
         """Log the results of artist processing for debugging."""
         total_artists = sum(len(artists) for artists in artists_dict.values())
         if total_artists == 0:
@@ -250,7 +256,7 @@ class TrackImporter:
             logger.error(f"Error creating artist {artist_name}: {e}")
             return None
 
-    def _create_track(self, metadata: Dict[str, Any], album, file_path: str, disc=None):
+    def _create_track(self, metadata: dict[str, Any], album, file_path: str, disc=None):
         """Create track entity with comprehensive metadata."""
         try:
             # Extract and clean metadata values
@@ -340,7 +346,7 @@ class TrackImporter:
             return None
 
     def _create_track_artist_relationships(
-        self, track, artists_dict: Dict, metadata: Dict[str, Any]
+        self, track, artists_dict: dict, metadata: dict[str, Any]
     ):
         """Create TrackArtistRole relationships for all artist types.
 
@@ -438,17 +444,13 @@ class TrackImporter:
                 if isinstance(id3_playlists, list):
                     for entry in id3_playlists:
                         # Each entry may contain " ; "-separated names
-                        playlist_names.extend(
-                            [p.strip() for p in str(entry).split(" ; ") if p.strip()]
-                        )
+                        playlist_names.extend([
+                            p.strip() for p in str(entry).split(" ; ") if p.strip()
+                        ])
                 else:
-                    playlist_names.extend(
-                        [
-                            p.strip()
-                            for p in str(id3_playlists).split(" ; ")
-                            if p.strip()
-                        ]
-                    )
+                    playlist_names.extend([
+                        p.strip() for p in str(id3_playlists).split(" ; ") if p.strip()
+                    ])
 
             # Remove duplicates and blanks
             playlist_names = list(
@@ -521,7 +523,7 @@ class TrackImporter:
             next_position = max((pt.position for pt in existing_tracks), default=0) + 1
 
             # ── Add the track ──────────────────────────────────────────
-            from datetime import datetime
+            from datetime import datetime, timezone
 
             self.controller.add.add_entity(
                 "PlaylistTracks",
@@ -529,7 +531,7 @@ class TrackImporter:
                 playlist_id=playlist.playlist_id,
                 track_id=track.track_id,
                 position=next_position,
-                date_added=datetime.now(),
+                date_added=datetime.now(timezone.utc),
             )
 
             logger.info(
@@ -542,7 +544,7 @@ class TrackImporter:
                 exc_info=True,
             )
 
-    def _create_track_genre_relationships(self, track, metadata: Dict[str, Any]):
+    def _create_track_genre_relationships(self, track, metadata: dict[str, Any]):
         """Create TrackGenre relationships with better multi-value support.
 
         Each genre is isolated: one bad genre is logged and skipped
@@ -602,7 +604,7 @@ class TrackImporter:
                     f"Error creating genre relationship for '{genre_name}': {e}"
                 )
 
-    def process_path(self, path: str) -> List[str]:
+    def process_path(self, path: str) -> list[str]:
         """
         Recursively scan the given path for audio files with supported extensions.
 
@@ -627,7 +629,7 @@ class TrackImporter:
         """Check if file has supported audio extension."""
         return file_path.suffix.lower() in self.SUPPORTED_EXTENSIONS
 
-    def _scan_directory(self, directory: Path) -> List[str]:
+    def _scan_directory(self, directory: Path) -> list[str]:
         """Scan directory recursively for audio files."""
         audio_files = set()
         try:
@@ -658,7 +660,7 @@ class TrackImporter:
             return True
         return False
 
-    def _log_metadata_debug(self, metadata: Dict[str, Any], file_path: str):
+    def _log_metadata_debug(self, metadata: dict[str, Any], file_path: str):
         """Log metadata for debugging purposes with multi-value focus."""
         logger.debug(f"Metadata for {file_path}:")
 
@@ -682,7 +684,7 @@ class TrackImporter:
             if key != "album_art_data" and key not in multi_value_fields:
                 logger.debug(f"  {key}: {value}")
 
-    def _debug_metadata_types(self, metadata: Dict[str, Any]):
+    def _debug_metadata_types(self, metadata: dict[str, Any]):
         """Log metadata types for debugging."""
         logger.debug("Metadata types:")
         for key, value in list(metadata.items())[:30]:  # First 30 items
@@ -701,7 +703,7 @@ class ImportWorker(CancellableWorker):
     error_occurred = Signal(str)  # error_message
     resource_warning = Signal(str, float)  # warning_type, value
 
-    def __init__(self, controller, paths: List[str]):
+    def __init__(self, controller, paths: list[str]):
         super().__init__()
         self.controller = controller
         self.paths = [Path(path) for path in paths]
@@ -718,7 +720,7 @@ class ImportWorker(CancellableWorker):
             logger.info(f"Import completed: {successful_imports} successful imports")
             self.finished.emit(successful_imports)
         except Exception as e:
-            error_msg = f"Import worker failed: {str(e)}"
+            error_msg = f"Import worker failed: {e!s}"
             logger.error(error_msg)
             self.error_occurred.emit(error_msg)
 
@@ -745,7 +747,7 @@ class ImportWorker(CancellableWorker):
 
         return successful_imports
 
-    def _collect_audio_files(self) -> List[Path]:
+    def _collect_audio_files(self) -> list[Path]:
         """Collect all audio files from all provided paths."""
         all_files = []
         for path in self.paths:
@@ -806,4 +808,3 @@ class ImportWorker(CancellableWorker):
             warning_msg = f"High memory usage: {memory_mb:.1f}MB"
             logger.warning(warning_msg)
             self.resource_warning.emit("memory", memory_mb)
-
