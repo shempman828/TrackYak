@@ -231,7 +231,7 @@ class AlbumTabBuilder:
             album_awards = [
                 assoc.award for assoc in award_associations if assoc.award is not None
             ]
-        except Exception as e:
+        except (AttributeError, TypeError) as e:
             logger.error(f"Error loading album awards: {e}")
             album_awards = []
 
@@ -287,7 +287,7 @@ class AlbumTabBuilder:
             )
             layout.addWidget(remove_btn)
 
-        except Exception as e:
+        except (AttributeError, TypeError) as e:
             logger.error(f"Error displaying award {award}: {e}")
             layout.addWidget(QLabel(f"Error displaying award: {e!s}"))
 
@@ -354,9 +354,7 @@ class AlbumTabBuilder:
                 down_btn.setEnabled(index < last_index)
                 down_btn.setToolTip(f"Move {artist_name} down")
                 down_btn.clicked.connect(
-                    lambda checked, ra=role_assoc: self.helper.move_artist_credit(
-                        ra, 1
-                    )
+                    lambda checked, ra=role_assoc: self.helper.move_artist_credit(ra, 1)
                 )
                 artist_layout.addWidget(down_btn)
 
