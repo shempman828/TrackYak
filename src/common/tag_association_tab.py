@@ -79,6 +79,7 @@ class _BaseTrackAssociationTab(_BaseTab):
         layout.addLayout(search_row)
 
         self._list = QListWidget()
+        self._list.setSelectionMode(QListWidget.ExtendedSelection)
         layout.addWidget(self._list)
 
     def _known_entities(self) -> list:
@@ -177,21 +178,22 @@ class _BaseTrackAssociationTab(_BaseTab):
         self.load(self.tracks)
 
     def _remove_selected(self):
-        item = self._list.currentItem()
-        if not item:
+        items = self._list.selectedItems()
+        if not items:
             return
-        entity_id = item.data(Qt.UserRole)
         track_ids = [track.track_id for track in self.tracks]
-        try:
-            self.controller.delete.delete_entity(
-                self.assoc_model, track_id=track_ids, **{self.id_field: entity_id}
-            )
-        except Exception as e:
-            logger.error(f"Failed to remove {self.model_name} from tracks: {e}")
+        for item in items:
+            entity_id = item.data(Qt.UserRole)
+            try:
+                self.controller.delete.delete_entity(
+                    self.assoc_model, track_id=track_ids, **{self.id_field: entity_id}
+                )
+            except Exception as e:
+                logger.error(f"Failed to remove {self.model_name} from tracks: {e}")
         self.load(self.tracks)
 
     def contextMenuEvent(self, event):
-        if self._list.currentItem():
+        if self._list.selectedItems():
             menu = QMenu(self)
             menu.addAction("Remove", self._remove_selected)
             menu.exec(event.globalPos())
