@@ -1,7 +1,6 @@
 """Helpers for obscuring album art marked as containing explicit imagery."""
 
 from pathlib import Path
-from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
@@ -36,7 +35,7 @@ def _blur_enabled() -> bool:
 
 
 def load_art_pixmap(
-    path: Optional[str], is_explicit: bool = False, strength: int = 12
+    path: str | None, is_explicit: bool = False, strength: int = 12
 ) -> QPixmap:
     """Load a QPixmap from `path`, blurring it if the art is marked explicit
     and the "blur explicit album art" display option is enabled.
