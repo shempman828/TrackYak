@@ -1,5 +1,4 @@
 from json import JSONDecodeError
-from typing import Optional
 
 import lyriq
 from PySide6.QtCore import QObject, QThread, Signal
@@ -49,7 +48,7 @@ class LyricSearch:
 
         return artist_name
 
-    def get_lyrics(self, none_char: str = "♪") -> Optional[str]:
+    def get_lyrics(self, none_char: str = "♪") -> str | None:
         """
         Search for lyrics using track metadata.
 
@@ -84,13 +83,15 @@ class LyricSearch:
             return lyrics
 
         except JSONDecodeError:
-            logger.debug("Lyrics API returned an empty/non-JSON response; treating as not found")
+            logger.debug(
+                "Lyrics API returned an empty/non-JSON response; treating as not found"
+            )
             return None
         except Exception as e:
             logger.error(f"Error searching for lyrics: {e}")
             return None
 
-    def search_with_fallback(self, none_char: str = "♪") -> Optional[str]:
+    def search_with_fallback(self, none_char: str = "♪") -> str | None:
         """
         Search for lyrics with fallback strategies if initial search fails.
 
@@ -122,7 +123,9 @@ class LyricSearch:
                     return lyrics
 
         except JSONDecodeError:
-            logger.debug("Lyrics API returned an empty/non-JSON response; treating as not found")
+            logger.debug(
+                "Lyrics API returned an empty/non-JSON response; treating as not found"
+            )
         except Exception as e:
             logger.error(f"Fallback search failed: {e}")
 
@@ -196,7 +199,7 @@ class LyricSearchThread(QObject):
     def __init__(self, parent: QObject = None):
         super().__init__(parent)
         self._thread = QThread(self)
-        self._worker: Optional[_LyricWorker] = None
+        self._worker: _LyricWorker | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -270,7 +273,7 @@ class LyricSearchThread(QObject):
 # ---------------------------------------------------------------------------
 
 
-def search_lyrics_for_track(track_orm, none_char: str = "♪") -> Optional[str]:
+def search_lyrics_for_track(track_orm, none_char: str = "♪") -> str | None:
     """
     Convenience function to search lyrics for a track ORM object.
     Runs synchronously — prefer LyricSearchThread for UI contexts.
