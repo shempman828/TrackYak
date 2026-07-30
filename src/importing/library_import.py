@@ -781,7 +781,7 @@ class ImportWorker(CancellableWorker):
             error_msg = f"Memory error processing file {index + 1}/{total}: {file_path}"
             logger.error(error_msg)
             self.error_occurred.emit(error_msg)
-        except Exception as e:
+        except Exception as e:  # ruff: ignore[blind-except]
             error_msg = f"Error processing {file_path.name}: {str(e)[:200]}"
             logger.exception(error_msg)
         return 0
