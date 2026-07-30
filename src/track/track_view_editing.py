@@ -3,10 +3,9 @@ track_view_editing.py — edit/delete dialogs, right-click context menu, and
 mood assignment for TrackView.
 """
 
-from sqlalchemy.exc import SQLAlchemyError
-
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QDialog, QMenu, QMessageBox
+from PySide6.QtWidgets import QMenu, QMessageBox
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
@@ -26,15 +25,17 @@ class TrackViewEditingMixin:
         if len(tracks) == 1:
             try:
                 dialog = TrackEditDialog(tracks[0], self.controller, self)
-                if dialog.exec_() == QDialog.Accepted:
-                    self._force_reload()
+                dialog.accepted.connect(self._force_reload)
+                self._track_edit_dialog = dialog
+                dialog.show()
             except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Error opening track edit dialog: {e}")
         else:
             try:
                 dialog = MultiTrackEditDialog(tracks, self.controller, self)
-                if dialog.exec_() == QDialog.Accepted:
-                    self._force_reload()
+                dialog.accepted.connect(self._force_reload)
+                self._track_edit_dialog = dialog
+                dialog.show()
             except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Error opening multi-track edit dialog: {e}")
 
