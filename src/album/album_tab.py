@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -358,6 +359,12 @@ class AlbumTabBuilder:
         for role_name, artist_tuples in roles_by_type.items():
             role_group = QGroupBox(role_name)
             role_group.setFont(small_font)  # ← shrinks the group title
+            # QVBoxLayout stretches child widgets to the full available width
+            # by default, so with only a couple of roles each QGroupBox was
+            # spreading across the whole tab instead of hugging its chips.
+            # Cap the horizontal size to sizeHint so it collapses to its
+            # content, and left-align it below.
+            role_group.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
             role_layout = QVBoxLayout(role_group)
             role_layout.setContentsMargins(6, 4, 6, 4)
 
@@ -382,7 +389,11 @@ class AlbumTabBuilder:
 
             flow.activate()
             flow_area.refresh_height()
-            layout.addWidget(role_group)
+            layout.addWidget(role_group, 0, Qt.AlignLeft)
+
+        # Keep the role groups clustered at the top instead of stretching
+        # to fill any leftover vertical space in the scroll area.
+        layout.addStretch(1)
 
         return container
 
