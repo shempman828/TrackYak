@@ -711,6 +711,13 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         widget = AlbumWidget(album, self.current_size)
         widget.clicked.connect(self._on_album_clicked)
         self.grid_layout.addWidget(widget)
+        # A freshly reparented widget's "show" is deferred to the next
+        # event-loop turn, so isVisible() is still False if a layout pass
+        # (e.g. the forced repaint() on first view switch) runs synchronously
+        # right after -- FlowLayout skips positioning invisible widgets,
+        # leaving it stuck at its default geometry overlapping slot 0. Force
+        # it visible now so the next layout pass actually places it.
+        widget.show()
 
     def _check_scroll_position(self, value: int):
         bar = self.scroll_area.verticalScrollBar()
