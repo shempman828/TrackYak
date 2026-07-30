@@ -650,10 +650,14 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     # artist credit can move between Track Credits and Album credit via
     # the convert-to-album/convert-to-per-track buttons -- so both are kept
     # in sync unconditionally, the same way Publishers & Places already was.
+    # Genres and Track Credits also both snapshot self.album.tracks at
+    # build time, so a track added/removed on the Tracks tab (see
+    # DiscManagementView.tracks_changed) makes them stale the same way.
     _ALWAYS_REFRESHED_TABS: ClassVar[tuple[str, ...]] = (
         "Publishers && Places",
         "Album credit",
         "Track Credits",
+        "Genres",
     )
 
     def refresh_view(self):
