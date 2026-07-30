@@ -18,8 +18,9 @@ by musicbrainzngs, enabled by default).
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 import musicbrainzngs
 
@@ -57,8 +58,8 @@ def configure() -> None:
 class MBCandidate:
     id: str
     label: str
-    enrichment: Dict[str, Any] = field(default_factory=dict)
-    relations: Optional["MBArtistRelations"] = None
+    enrichment: dict[str, Any] = field(default_factory=dict)
+    relations: MBArtistRelations | None = None
 
 
 @dataclass
@@ -75,9 +76,9 @@ class MBGroupRelation:
 
     mbid: str
     name: str
-    role: Optional[str]
-    begin_year: Optional[int]
-    end_year: Optional[int]
+    role: str | None
+    begin_year: int | None
+    end_year: int | None
     is_current: bool
 
 
@@ -89,18 +90,18 @@ class MBArtistRelations:
     write, so callers should review/confirm before applying."""
 
     is_group: bool = False
-    aliases: List[MBAlias] = field(default_factory=list)
-    birthplace: Optional[str] = None
-    birthplace_mbid: Optional[str] = None
+    aliases: list[MBAlias] = field(default_factory=list)
+    birthplace: str | None = None
+    birthplace_mbid: str | None = None
     # Full containing chain for birthplace/deathplace (immediate area first,
     # then its parents up to the outermost country) -- see resolve_area_chain
     # and _resolve_artist_place_chains. Each entry is
     # {"mbid", "name", "type", "latitude", "longitude"}.
-    birthplace_chain: List[Dict[str, Any]] = field(default_factory=list)
-    deathplace: Optional[str] = None
-    deathplace_mbid: Optional[str] = None
-    deathplace_chain: List[Dict[str, Any]] = field(default_factory=list)
-    group_relations: List[MBGroupRelation] = field(default_factory=list)
+    birthplace_chain: list[dict[str, Any]] = field(default_factory=list)
+    deathplace: str | None = None
+    deathplace_mbid: str | None = None
+    deathplace_chain: list[dict[str, Any]] = field(default_factory=list)
+    group_relations: list[MBGroupRelation] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -108,11 +109,11 @@ class MBArtistRelations:
 # ---------------------------------------------------------------------------
 
 
-def _parse_partial_date(date_str: Optional[str], prefix: str) -> Dict[str, int]:
+def _parse_partial_date(date_str: str | None, prefix: str) -> dict[str, int]:
     """Parse a MusicBrainz partial date ('YYYY', 'YYYY-MM', or 'YYYY-MM-DD')
     into e.g. {"release_year": 1997, "release_month": 5} for the given
     field-name prefix, omitting any part that isn't present."""
-    result: Dict[str, int] = {}
+    result: dict[str, int] = {}
     if not date_str:
         return result
     suffixes = ("year", "month", "day")
@@ -124,7 +125,7 @@ def _parse_partial_date(date_str: Optional[str], prefix: str) -> Dict[str, int]:
     return result
 
 
-def _parse_year(date_str: Optional[str]) -> Optional[int]:
+def _parse_year(date_str: str | None) -> int | None:
     """Parse just the leading year out of a MusicBrainz partial date."""
     if not date_str:
         return None
@@ -138,17 +139,19 @@ def _life_span_label(life_span: dict) -> str:
     begin = life_span.get("begin") or ""
     if not begin:
         return ""
-    end = life_span.get("end") or ("present" if life_span.get("ended") == "false" else "")
+    end = life_span.get("end") or (
+        "present" if life_span.get("ended") == "false" else ""
+    )
     return f"[{begin}–{end}]" if end else f"[{begin}]"
 
 
-def _extract_scalar_enrichment(a: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_scalar_enrichment(a: dict[str, Any]) -> dict[str, Any]:
     """Pull the flat ORM-field-name -> value pairs common to both a search
     result list-item and a full get_artist_by_id lookup -- same shape
     either way, so both search_artists() and fetch_artist_by_mbid() (which
     skips search entirely) populate the same scalar fields."""
     life_span = a.get("life-span") or {}
-    enrichment: Dict[str, Any] = {"MBID": a["id"]}
+    enrichment: dict[str, Any] = {"MBID": a["id"]}
 
     artist_type = a.get("type")
     if artist_type:
@@ -167,7 +170,7 @@ def _extract_scalar_enrichment(a: Dict[str, Any]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def search_artists(name: str, limit: int = 25) -> List[MBCandidate]:
+def search_artists(name: str, limit: int = 25) -> list[MBCandidate]:
     configure()
     try:
         # Pass the term as an unrestricted query (not `artist=name`) so it's
@@ -213,7 +216,7 @@ _ARTIST_LINK_RELATIONS = {
 }
 
 
-def _fetch_full_artist(mbid: str) -> Dict[str, Any]:
+def _fetch_full_artist(mbid: str) -> dict[str, Any]:
     """Raw get_artist_by_id call with every include this module uses.
     Raises MusicBrainzLookupError on failure -- callers decide whether that
     should be best-effort (complete_artist_enrichment) or surfaced
@@ -234,7 +237,7 @@ def _fetch_full_artist(mbid: str) -> Dict[str, Any]:
     return result.get("artist", {})
 
 
-def _apply_full_artist(candidate: MBCandidate, artist: Dict[str, Any]) -> MBCandidate:
+def _apply_full_artist(candidate: MBCandidate, artist: dict[str, Any]) -> MBCandidate:
     """Populate a candidate's scalar enrichment and .relations from a full
     get_artist_by_id response. Pure parsing, no network -- shared by
     complete_artist_enrichment (best-effort follow-up after a search pick)
@@ -310,7 +313,7 @@ def _resolve_artist_place_chains(candidate: MBCandidate) -> None:
     relations = candidate.relations
     if relations is None:
         return
-    cache: Dict[str, List[Dict[str, Any]]] = {}
+    cache: dict[str, list[dict[str, Any]]] = {}
     if relations.birthplace_mbid:
         try:
             relations.birthplace_chain = resolve_area_chain(
@@ -394,12 +397,13 @@ _MB_LANGUAGE_NAMES = {
 # tie-breaker -- "XW" is MusicBrainz's "Worldwide" pseudo-country.
 _COUNTRY_PREFERENCE = ("XW", "GB", "US")
 
-# Recording-level artist-relation types treated as a credit: performer/
+# Artist-relation types treated as a credit, whether attached to a recording
+# (track credit) or directly to the release (album credit): performer/
 # instrument/vocal relations carry the actual instrument/vocal name in
 # attribute-list (e.g. "piano", "lead vocals"); production relations are
 # credited under the relation type itself when no attribute refines it
 # further. Anything outside this set (e.g. "samples material", "cover art")
-# is not imported as a track credit.
+# is not imported as a credit.
 _PERFORMER_RELATION_TYPES = {"performer", "vocal", "instrument"}
 _PRODUCTION_RELATION_TYPES = {
     "producer",
@@ -419,7 +423,7 @@ _SIDE_TRACK_NUMBER_RE = re.compile(r"^([A-Za-z])(\d+)$")
 
 @dataclass
 class MBTrackCredit:
-    artist_mbid: Optional[str]
+    artist_mbid: str | None
     artist_name: str
     role_name: str
     # The artist's canonical MB name, distinct from artist_name (the
@@ -432,45 +436,49 @@ class MBTrackCredit:
 @dataclass
 class MBReleaseTrack:
     disc_number: int
-    disc_title: Optional[str]
-    track_number: Optional[int]
-    side: Optional[str]
+    disc_title: str | None
+    track_number: int | None
+    side: str | None
     title: str
     recording_mbid: str
-    credits: List[MBTrackCredit] = field(default_factory=list)
-    location_place_mbid: Optional[str] = None
+    credits: list[MBTrackCredit] = field(default_factory=list)
+    location_place_mbid: str | None = None
     # Sequential position within the medium's tracklist, spanning both
     # sides for vinyl (e.g. "B1" on a 7-track-per-side LP is absolute
     # position 8). Same value as track_number for non-vinyl releases
     # (no side letter to make them diverge). Local track numbering is
     # absolute, so matching against local tracks must use this, not the
     # side-relative track_number.
-    absolute_position: Optional[int] = None
+    absolute_position: int | None = None
 
 
 @dataclass
 class MBReleaseDetail:
-    release_group_mbid: Optional[str]
-    mbid: Optional[str] = None
-    status: Optional[str] = None
-    language: Optional[str] = None
-    catalog_number: Optional[str] = None
-    discogs_master_url: Optional[str] = None
-    barcode: Optional[str] = None
-    release_year: Optional[int] = None
-    release_month: Optional[int] = None
-    release_day: Optional[int] = None
-    tracks: List[MBReleaseTrack] = field(default_factory=list)
+    release_group_mbid: str | None
+    mbid: str | None = None
+    status: str | None = None
+    language: str | None = None
+    catalog_number: str | None = None
+    discogs_master_url: str | None = None
+    barcode: str | None = None
+    release_year: int | None = None
+    release_month: int | None = None
+    release_day: int | None = None
+    # Credits attached to the release itself (e.g. an album-wide producer or
+    # "mastered by" relation not tied to any one recording) -- distinct from
+    # each MBReleaseTrack's own per-recording credits.
+    credits: list[MBTrackCredit] = field(default_factory=list)
+    tracks: list[MBReleaseTrack] = field(default_factory=list)
     # place MBID -> chain from that place up to the outermost area, each
     # entry {"mbid", "name", "type", "latitude", "longitude"} -- index 0 is
     # the place itself (e.g. the studio), the rest are its containing areas
     # in order (district, city, subdivision, country, ...).
-    place_chains: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    place_chains: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
 def _parse_track_number_side(
-    number: Optional[str], position: Optional[str]
-) -> Tuple[Optional[str], Optional[int]]:
+    number: str | None, position: str | None
+) -> tuple[str | None, int | None]:
     """MB's per-track `number` is a display string -- for vinyl-style media
     it's often side+position (e.g. "A1", "B2"); split that into a side
     letter and an in-side track number. Otherwise fall back to the medium's
@@ -485,12 +493,12 @@ def _parse_track_number_side(
         return None, None
 
 
-def _relation_role_name(rel: Dict[str, Any]) -> Optional[str]:
-    """One credit's Role name for a recording-level artist-relation: the
-    attribute (instrument/vocal/sub-role) if present, else the relation
-    type itself -- both title-cased. Same rule for performer and
-    production relations, since MB doesn't consistently model a nuance as
-    a `type` vs. an `attribute` across relation kinds."""
+def _relation_role_name(rel: dict[str, Any]) -> str | None:
+    """One credit's Role name for an artist-relation: the attribute
+    (instrument/vocal/sub-role) if present, else the relation type itself
+    -- both title-cased. Same rule for performer and production relations,
+    since MB doesn't consistently model a nuance as a `type` vs. an
+    `attribute` across relation kinds."""
     attributes = rel.get("attribute-list") or []
     if attributes:
         return attributes[0].title()
@@ -498,9 +506,12 @@ def _relation_role_name(rel: Dict[str, Any]) -> Optional[str]:
     return rel_type.title() if rel_type else None
 
 
-def _parse_recording_credits(recording: Dict[str, Any]) -> List[MBTrackCredit]:
+def _parse_artist_credits(entity: dict[str, Any]) -> list[MBTrackCredit]:
+    """Parse credits from `entity`'s artist-relation-list -- works for both
+    a recording (track credit) and a release (album credit), since MB
+    shapes the relation dicts the same way at either level."""
     credits = []
-    for rel in recording.get("artist-relation-list", []) or []:
+    for rel in entity.get("artist-relation-list", []) or []:
         if rel.get("type") not in _CREDIT_RELATION_TYPES:
             continue
         artist = rel.get("artist") or {}
@@ -520,7 +531,7 @@ def _parse_recording_credits(recording: Dict[str, Any]) -> List[MBTrackCredit]:
     return credits
 
 
-def _parse_recording_location(recording: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _parse_recording_location(recording: dict[str, Any]) -> dict[str, Any] | None:
     """Extract the "recorded at" place relation on a recording, if any, as a
     flat dict -- the immediate place plus its immediate area (id/name only;
     the full area chain is resolved separately via resolve_area_chain)."""
@@ -544,7 +555,7 @@ def _parse_recording_location(recording: Dict[str, Any]) -> Optional[Dict[str, A
     return None
 
 
-def _to_float(value) -> Optional[float]:
+def _to_float(value) -> float | None:
     try:
         return float(value) if value is not None else None
     except (TypeError, ValueError):
@@ -552,14 +563,14 @@ def _to_float(value) -> Optional[float]:
 
 
 def search_canonical_releases(
-    album_name: str, artist_name: Optional[str] = None, limit: int = 100
-) -> List[MBCandidate]:
+    album_name: str, artist_name: str | None = None, limit: int = 100
+) -> list[MBCandidate]:
     """Search MusicBrainz releases (not release-groups) and rank them so the
     single canonical pressing -- official, earliest, most "worldwide"/
     default-country -- sorts first. `MBCandidate.id` is a release MBID,
     ready to pass straight to fetch_release_detail()."""
     configure()
-    kwargs: Dict[str, Any] = {"limit": limit}
+    kwargs: dict[str, Any] = {"limit": limit}
     if artist_name:
         kwargs["artist"] = artist_name
     try:
@@ -577,7 +588,7 @@ def search_canonical_releases(
     if not releases:
         return []
 
-    def _score(r: Dict[str, Any]) -> float:
+    def _score(r: dict[str, Any]) -> float:
         try:
             return float(r.get("ext:score", 0))
         except (TypeError, ValueError):
@@ -589,7 +600,7 @@ def search_canonical_releases(
     # releases MB itself considers close matches, not the whole result set.
     candidates_pool = [r for r in releases if top_score - _score(r) <= 10]
 
-    def _rank_key(r: Dict[str, Any]):
+    def _rank_key(r: dict[str, Any]):
         status_rank = 0 if (r.get("status") or "").lower() == "official" else 1
         year_month_day = _parse_partial_date(r.get("date"), "d")
         date_key = (
@@ -636,12 +647,12 @@ def search_canonical_releases(
 
 
 def fetch_release_detail(
-    release_mbid: str, progress_callback: Optional[Callable[[int, int], None]] = None
+    release_mbid: str, progress_callback: Callable[[int, int], None] | None = None
 ) -> MBReleaseDetail:
     """Fetch every rich per-pressing detail this feature imports for one
-    release: album-level scalars, Discogs master link, per-track
-    number/side/credits, and recording locations (resolved into a full
-    Place parent chain, cached so a studio shared across many tracks is
+    release: album-level scalars, album-level credits, Discogs master link,
+    per-track number/side/credits, and recording locations (resolved into a
+    full Place parent chain, cached so a studio shared across many tracks is
     only walked once).
 
     `progress_callback(current, total)`, if given, is called once per
@@ -706,14 +717,15 @@ def fetch_release_detail(
         release_year=date_parts.get("release_year"),
         release_month=date_parts.get("release_month"),
         release_day=date_parts.get("release_day"),
+        credits=_parse_artist_credits(release),
     )
 
     # First pass: parse every track, collecting each unique immediate area
     # MBID that needs its parent chain resolved, before making any of those
     # extra requests -- this is what lets progress_callback report a real
     # total up front instead of an ever-growing one.
-    raw_locations: Dict[str, Dict[str, Any]] = {}  # place_mbid -> raw location dict
-    pending_areas: Dict[str, None] = {}  # ordered set of area MBIDs to resolve
+    raw_locations: dict[str, dict[str, Any]] = {}  # place_mbid -> raw location dict
+    pending_areas: dict[str, None] = {}  # ordered set of area MBIDs to resolve
 
     for medium in release.get("medium-list", []) or []:
         disc_number = int(medium.get("position") or 0)
@@ -734,7 +746,7 @@ def fetch_release_detail(
                 side=side,
                 title=recording.get("title") or track.get("title") or "",
                 recording_mbid=recording.get("id") or "",
-                credits=_parse_recording_credits(recording),
+                credits=_parse_artist_credits(recording),
                 absolute_position=absolute_position,
             )
             location = _parse_recording_location(recording)
@@ -748,7 +760,7 @@ def fetch_release_detail(
     total_areas = len(pending_areas)
     if progress_callback:
         progress_callback(0, total_areas)
-    area_cache: Dict[str, List[Dict[str, Any]]] = {}
+    area_cache: dict[str, list[dict[str, Any]]] = {}
     for idx, area_mbid in enumerate(pending_areas, start=1):
         resolve_area_chain(area_mbid, area_cache)
         if progress_callback:
@@ -762,13 +774,17 @@ def fetch_release_detail(
             "latitude": location.get("latitude"),
             "longitude": location.get("longitude"),
         }
-        area_chain = area_cache.get(location.get("area_mbid"), []) if location.get("area_mbid") else []
+        area_chain = (
+            area_cache.get(location.get("area_mbid"), [])
+            if location.get("area_mbid")
+            else []
+        )
         detail.place_chains[place_mbid] = [place_node] + area_chain
 
     return detail
 
 
-def fetch_release_group_aliases(release_group_mbid: str) -> List[MBAlias]:
+def fetch_release_group_aliases(release_group_mbid: str) -> list[MBAlias]:
     """Alternate album titles live on the release-group (the abstract
     "album" entity shared by every pressing), not the specific release --
     a separate, small follow-up call from fetch_release_detail."""
@@ -796,8 +812,8 @@ def fetch_release_group_aliases(release_group_mbid: str) -> List[MBAlias]:
 
 
 def resolve_area_chain(
-    area_mbid: str, cache: Dict[str, List[Dict[str, Any]]]
-) -> List[Dict[str, Any]]:
+    area_mbid: str, cache: dict[str, list[dict[str, Any]]]
+) -> list[dict[str, Any]]:
     """Walk MusicBrainz Area "part of" relations upward from `area_mbid` to
     build its full containing chain (e.g. district -> city -> subdivision
     -> country), immediate parent first. `cache` is a plain dict the caller
@@ -861,10 +877,10 @@ def resolve_area_chain(
 
 def search_recordings(
     track_name: str,
-    artist_name: Optional[str] = None,
-    album_name: Optional[str] = None,
+    artist_name: str | None = None,
+    album_name: str | None = None,
     limit: int = 25,
-) -> List[MBCandidate]:
+) -> list[MBCandidate]:
     configure()
     # Track title is passed as an unrestricted query (not `recording=`) so it
     # also matches the recording's aliases, same as the artist fix above.
@@ -872,7 +888,7 @@ def search_recordings(
     # NB: artist_name/album_name are passed as field kwargs, which
     # musicbrainzngs escapes internally -- only the positional query needs
     # pre-escaping.
-    kwargs: Dict[str, Any] = {"limit": limit}
+    kwargs: dict[str, Any] = {"limit": limit}
     if artist_name:
         kwargs["artist"] = artist_name
     if album_name:
@@ -890,7 +906,7 @@ def search_recordings(
 
     candidates = []
     for rec in result.get("recording-list", []):
-        enrichment: Dict[str, Any] = {"MBID": rec["id"]}
+        enrichment: dict[str, Any] = {"MBID": rec["id"]}
 
         label_bits = [rec.get("title", "?")]
         credit = rec.get("artist-credit-phrase")
@@ -922,14 +938,10 @@ def complete_recording_enrichment(candidate: MBCandidate) -> MBCandidate:
     configure()
     try:
         result = musicbrainzngs.get_recording_by_id(candidate.id, includes=["isrcs"])
-    except Exception as e:
-        # Intentional broad boundary catch: same musicbrainzngs failure-mode
-        # coverage as the wrap-and-reraise sites elsewhere in this module
-        # (network/XML/HTTP/auth errors, no single hierarchy) — but this
-        # call is a best-effort follow-up (see docstring), so any failure
-        # just returns the candidate as-is instead of raising
-        # MusicBrainzLookupError.
-        logger.warning(f"MusicBrainz recording ISRC lookup failed for {candidate.id}: {e}")
+    except Exception as e:  # ruff: ignore[blind-except]
+        logger.warning(
+            f"MusicBrainz recording ISRC lookup failed for {candidate.id}: {e}"
+        )
         return candidate
 
     isrcs = result.get("recording", {}).get("isrc-list") or []
