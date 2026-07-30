@@ -10,12 +10,12 @@ needs to be written once.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 def resolve_place_chain(
-    controller, chain: List[Dict[str, Any]], cache: Dict[str, Any]
-) -> Optional[Any]:
+    controller, chain: list[dict[str, Any]], cache: dict[str, Any]
+) -> Any | None:
     """Find-or-create every level of a place chain (innermost place/area
     first, containing areas after).
 
@@ -40,7 +40,7 @@ def resolve_place_chain(
     """
     anchor = None
     anchor_index = len(chain)
-    name_matches: Dict[int, Any] = {}
+    name_matches: dict[int, Any] = {}
     for i, node in enumerate(chain):
         mbid = node["mbid"]
         place = cache.get(mbid) or controller.get.get_entity_object("Place", MBID=mbid)
@@ -60,8 +60,7 @@ def resolve_place_chain(
                     # Only a place with no MBID of its own is a candidate --
                     # one with a *different* MBID is a distinct real-world
                     # place (or a rare MB id reassignment); never merge those.
-                    if not p.MBID
-                    and (p.place_name or "").strip().lower() == name_key
+                    if not p.MBID and (p.place_name or "").strip().lower() == name_key
                 ),
                 None,
             )
