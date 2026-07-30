@@ -600,6 +600,30 @@ def _resolve_artist_mbid(artist_name: str) -> str | None:
     return candidates[0].id if candidates else None
 
 
+def _backfill_release_details(r: dict[str, Any]) -> None:
+    """MusicBrainz's search index sometimes omits `date` and `medium-list`
+    for older, sparsely-indexed releases even though a direct lookup of the
+    same release MBID returns them correctly (e.g. a 1953 original 12"
+    pressing indexed without a release-event date). Ranking on a missing
+    date would otherwise treat it as if released in the far future, burying
+    the original pressing behind well-indexed reissues -- so fetch the real
+    values with a direct lookup whenever the search result is missing them."""
+    if r.get("date") and r.get("medium-list"):
+        return
+    try:
+        detail = musicbrainzngs.get_release_by_id(r["id"], includes=["media"])
+    except Exception:
+        # Best-effort enrichment -- fall back to whatever the search result
+        # already had (possibly still missing) rather than failing the
+        # whole search over one release's lookup.
+        return
+    release = detail.get("release", {})
+    if not r.get("date"):
+        r["date"] = release.get("date")
+    if not r.get("medium-list"):
+        r["medium-list"] = release.get("medium-list")
+
+
 def search_canonical_releases(
     album_name: str, artist_name: str | None = None, limit: int = 100
 ) -> list[MBCandidate]:
@@ -644,6 +668,9 @@ def search_canonical_releases(
     # releases MB itself considers close matches, not the whole result set.
     candidates_pool = [r for r in releases if top_score - _score(r) <= 10]
 
+    for r in candidates_pool:
+        _backfill_release_details(r)
+
     def _rank_key(r: dict[str, Any]):
         status_rank = 0 if (r.get("status") or "").lower() == "official" else 1
         year_month_day = _parse_partial_date(r.get("date"), "d")
@@ -672,7 +699,11 @@ def search_canonical_releases(
         status = r.get("status")
         date = r.get("date")
         country = r.get("country")
-        detail_bits = [b for b in (status, date, country) if b]
+        media_formats = sorted(
+            {m.get("format") for m in (r.get("medium-list") or []) if m.get("format")}
+        )
+        format_str = "/".join(media_formats) if media_formats else None
+        detail_bits = [b for b in (status, date, country, format_str) if b]
         if detail_bits:
             label_bits.append(f"[{' — '.join(detail_bits)}]")
         catalog = next(
