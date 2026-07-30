@@ -101,10 +101,8 @@ class TrackImporter:
                 # end (or rolled back together on any failure) rather than
                 # each insert committing as soon as it happens.
                 album_extractor = AlbumImporter(self.controller)
-                album = album_extractor._get_or_create_album(metadata, commit=False)
-                disc = album_extractor._get_or_create_disc(
-                    album.album_id, metadata, commit=False
-                )
+                album = album_extractor._get_or_create_album(metadata)
+                disc = album_extractor._get_or_create_disc(album.album_id, metadata)
                 artists = self._process_artists(metadata, album)
                 track = self._create_track(metadata, album, file_path, disc)
 
@@ -119,7 +117,6 @@ class TrackImporter:
                 album_extractor._create_album_artist_relationships(
                     album.album_id,
                     [a.artist_id for a in artists.get("Album Artist", [])],
-                    commit=False,
                 )
 
                 self._process_playlist_tags(track, metadata)
@@ -720,9 +717,7 @@ class ImportWorker(CancellableWorker):
             successful_imports = self._process_all_files()
             logger.info(f"Import completed: {successful_imports} successful imports")
             self.finished.emit(successful_imports)
-        except Exception as e:
-            # Intentional broad boundary catch: this is a QThread run() loop
-            # and must not let an exception kill the worker thread silently.
+        except Exception as e:  # ruff: ignore[blind-except]
             error_msg = f"Import worker failed: {e!s}"
             logger.exception(error_msg)
             self.error_occurred.emit(error_msg)
@@ -787,10 +782,6 @@ class ImportWorker(CancellableWorker):
             logger.error(error_msg)
             self.error_occurred.emit(error_msg)
         except Exception as e:
-            # Intentional broad boundary catch: this is the per-file loop
-            # body for a bulk import — one bad file must not abort the
-            # whole batch, so any unexpected failure here is logged and
-            # counted as a skip rather than propagating out of the loop.
             error_msg = f"Error processing {file_path.name}: {str(e)[:200]}"
             logger.exception(error_msg)
         return 0
