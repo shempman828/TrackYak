@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
+from src.album.release_type_utils import normalize_release_type
 from src.common.nullable_spinbox import NullableSpinBox
 from src.core.logger_config import logger
 from src.musicbrainz.musicbrainz_client import (
@@ -43,6 +44,7 @@ from src.musicbrainz.musicbrainz_match_dialog import (
 # widget -- that's the whole point of it being a "review" step.
 _SCALAR_ENRICHMENT_FIELDS = (
     "status",
+    "release_type",
     "album_language",
     "catalog_number",
     "release_year",
@@ -148,6 +150,10 @@ class AlbumMusicBrainzMixin:
         scalar_enrichment = {}
         if detail.status:
             scalar_enrichment["status"] = detail.status
+        if detail.release_type:
+            scalar_enrichment["release_type"] = normalize_release_type(
+                detail.release_type
+            )
         if detail.language:
             scalar_enrichment["album_language"] = detail.language
         if detail.catalog_number:
