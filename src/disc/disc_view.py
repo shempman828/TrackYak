@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -24,6 +24,12 @@ class DiscManagementView(QWidget):
     Main widget for managing disc structure of an album.
     Displays tracks in their natural hierarchy and allows disc creation/editing.
     """
+
+    # Emitted after any change that may add, remove, or reassign a track --
+    # lets an embedding parent (e.g. the album editor) know its own,
+    # separately-snapshotted track lists (Genres, Track Credits, ...) are
+    # now stale and need rebuilding, since this view only refreshes itself.
+    tracks_changed = Signal()
 
     def __init__(self, album, controller, parent=None):
         super().__init__(parent)
@@ -331,6 +337,7 @@ class DiscManagementView(QWidget):
         self.remove_disc_btn.setEnabled(has_discs)
 
         self.status_label.setText("Ready")
+        self.tracks_changed.emit()
 
     def show_message(self, message, is_error=False):
         """Show status message"""
