@@ -5,9 +5,7 @@ Track editing dialog.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Union
-
-from sqlalchemy.exc import SQLAlchemyError
+from typing import Any
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -21,6 +19,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.track.track_edit_advanced import AdvancedTab
@@ -57,13 +56,17 @@ class TrackEditDialog(QDialog):
 
     def __init__(
         self,
-        track_or_tracks: Union[Any, List],
+        track_or_tracks: Any | list,
         controller,
         parent=None,
     ):
         # Qt.Window makes this a proper independent top-level window
         # so it can be moved freely, separate from the parent window.
         super().__init__(parent, Qt.Window)
+        # Dialog is shown non-modally (see callers' .show() usage) so it
+        # doesn't block the parent window; clean up automatically on close
+        # since there's no exec() return value to trigger disposal.
+        self.setAttribute(Qt.WA_DeleteOnClose)
 
         # Normalise to a list
         if isinstance(track_or_tracks, list):
@@ -121,14 +124,12 @@ class TrackEditDialog(QDialog):
         # used to make every dialog open pay for every tab regardless of
         # which ones the user actually visits. Only the sidebar row is
         # cheap to build eagerly, so that's all _add_tab does here.
-        self._tab_factories: List = []
-        self._tabs: List[_BaseTab | None] = []
+        self._tab_factories: list = []
+        self._tabs: list[_BaseTab | None] = []
         self._add_tab(
             "Basic", lambda: FieldFormTab("Basic", self.tracks, self.controller)
         )
-        self._add_tab(
-            "Artists & Roles", lambda: RolesTab(self.tracks, self.controller)
-        )
+        self._add_tab("Artists & Roles", lambda: RolesTab(self.tracks, self.controller))
         self._add_tab("Albums", lambda: AlbumsTab(self.tracks, self.controller))
         self._add_tab(
             "Dates", lambda: FieldFormTab("Date", self.tracks, self.controller)
@@ -200,9 +201,7 @@ class TrackEditDialog(QDialog):
             # tab classes (DB reads, dict/attr access, UI construction) via the
             # shared _BaseTab interface -- a bug in any one tab must not block
             # the whole edit dialog from opening.
-            logger.error(
-                f"Error building/loading tab at row {row}: {e}", exc_info=True
-            )
+            logger.error(f"Error building/loading tab at row {row}: {e}", exc_info=True)
             tab = QWidget()
 
         placeholder = self._stack.widget(row)
@@ -239,7 +238,7 @@ class TrackEditDialog(QDialog):
     def _on_save(self):
         try:
             # Collect scalar field changes from all tabs
-            all_changes: Dict[str, Any] = {}
+            all_changes: dict[str, Any] = {}
             for tab in self._tabs:
                 if tab is None:
                     continue  # never visited -> no user edits to collect
