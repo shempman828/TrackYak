@@ -24,6 +24,7 @@ from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -441,6 +442,34 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+        self._autosize(inner)
+
+    def _autosize(self, content: QWidget) -> None:
+        """Grow the dialog to fit the review content, within reason.
+
+        QScrollArea's own sizeHint() doesn't grow with its child widget, so
+        left alone the dialog stays pinned to setMinimumSize() no matter how
+        wide the credit/alias/track rows actually are. Match the sizing
+        convention used by publisher_fuzzy_match._autosize: measure the
+        scrolled widget directly, clamp to a fraction of the screen so a
+        long review can't blow past it, with the configured minimum as a
+        floor.
+        """
+        hint = content.sizeHint()
+
+        screen = self.screen() or QApplication.primaryScreen()
+        available = screen.availableGeometry()
+
+        # Extra room for the scrollbar plus the summary label/buttons/margins
+        # that sit outside the scrolled content itself.
+        width = hint.width() + 60
+        height = hint.height() + 120
+
+        width = max(self.minimumWidth(), min(width, int(available.width() * 0.9)))
+        height = max(self.minimumHeight(), min(height, int(available.height() * 0.9)))
+
+        self.resize(width, height)
 
     # ------------------------------------------------------------------
     # Apply (only the checkbox-gated relational data -- immediate scalars
