@@ -129,13 +129,23 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             >= _POSITION_MATCH_TITLE_FLOOR
         )
 
+    @staticmethod
+    def _discs_compatible(local_disc_num: int | None, mb_disc_num: int | None) -> bool:
+        """A missing disc number on either side isn't a real conflict --
+        only two present, differing disc numbers mean the track actually
+        belongs to a different medium."""
+        return (
+            local_disc_num is None
+            or mb_disc_num is None
+            or local_disc_num == mb_disc_num
+        )
+
     def _match_tracks(self):
         local_tracks = list(self.album.tracks or [])
-        local_by_key = {}
+        local_by_number: dict[int, list] = {}
         for t in local_tracks:
-            disc_num = t.disc.disc_number if t.disc else None
-            if disc_num is not None and t.track_number is not None:
-                local_by_key[(disc_num, t.track_number)] = t
+            if t.track_number is not None:
+                local_by_number.setdefault(t.track_number, []).append(t)
 
         used_ids = set()
         matched: dict[int, Any] = {}
@@ -149,12 +159,26 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             key_number = mbt.absolute_position
             if key_number is None:
                 key_number = mbt.track_number
-            local = local_by_key.get((mbt.disc_number, key_number))
-            if (
-                local is not None
-                and local.track_id not in used_ids
-                and self._position_match_confirmed(mbt, local)
-            ):
+            candidates = local_by_number.get(key_number, [])
+            # Prefer a candidate whose disc number actually agrees with
+            # mbt's over one that's merely compatible (e.g. untagged, disc
+            # number None) so a real same-position match on another disc
+            # doesn't get shadowed by an untagged track.
+            candidates = sorted(
+                candidates,
+                key=lambda c: (c.disc.disc_number if c.disc else None)
+                != mbt.disc_number,
+            )
+            local = None
+            for cand in candidates:
+                if cand.track_id in used_ids:
+                    continue
+                cand_disc_num = cand.disc.disc_number if cand.disc else None
+                if not self._discs_compatible(cand_disc_num, mbt.disc_number):
+                    continue
+                local = cand
+                break
+            if local is not None and self._position_match_confirmed(mbt, local):
                 matched[id(mbt)] = local
                 used_ids.add(local.track_id)
 
