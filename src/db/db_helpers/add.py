@@ -140,3 +140,40 @@ class AddToDB(BaseDBHelper):
             self.session.rollback()
             logger.error(f"Failed to batch-add {model_name} entities: {e}")
             return []
+
+    def add_entities_with_fallback(self, model_name: str, rows: list) -> tuple:
+        """Batch-add rows in one transaction; if the whole batch fails, retry
+        one row at a time so a single bad row doesn't sink every other row in
+        the batch, and the caller can report exactly which row(s) were dropped.
+
+        Args:
+            model_name (str): The class name of the entity (e.g., 'TrackArtistRole').
+            rows (list[dict]): One kwargs-dict of attribute values per row to create.
+
+        Returns:
+            tuple[list, list]: (entities successfully added, rows that failed
+            and were dropped). Assumes rows never include their own primary
+            key (true of every current caller), so a short result from
+            `add_entities` here always means the commit failed, not a dedup
+            skip.
+        """
+        if not rows:
+            return [], []
+
+        entities = self.add_entities(model_name, rows)
+        if len(entities) == len(rows):
+            return entities, []
+
+        logger.warning(
+            f"Batch-add of {len(rows)} {model_name} row(s) failed; "
+            f"retrying individually to isolate the bad row(s)"
+        )
+        succeeded = []
+        failed = []
+        for row in rows:
+            entity = self.add_entity(model_name, **row)
+            if entity is not None:
+                succeeded.append(entity)
+            else:
+                failed.append(row)
+        return succeeded, failed
