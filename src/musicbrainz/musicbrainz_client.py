@@ -41,6 +41,17 @@ def _escape_lucene(value: str) -> str:
     return _LUCENE_SPECIAL.sub(r"\\\1", value)
 
 
+def _query_term(term: str, fields: dict[str, Any]) -> str:
+    """musicbrainzngs escapes the positional query term itself whenever any
+    field kwargs are also given (see musicbrainzngs.musicbrainz._do_mb_search),
+    but leaves it completely unescaped when there are none. Pre-escaping here
+    must mirror that exact condition, or a term combined with field kwargs
+    (e.g. album_name + artist_name) gets double-escaped, corrupting the query
+    for any title containing Lucene special characters (&, :, !, (), etc --
+    common in deluxe/reissue titles)."""
+    return term if fields else _escape_lucene(term)
+
+
 class MusicBrainzLookupError(Exception):
     """Raised when a MusicBrainz search/lookup call fails."""
 
@@ -562,6 +573,26 @@ def _to_float(value) -> float | None:
         return None
 
 
+def _resolve_artist_mbid(artist_name: str) -> str | None:
+    """Resolve an artist name to a MusicBrainz artist MBID via the
+    alias-aware artist search, so release search can filter by `arid` --
+    exact and unambiguous -- instead of a literal `artist:` name match.
+
+    The `artist:` field only matches an artist's canonical name/sort-name,
+    not their aliases -- so a name that's only on file as an alias (e.g. a
+    stylized band-logo spelling like "KoЯn", credited-in-DB name for Korn)
+    fails to filter anything there, and the release search silently falls
+    back to ranking by date/status alone, letting an unrelated same-titled
+    release from a different artist outrank the real one. search_artists()
+    already does this alias matching correctly (see its own docstring).
+    """
+    try:
+        candidates = search_artists(artist_name, limit=1)
+    except MusicBrainzLookupError:
+        return None
+    return candidates[0].id if candidates else None
+
+
 def search_canonical_releases(
     album_name: str, artist_name: str | None = None, limit: int = 100
 ) -> list[MBCandidate]:
@@ -570,11 +601,17 @@ def search_canonical_releases(
     default-country -- sorts first. `MBCandidate.id` is a release MBID,
     ready to pass straight to fetch_release_detail()."""
     configure()
-    kwargs: dict[str, Any] = {"limit": limit}
+    fields: dict[str, Any] = {}
     if artist_name:
-        kwargs["artist"] = artist_name
+        artist_mbid = _resolve_artist_mbid(artist_name)
+        if artist_mbid:
+            fields["arid"] = artist_mbid
+        else:
+            fields["artist"] = artist_name
     try:
-        result = musicbrainzngs.search_releases(_escape_lucene(album_name), **kwargs)
+        result = musicbrainzngs.search_releases(
+            _query_term(album_name, fields), limit=limit, **fields
+        )
     except Exception as e:
         # Intentional broad boundary catch: musicbrainzngs has no single
         # exception hierarchy covering every failure mode it can raise
@@ -884,17 +921,16 @@ def search_recordings(
     configure()
     # Track title is passed as an unrestricted query (not `recording=`) so it
     # also matches the recording's aliases, same as the artist fix above.
-    # Artist/release stay field-restricted AND-ed refinements.
-    # NB: artist_name/album_name are passed as field kwargs, which
-    # musicbrainzngs escapes internally -- only the positional query needs
-    # pre-escaping.
-    kwargs: dict[str, Any] = {"limit": limit}
+    # Artist/release stay field-restricted refinements.
+    fields: dict[str, Any] = {}
     if artist_name:
-        kwargs["artist"] = artist_name
+        fields["artist"] = artist_name
     if album_name:
-        kwargs["release"] = album_name
+        fields["release"] = album_name
     try:
-        result = musicbrainzngs.search_recordings(_escape_lucene(track_name), **kwargs)
+        result = musicbrainzngs.search_recordings(
+            _query_term(track_name, fields), limit=limit, **fields
+        )
     except Exception as e:
         # Intentional broad boundary catch: musicbrainzngs has no single
         # exception hierarchy covering every failure mode it can raise
