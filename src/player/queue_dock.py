@@ -355,14 +355,13 @@ class QueueDockWidget(QWidget):
         if bar.maximum() == 0:
             return
         rows_from_bottom = (bar.maximum() - value) // max(1, bar.singleStep())
-        if rows_from_bottom < SCROLL_THRESHOLD:
-            if self._model.load_more():
-                total = self._model.total_count()
-                shown = self._model.rowCount()
-                if shown < total:
-                    self._count_label.setText(f"{shown:,} of {total:,} tracks")
-                else:
-                    self._count_label.setText(f"{total:,} tracks")
+        if rows_from_bottom < SCROLL_THRESHOLD and self._model.load_more():
+            total = self._model.total_count()
+            shown = self._model.rowCount()
+            if shown < total:
+                self._count_label.setText(f"{shown:,} of {total:,} tracks")
+            else:
+                self._count_label.setText(f"{total:,} tracks")
 
     # ── Bulk-add status ───────────────────────────────────────────────────────
 
@@ -471,7 +470,8 @@ class QueueDockWidget(QWidget):
         if track:
             dlg = TrackEditDialog(track, self.controller, self)
             dlg.field_modified.connect(self._on_track_modified)
-            dlg.exec_()
+            self._track_edit_dialog = dlg
+            dlg.show()
 
     def _edit_multiple_tracks(self):
         indexes = self._list_view.selectedIndexes()
@@ -482,7 +482,8 @@ class QueueDockWidget(QWidget):
         if len(tracks) >= 2:
             dlg = MultiTrackEditDialog(tracks, self.controller, self)
             dlg.field_modified.connect(self._on_track_modified)
-            dlg.exec_()
+            self._track_edit_dialog = dlg
+            dlg.show()
 
     def _on_track_modified(self):
         self._refresh_display()
