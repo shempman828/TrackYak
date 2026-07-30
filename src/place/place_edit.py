@@ -38,6 +38,8 @@ class PlaceEditDialog(QDialog):
         self.desc_edit = QLineEdit()
         self.parent_edit = EntityCompleterEdit("Search places…")
         self.region_edit = QLineEdit()
+        self.mbid_edit = QLineEdit()
+        self.mbid_edit.setPlaceholderText("MusicBrainz ID")
 
         # Add search buttons
         search_layout = QHBoxLayout()
@@ -67,6 +69,7 @@ class PlaceEditDialog(QDialog):
             if self.place.place_longitude is not None:
                 self.lon_edit.setText(str(self.place.place_longitude))
             self.desc_edit.setText(self.place.place_description)
+            self.mbid_edit.setText(self.place.MBID or "")
             place = self.controller.get.get_entity_object(
                 "Place", place_id=self.place.parent_id
             )
@@ -82,6 +85,7 @@ class PlaceEditDialog(QDialog):
         layout.addRow("Search Tools:", search_layout)  # Combined search buttons
         layout.addRow("Description:", self.desc_edit)
         layout.addRow("Parent Place:", self.parent_edit)
+        layout.addRow("MBID:", self.mbid_edit)
 
         # Buttons
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -125,7 +129,7 @@ class PlaceEditDialog(QDialog):
                 )
         except (GeocoderTimedOut, GeocoderServiceError) as e:
             QMessageBox.critical(
-                self, "Search Error", f"Failed to fetch coordinates: {str(e)}"
+                self, "Search Error", f"Failed to fetch coordinates: {e!s}"
             )
 
     def get_place_data(self):
@@ -162,6 +166,7 @@ class PlaceEditDialog(QDialog):
             else None,
             "place_description": self.desc_edit.text().strip(),
             "parent_id": parent_id,  # Use the looked-up parent_id
+            "MBID": self.mbid_edit.text().strip() or None,
         }
 
     def validate_and_accept(self):
