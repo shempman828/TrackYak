@@ -4,6 +4,7 @@ base_album_edit.py
 
 import sqlite3
 import webbrowser
+from typing import ClassVar
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -30,17 +31,18 @@ from src.album.album_cover_art_mixin import AlbumCoverArtMixin
 from src.album.album_editing_relationship_helpers import RelationshipHelpers
 from src.album.album_musicbrainz_mixin import AlbumMusicBrainzMixin
 from src.album.album_tab import AlbumTabBuilder
-from src.album.release_type_utils import (
-    RELEASE_TYPE_SUGGESTIONS,
-    normalize_release_type,
-)
 from src.album.base_album_edit_tabs import (
     AdvancedTab,
     AliasesTab,
     ArtworkTab,
     DetailsTab,
     GenresTab,
+    TrackCreditsTab,
     TracksTab,
+)
+from src.album.release_type_utils import (
+    RELEASE_TYPE_SUGGESTIONS,
+    normalize_release_type,
 )
 from src.common.edit_dirty import value_changed
 from src.common.layout_utils import clear_layout
@@ -94,6 +96,8 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     Artwork          – front cover, rear cover, liner art with pickers
     Aliases          – add / remove / type album aliases
     Genres           – genres common to all album tracks; edits trickle down to every track
+    Track Credits    – artist/role credits common to all album tracks; edits trickle down
+                       to every track; a credit can be converted to an album-level credit
     Artist Credits   – relationship helpers (built by AlbumTabBuilder)
     Publishers & Places – relationship helpers (built by AlbumTabBuilder)
     Awards           – relationship helpers (built by AlbumTabBuilder)
@@ -123,10 +127,14 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             fresh = controller.get.get_entity_object("Album", album_id=album.album_id)
             self.album = fresh if fresh is not None else album
         except SQLAlchemyError as e:
-            logger.warning(f"Failed to reload album {album.album_id} on editor open: {e}")
+            logger.warning(
+                f"Failed to reload album {album.album_id} on editor open: {e}"
+            )
             self.album = album
 
-        self.helper = RelationshipHelpers(controller, album, self.refresh_view, widget=self)
+        self.helper = RelationshipHelpers(
+            controller, album, self.refresh_view, widget=self
+        )
         self.field_widgets: dict = {}
         self.tab_builder = AlbumTabBuilder(self)
 
@@ -247,7 +255,9 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 if value:
                     suggestions.setdefault(value.lower(), value)
         except SQLAlchemyError:
-            logger.debug(f"Could not fetch suggestions for {field_name!r}", exc_info=True)
+            logger.debug(
+                f"Could not fetch suggestions for {field_name!r}", exc_info=True
+            )
         return sorted(suggestions.values(), key=str.lower)
 
     # =========================================================================
@@ -267,6 +277,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         self._artwork_tab = ArtworkTab(self)
         self._aliases_tab = AliasesTab(self)
         self._genres_tab = GenresTab(self)
+        self._track_credits_tab = TrackCreditsTab(self)
         self._advanced_tab = AdvancedTab(self)
 
         self.tabs.addTab(self._build_header_section(), "Overview")
@@ -275,6 +286,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         self.tabs.addTab(self._artwork_tab.build(), "Artwork")
         self.tabs.addTab(self._aliases_tab.build(), "Aliases")
         self.tabs.addTab(self._genres_tab.build(), "Genres")
+        self.tabs.addTab(self._track_credits_tab.build(), "Track Credits")
         self.tabs.addTab(self.tab_builder.build_artists_tab(), "Artist Credits")
         self.tabs.addTab(
             self.tab_builder.build_relationships_tab(), "Publishers && Places"
@@ -634,12 +646,23 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             logger.error(f"Error saving album changes: {e}")
             QMessageBox.critical(self, "Error", f"Failed to save changes: {e}")
 
+    # Tabs whose data can be mutated from more than one place -- e.g. an
+    # artist credit can move between Track Credits and Artist Credits via
+    # the convert-to-album/convert-to-per-track buttons -- so both are kept
+    # in sync unconditionally, the same way Publishers & Places already was.
+    _ALWAYS_REFRESHED_TABS: ClassVar[tuple[str, ...]] = (
+        "Publishers && Places",
+        "Artist Credits",
+        "Track Credits",
+    )
+
     def refresh_view(self):
         """Called by RelationshipHelpers after any relationship change.
 
-        Always rebuilds the Publishers & Places tab so adding/removing a
-        publisher is immediately visible without switching tabs.
-        Also rebuilds the currently active tab if it is a different tab.
+        Always rebuilds the tabs listed in _ALWAYS_REFRESHED_TABS so a
+        change made from one of them is immediately visible on the others
+        without switching tabs. Also rebuilds the currently active tab if
+        it isn't already one of those.
         """
         try:
             updated = self.controller.get.get_entity_object(
@@ -650,14 +673,14 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 self.helper.album = updated
                 self.tab_builder.album = updated
 
-            # Always refresh Publishers & Places
-            self._rebuild_tab_by_title("Publishers && Places")
+            for title in self._ALWAYS_REFRESHED_TABS:
+                self._rebuild_tab_by_title(title)
 
-            # Only rebuild the current tab if it is a different tab — avoids a
-            # double-rebuild (and the flash of the tab switching) when the user
-            # is already on the Publishers & Places tab.
+            # Only rebuild the current tab if it wasn't already refreshed
+            # above — avoids a double-rebuild (and the flash of the tab
+            # switching) when the user is already on one of those tabs.
             current_title = self.tabs.tabText(self.tabs.currentIndex())
-            if current_title != "Publishers && Places":
+            if current_title not in self._ALWAYS_REFRESHED_TABS:
                 self._rebuild_current_tab()
 
             logger.info("Album view refreshed")
@@ -677,6 +700,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             "Artwork": lambda: ArtworkTab(self).build(),
             "Aliases": lambda: AliasesTab(self).build(),
             "Genres": lambda: GenresTab(self).build(),
+            "Track Credits": lambda: TrackCreditsTab(self).build(),
             "Artist Credits": self.tab_builder.build_artists_tab,
             "Publishers && Places": self.tab_builder.build_relationships_tab,
             "Awards": self.tab_builder.build_awards_tab,
