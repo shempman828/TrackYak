@@ -101,7 +101,9 @@ class AlbumMusicBrainzMixin:
                 try:
                     aliases = fetch_release_group_aliases(detail.release_group_mbid)
                 except MusicBrainzLookupError as e:
-                    logger.warning(f"Could not fetch album aliases for {album_name}: {e}")
+                    logger.warning(
+                        f"Could not fetch album aliases for {album_name}: {e}"
+                    )
             return detail, aliases
 
         dialog = MusicBrainzImportDialog(
@@ -215,9 +217,7 @@ class AlbumMusicBrainzMixin:
             elif isinstance(widget, QSpinBox):
                 if widget.value() == widget.minimum():
                     widget.setValue(int(value))
-            elif isinstance(widget, QCheckBox):
-                if (
-                    getattr(self.album, field_name, None) is None
-                    and not widget.isChecked()
-                ):
-                    widget.setChecked(bool(value))
+            elif isinstance(widget, QCheckBox) and (
+                getattr(self.album, field_name, None) is None and not widget.isChecked()
+            ):
+                widget.setChecked(bool(value))
