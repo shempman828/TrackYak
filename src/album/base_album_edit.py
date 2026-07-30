@@ -98,7 +98,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     Genres           – genres common to all album tracks; edits trickle down to every track
     Track Credits    – artist/role credits common to all album tracks; edits trickle down
                        to every track; a credit can be converted to an album-level credit
-    Artist Credits   – relationship helpers (built by AlbumTabBuilder)
+    Album credit     – relationship helpers (built by AlbumTabBuilder)
     Publishers & Places – relationship helpers (built by AlbumTabBuilder)
     Awards           – relationship helpers (built by AlbumTabBuilder)
     Advanced         – metadata-complete flag, ReplayGain, library stats
@@ -287,7 +287,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         self.tabs.addTab(self._aliases_tab.build(), "Aliases")
         self.tabs.addTab(self._genres_tab.build(), "Genres")
         self.tabs.addTab(self._track_credits_tab.build(), "Track Credits")
-        self.tabs.addTab(self.tab_builder.build_artists_tab(), "Artist Credits")
+        self.tabs.addTab(self.tab_builder.build_artists_tab(), "Album credit")
         self.tabs.addTab(
             self.tab_builder.build_relationships_tab(), "Publishers && Places"
         )
@@ -647,12 +647,12 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             QMessageBox.critical(self, "Error", f"Failed to save changes: {e}")
 
     # Tabs whose data can be mutated from more than one place -- e.g. an
-    # artist credit can move between Track Credits and Artist Credits via
+    # artist credit can move between Track Credits and Album credit via
     # the convert-to-album/convert-to-per-track buttons -- so both are kept
     # in sync unconditionally, the same way Publishers & Places already was.
     _ALWAYS_REFRESHED_TABS: ClassVar[tuple[str, ...]] = (
         "Publishers && Places",
-        "Artist Credits",
+        "Album credit",
         "Track Credits",
     )
 
@@ -701,7 +701,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             "Aliases": lambda: AliasesTab(self).build(),
             "Genres": lambda: GenresTab(self).build(),
             "Track Credits": lambda: TrackCreditsTab(self).build(),
-            "Artist Credits": self.tab_builder.build_artists_tab,
+            "Album credit": self.tab_builder.build_artists_tab,
             "Publishers && Places": self.tab_builder.build_relationships_tab,
             "Awards": self.tab_builder.build_awards_tab,
             "Advanced": lambda: AdvancedTab(self).build(),
