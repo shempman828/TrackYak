@@ -42,7 +42,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.common.entity_completer_edit import find_or_create_by_name
 from src.common.match_confidence import confidence_color, confidence_label
 from src.core.logger_config import logger
-from src.musicbrainz.musicbrainz_client import MBAlias, MBReleaseDetail, MBReleaseTrack
+from src.musicbrainz.musicbrainz_client import (
+    MBAlias,
+    MBReleaseDetail,
+    MBReleaseTrack,
+    MusicBrainzLookupError,
+    fetch_artist_aliases,
+)
 from src.place.place_association_types import (
     fetch_association_types,
     find_or_create_association_type,
@@ -458,13 +464,14 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                 logger.warning(f"Could not import album alias '{alias.name}': {e}")
 
         known_roles = self.controller.get.get_all_entities("Role") or []
+        artist_alias_cache: dict[str, list[MBAlias]] = {}
         for cb, mbt, credit in self._credit_checks:
             if not cb.isChecked():
                 continue
             track = self._resolved_track(mbt)
             if track is None:
                 continue
-            self._apply_credit(track, credit, known_roles)
+            self._apply_credit(track, credit, known_roles, artist_alias_cache)
 
         known_place_types = fetch_association_types(self.controller)
         place_cache: dict[str, Any] = {}
@@ -475,7 +482,9 @@ class AlbumMusicBrainzReviewDialog(QDialog):
 
         self.accept()
 
-    def _resolve_artist(self, credit) -> Any | None:
+    def _resolve_artist(
+        self, credit, artist_alias_cache: dict[str, list[MBAlias]]
+    ) -> Any | None:
         if credit.artist_mbid:
             artist = self.controller.get.get_entity_object(
                 "Artist", MBID=credit.artist_mbid
@@ -487,13 +496,64 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         )
         if artist is not None:
             return artist
+
+        if credit.artist_mbid:
+            artist = self._resolve_artist_via_mb_aliases(credit, artist_alias_cache)
+            if artist is not None:
+                return artist
+
         return self.controller.add.add_entity(
             "Artist", artist_name=credit.artist_name, MBID=credit.artist_mbid
         )
 
-    def _apply_credit(self, track, credit, known_roles: list[Any]):
+    def _resolve_artist_via_mb_aliases(
+        self, credit, artist_alias_cache: dict[str, list[MBAlias]]
+    ) -> Any | None:
+        """Fall back to MusicBrainz's own alias list for this artist-credit
+        (e.g. "H. Arlen" listed as an alias of Harold Arlen) so a credit
+        under a variant name resolves to an existing local Artist instead of
+        spawning a duplicate that later needs manual fuzzy-match dedupe."""
+        aliases = artist_alias_cache.get(credit.artist_mbid)
+        if aliases is None:
+            try:
+                aliases = fetch_artist_aliases(credit.artist_mbid)
+            except MusicBrainzLookupError as e:
+                logger.warning(
+                    f"Could not fetch MusicBrainz aliases for artist "
+                    f"{credit.artist_mbid}: {e}"
+                )
+                aliases = []
+            artist_alias_cache[credit.artist_mbid] = aliases
+
+        for alias in aliases:
+            artist = self.controller.get.resolve_entity_or_alias(
+                "Artist", "artist_name", alias.name
+            )
+            if artist is None:
+                continue
+            if not artist.MBID:
+                self.controller.update.update_entity(
+                    "Artist", artist.artist_id, MBID=credit.artist_mbid
+                )
+            if credit.artist_name != artist.artist_name:
+                self.controller.add.add_entity(
+                    "ArtistAlias",
+                    artist_id=artist.artist_id,
+                    alias_name=credit.artist_name,
+                    alias_type=None,
+                )
+            return artist
+        return None
+
+    def _apply_credit(
+        self,
+        track,
+        credit,
+        known_roles: list[Any],
+        artist_alias_cache: dict[str, list[MBAlias]],
+    ):
         try:
-            artist = self._resolve_artist(credit)
+            artist = self._resolve_artist(credit, artist_alias_cache)
             if artist is None:
                 return
             role = find_or_create_by_name(
