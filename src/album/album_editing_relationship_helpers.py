@@ -213,6 +213,77 @@ class RelationshipHelpers:
                 None, "Error", f"Failed to convert credit to per-track: {e!s}"
             )
 
+    def convert_credit_to_album_level(self, artist_id, role_id):
+        """Swap a credit that's on every one of the album's tracks to a
+        single album-level credit instead. Mirror of
+        convert_credit_to_per_track, run in the opposite direction.
+
+        Only meant to be called for an (artist_id, role_id) pair the caller
+        has already confirmed is present on every track -- the Track
+        Credits tab's RolesTab only ever shows the intersection across all
+        of the album's tracks, so any credit it renders already qualifies.
+        """
+        already_album_level = any(
+            ra.artist_id == artist_id and ra.role_id == role_id
+            for ra in self.album.album_roles
+        )
+        if already_album_level:
+            show_status_message(
+                self.widget, "This artist/role is already an album-level credit."
+            )
+            return
+
+        tracks = self.album.tracks
+        if not tracks:
+            return
+
+        try:
+            # Every track shares the same credited name (that's what made
+            # this pair show up as a common credit), so any one track's row
+            # carries the alias override to preserve, if there is one.
+            existing_row = self.controller.get.get_entity_object(
+                "TrackArtistRole",
+                track_id=tracks[0].track_id,
+                artist_id=artist_id,
+                role_id=role_id,
+            )
+            credited_alias_id = getattr(existing_row, "credited_alias_id", None)
+
+            siblings = [ra for ra in self.album.album_roles if ra.role_id == role_id]
+            next_sort_order = (
+                max(ra.sort_order for ra in siblings) + 1 if siblings else 0
+            )
+
+            # Create the album-level credit first -- only delete the
+            # per-track rows once it's confirmed to exist, so a failure here
+            # never leaves the artist with the credit nowhere at all.
+            new_assoc = self.controller.add.add_entity(
+                "AlbumRoleAssociation",
+                album_id=self.album.album_id,
+                artist_id=artist_id,
+                role_id=role_id,
+                sort_order=next_sort_order,
+                credited_alias_id=credited_alias_id,
+            )
+            if new_assoc is None:
+                QMessageBox.critical(
+                    None, "Error", "Failed to create the album-level credit."
+                )
+                return
+
+            self.controller.delete.delete_entity(
+                "TrackArtistRole",
+                track_id=[t.track_id for t in tracks],
+                artist_id=artist_id,
+                role_id=role_id,
+            )
+            self.show_updated_view()
+        except SQLAlchemyError as e:
+            logger.exception("Failed to convert credit to album-level")
+            QMessageBox.critical(
+                None, "Error", f"Failed to convert credit to album-level: {e!s}"
+            )
+
     def move_artist_credit(self, role_assoc, direction: int):
         """Move an artist credit up (-1) or down (+1) within its role group.
 
