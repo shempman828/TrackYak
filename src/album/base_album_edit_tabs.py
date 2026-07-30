@@ -99,6 +99,11 @@ class TracksTab:
         disc_view = DiscManagementView(
             self.editor.album, self.editor.controller, parent=tab
         )
+        # Track add/remove/reassignment here isn't routed through
+        # RelationshipHelpers like credits/places/awards are, so the editor
+        # needs its own hook to know other tabs' track snapshots (Genres,
+        # Track Credits) just went stale.
+        disc_view.tracks_changed.connect(self.editor.refresh_view)
         layout.addWidget(disc_view)
         return tab
 
