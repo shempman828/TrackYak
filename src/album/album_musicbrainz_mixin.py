@@ -35,6 +35,12 @@ from src.musicbrainz.musicbrainz_match_dialog import (
 # push the value into field_widgets["MBID"] itself, or the next Save (which
 # diffs widget text against self.album) would see the still-blank widget as
 # a deliberate clear and null the MBID back out.
+#
+# None of this fires until the user has actually confirmed the match: see
+# _apply_release_detail() below, which only reaches these writes after
+# AlbumMusicBrainzReviewDialog has been accepted (or found nothing to
+# review at all). Cancelling that dialog must leave zero trace, DB or
+# widget -- that's the whole point of it being a "review" step.
 _SCALAR_ENRICHMENT_FIELDS = (
     "status",
     "album_language",
@@ -58,9 +64,11 @@ class AlbumMusicBrainzMixin:
          confirm/override the auto-ranked canonical pick.
       2. Fetch full per-release detail (credits, recording locations, disc
          layout, aliases) for that one release.
-      3. Fill blank album-level scalar widgets, then hand everything else to
-         AlbumMusicBrainzReviewDialog for track matching and checkbox-gated
-         apply.
+      3. Hand everything to AlbumMusicBrainzReviewDialog for track matching
+         and a final review/confirm step; only once that's accepted (or
+         found nothing worth reviewing) do the album-level scalar widgets
+         get filled and the MBID/Discogs links written. Cancelling at any
+         step, including that final review, leaves the album untouched.
     """
 
     def _lookup_musicbrainz(self):
@@ -122,6 +130,21 @@ class AlbumMusicBrainzMixin:
         self._apply_release_detail(detail, aliases)
 
     def _apply_release_detail(self, detail, aliases):
+        # Build the review dialog first -- construction is pure computation
+        # (track matching, deciding what's worth showing), no DB writes --
+        # so has_content is known before anything commits. Cancelling here
+        # must leave the album completely untouched, so every write below
+        # is gated on either having nothing to review, or the user
+        # explicitly accepting.
+        review = AlbumMusicBrainzReviewDialog(
+            self.controller, self.album, detail, aliases, parent=self
+        )
+        if review.has_content:
+            if review.exec() != QDialog.Accepted:
+                return
+        else:
+            review.apply_immediate_scalars()
+
         scalar_enrichment = {}
         if detail.status:
             scalar_enrichment["status"] = detail.status
@@ -165,17 +188,6 @@ class AlbumMusicBrainzMixin:
             except SQLAlchemyError as e:
                 logger.warning(f"Could not save Discogs master link: {e}")
 
-        review = AlbumMusicBrainzReviewDialog(
-            self.controller, self.album, detail, aliases, parent=self
-        )
-        # Disc creation + fill-blank track_number/side/barcode for tracks
-        # that auto-matched cleanly happen immediately -- no confirmation
-        # needed, same rule as any other scalar enrichment. Only credits,
-        # recording locations, aliases, and manual track-match picks are
-        # gated behind the checkbox review.
-        review.apply_immediate_scalars()
-        if review.has_content:
-            review.exec()
         self.refresh_view()
 
     def _apply_musicbrainz_enrichment(self, enrichment: dict):
