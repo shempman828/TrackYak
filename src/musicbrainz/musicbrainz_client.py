@@ -451,6 +451,7 @@ class MBReleaseTrack:
 @dataclass
 class MBReleaseDetail:
     release_group_mbid: Optional[str]
+    mbid: Optional[str] = None
     status: Optional[str] = None
     language: Optional[str] = None
     catalog_number: Optional[str] = None
@@ -696,6 +697,7 @@ def fetch_release_detail(
 
     detail = MBReleaseDetail(
         release_group_mbid=(release.get("release-group") or {}).get("id"),
+        mbid=release.get("id") or release_mbid,
         status=release.get("status"),
         language=_MB_LANGUAGE_NAMES.get(language_code, language_code),
         catalog_number=catalog_number,
