@@ -177,3 +177,46 @@ class UpdateDB(BaseDBHelper):
             logger.error(f"Error bulk-updating {model_name}: {e}")
             self.session.rollback()
             return False
+
+    def update_entities_bulk_with_fallback(self, model_name: str, updates: list) -> tuple:
+        """Bulk-update rows in one transaction; if the whole batch fails, retry
+        one row at a time so a single bad row doesn't sink every other row in
+        the batch, and the caller can report exactly which row(s) were dropped.
+
+        Args:
+            model_name (str): The class name of the entity (e.g., 'Track').
+            updates (list[dict]): Each dict must contain the primary key column
+                plus the attribute values to set for that row.
+
+        Returns:
+            tuple[int, list]: (number of rows successfully updated, updates
+            that failed and were dropped).
+        """
+        if not updates:
+            return 0, []
+
+        if self.update_entities_bulk(model_name, updates):
+            return len(updates), []
+
+        logger.warning(
+            f"Bulk-update of {len(updates)} {model_name} row(s) failed; "
+            f"retrying individually to isolate the bad row(s)"
+        )
+        try:
+            entity_class = MODEL_REGISTRY[model_name]
+        except KeyError:
+            return 0, updates
+
+        pk_cols = list(entity_class.__table__.primary_key.columns)
+        pk_col = pk_cols[0].name if pk_cols else "id"
+
+        succeeded = 0
+        failed = []
+        for row in updates:
+            entity_id = row[pk_col]
+            kwargs = {k: v for k, v in row.items() if k != pk_col}
+            if self.update_entity(model_name, entity_id, **kwargs):
+                succeeded += 1
+            else:
+                failed.append(row)
+        return succeeded, failed
