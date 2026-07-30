@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMenu,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
 )
@@ -165,9 +166,25 @@ class _BaseTrackAssociationTab(_BaseTab):
             for track in self.tracks
         ]
         try:
-            self.controller.add.add_entities(self.assoc_model, rows)
+            _, failed = self.controller.add.add_entities_with_fallback(
+                self.assoc_model, rows
+            )
         except SQLAlchemyError as e:
             logger.error(f"Failed to add {self.model_name} to tracks: {e}")
+            failed = []
+        if failed:
+            bad_track_ids = ", ".join(str(row["track_id"]) for row in failed)
+            logger.warning(
+                f"Failed to tag {len(failed)} track(s) with {self.model_name} "
+                f"'{name}': track_id(s) {bad_track_ids}"
+            )
+            QMessageBox.warning(
+                self,
+                "Some tracks not updated",
+                f"Could not add '{name}' to {len(failed)} of {len(rows)} track(s) "
+                f"(track_id(s) {bad_track_ids}). They may have been deleted or "
+                f"changed since this tab was opened; try closing and reopening it.",
+            )
 
         if matched_id is None:
             display = getattr(entity, self.name_field, None)
