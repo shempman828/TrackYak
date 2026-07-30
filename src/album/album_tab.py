@@ -374,6 +374,20 @@ class AlbumTabBuilder:
                 )
                 artist_layout.addWidget(credit_btn)
 
+                to_track_btn = QPushButton("→ Track")
+                to_track_btn.setFixedHeight(22)
+                to_track_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
+                to_track_btn.setToolTip(
+                    "Move this credit to every track on the album (removes it "
+                    "from the album-level credit list)"
+                )
+                to_track_btn.clicked.connect(
+                    lambda checked, ra=role_assoc: (
+                        self.helper.convert_credit_to_per_track(ra)
+                    )
+                )
+                artist_layout.addWidget(to_track_btn)
+
                 remove_btn = QPushButton("Remove")
                 remove_btn.setFixedHeight(22)  # ← compact button
                 remove_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")

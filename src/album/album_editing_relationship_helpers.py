@@ -82,7 +82,7 @@ class RelationshipHelpers:
 
         except SQLAlchemyError as e:
             logger.exception("Failed to add publisher")
-            QMessageBox.critical(None, "Error", f"Failed to add publisher: {str(e)}")
+            QMessageBox.critical(None, "Error", f"Failed to add publisher: {e!s}")
 
     def remove_publisher(self, album_publisher):
         """Remove a publisher from the album using the association object.
@@ -99,7 +99,7 @@ class RelationshipHelpers:
             )
             self.show_updated_view()
         except SQLAlchemyError as e:
-            QMessageBox.critical(None, "Error", f"Failed to remove publisher: {str(e)}")
+            QMessageBox.critical(None, "Error", f"Failed to remove publisher: {e!s}")
 
     # =========================================================================
     # Artist credit management
@@ -134,13 +134,9 @@ class RelationshipHelpers:
                     )
                     register_cached_entity("Artist", artist)
 
-            role = self.controller.get.get_entity_object(
-                "Role", role_name=role_name
-            )
+            role = self.controller.get.get_entity_object("Role", role_name=role_name)
             if not role:
-                role = self.controller.add.add_entity(
-                    "Role", role_name=role_name
-                )
+                role = self.controller.add.add_entity("Role", role_name=role_name)
 
             # New credits go to the end of their role group rather than
             # defaulting to sort_order 0, which would jump them to the front.
@@ -166,9 +162,7 @@ class RelationshipHelpers:
 
         except SQLAlchemyError as e:
             logger.exception("Failed to add artist credit")
-            QMessageBox.critical(
-                None, "Error", f"Failed to add artist credit: {str(e)}"
-            )
+            QMessageBox.critical(None, "Error", f"Failed to add artist credit: {e!s}")
 
     def remove_artist_credit(self, role_assoc):
         """Remove an artist credit from the album."""
@@ -179,7 +173,44 @@ class RelationshipHelpers:
             self.show_updated_view()
         except SQLAlchemyError as e:
             QMessageBox.critical(
-                None, "Error", f"Failed to remove artist credit: {str(e)}"
+                None, "Error", f"Failed to remove artist credit: {e!s}"
+            )
+
+    def convert_credit_to_per_track(self, role_assoc):
+        """Swap an album-level artist credit to a per-track credit.
+
+        Adds the same artist/role/credited_alias to every track on the
+        album (one batched insert) and removes the album-level credit.
+        Tracks that already carry this exact artist/role credit are
+        skipped by add_entities rather than causing a failure.
+        """
+        if not role_assoc.artist or not role_assoc.role:
+            return
+
+        tracks = self.album.tracks
+        if not tracks:
+            show_status_message(self.widget, "Album has no tracks to credit.")
+            return
+
+        try:
+            rows = [
+                {
+                    "track_id": track.track_id,
+                    "artist_id": role_assoc.artist_id,
+                    "role_id": role_assoc.role_id,
+                    "credited_alias_id": role_assoc.credited_alias_id,
+                }
+                for track in tracks
+            ]
+            self.controller.add.add_entities("TrackArtistRole", rows)
+            self.controller.delete.delete_entity(
+                "AlbumRoleAssociation", role_assoc.association_id
+            )
+            self.show_updated_view()
+        except SQLAlchemyError as e:
+            logger.exception("Failed to convert credit to per-track")
+            QMessageBox.critical(
+                None, "Error", f"Failed to convert credit to per-track: {e!s}"
             )
 
     def move_artist_credit(self, role_assoc, direction: int):
@@ -208,7 +239,10 @@ class RelationshipHelpers:
             return  # Already at the edge of its role group
 
         other = siblings[new_idx]
-        role_assoc.sort_order, other.sort_order = other.sort_order, role_assoc.sort_order
+        role_assoc.sort_order, other.sort_order = (
+            other.sort_order,
+            role_assoc.sort_order,
+        )
         self.controller.update.update_entity(
             "AlbumRoleAssociation",
             role_assoc.association_id,
@@ -255,7 +289,7 @@ class RelationshipHelpers:
             self.show_updated_view()
         except SQLAlchemyError as e:
             QMessageBox.critical(
-                None, "Error", f"Failed to update credited name: {str(e)}"
+                None, "Error", f"Failed to update credited name: {e!s}"
             )
 
     # =========================================================================
@@ -319,7 +353,7 @@ class RelationshipHelpers:
 
         except SQLAlchemyError as e:
             logger.exception("Failed to add place")
-            QMessageBox.critical(None, "Error", f"Failed to add place: {str(e)}")
+            QMessageBox.critical(None, "Error", f"Failed to add place: {e!s}")
 
     def remove_place(self, association):
         """Remove a place association from the album."""
@@ -330,7 +364,7 @@ class RelationshipHelpers:
             self.show_updated_view()
         except SQLAlchemyError as e:
             QMessageBox.critical(
-                None, "Error", f"Failed to remove place association: {str(e)}"
+                None, "Error", f"Failed to remove place association: {e!s}"
             )
 
     # =========================================================================
@@ -378,7 +412,7 @@ class RelationshipHelpers:
 
         except SQLAlchemyError as e:
             logger.exception("Failed to add award")
-            QMessageBox.critical(None, "Error", f"Failed to add award: {str(e)}")
+            QMessageBox.critical(None, "Error", f"Failed to add award: {e!s}")
 
     def remove_album_award_association(self, award):
         """Remove an award from the album."""
@@ -391,7 +425,7 @@ class RelationshipHelpers:
             )
             self.show_updated_view()
         except SQLAlchemyError as e:
-            QMessageBox.critical(None, "Error", f"Failed to remove award: {str(e)}")
+            QMessageBox.critical(None, "Error", f"Failed to remove award: {e!s}")
 
     # =========================================================================
     # Helpers
@@ -405,7 +439,9 @@ class RelationshipHelpers:
                 getattr(e, name_field) for e in entities if getattr(e, name_field, None)
             ]
         except SQLAlchemyError as e:
-            logger.warning(f"Failed to load {entity_type} entities for autocomplete: {e}")
+            logger.warning(
+                f"Failed to load {entity_type} entities for autocomplete: {e}"
+            )
             return []
 
 
