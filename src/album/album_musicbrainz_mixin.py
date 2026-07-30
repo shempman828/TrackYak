@@ -28,6 +28,13 @@ from src.musicbrainz.musicbrainz_match_dialog import (
 # barcode, Discogs link) is relational/track-level and applied directly to
 # the database by AlbumMusicBrainzReviewDialog instead, since there's no
 # corresponding open form widget for most of it.
+#
+# MBID is a partial exception: it does have an open form widget, but is
+# written straight to the DB in _apply_release_detail() below rather than
+# going through _apply_musicbrainz_enrichment -- so that write must also
+# push the value into field_widgets["MBID"] itself, or the next Save (which
+# diffs widget text against self.album) would see the still-blank widget as
+# a deliberate clear and null the MBID back out.
 _SCALAR_ENRICHMENT_FIELDS = (
     "status",
     "album_language",
@@ -136,6 +143,13 @@ class AlbumMusicBrainzMixin:
                     self.album.album_id,
                     MBID=detail.mbid,
                 )
+                # Keep the open editor's widget in sync with the DB write above --
+                # otherwise the widget still reads blank, and the next Save (which
+                # diffs widget text against self.album) would send MBID=None and
+                # wipe out the value we just wrote.
+                widget = self.field_widgets.get("MBID")
+                if isinstance(widget, QLineEdit):
+                    widget.setText(detail.mbid)
             except SQLAlchemyError as e:
                 logger.warning(f"Could not save MusicBrainz release ID: {e}")
 
