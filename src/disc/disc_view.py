@@ -13,10 +13,10 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.style_utils import set_style_property
-from src.disc.disc_edit import DiscEditDialog
-from src.disc.disc_sorting import TrackSortingDisplay
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
+from src.disc.disc_edit import DiscEditDialog
+from src.disc.disc_sorting import TrackSortingDisplay
 
 
 class DiscManagementView(QWidget):
@@ -79,7 +79,8 @@ class DiscManagementView(QWidget):
 
         self.renumber_btn = QPushButton("🔢 Auto-Number Tracks")
         self.renumber_btn.setToolTip(
-            "Assign absolute track numbers based on the order currently shown below"
+            "Assign track numbers (restarting at 1 on each disc/side) and "
+            "absolute track numbers (continuous) based on the order shown below"
         )
         self.renumber_btn.clicked.connect(self.renumber_tracks)
         action_layout.addWidget(self.renumber_btn)
@@ -250,7 +251,7 @@ class DiscManagementView(QWidget):
 
             except SQLAlchemyError as e:
                 logger.error(f"Error adding disc: {e}")
-                QMessageBox.warning(self, "Error", f"Could not add disc: {str(e)}")
+                QMessageBox.warning(self, "Error", f"Could not add disc: {e!s}")
 
     def edit_disc(self):
         """Edit selected disc"""
@@ -309,7 +310,7 @@ class DiscManagementView(QWidget):
                 QMessageBox.warning(self, "Error", f"Failed to remove {choice}.")
         except SQLAlchemyError as e:
             logger.error(f"Error removing disc: {e}")
-            QMessageBox.warning(self, "Error", f"Could not remove disc: {str(e)}")
+            QMessageBox.warning(self, "Error", f"Could not remove disc: {e!s}")
 
     def renumber_tracks(self):
         """Assign absolute track numbers based on the currently visible order."""
