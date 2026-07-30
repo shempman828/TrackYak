@@ -2,14 +2,12 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QDialog,
     QHeaderView,
     QMenu,
     QMessageBox,
     QTreeWidget,
     QTreeWidgetItem,
 )
-
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
@@ -47,28 +45,24 @@ class TrackSortingDisplay(QTreeWidget):
     def _prepare_track_items(self):
         items = []
         for track in self.physical_tracks:
-            items.append(
-                {
-                    "track": track,
-                    "is_virtual": False,
-                    "disc_id": track.disc_id,
-                    "disc_number": track.disc.disc_number if track.disc else None,
-                    "track_number": track.track_number,
-                    "side": track.side,
-                }
-            )
+            items.append({
+                "track": track,
+                "is_virtual": False,
+                "disc_id": track.disc_id,
+                "disc_number": track.disc.disc_number if track.disc else None,
+                "track_number": track.track_number,
+                "side": track.side,
+            })
         for link in self.virtual_links:
             if link.track:
-                items.append(
-                    {
-                        "track": link.track,
-                        "is_virtual": True,
-                        "link": link,
-                        "disc_number": link.virtual_disc_number,
-                        "track_number": link.virtual_track_number,
-                        "side": link.virtual_side,
-                    }
-                )
+                items.append({
+                    "track": link.track,
+                    "is_virtual": True,
+                    "link": link,
+                    "disc_number": link.virtual_disc_number,
+                    "track_number": link.virtual_track_number,
+                    "side": link.virtual_side,
+                })
         return items
 
     def _organize_tracks(self):
@@ -219,9 +213,10 @@ class TrackSortingDisplay(QTreeWidget):
             # TrackEditDialog accepts a single track or a list — pass the list
             # directly so it can handle both single and multi-track cases.
             dialog = TrackEditDialog(tracks, controller, self)
-            if dialog.exec_() == QDialog.Accepted:
-                # Tell the parent view to reload so changes are visible
-                self.track_edited.emit()
+            # Tell the parent view to reload so changes are visible
+            dialog.accepted.connect(self.track_edited.emit)
+            self._track_edit_dialog = dialog
+            dialog.show()
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error opening track editor from disc view: {e}")
