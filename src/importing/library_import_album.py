@@ -1,13 +1,13 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.release_type_utils import normalize_release_type
+from src.core.logger_config import logger
 from src.importing.artist_field_extraction import (
     ALBUM_ARTIST_FIELDS,
     extract_artists_from_metadata,
 )
-from src.core.logger_config import logger
 
 
 class AlbumImporter:
@@ -18,7 +18,7 @@ class AlbumImporter:
     def __init__(self, controller):
         self.controller = controller
 
-    def _get_or_create_album(self, metadata: Dict[str, Any]):
+    def _get_or_create_album(self, metadata: dict[str, Any]):
         """Get existing album or create new one with comprehensive metadata.
 
         Raises on failure rather than swallowing: the album is required by
@@ -31,24 +31,22 @@ class AlbumImporter:
         release_year = self._extract_release_year(metadata)
         artist_ids = self._process_album_artists(metadata)
 
-        existing_album = self._find_existing_album(
-            album_name, release_year, artist_ids
-        )
+        existing_album = self._find_existing_album(album_name, release_year, artist_ids)
         if existing_album:
             return existing_album
 
         return self._create_new_album(album_name, release_year, artist_ids, metadata)
 
-    def _extract_album_name(self, metadata: Dict[str, Any]) -> str:
+    def _extract_album_name(self, metadata: dict[str, Any]) -> str:
         """Extract album name from metadata with fallback."""
         album_name = metadata.get("album_album_name") or metadata.get("album_name")
         return album_name or "Unknown Album"
 
-    def _extract_release_year(self, metadata: Dict[str, Any]) -> Optional[str]:
+    def _extract_release_year(self, metadata: dict[str, Any]) -> str | None:
         """Extract release year from metadata."""
         return metadata.get("album_release_year") or metadata.get("release_year")
 
-    def _process_album_artists(self, metadata: Dict[str, Any]) -> List[int]:
+    def _process_album_artists(self, metadata: dict[str, Any]) -> list[int]:
         """Process album artists only, with proper role handling."""
         processed_artist_names = set()
         artist_ids = []
@@ -66,8 +64,8 @@ class AlbumImporter:
         return sorted(set(artist_ids))
 
     def _find_existing_album(
-        self, album_name: str, release_year: Optional[str], artist_ids: List[int]
-    ) -> Optional[Any]:
+        self, album_name: str, release_year: str | None, artist_ids: list[int]
+    ) -> Any | None:
         """Find existing album using multiple strategies."""
         # Strategy 1: Try exact match with album name, year, and artists
         if artist_ids:
@@ -94,8 +92,8 @@ class AlbumImporter:
         return None
 
     def _prepare_album_data(
-        self, album_name: str, release_year: Optional[str], metadata: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, album_name: str, release_year: str | None, metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """Prepare album data dictionary from metadata."""
         album_data = {
             "album_name": album_name,
@@ -121,7 +119,7 @@ class AlbumImporter:
         # Remove None values
         return {k: v for k, v in album_data.items() if v is not None}
 
-    def _create_album_artist_relationships(self, album_id: int, artist_ids: List[int]):
+    def _create_album_artist_relationships(self, album_id: int, artist_ids: list[int]):
         """Create album-artist relationships for all artists."""
         # Get existing relationships first
         existing_associations = self.controller.get.get_all_entities(
@@ -154,9 +152,9 @@ class AlbumImporter:
     def _create_new_album(
         self,
         album_name: str,
-        release_year: Optional[str],
-        artist_ids: List[int],
-        metadata: Dict[str, Any],
+        release_year: str | None,
+        artist_ids: list[int],
+        metadata: dict[str, Any],
     ):
         """Create a new album with all associated data and relationships."""
         album_data = self._prepare_album_data(album_name, release_year, metadata)
@@ -174,7 +172,7 @@ class AlbumImporter:
         logger.debug(f"Created new album: {album_name} (ID: {new_album.album_id})")
         return new_album
 
-    def _get_or_create_disc(self, album_id: int, metadata: Dict[str, Any]):
+    def _get_or_create_disc(self, album_id: int, metadata: dict[str, Any]):
         """Get existing disc or create a new one based on the track's disc number.
 
         Returns None if the metadata has no disc number, in which case the
@@ -204,7 +202,7 @@ class AlbumImporter:
         )
         return new_disc
 
-    def _get_album_artists(self, album_id: int) -> List[int]:
+    def _get_album_artists(self, album_id: int) -> list[int]:
         """Get all artist IDs associated with an album."""
         try:
             associations = self.controller.get.get_all_entities(
@@ -216,7 +214,7 @@ class AlbumImporter:
             return []
 
     def _create_album_publisher_relationships(
-        self, album_id: int, metadata: Dict[str, Any]
+        self, album_id: int, metadata: dict[str, Any]
     ):
         """Create publisher relationships for an album."""
         publisher_names = metadata.get("publisher_name")
@@ -263,8 +261,8 @@ class AlbumImporter:
         self,
         artist_name: str,
         processed_names: set,
-        is_group: Optional[int] = None,
-    ) -> Optional[int]:
+        is_group: int | None = None,
+    ) -> int | None:
         """Process individual artist name and return artist ID."""
         if not artist_name or not artist_name.strip():
             return None
