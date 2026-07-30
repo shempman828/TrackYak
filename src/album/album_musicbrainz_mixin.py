@@ -129,6 +129,16 @@ class AlbumMusicBrainzMixin:
         if scalar_enrichment:
             self._apply_musicbrainz_enrichment(scalar_enrichment)
 
+        if detail.mbid and not self.album.MBID:
+            try:
+                self.controller.update.update_entity(
+                    "Album",
+                    self.album.album_id,
+                    MBID=detail.mbid,
+                )
+            except SQLAlchemyError as e:
+                logger.warning(f"Could not save MusicBrainz release ID: {e}")
+
         if detail.discogs_master_url and not self.album.discogs_master_url:
             try:
                 self.controller.update.update_entity(
