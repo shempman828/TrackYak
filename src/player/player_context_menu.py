@@ -259,7 +259,8 @@ class PlayerContextMenuMixin:
             return
         try:
             dialog = TrackEditDialog(self.current_track, self.controller, self)
-            dialog.exec_()
+            self._track_edit_dialog = dialog
+            dialog.show()
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error opening track editor from player dock: {e}")
             QMessageBox.critical(self, "Error", f"Could not open track editor:\\n{e}")
