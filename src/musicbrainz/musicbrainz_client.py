@@ -933,14 +933,20 @@ def resolve_area_chain(
     ]
 
     for rel in area.get("area-relation-list", []) or []:
-        if rel.get("type") != "part of" or rel.get("direction") == "backward":
+        if rel.get("type") != "part of" or rel.get("direction") != "backward":
             # MusicBrainz's "part of" relation runs smaller-area -> larger-
-            # area (entity0 -> entity1). The API omits <direction> (so it's
-            # absent/"forward") when the fetched area is entity0 -- i.e.
-            # THIS area is the part, and rel["area"] is its parent. It's
-            # only "backward" when the fetched area is entity1 (the
-            # parent) and rel["area"] would be a child, which isn't what
-            # we're walking toward here.
+            # area (entity0 -> entity1), but the <direction> tag the API
+            # attaches is relative to the *link phrase*, not to which side
+            # is bigger: querying the smaller area (entity0, e.g. "North
+            # Carolina") returns its own "part of" link to the larger area
+            # (entity1, e.g. "United States") tagged direction="backward",
+            # with rel["area"] set to that larger parent. Absent/"forward"
+            # is what shows up on the *container* side instead, pointing at
+            # one of its children -- e.g. querying "North Carolina" for
+            # relations where NC is entity1 surfaces a "forward" link to a
+            # contained county. Confirmed against the live MusicBrainz API
+            # (see bug #246): treating "forward" as "parent" walks into a
+            # child instead and silently inverts the whole chain.
             continue
         parent = rel.get("area") or {}
         if not parent.get("id"):
