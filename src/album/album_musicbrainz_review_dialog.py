@@ -4,10 +4,10 @@ album_musicbrainz_review_dialog.py
 Review/checkbox dialog shown after a MusicBrainz canonical release has been
 fetched in full (see musicbrainz_client.fetch_release_detail). Modeled on
 src/artist/artist_enrichment_review_dialog.py's checkbox-per-item /
-apply-on-accept pattern, scaled up to per-track groups: track credits and
-recording locations are relational data that needs find-or-create/dedup
-against existing local data before it's safe to write, so the user confirms
-what gets imported rather than it happening silently.
+apply-on-accept pattern, scaled up to per-track groups: album credits, track
+credits, and recording locations are relational data that needs
+find-or-create/dedup against existing local data before it's safe to write,
+so the user confirms what gets imported rather than it happening silently.
 
 Unambiguous fill-blank scalars (track number/side/barcode, disc assignment)
 for tracks that auto-matched cleanly are applied immediately on construction,
@@ -83,6 +83,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         self._matched: dict[int, Any] = {}  # id(MBReleaseTrack) -> Track
         self._manual_combos: list[tuple[QComboBox, MBReleaseTrack]] = []
         self._alias_checks: list[tuple[QCheckBox, MBAlias]] = []
+        self._album_credit_checks: list[tuple[QCheckBox, Any]] = []
         self._credit_checks: list[tuple[QCheckBox, MBReleaseTrack, Any]] = []
         self._location_checks: list[tuple[QCheckBox, str, list[MBReleaseTrack]]] = []
 
@@ -383,6 +384,17 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                 self._alias_checks.append((cb, alias))
             inner_layout.addWidget(box)
 
+        if self.detail.credits:
+            self.has_content = True
+            box = QGroupBox("Album Credits")
+            box_layout = QVBoxLayout(box)
+            for credit in self.detail.credits:
+                cb = QCheckBox(f"{credit.artist_name} — {credit.role_name}")
+                cb.setChecked(True)
+                box_layout.addWidget(cb)
+                self._album_credit_checks.append((cb, credit))
+            inner_layout.addWidget(box)
+
         for mbt in self.detail.tracks:
             if not mbt.credits:
                 continue
@@ -458,6 +470,11 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                 logger.warning(f"Could not import album alias '{alias.name}': {e}")
 
         known_roles = self.controller.get.get_all_entities("Role") or []
+        for cb, credit in self._album_credit_checks:
+            if not cb.isChecked():
+                continue
+            self._apply_album_credit(credit, known_roles)
+
         for cb, mbt, credit in self._credit_checks:
             if not cb.isChecked():
                 continue
@@ -547,6 +564,42 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             logger.warning(
                 f"Could not import credit '{credit.artist_name} — "
                 f"{credit.role_name}' on track {track.track_id}: {e}"
+            )
+
+    def _apply_album_credit(self, credit, known_roles: list[Any]):
+        try:
+            artist = self._resolve_artist(credit)
+            if artist is None:
+                return
+            role = find_or_create_by_name(
+                self.controller, "Role", "role_name", credit.role_name, known_roles
+            )
+            if role is None:
+                return
+            if role not in known_roles:
+                known_roles.append(role)
+
+            siblings = [
+                ra
+                for ra in (self.album.album_roles or [])
+                if ra.role_id == role.role_id
+            ]
+            if any(ra.artist_id == artist.artist_id for ra in siblings):
+                return
+            next_sort_order = (
+                max(ra.sort_order for ra in siblings) + 1 if siblings else 0
+            )
+            self.controller.add.add_entity(
+                "AlbumRoleAssociation",
+                album_id=self.album.album_id,
+                artist_id=artist.artist_id,
+                role_id=role.role_id,
+                sort_order=next_sort_order,
+            )
+        except SQLAlchemyError as e:
+            logger.warning(
+                f"Could not import album credit '{credit.artist_name} — "
+                f"{credit.role_name}': {e}"
             )
 
     def _apply_location(
