@@ -394,9 +394,14 @@ class TrackSortingDisplay(QTreeWidget):
         """
         Walk the tree in its current visible order (discs, then sides, then
         tracks — reflecting any manual drag-and-drop reordering) and assign
-        sequential absolute_track_number values to physical tracks.
+        both track numbers to physical tracks:
 
-        Virtual tracks still occupy a position in the count (so numbering
+        - track_number: position within the current disc/side group,
+          restarting at 1 for every disc and every side.
+        - absolute_track_number: overall position, counting continuously
+          across the whole tree without resetting.
+
+        Virtual tracks still occupy a position in both counts (so numbering
         stays correct around them) but are not written to, since they belong
         to another album's track row.
         """
@@ -414,17 +419,19 @@ class TrackSortingDisplay(QTreeWidget):
             return
 
         updates = {}
-        position = 0
+        absolute_position = 0
 
         def visit(item):
-            nonlocal position
+            nonlocal absolute_position
+            group_position = 0
             for i in range(item.childCount()):
                 child = item.child(i)
                 track_id = child.data(0, Qt.UserRole)
                 if isinstance(track_id, int):
-                    position += 1
+                    absolute_position += 1
+                    group_position += 1
                     if not child.data(1, Qt.UserRole):  # skip virtual tracks
-                        updates[track_id] = position
+                        updates[track_id] = (group_position, absolute_position)
                 else:
                     visit(child)
 
@@ -436,13 +443,16 @@ class TrackSortingDisplay(QTreeWidget):
             return
 
         updated = 0
-        for track_id, number in updates.items():
+        for track_id, (track_number, absolute_number) in updates.items():
             if controller.update.update_entity(
-                "Track", track_id, absolute_track_number=number
+                "Track",
+                track_id,
+                track_number=track_number,
+                absolute_track_number=absolute_number,
             ):
                 updated += 1
 
-        logger.info(f"Assigned absolute track numbers to {updated} track(s)")
+        logger.info(f"Assigned track numbers to {updated} track(s)")
         show_status_message(self, f"Renumbered {updated} track(s).")
         self.track_edited.emit()
 
