@@ -234,35 +234,6 @@ def _fetch_full_artist(mbid: str) -> Dict[str, Any]:
     return result.get("artist", {})
 
 
-def _parse_artist_aliases(artist: Dict[str, Any]) -> List[MBAlias]:
-    """Extract the alias-list from a get_artist_by_id response, skipping MB
-    "Search hint" aliases (typos/misspellings MB indexes for search
-    matching, e.g. "Jhon Williams" -- not real names) and the artist's own
-    canonical name."""
-    own_name = (artist.get("name") or "").strip().lower()
-    aliases = []
-    for al in artist.get("alias-list", []) or []:
-        alias_name = al.get("alias")
-        alias_type = al.get("type") or ""
-        if not alias_name or alias_type == "Search hint":
-            continue
-        if alias_name.strip().lower() == own_name:
-            continue
-        aliases.append(MBAlias(name=alias_name, type=alias_type))
-    return aliases
-
-
-def fetch_artist_aliases(mbid: str) -> List[MBAlias]:
-    """Fetch just an artist's alias-list by MBID (e.g. "H. Arlen" for Harold
-    Arlen) -- a single network call, without the relations/place-chain work
-    fetch_artist_by_mbid also does. Used to resolve an incoming MusicBrainz
-    artist-credit name against local Artist/ArtistAlias rows via a name MB
-    itself knows to be equivalent, instead of creating a duplicate Artist.
-    Raises MusicBrainzLookupError on failure."""
-    artist = _fetch_full_artist(mbid)
-    return _parse_artist_aliases(artist)
-
-
 def _apply_full_artist(candidate: MBCandidate, artist: Dict[str, Any]) -> MBCandidate:
     """Populate a candidate's scalar enrichment and .relations from a full
     get_artist_by_id response. Pure parsing, no network -- shared by
@@ -275,7 +246,18 @@ def _apply_full_artist(candidate: MBCandidate, artist: Dict[str, Any]) -> MBCand
         if field_name and field_name not in candidate.enrichment:
             candidate.enrichment[field_name] = rel.get("target")
 
-    aliases = _parse_artist_aliases(artist)
+    own_name = (artist.get("name") or "").strip().lower()
+    aliases = []
+    for al in artist.get("alias-list", []) or []:
+        alias_name = al.get("alias")
+        alias_type = al.get("type") or ""
+        # "Search hint" aliases are typos/misspellings MB indexes for
+        # search matching (e.g. "Jhon Williams") -- not real names.
+        if not alias_name or alias_type == "Search hint":
+            continue
+        if alias_name.strip().lower() == own_name:
+            continue
+        aliases.append(MBAlias(name=alias_name, type=alias_type))
 
     begin_area = artist.get("begin-area") or {}
     end_area = artist.get("end-area") or {}
@@ -440,6 +422,11 @@ class MBTrackCredit:
     artist_mbid: Optional[str]
     artist_name: str
     role_name: str
+    # The artist's canonical MB name, distinct from artist_name (the
+    # as-credited/target-credit name, which can be a variant like "H. Arlen"
+    # for canonical "Harold Arlen") when a release prints a different credit
+    # than the artist's registered name. Empty when unavailable.
+    canonical_name: str = ""
 
 
 @dataclass
@@ -526,6 +513,7 @@ def _parse_recording_credits(recording: Dict[str, Any]) -> List[MBTrackCredit]:
                 artist_mbid=artist["id"],
                 artist_name=rel.get("target-credit") or artist.get("name") or "",
                 role_name=role_name,
+                canonical_name=artist.get("name") or "",
             )
         )
     return credits
