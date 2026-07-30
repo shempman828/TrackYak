@@ -2,11 +2,11 @@
 
 import random
 import sqlite3
+from typing import ClassVar
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
-    QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -19,14 +19,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.album_art_worker import ArtCacheWorker
 from src.album.album_context_menu import AlbumContextMenuMixin
 from src.album.album_flowlayout import FlowLayout
 from src.album.base_album_edit import AlbumEditor
 from src.album.base_album_widget import AlbumWidget
-from sqlalchemy.exc import SQLAlchemyError
-
 from src.common.layout_utils import clear_layout
 from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
@@ -43,7 +42,7 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
 
     # Sort options grouped under a category header for a friendlier combo box.
     # Each group: (group_label, [(item_label, criteria_key, descending), ...])
-    _SORT_GROUPS: list[tuple[str, list[tuple[str, str, bool]]]] = [
+    _SORT_GROUPS: ClassVar[list[tuple[str, list[tuple[str, str, bool]]]]] = [
         (
             "Name",
             [
@@ -235,7 +234,11 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         # Possibly Incomplete filter
         row.addWidget(QLabel("Completeness:"))
         self.incomplete_combo = QComboBox()
-        self.incomplete_combo.addItems(["Any", "Possibly Incomplete", "Likely Complete"])
+        self.incomplete_combo.addItems([
+            "Any",
+            "Possibly Incomplete",
+            "Likely Complete",
+        ])
         self.incomplete_combo.currentIndexChanged.connect(self._apply_filters)
         row.addWidget(self.incomplete_combo)
 
@@ -417,7 +420,9 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         """Apply all active filters and rebuild the grid from the top."""
         self._cancel_art_worker()
 
-        results, pending_art, art_mode, art_generation = self._compute_filtered_results()
+        results, pending_art, art_mode, art_generation = (
+            self._compute_filtered_results()
+        )
 
         self.filtered_albums = results
         self._sort_filtered()
@@ -428,7 +433,9 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         QTimer.singleShot(100, self._check_viewport_fill)
 
         if pending_art:
-            self._start_art_worker(pending_art, art_mode, self._sort_criteria, art_generation)
+            self._start_art_worker(
+                pending_art, art_mode, self._sort_criteria, art_generation
+            )
 
     def _cancel_art_worker(self):
         """Stop any in-flight background art-cache resolution and
@@ -487,7 +494,11 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
             if art_mode == "Any":
                 return
             album = next(
-                (a for a in self.all_albums if getattr(a, "album_id", None) == album_id),
+                (
+                    a
+                    for a in self.all_albums
+                    if getattr(a, "album_id", None) == album_id
+                ),
                 None,
             )
             if album is None:
@@ -516,7 +527,8 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         if not self._art_batch and not self._art_needs_resort:
             return
         prev_visible_ids = [
-            getattr(a, "album_id", None) for a in self.filtered_albums[: self.display_count]
+            getattr(a, "album_id", None)
+            for a in self.filtered_albums[: self.display_count]
         ]
         if self._art_batch:
             self.filtered_albums.extend(self._art_batch)
@@ -525,7 +537,8 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         self._sort_filtered()
         self._update_stats()
         new_visible_ids = [
-            getattr(a, "album_id", None) for a in self.filtered_albums[: self.display_count]
+            getattr(a, "album_id", None)
+            for a in self.filtered_albums[: self.display_count]
         ]
         if new_visible_ids == prev_visible_ids:
             # Nothing about the currently visible slice moved - e.g. the
@@ -657,17 +670,16 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
                 # background worker by the caller (_apply_filters), which
                 # re-sorts once its real dimensions are known.
                 cache = get_artwork_cache()
-                _, dims = cache.peek_dimensions(album, "front") if cache else (True, None)
+                _, dims = (
+                    cache.peek_dimensions(album, "front") if cache else (True, None)
+                )
                 if dims:
                     return dims[0] * dims[1]
                 return 0
 
             return getattr(album, "album_name", "").lower()
 
-        except Exception:
-            # Intentional boundary: used as sort()'s key= callback across the
-            # whole album grid, so one malformed/unexpected album must not
-            # abort sorting for every other album in the list.
+        except Exception:  # ruff: ignore[blind-except]
             logger.exception(
                 f"Sort key failed for album {getattr(album, 'album_name', '?')} "
                 f"(criteria={self._sort_criteria})"
@@ -681,7 +693,6 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
     def _refresh_album_widgets(self):
         """Rebuild the grid from scratch up to display_count."""
         clear_layout(self.grid_layout)
-        QApplication.processEvents()
         for album in self.filtered_albums[: self.display_count]:
             self._add_album_widget(album)
         self.scroll_content.updateGeometry()
@@ -741,7 +752,9 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
             if fresh:
                 album = fresh
         except SQLAlchemyError as e:
-            logger.warning(f"Failed to refresh album {album.album_id} before editing: {e}")
+            logger.warning(
+                f"Failed to refresh album {album.album_id} before editing: {e}"
+            )
 
         dialog = AlbumEditor(self.controller, album)
 
@@ -805,7 +818,11 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         # Only patch the single widget in place when the edit didn't change
         # its position in the (possibly re-sorted) list — if the order
         # changed, a full rebuild is required to reflect the new positions.
-        if new_idx == patched_idx and new_idx is not None and new_idx < self.display_count:
+        if (
+            new_idx == patched_idx
+            and new_idx is not None
+            and new_idx < self.display_count
+        ):
             item = self.grid_layout.itemAt(new_idx)
             w = item.widget() if item is not None else None
             if w is not None and hasattr(w, "refresh_album"):
@@ -822,7 +839,9 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         saved_scroll = self.scroll_area.verticalScrollBar().value()
         saved_display = self.display_count
 
-        results, pending_art, art_mode, art_generation = self._compute_filtered_results()
+        results, pending_art, art_mode, art_generation = (
+            self._compute_filtered_results()
+        )
 
         self.filtered_albums = results
         self._sort_filtered()
@@ -839,7 +858,9 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         )
 
         if pending_art:
-            self._start_art_worker(pending_art, art_mode, self._sort_criteria, art_generation)
+            self._start_art_worker(
+                pending_art, art_mode, self._sort_criteria, art_generation
+            )
 
     # =========================================================================
     # Helpers
