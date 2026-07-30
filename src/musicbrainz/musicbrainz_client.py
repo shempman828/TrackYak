@@ -468,6 +468,13 @@ class MBReleaseDetail:
     release_group_mbid: str | None
     mbid: str | None = None
     status: str | None = None
+    # The release-group's secondary type (e.g. "Live", "Compilation",
+    # "Soundtrack") if it has one, else its primary type (e.g. "Album",
+    # "Single", "EP") -- a release-group always has exactly one primary
+    # type but zero or more secondary types, and the secondary type is
+    # what users actually mean by "release type" for e.g. a live album
+    # whose primary type is still plain "Album".
+    release_type: str | None = None
     language: str | None = None
     catalog_number: str | None = None
     discogs_master_url: str | None = None
@@ -743,10 +750,17 @@ def fetch_release_detail(
     language_code = (release.get("text-representation") or {}).get("language")
     date_parts = _parse_partial_date(release.get("date"), "release")
 
+    release_group = release.get("release-group") or {}
+    secondary_types = release_group.get("secondary-type-list") or []
+    release_type = (
+        secondary_types[0] if secondary_types else release_group.get("primary-type")
+    )
+
     detail = MBReleaseDetail(
-        release_group_mbid=(release.get("release-group") or {}).get("id"),
+        release_group_mbid=release_group.get("id"),
         mbid=release.get("id") or release_mbid,
         status=release.get("status"),
+        release_type=release_type,
         language=_MB_LANGUAGE_NAMES.get(language_code, language_code),
         catalog_number=catalog_number,
         discogs_master_url=discogs_master_url,
