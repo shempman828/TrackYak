@@ -5,8 +5,11 @@ writers when writing tags or artwork.
 import hashlib
 import os
 import shutil
+import struct
 import tempfile
 from typing import Any, Callable, Dict
+
+from PIL import Image
 
 from src.core.logger_config import logger
 from src.metadata.metadata_artwork import ArtworkExtractor
@@ -64,7 +67,7 @@ def restore_backup(file_path: str, backup_path: str) -> bool:
         shutil.copy2(backup_path, file_path)
         os.remove(backup_path)
         return True
-    except Exception as e:
+    except OSError as e:
         logger.error(
             f"Failed to restore {file_path} from backup after a write "
             f"error: {e}. Backup preserved at {backup_path}"
@@ -124,7 +127,7 @@ def write_artwork_with_backup(
         discard_backup(backup_path)
         return True
 
-    except Exception as e:
+    except (OSError, struct.error, Image.DecompressionBombError) as e:
         logger.debug(f"Error writing {error_context} to {file_path}: {e}")
         if backup_path and os.path.exists(backup_path):
             restore_backup(file_path, backup_path)

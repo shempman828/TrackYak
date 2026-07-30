@@ -25,6 +25,7 @@ before this cache is relied on.
 import io
 import os
 import sqlite3
+import struct
 import threading
 import time
 from pathlib import Path
@@ -299,7 +300,7 @@ class ArtworkCache:
             embedded = self._extractor.extract_artwork_by_role(
                 track.track_file_path, ext
             )
-        except Exception as e:
+        except (OSError, struct.error) as e:
             logger.error(
                 f"ArtworkCache: error extracting artwork from {track.track_file_path}: {e}"
             )
@@ -314,7 +315,7 @@ class ArtworkCache:
                 continue
             try:
                 thumb_bytes, width, height = _build_thumbnail(picture["data"])
-            except Exception as e:
+            except (OSError, Image.DecompressionBombError) as e:
                 logger.error(
                     f"ArtworkCache: error building thumbnail for {track.track_file_path} "
                     f"({r}): {e}"

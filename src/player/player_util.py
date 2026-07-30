@@ -253,7 +253,7 @@ class MusicPlayer(
             if self._sf_reader is not None:
                 try:
                     self._sf_reader.close()
-                except Exception:
+                except OSError:
                     pass
                 self._sf_reader = None
 
@@ -261,7 +261,7 @@ class MusicPlayer(
             if self._next_sf_reader is not None:
                 try:
                     self._next_sf_reader.close()
-                except Exception:
+                except OSError:
                     pass
                 self._next_sf_reader = None
 

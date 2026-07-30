@@ -1,5 +1,6 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.base_merge_dialog import MergeDBDialog
 from src.core.logger_config import logger
@@ -44,7 +45,7 @@ class PublisherMergeDialog(MergeDBDialog):
             # Refresh button states (e.g. enable Next button if both sides filled)
             self._update_action_buttons()
 
-        except Exception as e:
+        except (AttributeError, RuntimeError) as e:
             logger.error(f"Error pre-populating source publisher: {str(e)}")
 
     def _get_related_count(self, publisher_id):
@@ -54,7 +55,7 @@ class PublisherMergeDialog(MergeDBDialog):
                 "AlbumPublisher", publisher_id=publisher_id
             )
             return len(albums)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(
                 f"Error getting album count for publisher {publisher_id}: {str(e)}"
             )

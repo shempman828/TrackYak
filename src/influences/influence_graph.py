@@ -1,3 +1,4 @@
+import configparser
 import json
 import math
 from collections import Counter
@@ -8,6 +9,7 @@ from PySide6.QtCore import QUrl, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QWidget
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
 from src.core.config_setup import app_config
@@ -43,6 +45,8 @@ class _GlobalGraphWorker(CancellableWorker):
             has_graph = self._view._compute_global_graph()
             self.finished.emit(has_graph)
         except Exception as e:
+            # Intentional broad boundary catch: this runs on a QThread and must
+            # not let an exception kill the thread silently — surface it to the UI.
             logger.error(f"Error computing influence graph: {e}", exc_info=True)
             self.error.emit(str(e))
 
@@ -128,8 +132,8 @@ class InfluenceGraphView(QWidget):
         theme_name = None
         try:
             theme_name = app_config.get_display_theme()
-        except Exception:
-            pass
+        except configparser.Error as e:
+            logger.warning(f"Could not read display theme from config: {e}")
         return self._THEME_BACKGROUND.get(theme_name, self._THEME_BACKGROUND["dark_mode"])
 
     def get_community_color(self, community_index):
@@ -409,7 +413,7 @@ class InfluenceGraphView(QWidget):
             logger.info(f"Extracted subgraph: {len(nodes)} nodes, {len(edges)} edges")
             return nodes, edges
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error extracting subgraph: {e}")
             return [], []
 
@@ -461,7 +465,7 @@ class InfluenceGraphView(QWidget):
             logger.info(f"Extracted {len(nodes)} nodes and {len(edges)} edges")
             return nodes, edges
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error extracting global graph: {e}")
             return [], []
 
@@ -496,7 +500,7 @@ class InfluenceGraphView(QWidget):
 
             partition = community_louvain.best_partition(G)
             self.community_id = partition
-        except Exception as e:
+        except (TypeError, nx.NetworkXException) as e:
             logger.error(f"Error computing Louvain communities: {e}")
             self.community_id = {nid: 0 for nid in node_ids}
 
@@ -730,7 +734,7 @@ class InfluenceGraphView(QWidget):
             for node_id, count in sorted_nodes[:5]:
                 node_name = self.node_names.get(node_id, f"Artist {node_id}")
                 logger.info(f"  {node_name}: {count} connections")
-        except Exception as e:
+        except (AttributeError, TypeError) as e:
             logger.error(f"Error in debug_graph_structure: {e}")
 
     def check_database_relationships(self):
@@ -768,7 +772,7 @@ class InfluenceGraphView(QWidget):
 
             return True
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error checking database relationships: {e}")
             return False
 
@@ -835,7 +839,7 @@ class InfluenceGraphView(QWidget):
                     for node in node_ids
                 }
 
-            except Exception as e:
+            except nx.NetworkXException as e:
                 logger.error(f"Failed to compute decayed PageRank: {e}")
                 self.page_rank_scores = {}
                 self.combined_scores = {
@@ -867,7 +871,7 @@ class InfluenceGraphView(QWidget):
                     name = self.node_names.get(node_id, f"Artist {node_id}")
                     logger.info(f"  {name}: PR={pr:.5f}")
 
-        except Exception as e:
+        except nx.NetworkXException as e:
             logger.error(f"Error calculating influence scores: {e}")
             # Fallback: simple out-degree
             self.influence_scores = {}
@@ -967,7 +971,7 @@ class InfluenceGraphView(QWidget):
             ]
             self._run_js(f"addElements({json.dumps(elements)})")
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error adding single artist {artist_id}: {e}")
 
     def add_edge(self, source_id, target_id):
@@ -1045,7 +1049,7 @@ class InfluenceGraphView(QWidget):
 
             return pagerank_scores
 
-        except Exception as e:
+        except nx.NetworkXException as e:
             logger.error(f"Error computing PageRank: {e}")
             # Return 0.0 for all nodes on failure
             return {n: 0.0 for n in G.nodes()}

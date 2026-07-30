@@ -1,3 +1,5 @@
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.db.db_tables import ArtistType, Place, PlaceAssociationType, Role
 from src.core.logger_config import logger
 
@@ -205,7 +207,7 @@ class Defaults:
             else:
                 logger.debug("Places already exist, skipping place defaults.")
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             session.rollback()
             logger.error(f"Error inserting default data: {e}")
 

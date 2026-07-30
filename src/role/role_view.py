@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.hierarchy_tree_style import (
     collect_expanded_ids,
@@ -89,6 +90,9 @@ class RoleLoaderWorker(QObject):
             self.finished.emit(all_roles, dict(album_counts), dict(track_counts))
 
         except Exception as e:
+            # Intentional broad boundary catch: this runs on a QThread and must
+            # not let an exception kill the thread silently.
+            logger.exception("Role count scan failed")
             self.error.emit(str(e))
 
 
@@ -296,7 +300,7 @@ class RoleView(QWidget):
 
             self._rebuild_tree()
 
-        except Exception as e:
+        except (AttributeError, RuntimeError) as e:
             logger.error(f"Failed to populate role tree: {e!s}", exc_info=True)
             self.role_tree.clear()
             error_item = QTreeWidgetItem(["Error loading roles"])
@@ -525,7 +529,7 @@ class RoleView(QWidget):
                 self.detail_tab.role_id = role.role_id
                 self.detail_tab._load_data()
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error handling role selection: {e!s}", exc_info=True)
             self._clear_detail_view()
 
@@ -610,7 +614,7 @@ class RoleView(QWidget):
         except ValueError as e:
             show_status_message(self, str(e))
             item.setText(0, old_text)  # Revert to old text
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error renaming role: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to rename role")
             item.setText(0, old_text)  # Revert to old text
@@ -657,7 +661,7 @@ class RoleView(QWidget):
             else:
                 event.ignore()
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error moving role: {e!s}")
             event.ignore()
 
@@ -698,7 +702,7 @@ class RoleView(QWidget):
                 self.load_roles()
                 self.role_updated.emit()
 
-        except Exception as e:
+        except RuntimeError as e:
             logger.error(f"Error creating role: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to create role")
 
@@ -714,7 +718,7 @@ class RoleView(QWidget):
             if dialog.exec_() == QDialog.Accepted:
                 self.load_roles()
                 self.role_updated.emit()
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error editing role: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to edit role")
 
@@ -735,7 +739,7 @@ class RoleView(QWidget):
                 self.role_updated.emit()
                 self.status_bar.setText("Role merge completed successfully")
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error merging role: {e!s}")
             QMessageBox.critical(self, "Error", f"Failed to merge role: {e!s}")
 
@@ -767,7 +771,7 @@ class RoleView(QWidget):
             self.status_bar.setText(
                 f"Created '{new_role.role_name}' as parent of '{role.role_name}'"
             )
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error creating new parent role: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to create new parent role")
 
@@ -792,7 +796,7 @@ class RoleView(QWidget):
             self.status_bar.setText(
                 f"Created '{new_role.role_name}' as child of '{role.role_name}'"
             )
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error creating new child role: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to create new child role")
 
@@ -825,6 +829,6 @@ class RoleView(QWidget):
                 self.role_updated.emit()
                 self.status_bar.setText(f"Deleted {role.role_name}")
 
-        except Exception as e:
+        except (AttributeError, SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error deleting role: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to delete role")

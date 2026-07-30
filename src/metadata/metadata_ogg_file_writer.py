@@ -3,6 +3,8 @@ metadata_ogg_pages.py with WriteMode-aware comment merging to write a
 track's tags into an OGG Vorbis file.
 """
 
+import struct
+
 from src.metadata.metadata_ogg_pages import replace_comment_packet
 from src.metadata.metadata_raw_tags import RawTagExtractor
 from src.metadata.metadata_writer_backup import atomic_write
@@ -62,6 +64,6 @@ class OggFileWriter:
 
             return True
 
-        except Exception as e:
+        except (OSError, AttributeError, struct.error, ValueError) as e:
             logger.debug(f"Error writing OGG metadata: {e}")
             return False

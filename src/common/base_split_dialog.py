@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import object_mapper
 
 from src.core.logger_config import logger
@@ -58,7 +59,7 @@ def _get_cached_entity_names(get_helper, model_name: str) -> list:
                 value = getattr(entity, attr, None) if attr else None
                 if value:
                     names.add(value)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Could not fetch {model_name} names for completer: {e}")
 
     result = sorted(names)
@@ -200,9 +201,8 @@ class SplitDBDialog(QDialog):
                                 related_name = getattr(
                                     related_value, name_attr, "Unknown"
                                 )
-                        except:  # noqa: E722
+                        except (AttributeError, SQLAlchemyError):
                             logger.debug("Could not determine name for related object")
-                            pass
                         relationship_info.append(f"• {rel_key}: {related_name}")
 
             if relationship_info:
@@ -210,7 +210,7 @@ class SplitDBDialog(QDialog):
             else:
                 self.relationship_info.setText("No relationships found")
 
-        except Exception as e:
+        except (AttributeError, SQLAlchemyError) as e:
             logger.error(f"Failed to load relationship info for {self.model_name}: {e}")
             self.relationship_info.setText(f"Could not load relationship info: {e}")
 
@@ -372,7 +372,7 @@ class SplitDBDialog(QDialog):
             # Accept the dialog to close it
             self.accept()
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to split {self.model_name} (id={entity_id}): {e}")
             QMessageBox.critical(
                 self,

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.db.db_tables import ArtistTypeAssociation
@@ -86,7 +87,7 @@ class ArtistTypeManagerDialog(QDialog):
                 ).group_by(ArtistTypeAssociation.artist_type_id)
             ).all()
             return dict(rows)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Failed to fetch artist-type usage counts: {e}")
             return {}
 

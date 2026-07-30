@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.place.place_association_types import fetch_association_types
@@ -42,7 +43,7 @@ class PlaceSelectionDialog(QDialog):
                 item = QListWidgetItem(place.place_name)
                 item.setData(Qt.UserRole, place.place_id)
                 self.place_list.addItem(item)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading places: {e}")
 
         layout.addWidget(self.place_list)

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QTextEdit,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.credited_as_dialog import CreditedAsDialog
 from src.common.entity_completer_edit import register_cached_entity
@@ -79,7 +80,7 @@ class RelationshipHelpers:
             self.show_updated_view()
             show_status_message(self.widget, "Publisher added successfully!")
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.exception("Failed to add publisher")
             QMessageBox.critical(None, "Error", f"Failed to add publisher: {str(e)}")
 
@@ -97,7 +98,7 @@ class RelationshipHelpers:
                 publisher_id=album_publisher.publisher_id,
             )
             self.show_updated_view()
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(None, "Error", f"Failed to remove publisher: {str(e)}")
 
     # =========================================================================
@@ -163,7 +164,7 @@ class RelationshipHelpers:
 
             self.show_updated_view()
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.exception("Failed to add artist credit")
             QMessageBox.critical(
                 None, "Error", f"Failed to add artist credit: {str(e)}"
@@ -176,7 +177,7 @@ class RelationshipHelpers:
                 "AlbumRoleAssociation", role_assoc.association_id
             )
             self.show_updated_view()
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(
                 None, "Error", f"Failed to remove artist credit: {str(e)}"
             )
@@ -252,7 +253,7 @@ class RelationshipHelpers:
                 credited_alias_id=credited_alias_id,
             )
             self.show_updated_view()
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(
                 None, "Error", f"Failed to update credited name: {str(e)}"
             )
@@ -316,7 +317,7 @@ class RelationshipHelpers:
 
             self.show_updated_view()
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.exception("Failed to add place")
             QMessageBox.critical(None, "Error", f"Failed to add place: {str(e)}")
 
@@ -327,7 +328,7 @@ class RelationshipHelpers:
                 "PlaceAssociation", association.association_id
             )
             self.show_updated_view()
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(
                 None, "Error", f"Failed to remove place association: {str(e)}"
             )
@@ -375,7 +376,7 @@ class RelationshipHelpers:
 
             self.show_updated_view()
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.exception("Failed to add award")
             QMessageBox.critical(None, "Error", f"Failed to add award: {str(e)}")
 
@@ -389,7 +390,7 @@ class RelationshipHelpers:
                 award_id=award.award_id,
             )
             self.show_updated_view()
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(None, "Error", f"Failed to remove award: {str(e)}")
 
     # =========================================================================
@@ -403,7 +404,8 @@ class RelationshipHelpers:
             return [
                 getattr(e, name_field) for e in entities if getattr(e, name_field, None)
             ]
-        except Exception:
+        except SQLAlchemyError as e:
+            logger.warning(f"Failed to load {entity_type} entities for autocomplete: {e}")
             return []
 
 

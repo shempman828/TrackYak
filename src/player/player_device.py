@@ -41,7 +41,7 @@ class PlayerDeviceMixin:
                 f"Audio library missing: {exc}. Run: pip install sounddevice soundfile"
             )
             return False
-        except Exception as exc:
+        except (OSError, sd.PortAudioError) as exc:
             logger.error(f"Audio backend init error: {exc}")
             self.error_occurred.emit(f"Audio system error: {exc}")
             return False
@@ -135,7 +135,7 @@ class PlayerDeviceMixin:
                     check=True,
                 )
                 sink_name = result.stdout.strip() or None
-            except Exception as exc:
+            except (subprocess.SubprocessError, OSError) as exc:
                 logger.debug(f"pactl get-default-sink failed: {exc}")
                 return None, None
             if sink_name is None:
@@ -155,7 +155,7 @@ class PlayerDeviceMixin:
                 check=True,
             )
             sinks = json.loads(result.stdout)
-        except Exception as exc:
+        except (subprocess.SubprocessError, OSError, json.JSONDecodeError) as exc:
             logger.debug(f"pactl sink lookup failed: {exc}")
             return None, None
 
@@ -184,7 +184,7 @@ class PlayerDeviceMixin:
                 check=True,
             )
             return True
-        except Exception as exc:
+        except (subprocess.SubprocessError, OSError) as exc:
             logger.debug(
                 f"pactl suspend-sink {sink_name} {'1' if suspend else '0'} failed: {exc}"
             )
@@ -222,7 +222,7 @@ class PlayerDeviceMixin:
                 self.sd._terminate()
                 self.sd._initialize()
                 self.available_devices = list(self.sd.query_devices())
-            except Exception as exc:
+            except (OSError, RuntimeError, self.sd.PortAudioError) as exc:
                 logger.debug(f"PortAudio re-init failed: {exc}")
                 continue
             for i, d in enumerate(self.available_devices):
@@ -264,7 +264,7 @@ class PlayerDeviceMixin:
                 "latency": "high",
                 "clip_off": True,
             }
-        except Exception as exc:
+        except (OSError, self.sd.PortAudioError, IndexError, TypeError) as exc:
             logger.warning(f"Could not determine device config: {exc}")
             return {"device": None, "latency": "high", "blocksize": BLOCKSIZE}
 
@@ -318,6 +318,6 @@ class PlayerDeviceMixin:
                 for i, d in enumerate(self.available_devices)
                 if d["max_output_channels"] > 0
             ]
-        except Exception as exc:
+        except (KeyError, TypeError, AttributeError) as exc:
             logger.error(f"get_audio_devices error: {exc}")
             return []

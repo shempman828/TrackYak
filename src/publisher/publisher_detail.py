@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.asset_paths import icon
 from src.track.base_track_view import BaseTrackView
@@ -186,7 +187,7 @@ class PublisherDetailTab(QWidget):
             # Load places
             self._load_publisher_places(publisher_id)
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading publisher data: {str(e)}")
             self.show_empty_state()
 
@@ -234,7 +235,7 @@ class PublisherDetailTab(QWidget):
         try:
             albums = get_publisher_albums(self.controller, publisher_id)
             return sum(album.track_count or 0 for album in albums)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error calculating track count: {str(e)}")
             return 0
 
@@ -271,7 +272,7 @@ class PublisherDetailTab(QWidget):
                     item = QListWidgetItem(place.place_name)
                     self.places_list.addItem(item)
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading places: {str(e)}")
             self.places_list.addItem("Error loading places")
 
@@ -300,7 +301,7 @@ class PublisherDetailTab(QWidget):
             self.load_publisher_data(publisher.publisher_id)
             logger.info(f"Logo saved for {publisher.publisher_name}")
 
-        except Exception as e:
+        except (OSError, SQLAlchemyError) as e:
             logger.error(f"Failed to save logo: {str(e)}")
 
     def show_associations(self):
@@ -347,7 +348,7 @@ class PublisherDetailTab(QWidget):
             # Show the dialog
             track_view.exec_()
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error showing publisher tracks: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to load tracks:\n{str(e)}")
 
@@ -387,6 +388,6 @@ class PublisherDetailTab(QWidget):
 
             return list(unique_tracks.values())
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error fetching publisher tracks: {str(e)}")
             return []

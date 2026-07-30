@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.place.place_edit import PlaceEditDialog
 from src.core.logger_config import logger
@@ -121,7 +122,7 @@ class PlaceDetailView(QDialog):
                 return self.controller.get.get_entity_object(
                     "Playlist", playlist_id=entity_id
                 )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error getting entity details: {str(e)}")
             return None
         return None

@@ -83,7 +83,7 @@ class AnalysisCache:
                 logger.info(f"AnalysisCache: loaded {len(self._ids)} cached IDs")
             else:
                 self._ids = set()
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, AttributeError) as e:
             logger.error(f"AnalysisCache: failed to load cache — {e}")
             self._ids = set()
 
@@ -93,7 +93,7 @@ class AnalysisCache:
             CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
             data = {"analysed_ids": list(self._ids)}
             CACHE_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except Exception as e:
+        except OSError as e:
             logger.error(f"AnalysisCache: failed to save cache — {e}")
 
 

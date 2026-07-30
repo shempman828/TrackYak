@@ -99,5 +99,5 @@ class BioWidget(QWidget):
         """Open external link in default browser"""
         try:
             webbrowser.open(url)
-        except Exception as e:
+        except (OSError, webbrowser.Error) as e:
             logger.error(f"Failed to open URL {url}: {e}")

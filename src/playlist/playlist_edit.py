@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -117,6 +118,6 @@ class EditPlaylist(QDialog):
             logger.info(f"Updated playlist {self.playlist_id}: {name}")
             self.accept()
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to update playlist {self.playlist_id}: {e}")
             QMessageBox.critical(self, "Error", f"Failed to update playlist: {str(e)}")

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 # ── Views are imported here for type-checking but NOT instantiated until
 #    the user navigates to them.  Adding a new view only requires adding
@@ -97,8 +98,12 @@ class GUI(QMainWindow, MenuBar):
             QTimer.singleShot(0, self._create_queue_dock)
             QTimer.singleShot(120, self.restore_layout)
             self._populate_navigation()
-        except Exception as e:
-            logger.error(f"Error creating player: {e}")
+        except Exception:
+            # Intentional broad boundary catch: startup wires up several
+            # unrelated subsystems (nav dock, audio player, timers) and a
+            # failure in any one of them must not prevent the main window
+            # from opening at all — log and keep going with a degraded UI.
+            logger.exception("Error creating player")
             self.statusBar().showMessage("Failed to initialize player", 5000)
 
         self._create_views()
@@ -210,6 +215,10 @@ class GUI(QMainWindow, MenuBar):
             old_placeholder.deleteLater()
 
         except Exception as e:
+            # Intentional broad boundary catch: this dispatches to a registry
+            # of unrelated, independently-implemented view constructors (one
+            # per nav entry) — a bug in any single one must not prevent the
+            # rest of the app's navigation from working.
             logger.error(f"Error building view '{view_name}': {e}")
             logger.error(traceback.format_exc())
 
@@ -306,7 +315,7 @@ class GUI(QMainWindow, MenuBar):
                     self.queue_widget.refresh_queue()
 
             logger.info("All built views refreshed successfully")
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Refresh error: {str(e)}")
 
     # =========================================================================
@@ -324,9 +333,11 @@ class GUI(QMainWindow, MenuBar):
             else:
                 logger.warning(f"Track not found in database: {file_path}")
                 self.now_playing.clearUI()
-        except Exception as e:
-            logger.error(f"Error updating NowPlayingView: {e}")
-            logger.error(traceback.format_exc())
+        except Exception:
+            # Intentional broad boundary catch: this is a Qt slot wired to
+            # mediaplayer.track_changed and fires on every track change — it
+            # must never propagate and interrupt playback.
+            logger.exception("Error updating NowPlayingView")
 
     # =========================================================================
     #  Player dock
@@ -418,7 +429,7 @@ class GUI(QMainWindow, MenuBar):
                 else:
                     logger.warning("No theme file found")
                     QApplication.instance().setStyleSheet("")
-        except Exception as e:
+        except (OSError, UnicodeDecodeError) as e:
             logger.error(f"Error loading theme: {e}")
             QApplication.instance().setStyleSheet("")
 
@@ -439,7 +450,7 @@ class GUI(QMainWindow, MenuBar):
                 QTimer.singleShot(
                     40, self.navigation_dock.ensure_proper_navigation_size
                 )
-            except Exception as e:
+            except RuntimeError as e:
                 logger.warning(f"Failed to restore window state: {e}")
                 QTimer.singleShot(40, self.navigation_dock.size_navigation_to_content)
         else:
@@ -470,7 +481,7 @@ class GUI(QMainWindow, MenuBar):
                 )
                 self.move(new_x, new_y)
                 logger.debug("Adjusted window position to stay within safe screen area")
-        except Exception as e:
+        except (AttributeError, RuntimeError) as e:
             logger.error(f"Error ensuring window in screen: {e}")
 
     def adjust_dock_size(self):
@@ -491,15 +502,15 @@ class GUI(QMainWindow, MenuBar):
                 if isinstance(dock, QDockWidget):
                     dock.setMinimumHeight(60)
                     dock.setMinimumWidth(400)
-        except Exception as e:
+        except RuntimeError as e:
             logger.error(f"Error adjusting player dock size: {e}")
             try:
                 dock = self.parent().parent() if self.parent() else None
                 if isinstance(dock, QDockWidget):
                     dock.setMinimumHeight(60)
                     dock.setMinimumWidth(400)
-            except Exception:
-                pass
+            except RuntimeError as e:
+                logger.error(f"Error applying fallback player dock size: {e}")
 
     def _reset_ui_layout(self):
         """Reset window and dock positions using config."""
@@ -514,7 +525,7 @@ class GUI(QMainWindow, MenuBar):
             self.move(
                 QPoint(*default_pos) if isinstance(default_pos, tuple) else default_pos
             )
-        except Exception:
+        except (TypeError, RuntimeError):
             logger.exception("Failed to apply window size/position, using defaults")
             self.resize(1280, 720)
             self.move(100, 100)
@@ -570,7 +581,7 @@ class GUI(QMainWindow, MenuBar):
         # Save queue state (history + upcoming) before writing config to disk.
         try:
             self.mediaplayer.queue_manager.save_queue_to_config()
-        except Exception as exc:
+        except AttributeError as exc:
             logger.error(f"closeEvent: failed to save queue: {exc}")
 
         app_config.save()

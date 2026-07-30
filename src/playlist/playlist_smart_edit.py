@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.playlist.playlist_smart_criteria_widget import CriteriaWidget
@@ -158,7 +159,7 @@ class SmartPlaylistEditDialog(QDialog):
                 # SmartPlaylist record missing — show one blank row
                 self.add_criteria_widget()
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to load smart playlist data: {e}")
             QMessageBox.warning(
                 self,
@@ -253,7 +254,7 @@ class SmartPlaylistEditDialog(QDialog):
             logger.info(f"Saved edits to smart playlist {self.playlist_id}: {name!r}")
             self.accept()
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to save smart playlist edits: {e}")
             QMessageBox.critical(
                 self,

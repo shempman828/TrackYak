@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_edit_types import ArtistTypesWidget
 from src.artist.artist_image_manager import move_to_artist_images_dir
@@ -287,7 +288,7 @@ class BasicTab(QWidget):
     def _refresh_religion_index(self):
         try:
             self._known_religions = self.controller.get.get_all_entities("Religion") or []
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Could not fetch Religion for completer: {e}")
             self._known_religions = []
         index = {

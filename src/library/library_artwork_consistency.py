@@ -89,9 +89,13 @@ class ArtworkConsistencyChecker:
                 ext = Path(file_path).suffix.lower()
                 try:
                     embedded = self.extractor.extract_artwork_by_role(file_path, ext)
-                except Exception as e:
-                    logger.error(
-                        f"ArtworkConsistencyChecker: error reading {file_path}: {e}"
+                except Exception:
+                    # Intentional broad boundary catch: this runs once per
+                    # track inside a library-wide consistency scan (see class
+                    # docstring) — a single corrupt/unreadable file must not
+                    # abort the scan for the rest of the album or catalog.
+                    logger.exception(
+                        f"ArtworkConsistencyChecker: error reading {file_path}"
                     )
                     continue
 
@@ -176,10 +180,15 @@ class ArtworkConsistencyChecker:
                 success = self.writer.write_artwork_to_file(
                     track.track_file_path, role, image_bytes
                 )
-            except Exception as e:
-                logger.error(
+            except Exception:
+                # Intentional broad boundary catch: resolves one album's
+                # conflicting tracks in a loop, mirroring the
+                # failure-reporting pattern used elsewhere for bulk artwork
+                # writes — a bad write to one file must not abort resolving
+                # the rest of the album.
+                logger.exception(
                     f"ArtworkConsistencyChecker: error resolving {role} on "
-                    f"{track.track_file_path}: {e}"
+                    f"{track.track_file_path}"
                 )
                 success = False
             if not success:

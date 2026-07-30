@@ -137,7 +137,7 @@ class MtpManager:
                 timeout=10,
             )
             output = result.stdout
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError) as e:
             logger.warning(f"gio mount -li failed: {e}")
             return []
 
@@ -178,7 +178,7 @@ class MtpManager:
                 timeout=10,
             )
             output = result.stdout
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError) as e:
             logger.warning(f"aft-mtp-cli --list-devices failed: {e}")
             return []
 
@@ -212,7 +212,7 @@ class MtpManager:
             )
             # 0 = success; 1 often means already mounted — both are fine
             return result.returncode in (0, 1)
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError) as e:
             logger.warning(f"gio mount {device.uri} failed: {e}")
             return False
 
@@ -241,7 +241,7 @@ class MtpManager:
                 if m:
                     return int(m.group(1))
             return -1
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError, ValueError) as e:
             logger.debug(f"gio info failed for {remote_uri}: {e}")
             return -1
 
@@ -288,7 +288,7 @@ class MtpManager:
         except subprocess.TimeoutExpired:
             logger.error(f"gio copy timed out: {local_path}")
             return False
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError, ValueError) as e:
             logger.error(f"gio copy error: {e}")
             return False
 
@@ -309,7 +309,7 @@ class MtpManager:
         except subprocess.TimeoutExpired:
             logger.error(f"aft-mtp-cli push timed out: {local_path}")
             return False
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError) as e:
             logger.error(f"aft-mtp-cli push error: {e}")
             return False
 
@@ -332,7 +332,7 @@ class MtpManager:
             result = self.copy_file(device, tmp_path, remote_uri)
             os.unlink(tmp_path)
             return result
-        except Exception as e:
+        except OSError as e:
             logger.error(f"copy_text_as_file failed: {e}")
             return False
 
@@ -352,7 +352,7 @@ class MtpManager:
                 timeout=15,
             )
             return result.returncode == 0 or "already exists" in result.stderr.lower()
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError) as e:
             logger.error(f"gio mkdir failed ({remote_uri}): {e}")
             return False
 
@@ -368,7 +368,7 @@ class MtpManager:
                 timeout=30,
             )
             return result.returncode == 0
-        except Exception as e:
+        except (subprocess.SubprocessError, OSError) as e:
             logger.error(f"gio remove failed ({remote_uri}): {e}")
             return False
 
@@ -407,8 +407,8 @@ class MtpManager:
                         if path:
                             return f"{base}/{storage}/{path}/"
                         return f"{base}/{storage}/"
-        except Exception:
-            pass
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.debug(f"Could not detect storage volume for {base}: {e}")
 
         # Fallback to original behavior
         path = music_path.strip("/")

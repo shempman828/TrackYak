@@ -67,7 +67,7 @@ class PlayerReaderMixin:
                         if len(chunk):
                             with self._buffer_lock:
                                 self._audio_buffer.append(chunk)
-        except Exception as exc:
+        except OSError as exc:
             logger.warning(f"Buffer priming failed, deferring to reader thread: {exc}")
 
         self._reader_thread = threading.Thread(
@@ -126,7 +126,7 @@ class PlayerReaderMixin:
                 try:
                     chunk = reader.read(to_read, dtype="float32", always_2d=True)
                     self._current_frame += len(chunk)
-                except Exception as exc:
+                except OSError as exc:
                     logger.error(
                         f"Reader thread decode error, attempting to resync: {exc}"
                     )
@@ -142,7 +142,7 @@ class PlayerReaderMixin:
                         reader.seek(self._current_frame)
                         chunk = reader.read(to_read, dtype="float32", always_2d=True)
                         self._current_frame += len(chunk)
-                    except Exception:
+                    except OSError:
                         # Same-handle retry also failed. If we're still at frame 0,
                         # the handle itself is the likely culprit rather than a
                         # transient decode hiccup — this is the common case for a
@@ -165,12 +165,12 @@ class PlayerReaderMixin:
                                 self._current_frame += len(chunk)
                                 try:
                                     reader.close()
-                                except Exception:
+                                except OSError:
                                     pass
                                 reader = fresh_reader
                                 self._sf_reader = fresh_reader
                                 recovered = True
-                            except Exception as reopen_exc:
+                            except OSError as reopen_exc:
                                 logger.error(
                                     f"Fresh reopen after decode error also failed: {reopen_exc}"
                                 )
@@ -181,7 +181,7 @@ class PlayerReaderMixin:
                                     skip_to = min(skip_to, self._total_frames)
                                 reader.seek(skip_to)
                                 self._current_frame = skip_to
-                            except Exception as seek_exc:
+                            except OSError as seek_exc:
                                 logger.error(
                                     f"Reader thread could not resync after decode error, "
                                     f"ending track: {seek_exc}"

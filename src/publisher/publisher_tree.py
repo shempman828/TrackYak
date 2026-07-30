@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 
 from PySide6.QtCore import QMimeData, Qt
 from PySide6.QtGui import QDrag
@@ -54,7 +55,7 @@ class PublisherTreeWidget(QTreeWidget):
 
         try:
             publishers = self.controller.get.get_all_entities("Publisher")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed loading publishers: {str(e)}")
             return
 
@@ -134,7 +135,7 @@ class PublisherTreeWidget(QTreeWidget):
                 "Publisher", publisher_id, publisher_name=new_name
             )
             logger.info(f"Publisher renamed to: {new_name}")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to rename publisher: {str(e)}")
             self.load_publishers()
 
@@ -176,7 +177,7 @@ class PublisherTreeWidget(QTreeWidget):
 
             return totals
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error calculating album counts: {str(e)}")
             return {}
 
@@ -267,7 +268,7 @@ class PublisherTreeWidget(QTreeWidget):
             )
             self.load_publishers()
             logger.info("Parent relationship updated successfully.")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error updating parent: {str(e)}")
 
     def is_child_of(self, parent_item, child_item):
@@ -287,5 +288,5 @@ class PublisherTreeWidget(QTreeWidget):
                 "Publisher", publisher_id, parent_id=None
             )
             self.load_publishers()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error removing parent: {str(e)}")

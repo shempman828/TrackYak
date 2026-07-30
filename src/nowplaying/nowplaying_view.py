@@ -128,7 +128,7 @@ class NowPlayingView(QWidget):
             self.controller.mediaplayer.position_changed.connect(
                 self._on_position_changed
             )
-        except Exception as exc:
+        except (AttributeError, RuntimeError) as exc:
             logger.warning(f"NowPlayingView: could not connect position_changed: {exc}")
 
         if self.track:
@@ -173,7 +173,7 @@ class NowPlayingView(QWidget):
                     dock = getattr(main_win, attr, None)
                     if dock:
                         dock.setVisible(True)
-        except Exception as exc:
+        except RuntimeError as exc:
             logger.warning(f"toggle_cinema_mode: {exc}")
 
     # ── build UI ──────────────────────────────────────────────────────────
@@ -493,6 +493,12 @@ class NowPlayingView(QWidget):
             logger.debug(f"updateUI TOTAL: {time.time() - t0:.3f}s")
 
         except Exception as exc:
+            # Intentional broad boundary catch: dispatches to several
+            # heterogeneous sub-updates (widget text, artist/album ORM
+            # lookups, lyrics parsing, credits panel, art loading) on every
+            # track change -- this is the single entry point for those and
+            # must never leave the UI half-updated, so it falls back to
+            # clearUI() instead of propagating.
             logger.error(
                 f"NowPlayingView.updateUI failed: {exc}\n{traceback.format_exc()}"
             )
@@ -716,7 +722,7 @@ class NowPlayingView(QWidget):
             app_config.set_lyrics_sync_offset(self._offset_slider.value())
             app_config.save()
             logger.debug(f"Saved lyrics sync offset: {self._offset_slider.value()}")
-        except Exception as exc:
+        except RuntimeError as exc:
             logger.warning(f"Could not save lyrics sync offset: {exc}")
 
     # ── chips ─────────────────────────────────────────────────────────────
@@ -737,7 +743,14 @@ class NowPlayingView(QWidget):
                 val = fn()
                 _maybe(chip, val)
             except Exception as exc:
-                logger.debug(f"_update_chips: skipping chip due to error: {exc}")
+                # Intentional broad boundary catch: fn is one of many
+                # per-chip closures below with different failure modes
+                # (float()/string parsing, attribute access) -- one broken
+                # field must not prevent the other chips from showing (see
+                # docstring).
+                logger.debug(
+                    f"_update_chips: skipping chip due to error: {exc}", exc_info=True
+                )
 
         # ── Basic metadata ─────────────────────────────────────────────────
         _safe(

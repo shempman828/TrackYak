@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
@@ -131,7 +132,7 @@ class PlaylistTracksWindow(QMainWindow):
                 f"Loaded {len(tracks)} tracks for playlist {self.playlist_name}"
             )
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error loading playlist tracks: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to load tracks: {str(e)}")
 
@@ -201,7 +202,7 @@ class PlaylistTracksWindow(QMainWindow):
             else:
                 event.ignore()
 
-        except Exception as e:
+        except (SQLAlchemyError, ValueError) as e:
             logger.error(f"Error handling drop in playlist: {str(e)}")
             event.ignore()
 
@@ -234,7 +235,7 @@ class PlaylistTracksWindow(QMainWindow):
             self.load_playlist_tracks()
             logger.info(f"Removed {removed_count} tracks from playlist")
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error removing tracks: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to remove tracks: {str(e)}")
 

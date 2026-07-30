@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.entity_completer_edit import (
     build_entity_search_widget,
@@ -152,7 +153,7 @@ class _BaseTrackAssociationTab(_BaseTab):
                 )
             else:
                 entity = self._find_or_create(name)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to find/create {self.model_name}: {e}")
             return
         if not entity:
@@ -165,7 +166,7 @@ class _BaseTrackAssociationTab(_BaseTab):
         ]
         try:
             self.controller.add.add_entities(self.assoc_model, rows)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to add {self.model_name} to tracks: {e}")
 
         if matched_id is None:
@@ -188,7 +189,7 @@ class _BaseTrackAssociationTab(_BaseTab):
                 self.controller.delete.delete_entity(
                     self.assoc_model, track_id=track_ids, **{self.id_field: entity_id}
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Failed to remove {self.model_name} from tracks: {e}")
         self.load(self.tracks)
 

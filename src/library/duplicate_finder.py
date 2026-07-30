@@ -40,6 +40,7 @@ from difflib import SequenceMatcher
 from typing import Dict, List
 
 import acoustid
+import chromaprint
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -59,6 +60,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
 from src.track.base_track_view import BaseTrackView
@@ -178,6 +181,9 @@ class DuplicateScanWorker(CancellableWorker):
             groups = self._find_duplicates()
             self.finished.emit(groups, self._stopped_early)
         except Exception as e:
+            # Intentional broad boundary catch: this is a QThread's run() body
+            # and must not let an exception kill the thread silently — report
+            # it to the UI via the error signal instead.
             logger.error(f"DuplicateScanWorker error: {e}", exc_info=True)
             self.error.emit(str(e))
 
@@ -234,7 +240,7 @@ class DuplicateScanWorker(CancellableWorker):
                 (a.acoustid_fingerprint_duration, a.acoustid_fingerprint.encode()),
                 (b.acoustid_fingerprint_duration, b.acoustid_fingerprint.encode()),
             )
-        except Exception as e:
+        except (chromaprint.FingerprintError, AttributeError) as e:
             logger.warning(f"Fingerprint comparison failed: {e}")
             return 0.0
 
@@ -597,7 +603,7 @@ class DuplicateFinderDialog(QDialog):
 
         try:
             all_tracks = self.controller.get.get_all_entities("Track")
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not load tracks:\n{e}")
             return
 

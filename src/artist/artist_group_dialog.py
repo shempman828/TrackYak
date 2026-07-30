@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 
@@ -91,7 +92,7 @@ class AddMemberDialog(QDialog):
             for artist in sorted_artists:
                 self.artist_combo.addItem(artist.artist_name, artist.artist_id)
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading artists: {e}")
             self.artist_combo.addItem("Error loading artists", None)
 
@@ -136,7 +137,7 @@ class AddMemberDialog(QDialog):
             self.accept()
             logger.info(f"Added member {artist_id} to group {self.group.artist_name}")
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error adding member: {e}")
             QMessageBox.critical(self, "Error", f"Failed to add member:\n{e}")
 
@@ -203,7 +204,7 @@ class AddGroupDialog(QDialog):
             for artist in sorted_artists:
                 self.artist_combo.addItem(artist.artist_name, artist.artist_id)
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading artists: {e}")
             self.artist_combo.addItem("Error loading artists", None)
 
@@ -239,6 +240,6 @@ class AddGroupDialog(QDialog):
 
             self.accept()
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error creating group: {e}")
             QMessageBox.critical(self, "Error", f"Failed to create group: {str(e)}")

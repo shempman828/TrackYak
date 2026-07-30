@@ -4,6 +4,8 @@ Extracted from PlayerUI (player_dock.py) so the formatting logic can be
 tested and read independently of the Qt widget it feeds.
 """
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.core.logger_config import logger
 
 _MONTH_NAMES = [
@@ -30,7 +32,7 @@ def format_track_display(track) -> str:
             return _format_classical_track(track)
         else:
             return _format_standard_track(track)
-    except Exception as e:
+    except (SQLAlchemyError, AttributeError, TypeError) as e:
         logger.error(f"Error formatting track display: {e}")
         return "Unknown Track"
 
@@ -165,7 +167,7 @@ def _get_composer_names(track) -> str:
             return ", ".join(composers)
         else:
             return "Unknown Composer"
-    except Exception as e:
+    except (SQLAlchemyError, AttributeError, TypeError) as e:
         logger.error(f"Error getting composer names: {e}")
         return "Unknown Composer"
 

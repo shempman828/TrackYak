@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_detail_awards import AwardsWidget
 from src.artist.artist_detail_credits import CreditsWidget
@@ -99,7 +100,7 @@ class ArtistDetailTab(QWidget):
         for heading, build in candidates:
             try:
                 content = build()
-            except Exception as e:
+            except (SQLAlchemyError, AttributeError) as e:
                 logger.error(f"Error building '{heading}' section: {e}")
                 continue
 

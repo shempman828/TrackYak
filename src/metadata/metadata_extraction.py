@@ -86,7 +86,12 @@ class MetadataExtractor:
             return metadata
 
         except Exception as e:
-            logger.error(
+            # Intentional broad boundary catch: this runs once per file inside
+            # bulk library-import/rescan loops (see library_import.py,
+            # library_rescan_repair.py) and delegates to several independently
+            # broad sub-extractors (raw tags, text metadata, audio properties,
+            # artwork) — one malformed file must not abort the whole batch.
+            logger.exception(
                 f"Critical error extracting metadata from {file_path}: {str(e)[:500]}"
             )
             return self._get_basic_file_info(file_path)

@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -136,7 +137,7 @@ class AlbumCoverArtMixin:
             if cover_type == "front":
                 self._load_album_cover()
 
-        except Exception as e:
+        except (OSError, sqlite3.Error) as e:
             logger.error(f"Error saving {cover_type} cover: {e}")
             QMessageBox.critical(self, "Error", f"Could not save cover art:\n{e}")
 
@@ -154,7 +155,7 @@ class AlbumCoverArtMixin:
                 success = self._metadata_writer.write_artwork_to_file(
                     file_path, cover_type, image_bytes
                 )
-            except Exception as e:
+            except ValueError as e:
                 logger.error(f"Error embedding {cover_type} cover into {file_path}: {e}")
                 success = False
             if not success:

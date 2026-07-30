@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem,
     QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 
@@ -84,5 +85,5 @@ class PublisherAssociationDialog(QDialog):
             self.albums_tree.expandAll()
             self.albums_tree.resizeColumnToContents(0)
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading associations: {str(e)}")

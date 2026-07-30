@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
 from src.common.hierarchy_tree_style import (
@@ -175,7 +176,7 @@ class PlaylistView(QWidget):
 
             logger.info("Playlist hierarchy loaded successfully")
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error loading playlists: {str(e)}")
             QMessageBox.critical(
                 self, "Loading Error", "Failed to load playlist hierarchy"
@@ -245,7 +246,7 @@ class PlaylistView(QWidget):
         if smart_flag is not None:
             try:
                 is_smart_playlist = bool(smart_flag)
-            except Exception:
+            except TypeError:
                 is_smart_playlist = False
 
         menu = QMenu()
@@ -370,7 +371,7 @@ class PlaylistView(QWidget):
                 f"Added {total_added} track(s) to the parent playlist(s).",
             )
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to add tracks to parent playlist: {str(e)}")
             QMessageBox.critical(
                 self,
@@ -479,7 +480,7 @@ class PlaylistView(QWidget):
                 self.playlist_updated.emit()
                 logger.info(f"Created new playlist: {name}")
 
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Failed to create playlist: {str(e)}")
                 QMessageBox.critical(self, "Error", f"Could not create playlist: {e}")
 
@@ -532,7 +533,7 @@ class PlaylistView(QWidget):
                     ),
                 )
 
-            except Exception as e:
+            except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Failed to create smart playlist: {str(e)}")
                 QMessageBox.critical(
                     self, "Error", f"Could not create smart playlist: {e}"
@@ -564,7 +565,8 @@ class PlaylistView(QWidget):
                 "Playlist", playlist_id=item_id
             )
             name = playlist_obj.playlist_name if playlist_obj else item.text(0)
-        except Exception:
+        except SQLAlchemyError as e:
+            logger.warning(f"Could not load playlist name for delete confirmation: {e}")
             name = item.text(0)
 
         confirm = QMessageBox.question(
@@ -583,7 +585,7 @@ class PlaylistView(QWidget):
                 self.playlist_updated.emit()
                 logger.info(f"Deleted {item_type}: {name}")
 
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Deletion failed: {str(e)}")
                 QMessageBox.critical(
                     self, "Error", f"Failed to delete {item_type}:\n{str(e)}"
@@ -625,7 +627,7 @@ class PlaylistView(QWidget):
             playlist_obj = self.controller.get.get_entity_object(
                 "Playlist", playlist_id=item_data[1]
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to refresh playlist item display: {str(e)}")
             return
         if not playlist_obj:
@@ -707,7 +709,7 @@ class PlaylistView(QWidget):
             logger.debug(f"Moved playlist {dragged_id} to parent {new_parent_id}")
             event.accept()
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Drag-drop error: {str(e)}")
             event.ignore()
 
@@ -725,7 +727,7 @@ class PlaylistView(QWidget):
             playlist = self.controller.get.get_entity_object(
                 "Playlist", playlist_id=playlist_id
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to fetch playlist object: {str(e)}")
             QMessageBox.critical(self, "Error", "Unable to load playlist details.")
             return
@@ -778,7 +780,8 @@ class PlaylistView(QWidget):
                     if count is not None
                     else "Playlist updated successfully."
                 )
-            except Exception:
+            except SQLAlchemyError as e:
+                logger.warning(f"Could not load updated playlist track count: {e}")
                 msg = "Playlist updated successfully."
             show_status_message(self, msg)
         else:

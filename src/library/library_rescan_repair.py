@@ -203,9 +203,12 @@ class LibraryRepair:
                     f"LibraryRepair: metadata extraction returned nothing for {file_path}"
                 )
             return metadata
-        except Exception as e:
-            logger.error(
-                f"LibraryRepair: error extracting metadata from {file_path}: {e}"
+        except Exception:
+            # Intentional broad boundary catch: run() iterates every track in
+            # the database (see class docstring) — a single malformed/
+            # unreadable file must not abort the whole repair pass.
+            logger.exception(
+                f"LibraryRepair: error extracting metadata from {file_path}"
             )
             return None
 

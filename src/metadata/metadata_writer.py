@@ -14,6 +14,8 @@ import os
 import shutil
 from typing import Any, Dict, List
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.metadata.metadata_flac_file_writer import FlacFileWriter
 from src.metadata.metadata_id3_frame_builder import ID3FrameBuilder
 from src.metadata.metadata_mp3_file_writer import MP3FileWriter
@@ -95,7 +97,7 @@ class MetadataWriter:
 
             return result
 
-        except Exception as e:
+        except (FileNotFoundError, ValueError, KeyError, AttributeError, SQLAlchemyError) as e:
             logger.debug(f"Error writing metadata to {file_path}: {e}")
             self.status_manager.end_task(f"Error: {os.path.basename(file_path)}", 3000)
             return False
@@ -136,7 +138,7 @@ class MetadataWriter:
 
             return success
 
-        except Exception as e:
+        except (OSError, KeyError, AttributeError, SQLAlchemyError) as e:
             logger.debug(f"Error writing Vorbis metadata: {e}")
             if os.path.exists(backup_path):
                 shutil.copy2(backup_path, file_path)
@@ -247,7 +249,7 @@ class MetadataWriter:
                 "changed": changed,
                 "message": "Updated" if success else "Write failed",
             }
-        except Exception as e:
+        except (OSError, KeyError, AttributeError, SQLAlchemyError) as e:
             logger.debug(f"Error syncing metadata for track {track_id}: {e}")
             return {"success": False, "changed": [], "message": str(e)}
 
@@ -288,7 +290,7 @@ class MetadataWriter:
                 return False
 
             return self.write_metadata_to_file(track_id, track.track_file_path, mode)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.debug(f"Error writing metadata to track {track_id}: {e}")
             self.status_manager.show_message(f"Error updating track {track_id}", 3000)
             return False

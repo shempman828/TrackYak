@@ -54,5 +54,5 @@ class PlayerGainMixin:
         try:
             app_config.set_volume(self.volume_level)
             app_config.save()
-        except Exception as exc:
+        except OSError as exc:
             logger.error(f"Volume save error: {exc}")

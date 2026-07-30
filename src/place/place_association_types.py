@@ -1,5 +1,7 @@
 """Shared helpers for the canonical PlaceAssociationType list."""
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.common.entity_completer_edit import find_or_create_by_name
 from src.core.logger_config import logger
 
@@ -9,7 +11,7 @@ def fetch_association_types(controller):
     try:
         types = controller.get.get_all_entities("PlaceAssociationType") or []
         return sorted(types, key=lambda t: (t.type_name or "").lower())
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.warning(f"Could not fetch place association types: {e}")
         return []
 

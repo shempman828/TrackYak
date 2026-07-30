@@ -1,4 +1,5 @@
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QDialog
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
@@ -88,7 +89,7 @@ class MoodTracksWindow(QDialog):
             result_text = f"Found {len(tracks)} tracks{mode_text}"
             self.track_count_label.setText(result_text)
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error loading tracks for mood: {str(e)}")
             self.track_count_label.setText("Error loading tracks")
 

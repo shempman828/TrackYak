@@ -109,13 +109,13 @@ class PlayerTransportMixin:
                         self.audio_stream = _open_stream(open_device)
                         last_exc = None
                         break
-                    except Exception as exc:
+                    except (self.sd.PortAudioError, OSError, ValueError) as exc:
                         last_exc = exc
                         if attempt < open_attempts - 1:
                             time.sleep(0.1)
                 if last_exc is not None:
                     raise last_exc
-            except Exception as exc:
+            except (self.sd.PortAudioError, OSError, ValueError) as exc:
                 if self._suspended_sink_name is not None:
                     self._suspend_sink(self._suspended_sink_name, False)
                     self._suspended_sink_name = None
@@ -154,7 +154,7 @@ class PlayerTransportMixin:
             logger.info(f"Playback started: {self.current_file.name}")
             logger.debug(f"play() EXIT at {time.time():.3f}")
 
-        except Exception as exc:
+        except (OSError, RuntimeError, self.sd.PortAudioError) as exc:
             msg = f"Playback error: {exc}"
             logger.error(msg)
             self.error_occurred.emit(msg)
@@ -184,8 +184,8 @@ class PlayerTransportMixin:
                 try:
                     self._sf_reader.seek(0)
                     self._current_frame = 0
-                except Exception:
-                    pass
+                except OSError as e:
+                    logger.debug(f"Could not seek reader to 0 on stop: {e}")
         self._frames_played = 0
         with self._buffer_lock:
             self._audio_buffer.clear()
@@ -223,7 +223,7 @@ class PlayerTransportMixin:
                     self._is_advancing = False
             else:
                 self.stop()
-        except Exception as exc:
+        except (TypeError, RuntimeError) as exc:
             logger.error(f"play_next error: {exc}")
         finally:
             self._is_advancing = False
@@ -257,7 +257,7 @@ class PlayerTransportMixin:
                 self.seek(0)
                 if not self.playing:
                     self.play()
-        except Exception as exc:
+        except (TypeError, RuntimeError) as exc:
             logger.error(f"play_previous error: {exc}")
         finally:
             self._is_advancing = False
@@ -291,7 +291,7 @@ class PlayerTransportMixin:
             self._start_reader_thread()
 
             logger.debug(f"Seek to {position_ms}ms (frame {target_frame})")
-        except Exception as exc:
+        except (OSError, TypeError, ValueError, RuntimeError) as exc:
             logger.error(f"Seek error: {exc}")
 
     def seek_forward(self):

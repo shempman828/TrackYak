@@ -143,7 +143,7 @@ class StartupDialog(QDialog):
             try:
                 license_content = license_path.read_text(encoding="utf-8")
                 license_text.setMarkdown(license_content)
-            except Exception as e:
+            except (OSError, UnicodeDecodeError) as e:
                 logger.error(f"Could not load license file: {e}")
                 license_text.setText(f"Could not load license file: {e}")
         else:
@@ -181,7 +181,7 @@ class StartupDialog(QDialog):
             # Create directory if it doesn't exist
             try:
                 selected_dir.mkdir(parents=True, exist_ok=True)
-            except Exception as e:
+            except OSError as e:
                 logger.error(f"Could not create music directory {selected_dir}: {e}")
                 self._show_error(f"Could not create directory: {e}")
                 return

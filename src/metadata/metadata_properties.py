@@ -53,7 +53,7 @@ class AudioPropertiesExtractor:
 
             logger.debug(f"Extracted audio properties: {list(properties.keys())}")
 
-        except Exception as e:
+        except AttributeError as e:
             logger.warning(f"Error extracting audio properties: {e}")
 
         return properties
@@ -203,7 +203,7 @@ class AudioPropertiesExtractor:
             elif bitrate:
                 properties["bit_rate"] = bitrate // 1000
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting MP3 properties: {e}")
 
         return properties
@@ -265,7 +265,7 @@ class AudioPropertiesExtractor:
                 if is_last:
                     break
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting FLAC properties: {e}")
 
         return properties
@@ -331,7 +331,7 @@ class AudioPropertiesExtractor:
                             sample_rate * channels * bits_per_sample
                         ) // 1000
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting WAV properties: {e}")
 
         return properties
@@ -384,7 +384,7 @@ class AudioPropertiesExtractor:
                 # IFF/AIFF chunks are padded to an even byte boundary.
                 pos += 8 + chunk_size + (chunk_size & 1)
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting AIFF properties: {e}")
 
         return properties
@@ -408,7 +408,7 @@ class AudioPropertiesExtractor:
             value = sign * mantissa * (2.0 ** (exponent - 16383 - 63))
             return int(round(value))
 
-        except Exception as e:
+        except (struct.error, OverflowError) as e:
             logger.warning(f"Error parsing AIFF sample rate: {e}")
             return None
 
@@ -477,7 +477,7 @@ class AudioPropertiesExtractor:
                     # bit_rate is stored/displayed in kbps throughout the app.
                     properties["bit_rate"] = int((len(data) * 8) / duration / 1000)
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting MP4 properties: {e}")
 
         return properties
@@ -599,7 +599,7 @@ class AudioPropertiesExtractor:
                     # bit_rate is stored/displayed in kbps throughout the app.
                     properties["bit_rate"] = int((len(data) * 8) / duration / 1000)
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting Ogg properties: {e}")
 
         return properties
@@ -643,7 +643,7 @@ class AudioPropertiesExtractor:
                 bitrate_kbps = bitrate_table[version_index][layer_index][bitrate_index]
                 return bitrate_kbps * 1000  # Convert to bps
 
-        except Exception as e:
+        except IndexError as e:
             logger.warning(f"Error parsing MP3 bitrate: {e}")
 
         return None
@@ -678,7 +678,7 @@ class AudioPropertiesExtractor:
         try:
             padding = (header >> 9) & 0x01
             return ((144000 * bitrate) // sample_rate) + padding
-        except:  # noqa: E722
+        except TypeError:
             return 0
 
     def _syncsafe_to_int(self, data):

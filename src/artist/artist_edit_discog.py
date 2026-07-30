@@ -2,6 +2,8 @@
 # Tab: Discography
 # ══════════════════════════════════════════════════════════════════════════════
 
+import sqlite3
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCursor, QFontMetrics, QPixmap
 from PySide6.QtWidgets import (
@@ -418,7 +420,7 @@ class _AlbumChip(QFrame):
             if cache is not None and album is not None:
                 is_explicit = bool(getattr(album, "art_is_explicit", False))
                 pixmap = cache.get_pixmap(album, "front", is_explicit)
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.warning(f"Failed to load album art for discography chip: {e}")
             pixmap = None
 

@@ -3,6 +3,8 @@ from datetime import date
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.dates.dates_calendar import CalendarWidget, OnThisDayDialog
 from src.dates.dates_timeline import TimelineWidget
 from src.core.logger_config import logger
@@ -114,7 +116,7 @@ class TimelineView(QWidget):
             self.months_loaded.emit(months)
             self.dates_loaded.emit(self.all_dates)
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading dates from database: {e}")
 
     def show_on_this_day(self):

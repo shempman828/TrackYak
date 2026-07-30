@@ -1,7 +1,9 @@
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.censor import censor_text
+from src.core.logger_config import logger
 
 
 class ScrollingLabel(QLabel):
@@ -162,8 +164,8 @@ class TrackInfoWidget(QWidget):
                 artists = getattr(track, "artists", []) or []
                 if artists:
                     artist_name = getattr(artists[0], "artist_name", "") or ""
-        except Exception:
-            pass
+        except SQLAlchemyError as e:
+            logger.warning(f"Could not load artist name for track: {e}")
         self.artist_label.setText(artist_name)
         # Hide the row entirely when there's nothing to show
         self.artist_label.setVisible(bool(artist_name))

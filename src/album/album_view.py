@@ -1,6 +1,7 @@
 """UI view for albums in music library"""
 
 import random
+import sqlite3
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QStandardItem, QStandardItemModel
@@ -24,6 +25,8 @@ from src.album.album_context_menu import AlbumContextMenuMixin
 from src.album.album_flowlayout import FlowLayout
 from src.album.base_album_edit import AlbumEditor
 from src.album.base_album_widget import AlbumWidget
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.common.layout_utils import clear_layout
 from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
@@ -296,7 +299,7 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
             self.all_albums = self.controller.get.get_all_entities("Album") or []
             self._restore_sort_combo()
             self._apply_filters()
-        except Exception as e:
+        except (SQLAlchemyError, sqlite3.Error, AttributeError) as e:
             logger.exception("Failed to load albums")
             QMessageBox.critical(self, "Error", f"Failed to load albums:\n{e}")
 
@@ -587,7 +590,7 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
                 key=self._sort_key,
                 reverse=self._sort_descending,
             )
-        except Exception as e:
+        except TypeError as e:
             logger.warning(f"Sorting failed: {e}")
 
     def _sort_key(self, album):
@@ -661,10 +664,13 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
 
             return getattr(album, "album_name", "").lower()
 
-        except Exception as e:
-            logger.warning(
+        except Exception:
+            # Intentional boundary: used as sort()'s key= callback across the
+            # whole album grid, so one malformed/unexpected album must not
+            # abort sorting for every other album in the list.
+            logger.exception(
                 f"Sort key failed for album {getattr(album, 'album_name', '?')} "
-                f"(criteria={self._sort_criteria}): {e}"
+                f"(criteria={self._sort_criteria})"
             )
             return ""
 
@@ -734,8 +740,8 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
             )
             if fresh:
                 album = fresh
-        except Exception:
-            pass
+        except SQLAlchemyError as e:
+            logger.warning(f"Failed to refresh album {album.album_id} before editing: {e}")
 
         dialog = AlbumEditor(self.controller, album)
 
@@ -756,7 +762,8 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         """
         try:
             fresh = self.controller.get.get_entity_object("Album", album_id=album_id)
-        except Exception:
+        except SQLAlchemyError as e:
+            logger.warning(f"Failed to refresh album {album_id} after edit: {e}")
             fresh = None
 
         if fresh is None:

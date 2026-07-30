@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.album.release_type_utils import normalize_release_type
 from src.importing.artist_field_extraction import (
     ALBUM_ARTIST_FIELDS,
@@ -228,7 +230,7 @@ class AlbumImporter:
                 "AlbumRoleAssociation", album_id=album_id
             )
             return [assoc.artist_id for assoc in associations] if associations else []
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error getting album artists: {e}")
             return []
 

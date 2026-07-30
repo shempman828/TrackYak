@@ -1,4 +1,5 @@
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.base_album_widget import ScrollableAlbumFlow
 from src.core.logger_config import logger
@@ -37,6 +38,6 @@ class PublisherAlbumsWindow(QDialog):
             self.status_label.setText(
                 f"{count} album{'s' if count != 1 else ''} — {self.publisher.publisher_name}"
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading albums window: {str(e)}")
             self.status_label.setText("Error loading albums.")

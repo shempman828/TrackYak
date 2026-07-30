@@ -200,6 +200,9 @@ def main() -> None:
             # Pass config into initialize_application to avoid a second Config() call
             window, display_settings = initialize_application(splash, app, config)
         except Exception:
+            # Intentional broad boundary catch: initialization can fail for any
+            # reason (config, DB, Qt, imports) — this only exists to close the
+            # splash screen before propagating, not to hide the failure.
             splash.close()
             raise
 
@@ -209,6 +212,8 @@ def main() -> None:
         sys.exit(app.exec())
 
     except Exception as e:
+        # Intentional broad boundary catch: top-level guard for main() — logs
+        # whatever went wrong before re-raising, doesn't hide it.
         logger.error(f"Unhandled exception in main: {e}")
         raise
 
@@ -218,6 +223,9 @@ if __name__ == "__main__":
         logger.info("Application starting")
         main()
     except Exception as launch_error:
+        # Intentional broad boundary catch: this is the outermost entry point
+        # of the whole application — anything that reaches here must be shown
+        # to the user and logged rather than crash to a bare traceback.
         logger.error(f"Fatal error during application launch: {launch_error}")
         traceback_str = "".join(traceback.format_tb(launch_error.__traceback__))
         logger.error(f"Traceback:\n{traceback_str}")

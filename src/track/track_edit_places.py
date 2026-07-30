@@ -3,6 +3,7 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
+from sqlalchemy.exc import SQLAlchemyError
 
 from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtWidgets import (
@@ -173,7 +174,7 @@ class PlacesTab(_BaseTab):
                 place = _find_or_create_place(
                     self.controller, place_name, self._known_places()
                 )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to find/create place: {e}")
             return
         if not place:
@@ -195,7 +196,7 @@ class PlacesTab(_BaseTab):
         ]
         try:
             self.controller.add.add_entities("PlaceAssociation", rows)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to add place to tracks: {e}")
 
         if matched_id is None:
@@ -220,6 +221,6 @@ class PlacesTab(_BaseTab):
                 entity_type="Track",
                 place_id=place_id,
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to remove place from tracks: {e}")
         self.load(self.tracks)

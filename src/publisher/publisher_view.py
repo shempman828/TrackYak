@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.base_split_dialog import SplitDBDialog
 from src.core.logger_config import logger
@@ -152,7 +153,7 @@ class PublisherView(QWidget):
             self.controller.add.add_entity("Publisher", publisher_name="New Publisher")
             self.load_publishers()
             logger.info("New publisher created successfully.")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error creating new publisher: {str(e)}")
 
     def _delete_selected_publisher(self):
@@ -190,7 +191,7 @@ class PublisherView(QWidget):
                 publisher_id = item.data(0, Qt.UserRole)
                 try:
                     self.controller.delete.delete_entity("Publisher", publisher_id)
-                except Exception as e:
+                except SQLAlchemyError as e:
                     errors.append(item.text(0))
                     logger.error(
                         f"Failed to delete publisher '{item.text(0)}': {str(e)}"
@@ -234,7 +235,7 @@ class PublisherView(QWidget):
             if split_dialog.exec_() == QDialog.Accepted:
                 self.load_publishers()
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error in _split_publisher(): {e}", exc_info=True)
 
     def _edit_publisher(self, item):
@@ -281,7 +282,7 @@ class PublisherView(QWidget):
             )
             self.load_publishers()
             logger.info("New parent publisher created and linked successfully.")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error creating new parent publisher: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to create new parent publisher")
 
@@ -306,7 +307,7 @@ class PublisherView(QWidget):
             )
             self.load_publishers()
             logger.info("New child publisher created and linked successfully.")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error creating new child publisher: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to create new child publisher")
 
@@ -324,7 +325,7 @@ class PublisherView(QWidget):
             )
             self.load_publishers()
             logger.info("Parent relationship removed successfully.")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error removing parent: {str(e)}")
 
     def initiate_merge(self):
@@ -337,7 +338,7 @@ class PublisherView(QWidget):
                 publisher_obj = self.controller.get.get_entity_object(
                     "Publisher", publisher_id=publisher_id
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Error fetching publisher for merge: {str(e)}")
 
         merge_dialog = PublisherMergeDialog(
@@ -371,7 +372,7 @@ class PublisherView(QWidget):
         # --- Load publishers up front (fast DB call) ---
         try:
             publishers = self.controller.get.get_all_entities("Publisher")
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Failed to load publishers: {e}")
             return
 
@@ -444,6 +445,9 @@ class PublisherView(QWidget):
 
                     self.finished.emit(matches)
                 except Exception as e:
+                    # Intentional broad boundary catch: this runs on a QThread and
+                    # must not let an exception kill the thread silently.
+                    logger.exception("Publisher fuzzy-match scan failed")
                     self.error.emit(str(e))
 
         worker = _ScanWorker(publishers, THRESHOLD)

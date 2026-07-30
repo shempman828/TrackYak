@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem,
     QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 
@@ -200,7 +201,7 @@ class AssociationDetailsDialog(QDialog):
             for i in range(self.associations_tree.columnCount()):
                 self.associations_tree.resizeColumnToContents(i)
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.exception("Error loading associations")
             error_item = QTreeWidgetItem(
                 [f"Error loading associations: {str(e)}", "", "", ""]
@@ -293,7 +294,7 @@ class AssociationDetailsDialog(QDialog):
                 entity_name, **{id_kwarg: entity_id}
             )
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.exception(
                 "Error getting entity details for %s id=%s: %s",
                 entity_type,
@@ -316,6 +317,6 @@ class AssociationDetailsDialog(QDialog):
             return getattr(
                 entity, attr, getattr(entity, "name", f"Unknown {entity_type}")
             )
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("Error retrieving display name for %s", entity_type)
             return f"Unknown {entity_type}"

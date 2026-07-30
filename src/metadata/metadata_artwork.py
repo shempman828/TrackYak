@@ -56,7 +56,7 @@ class ArtworkExtractor:
 
             return artwork
 
-        except Exception as e:
+        except AttributeError as e:
             logger.warning(f"Error extracting artwork: {e}")
             return None
 
@@ -97,7 +97,7 @@ class ArtworkExtractor:
 
                 pos = frame_start + frame_size
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting MP3 artwork: {e}")
 
         return None
@@ -149,7 +149,7 @@ class ArtworkExtractor:
 
                 pos = frame_start + frame_size
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting MP3 artwork: {e}")
 
         return pictures
@@ -203,7 +203,7 @@ class ArtworkExtractor:
 
                 pos += block_size
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting FLAC artwork: {e}")
 
         return None
@@ -247,7 +247,7 @@ class ArtworkExtractor:
 
                 pos += block_size
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting FLAC artwork: {e}")
 
         return pictures
@@ -268,7 +268,7 @@ class ArtworkExtractor:
         try:
             with open(file_path, "rb") as f:
                 data = f.read()
-        except Exception as e:
+        except OSError as e:
             logger.warning(f"Error reading {file_path} for role-based artwork: {e}")
             return {}
 
@@ -351,7 +351,7 @@ class ArtworkExtractor:
             elif image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
                 return self._process_image_data(image_bytes, "PNG")
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting ALAC artwork: {e}")
 
         return None
@@ -397,7 +397,7 @@ class ArtworkExtractor:
                     processed_image["picture_type"] = picture_type
                     return processed_image
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error parsing ID3 APIC frame: {e}")
 
         return None
@@ -477,7 +477,7 @@ class ArtworkExtractor:
                 processed_image["picture_type"] = picture_type
                 return processed_image
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error parsing FLAC picture block: {e}")
 
         return None
@@ -503,7 +503,7 @@ class ArtworkExtractor:
                 "height": image.height,
                 "size": len(image_data),
             }
-        except Exception as e:
+        except (OSError, Image.DecompressionBombError) as e:
             logger.warning(f"Error processing image data: {e}")
             return None
 

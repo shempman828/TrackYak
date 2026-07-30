@@ -181,7 +181,7 @@ class MenuBar:
         try:
             path = str(ASSETS_DIR / name)
             return os.path.exists(path)
-        except Exception as e:
+        except (OSError, TypeError) as e:
             logger.debug(f"Icon existence check failed for {name}: {e}")
             return False
 

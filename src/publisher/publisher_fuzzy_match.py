@@ -72,11 +72,14 @@ class _PublisherMergeWorker(CancellableWorker):
                     logger.error(msg)
                     errors.append(msg)
             except Exception as e:
+                # Intentional broad boundary catch: this runs on a QThread and
+                # merge_entities can fail in many ways per pair — one bad pair
+                # must not kill the whole batch, so log and keep going.
                 msg = (
                     f"Failed to merge {old_publisher.publisher_name} → "
                     f"{new_publisher.publisher_name}: {e}"
                 )
-                logger.error(msg)
+                logger.exception(msg)
                 errors.append(msg)
 
             self.progress.emit(idx + 1, total)

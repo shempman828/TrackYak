@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.db.db_tables import Track
 from src.core.asset_paths import config as config_path
@@ -41,6 +42,9 @@ class _BulkAddWorker(QObject):
                 random.shuffle(tracks)
             self.finished.emit(tracks)
         except Exception as exc:
+            # Intentional broad boundary catch: this runs on a QThread and must
+            # not let an exception kill the thread silently — surface it to the UI.
+            logger.exception("Bulk queue add failed")
             self.error.emit(str(exc))
 
 
@@ -325,7 +329,7 @@ class QueueManager(QObject):
                 f"save_queue_to_config: {len(history_ids)} history + "
                 f"{len(queue_ids)} queue saved"
             )
-        except Exception as exc:
+        except (OSError, TypeError, AttributeError) as exc:
             logger.error(f"save_queue_to_config failed: {exc}")
 
     def load_queue_from_config(self, db_session):
@@ -378,6 +382,6 @@ class QueueManager(QObject):
             self.queue_changed.emit()
             return bool(loaded_queue)
 
-        except Exception as exc:
+        except (OSError, json.JSONDecodeError, SQLAlchemyError, AttributeError, KeyError) as exc:
             logger.error(f"load_queue_from_config failed: {exc}")
             return False

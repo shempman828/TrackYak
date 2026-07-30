@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.style_utils import set_style_property
 from src.disc.disc_edit import DiscEditDialog
@@ -173,7 +174,7 @@ class DiscManagementView(QWidget):
             # Create track display
             self.create_track_display()
 
-        except Exception as e:
+        except (SQLAlchemyError, AttributeError) as e:
             logger.error(f"Error loading disc data: {e}")
 
     def update_stats(self):
@@ -247,7 +248,7 @@ class DiscManagementView(QWidget):
                 else:
                     QMessageBox.warning(self, "Error", "Failed to create disc")
 
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Error adding disc: {e}")
                 QMessageBox.warning(self, "Error", f"Could not add disc: {str(e)}")
 
@@ -306,7 +307,7 @@ class DiscManagementView(QWidget):
                 self.refresh_view()
             else:
                 QMessageBox.warning(self, "Error", f"Failed to remove {choice}.")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error removing disc: {e}")
             QMessageBox.warning(self, "Error", f"Could not remove disc: {str(e)}")
 

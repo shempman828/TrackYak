@@ -232,7 +232,8 @@ class FileManager(QDialog):
                 and hasattr(worker, "isRunning")
                 and worker.isRunning()
             )
-        except Exception:
+        except RuntimeError:
+            # underlying Qt object was already deleted
             return False
 
     def _cancel_worker(
@@ -248,13 +249,13 @@ class FileManager(QDialog):
             try:
                 worker_ref.cancel()
                 worker_ref.wait()
-            except Exception as exc:  # defensive
+            except RuntimeError as exc:  # defensive
                 logger.warning(f"Error cancelling worker: {exc}")
             finally:
                 try:
                     worker_ref.deleteLater()
-                except Exception:
-                    pass
+                except RuntimeError:
+                    pass  # underlying Qt object was already deleted
 
         # common UI cleanup regardless of whether worker was running
         status_label.setText(cancel_message)
@@ -317,8 +318,8 @@ class FileManager(QDialog):
             if self.organizer and hasattr(self.organizer, "user_cancelled"):
                 try:
                     self.organizer.user_cancelled()
-                except Exception:
-                    pass
+                except RuntimeError:
+                    pass  # underlying Qt object was already deleted
             self._organization_complete(True, 0)
             return
 
@@ -347,8 +348,8 @@ class FileManager(QDialog):
         try:
             if self.organizer:
                 self.organizer.deleteLater()
-        except Exception:
-            pass
+        except RuntimeError:
+            pass  # underlying Qt object was already deleted
         finally:
             self.organizer = None
 
@@ -422,7 +423,7 @@ class FileManager(QDialog):
                     self.root_path = Path(root_path)
                     self.root_label.setText(f"Root Directory: {self.root_path}")
                     logger.info(f"Loaded root directory from config: {self.root_path}")
-        except Exception as e:  # pragma: no cover - defensive
+        except OSError as e:  # pragma: no cover - defensive
             logger.warning(f"Could not load root directory from config: {e}")
 
     def _save_root_to_config(self) -> None:
@@ -431,7 +432,7 @@ class FileManager(QDialog):
                 app_config.set_base_directory(self.root_path)
                 app_config.save()
                 logger.info(f"Saved root directory to config: {self.root_path}")
-        except Exception as e:  # pragma: no cover - defensive
+        except OSError as e:  # pragma: no cover - defensive
             logger.error(f"Could not save root directory to config: {e}")
 
     def _set_root(self) -> None:
@@ -450,7 +451,7 @@ class FileManager(QDialog):
                 self.root_label.setText(f"Root Directory: {self.root_path}")
                 self._save_root_to_config()
                 logger.info(f"Root directory set to: {self.root_path}")
-        except Exception as e:
+        except OSError as e:
             self._show_error("Directory Error", f"Failed to set root directory:\n{e}")
 
     # -------------------- Validation / Dialogs --------------------

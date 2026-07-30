@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 
@@ -73,6 +74,6 @@ class RoleEditDialog(QDialog):
                     "Role", role_name=name, role_description=description
                 )
             self.accept()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error saving role: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to save role: {str(e)}")

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.hierarchy_tree_style import (
     collect_expanded_ids,
@@ -115,7 +116,7 @@ class MoodView(QWidget):
             self.moods_data = self.controller.get.get_all_entities("Mood")
             self.build_mood_tree()
             self.update_statistics()
-        except Exception as e:
+        except (SQLAlchemyError, AttributeError) as e:
             logger.error(f"Error loading moods: {e}")
             QMessageBox.warning(self, "Error", f"Failed to load moods: {str(e)}")
 
@@ -181,7 +182,7 @@ class MoodView(QWidget):
             # Reload to ensure consistency
             self.load_moods()
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error handling drop event: {e}")
             event.ignore()
             # Revert UI on error
@@ -306,7 +307,7 @@ class MoodView(QWidget):
                     mood_track_counts[mood_id] = mood_track_counts.get(mood_id, 0) + 1
 
             return mood_track_counts
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error getting track counts: {e}")
             return {}
 
@@ -426,7 +427,7 @@ class MoodView(QWidget):
                 new_mood = self.controller.add.add_entity("Mood", **mood_data)
                 self.mood_created.emit(new_mood)
                 self.load_moods()  # Reload to reflect changes
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Error creating mood: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to create mood: {str(e)}")
 
@@ -463,7 +464,7 @@ class MoodView(QWidget):
                 )
                 self.mood_updated.emit(self.current_mood_id, mood_data)
                 self.load_moods()  # Reload to reflect changes
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Error updating mood: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to update mood: {str(e)}")
 
@@ -505,7 +506,7 @@ class MoodView(QWidget):
                 self,
                 f"Created '{new_mood.mood_name}' as parent of '{mood.mood_name}'",
             )
-        except Exception as e:
+        except (SQLAlchemyError, ValueError) as e:
             logger.error(f"Error creating new parent mood: {e}")
             QMessageBox.critical(
                 self, "Error", f"Failed to create new parent mood: {str(e)}"
@@ -542,7 +543,7 @@ class MoodView(QWidget):
                 self,
                 f"Created '{new_mood.mood_name}' as child of '{mood.mood_name}'",
             )
-        except Exception as e:
+        except (SQLAlchemyError, ValueError) as e:
             logger.error(f"Error creating new child mood: {e}")
             QMessageBox.critical(
                 self, "Error", f"Failed to create new child mood: {str(e)}"
@@ -566,7 +567,7 @@ class MoodView(QWidget):
                 self.mood_deleted.emit(self.current_mood_id)
                 self.load_moods()  # Reload the list
                 show_status_message(self, "Mood deleted successfully.")
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Error deleting mood: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to delete mood: {str(e)}")
 
@@ -600,7 +601,7 @@ class MoodView(QWidget):
                 f"Tracks with mood associations: {total_unique_tracks}"
             )
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error calculating statistics: {e}")
             self.stats_label.setText(f"Total moods: {total_moods}")
             self.tracks_count_label.setText("Tracks with moods: Unknown")
@@ -660,6 +661,6 @@ class MoodView(QWidget):
                             tracks.append(track)
                 return tracks
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error getting tracks for mood: {e}")
             return []

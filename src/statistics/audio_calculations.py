@@ -9,6 +9,7 @@ import warnings
 import acoustid
 import numpy as np
 from pydub import AudioSegment
+from pydub.exceptions import PydubException
 from scipy import signal
 from scipy.ndimage import uniform_filter1d
 
@@ -81,7 +82,7 @@ class AudioCalculations:
                 f"samples={self.samples.shape[1]}"
             )
             return True
-        except Exception as e:
+        except (OSError, ValueError, PydubException) as e:
             logger.error(f"AudioCalculations: cannot load {self.audio_file_path} — {e}")
             # Provide silent fallback so callers still get safe defaults
             self.sr = 44100
@@ -229,7 +230,7 @@ class AudioCalculations:
 
             return bpm, confidence
 
-        except Exception as e:
+        except (ValueError, ZeroDivisionError) as e:
             logger.error(f"BPM calculation failed: {e}")
             return 120.0, 0.0
 
@@ -322,7 +323,7 @@ class AudioCalculations:
             names = MAJOR_KEY_NAMES if best_mode == "major" else MINOR_KEY_NAMES
             return names[best_key], best_mode, confidence
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Key calculation failed: {e}")
             return "C", "major", 0.0
 
@@ -367,7 +368,7 @@ class AudioCalculations:
             integrated_loudness = float(np.mean(top))
             return float(np.clip(REFERENCE_LUFS - integrated_loudness, -20.0, 20.0))
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Track gain calculation failed: {e}")
             return 0.0
 
@@ -377,7 +378,7 @@ class AudioCalculations:
             return 0.0
         try:
             return float(np.max(np.abs(self.samples)))
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Track peak calculation failed: {e}")
             return 0.0
 
@@ -400,7 +401,7 @@ class AudioCalculations:
             crest = 20.0 * np.log10(peak / rms)
             return float(np.clip(crest, 0.0, 30.0))
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Crest factor calculation failed: {e}")
             return 12.0
 
@@ -438,7 +439,7 @@ class AudioCalculations:
                 seg = self._segment(mono, 20.0)
                 _, mag = self._stft_magnitude(seg, nperseg=4096)
             return self._flatness_from_magnitude(mag)
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Spectral flatness calculation failed: {e}")
             return 0.2
 
@@ -476,7 +477,7 @@ class AudioCalculations:
             # matching the fudge-factor approach used elsewhere in this file.
             return float(np.clip(np.mean(flux_per_frame) * 5.0, 0.0, 1.0))
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Spectral flux calculation failed: {e}")
             return 0.1
 
@@ -508,7 +509,7 @@ class AudioCalculations:
 
             centroid_frames = (f[:, None] * mag).sum(axis=0)[nonzero] / total[nonzero]
             return float(np.median(centroid_frames))
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Spectral centroid failed: {e}")
             return 2000.0
 
@@ -547,7 +548,7 @@ class AudioCalculations:
             rolloffs = f[idx[valid]]
 
             return float(np.median(rolloffs)) if len(rolloffs) else 8000.0
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Spectral rolloff failed: {e}")
             return 8000.0
 
@@ -588,7 +589,7 @@ class AudioCalculations:
             dr = 20.0 * np.log10(peak_max / (rms_avg + 1e-9))
             return float(np.clip(dr, 4.0, 30.0))
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Dynamic range calculation failed: {e}")
             return 12.0
 
@@ -642,7 +643,7 @@ class AudioCalculations:
             width = rms_side / total
             return float(np.clip(width, 0.0, 1.0))
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Stereo width calculation failed: {e}")
             return 0.5
 
@@ -669,7 +670,7 @@ class AudioCalculations:
 
             return float(rms_side / rms_mid)
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"MS energy ratio calculation failed: {e}")
             return 0.0
 
@@ -709,7 +710,7 @@ class AudioCalculations:
             weighted_coherence = float(np.sum(cxy * weight) / weight.sum())
             return float(np.clip(weighted_coherence, 0.0, 1.0))
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Channel coherence calculation failed: {e}")
             return 1.0
 
@@ -776,7 +777,7 @@ class AudioCalculations:
             # Clip to [0, 1] — values above ~2.0 are uncommon
             return float(np.clip(transient_score * 0.5, 0.0, 1.0))
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Transient strength calculation failed: {e}")
             return 0.1
 
@@ -819,7 +820,7 @@ class AudioCalculations:
                 np.clip(loudness_factor * 0.6 + brightness_factor * 0.4, 0.0, 1.0)
             )
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Energy calculation failed: {e}")
             return 0.5
 
@@ -888,7 +889,7 @@ class AudioCalculations:
                 )
             )
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Danceability calculation failed: {e}")
             return 0.5
 
@@ -942,7 +943,7 @@ class AudioCalculations:
                 )
             )
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Acousticness calculation failed: {e}")
             return 0.5
 
@@ -1013,7 +1014,7 @@ class AudioCalculations:
                 np.clip(noise_factor * 0.55 + variance_factor * 0.45, 0.0, 1.0)
             )
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Liveness calculation failed: {e}")
             return 0.2
 
@@ -1073,7 +1074,7 @@ class AudioCalculations:
                 )
             )
 
-        except Exception as e:
+        except (ValueError, TypeError) as e:
             logger.error(f"Valence calculation failed: {e}")
             return 0.5
 
@@ -1205,7 +1206,7 @@ class AudioCalculations:
             ltas = np.mean(mag, axis=1)
             ltas_db = 20.0 * np.log10(ltas + 1e-9)
             return f, ltas_db
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Long-term average spectrum calculation failed: {e}")
             return None, None
 
@@ -1392,7 +1393,7 @@ class AudioCalculations:
 
             return float(np.clip(quality * gates, 0.0, 1.0))
 
-        except Exception as e:
+        except (ValueError, ZeroDivisionError) as e:
             logger.error(f"Audiophile score calculation failed: {e}")
             return 0.0
 
@@ -1417,7 +1418,7 @@ class AudioCalculations:
                 self.audio_file_path, maxlength=120
             )
             return fingerprint.decode() if isinstance(fingerprint, bytes) else fingerprint, duration
-        except Exception as e:
+        except acoustid.AcoustidError as e:
             logger.warning(
                 f"Fingerprint calculation failed for {self.audio_file_path}: {e}"
             )
@@ -1503,10 +1504,12 @@ class AudioCalculations:
                 "acoustid_fingerprint": acoustid_fingerprint,
                 "acoustid_fingerprint_duration": acoustid_fingerprint_duration,
             }
-        except Exception as e:
-            logger.error(
-                f"run_all failed for {self.audio_file_path}: {e}", exc_info=True
-            )
+        except Exception:
+            # Intentional broad boundary catch: run_all() is the batch-processing
+            # entry point for one file (see class docstring) — every calculate_*
+            # method already narrows and self-defaults, so this only exists to
+            # guarantee a single bad file can never crash the whole batch.
+            logger.exception(f"run_all failed for {self.audio_file_path}")
             return self._safe_defaults()
         finally:
             self.release()

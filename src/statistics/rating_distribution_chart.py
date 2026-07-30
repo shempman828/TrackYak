@@ -8,6 +8,7 @@ Colors are theme-aware (matches the app's dark/light/colorful/accessibility
 QSS palettes) using the same lookup pattern as InfluenceGraphView.
 """
 
+import configparser
 from typing import Dict, Optional
 
 from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt
@@ -91,7 +92,7 @@ class RatingDistributionChart(QWidget):
         theme_name = None
         try:
             theme_name = app_config.get_display_theme()
-        except Exception as e:
+        except configparser.Error as e:
             logger.warning(f"Failed to get display theme, using default: {e}")
         (
             self._color_surface,

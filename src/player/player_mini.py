@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.asset_paths import icon
 from src.core.logger_config import logger
@@ -266,7 +267,7 @@ class MiniPlayerWindow(QWidget):
                         self.setWindowTitle(f"⏸ {track_name}")
                 else:
                     self._clear_track_info()
-            except Exception as e:
+            except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Error updating mini-player track info: {e}")
                 self._clear_track_info()
         else:

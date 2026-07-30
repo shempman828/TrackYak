@@ -1,4 +1,5 @@
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
@@ -142,7 +143,7 @@ class GenreTracksWindow(QDialog):
             self.track_count_label.setText(result_text)
             logger.debug(f"=== Track load completed: {result_text} ===")
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error loading tracks: {str(e)}")
             logger.exception("Full traceback:")
             self.track_count_label.setText("Error loading tracks")

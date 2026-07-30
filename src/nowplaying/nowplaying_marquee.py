@@ -101,7 +101,7 @@ class MarqueeLabel(QWidget):
             try:
                 r, g, b = int(nums[0]), int(nums[1]), int(nums[2])
                 a = int(float(nums[3]) * 255) if len(nums) > 3 else 255
-            except Exception:
+            except (ValueError, IndexError):
                 r, g, b, a = 180, 190, 240, 178
             c = QColor(r, g, b, a)
 

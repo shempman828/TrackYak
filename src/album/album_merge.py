@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.base_merge_dialog import MergeDBDialog
 from src.common.cancellable_worker import CancellableWorker
@@ -376,7 +377,7 @@ class AlbumMergeList(QDialog):
 
         try:
             albums = self.controller.get.get_all_entities("Album")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading albums: {e}")
             QMessageBox.critical(self, "Error", f"Could not load albums:\n{e}")
             return
@@ -556,7 +557,7 @@ class AlbumMergeDialog(MergeDBDialog):
             for disc in getattr(album, "discs", []) or []:
                 total += len(getattr(disc, "tracks", []) or [])
             return total
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error getting track count for album {entity_id}: {e}")
             return 0
 
@@ -641,6 +642,6 @@ class AlbumMerge:
                     f"source={source_id} target={target_id}"
                 )
             return bool(success)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"execute_merge failed: {e}")
             return False

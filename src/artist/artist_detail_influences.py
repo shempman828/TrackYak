@@ -7,6 +7,7 @@ from typing import Any, List
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.db.db_tables import Artist
 from src.core.logger_config import logger
@@ -87,7 +88,7 @@ class InfluencesWidget(QWidget):
                 "This artist hasn't been listed as an influence for any artists.",
             )
 
-        except Exception as e:
+        except (SQLAlchemyError, AttributeError) as e:
             logger.error(f"Error loading influences data: {e}")
 
     def display_artist_list(

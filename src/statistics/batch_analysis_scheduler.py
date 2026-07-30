@@ -13,6 +13,7 @@ import queue
 import threading
 
 from PySide6.QtCore import QObject, Signal
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.statistics.album_gain_peak import recompute_album_gain_peak
@@ -49,6 +50,9 @@ def _analyze_track_worker(
         metadata = calc.run_all()
         return track_id, metadata, None
     except Exception as e:
+        # Intentional broad boundary catch: runs in a worker process, so only
+        # picklable plain values may cross back — return the error as a string
+        # for the coordinator to log rather than raising into the pool machinery.
         return track_id, None, str(e)
 
 
@@ -257,7 +261,7 @@ class BatchAnalysisScheduler:
         for album_id in albums:
             try:
                 recompute_album_gain_peak(self.controller, album_id)
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Failed to recompute album gain/peak for album {album_id}: {e}")
         if albums:
             self.signals.albums_updated.emit(albums)
@@ -314,6 +318,10 @@ class BatchAnalysisScheduler:
         try:
             _, metadata, error = future.result()
         except Exception as e:
+            # Intentional broad boundary catch: covers worker-process failures
+            # (e.g. a crashed/broken process pool) that _analyze_track_worker
+            # itself can't hand back as a normal (track_id, metadata, error) tuple.
+            logger.exception(f"Worker process failure for track {track_id}")
             metadata, error = None, str(e)
 
         if error is not None or metadata is None:
@@ -324,7 +332,7 @@ class BatchAnalysisScheduler:
 
         try:
             self.controller.update.update_entity("Track", track_id, **metadata)
-        except Exception as e:
+        except SQLAlchemyError as e:
             msg = f"DB write failed for track {file_path} (id={track_id}): {e}"
             logger.error(msg, exc_info=True)
             self._on_track_error(track_id, msg)

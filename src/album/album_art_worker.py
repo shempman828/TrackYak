@@ -3,6 +3,8 @@ album_art_worker.py — background worker that resolves album-art cache
 misses for the album view's Art filter without blocking the UI thread.
 """
 
+import sqlite3
+
 from PySide6.QtCore import Signal
 
 from src.common.cancellable_worker import CancellableWorker
@@ -38,7 +40,7 @@ class ArtCacheWorker(CancellableWorker):
                 break
             try:
                 self._cache.get_dimensions(album, self._role)
-            except Exception as e:
+            except sqlite3.Error as e:
                 logger.warning(
                     f"ArtCacheWorker: get_dimensions failed for album "
                     f"{getattr(album, 'album_id', '?')}: {e}"

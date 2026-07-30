@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.entity_completer_edit import EntityCompleterEdit
 from src.core.logger_config import logger
@@ -68,7 +69,7 @@ def _fetch_all_artists(controller):
     """Fetch all artists for completer indexing."""
     try:
         return controller.get.get_all_entities("Artist") or []
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.warning(f"Could not fetch artists for completer: {e}")
         return []
 
@@ -445,7 +446,7 @@ class InfluencesTab(QWidget):
             )
             if refreshed:
                 self.artist = refreshed
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Could not reload artist: {e}")
         self.load(self.artist)
 
@@ -505,7 +506,7 @@ class InfluencesTab(QWidget):
                 self.add_bar.register_new_artist(
                     _artist_display(other), getattr(other, "artist_id", None)
                 )
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not find/create artist:\n{e}")
             return
 
@@ -522,7 +523,7 @@ class InfluencesTab(QWidget):
             self.controller.add.add_entity(
                 "ArtistInfluence", description=description, **kwargs
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not add influence:\n{e}")
             return
 
@@ -575,7 +576,7 @@ class InfluencesTab(QWidget):
                     influencer_id=influencer_id,
                     influenced_id=influenced_id,
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 errors.append(str(e))
         if errors:
             QMessageBox.critical(
@@ -620,7 +621,7 @@ class InfluencesTab(QWidget):
                 )
                 if swapped is None:
                     errors.append(r["name"])
-            except Exception as e:
+            except SQLAlchemyError as e:
                 errors.append(f'{r["name"]}: {e}')
 
         if skipped:
@@ -661,7 +662,7 @@ class InfluencesTab(QWidget):
                 influenced_id=influenced_id,
                 description=dialog.value(),
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not update description:\n{e}")
             return
         self._reload_and_refresh()

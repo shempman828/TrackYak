@@ -3,6 +3,8 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -295,7 +297,7 @@ class SamplesTab(_BaseTab):
             )
             if refreshed:
                 self.tracks[0] = refreshed
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Could not reload track: {e}")
         self.load(self.tracks)
 
@@ -325,7 +327,7 @@ class SamplesTab(_BaseTab):
             result = self.controller.add.add_entity("Samples", **kwargs)
             if result is None:
                 raise RuntimeError("add_entity returned None")
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Failed to add sample: {e}")
             QMessageBox.critical(self, "Error", f"Could not add sample:\n{e}")
             return
@@ -340,7 +342,7 @@ class SamplesTab(_BaseTab):
             )
             if not ok:
                 raise RuntimeError("delete_entity returned False")
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Failed to remove sample: {e}")
             QMessageBox.critical(self, "Error", f"Could not remove sample:\n{e}")
             return

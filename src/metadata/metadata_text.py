@@ -233,7 +233,7 @@ class TextMetadataExtractor:
             # 5. Process date mappings
             self._process_date_mappings(normalized_data)
 
-        except Exception as e:
+        except (KeyError, IndexError, re.error) as e:
             logger.error(f"Error processing metadata for {self.filepath}: {e}")
 
         return normalized_data
@@ -445,7 +445,7 @@ class TextMetadataExtractor:
                                 normalized_data, mapping["entity"], field_data
                             )
 
-        except Exception as e:
+        except KeyError as e:
             logger.warning(f"Error parsing date '{value}': {e}")
 
     def _get_tag_values(self, tag_key: str) -> List[str]:
@@ -485,7 +485,7 @@ class TextMetadataExtractor:
 
             self._add_to_entity(normalized_data, mapping["entity"], field_data)
 
-        except Exception as e:
+        except KeyError as e:
             logger.warning(
                 f"Error processing field {mapping['field']} with value '{value}': {e}"
             )

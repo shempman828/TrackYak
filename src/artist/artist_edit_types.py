@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.album_flowlayout import FlowLayout
 from src.artist.artist_type_manager import ArtistTypeManagerDialog
@@ -104,7 +105,7 @@ class ArtistTypesWidget(QWidget):
     def _fetch_known_types(self):
         try:
             return self.controller.get.get_all_entities("ArtistType") or []
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Could not fetch ArtistType for completer: {e}")
             return []
 
@@ -227,7 +228,7 @@ class ArtistTypesWidget(QWidget):
                     name,
                     self._known_types,
                 )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to find/create ArtistType: {e}")
             return
         if not entity:
@@ -244,7 +245,7 @@ class ArtistTypesWidget(QWidget):
                     }
                 ],
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to add type to artist: {e}")
             added = False
 
@@ -263,7 +264,7 @@ class ArtistTypesWidget(QWidget):
                 artist_id=self.artist.artist_id,
                 artist_type_id=artist_type_id,
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to remove type from artist: {e}")
             return
 

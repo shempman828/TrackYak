@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -325,7 +326,7 @@ class EntityAliasesTab(QWidget):
             aliases = self.controller.get.get_all_entities(
                 self.alias_model_name, **{self.id_field: self._entity_id()}
             )
-        except Exception:
+        except (AttributeError, SQLAlchemyError):
             logger.exception(
                 "EntityAliasesTab: failed to fetch %s for %s=%s",
                 self.alias_model_name,
@@ -447,7 +448,7 @@ class EntityAliasesTab(QWidget):
             kwargs[self.extra_field] = extra_value or None
         try:
             self.controller.add.add_entity(self.alias_model_name, **kwargs)
-        except Exception as exc:
+        except SQLAlchemyError as exc:
             logger.exception("EntityAliasesTab: failed to add alias %r", alias_name)
             QMessageBox.critical(self, "Error", f"Could not add alias:\n{exc}")
             return
@@ -500,7 +501,7 @@ class EntityAliasesTab(QWidget):
             return
         try:
             self.controller.delete.delete_entity(self.alias_model_name, alias_id)
-        except Exception as exc:
+        except SQLAlchemyError as exc:
             logger.exception("EntityAliasesTab: failed to delete alias_id=%s", alias_id)
             QMessageBox.critical(self, "Error", f"Could not delete alias:\n{exc}")
             return

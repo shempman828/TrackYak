@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.entity_completer_edit import find_or_create_by_name
 from src.common.match_confidence import confidence_color, confidence_label
@@ -243,7 +244,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                         disc_number=num,
                         disc_title=mbt.disc_title,
                     )
-                except Exception as e:
+                except SQLAlchemyError as e:
                     logger.warning(f"Could not create Disc {num}: {e}")
                     continue
             self._disc_by_number[num] = disc
@@ -279,7 +280,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         if kwargs:
             try:
                 self.controller.update.update_entity("Track", track.track_id, **kwargs)
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.warning(f"Could not update track {track.track_id}: {e}")
 
     # ------------------------------------------------------------------
@@ -453,7 +454,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                     alias_name=alias.name,
                     alias_type=alias.type or None,
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.warning(f"Could not import album alias '{alias.name}': {e}")
 
         known_roles = self.controller.get.get_all_entities("Role") or []
@@ -515,7 +516,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                 artist_id=artist.artist_id,
                 role_id=role.role_id,
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(
                 f"Could not import credit '{credit.artist_name} — "
                 f"{credit.role_name}' on track {track.track_id}: {e}"
@@ -556,5 +557,5 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                         assoc_type.association_type_id if assoc_type else None
                     ),
                 )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Could not import recording location: {e}")

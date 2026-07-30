@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -273,7 +274,7 @@ class MapView(QWidget):
             # Reload places with current filter
             self.load_places()
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error refreshing place types: {str(e)}")
             QMessageBox.warning(self, "Error", "Failed to refresh place types")
 
@@ -292,7 +293,7 @@ class MapView(QWidget):
                     if data.get("type") == "viewAssociations":
                         place_id = data.get("placeId")
                         self.map_view.show_associations_for_place(place_id)
-                except Exception as e:
+                except json.JSONDecodeError as e:
                     logger.error(f"Error handling JS message: {str(e)}")
 
         self.bridge = Bridge(self)
@@ -381,7 +382,7 @@ class MapView(QWidget):
             # Always generate map with the filtered list
             self.generate_map(filtered_places)
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to load places: {str(e)}", exc_info=True)
 
     def generate_map(self, places: List[Dict]):
@@ -423,7 +424,7 @@ class MapView(QWidget):
                 f"(filter: {len(self.selected_types)} types selected)"
             )
 
-        except Exception as e:
+        except (KeyError, RuntimeError) as e:
             logger.error(f"Map generation failed: {str(e)}", exc_info=True)
             self.show_fallback_map()
 
@@ -440,7 +441,7 @@ class MapView(QWidget):
             try:
                 with open(template_path, "r", encoding="utf-8") as f:
                     template = f.read()
-            except Exception as e:
+            except OSError as e:
                 logger.error(f"Failed to load HTML template: {str(e)}")
                 template = self._get_fallback_template()
         else:
@@ -608,7 +609,7 @@ class MapView(QWidget):
             else:
                 logger.error(f"Place with ID {place_id} not found")
                 show_status_message(self, f"Place with ID {place_id} not found")
-        except Exception as e:
+        except (SQLAlchemyError, ValueError, TypeError, RuntimeError) as e:
             logger.error(f"Error showing associations: {str(e)}")
             QMessageBox.critical(
                 self, "Error", f"Failed to show associations: {str(e)}"

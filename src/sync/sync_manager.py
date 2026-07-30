@@ -182,7 +182,7 @@ class SyncManager:
             shutil.copy2(source_path, dest_path)
             logger.debug(f"Copied: {source_path} → {dest_path}")
             return True, "copied"
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error copying {source_path}: {e}")
             return False, "error"
 
@@ -255,7 +255,7 @@ class SyncManager:
         try:
             with open(m3u_path, "w", encoding="utf-8") as f:
                 f.write(m3u_content)
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Failed to write M3U: {e}")
 
         return {

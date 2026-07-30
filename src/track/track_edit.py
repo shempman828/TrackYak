@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Union
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -194,6 +196,10 @@ class TrackEditDialog(QDialog):
             tab = factory()
             tab.load(self.tracks)
         except Exception as e:
+            # Intentional broad boundary catch: dispatches to 18 heterogeneous
+            # tab classes (DB reads, dict/attr access, UI construction) via the
+            # shared _BaseTab interface -- a bug in any one tab must not block
+            # the whole edit dialog from opening.
             logger.error(
                 f"Error building/loading tab at row {row}: {e}", exc_info=True
             )
@@ -220,6 +226,10 @@ class TrackEditDialog(QDialog):
             try:
                 tab.refresh_values(self.tracks)
             except Exception as e:
+                # Intentional broad boundary catch: refresh_values is
+                # overridden differently by each of the 18 tab classes -- a
+                # bug in one tab's refresh must not stop the rest from
+                # picking up the new analysis values.
                 logger.error(
                     f"Error refreshing tab {type(tab).__name__}: {e}", exc_info=True
                 )
@@ -237,7 +247,11 @@ class TrackEditDialog(QDialog):
                     changes = tab.collect_changes()
                     all_changes.update(changes)
                 except Exception as e:
-                    logger.error(
+                    # Intentional broad boundary catch: collect_changes is
+                    # overridden differently by each of the 18 tab classes --
+                    # a bug in one tab's collection must not prevent saving
+                    # the changes already gathered from the others.
+                    logger.exception(
                         f"Error collecting changes from {type(tab).__name__}: {e}"
                     )
 
@@ -254,7 +268,7 @@ class TrackEditDialog(QDialog):
             self.field_modified.emit()
             self.accept()
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error saving track(s): {e}", exc_info=True)
             QMessageBox.critical(self, "Save Error", f"Failed to save:\n{e}")
 
@@ -267,7 +281,11 @@ class TrackEditDialog(QDialog):
             try:
                 tab.cleanup()
             except Exception as e:
-                logger.error(f"Error cleaning up tab {type(tab).__name__}: {e}")
+                # Intentional broad boundary catch: shutdown/cleanup code for
+                # 18 heterogeneous tab classes (some tear down background
+                # QThreads) -- one tab failing to clean up must not stop the
+                # rest from releasing their resources while the dialog closes.
+                logger.exception(f"Error cleaning up tab {type(tab).__name__}: {e}")
         super().closeEvent(event)
 
 

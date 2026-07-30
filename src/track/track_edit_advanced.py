@@ -139,7 +139,7 @@ class AdvancedTab(_BaseTab):
             lines = [f"{field}: {value}" for field, value in values.items()]
             QApplication.clipboard().setText("\n".join(lines))
             logger.info(f"AdvancedTab: copied {len(lines)} field(s) to clipboard")
-        except Exception as e:
+        except (RuntimeError, ValueError, TypeError) as e:
             logger.error(f"AdvancedTab clipboard copy failed: {e}", exc_info=True)
             QMessageBox.critical(self, "Copy Error", f"Failed to copy:\n{e}")
 
@@ -190,7 +190,7 @@ class AdvancedTab(_BaseTab):
                     lines.append(f"  {track.track_name}: {result['message']}")
             show_status_message(self, "\n".join(lines))
 
-        except Exception as e:
+        except RuntimeError as e:
             logger.error(f"AdvancedTab write metadata failed: {e}", exc_info=True)
             QMessageBox.critical(self, "Write Metadata Error", f"Failed to write:\n{e}")
 

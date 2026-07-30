@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -89,7 +90,7 @@ class DraggableTreeWidget(QTreeWidget):
             if self.list_view.parent_view:
                 self.list_view.parent_view.refresh_views()
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Failed to update parent: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to update parent place")
             # Refresh to revert visual changes if the DB update failed
@@ -399,7 +400,7 @@ class ListView(QWidget):
                 if self.parent_view:
                     self.parent_view.refresh_views()
                 logger.info("Place created successfully")
-            except Exception as e:
+            except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Failed to create place: {str(e)}")
                 QMessageBox.critical(self, "Error", "Failed to create place")
 
@@ -415,7 +416,7 @@ class ListView(QWidget):
                 if self.parent_view:
                     self.parent_view.refresh_views()
                 logger.info("Place updated successfully")
-            except Exception as e:
+            except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Failed to update place: {str(e)}")
                 QMessageBox.critical(self, "Error", "Failed to update place")
 
@@ -458,7 +459,7 @@ class ListView(QWidget):
             if self.parent_view:
                 self.parent_view.refresh_views()
             logger.info("New parent place created and linked successfully.")
-        except Exception as e:
+        except (SQLAlchemyError, ValueError, RuntimeError) as e:
             logger.error(f"Failed to create new parent place: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to create new parent place")
 
@@ -483,7 +484,7 @@ class ListView(QWidget):
             if self.parent_view:
                 self.parent_view.refresh_views()
             logger.info("New child place created and linked successfully.")
-        except Exception as e:
+        except (SQLAlchemyError, ValueError, RuntimeError) as e:
             logger.error(f"Failed to create new child place: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to create new child place")
 
@@ -525,7 +526,7 @@ class ListView(QWidget):
         for place in places:
             try:
                 self.controller.delete.delete_entity("Place", place.place_id)
-            except Exception as e:
+            except SQLAlchemyError as e:
                 errors.append(place.place_name)
                 logger.error(f"Failed to delete place '{place.place_name}': {str(e)}")
 

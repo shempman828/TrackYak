@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -148,7 +149,7 @@ class AddInfluenceDialog(QDialog):
             # Store the newly created artist
             self.created_artists.append((new_artist_id, artist_name))
             return new_artist_id, True  # True = newly created
-        except Exception as e:
+        except SQLAlchemyError as e:
             raise Exception(f"Failed to create new artist '{artist_name}': {str(e)}")
 
     def add_influence(self):
@@ -192,6 +193,11 @@ class AddInfluenceDialog(QDialog):
             self.accept()
 
         except Exception as e:
+            # Intentional broad boundary catch: get_or_create_artist_id() above
+            # re-raises DB failures as a plain Exception (not a specific
+            # subclass), so this Qt button-click slot must catch the base
+            # type to avoid crashing the app instead of showing this dialog.
+            logger.exception("Failed to add influence")
             QMessageBox.critical(self, "Error", f"Failed to add influence: {str(e)}")
 
     def get_created_artists(self):
@@ -332,6 +338,6 @@ class RemoveInfluenceDialog(QDialog):
                 else:
                     QMessageBox.critical(self, "Error", "Failed to remove relationship")
 
-        except Exception as e:
+        except (SQLAlchemyError, KeyError) as e:
             logger.error(f"Error removing influence: {e}")
             QMessageBox.critical(self, "Error", f"Failed to remove: {str(e)}")

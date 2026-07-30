@@ -81,7 +81,7 @@ class SmartPlaylistBuilder:
 
             return success
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error refreshing smart playlist {playlist_id}: {e}")
             return False
 
@@ -388,10 +388,10 @@ class SmartPlaylistBuilder:
             # Rollback on error
             try:
                 self.controller.get.session.rollback()
-            except:
-                pass
+            except SQLAlchemyError as rollback_exc:
+                logger.error(f"Rollback failed after playlist update error: {rollback_exc}")
             return False
-        except Exception as e:
+        except (ImportError, TypeError) as e:
             logger.error(f"Error updating playlist tracks: {e}")
             return False
 
@@ -403,7 +403,7 @@ class SmartPlaylistBuilder:
                 entity_id=playlist_id,
                 last_refreshed=datetime.datetime.now(),
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(
                 f"Could not update last_refreshed for playlist {playlist_id}: {e}"
             )

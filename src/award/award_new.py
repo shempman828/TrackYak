@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 
@@ -144,7 +145,7 @@ class AddAwardDialog(QDialog):
                 if award.award_category:
                     display_text += f" - {award.award_category}"
                 self.parent_award_combo.addItem(display_text, award.award_id)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading parent awards: {e}")
 
     def validate_form(self):
@@ -212,7 +213,7 @@ class AddAwardDialog(QDialog):
             else:
                 QMessageBox.critical(self, "Error", "Failed to create award.")
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error creating award: {e}")
             QMessageBox.critical(
                 self, "Error", f"An error occurred while creating the award:\n{str(e)}"

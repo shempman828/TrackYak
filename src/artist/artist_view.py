@@ -3,6 +3,7 @@
 import webbrowser
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
 from PySide6.QtCore import Qt
@@ -208,7 +209,7 @@ class ArtistView(QWidget):
 
             self._apply_filters()
 
-        except Exception as e:
+        except (SQLAlchemyError, AttributeError) as e:
             QMessageBox.critical(self, "Error", f"Failed to load artists: {e}")
 
     def _apply_filters(self):
@@ -262,7 +263,7 @@ class ArtistView(QWidget):
                 artists = sorted(
                     artists, key=lambda a: counts.get(a.artist_id, 0), reverse=True
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.warning(f"Track-count sort failed: {e}")
         else:
             sort_key = next(
@@ -276,7 +277,7 @@ class ArtistView(QWidget):
             reverse = self._SORT_REVERSED.get(sort_label, False)
             try:
                 artists = sorted(artists, key=sort_key, reverse=reverse)
-            except Exception as e:
+            except AttributeError as e:
                 logger.warning(f"Sort failed: {e}")
 
         self._populate_list(artists)
@@ -477,7 +478,7 @@ class ArtistView(QWidget):
                 f"(id={artist.artist_id})"
             )
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(
                 f"Error displaying tracks for artist {artist.artist_id}: {e}",
                 exc_info=True,
@@ -506,7 +507,7 @@ class ArtistView(QWidget):
                 if track and track.track_id not in seen_ids:
                     seen_ids.add(track.track_id)
                     tracks.append(track)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Error fetching track-level credits: {e}")
 
         try:
@@ -521,7 +522,7 @@ class ArtistView(QWidget):
                     if track.track_id not in seen_ids:
                         seen_ids.add(track.track_id)
                         tracks.append(track)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Error fetching album-level credits: {e}")
 
         return tracks
@@ -536,7 +537,7 @@ class ArtistView(QWidget):
             dialog = ArtistEditor(self.controller, parent=self)
             if dialog.exec_() == QDialog.Accepted:
                 self.load_artists()
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Failed to open artist editor: {e}")
 
     def add_new_group(self):
@@ -545,7 +546,7 @@ class ArtistView(QWidget):
             dialog = AddGroupDialog(self.controller, parent=self)
             if dialog.exec_() == QDialog.Accepted:
                 self.load_artists()
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Failed to open group dialog: {e}")
 
     def _edit_artist(self, artist):
@@ -555,7 +556,7 @@ class ArtistView(QWidget):
             if dialog.exec_() == QDialog.Accepted:
                 self.load_artists()
                 self._on_artist_selected()
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Failed to open artist editor: {e}")
 
     def _add_member(self, group_artist):
@@ -564,7 +565,7 @@ class ArtistView(QWidget):
             dialog = AddMemberDialog(self.controller, group_artist, parent=self)
             if dialog.exec_() == QDialog.Accepted:
                 self._on_artist_selected()
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Failed to add member: {e}")
 
     def _add_to_group(self, artist):
@@ -592,7 +593,7 @@ class ArtistView(QWidget):
                         member_id=artist.artist_id,
                     )
                     self._on_artist_selected()
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Failed to add to group: {e}")
 
     def _convert_to_group(self, artist):
@@ -610,7 +611,7 @@ class ArtistView(QWidget):
                     "Artist", artist.artist_id, isgroup=1
                 )
                 self.load_artists()
-            except Exception as e:
+            except SQLAlchemyError as e:
                 QMessageBox.critical(self, "Error", f"Failed to convert: {e}")
 
     def _convert_to_individual(self, artist):
@@ -628,7 +629,7 @@ class ArtistView(QWidget):
                     "Artist", artist.artist_id, isgroup=0
                 )
                 self.load_artists()
-            except Exception as e:
+            except SQLAlchemyError as e:
                 QMessageBox.critical(self, "Error", f"Failed to convert: {e}")
 
     def _split_artist(self, artist):
@@ -661,7 +662,7 @@ class ArtistView(QWidget):
 
             if dialog.exec_() == QDialog.Accepted:
                 self.load_artists()
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Failed to open merge dialog: {e}")
 
     def _delete_artist(self, artist):
@@ -679,7 +680,7 @@ class ArtistView(QWidget):
                     "Artist", artist_id=artist.artist_id
                 )
                 self.load_artists()
-            except Exception as e:
+            except SQLAlchemyError as e:
                 QMessageBox.critical(self, "Error", f"Failed to delete artist: {e}")
 
     def _add_award(self, artist):
@@ -688,7 +689,7 @@ class ArtistView(QWidget):
             dialog = AddAwardDialog(self.controller, "Artist", artist.artist_id, self)
             if dialog.exec_() == QDialog.Accepted:
                 self._on_artist_selected()
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Failed to add award: {e}")
 
     def _add_place(self, artist):
@@ -713,7 +714,7 @@ class ArtistView(QWidget):
                         if assoc_type
                         else None,
                     )
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Failed to add place: {e}")
 
     # ----------------------------
@@ -800,7 +801,7 @@ class ArtistView(QWidget):
             all_artists = self.controller.get.get_all_entities("Artist")
             linked_ids = self._get_linked_artist_ids()
             orphans = [a for a in all_artists if a.artist_id not in linked_ids]
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Failed to scan for unused artists: {e}")
             return
 
@@ -850,7 +851,7 @@ class ArtistView(QWidget):
         # --- Load artists up front (fast DB call) ---
         try:
             artists = self.controller.get.get_all_entities("Artist")
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Failed to load artists: {e}")
             return
 

@@ -177,6 +177,12 @@ def search_artists(name: str, limit: int = 25) -> List[MBCandidate]:
         # and misses alias-only matches.
         result = musicbrainzngs.search_artists(_escape_lucene(name), limit=limit)
     except Exception as e:
+        # Intentional broad boundary catch: musicbrainzngs has no single
+        # exception hierarchy covering every failure mode it can raise
+        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
+        # errors) — wrap all of them into this module's MusicBrainzLookupError
+        # so every caller elsewhere in the codebase only ever has to catch
+        # one type.
         raise MusicBrainzLookupError(str(e)) from e
 
     candidates = []
@@ -218,6 +224,12 @@ def _fetch_full_artist(mbid: str) -> Dict[str, Any]:
             mbid, includes=["url-rels", "aliases", "artist-rels"]
         )
     except Exception as e:
+        # Intentional broad boundary catch: musicbrainzngs has no single
+        # exception hierarchy covering every failure mode it can raise
+        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
+        # errors) — wrap all of them into this module's MusicBrainzLookupError
+        # so every caller elsewhere in the codebase only ever has to catch
+        # one type.
         raise MusicBrainzLookupError(str(e)) from e
     return result.get("artist", {})
 
@@ -546,6 +558,12 @@ def search_canonical_releases(
     try:
         result = musicbrainzngs.search_releases(_escape_lucene(album_name), **kwargs)
     except Exception as e:
+        # Intentional broad boundary catch: musicbrainzngs has no single
+        # exception hierarchy covering every failure mode it can raise
+        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
+        # errors) — wrap all of them into this module's MusicBrainzLookupError
+        # so every caller elsewhere in the codebase only ever has to catch
+        # one type.
         raise MusicBrainzLookupError(str(e)) from e
 
     releases = result.get("release-list", [])
@@ -642,6 +660,12 @@ def fetch_release_detail(
             ],
         )
     except Exception as e:
+        # Intentional broad boundary catch: musicbrainzngs has no single
+        # exception hierarchy covering every failure mode it can raise
+        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
+        # errors) — wrap all of them into this module's MusicBrainzLookupError
+        # so every caller elsewhere in the codebase only ever has to catch
+        # one type.
         raise MusicBrainzLookupError(str(e)) from e
 
     release = result.get("release", {})
@@ -746,6 +770,12 @@ def fetch_release_group_aliases(release_group_mbid: str) -> List[MBAlias]:
             release_group_mbid, includes=["aliases"]
         )
     except Exception as e:
+        # Intentional broad boundary catch: musicbrainzngs has no single
+        # exception hierarchy covering every failure mode it can raise
+        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
+        # errors) — wrap all of them into this module's MusicBrainzLookupError
+        # so every caller elsewhere in the codebase only ever has to catch
+        # one type.
         raise MusicBrainzLookupError(str(e)) from e
 
     aliases = []
@@ -777,6 +807,12 @@ def resolve_area_chain(
     try:
         result = musicbrainzngs.get_area_by_id(area_mbid, includes=["area-rels"])
     except Exception as e:
+        # Intentional broad boundary catch: musicbrainzngs has no single
+        # exception hierarchy covering every failure mode it can raise
+        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
+        # errors) — wrap all of them into this module's MusicBrainzLookupError
+        # so every caller elsewhere in the codebase only ever has to catch
+        # one type.
         raise MusicBrainzLookupError(str(e)) from e
 
     area = result.get("area", {})
@@ -836,6 +872,12 @@ def search_recordings(
     try:
         result = musicbrainzngs.search_recordings(_escape_lucene(track_name), **kwargs)
     except Exception as e:
+        # Intentional broad boundary catch: musicbrainzngs has no single
+        # exception hierarchy covering every failure mode it can raise
+        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
+        # errors) — wrap all of them into this module's MusicBrainzLookupError
+        # so every caller elsewhere in the codebase only ever has to catch
+        # one type.
         raise MusicBrainzLookupError(str(e)) from e
 
     candidates = []
@@ -873,6 +915,12 @@ def complete_recording_enrichment(candidate: MBCandidate) -> MBCandidate:
     try:
         result = musicbrainzngs.get_recording_by_id(candidate.id, includes=["isrcs"])
     except Exception as e:
+        # Intentional broad boundary catch: same musicbrainzngs failure-mode
+        # coverage as the wrap-and-reraise sites elsewhere in this module
+        # (network/XML/HTTP/auth errors, no single hierarchy) — but this
+        # call is a best-effort follow-up (see docstring), so any failure
+        # just returns the candidate as-is instead of raising
+        # MusicBrainzLookupError.
         logger.warning(f"MusicBrainz recording ISRC lookup failed for {candidate.id}: {e}")
         return candidate
 

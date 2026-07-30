@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_fuzzy_match import FuzzyMatchDialog, _normalise
 from src.core.logger_config import logger
@@ -108,7 +109,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
             return {}
         try:
             all_artists = self.controller.get.get_all_entities("Artist") or []
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Could not load artists for alias merge check: {e}")
             return {}
 
@@ -144,7 +145,8 @@ class ArtistEnrichmentReviewDialog(QDialog):
                 )
                 or []
             )
-        except Exception:
+        except SQLAlchemyError as e:
+            logger.warning(f"Could not load existing place associations: {e}")
             assocs = []
         return {a.association_type.type_name for a in assocs if a.association_type}
 
@@ -329,7 +331,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
                     alias_name=alias.name,
                     alias_type=alias.type or None,
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.warning(f"Could not import MB alias '{alias.name}': {e}")
 
         place_cache: Dict[str, Any] = {}
@@ -357,7 +359,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
                     active_end_year=rel.end_year,
                     is_current=1 if rel.is_current else 0,
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.warning(
                     f"Could not import group membership with '{counterpart.artist_name}': {e}"
                 )
@@ -402,5 +404,5 @@ class ArtistEnrichmentReviewDialog(QDialog):
                 if assoc_type_obj
                 else None,
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Could not import {assoc_type} '{place_name}': {e}")

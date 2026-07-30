@@ -1,4 +1,5 @@
 from PySide6.QtWidgets import QDialog, QMenu, QMessageBox
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.album_delete_dialog import DeleteEmptyAlbumsDialog
 from src.album.album_merge import AlbumMerge
@@ -125,7 +126,7 @@ class AlbumContextMenuMixin:
             return [
                 t for t in all_tracks if getattr(t, "album_id", None) == album.album_id
             ]
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to fetch tracks for album {album.album_id}: {e}")
             return []
 
@@ -180,7 +181,7 @@ class AlbumContextMenuMixin:
             # Open the detail view immediately so the user can fill it in
             self._show_album_details(new_album)
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.exception("Failed to create album")
             QMessageBox.critical(self, "Error", f"Could not create album:\n{e}")
 
@@ -211,7 +212,7 @@ class AlbumContextMenuMixin:
             self.controller.delete.delete_entity("Album", album.album_id)
             logger.info(f"Deleted album: {name} (id={album.album_id})")
             self.load_albums()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.exception("Failed to delete album")
             QMessageBox.critical(self, "Error", f"Could not delete album:\n{e}")
 
@@ -234,12 +235,12 @@ class AlbumContextMenuMixin:
                 try:
                     self.controller.delete.delete_entity("Album", album.album_id)
                     deleted += 1
-                except Exception as e:
+                except SQLAlchemyError as e:
                     logger.warning(f"Failed to delete album {album.album_name}: {e}")
 
             show_status_message(self, f"Deleted {deleted} empty album(s).")
             self.load_albums()
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.exception("Failed to delete empty albums")
             QMessageBox.critical(self, "Error", f"Failed to delete empty albums:\n{e}")

@@ -1,3 +1,5 @@
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.common.base_merge_dialog import MergeDBDialog
 from src.core.logger_config import logger
 
@@ -38,7 +40,7 @@ class GenreMergeDialog(MergeDBDialog):
             # Refresh button states (e.g. enable Next if both sides are filled)
             self._update_action_buttons()
 
-        except Exception as e:
+        except RuntimeError as e:
             logger.error(f"Error pre-populating source genre: {str(e)}")
 
     def _get_related_count(self, genre_id):
@@ -48,6 +50,6 @@ class GenreMergeDialog(MergeDBDialog):
                 "TrackGenre", genre_id=genre_id
             )
             return len(track_genres)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error getting track count for genre {genre_id}: {str(e)}")
             return 0

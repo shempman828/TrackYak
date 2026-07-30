@@ -6,6 +6,7 @@ text for TrackView.
 from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtGui import QStandardItem
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.db.db_tables import Album, Artist, Disc, Role, TrackArtistRole
@@ -134,6 +135,9 @@ class TrackLookupCacheWorker(QObject):
             caches = _fetch_lookup_caches(self.controller.get.session)
             self.finished.emit(*caches)
         except Exception as e:
+            # Intentional broad boundary catch: this runs on a background thread
+            # and must not let an exception be lost silently.
+            logger.exception("Failed to load track view lookup caches")
             self.error.emit(str(e))
 
 
@@ -160,7 +164,7 @@ class TrackViewDataMixin:
                 logger.info(
                     f"Fetched {len(self._all_tracks):,} tracks from DB (one-time)."
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Error fetching tracks: {e}")
                 self._all_tracks = []
 

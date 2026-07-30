@@ -61,7 +61,7 @@ class RawTagExtractor:
 
         try:
             return handler(data)
-        except Exception as e:
+        except AttributeError as e:
             logger.warning(f"Error extracting raw tags: {e}")
             return {}
 
@@ -90,7 +90,7 @@ class RawTagExtractor:
             if len(data) >= 128 and data[-128:-125] == b"TAG":
                 raw_tags.update(self._parse_id3v1_tags(data[-128:]))
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting raw ID3 tags: {e}")
 
         return raw_tags
@@ -157,7 +157,7 @@ class RawTagExtractor:
                         raw_tags[storage_key] = []
                     raw_tags[storage_key].append(identifier)
 
-                except Exception as e:
+                except AttributeError as e:
                     logger.debug(f"Error parsing UFID frame: {e}")
             elif frame_id == "TXXX":
                 # TXXX structure: encoding(1) + description(variable) + \x00[\x00] + value
@@ -202,7 +202,7 @@ class RawTagExtractor:
                         raw_tags[storage_key] = []
                     raw_tags[storage_key].append(value)
 
-                except Exception as e:
+                except AttributeError as e:
                     logger.debug(f"Error parsing TXXX frame: {e}")
             else:
                 value = self._decode_id3_text(frame_content)
@@ -248,7 +248,7 @@ class RawTagExtractor:
                 return text_data.decode("utf-8", errors="ignore").strip("\x00")
             else:
                 return text_data.decode("latin-1", errors="ignore").strip("\x00")
-        except:  # noqa: E722
+        except (IndexError, TypeError):
             return data.decode("latin-1", errors="ignore").strip("\x00")
 
     def _strip_null(self, text):
@@ -289,7 +289,7 @@ class RawTagExtractor:
 
                     raw_tags[key_upper].append(value)
 
-        except Exception as e:
+        except struct.error as e:
             logger.warning(f"Error parsing raw Vorbis comments: {e}")
 
         return raw_tags
@@ -322,7 +322,7 @@ class RawTagExtractor:
 
             logger.debug(f"Raw FLAC tags extracted: {raw_tags}")
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting raw FLAC tags: {e}")
 
         return raw_tags
@@ -347,7 +347,7 @@ class RawTagExtractor:
             elif comment_packet[0:8] == b"OpusTags":
                 raw_tags.update(self._parse_vorbis_comments(comment_packet[8:]))
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting raw Ogg tags: {e}")
 
         return raw_tags
@@ -409,7 +409,7 @@ class RawTagExtractor:
                 key = atom_type.decode("latin-1", errors="ignore")
                 raw_tags.setdefault(key, []).append(value)
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting raw MP4/M4A tags: {e}")
 
         return raw_tags
@@ -496,7 +496,7 @@ class RawTagExtractor:
                     # RIFF chunks are padded to an even byte boundary.
                     pos += 8 + chunk_size + (chunk_size & 1)
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting raw WAV tags: {e}")
 
         return raw_tags
@@ -548,7 +548,7 @@ class RawTagExtractor:
                     # IFF/AIFF chunks are padded to an even byte boundary.
                     pos += 8 + chunk_size + (chunk_size & 1)
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting raw AIFF tags: {e}")
 
         return raw_tags

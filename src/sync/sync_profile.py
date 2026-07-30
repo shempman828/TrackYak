@@ -96,7 +96,7 @@ class SyncProfileStore:
             with open(self.profiles_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return [SyncProfile.from_dict(d) for d in data]
-        except Exception as e:
+        except (OSError, json.JSONDecodeError) as e:
             logger.error(f"Failed to load sync profiles: {e}")
             return []
 
@@ -105,5 +105,5 @@ class SyncProfileStore:
             self.profiles_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.profiles_path, "w", encoding="utf-8") as f:
                 json.dump([p.to_dict() for p in profiles], f, indent=2)
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Failed to save sync profiles: {e}")

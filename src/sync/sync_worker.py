@@ -78,7 +78,10 @@ class SyncWorker(CancellableWorker):
             self.finished.emit(self.results)
 
         except Exception as e:
-            logger.error(f"SyncWorker error: {e}")
+            # Intentional broad boundary catch: this is a QThread run() loop
+            # and must not let an exception kill the thread silently — surface
+            # it to the UI instead.
+            logger.exception("SyncWorker error")
             StatusManager.end_task(f"Sync error: {str(e)}", 5000)
             self.finished.emit([])
 

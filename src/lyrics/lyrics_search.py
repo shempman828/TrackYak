@@ -1,4 +1,5 @@
 from json import JSONDecodeError
+from urllib.error import URLError
 
 import lyriq
 from PySide6.QtCore import QObject, QThread, Signal
@@ -87,7 +88,7 @@ class LyricSearch:
                 "Lyrics API returned an empty/non-JSON response; treating as not found"
             )
             return None
-        except Exception as e:
+        except URLError as e:
             logger.error(f"Error searching for lyrics: {e}")
             return None
 
@@ -126,7 +127,7 @@ class LyricSearch:
             logger.debug(
                 "Lyrics API returned an empty/non-JSON response; treating as not found"
             )
-        except Exception as e:
+        except URLError as e:
             logger.error(f"Fallback search failed: {e}")
 
         return None
@@ -168,7 +169,12 @@ class _LyricWorker(QObject):
                 self.lyrics_not_found.emit()
 
         except Exception as e:
-            logger.error(f"LyricWorker unhandled exception: {e}")
+            # Intentional broad boundary catch: this is the entry point of a
+            # QThread worker (see class docstring) — LyricSearch already
+            # narrows and self-defaults for known lyrics-API failure modes,
+            # so this only exists to guarantee an unexpected bug here can't
+            # kill the thread silently; report it to the UI instead.
+            logger.exception("LyricWorker unhandled exception")
             self.error_occurred.emit(str(e))
 
 

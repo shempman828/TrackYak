@@ -10,6 +10,7 @@ from typing import Any, ClassVar
 
 import psutil
 from PySide6.QtCore import Signal
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
 from src.core.config_setup import app_config
@@ -124,14 +125,14 @@ class TrackImporter:
                 self._process_playlist_tags(track, metadata)
 
                 session.commit()
-            except Exception:
+            except (SQLAlchemyError, RuntimeError):
                 session.rollback()
                 raise
 
             logger.info(f"Successfully imported track: {track.track_name}")
             return ImportResult.IMPORTED
 
-        except Exception as e:
+        except (OSError, SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error importing track {file_path}: {e!s}", exc_info=True)
             return ImportResult.FAILED
 
@@ -252,7 +253,7 @@ class TrackImporter:
             logger.debug(f"Created new artist: {artist_name}")
             return new_artist
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error creating artist {artist_name}: {e}")
             return None
 
@@ -341,7 +342,7 @@ class TrackImporter:
 
             return track
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error creating track: {e}", exc_info=True)
             return None
 
@@ -398,7 +399,7 @@ class TrackImporter:
                     logger.debug(
                         f"Created {role_name} relationship: {artist.artist_name} -> {track.track_name}"
                     )
-                except Exception as e:
+                except SQLAlchemyError as e:
                     logger.error(
                         f"Error creating {role_name} relationship for "
                         f"{artist.artist_name}: {e}"
@@ -468,7 +469,7 @@ class TrackImporter:
             for playlist_name in playlist_names:
                 self._add_track_to_playlist_by_name(track, playlist_name)
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(
                 f"Error processing playlist tags for track {track.track_id}: {e}",
                 exc_info=True,
@@ -538,7 +539,7 @@ class TrackImporter:
                 f"Added '{track.track_name}' to playlist '{playlist_name}' at position {next_position}"
             )
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(
                 f"Error adding track to playlist '{playlist_name}': {e}",
                 exc_info=True,
@@ -599,7 +600,7 @@ class TrackImporter:
                 logger.debug(
                     f"Created genre relationship: {genre_name} -> {track.track_name}"
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(
                     f"Error creating genre relationship for '{genre_name}': {e}"
                 )
@@ -636,7 +637,7 @@ class TrackImporter:
             for file_path in directory.rglob("*"):
                 if self._should_process_file(file_path):
                     audio_files.add(str(file_path))
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error scanning directory {directory}: {e}", exc_info=True)
             return []
 
@@ -720,8 +721,10 @@ class ImportWorker(CancellableWorker):
             logger.info(f"Import completed: {successful_imports} successful imports")
             self.finished.emit(successful_imports)
         except Exception as e:
+            # Intentional broad boundary catch: this is a QThread run() loop
+            # and must not let an exception kill the worker thread silently.
             error_msg = f"Import worker failed: {e!s}"
-            logger.error(error_msg)
+            logger.exception(error_msg)
             self.error_occurred.emit(error_msg)
 
     def _process_all_files(self) -> int:
@@ -784,8 +787,12 @@ class ImportWorker(CancellableWorker):
             logger.error(error_msg)
             self.error_occurred.emit(error_msg)
         except Exception as e:
+            # Intentional broad boundary catch: this is the per-file loop
+            # body for a bulk import — one bad file must not abort the
+            # whole batch, so any unexpected failure here is logged and
+            # counted as a skip rather than propagating out of the loop.
             error_msg = f"Error processing {file_path.name}: {str(e)[:200]}"
-            logger.error(error_msg)
+            logger.exception(error_msg)
         return 0
 
     def _perform_periodic_resource_check(self, index: int):

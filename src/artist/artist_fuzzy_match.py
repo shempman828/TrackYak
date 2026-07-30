@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
 from src.core.logger_config import logger
@@ -70,6 +71,11 @@ class ArtistFuzzyMatchWorker(CancellableWorker):
             matches = self._find_matches()
             self.finished.emit(matches)
         except Exception as e:
+            # Intentional broad boundary catch: this is a QThread's run() body
+            # with no caller frame to catch anything that escapes it -- any
+            # exception must be turned into the error signal instead of
+            # silently killing the thread and leaving the progress dialog
+            # spinning forever.
             logger.error(f"ArtistFuzzyMatchWorker error: {e}", exc_info=True)
             self.error.emit(str(e))
 
@@ -174,7 +180,7 @@ class _ArtistMergeWorker(CancellableWorker):
                     alias_name=old_artist.artist_name,
                 )
                 success_count += 1
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(
                     f"Failed to merge {old_artist.artist_name} → {new_artist.artist_name}: {e}"
                 )

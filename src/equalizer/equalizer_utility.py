@@ -218,7 +218,7 @@ class EqualizerUtility(QObject):
             # Reset filter states
             self.reset_filter_states()
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Error updating combined filter: {e}")
             # Fallback to identity filter
             self.combined_sos = np.array([[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]])
@@ -268,8 +268,12 @@ class EqualizerUtility(QObject):
 
             return processed_data
 
-        except Exception as e:
-            logger.error(f"Equalizer processing error: {e}")
+        except Exception:
+            # Intentional broad boundary catch: this is invoked from the
+            # real-time audio callback (see player_callback.py) on every
+            # buffer — it must fall back to a safe default rather than
+            # propagate, or one bad buffer aborts the audio stream.
+            logger.exception("Equalizer processing error")
             # Return original audio to prevent playback issues
             return audio_data
 

@@ -6,11 +6,13 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSpinBox,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
 from src.common.nullable_spinbox import NullableSpinBox
 from src.core.logger_config import logger
 from src.musicbrainz.musicbrainz_client import (
+    MusicBrainzLookupError,
     fetch_release_detail,
     fetch_release_group_aliases,
     search_canonical_releases,
@@ -91,7 +93,7 @@ class AlbumMusicBrainzMixin:
             if detail.release_group_mbid:
                 try:
                     aliases = fetch_release_group_aliases(detail.release_group_mbid)
-                except Exception as e:
+                except MusicBrainzLookupError as e:
                     logger.warning(f"Could not fetch album aliases for {album_name}: {e}")
             return detail, aliases
 
@@ -134,7 +136,7 @@ class AlbumMusicBrainzMixin:
                     self.album.album_id,
                     discogs_master_url=detail.discogs_master_url,
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.warning(f"Could not save Discogs master link: {e}")
 
         review = AlbumMusicBrainzReviewDialog(

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.asset_paths import icon
 from src.core.config_setup import app_config
@@ -318,7 +319,7 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
                     self._clear_track_display()
             else:
                 self._clear_track_display()
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError, AttributeError) as e:
             logger.error(f"Error updating track display: {e}")
             self._clear_track_display()
 
@@ -343,7 +344,7 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
                     dock.setMinimumHeight(height)
                     dock.setMinimumWidth(width)
                     self.setMinimumHeight(ideal_size.height())
-        except Exception as e:
+        except RuntimeError as e:
             logger.error(f"Error adjusting player dock size: {e}")
 
     def setup_timers(self):
@@ -403,7 +404,7 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
             # Connect the timeout signal if not already connected
             try:
                 self.rating_debounce_timer.timeout.disconnect()
-            except:  # noqa: E722
+            except RuntimeError:
                 pass  # Was not connected
 
             self.rating_debounce_timer.timeout.connect(self._commit_rating_to_db)
@@ -444,7 +445,7 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
                 StatusManager.show_message(
                     "Could not save rating: track not found in library.", 5000
                 )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error updating track rating: {e}")
             StatusManager.show_message(f"Could not save rating: {e}", 5000)
         finally:
@@ -483,7 +484,7 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
             self.seek_requested.connect(self.player.seek)
             self.rating_stars.rating_changed.connect(self.on_rating_changed)
 
-        except Exception as e:
+        except (RuntimeError, AttributeError) as e:
             logger.error(f"Error initializing PlayerUI connections: {e}")
 
     def _on_seek_pressed(self):
@@ -512,7 +513,7 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
             self.player.set_volume(value)
             app_config.set_volume(value)
             app_config.save()
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
             logger.error(f"Error saving volume to config: {e}")
 
     def update_volume_slider(self, value: int):

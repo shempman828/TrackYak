@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QThread, Signal
 from PySide6.QtWidgets import (
@@ -138,6 +139,9 @@ class _RolesLoaderWorker(QObject):
             grouped = _group_role_rows(rows, self._track_ids, self._is_multi)
             self.finished.emit(grouped)
         except Exception as e:
+            # Intentional broad boundary catch: this runs on a background thread
+            # and must not let an exception be lost silently.
+            logger.exception("Failed to load track roles")
             self.error.emit(str(e))
 
 
@@ -647,7 +651,7 @@ class RolesTab(_BaseTab):
         ]
         try:
             self.controller.add.add_entities("TrackArtistRole", rows)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to add role to tracks: {e}")
 
     def _batch_delete_track_artist_role(self, artist_id, role_id):
@@ -659,5 +663,5 @@ class RolesTab(_BaseTab):
                 artist_id=artist_id,
                 role_id=role_id,
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to remove role from tracks: {e}")

@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import case, func
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.db.db_tables import (
     Album,
@@ -321,7 +322,7 @@ class MusicStatistics:
                     else None
                 ),
             }
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error getting audio quality stats: {e}")
             return {}
 
@@ -426,7 +427,7 @@ class MusicStatistics:
                 "avg_tracks_per_year": round(avg_tracks_per_year, 1),
                 "unique_years_count": years_with_tracks,
             }
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error getting temporal statistics: {e}")
             return {}
 

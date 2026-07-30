@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_detail_alias import AliasesCarousel
 from src.artist.artist_detail_bio import BioWidget
@@ -98,7 +99,7 @@ class PlacesWidget(QWidget):
                 places_label.setWordWrap(True)
                 layout.addWidget(places_label)
 
-        except Exception as e:
+        except (SQLAlchemyError, AttributeError) as e:
             logger.error(f"Error loading places: {e}")
 
 
@@ -164,7 +165,7 @@ class ArtistInfobox(QGroupBox):
             try:
                 if self.artist.places:
                     layout.addWidget(PlacesWidget(self.artist, self.controller))
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Error accessing places: {e}")
 
         # Gender

@@ -1,3 +1,5 @@
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.common.base_merge_dialog import MergeDBDialog
 from src.core.logger_config import logger
 
@@ -33,7 +35,7 @@ class RoleMergeDialog(MergeDBDialog):
 
             self._update_action_buttons()
 
-        except Exception as e:
+        except RuntimeError as e:
             logger.error(f"Error pre-populating source role: {str(e)}")
 
     def _get_related_count(self, role_id):
@@ -46,7 +48,7 @@ class RoleMergeDialog(MergeDBDialog):
                 "TrackArtistRole", role_id=role_id
             )
             return len(album_links or []) + len(track_links or [])
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(
                 f"Error getting assignment count for role {role_id}: {str(e)}"
             )

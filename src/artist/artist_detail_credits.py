@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.layout_utils import clear_layout
 from src.core.logger_config import logger
@@ -155,7 +156,7 @@ class RoleSection(QGroupBox):
 
             self.is_loaded = True
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading credits for role {self.role_name}: {e}")
             error_label = QLabel(f"Error loading credits: {str(e)}")
             error_label.setObjectName("ErrorLabel")
@@ -312,6 +313,6 @@ class CreditsWidget(QWidget):
                 # No credits, keep widget hidden
                 self.setVisible(False)
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading role counts: {e}")
             self.setVisible(False)

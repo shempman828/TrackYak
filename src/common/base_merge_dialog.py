@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 
@@ -217,7 +218,7 @@ class MergeDBDialog(QDialog):
                 self.all_entities_cache = self.controller.get.get_all_entities(
                     self.model_name
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Error fetching all {self.model_name.lower()}s: {str(e)}")
                 self.all_entities_cache = []
 
@@ -368,7 +369,7 @@ class MergeDBDialog(QDialog):
             self._update_action_buttons()
             self._highlight_selected_entities()
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error selecting entity: {str(e)}")
             QMessageBox.warning(
                 self, "Selection Error", f"Failed to select entity: {str(e)}"
@@ -457,7 +458,7 @@ class MergeDBDialog(QDialog):
                     f"Search {target_list_type} {self.model_name.lower()}..."
                 )
 
-        except Exception as e:
+        except (AttributeError, RuntimeError) as e:
             logger.error(f"Error in auto-suggest: {str(e)}")
 
     def _find_similar(self, from_list_type):
@@ -473,7 +474,7 @@ class MergeDBDialog(QDialog):
                 self._auto_suggest_similar(self.source_entity, "target")
                 # Clear target search to show suggestions
                 self.target_search.clear()
-        except Exception as e:
+        except RuntimeError as e:
             logger.error(f"Error finding similar entities: {str(e)}")
 
     def _swap_selection(self):
@@ -502,7 +503,7 @@ class MergeDBDialog(QDialog):
 
             self._update_action_buttons()
 
-        except Exception as e:
+        except RuntimeError as e:
             logger.error(f"Error swapping selection: {str(e)}")
 
     def _highlight_selected_entities(self):
@@ -776,7 +777,7 @@ class MergeDBDialog(QDialog):
                     f"Failed to merge {self.model_name.lower()}s. Please check the logs.",
                 )
 
-        except Exception as e:
+        except (AttributeError, SQLAlchemyError) as e:
             logger.exception("Error during merge")
 
             QMessageBox.critical(

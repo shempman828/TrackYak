@@ -2,6 +2,7 @@
 base_album_edit.py
 """
 
+import sqlite3
 import webbrowser
 
 from PySide6.QtCore import Qt
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.album_components import AlbumUIComponents
 from src.album.album_cover_art_mixin import AlbumCoverArtMixin
@@ -120,7 +122,8 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         try:
             fresh = controller.get.get_entity_object("Album", album_id=album.album_id)
             self.album = fresh if fresh is not None else album
-        except Exception:
+        except SQLAlchemyError as e:
+            logger.warning(f"Failed to reload album {album.album_id} on editor open: {e}")
             self.album = album
 
         self.helper = RelationshipHelpers(controller, album, self.refresh_view, widget=self)
@@ -243,7 +246,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 value = (getattr(a, field_name, None) or "").strip()
                 if value:
                     suggestions.setdefault(value.lower(), value)
-        except Exception:
+        except SQLAlchemyError:
             logger.debug(f"Could not fetch suggestions for {field_name!r}", exc_info=True)
         return sorted(suggestions.values(), key=str.lower)
 
@@ -520,7 +523,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 "Album", album_id=self.album.album_id
             )
             self._refresh_aliases_list()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.exception("Failed to add album alias")
             QMessageBox.critical(self, "Error", f"Could not add alias: {e}")
 
@@ -540,7 +543,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 "Album", album_id=self.album.album_id
             )
             self._refresh_aliases_list()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.exception("Failed to remove album alias")
             QMessageBox.critical(self, "Error", f"Could not remove alias: {e}")
 
@@ -627,7 +630,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 )
             self.accept()
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error saving album changes: {e}")
             QMessageBox.critical(self, "Error", f"Failed to save changes: {e}")
 
@@ -658,7 +661,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 self._rebuild_current_tab()
 
             logger.info("Album view refreshed")
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error refreshing album view: {e}")
 
     # =========================================================================
@@ -691,7 +694,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 self.tabs.removeTab(idx)
                 self.tabs.insertTab(idx, new_tab, tab_title)
                 self.tabs.setCurrentIndex(idx)
-        except Exception as e:
+        except (SQLAlchemyError, sqlite3.Error) as e:
             logger.error(f"Error rebuilding tab: {e}")
 
     def _rebuild_tab_by_title(self, title: str):
@@ -713,7 +716,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                     if was_current:
                         self.tabs.setCurrentIndex(idx)
                     return
-        except Exception as e:
+        except (SQLAlchemyError, sqlite3.Error) as e:
             logger.error(f"Error rebuilding tab '{title}': {e}")
 
     # =========================================================================
@@ -731,7 +734,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 self.helper.album = updated
                 self.tab_builder.album = updated
             self._rebuild_current_tab()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error refreshing after sub-dialog close: {e}")
 
     # =========================================================================
@@ -749,7 +752,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 )
                 or []
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading place associations: {e}")
             return []
 

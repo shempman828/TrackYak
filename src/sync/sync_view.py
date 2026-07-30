@@ -761,6 +761,6 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
             for card in self.cards:
                 if card.profile.device_uri:
                     card.set_connected(card.profile.device_uri in connected_uris)
-        except Exception as e:
+        except RuntimeError as e:
             logger.warning(f"Failed to poll MTP devices: {e}")
 

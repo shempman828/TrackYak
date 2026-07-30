@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.db.db_tables import Artist
@@ -105,7 +106,7 @@ class ReligionManagerDialog(QDialog):
                 .group_by(Artist.religion_id)
             ).all()
             return dict(rows)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Failed to fetch religion usage counts: {e}")
             return {}
 

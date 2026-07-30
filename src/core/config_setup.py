@@ -48,7 +48,7 @@ class Config:
                 self.config.read(self.config_path)
                 logger.info(f"Configuration loaded from {self.config_path}")
                 self._migrate_legacy_queue_keys()
-            except Exception as e:
+            except (configparser.Error, OSError) as e:
                 logger.error(f"Error loading config: {e}")
                 self._create_default_config()
         else:
@@ -163,7 +163,7 @@ class Config:
             with open(self.config_path, "w") as configfile:
                 self.config.write(configfile)
             logger.info(f"Configuration saved to {self.config_path}")
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error saving config: {e}")
 
     # --- Generic section/type helpers -------------------------------------
@@ -218,7 +218,7 @@ class Config:
             size_str = self.config.get("window", "size", fallback="1280,720")
             width, height = map(int, size_str.split(","))
             return QSize(width, height)
-        except:  # noqa: E722
+        except ValueError:
             return QSize(1280, 720)
 
     def set_window_size(self, size: QSize):
@@ -232,7 +232,7 @@ class Config:
             pos_str = self.config.get("window", "position", fallback="100,100")
             x, y = map(int, pos_str.split(","))
             return QPoint(x, y)
-        except:  # noqa: E722
+        except ValueError:
             return QPoint(100, 100)
 
     def set_window_position(self, position: QPoint):
@@ -246,7 +246,7 @@ class Config:
         if state_b64:
             try:
                 return QByteArray.fromBase64(state_b64.encode())
-            except:  # noqa: E722
+            except ValueError:
                 return QByteArray()
         return QByteArray()
 
@@ -433,7 +433,7 @@ class Config:
             try:
                 with open(theme_path, "r", encoding="utf-8") as f:
                     return f.read()
-            except Exception as e:
+            except (OSError, UnicodeDecodeError) as e:
                 logger.error(f"Error loading theme {theme_path}: {e}")
         return ""
 
@@ -625,7 +625,7 @@ class Config:
         """
         try:
             return self._get_int("nowplaying", "lyrics_sync_offset", fallback=-5)
-        except Exception:
+        except ValueError:
             return -5
 
     def set_lyrics_sync_offset(self, value: int):

@@ -8,6 +8,8 @@ track_peak values that AudioCalculations.run_all() already computes
 tagger derives "album" values from a batch of "track" values.
 """
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.core.logger_config import logger
 
 
@@ -52,5 +54,5 @@ def recompute_album_gain_peak(controller, album_id: int) -> None:
         controller.update.update_entity(
             "Album", album_id, album_gain=album_gain, album_peak=album_peak
         )
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.error(f"Failed to update album_gain/album_peak for album {album_id}: {e}")

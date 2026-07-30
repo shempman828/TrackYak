@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.award.award_detail import AwardDetailTab
 from src.common.hierarchy_tree_style import is_hierarchy_descendant
@@ -153,7 +154,7 @@ class AwardView(QWidget):
             self._populate_award_list(awards)
             logger.info(f"Loaded {len(awards)} awards")
 
-        except Exception as e:
+        except (SQLAlchemyError, AttributeError) as e:
             logger.error(f"Error loading awards: {e}")
             QMessageBox.critical(self, "Error", "Failed to load awards")
 
@@ -312,7 +313,7 @@ class AwardView(QWidget):
 
             logger.info(f"Opened detail tab for {award.award_name}")
 
-        except Exception as e:
+        except (SQLAlchemyError, AttributeError) as e:
             logger.error(f"Error loading award details: {e}")
             QMessageBox.critical(self, "Error", "Failed to load award details")
 
@@ -398,7 +399,7 @@ class AwardView(QWidget):
 
             logger.info(f"Created new award: {name}")
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error creating new award: {e}")
             QMessageBox.critical(self, "Error", f"Failed to create new award: {e}")
 
@@ -420,7 +421,7 @@ class AwardView(QWidget):
                         self.tab_widget.setTabText(
                             i, self._format_tab_name(updated_award.award_name)
                         )
-                except Exception as e:
+                except (SQLAlchemyError, RuntimeError) as e:
                     logger.error(f"Error refreshing tab {i}: {e}")
 
     def _award_tree_drop_event(self, event):
@@ -472,7 +473,7 @@ class AwardView(QWidget):
                 f"Updated parent for award {dragged_award_id} to {new_parent_id}"
             )
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error handling drop event: {e}")
             event.ignore()
 
@@ -556,8 +557,10 @@ class AwardView(QWidget):
                         self.controller.delete.delete_entity(
                             "AwardAssociation", assoc.association_id
                         )
-                except Exception:
-                    pass  # If associations don't exist or fail, continue
+                except SQLAlchemyError as e:
+                    logger.warning(
+                        f"Could not remove associations for award {award_id}: {e}"
+                    )
 
                 self.controller.delete.delete_entity("Award", award_id)
                 award_obj = next(
@@ -571,7 +574,7 @@ class AwardView(QWidget):
             # Reload the list now that deletion is done
             self.load_awards()
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error deleting award(s): {e}")
             QMessageBox.critical(self, "Error", f"Failed to delete award(s): {e}")
         finally:

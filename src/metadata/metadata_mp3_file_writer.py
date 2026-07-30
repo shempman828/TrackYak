@@ -73,7 +73,7 @@ class MP3FileWriter:
             discard_backup(backup_path)
             return True
 
-        except Exception as e:
+        except (OSError, struct.error, TypeError) as e:
             logger.debug(f"Error writing ID3 metadata: {e}")
             if backup_path and os.path.exists(backup_path):
                 restore_backup(file_path, backup_path)
@@ -98,7 +98,7 @@ class MP3FileWriter:
                 )
                 for frame_id, pos, size in existing_frames
             }
-        except Exception as e:
+        except (OSError, struct.error) as e:
             logger.debug(f"Error reading existing ID3 frames for {file_path}: {e}")
             return {}
 
@@ -183,7 +183,7 @@ class MP3FileWriter:
                     return 10 + size
                 else:
                     return 0
-        except Exception:
+        except OSError:
             return 0
 
     def _find_frames(self, file_path: str) -> List[Tuple[str, int, int]]:
@@ -232,7 +232,7 @@ class MP3FileWriter:
                     )
                     pos += 10 + frame_size
 
-        except Exception as e:
+        except OSError as e:
             logger.debug(f"Error finding ID3 frames for {file_path}: {e}")
 
         return frames
@@ -269,7 +269,7 @@ class MP3FileWriter:
             if pos >= len(frame_body):
                 return None
             return frame_body[pos]
-        except Exception:
+        except IndexError:
             return None
 
     def _find_picture_index_for_role(

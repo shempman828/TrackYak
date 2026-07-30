@@ -6,6 +6,8 @@ playback actions for TrackView.
 import random
 from pathlib import Path
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from PySide6.QtCore import QByteArray, QMimeData, Qt
 from PySide6.QtGui import QDrag, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
@@ -201,7 +203,7 @@ class TrackViewActionsMixin:
                 )
                 if track:
                     tracks.append(track)
-            except Exception as e:
+            except (SQLAlchemyError, ValueError, RuntimeError) as e:
                 logger.error(f"Error fetching selected track: {e}")
         return tracks
 
@@ -232,5 +234,5 @@ class TrackViewActionsMixin:
                 self.player.play()
             else:
                 logger.warning(f"Failed to load track: {file_path}")
-        except Exception as e:
+        except (ValueError, AttributeError, OSError, RuntimeError) as e:
             logger.error(f"Error playing track: {e}")

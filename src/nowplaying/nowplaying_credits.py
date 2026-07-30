@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.layout_utils import clear_layout
 from src.core.logger_config import logger
@@ -86,7 +87,7 @@ class _CreditsPanel(QWidget):
                     continue
                 if role_name and artist_name:
                     rows.append((role_name, artist_name))
-        except Exception as exc:
+        except SQLAlchemyError as exc:
             logger.warning(f"_CreditsPanel: error reading artist_roles: {exc}")
 
         if not rows:

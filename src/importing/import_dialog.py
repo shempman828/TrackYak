@@ -133,7 +133,7 @@ class ImportDialog(QDialog):
                 self.directories.append((path_obj, True))
                 self._save_directories()
                 logger.info(f"Added import directory: {path_obj}")
-        except Exception as e:
+        except (OSError, ValueError) as e:
             self._show_error("Add Error", str(e))
 
     def _remove_directories(self):
@@ -144,7 +144,7 @@ class ImportDialog(QDialog):
                 self.directories = [(p, s) for p, s in self.directories if p != path]
                 self.dir_list.takeItem(self.dir_list.row(item))
             self._save_directories()
-        except Exception as e:
+        except OSError as e:
             self._show_error("Remove Error", str(e))
 
     def _start_import(self):
@@ -172,7 +172,7 @@ class ImportDialog(QDialog):
             self.import_worker.finished.connect(self._import_complete)
             self.import_worker.start()
 
-        except Exception as e:
+        except (RuntimeError, ValueError) as e:
             self._show_error("Import Error", str(e))
             self.btn_scan.setEnabled(True)
             self.btn_cancel.setEnabled(False)
@@ -222,7 +222,7 @@ class ImportDialog(QDialog):
                     if not self.directories:
                         self.directories = [(Path(p), s) for p, s in saved]
                     self._refresh_list()
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError, RuntimeError) as e:
             logger.error(f"Config load error: {e}")
 
     def _save_directories(self):
@@ -240,7 +240,7 @@ class ImportDialog(QDialog):
                 json.dump(data, f, indent=4)
             temp_file.replace(CONFIG_FILE)
             self.directories = [(Path(p), s) for p, s in data]
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
             logger.error(f"Config save error: {e}")
 
     def _refresh_list(self):

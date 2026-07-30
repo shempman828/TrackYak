@@ -132,7 +132,7 @@ class RatingStarsWidget(QWidget):
                 painter.drawPath(path)
                 painter.restore()
 
-        except Exception as e:
+        except RuntimeError as e:
             logger.error(f"Error drawing star: {e}")
 
     def _calculate_rating_from_pos(self, pos) -> float:
@@ -158,7 +158,7 @@ class RatingStarsWidget(QWidget):
             pos_in_star = (rel_x - star_index * cell) / star_size
             rating = star_index + (0.5 if pos_in_star < 0.5 else 1.0)
             return max(0.0, min(10.0, rating))
-        except Exception as e:
+        except (RuntimeError, ZeroDivisionError) as e:
             logger.error(f"Error calculating rating from position: {e}")
             return 0.0
 

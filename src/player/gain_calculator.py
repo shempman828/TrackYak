@@ -6,6 +6,8 @@ logic is decoupled from the real-time audio engine — it touches the DB,
 not the reader thread/buffer/stream machinery.
 """
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.core.logger_config import logger
 
 # Must match audio_calculations.py's REFERENCE_LUFS — both sides assume
@@ -26,7 +28,7 @@ def get_track_gain_from_db(controller, current_file):
             peak = getattr(track, "track_peak", None)
             if gain is not None and peak is not None:
                 return float(gain), float(peak)
-    except Exception as exc:
+    except (SQLAlchemyError, ValueError, TypeError) as exc:
         logger.error(f"DB gain lookup error: {exc}")
     return None, None
 
@@ -66,7 +68,7 @@ def calculate_gain_factor(
             )
             return float(gain_factor)
 
-    except Exception as exc:
+    except (ValueError, TypeError) as exc:
         logger.error(f"Gain calculation error: {exc}")
 
     return 1.0  # Safe default

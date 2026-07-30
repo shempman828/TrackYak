@@ -3,7 +3,10 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
+import sqlite3
 import webbrowser
+
+from sqlalchemy.exc import SQLAlchemyError
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
@@ -301,7 +304,7 @@ class AlbumsTab(_BaseTab):
             if cache:
                 is_explicit = bool(getattr(album, "art_is_explicit", False))
                 pixmap = cache.get_pixmap(album, "front", is_explicit)
-        except Exception as e:
+        except (OSError, sqlite3.Error) as e:
             logger.warning(f"Failed to load album art for tab display: {e}")
             pixmap = None
 
@@ -433,7 +436,7 @@ class AlbumsTab(_BaseTab):
                 self.controller.update.update_entity(
                     "Track", self.track.track_id, album_id=album.album_id
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Failed to set primary album: {e}")
                 QMessageBox.warning(self, "Error", f"Failed to set album:\n{e}")
                 return
@@ -477,7 +480,7 @@ class AlbumsTab(_BaseTab):
                 self.controller.update.update_entity(
                     "Track", self.track.track_id, album_id=None
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Failed to remove primary album: {e}")
                 QMessageBox.warning(self, "Error", f"Failed to remove album:\n{e}")
                 return
@@ -562,7 +565,7 @@ class AlbumsTab(_BaseTab):
                 virtual_track_number=track_num,
                 virtual_disc_number=disc_num,
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to add virtual appearance: {e}")
             QMessageBox.warning(
                 self, "Error", f"Failed to add virtual appearance:\n{e}"
@@ -584,7 +587,7 @@ class AlbumsTab(_BaseTab):
             self.controller.delete.delete_entity(
                 "AlbumVirtualTrack", virtual_id=virtual_id
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to remove virtual appearance: {e}")
             QMessageBox.warning(self, "Error", f"Failed to remove:\n{e}")
             return
@@ -612,6 +615,6 @@ class AlbumsTab(_BaseTab):
                 if updated:
                     self.tracks = [updated]
                 self.load(self.tracks)
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Failed to open album editor: {e}")
             QMessageBox.warning(self, "Error", f"Could not open album editor:\n{e}")

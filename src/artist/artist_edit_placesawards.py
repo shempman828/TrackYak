@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -77,7 +78,7 @@ def _build_place_completer(controller):
     model = QStandardItemModel()
     try:
         places = controller.get.get_all_entities("Place") or []
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.debug(f"Could not load places for autocomplete: {e}")
         places = []
 
@@ -227,7 +228,7 @@ class PlacesAwardsTab(QWidget):
                         user_data=assoc.association_id,
                     )
                 assocs_loaded = True
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.debug(f"Could not load via PlaceAssociation entities: {e}")
         if not assocs_loaded:
             for place in getattr(self.artist, "places", []):
@@ -265,7 +266,7 @@ class PlacesAwardsTab(QWidget):
                         user_data=assoc.association_id,
                     )
                 assocs_loaded = True
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.debug(f"Could not load via AwardAssociation entities: {e}")
         if not assocs_loaded:
             for award in getattr(self.artist, "awards", []):
@@ -286,7 +287,7 @@ class PlacesAwardsTab(QWidget):
             )
             if refreshed:
                 self.artist = refreshed
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Could not reload artist: {e}")
         self.load(self.artist)
 
@@ -314,7 +315,7 @@ class PlacesAwardsTab(QWidget):
                     place = place[0] if place else None
                 if place is None:
                     place = self.controller.add.add_entity("Place", place_name=name)
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not find/create place:\n{e}")
             return
 
@@ -333,7 +334,7 @@ class PlacesAwardsTab(QWidget):
                 if assoc_type_obj
                 else None,
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not link place:\n{e}")
             return
 
@@ -348,7 +349,7 @@ class PlacesAwardsTab(QWidget):
             return
         try:
             self.controller.delete.delete_entity("PlaceAssociation", assoc_id)
-        except Exception:
+        except SQLAlchemyError:
             try:
                 self.controller.delete.delete_entity(
                     "PlaceAssociation",
@@ -356,7 +357,7 @@ class PlacesAwardsTab(QWidget):
                     entity_type="Artist",
                     place_id=assoc_id,
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 QMessageBox.critical(self, "Error", f"Could not unlink place:\n{e}")
                 return
         self._reload_and_refresh()
@@ -373,7 +374,7 @@ class PlacesAwardsTab(QWidget):
                 award = awards
             if award is None:
                 award = self.controller.add.add_entity("Award", award_name=name)
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not find/create award:\n{e}")
             return
         try:
@@ -383,7 +384,7 @@ class PlacesAwardsTab(QWidget):
                 entity_type="Artist",
                 award_id=award.award_id,
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not link award:\n{e}")
             return
         self._reload_and_refresh()
@@ -395,7 +396,7 @@ class PlacesAwardsTab(QWidget):
             return
         try:
             self.controller.delete.delete_entity("AwardAssociation", assoc_id)
-        except Exception:
+        except SQLAlchemyError:
             try:
                 self.controller.delete.delete_entity(
                     "AwardAssociation",
@@ -403,7 +404,7 @@ class PlacesAwardsTab(QWidget):
                     entity_type="Artist",
                     award_id=assoc_id,
                 )
-            except Exception as e:
+            except SQLAlchemyError as e:
                 QMessageBox.critical(self, "Error", f"Could not unlink award:\n{e}")
                 return
         self._reload_and_refresh()
@@ -431,7 +432,7 @@ class PlacesAwardsTab(QWidget):
             )
             if refreshed:
                 self.artist = refreshed
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Could not reload artist: {e}")
         self.load(self.artist)
         self._place_completer = _build_place_completer(self.controller)

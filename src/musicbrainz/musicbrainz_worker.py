@@ -47,6 +47,12 @@ class MusicBrainzWorker(CancellableWorker):
         try:
             result = self._call()
         except Exception as e:
+            # Intentional broad boundary catch: this is a QThread's run()
+            # body wrapping an arbitrary zero-arg callable (see class
+            # docstring — not guaranteed to be a musicbrainz_client function
+            # that only raises MusicBrainzLookupError) and must not let an
+            # exception kill the thread silently — report it to the UI
+            # via the error signal instead.
             logger.error(f"MusicBrainzWorker call failed: {e}", exc_info=True)
             self.error.emit(str(e))
             return

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.layout_utils import clear_layout
 from src.core.logger_config import logger
@@ -230,7 +231,7 @@ class AwardsWidget(QWidget):
             if self.awards_data:
                 self.setVisible(True)
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading awards: {e}")
             self.setVisible(False)
 

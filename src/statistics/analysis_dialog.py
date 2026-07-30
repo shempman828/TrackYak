@@ -94,6 +94,9 @@ class _PendingTracksWorker(QThread):
                 ],
             )
         except Exception as e:
+            # Intentional broad boundary catch: this runs on a QThread and must
+            # not let an exception kill the thread silently.
+            logger.exception("Failed to load tracks for analysis")
             self.failed.emit(str(e))
             return
 

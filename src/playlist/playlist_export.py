@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtWidgets import QMessageBox
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.asset_paths import playlist_path
 from src.core.logger_config import logger
@@ -54,7 +55,7 @@ class PlaylistExporter:
                 f"{playlist.playlist_name}.m3u"
             )  # Now calls the imported function
             Path(file_path).parent.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Could not resolve playlist save path: {e}")
             self._show_message(
                 "Export Error", f"Invalid save path for '{playlist.playlist_name}'."
@@ -117,7 +118,7 @@ class PlaylistExporter:
             )
             return True
 
-        except Exception as e:
+        except (OSError, SQLAlchemyError) as e:
             logger.exception(f"Failed to export playlist: {e}")
             self._show_message("Export Error", f"Export failed:\n{e}")
             return False

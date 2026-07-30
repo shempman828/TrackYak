@@ -2,6 +2,7 @@
 # Tab: Aliases  (embedded, no separate dialog window)
 # ══════════════════════════════════════════════════════════════════════════════
 from PySide6.QtWidgets import QDialog, QMessageBox
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_alias_dialog import SUGGESTED_ALIAS_TYPES
 from src.common.base_merge_dialog import MergeDBDialog
@@ -178,7 +179,7 @@ class AliasesTab(EntityAliasesTab):
                 new_primary,
                 save_type,
             )
-        except Exception as exc:
+        except SQLAlchemyError as exc:
             logger.exception(
                 "AliasesTab._perform_swap: failed during swap for artist_id=%s",
                 self.artist.artist_id,

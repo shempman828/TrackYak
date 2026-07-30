@@ -4,6 +4,7 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
+from sqlalchemy.exc import SQLAlchemyError
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -199,7 +200,7 @@ class UsedInTab(_BaseTab):
 
         try:
             self.controller.add.add_entities("TrackUsage", rows)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Failed to add TrackUsage entry: {e}")
             QMessageBox.warning(self, "Error", f"Failed to add entry:\n{e}")
             return
@@ -234,7 +235,7 @@ class UsedInTab(_BaseTab):
                     title=title_item.text(),
                     year=int(year_text) if year_text else None,
                 )
-        except Exception as e:
+        except (SQLAlchemyError, ValueError) as e:
             logger.error(f"Failed to remove TrackUsage entry: {e}")
             QMessageBox.warning(self, "Error", f"Failed to remove entry:\n{e}")
             return

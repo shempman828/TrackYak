@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_edit_advanced import AdvancedTab
 from src.artist.artist_edit_alias import AliasesTab
@@ -135,7 +136,7 @@ class ArtistEditor(QDialog):
                     )
                     return
                 logger.info(f"Saved artist {self.artist.artist_id} '{name}'")
-            except Exception as e:
+            except SQLAlchemyError as e:
                 QMessageBox.critical(self, "Save Error", f"Could not save artist:\n{e}")
                 logger.error(f"Failed to save artist {self.artist.artist_id}: {e}")
                 return
@@ -201,7 +202,7 @@ class ArtistEditor(QDialog):
             )
             if refreshed:
                 self.artist = refreshed
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Could not reload artist after enrichment: {e}")
             return
         self.tab_aliases.load(self.artist)

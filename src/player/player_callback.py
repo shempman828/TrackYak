@@ -91,6 +91,8 @@ class PlayerCallbackMixin:
                 if buffer_empty:
                     self._emit_track_finished_once()
         except Exception as exc:
+            # Intentional broad boundary catch: this runs on the real-time audio
+            # thread and must never propagate or the stream aborts (see #163).
             # Don't log here — see the comment on the `status` branch above.
             self._pending_error_count += 1
             self._last_error_message = str(exc)

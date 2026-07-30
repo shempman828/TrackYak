@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.entity_alias_tab import EntityAliasesTab
 from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
@@ -446,7 +447,7 @@ class PublisherEditDialog(QDialog):
             self._save_headquarters(self.result_publisher.publisher_id, hq_place_id)
             self._save_founders(self.result_publisher.publisher_id)
             self.accept()
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error saving publisher: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to save publisher: {str(e)}")
 

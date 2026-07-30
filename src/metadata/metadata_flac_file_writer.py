@@ -46,7 +46,7 @@ class FlacFileWriter:
 
             return self._replace_comment_block(file_path, new_comment_block)
 
-        except Exception as e:
+        except (OSError, AttributeError, struct.error) as e:
             logger.debug(f"Error writing FLAC metadata: {e}")
             return False
 
@@ -81,7 +81,7 @@ class FlacFileWriter:
 
             return True
 
-        except Exception as e:
+        except (OSError, struct.error) as e:
             logger.debug(f"Error writing FLAC metadata: {e}")
             return False
 
@@ -152,7 +152,7 @@ class FlacFileWriter:
                     f.seek(id3_end)
                     if f.read(4) == b"fLaC":
                         return id3_end
-        except Exception as e:
+        except OSError as e:
             logger.debug(f"Error checking FLAC prefix for {file_path}: {e}")
         return -1
 
@@ -186,7 +186,7 @@ class FlacFileWriter:
                     if is_last:
                         break
 
-        except Exception as e:
+        except OSError as e:
             logger.debug(f"Error finding FLAC metadata blocks: {e}")
 
         return blocks

@@ -11,6 +11,8 @@ self._flush_callback_diagnostics (see PlayerCallbackMixin).
 import threading
 from datetime import datetime
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.core.logger_config import logger
 
 PLAY_COUNT_THRESHOLD = 0.90
@@ -63,7 +65,7 @@ class PlayerPositionMixin:
                     # Emit signal back to main thread
                     self.play_count_updated.emit(current_path, new_count)
                     logger.info(f"Play count → {new_count}: {current_path.name}")
-            except Exception as exc:
+            except (SQLAlchemyError, RuntimeError) as exc:
                 logger.error(f"Play count update error: {exc}")
 
         self._play_count_recorded = True  # Mark as recorded immediately

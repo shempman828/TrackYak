@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
 from src.core.logger_config import logger
@@ -70,7 +71,7 @@ class MetadataScannerWorker(CancellableWorker):
                     if i % 100 == 0 or i == total - 1:
                         self.log_message.emit(f"Scanned {i + 1}/{total} tracks...")
 
-                except Exception as e:
+                except (SQLAlchemyError, AttributeError, RuntimeError) as e:
                     logger.error(f"Error scanning track {track.track_id}: {e}")
                     self.log_message.emit(
                         f"Error scanning track {track.track_id}: {str(e)}"
@@ -84,6 +85,9 @@ class MetadataScannerWorker(CancellableWorker):
             self.finished.emit(results)
 
         except Exception as e:
+            # Intentional broad boundary catch: this is a QThread's run() -
+            # an unhandled exception here would kill the thread silently
+            # instead of surfacing to the UI, so it must never propagate.
             logger.exception("Library metadata scan failed")
             self.log_message.emit(f"Scan failed: {str(e)}")
             self.finished.emit({})
@@ -134,7 +138,7 @@ class MetadataWriteWorker(CancellableWorker):
                 else:
                     self.log_message.emit(f"✗ Failed to update track {track_id}")
 
-            except Exception as e:
+            except RuntimeError as e:
                 logger.error(f"Error updating track {track_id}: {e}")
                 self.log_message.emit(f"✗ Error updating track {track_id}: {str(e)}")
                 results[track_id] = False

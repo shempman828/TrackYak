@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
 from src.core.logger_config import logger
@@ -42,7 +43,7 @@ class StatisticsWorker(CancellableWorker):
         try:
             stats = self.statistics.get_comprehensive_statistics()
             self.finished.emit(stats)
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error loading statistics: {e}")
             self.error.emit(str(e))
 
@@ -342,7 +343,7 @@ class MusicStatsDialog(QDialog):
             self.load_genres_moods_data()
             self.load_quality_data()
             self.load_ratings_data()
-        except Exception as e:
+        except (KeyError, TypeError, ValueError, RuntimeError) as e:
             logger.error(f"Error updating statistics UI: {e}")
 
     def on_stats_error(self, message):
@@ -594,7 +595,7 @@ class MusicStatsDialog(QDialog):
                     self.format_labels[i].setText(
                         f"{format_name}: {self.format_stat_value(count)} tracks ({percentage:.1f}%)"
                     )
-        except Exception as e:
+        except (KeyError, TypeError, ValueError, RuntimeError) as e:
             logger.error(f"Error loading file format data: {e}")
             self.format_labels[0].setText("Error loading file format data")
 

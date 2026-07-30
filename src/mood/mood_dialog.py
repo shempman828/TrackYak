@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.track.base_track_view import BaseTrackView  # Import the BaseTrackView
 from src.core.logger_config import logger
@@ -217,7 +218,7 @@ class MoodDialog(QDialog):
             # NEW: Enhance the context menu with remove option
             self.enhance_track_view_context_menu()
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error loading associated tracks: {e}")
         self.track_view.info_label.setText("Error loading tracks")
 
@@ -235,7 +236,7 @@ class MoodDialog(QDialog):
 
             collect_children(parent_mood_id)
             return child_ids
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error getting child mood IDs: {e}")
             return []
 
@@ -417,7 +418,7 @@ class MoodDialog(QDialog):
             # Refresh the track list
             self.load_associated_tracks()
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error removing tracks from mood: {e}")
             QMessageBox.critical(
                 self, "Error", f"An error occurred while removing tracks:\n{str(e)}"

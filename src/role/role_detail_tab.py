@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
@@ -103,7 +104,7 @@ class RoleDetailTab(QWidget):
                 f"Showing {len(tracks)} tracks for artist {artist_name} in role {role_name}"
             )
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(
                 f"Error showing tracks for artist {artist_id}: {e}", exc_info=True
             )
@@ -160,7 +161,7 @@ class RoleDetailTab(QWidget):
                     tracks.append(track)
                     seen_track_ids.add(link.track_id)
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error getting tracks for artist {artist_id}: {e}")
 
         return tracks
@@ -170,7 +171,7 @@ class RoleDetailTab(QWidget):
         try:
             role = self.controller.get.get_entity_object("Role", role_id=self.role_id)
             return role.role_name if role else f"Role {self.role_id}"
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error getting role name: {e}")
             return f"Role {self.role_id}"
 
@@ -267,7 +268,7 @@ class RoleDetailTab(QWidget):
                 f"Loaded {len(sorted_artists)} artists for role {self.role_id}"
             )
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(
                 f"Failed to load artist data for role {self.role_id}: {e}",
                 exc_info=True,

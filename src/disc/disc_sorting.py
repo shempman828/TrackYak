@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem,
 )
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 
@@ -221,7 +223,7 @@ class TrackSortingDisplay(QTreeWidget):
                 # Tell the parent view to reload so changes are visible
                 self.track_edited.emit()
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error opening track editor from disc view: {e}")
             QMessageBox.warning(self, "Error", f"Could not open track editor:\n{e}")
 
@@ -319,7 +321,7 @@ class TrackSortingDisplay(QTreeWidget):
                         removed += 1
                     else:
                         failed_paths.append(fp)
-                except Exception as e:
+                except OSError as e:
                     logger.error(f"Error deleting file {fp}: {e}")
                     failed_paths.append(fp)
             logger.info(f"Removed {removed}/{len(file_paths)} file(s) from disk")

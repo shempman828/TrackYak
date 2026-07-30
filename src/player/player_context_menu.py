@@ -1,6 +1,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu, QMessageBox
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.base_album_edit import AlbumEditor
 from src.artist.artist_edit import ArtistEditor
@@ -103,7 +104,7 @@ class PlayerContextMenuMixin:
                 submenu, None, children_map, track_playlist_ids
             )
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error populating playlist submenu: {e}")
             submenu.addAction("Error loading playlists").setEnabled(False)
 
@@ -197,7 +198,7 @@ class PlayerContextMenuMixin:
             # Build hierarchical menu starting from root (None parent)
             self._build_mood_hierarchy(submenu, None, children_map, track_mood_ids)
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error populating mood submenu: {e}")
             submenu.addAction("Error loading moods").setEnabled(False)
 
@@ -259,7 +260,7 @@ class PlayerContextMenuMixin:
         try:
             dialog = TrackEditDialog(self.current_track, self.controller, self)
             dialog.exec_()
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error opening track editor from player dock: {e}")
             QMessageBox.critical(self, "Error", f"Could not open track editor:\\n{e}")
 
@@ -312,7 +313,7 @@ class PlayerContextMenuMixin:
                 action.setCheckable(True)
                 action.setChecked(True)
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error toggling track in playlist from player dock: {e}")
             QMessageBox.critical(self, "Error", f"Failed to update playlist:\n{e}")
 
@@ -359,7 +360,7 @@ class PlayerContextMenuMixin:
                 action.setCheckable(True)
                 action.setChecked(True)
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error toggling track in mood from player dock: {e}")
             QMessageBox.critical(self, "Error", f"Failed to update mood:\n{e}")
 
@@ -377,7 +378,7 @@ class PlayerContextMenuMixin:
             if album:
                 dialog = AlbumEditor(self.controller, album)
                 dialog.exec_()
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error opening AlbumEditor from player dock: {e}")
             QMessageBox.critical(self, "Error", f"Could not open album editor:\n{e}")
 
@@ -416,7 +417,7 @@ class PlayerContextMenuMixin:
                 action.triggered.connect(self._context_edit_artist)
                 submenu.addAction(action)
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError, AttributeError) as e:
             logger.error(f"Error building Edit Artist submenu: {e}")
             submenu.addAction("Error loading artists").setEnabled(False)
 
@@ -435,7 +436,7 @@ class PlayerContextMenuMixin:
             if artist_obj:
                 dialog = ArtistEditor(self.controller, artist_obj, self)
                 dialog.exec_()
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error opening ArtistEditor from player dock: {e}")
             QMessageBox.critical(self, "Error", f"Could not open artist editor:\n{e}")
 
@@ -461,7 +462,7 @@ class PlayerContextMenuMixin:
             StatusManager.show_message("Lyrics found and saved.", 4000)
             if self.current_track is track:
                 self._reload_now_playing()
-        except Exception as e:
+        except (SQLAlchemyError, AttributeError, TypeError) as e:
             logger.error(f"Error saving lyrics from player dock: {e}")
             StatusManager.show_message(f"Lyrics search failed: {e}", 5000)
 
@@ -497,7 +498,7 @@ class PlayerContextMenuMixin:
                     from pathlib import Path
 
                     main_win.update_now_playing_view(Path(track.track_file_path))
-        except Exception as e:
+        except (RuntimeError, TypeError) as e:
             logger.error(f"Error reloading Now Playing view after lyrics save: {e}")
 
     @staticmethod

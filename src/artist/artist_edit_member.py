@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -97,7 +98,7 @@ def _fetch_artist_names(controller):
     try:
         artists = controller.get.get_all_entities("Artist") or []
         return sorted({a.artist_name for a in artists if getattr(a, "artist_name", None)})
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.warning(f"Could not fetch artists for completer: {e}")
         return []
 
@@ -247,7 +248,7 @@ class _GroupMembersPanel(QWidget):
             )
             if refreshed:
                 self.artist = refreshed
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Could not reload artist: {e}")
         self.load(self.artist)
 
@@ -258,7 +259,7 @@ class _GroupMembersPanel(QWidget):
             return
         try:
             member = _find_or_create_artist(self.controller, name)
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not find/create artist:\n{e}")
             return
         try:
@@ -271,7 +272,7 @@ class _GroupMembersPanel(QWidget):
                 active_end_year=self.end_edit.get_value_or_none(),
                 is_current=1 if self.current_check.isChecked() else 0,
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not add member:\n{e}")
             return
         self._reload()
@@ -305,7 +306,7 @@ class _GroupMembersPanel(QWidget):
                 member_id=member_id,
                 **dialog.values(),
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not update membership:\n{e}")
             return
         self._reload()
@@ -319,7 +320,7 @@ class _GroupMembersPanel(QWidget):
             self.controller.delete.delete_entity(
                 "GroupMembership", group_id=group_id, member_id=member_id
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not remove member:\n{e}")
             return
         self._reload()
@@ -425,7 +426,7 @@ class _AffiliationsPanel(QWidget):
             )
             if refreshed:
                 self.artist = refreshed
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.warning(f"Could not reload artist: {e}")
         self.load(self.artist)
 
@@ -436,7 +437,7 @@ class _AffiliationsPanel(QWidget):
             return
         try:
             group = _find_or_create_artist(self.controller, name, isgroup=1)
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not find/create group:\n{e}")
             return
         try:
@@ -449,7 +450,7 @@ class _AffiliationsPanel(QWidget):
                 active_end_year=self.end_edit.get_value_or_none(),
                 is_current=1 if self.current_check.isChecked() else 0,
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not add to group:\n{e}")
             return
         self._reload()
@@ -483,7 +484,7 @@ class _AffiliationsPanel(QWidget):
                 member_id=member_id,
                 **dialog.values(),
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not update membership:\n{e}")
             return
         self._reload()
@@ -497,7 +498,7 @@ class _AffiliationsPanel(QWidget):
             self.controller.delete.delete_entity(
                 "GroupMembership", group_id=group_id, member_id=member_id
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not remove from group:\n{e}")
             return
         self._reload()

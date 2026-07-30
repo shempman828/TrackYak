@@ -477,7 +477,7 @@ class ConfigDialog(QDialog):
 
             self.device_combo.setCurrentIndex(current_index)
 
-        except Exception as e:
+        except (KeyError, RuntimeError) as e:
             logger.error(f"Error loading audio devices: {e}")
             self.device_combo.addItem("Error loading devices", "")
 
@@ -620,7 +620,7 @@ class ConfigDialog(QDialog):
             self.max_file_size_spin.setValue(self.config.get_max_file_size_mb())
             self.backup_count_spin.setValue(self.config.get_backup_count())
 
-        except Exception as e:
+        except (ValueError, TypeError, RuntimeError) as e:
             logger.error(f"Failed to load settings: {e}")
             self._show_error(f"Failed to load settings: {e}")
 
@@ -753,7 +753,7 @@ class ConfigDialog(QDialog):
             logger.info("General settings saved and applied")
             show_status_message(self, "Settings saved successfully.")
 
-        except Exception as e:
+        except (ValueError, KeyError, RuntimeError) as e:
             logger.error(f"Failed to apply settings: {e}")
             QMessageBox.critical(self, "Error", f"Failed to apply settings: {e}")
 

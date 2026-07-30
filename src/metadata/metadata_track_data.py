@@ -5,6 +5,8 @@ their own - every database read for a metadata write happens here, once.
 
 from typing import Any, Dict
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.core.logger_config import logger
 
 
@@ -151,7 +153,7 @@ class TrackDataAssembler:
                 "disc_track_count": disc_track_count,
                 "album_disc_count": album_disc_count,
             }
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.debug(f"Error getting track data for ID {track_id}: {e}")
             return {}
 
@@ -186,6 +188,6 @@ class TrackDataAssembler:
 
             return sorted(set(names))  # Deduplicate and sort for consistency
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.debug(f"Error fetching playlist names for track {track_id}: {e}")
             return []

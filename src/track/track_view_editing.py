@@ -3,6 +3,8 @@ track_view_editing.py — edit/delete dialogs, right-click context menu, and
 mood assignment for TrackView.
 """
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QDialog, QMenu, QMessageBox
 
@@ -26,14 +28,14 @@ class TrackViewEditingMixin:
                 dialog = TrackEditDialog(tracks[0], self.controller, self)
                 if dialog.exec_() == QDialog.Accepted:
                     self._force_reload()
-            except Exception as e:
+            except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Error opening track edit dialog: {e}")
         else:
             try:
                 dialog = MultiTrackEditDialog(tracks, self.controller, self)
                 if dialog.exec_() == QDialog.Accepted:
                     self._force_reload()
-            except Exception as e:
+            except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Error opening multi-track edit dialog: {e}")
 
     # =========================================================================
@@ -102,7 +104,7 @@ class TrackViewEditingMixin:
                         removed += 1
                     else:
                         failed_paths.append(fp)
-                except Exception as e:
+                except OSError as e:
                     logger.error(f"Error deleting file {fp}: {e}")
                     failed_paths.append(fp)
             logger.info(f"Removed {removed}/{len(file_paths)} file(s) from disk")
@@ -216,7 +218,7 @@ class TrackViewEditingMixin:
                         act.setChecked(True)
                     act.triggered.connect(self.add_to_mood)
                     parent_menu.addAction(act)
-        except Exception as e:
+        except (SQLAlchemyError, ValueError, RuntimeError) as e:
             logger.error(f"Error populating mood submenu: {e}")
 
     def add_to_mood(self):
@@ -240,5 +242,5 @@ class TrackViewEditingMixin:
                 if ok:
                     added += 1
             logger.info(f"Added {added} track(s) to mood {mood_id}")
-        except Exception as e:
+        except (SQLAlchemyError, ValueError) as e:
             logger.error(f"Error adding tracks to mood: {e}")

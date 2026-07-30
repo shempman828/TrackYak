@@ -111,8 +111,13 @@ class MPRIS2Player:
             self._loop = GLib.MainLoop()
             self._loop.run()  # Blocks this thread only
 
-        except Exception as e:
-            logger.error(f"MPRIS2 D-Bus loop failed: {e}")
+        except Exception:
+            # Intentional broad boundary catch: this is the entry point of a
+            # daemon thread running the GLib/D-Bus main loop — D-Bus/GLib can
+            # raise a wide variety of library-specific errors, and an
+            # uncaught exception here would silently kill media-key
+            # integration for the rest of the session with no trace.
+            logger.exception("MPRIS2 D-Bus loop failed")
 
 
 class _MPRIS2DBusService(dbus.service.Object):
@@ -192,7 +197,7 @@ class _MPRIS2DBusService(dbus.service.Object):
                 self._player.seek(target_ms)
 
             QTimer.singleShot(0, _do_seek)
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError, RuntimeError) as e:
             logger.error(f"MPRIS2 Seek error: {e}")
 
     # ── org.freedesktop.DBus.Properties ──────────────────────────────────────
@@ -226,7 +231,7 @@ class _MPRIS2DBusService(dbus.service.Object):
                 volume = self._player.volume_level / 100.0
                 position_us = self._player.position * 1000  # ms → µs
                 status = self._playback_status()
-            except Exception:
+            except (AttributeError, TypeError):
                 volume = 0.75
                 position_us = 0
                 status = "Stopped"

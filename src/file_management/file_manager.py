@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from PySide6.QtCore import Signal
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
 from src.core.asset_paths import config
@@ -99,6 +100,10 @@ class FileOrganizer(CancellableWorker):
             )
 
         except Exception as e:
+            # Intentional broad boundary catch: this is the top-level run()
+            # loop of a QThread worker and must not let an exception kill the
+            # thread silently — log it (with traceback) and let `finally`
+            # still report completion to the UI.
             logger.error(f"Organization failed: {e}")
             import traceback
 
@@ -236,7 +241,7 @@ class FileOrganizer(CancellableWorker):
                         )
                         log_buffer.append({**log_base, "status": "success"})
                         files_moved += 1
-                    except Exception as db_err:
+                    except SQLAlchemyError as db_err:
                         logger.error(
                             f"DB update failed for track_id {track.track_id} after "
                             f"successful move to {final_path}: {db_err}"
@@ -282,8 +287,13 @@ class FileOrganizer(CancellableWorker):
                         f"FileOrganizer: Failed to move file {idx + 1}/{total}"
                     )
                     log_buffer.append(log_base)
-            except Exception as e:
-                logger.error(f"FileOrganizer: Exception moving {current_path}: {e}")
+            except Exception:
+                # Intentional broad boundary catch: _move_file_only() already
+                # catches and reports all its own failures internally, so this
+                # is a last-resort guard against a genuinely unexpected error
+                # on one item in a large batch — it must not abort the whole
+                # organize run and lose progress on everything already moved.
+                logger.exception(f"FileOrganizer: Exception moving {current_path}")
 
             if len(pending_updates) >= self.DB_BATCH_SIZE:
                 flush_db_batch()
@@ -338,8 +348,14 @@ class FileOrganizer(CancellableWorker):
             except OSError:
                 # Directory is non-empty or already gone — skip silently.
                 pass
-            except Exception as e:
-                logger.warning(f"Could not remove directory {empty_dir}: {e}")
+            except Exception:
+                # Intentional broad boundary catch: this loop can walk
+                # thousands of directories left over from an organize run —
+                # rmdir() itself only ever raises OSError (handled above),
+                # but this is a last-resort guard so one genuinely unexpected
+                # failure on a single directory doesn't abort cleanup of the
+                # rest.
+                logger.exception(f"Could not remove directory {empty_dir}")
 
     # ------------------------------------------------------------------
     # Move log
@@ -376,15 +392,16 @@ class FileOrganizer(CancellableWorker):
                     records = json.load(f)
             else:
                 records = []
-        except Exception:
-            records = []  # Corrupt log — start fresh rather than crash
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning(f"FileOrganizer: Corrupt move log, starting fresh: {e}")
+            records = []
 
         records.extend(entries)
 
         try:
             with open(log_path, "w", encoding="utf-8") as f:
                 json.dump(records, f, indent=2, default=str)
-        except Exception as e:
+        except OSError as e:
             # Log failure is non-fatal — warn and continue
             logger.warning(f"FileOrganizer: Could not write move log: {e}")
 
@@ -475,7 +492,7 @@ class FileOrganizer(CancellableWorker):
             logger.info(f"File move verified: {source_path} -> {target_path}")
             return target_path, log_base
 
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Failed to move file {track.track_file_path}: {e}")
             import traceback
 

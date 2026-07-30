@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.entity_alias_tab import EntityAliasesTab
 from src.core.logger_config import logger
@@ -130,7 +131,7 @@ class GenreEditDialog(QDialog):
                     self.parent_combo.addItem(g.genre_name, g.genre_id)
                     logger.debug(f"Added to combo: {g.genre_name} (ID: {g.genre_id})")
 
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Error loading valid parents: {str(e)}")
                 QMessageBox.warning(self, "Error", "Could not load parent options")
 
@@ -174,5 +175,5 @@ class GenreEditDialog(QDialog):
                     parent_id=parent_id,
                 )
             self.accept()
-        except Exception as e:
+        except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Failed to save genre: {str(e)}")

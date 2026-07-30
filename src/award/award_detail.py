@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.award.award_relationship_dialog import AwardRelationshipDialog
 from src.core.logger_config import logger
@@ -152,7 +153,7 @@ class AwardDetailTab(QWidget):
             associations = self.controller.get.get_all_entities(
                 "AwardAssociation", award_id=self.award.award_id
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error refreshing relationships: {e}")
             self.recipient_label.setText("Error loading")
             self.other_relationships_label.setText("Error loading")
@@ -210,7 +211,7 @@ class AwardDetailTab(QWidget):
                 else:
                     other_relationships.append(relationship_text)
 
-            except Exception as e:
+            except (AttributeError, SQLAlchemyError) as e:
                 logger.error(
                     f"Error loading entity {assoc.entity_type} {assoc.entity_id}: {e}"
                 )
@@ -249,7 +250,7 @@ class AwardDetailTab(QWidget):
             self._refresh_recipient_display()
             logger.info(f"Cleared recipient for award {self.award.award_id}")
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error clearing recipient: {e}")
             QMessageBox.critical(self, "Error", f"Failed to clear recipient: {e}")
 
@@ -309,7 +310,7 @@ class AwardDetailTab(QWidget):
                     if self.parent_combo.itemData(i) == self.award.parent_id:
                         self.parent_combo.setCurrentIndex(i)
                         break
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error populating parent awards: {e}")
 
     def _enable_save(self) -> None:
@@ -371,7 +372,7 @@ class AwardDetailTab(QWidget):
             QMessageBox.warning(
                 self, "Invalid Year", "Please enter a valid numeric year."
             )
-        except Exception as e:
+        except (SQLAlchemyError, AttributeError, RuntimeError) as e:
             logger.error(f"Error saving award: {e}")
             QMessageBox.critical(self, "Error", f"Failed to save changes: {str(e)}")
 
@@ -410,7 +411,7 @@ class AwardDetailTab(QWidget):
                 # Emit signal to notify parent to close this tab
                 self.save_requested.emit()
 
-            except Exception as e:
+            except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Error deleting award: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to delete award: {str(e)}")
 
@@ -435,6 +436,6 @@ class AwardDetailTab(QWidget):
                 f"Added {relationship_type} relationship: {entity_type} {entity_id} to award {self.award.award_id}"
             )
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error adding relationship: {e}")
             QMessageBox.critical(self, "Error", f"Failed to add relationship: {e}")

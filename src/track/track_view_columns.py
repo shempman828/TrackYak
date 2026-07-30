@@ -109,7 +109,7 @@ class TrackViewColumnsMixin:
                 for i, w in enumerate(widths):
                     if i < len(col_keys) and w > 0:
                         self.table.setColumnWidth(i, w)
-        except Exception as e:
+        except (ValueError, RuntimeError) as e:
             logger.error(f"Error loading column state: {e}")
 
     def save_column_state(self):
@@ -125,7 +125,7 @@ class TrackViewColumnsMixin:
             app_config.set_track_view_visible_columns(visible)
             app_config.set_track_view_column_order(order)
             app_config.set_track_view_column_widths(widths)
-        except Exception as e:
+        except (RuntimeError, IndexError) as e:
             logger.error(f"Error saving column state: {e}")
 
     def show_column_menu(self):

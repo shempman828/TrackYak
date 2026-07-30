@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem,
     QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 
@@ -240,7 +241,7 @@ class AwardRelationshipDialog(QDialog):
                 item = QTreeWidgetItem([display_name, entity_type, str(entity_id)])
                 self.results_list.addTopLevelItem(item)
 
-        except Exception as e:
+        except (AttributeError, SQLAlchemyError) as e:
             logger.error(f"Error searching {entity_type}: {e}")
 
     # ─────────────────────────────────────────────── Selection logic
@@ -286,6 +287,6 @@ class AwardRelationshipDialog(QDialog):
             self.relationship_added.emit(entity_type, entity_id, relationship_type)
             self.accept()
 
-        except Exception as e:
+        except (AttributeError, SQLAlchemyError) as e:
             logger.error(f"Error creating {entity_type}: {e}")
             QMessageBox.critical(self, "Error", f"Failed to create new entity:\n{e}")

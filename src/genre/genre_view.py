@@ -2,6 +2,7 @@ from collections import defaultdict
 from typing import Optional
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 
 from PySide6.QtCore import QMimeData, Qt, Signal
 from PySide6.QtGui import QDrag
@@ -142,7 +143,7 @@ class GenreView(QWidget):
                 self.genre_updated.emit()
                 self.status_bar.setText("Genre split completed successfully")
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error in _split_genre(): {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"An unexpected error occurred:\n{e}")
 
@@ -194,7 +195,7 @@ class GenreView(QWidget):
                 self.tree.expandAll()
             logger.info(f"Loaded {len(genres)} genres with track counts")
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error loading genres: {str(e)}")
 
     def _build_genre_tree(
@@ -282,7 +283,7 @@ class GenreView(QWidget):
         except ValueError as e:
             show_status_message(self, str(e))
             item.setText(0, old_display_text)  # Revert to old display text
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error renaming genre: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to rename genre")
             item.setText(0, old_display_text)  # Revert to old display text
@@ -333,7 +334,7 @@ class GenreView(QWidget):
             self.genre_updated.emit()
             event.accept()
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error moving genre: {str(e)}")
             event.ignore()
 
@@ -400,7 +401,7 @@ class GenreView(QWidget):
                 self.genre_updated.emit()
                 self.status_bar.setText("Genre merge completed successfully")
 
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error merging genre: {str(e)}")
             QMessageBox.critical(self, "Error", f"Failed to merge genre: {str(e)}")
 
@@ -412,7 +413,7 @@ class GenreView(QWidget):
             if dialog.exec_() == QDialog.Accepted:
                 self.load_genres()
                 self.genre_updated.emit()
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error editing genre: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to edit genre")
 
@@ -444,7 +445,7 @@ class GenreView(QWidget):
             self.status_bar.setText(
                 f"Created '{new_genre.genre_name}' as parent of '{genre.genre_name}'"
             )
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error creating new parent genre: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to create new parent genre")
 
@@ -469,7 +470,7 @@ class GenreView(QWidget):
             self.status_bar.setText(
                 f"Created '{new_genre.genre_name}' as child of '{genre.genre_name}'"
             )
-        except Exception as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error creating new child genre: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to create new child genre")
 
@@ -523,7 +524,7 @@ class GenreView(QWidget):
                         self.controller.delete.delete_entity("Genre", genre_id)
                         self._remove_genre_tree_item(item)
                         success_count += 1
-                    except Exception as e:
+                    except SQLAlchemyError as e:
                         logger.error(f"Error deleting genre {genre_id}: {str(e)}")
 
                 self.genre_updated.emit()
@@ -535,7 +536,7 @@ class GenreView(QWidget):
                         f"Deleted {success_count} of {len(to_delete)} genre(s)"
                     )
 
-            except Exception as e:
+            except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Error in bulk delete: {str(e)}")
                 QMessageBox.critical(
                     self, "Error", "Failed to delete one or more genres"
@@ -560,7 +561,7 @@ class GenreView(QWidget):
                 self.genre_updated.emit()
                 self.status_bar.setText(f"Deleted {genre.genre_name}")
 
-        except Exception as e:
+        except (AttributeError, SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error deleting genre: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to delete genre")
 
@@ -621,7 +622,7 @@ class GenreView(QWidget):
 
             item.setText(0, display_text)
 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(f"Error refreshing genre display text: {str(e)}")
 
     def startDrag(self, supportedActions):
