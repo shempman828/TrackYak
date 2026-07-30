@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: F821
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QGroupBox,
@@ -12,8 +11,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.album.base_album_edit import AlbumEditor
 from src.disc.disc_view import DiscManagementView
 from src.track.track_edit_genres import GenresTab as TrackGenresTab
+from src.track.track_edit_roles import RolesTab as TrackRolesTab
 
 
 def _format_duration(total_seconds):
@@ -255,6 +256,61 @@ class GenresTab:
 # -------------------------------------------------------------------------
 
 
+class TrackCreditsTab:
+    """Artist/role credits common to every track on the album.
+
+    Reuses the track editor's RolesTab with the full set of the album's
+    tracks, the same way GenresTab reuses TrackGenresTab: adding, removing,
+    or editing a role here writes it to every track, so RolesTab's existing
+    multi-track intersection and batch write-to-all-tracks behavior double
+    as the album-level view and the trickle-down edit mechanism.
+
+    Also passes an on_convert_to_album hook so each role chip gets a
+    "→ Album" button that turns a credit shared by every track into a
+    single album-level credit instead (the inverse of the "→ Track" button
+    on the Artist Credits tab).
+    """
+
+    def __init__(self, editor: AlbumEditor):
+        self.editor = editor
+
+    def build(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        tracks = self.editor.album.tracks or []
+        if not tracks:
+            layout.addWidget(QLabel("This album has no tracks yet."))
+            return tab
+
+        info = QLabel(
+            "Roles common to every track on this album. Adding, removing, "
+            "or editing a role here applies it to all of the album's "
+            "tracks. Use → Album to convert a shared credit into a single "
+            "album-level credit instead (removing it from every track)."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        roles_widget = TrackRolesTab(
+            tracks,
+            self.editor.controller,
+            parent=tab,
+            on_convert_to_album=self._convert_to_album,
+        )
+        roles_widget.load(tracks)
+        layout.addWidget(roles_widget)
+        return tab
+
+    def _convert_to_album(self, artist_id, role_id):
+        self.editor.helper.convert_credit_to_album_level(artist_id, role_id)
+
+
+# -------------------------------------------------------------------------
+
+
 class AdvancedTab:
     """Metadata-complete flag, ReplayGain, and read-only library stats."""
 
@@ -339,9 +395,9 @@ class AdvancedTab:
 
         if album.tracks:
             rated_tracks = len([t for t in album.tracks if t.user_rating])
-            played_tracks = len(
-                [t for t in album.tracks if t.play_count and t.play_count > 0]
-            )
+            played_tracks = len([
+                t for t in album.tracks if t.play_count and t.play_count > 0
+            ])
             _read_only_row("Rated Tracks:", f"{rated_tracks}/{track_count}")
             _read_only_row("Played Tracks:", f"{played_tracks}/{track_count}")
 
