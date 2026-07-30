@@ -27,11 +27,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.statistics.analysis_cache import analysis_cache
-from src.statistics.batch_analysis_scheduler import BatchAnalysisScheduler
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.metadata.metadata_writer import MetadataWriter
+from src.statistics.analysis_cache import analysis_cache
+from src.statistics.batch_analysis_scheduler import BatchAnalysisScheduler
 from src.track.track_edit_basetab import _BaseTab
 from src.track.track_edit_fieldform import FieldFormTab
 
@@ -156,7 +156,9 @@ class AdvancedTab(_BaseTab):
             ]
 
             updated = [(t, r) for t, r in results if r["success"] and r["changed"]]
-            unchanged = [(t, r) for t, r in results if r["success"] and not r["changed"]]
+            unchanged = [
+                (t, r) for t, r in results if r["success"] and not r["changed"]
+            ]
             failed = [(t, r) for t, r in results if not r["success"]]
 
             self._set_status(
@@ -171,7 +173,9 @@ class AdvancedTab(_BaseTab):
             if len(results) == 1:
                 track, result = results[0]
                 if not result["success"]:
-                    QMessageBox.warning(self, "Write Metadata to File", result["message"])
+                    QMessageBox.warning(
+                        self, "Write Metadata to File", result["message"]
+                    )
                 elif not result["changed"]:
                     show_status_message(self, "File tags already match the database.")
                 else:
