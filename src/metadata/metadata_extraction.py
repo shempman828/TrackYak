@@ -1,11 +1,11 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
+from src.core.logger_config import logger
 from src.metadata.metadata_artwork import ArtworkExtractor
 from src.metadata.metadata_properties import AudioPropertiesExtractor
 from src.metadata.metadata_raw_tags import RawTagExtractor
 from src.metadata.metadata_text import TextMetadataExtractor, flatten_text_metadata
-from src.core.logger_config import logger
 
 
 class MetadataExtractor:
@@ -58,7 +58,7 @@ class MetadataExtractor:
                 "track_file_path": file_path,
                 "file_size": len(data),
                 "file_extension": file_ext.lstrip("."),
-                "date_added": datetime.now(),
+                "date_added": datetime.now(timezone.utc),
             }
 
             raw_tags = self.raw_tag_extractor.extract_raw_tags(data, file_ext)
@@ -85,12 +85,7 @@ class MetadataExtractor:
 
             return metadata
 
-        except Exception as e:
-            # Intentional broad boundary catch: this runs once per file inside
-            # bulk library-import/rescan loops (see library_import.py,
-            # library_rescan_repair.py) and delegates to several independently
-            # broad sub-extractors (raw tags, text metadata, audio properties,
-            # artwork) — one malformed file must not abort the whole batch.
+        except Exception as e:  # ruff: ignore[blind-except]
             logger.exception(
                 f"Critical error extracting metadata from {file_path}: {str(e)[:500]}"
             )
@@ -106,7 +101,7 @@ class MetadataExtractor:
             "track_file_path": file_path,
             "file_size": stat.st_size,
             "file_extension": file_extension,
-            "date_added": datetime.now(),
+            "date_added": datetime.now(timezone.utc),
         }
 
     def _safe_for_logging(self, metadata):
