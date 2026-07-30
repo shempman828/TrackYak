@@ -7,10 +7,10 @@ entity type with only names changed.
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from collections.abc import Callable
 
-from PySide6.QtCore import QEvent, QStringListModel, Qt, Signal
-from PySide6.QtWidgets import QComboBox, QCompleter, QHBoxLayout, QLineEdit, QWidget
+from PySide6.QtCore import QEvent, QStringListModel, Qt
+from PySide6.QtWidgets import QCompleter, QLineEdit
 
 
 class EntityCompleterEdit(QLineEdit):
@@ -92,7 +92,7 @@ def find_or_create_by_name(
     name: str,
     known_entities: list,
     *,
-    extra_lookup: Optional[Callable[[], object]] = None,
+    extra_lookup: Callable[[], object] | None = None,
 ):
     """
     Look up an entity by name (case-insensitive) among `known_entities` --
@@ -120,12 +120,12 @@ def find_or_create_by_name(
 # of each one fetching (and re-fetching on every open) its own copy.
 
 _PRELOAD_ROW_CAP = 2000
-_entity_cache: dict[str, Optional[list]] = {}
+_entity_cache: dict[str, list | None] = {}
 
 
 def get_cached_entities(
     controller, model_name: str, *, force_refresh: bool = False
-) -> Optional[list]:
+) -> list | None:
     """
     Full row list for `model_name`, cached at module scope. Returns None
     -- instead of a potentially huge list -- once the table exceeds
@@ -159,7 +159,7 @@ def register_cached_entity(model_name: str, entity) -> None:
         cached.append(entity)
 
 
-def invalidate_entity_cache(model_name: Optional[str] = None) -> None:
+def invalidate_entity_cache(model_name: str | None = None) -> None:
     """Drop the cached row list for `model_name` (or every cached list when
     omitted), forcing the next get_cached_entities() call to re-fetch."""
     if model_name is None:
@@ -175,7 +175,7 @@ def build_entity_search_widget(
     id_field: str,
     placeholder_text: str = "",
     parent=None,
-    index_builder: Optional[Callable[[list], dict]] = None,
+    index_builder: Callable[[list], dict] | None = None,
 ):
     """
     Returns an EntityCompleterEdit preloaded with the full `model_name`
@@ -206,20 +206,22 @@ def build_entity_search_widget(
     )
 
 
-class BoundedSearchEdit(QWidget):
+class BoundedSearchEdit(QLineEdit):
     """
     Fallback for EntityCompleterEdit when a table is too large to preload:
-    QLineEdit + QComboBox, querying on demand (min 2 chars, capped results)
-    instead of holding the whole table in memory. Exposes the same
-    text()/matched_id()/add_to_index()/reset()/textChanged/returnPressed
-    surface EntityCompleterEdit does, so callers can treat either
-    interchangeably.
+    a real popup QCompleter whose backing model is (re)populated from an
+    on-demand, capped DB query as the user types (min 2 chars) instead of
+    a full-table preload. This gives the same autocomplete-suggestion UX
+    as EntityCompleterEdit -- a dropdown of matches appears under the
+    field -- just backed by a bounded query instead of an in-memory index.
+    Exposes the same text()/matched_id()/add_to_index()/reset()/
+    known_matches()/textChanged/returnPressed surface EntityCompleterEdit
+    does (textChanged/returnPressed come from QLineEdit itself), so callers
+    can treat either interchangeably.
     """
 
-    textChanged = Signal(str)
-    returnPressed = Signal()
-
     _MAX_RESULTS = 50
+    _MIN_CHARS = 2
 
     def __init__(
         self,
@@ -237,54 +239,49 @@ class BoundedSearchEdit(QWidget):
         self._id_field = id_field
         self._matched_id = None
         self._last_matches: list = []
+        self._display_to_id: dict = {}
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self._edit = QLineEdit()
         if placeholder_text:
-            self._edit.setPlaceholderText(f"{placeholder_text} (min 2 chars)")
-        self._edit.textChanged.connect(self._on_text_changed)
-        self._edit.returnPressed.connect(self.returnPressed)
-        layout.addWidget(self._edit)
+            self.setPlaceholderText(f"{placeholder_text} (min {self._MIN_CHARS} chars)")
 
-        self._combo = QComboBox()
-        self._combo.setVisible(False)
-        self._combo.currentIndexChanged.connect(self._on_combo_selected)
-        layout.addWidget(self._combo)
+        self._model = QStringListModel(self)
+        completer = QCompleter(self._model, self)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        completer.activated.connect(self._on_completion_picked)
+        self.setCompleter(completer)
 
-    def _on_text_changed(self, text: str) -> None:
+        self.textEdited.connect(self._on_text_edited)
+
+    def _on_text_edited(self, text: str) -> None:
         self._matched_id = None
         text = text.strip()
-        self._combo.blockSignals(True)
-        self._combo.clear()
-        if len(text) >= 2:
+        if len(text) >= self._MIN_CHARS:
             self._last_matches = (
                 self._controller.get.get_all_entities(
                     self._model_name, **{f"{self._name_field}__contains": text}
                 )
                 or []
             )[: self._MAX_RESULTS]
-            for e in self._last_matches:
-                name = getattr(e, self._name_field, None)
-                if name:
-                    self._combo.addItem(name, getattr(e, self._id_field))
-            self._combo.setVisible(self._combo.count() > 0)
+            self._display_to_id = {
+                getattr(e, self._name_field): getattr(e, self._id_field)
+                for e in self._last_matches
+                if getattr(e, self._name_field, None)
+            }
         else:
             self._last_matches = []
-            self._combo.setVisible(False)
-        self._combo.blockSignals(False)
-        self.textChanged.emit(text)
+            self._display_to_id = {}
+        # The model must be refreshed *before* re-triggering completion --
+        # QLineEdit.setCompleter() already wires textEdited to update the
+        # completer's prefix, but that wiring ran (and filtered the *old*
+        # model) before this slot got a chance to load fresh matches, so
+        # the popup needs an explicit nudge to show the new results now.
+        self._model.setStringList(sorted(self._display_to_id.keys()))
+        if self._display_to_id:
+            self.completer().complete()
 
-    def _on_combo_selected(self, index: int) -> None:
-        if index >= 0:
-            self._matched_id = self._combo.currentData()
-            self._edit.blockSignals(True)
-            self._edit.setText(self._combo.currentText())
-            self._edit.blockSignals(False)
-
-    def text(self) -> str:
-        return self._edit.text()
+    def _on_completion_picked(self, text: str) -> None:
+        self._matched_id = self._display_to_id.get(text)
 
     def matched_id(self):
         return self._matched_id
@@ -301,7 +298,8 @@ class BoundedSearchEdit(QWidget):
         pass
 
     def reset(self) -> None:
-        self._edit.clear()
+        self.clear()
         self._matched_id = None
         self._last_matches = []
-        self._combo.setVisible(False)
+        self._display_to_id = {}
+        self._model.setStringList([])
