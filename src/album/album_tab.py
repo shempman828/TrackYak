@@ -5,6 +5,12 @@ Changes (this revision)
 ───────────────────────
 • _build_artists_list: QGroupBox title font shrunk to 11 px; artist rows use
   compact margins so the tab doesn't feel overwhelmingly large.
+• _build_artists_list: each role group now lays credits out as compact
+  chips in a FlowLayout (same pattern as artist_edit_types.py's type chips)
+  instead of one full-width row per credit, so multiple credits pack per
+  line and wrap to fit the available width (#227).
+• build_artists_tab: the credit list is now wrapped in a QScrollArea so
+  albums with many credits don't blow out the dialog height (#227).
 • _build_publishers_section / _build_places_section: after any Remove action
   the parent dialog's _on_subdialog_closed() is NOT called here (the helper
   already calls refresh_view which triggers _rebuild_current_tab).  No change
@@ -21,12 +27,38 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+from src.album.album_flowlayout import FlowLayout
 from src.common.entity_completer_edit import build_entity_search_widget
 from src.core.logger_config import logger
+
+
+class _CreditFlowArea(QWidget):
+    """Container for a role group's FlowLayout of credit chips.
+
+    Same workaround as artist_edit_types.py's _ChipArea: a FlowLayout's real
+    height depends on how many rows it wraps into at a given width, which
+    Qt can't know ahead of time, so the enclosing group box would otherwise
+    only ever reserve room for one row. Recomputing minimumHeight from
+    heightForWidth() whenever the width changes keeps the reserved space
+    accurate as credits wrap.
+    """
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.refresh_height()
+
+    def refresh_height(self):
+        layout = self.layout()
+        if layout is None:
+            return
+        height = layout.heightForWidth(self.width())
+        if height != self.minimumHeight():
+            self.setMinimumHeight(height)
 
 
 class AlbumTabBuilder:
@@ -71,8 +103,12 @@ class AlbumTabBuilder:
         layout = QVBoxLayout(tab)
 
         layout.addWidget(self._build_add_artist_credit_row())
-        layout.addWidget(self._build_artists_list())
-        layout.addStretch()
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(self._build_artists_list())
+        layout.addWidget(scroll)
         return tab
 
     # =========================================================================
@@ -324,81 +360,96 @@ class AlbumTabBuilder:
             role_group.setFont(small_font)  # ← shrinks the group title
             role_layout = QVBoxLayout(role_group)
             role_layout.setContentsMargins(6, 4, 6, 4)
-            role_layout.setSpacing(2)
+
+            # Credit chips flow left-to-right, wrapping to the next line, so
+            # multiple credits pack per row instead of one full-width row
+            # each — see _CreditFlowArea for why the group box needs the
+            # manual height recompute to fit the wrapped rows.
+            flow_area = _CreditFlowArea()
+            flow = FlowLayout(flow_area, margin=0, h_spacing=6, v_spacing=4)
+            role_layout.addWidget(flow_area)
 
             # artist_tuples is already in credit order (Album.album_roles is
             # ordered by sort_order) — no alphabetical re-sort here, since
             # that would defeat the whole point of letting it be reordered.
             last_index = len(artist_tuples) - 1
             for index, (artist_name, role_assoc) in enumerate(artist_tuples):
-                artist_widget = QWidget()
-                artist_layout = QHBoxLayout(artist_widget)
-                artist_layout.setContentsMargins(0, 0, 0, 0)
-                artist_layout.setSpacing(6)
-
-                up_btn = QPushButton("▲")
-                up_btn.setFixedSize(20, 22)
-                up_btn.setStyleSheet("font-size: 10px; padding: 0px;")
-                up_btn.setEnabled(index > 0)
-                up_btn.setToolTip(f"Move {artist_name} up")
-                up_btn.clicked.connect(
-                    lambda checked, ra=role_assoc: self.helper.move_artist_credit(
-                        ra, -1
-                    )
+                chip = self._build_artist_credit_chip(
+                    artist_name, role_assoc, index, last_index
                 )
-                artist_layout.addWidget(up_btn)
+                flow.addWidget(chip)
+                chip.show()  # force visible now so the layout pass below places it
 
-                down_btn = QPushButton("▼")
-                down_btn.setFixedSize(20, 22)
-                down_btn.setStyleSheet("font-size: 10px; padding: 0px;")
-                down_btn.setEnabled(index < last_index)
-                down_btn.setToolTip(f"Move {artist_name} down")
-                down_btn.clicked.connect(
-                    lambda checked, ra=role_assoc: self.helper.move_artist_credit(ra, 1)
-                )
-                artist_layout.addWidget(down_btn)
-
-                name_label = QLabel(artist_name)
-                name_label.setStyleSheet("font-size: 11px;")  # ← smaller text
-                artist_layout.addWidget(name_label)
-
-                credit_btn = QPushButton("Credit as…")
-                credit_btn.setFixedHeight(22)
-                credit_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
-                credit_btn.setToolTip(
-                    f"Choose which name (canonical or alias) to credit "
-                    f"{role_assoc.artist.artist_name if role_assoc.artist else artist_name} as here"
-                )
-                credit_btn.clicked.connect(
-                    lambda checked, ra=role_assoc: self.helper.change_credited_alias(ra)
-                )
-                artist_layout.addWidget(credit_btn)
-
-                to_track_btn = QPushButton("→ Track")
-                to_track_btn.setFixedHeight(22)
-                to_track_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
-                to_track_btn.setToolTip(
-                    "Move this credit to every track on the album (removes it "
-                    "from the album-level credit list)"
-                )
-                to_track_btn.clicked.connect(
-                    lambda checked, ra=role_assoc: (
-                        self.helper.convert_credit_to_per_track(ra)
-                    )
-                )
-                artist_layout.addWidget(to_track_btn)
-
-                remove_btn = QPushButton("Remove")
-                remove_btn.setFixedHeight(22)  # ← compact button
-                remove_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
-                remove_btn.clicked.connect(
-                    lambda checked, ra=role_assoc: self.helper.remove_artist_credit(ra)
-                )
-                artist_layout.addWidget(remove_btn)
-                artist_layout.addStretch()
-
-                role_layout.addWidget(artist_widget)
-
+            flow.activate()
+            flow_area.refresh_height()
             layout.addWidget(role_group)
 
         return container
+
+    def _build_artist_credit_chip(self, artist_name, role_assoc, index, last_index):
+        """Build one compact credit chip (arrows, name, actions) for the flow."""
+        chip = QWidget()
+        chip.setStyleSheet(
+            "QWidget { border: 1px solid palette(mid); border-radius: 6px; }"
+        )
+        chip_layout = QHBoxLayout(chip)
+        chip_layout.setContentsMargins(4, 2, 4, 2)
+        chip_layout.setSpacing(4)
+
+        up_btn = QPushButton("▲")
+        up_btn.setFixedSize(20, 22)
+        up_btn.setStyleSheet("font-size: 10px; padding: 0px;")
+        up_btn.setEnabled(index > 0)
+        up_btn.setToolTip(f"Move {artist_name} up")
+        up_btn.clicked.connect(
+            lambda checked, ra=role_assoc: self.helper.move_artist_credit(ra, -1)
+        )
+        chip_layout.addWidget(up_btn)
+
+        down_btn = QPushButton("▼")
+        down_btn.setFixedSize(20, 22)
+        down_btn.setStyleSheet("font-size: 10px; padding: 0px;")
+        down_btn.setEnabled(index < last_index)
+        down_btn.setToolTip(f"Move {artist_name} down")
+        down_btn.clicked.connect(
+            lambda checked, ra=role_assoc: self.helper.move_artist_credit(ra, 1)
+        )
+        chip_layout.addWidget(down_btn)
+
+        name_label = QLabel(artist_name)
+        name_label.setStyleSheet("font-size: 11px;")  # ← smaller text
+        chip_layout.addWidget(name_label)
+
+        credit_btn = QPushButton("Credit as…")
+        credit_btn.setFixedHeight(22)
+        credit_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
+        credit_btn.setToolTip(
+            f"Choose which name (canonical or alias) to credit "
+            f"{role_assoc.artist.artist_name if role_assoc.artist else artist_name} as here"
+        )
+        credit_btn.clicked.connect(
+            lambda checked, ra=role_assoc: self.helper.change_credited_alias(ra)
+        )
+        chip_layout.addWidget(credit_btn)
+
+        to_track_btn = QPushButton("→ Track")
+        to_track_btn.setFixedHeight(22)
+        to_track_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
+        to_track_btn.setToolTip(
+            "Move this credit to every track on the album (removes it "
+            "from the album-level credit list)"
+        )
+        to_track_btn.clicked.connect(
+            lambda checked, ra=role_assoc: self.helper.convert_credit_to_per_track(ra)
+        )
+        chip_layout.addWidget(to_track_btn)
+
+        remove_btn = QPushButton("Remove")
+        remove_btn.setFixedHeight(22)  # ← compact button
+        remove_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
+        remove_btn.clicked.connect(
+            lambda checked, ra=role_assoc: self.helper.remove_artist_credit(ra)
+        )
+        chip_layout.addWidget(remove_btn)
+
+        return chip
