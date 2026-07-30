@@ -3,7 +3,7 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, ClassVar
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -33,23 +33,25 @@ def _make_widget_for_field(field_name: str, field_config, on_change_cb):
     Create and return the right editable widget for a FieldSpec.
     Connects the widget's change signal to on_change_cb(field_name).
     """
-    if field_config.type == bool:  # noqa: E721
+    if field_config.type == bool:
         w = QCheckBox()
         w.toggled.connect(lambda _checked, fn=field_name: on_change_cb(fn))
-    elif field_config.type == int:  # noqa: E721
+    elif field_config.type == int:
         # Every int field on Track is nullable in the DB, so we always give
         # the user a way to clear it back to NULL rather than being stuck
         # with whatever number is left in a plain QSpinBox.
         w = NullableSpinBox(
             min_val=(
-                int(field_config.min) if field_config.min is not None else -2_147_483_648
+                int(field_config.min)
+                if field_config.min is not None
+                else -2_147_483_648
             ),
             max_val=(
                 int(field_config.max) if field_config.max is not None else 2_147_483_647
             ),
         )
         w.valueChanged.connect(lambda fn=field_name: on_change_cb(fn))
-    elif field_config.type == float:  # noqa: E721
+    elif field_config.type == float:
         w = NullableSpinBox(
             min_val=field_config.min if field_config.min is not None else -1e9,
             max_val=field_config.max if field_config.max is not None else 1e9,
@@ -122,11 +124,11 @@ def _coerce(value, field_config) -> Any:
     if value in (None, ""):
         return None
     try:
-        if field_config.type == int:  # noqa: E721
+        if field_config.type == int:
             return int(value)
-        if field_config.type == float:  # noqa: E721
+        if field_config.type == float:
             return float(value)
-        if field_config.type == bool:  # noqa: E721
+        if field_config.type == bool:
             return bool(value)
     except (ValueError, TypeError) as e:
         logger.warning(
@@ -140,7 +142,7 @@ def _format_readonly(value, field_config, field_name: str = "") -> str:
     """Format a value for display in a readonly QLabel."""
     if value is None or value == "":
         return "—"
-    if field_config and field_config.type == bool:  # noqa: E721
+    if field_config and field_config.type == bool:
         return "Yes" if value else "No"
     if field_name == "duration" and isinstance(value, (int, float)):
         total_s = int(value)
@@ -148,7 +150,7 @@ def _format_readonly(value, field_config, field_name: str = "") -> str:
         return f"{m}:{s:02d}"
     if field_name == "file_size" and isinstance(value, (int, float)):
         return f"{value / (1024 * 1024):.1f} MB"
-    if field_config and field_config.type == float and isinstance(value, (int, float)):  # noqa: E721
+    if field_config and field_config.type == float and isinstance(value, (int, float)):
         # 0–1 typed features (danceability, energy, etc.) read better as percentages
         if field_config.min == 0.0 and field_config.max == 1.0:
             return f"{value * 100:.1f}%"
@@ -169,7 +171,7 @@ class FieldFormTab(_BaseTab):
     # Fields sharing one form row instead of getting their own — keeps
     # short, closely-related fields (e.g. a Year/Month/Day trio) from
     # wasting vertical space. Keyed by the first field in the group.
-    _ROW_GROUPS = {
+    _ROW_GROUPS: ClassVar[dict[str, list[str]]] = {
         "track_number": ["absolute_track_number"],
         "recorded_year": ["recorded_month", "recorded_day"],
         "release_year": ["release_month", "release_day"],
@@ -185,8 +187,8 @@ class FieldFormTab(_BaseTab):
     def __init__(self, category: str, tracks: list, controller, parent=None):
         super().__init__(tracks, controller, parent)
         self.category = category
-        self._widgets: Dict[str, QWidget] = {}  # editable widgets
-        self._labels: Dict[str, QLabel] = {}  # readonly labels
+        self._widgets: dict[str, QWidget] = {}  # editable widgets
+        self._labels: dict[str, QLabel] = {}  # readonly labels
         self._build_ui()
 
     def _build_ui(self):
@@ -310,7 +312,7 @@ class FieldFormTab(_BaseTab):
                 if skip_dirty and field_name in self._dirty:
                     continue
                 values = [getattr(t, field_name, None) for t in tracks]
-                unique = set(str(v) for v in values)
+                unique = {str(v) for v in values}
                 _write_widget(w, values[0] if len(unique) == 1 else None)
         else:
             for field_name, w in self._widgets.items():
@@ -325,7 +327,7 @@ class FieldFormTab(_BaseTab):
                     )
                 )
 
-    def set_if_empty(self, values: Dict[str, Any]) -> None:
+    def set_if_empty(self, values: dict[str, Any]) -> None:
         """Fill fields from a MusicBrainz enrichment dict, but only where
         this tab's own widget is currently blank -- never overwrites
         something the user already filled in or typed moments ago.
@@ -349,11 +351,11 @@ class FieldFormTab(_BaseTab):
             _write_widget(widget, value)
             self._mark_dirty(field_name)
 
-    def collect_all_values(self) -> Dict[str, Any]:
+    def collect_all_values(self) -> dict[str, Any]:
         """Return every currently displayed field with a value, editable or
         read-only -- unlike collect_changes(), this isn't limited to fields
         the user has actively edited this session."""
-        values: Dict[str, Any] = {}
+        values: dict[str, Any] = {}
         for field_name, w in self._widgets.items():
             cfg = TRACK_FIELDS.get(field_name)
             if cfg is None:
@@ -367,7 +369,7 @@ class FieldFormTab(_BaseTab):
                 values[field_name] = text
         return values
 
-    def collect_changes(self) -> Dict[str, Any]:
+    def collect_changes(self) -> dict[str, Any]:
         changes = {}
         for field_name in self._dirty:
             w = self._widgets.get(field_name)

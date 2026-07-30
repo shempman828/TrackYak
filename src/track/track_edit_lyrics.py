@@ -3,19 +3,13 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QTextEdit,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout
 
-from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
+from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.track.track_edit_basetab import _BaseTab
 from src.track.track_edit_fieldform import (
     _coerce,
@@ -94,7 +88,7 @@ class LyricsTab(_BaseTab):
         if self._explicit_widget is not None:
             if self.is_multi:
                 values = [getattr(t, "is_explicit", None) for t in tracks]
-                unique = set(str(v) for v in values)
+                unique = {str(v) for v in values}
                 _write_widget(
                     self._explicit_widget, values[0] if len(unique) == 1 else None
                 )
@@ -103,7 +97,7 @@ class LyricsTab(_BaseTab):
                     self._explicit_widget, getattr(self.track, "is_explicit", None)
                 )
 
-    def collect_changes(self) -> Dict[str, Any]:
+    def collect_changes(self) -> dict[str, Any]:
         changes = {}
         if "lyrics" in self._dirty:
             changes["lyrics"] = self._edit.toPlainText() or None

@@ -134,7 +134,7 @@ class TrackLookupCacheWorker(QObject):
         try:
             caches = _fetch_lookup_caches(self.controller.get.session)
             self.finished.emit(*caches)
-        except Exception as e:
+        except Exception as e:  # ruff: ignore[blind-except]
             # Intentional broad boundary catch: this runs on a background thread
             # and must not let an exception be lost silently.
             logger.exception("Failed to load track view lookup caches")

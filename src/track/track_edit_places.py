@@ -3,8 +3,6 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from sqlalchemy.exc import SQLAlchemyError
-
 from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtWidgets import (
     QCompleter,
@@ -16,6 +14,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.entity_completer_edit import (
     build_entity_search_widget,

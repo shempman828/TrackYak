@@ -3,9 +3,6 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
-
 from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QDialog,
@@ -20,6 +17,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.credited_as_dialog import CreditedAsDialog
 from src.common.entity_completer_edit import (
@@ -72,7 +71,9 @@ def _fetch_role_rows(session, track_ids: list):
         )
         .outerjoin(Artist, TrackArtistRole.artist_id == Artist.artist_id)
         .outerjoin(Role, TrackArtistRole.role_id == Role.role_id)
-        .outerjoin(ArtistAlias, TrackArtistRole.credited_alias_id == ArtistAlias.alias_id)
+        .outerjoin(
+            ArtistAlias, TrackArtistRole.credited_alias_id == ArtistAlias.alias_id
+        )
         .where(TrackArtistRole.track_id.in_(track_ids))
     )
     return session.execute(stmt).all()
@@ -91,12 +92,23 @@ def _group_role_rows(rows, track_ids: list, is_multi: bool) -> dict:
 
     if is_multi:
         by_track: dict = {}
-        for track_id, artist_id, role_id, _alias_id, role_name, artist_name, alias_name in rows:
+        for (
+            track_id,
+            artist_id,
+            role_id,
+            _alias_id,
+            role_name,
+            artist_name,
+            alias_name,
+        ) in rows:
             credited_name = alias_name or artist_name or "?"
             role_name = role_name or "?"
-            by_track.setdefault(track_id, set()).add(
-                (artist_id, role_id, credited_name, role_name)
-            )
+            by_track.setdefault(track_id, set()).add((
+                artist_id,
+                role_id,
+                credited_name,
+                role_name,
+            ))
 
         all_sets = [by_track.get(tid, set()) for tid in track_ids]
         common = all_sets[0] if all_sets else set()
@@ -107,7 +119,15 @@ def _group_role_rows(rows, track_ids: list, is_multi: bool) -> dict:
             entry = grouped.setdefault((artist_id, credited_name), {"roles": {}})
             entry["roles"][role_id] = role_name
     else:
-        for track_id, artist_id, role_id, alias_id, role_name, artist_name, alias_name in rows:
+        for (
+            track_id,
+            artist_id,
+            role_id,
+            alias_id,
+            role_name,
+            artist_name,
+            alias_name,
+        ) in rows:
             credited_name = alias_name or artist_name or "?"
             role_name = role_name or "?"
             entry = grouped.setdefault(
@@ -138,7 +158,7 @@ class _RolesLoaderWorker(QObject):
             rows = _fetch_role_rows(self.controller.get.session, self._track_ids)
             grouped = _group_role_rows(rows, self._track_ids, self._is_multi)
             self.finished.emit(grouped)
-        except Exception as e:
+        except Exception as e:  # ruff: ignore[blind-except]
             # Intentional broad boundary catch: this runs on a background thread
             # and must not let an exception be lost silently.
             logger.exception("Failed to load track roles")
@@ -404,7 +424,9 @@ class RolesTab(_BaseTab):
 
         return sorted(roles.items(), key=sort_key)
 
-    def _add_artist_row(self, artist_id, artist_name, roles: dict, credited_alias_id=None):
+    def _add_artist_row(
+        self, artist_id, artist_name, roles: dict, credited_alias_id=None
+    ):
         row = self._table.rowCount()
         self._table.insertRow(row)
 

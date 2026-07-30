@@ -196,7 +196,7 @@ class TrackEditDialog(QDialog):
         try:
             tab = factory()
             tab.load(self.tracks)
-        except Exception as e:
+        except Exception as e:  # ruff: ignore[blind-except]
             # Intentional broad boundary catch: dispatches to 18 heterogeneous
             # tab classes (DB reads, dict/attr access, UI construction) via the
             # shared _BaseTab interface -- a bug in any one tab must not block
@@ -224,7 +224,7 @@ class TrackEditDialog(QDialog):
                 continue
             try:
                 tab.refresh_values(self.tracks)
-            except Exception as e:
+            except Exception as e:  # ruff: ignore[blind-except]
                 # Intentional broad boundary catch: refresh_values is
                 # overridden differently by each of the 18 tab classes -- a
                 # bug in one tab's refresh must not stop the rest from
@@ -245,7 +245,7 @@ class TrackEditDialog(QDialog):
                 try:
                     changes = tab.collect_changes()
                     all_changes.update(changes)
-                except Exception as e:
+                except Exception as e:  # ruff: ignore[blind-except]
                     # Intentional broad boundary catch: collect_changes is
                     # overridden differently by each of the 18 tab classes --
                     # a bug in one tab's collection must not prevent saving
@@ -279,7 +279,7 @@ class TrackEditDialog(QDialog):
                 continue  # never built -> nothing to clean up
             try:
                 tab.cleanup()
-            except Exception as e:
+            except Exception as e:  # ruff: ignore[blind-except]
                 # Intentional broad boundary catch: shutdown/cleanup code for
                 # 18 heterogeneous tab classes (some tear down background
                 # QThreads) -- one tab failing to clean up must not stop the

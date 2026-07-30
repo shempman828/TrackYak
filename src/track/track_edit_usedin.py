@@ -4,8 +4,6 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from sqlalchemy.exc import SQLAlchemyError
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -19,6 +17,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.track.track_edit_basetab import _BaseTab
@@ -82,9 +81,14 @@ class UsedInTab(_BaseTab):
 
         # ── Table ─────────────────────────────────────────────────────────
         self._table = QTableWidget(0, 6)
-        self._table.setHorizontalHeaderLabels(
-            ["Type", "Title", "Year", "Description", "Wikipedia", ""]
-        )
+        self._table.setHorizontalHeaderLabels([
+            "Type",
+            "Title",
+            "Year",
+            "Description",
+            "Wikipedia",
+            "",
+        ])
         self._table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeToContents
         )
@@ -121,7 +125,9 @@ class UsedInTab(_BaseTab):
             ]
 
         for usage_id, usage_type, title, year, description, wikipedia_link in rows:
-            self._add_row(usage_id, usage_type, title, year, description, wikipedia_link)
+            self._add_row(
+                usage_id, usage_type, title, year, description, wikipedia_link
+            )
 
     def _common_usages(self):
         """Usage entries (matched by type/title/year) present on every selected track."""

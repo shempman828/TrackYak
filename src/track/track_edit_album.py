@@ -6,8 +6,6 @@ from __future__ import annotations
 import sqlite3
 import webbrowser
 
-from sqlalchemy.exc import SQLAlchemyError
-
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -26,6 +24,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
@@ -106,13 +105,17 @@ class AlbumsTab(_BaseTab):
         btn_row.addWidget(self._change_album_btn)
 
         self._wiki_open_btn = QPushButton("🌐 Wikipedia")
-        self._wiki_open_btn.setToolTip("Open the album's Wikipedia page in your browser")
+        self._wiki_open_btn.setToolTip(
+            "Open the album's Wikipedia page in your browser"
+        )
         self._wiki_open_btn.clicked.connect(self._open_wiki_link)
         self._wiki_open_btn.setVisible(False)
         btn_row.addWidget(self._wiki_open_btn)
 
         self._mb_open_btn = QPushButton("🎵 MusicBrainz")
-        self._mb_open_btn.setToolTip("Open the album's MusicBrainz page in your browser")
+        self._mb_open_btn.setToolTip(
+            "Open the album's MusicBrainz page in your browser"
+        )
         self._mb_open_btn.clicked.connect(self._open_mb_link)
         self._mb_open_btn.setVisible(False)
         btn_row.addWidget(self._mb_open_btn)
@@ -146,13 +149,19 @@ class AlbumsTab(_BaseTab):
         layout.addWidget(set_group)
 
         # ── Virtual appearances group ─────────────────────────────────────
-        virtual_group = QGroupBox("Virtual Appearances (track borrowed by other albums)")
+        virtual_group = QGroupBox(
+            "Virtual Appearances (track borrowed by other albums)"
+        )
         virtual_layout = QVBoxLayout(virtual_group)
 
         self._virtual_table = QTableWidget(0, 5)
-        self._virtual_table.setHorizontalHeaderLabels(
-            ["Album", "Track #", "Disc #", "Side", ""]
-        )
+        self._virtual_table.setHorizontalHeaderLabels([
+            "Album",
+            "Track #",
+            "Disc #",
+            "Side",
+            "",
+        ])
         self._virtual_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.Stretch
         )
@@ -171,9 +180,7 @@ class AlbumsTab(_BaseTab):
         self._virtual_table.verticalHeader().setVisible(False)
         # Sized by row count (see _update_virtual_table_height) rather than
         # expanding to fill the tab — this section is empty for most tracks.
-        self._virtual_table.setSizePolicy(
-            QSizePolicy.Expanding, QSizePolicy.Fixed
-        )
+        self._virtual_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         virtual_layout.addWidget(self._virtual_table)
 
         # ── Add virtual appearance ────────────────────────────────────────
@@ -215,7 +222,9 @@ class AlbumsTab(_BaseTab):
     def _on_change_album_toggled(self, checked: bool) -> None:
         self._set_group.setVisible(checked)
         self._virtual_group.setVisible(checked)
-        self._change_album_btn.setText("Hide Album Search" if checked else "Change Album")
+        self._change_album_btn.setText(
+            "Hide Album Search" if checked else "Change Album"
+        )
 
     # ── Loading ───────────────────────────────────────────────────────────
 
@@ -242,7 +251,9 @@ class AlbumsTab(_BaseTab):
                 self._mb_open_btn.setVisible(False)
                 self._remove_primary_btn.setEnabled(True)
             self._open_primary_btn.setEnabled(False)
-            self._set_primary_btn.setEnabled(len(self._album_search.text().strip()) >= 2)
+            self._set_primary_btn.setEnabled(
+                len(self._album_search.text().strip()) >= 2
+            )
             self._virt_add_btn.setEnabled(False)
             self._virtual_table.setRowCount(0)
             self._update_virtual_table_height()

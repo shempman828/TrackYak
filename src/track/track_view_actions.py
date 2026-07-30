@@ -6,11 +6,10 @@ playback actions for TrackView.
 import random
 from pathlib import Path
 
-from sqlalchemy.exc import SQLAlchemyError
-
 from PySide6.QtCore import QByteArray, QMimeData, Qt
 from PySide6.QtGui import QDrag, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.censor import censor_text
 from src.core.logger_config import logger

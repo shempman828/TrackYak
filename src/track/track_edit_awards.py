@@ -3,20 +3,19 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from sqlalchemy.exc import SQLAlchemyError
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
+    QHeaderView,
     QLineEdit,
     QPushButton,
     QSpinBox,
-    QVBoxLayout,
-    QHeaderView,
-    QTableWidgetItem,
     QTableWidget,
-    QComboBox,
+    QTableWidgetItem,
+    QVBoxLayout,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.track.track_edit_basetab import _BaseTab
@@ -83,9 +82,12 @@ class AwardsTab(_BaseTab):
                     "Award", award_id=a.award_id
                 )
                 if award:
-                    rows.append(
-                        (award.award_id, award.award_name, a.category or "", a.year)
-                    )
+                    rows.append((
+                        award.award_id,
+                        award.award_name,
+                        a.category or "",
+                        a.year,
+                    ))
         for award_id, award_name, category, year in rows:
             self._add_row(award_id, award_name, category, year)
 
@@ -101,14 +103,12 @@ class AwardsTab(_BaseTab):
                     "Award", award_id=a.award_id
                 )
                 if award:
-                    s.add(
-                        (
-                            award.award_id,
-                            award.award_name,
-                            a.category or "",
-                            a.year or 0,
-                        )
-                    )
+                    s.add((
+                        award.award_id,
+                        award.award_name,
+                        a.category or "",
+                        a.year or 0,
+                    ))
             all_sets.append(s)
         common = all_sets[0]
         for s in all_sets[1:]:
