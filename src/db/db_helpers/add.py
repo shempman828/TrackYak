@@ -86,6 +86,30 @@ class AddToDB(BaseDBHelper):
         self.session.commit()
         return new_link
 
+    def _split_existing_rows(self, entity_class, rows: list) -> tuple:
+        """Split rows into (new, already-existing), when every row supplies
+        its full primary key -- true for composite-PK association tables
+        (e.g. TrackGenre's track_id+genre_id) where the "row" *is* the key.
+
+        Returns (rows, []) unchanged when rows don't carry a full PK (e.g.
+        entities with a surrogate id column), since there's nothing to
+        dedupe against without issuing a row-by-row lookup.
+        """
+        pk_cols = [c.name for c in entity_class.__table__.primary_key.columns]
+        if not pk_cols or not all(col in row for row in rows for col in pk_cols):
+            return rows, []
+
+        existing = set(
+            self.session.query(*[getattr(entity_class, c) for c in pk_cols]).all()
+        )
+        new_rows = [
+            row for row in rows if tuple(row[c] for c in pk_cols) not in existing
+        ]
+        existing_rows = [
+            row for row in rows if tuple(row[c] for c in pk_cols) in existing
+        ]
+        return new_rows, existing_rows
+
     def add_entities(self, model_name: str, rows: list):
         """Add many entities of the same type in a single transaction.
 
@@ -108,22 +132,9 @@ class AddToDB(BaseDBHelper):
             logger.error(f"Entity class {model_name} not found")
             return []
 
-        pk_cols = [c.name for c in entity_class.__table__.primary_key.columns]
-        rows_to_add = rows
-        if pk_cols and all(col in row for row in rows for col in pk_cols):
-            existing = set(
-                self.session.query(
-                    *[getattr(entity_class, c) for c in pk_cols]
-                ).all()
-            )
-            rows_to_add = [
-                row
-                for row in rows
-                if tuple(row[c] for c in pk_cols) not in existing
-            ]
-            skipped = len(rows) - len(rows_to_add)
-            if skipped:
-                logger.debug(f"Skipped {skipped} duplicate {model_name} row(s)")
+        rows_to_add, existing_rows = self._split_existing_rows(entity_class, rows)
+        if existing_rows:
+            logger.debug(f"Skipped {len(existing_rows)} duplicate {model_name} row(s)")
 
         if not rows_to_add:
             return []
@@ -146,31 +157,51 @@ class AddToDB(BaseDBHelper):
         one row at a time so a single bad row doesn't sink every other row in
         the batch, and the caller can report exactly which row(s) were dropped.
 
+        Rows that already exist (for composite-PK association tables, where
+        the row's own attributes are its primary key -- e.g. TrackGenre) are
+        filtered out up front and never attempted or reported as failed:
+        re-tagging a track with a genre it already has is a no-op, not an
+        error, and must not surface a "some tracks not updated" warning.
+
         Args:
             model_name (str): The class name of the entity (e.g., 'TrackArtistRole').
             rows (list[dict]): One kwargs-dict of attribute values per row to create.
 
         Returns:
             tuple[list, list]: (entities successfully added, rows that failed
-            and were dropped). Assumes rows never include their own primary
-            key (true of every current caller), so a short result from
-            `add_entities` here always means the commit failed, not a dedup
-            skip.
+            and were dropped). A short result from `add_entities` here always
+            means the commit failed, not a dedup skip, since duplicates were
+            already removed from `rows_to_add` before it was called.
         """
         if not rows:
             return [], []
 
-        entities = self.add_entities(model_name, rows)
-        if len(entities) == len(rows):
+        try:
+            entity_class = MODEL_REGISTRY[model_name]
+        except KeyError:
+            logger.error(f"Entity class {model_name} not found")
+            return [], rows
+
+        rows_to_add, existing_rows = self._split_existing_rows(entity_class, rows)
+        if existing_rows:
+            logger.debug(
+                f"Skipped {len(existing_rows)} duplicate {model_name} row(s) "
+                "already present"
+            )
+        if not rows_to_add:
+            return [], []
+
+        entities = self.add_entities(model_name, rows_to_add)
+        if len(entities) == len(rows_to_add):
             return entities, []
 
         logger.warning(
-            f"Batch-add of {len(rows)} {model_name} row(s) failed; "
+            f"Batch-add of {len(rows_to_add)} {model_name} row(s) failed; "
             f"retrying individually to isolate the bad row(s)"
         )
         succeeded = []
         failed = []
-        for row in rows:
+        for row in rows_to_add:
             entity = self.add_entity(model_name, **row)
             if entity is not None:
                 succeeded.append(entity)
