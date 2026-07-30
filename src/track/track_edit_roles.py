@@ -272,10 +272,17 @@ class _RolesTable(QTableWidget):
 
 
 class RolesTab(_BaseTab):
-    def __init__(self, tracks: list, controller, parent=None):
+    def __init__(self, tracks: list, controller, parent=None, on_convert_to_album=None):
         super().__init__(tracks, controller, parent)
         self._loader_thread: QThread | None = None
         self._worker: _RolesLoaderWorker | None = None
+        # Optional hook(artist_id, role_id): when set, a "→ Album" button is
+        # shown next to every role chip, letting the album editor's Track
+        # Credits tab convert a credit that's on every track into a single
+        # album-level credit. Only meaningful when `tracks` is a whole
+        # album's tracks (see base_album_edit_tabs.TrackCreditsTab) -- the
+        # regular per-track/multi-track editor never passes this.
+        self._on_convert_to_album = on_convert_to_album
         self._build_ui()
 
     def _build_ui(self):
@@ -487,6 +494,21 @@ class RolesTab(_BaseTab):
                 lambda _checked, aid=artist_id, rid=role_id: self._remove_role(aid, rid)
             )
             row_layout.addWidget(chip)
+
+            if self._on_convert_to_album is not None:
+                to_album_btn = QPushButton("→ Album")
+                to_album_btn.setFlat(True)
+                to_album_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
+                to_album_btn.setToolTip(
+                    f"Make '{role_name}' for {artist_name} a single album-level "
+                    f"credit instead (removes it from every track)"
+                )
+                to_album_btn.clicked.connect(
+                    lambda _checked, aid=artist_id, rid=role_id: (
+                        self._on_convert_to_album(aid, rid)
+                    )
+                )
+                row_layout.addWidget(to_album_btn)
 
         add_role_btn = QPushButton("+ Add role…")
         add_role_btn.setFlat(True)
