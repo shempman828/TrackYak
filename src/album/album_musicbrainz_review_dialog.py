@@ -23,6 +23,7 @@ from difflib import SequenceMatcher
 from typing import Any
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -230,6 +231,13 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         self._remaining_local_options = remaining_local
         self._guesses = guesses
         self._guess_scores = guess_scores
+        # However many unmatched local tracks are left over, at most that
+        # many of the unmatched MB tracks can possibly be real local tracks
+        # that just failed to auto-match -- the rest are guaranteed to be
+        # tracks MusicBrainz lists that don't exist in the user's album at
+        # all (e.g. all 8 local tracks matched cleanly but MB's release has
+        # 9), which is an error, not an ordinary "needs manual review" case.
+        self._guaranteed_missing = max(0, len(remaining_mb) - len(remaining_local))
 
     def _resolved_track(self, mbt: MBReleaseTrack):
         """The local Track this MB track ultimately maps to -- auto-matched,
@@ -372,6 +380,17 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(self._match_summary))
 
+        if self._guaranteed_missing:
+            warning = QLabel(
+                f"⚠ Error: MusicBrainz lists {self._guaranteed_missing} more "
+                f"track(s) than your album has. At least {self._guaranteed_missing} "
+                "track(s) below don't exist in your library and can't be "
+                "matched to anything -- your album may be missing tracks."
+            )
+            warning.setWordWrap(True)
+            warning.setStyleSheet("color: darkred; font-weight: bold;")
+            layout.addWidget(warning)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         inner = QWidget()
@@ -395,7 +414,18 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
 
             for row, mbt in enumerate(self._remaining_mb):
+                # There is no candidate left at all -- not merely a case that
+                # failed to auto-match -- once every unmatched local track has
+                # already been claimed. That's the case the row must call out
+                # as an error rather than a routine manual pick.
+                no_local_candidates = not self._remaining_local_options
+
                 mb_item = QTableWidgetItem(_format_mb_track_label(mbt))
+                if no_local_candidates:
+                    mb_item.setBackground(QColor(255, 224, 224))
+                    bold_font = QFont()
+                    bold_font.setBold(True)
+                    mb_item.setFont(bold_font)
                 table.setItem(row, 0, mb_item)
 
                 combo = QComboBox()
@@ -415,7 +445,10 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                 table.setCellWidget(row, 1, combo)
                 self._manual_combos.append((combo, mbt))
 
-                if guess is not None:
+                if no_local_candidates:
+                    conf_text = "Not in your album — ERROR"
+                    conf_color = QColor(Qt.red)
+                elif guess is not None:
                     conf_text = confidence_label(score)
                     conf_color = confidence_color(score)
                 else:
@@ -424,6 +457,11 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                 conf_item = QTableWidgetItem(conf_text)
                 conf_item.setForeground(conf_color)
                 conf_item.setTextAlignment(Qt.AlignCenter)
+                if no_local_candidates:
+                    conf_item.setBackground(QColor(255, 224, 224))
+                    bold_font = QFont()
+                    bold_font.setBold(True)
+                    conf_item.setFont(bold_font)
                 table.setItem(row, 2, conf_item)
 
             table.resizeRowsToContents()
