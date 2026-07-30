@@ -9,11 +9,12 @@ credits, and recording locations are relational data that needs
 find-or-create/dedup against existing local data before it's safe to write,
 so the user confirms what gets imported rather than it happening silently.
 
-Unambiguous fill-blank scalars (track number/side/barcode, disc assignment)
-for tracks that auto-matched cleanly are applied immediately on construction,
-the same "no confirmation needed" rule the rest of the app already uses for
-scalar enrichment -- only the judgment-call items (manual track matches,
-credits, recording locations, album aliases) go behind the checkbox review.
+Nothing is written until the user actually clicks OK: fill-blank scalars
+(track number/side/barcode, disc assignment) for auto-matched tracks are
+computed at construction time but only applied in `_on_accept()`, right
+alongside the judgment-call items (manual track matches, credits, recording
+locations, album aliases) -- so hitting Cancel here leaves the database
+untouched, not just the checkbox-gated portion of it.
 """
 
 from __future__ import annotations
@@ -219,10 +220,10 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         return None
 
     # ------------------------------------------------------------------
-    # Immediate apply: unambiguous fill-blank scalars for auto-matched
-    # tracks. No confirmation needed -- same rule the rest of the app uses
-    # for scalar enrichment -- so this runs right away rather than being
-    # gated behind the checkbox review below.
+    # Fill-blank scalars for auto-matched tracks (disc assignment, track
+    # number/side/barcode). Computed against self._matched at construction
+    # time, but the actual writes are deferred to _on_accept() below --
+    # nothing here touches the database until the user clicks OK.
     # ------------------------------------------------------------------
 
     def apply_immediate_scalars(self):
@@ -512,11 +513,18 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         self.resize(width, height)
 
     # ------------------------------------------------------------------
-    # Apply (only the checkbox-gated relational data -- immediate scalars
-    # already happened in apply_immediate_scalars())
+    # Apply -- everything the user gets to review, plus the fill-blank
+    # scalars for auto-matched tracks, all happen here, only once OK has
+    # actually been clicked. Nothing above this point writes to the
+    # database.
     # ------------------------------------------------------------------
 
     def _on_accept(self):
+        # Auto-matched tracks' disc assignment + scalar fill first, since
+        # manual matches below need self._disc_by_number (populated here
+        # via _plan_discs) for their own disc assignment.
+        self.apply_immediate_scalars()
+
         # Manual matches decided just now still need their own scalar fill
         # + disc assignment, since apply_immediate_scalars() only covered
         # tracks that were already auto-matched at construction time.
