@@ -16,50 +16,87 @@ from typing import Any, Dict, List, Optional
 def resolve_place_chain(
     controller, chain: List[Dict[str, Any]], cache: Dict[str, Any]
 ) -> Optional[Any]:
-    """Find-or-create every level of a place chain, outermost first, so
-    each level's parent already exists before the next is resolved.
-    Matches by MBID globally, then by name scoped to the already-
-    resolved parent's children only -- never a bare global name search,
-    so e.g. two same-named places under different parents (a "Paris"
-    in Tennessee vs. a "Paris" in France) resolve to distinct rows.
+    """Find-or-create every level of a place chain (innermost place/area
+    first, containing areas after).
+
+    Phase 1 walks from the innermost node outward (e.g. studio -> city ->
+    state -> country) looking for an already-existing MBID match. Only a
+    genuine MBID match is trusted enough to stop the walk -- it means this
+    exact place was resolved before, so its own ancestry is assumed already
+    correct. A *name*-only match (no MBID on file -- e.g. a manually-entered
+    stub) does NOT stop the walk: its MBID gets backfilled, but climbing
+    continues, since a name-only row isn't trusted to already have its own
+    parent wired up correctly. The walk ends when it hits a real MBID match,
+    or runs off the top of the chain (no more parent areas in MusicBrainz).
+
+    Phase 2 then walks back outermost-to-innermost, from just below wherever
+    phase 1 stopped down to the innermost node: any level phase 1 already
+    found by name gets its parent_id wired/repaired, and any level phase 1
+    found nothing for gets created fresh with the correct parent_id already
+    known.
 
     Returns the innermost (most specific) resolved place -- chain[0]'s
     row -- or None if any level failed to resolve.
     """
-    parent = None
-    for node in reversed(chain):
+    anchor = None
+    anchor_index = len(chain)
+    name_matches: Dict[int, Any] = {}
+    for i, node in enumerate(chain):
         mbid = node["mbid"]
-        place = cache.get(mbid)
-        if place is None:
-            place = controller.get.get_entity_object("Place", MBID=mbid)
-        if place is None:
-            siblings = (
-                controller.get.get_all_entities(
-                    "Place", parent_id=parent.place_id if parent else None
-                )
-                or []
-            )
-            name_key = (node.get("name") or "").strip().lower()
-            place = next(
+        place = cache.get(mbid) or controller.get.get_entity_object("Place", MBID=mbid)
+        if place is not None:
+            cache[mbid] = place
+            anchor = place
+            anchor_index = i
+            break  # trusted existing MBID -- ancestry above it is already correct
+
+        name_key = (node.get("name") or "").strip().lower()
+        if name_key:
+            candidates = controller.get.get_all_entities("Place") or []
+            match = next(
                 (
                     p
-                    for p in siblings
-                    if (p.place_name or "").strip().lower() == name_key
+                    for p in candidates
+                    # Only a place with no MBID of its own is a candidate --
+                    # one with a *different* MBID is a distinct real-world
+                    # place (or a rare MB id reassignment); never merge those.
+                    if not p.MBID
+                    and (p.place_name or "").strip().lower() == name_key
                 ),
                 None,
             )
-        if place is None:
+            if match is not None:
+                controller.update.update_entity("Place", match.place_id, MBID=mbid)
+                match.MBID = mbid
+                cache[mbid] = match
+                name_matches[i] = match
+        # No MBID match and no name match: this level gets created in phase 2.
+
+    parent = anchor
+    for i in range(anchor_index - 1, -1, -1):
+        node = chain[i]
+        mbid = node["mbid"]
+        parent_id = parent.place_id if parent else None
+        existing = name_matches.get(i)
+        if existing is not None:
+            if existing.parent_id != parent_id:
+                controller.update.update_entity(
+                    "Place", existing.place_id, parent_id=parent_id
+                )
+                existing.parent_id = parent_id
+            place = existing
+        else:
             place = controller.add.add_entity(
                 "Place",
                 place_name=node.get("name") or "",
                 place_type=node.get("type"),
                 MBID=mbid,
-                parent_id=parent.place_id if parent else None,
+                parent_id=parent_id,
                 place_latitude=node.get("latitude"),
                 place_longitude=node.get("longitude"),
             )
-        if place is None:
-            return None
+            if place is None:
+                return None
         cache[mbid] = place
         parent = place
     return parent
