@@ -24,14 +24,13 @@ from PySide6.QtWidgets import (
     QTableView,
     QVBoxLayout,
 )
-
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.playlist.base_track_playlist_dialog import PlaylistSelectionDialog
-from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.core.censor import censor_text
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
+from src.db.db_mapping_tracks import TRACK_FIELDS
+from src.playlist.base_track_playlist_dialog import PlaylistSelectionDialog
 from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
 
 
@@ -330,11 +329,12 @@ class BaseTrackView(QDialog):
                 dialog = TrackEditDialog(tracks[0], self.controller, self)
             else:
                 dialog = MultiTrackEditDialog(tracks, self.controller, self)
-            if dialog.exec_() == QDialog.Accepted:
-                self.load_data(self._all_tracks)
+            dialog.accepted.connect(lambda: self.load_data(self._all_tracks))
+            self._track_edit_dialog = dialog
+            dialog.show()
         except RuntimeError as e:
             logger.error(f"Error opening track edit dialog: {e}")
-            QMessageBox.warning(self, "Error", f"Failed to open track editor: {str(e)}")
+            QMessageBox.warning(self, "Error", f"Failed to open track editor: {e!s}")
 
     def show_playlist_selection_dialog(self):
         """Show dialog to select a playlist to add tracks to."""
@@ -355,7 +355,7 @@ class BaseTrackView(QDialog):
 
         except (SQLAlchemyError, AttributeError, RuntimeError) as e:
             logger.error(f"Error showing playlist selection dialog: {e}")
-            QMessageBox.warning(self, "Error", f"Failed to load playlists: {str(e)}")
+            QMessageBox.warning(self, "Error", f"Failed to load playlists: {e!s}")
 
     def load_data(self, tracks):
         """Load tracks with lazy loading - only loads first batch initially."""
@@ -382,7 +382,7 @@ class BaseTrackView(QDialog):
         for i in range(start_idx, end_idx):
             track = tracks_to_load[i]
             row_items = []
-            for db_field in self.columns.keys():
+            for db_field in self.columns:
                 value = self._get_track_value(track, db_field)
                 item = QStandardItem(str(value))
                 item.setData(value, Qt.UserRole)
@@ -483,7 +483,7 @@ class BaseTrackView(QDialog):
         self._filtered_tracks = []
 
         for track in self._all_tracks:
-            for db_field in self.columns.keys():
+            for db_field in self.columns:
                 value = str(self._get_track_value(track, db_field)).lower()
                 if text_lower in value:
                     self._filtered_tracks.append(track)
@@ -556,18 +556,18 @@ class BaseTrackView(QDialog):
                 for track in tracks_to_export:
                     writer.writerow(
                         str(self._get_track_value(track, db_field))
-                        for db_field in self.columns.keys()
+                        for db_field in self.columns
                     )
 
             show_status_message(
                 self, f"Exported {len(tracks_to_export)} track(s) to {file_path}"
             )
-            logger.info(f"Exported {len(tracks_to_export)} track(s) to CSV: {file_path}")
+            logger.info(
+                f"Exported {len(tracks_to_export)} track(s) to CSV: {file_path}"
+            )
         except OSError as e:
             logger.error(f"Error exporting tracks to CSV: {e}")
-            QMessageBox.critical(
-                self, "Error", f"Failed to export track list:\n{str(e)}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to export track list:\n{e!s}")
 
     def setup_drag_support(self):
         """Set up drag support for the table."""
@@ -668,7 +668,7 @@ class BaseTrackView(QDialog):
                 action.triggered.connect(self._add_to_playlist_from_menu)
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error loading playlists for context menu: {str(e)}")
+            logger.error(f"Error loading playlists for context menu: {e!s}")
             self.add_to_playlist_menu.addAction("Error loading playlists").setEnabled(
                 False
             )
@@ -688,7 +688,7 @@ class BaseTrackView(QDialog):
                 action.triggered.connect(self._add_to_mood_from_menu)
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error loading moods for context menu: {str(e)}")
+            logger.error(f"Error loading moods for context menu: {e!s}")
             self.add_to_mood_menu.addAction("Error loading moods").setEnabled(False)
 
     def _add_to_playlist_from_menu(self):
@@ -735,7 +735,8 @@ class BaseTrackView(QDialog):
             # Show results based on success
             if success_count == len(track_ids):
                 show_status_message(
-                    self, f"All {success_count} track(s) added to playlist successfully!"
+                    self,
+                    f"All {success_count} track(s) added to playlist successfully!",
                 )
             elif success_count > 0:
                 QMessageBox.warning(
@@ -745,12 +746,13 @@ class BaseTrackView(QDialog):
                 )
             else:
                 show_status_message(
-                    self, "No tracks were added (they might already be in the playlist)."
+                    self,
+                    "No tracks were added (they might already be in the playlist).",
                 )
         except (SQLAlchemyError, ValueError) as e:
-            logger.error(f"Error adding tracks to playlist: {str(e)}")
+            logger.error(f"Error adding tracks to playlist: {e!s}")
             QMessageBox.critical(
-                self, "Error", f"Failed to add tracks to playlist:\n{str(e)}"
+                self, "Error", f"Failed to add tracks to playlist:\n{e!s}"
             )
 
     def _add_to_mood_from_menu(self):
@@ -806,10 +808,8 @@ class BaseTrackView(QDialog):
                 )
 
         except (SQLAlchemyError, ValueError) as e:
-            logger.error(f"Error adding tracks to mood: {str(e)}")
-            QMessageBox.critical(
-                self, "Error", f"Failed to add tracks to mood:\n{str(e)}"
-            )
+            logger.error(f"Error adding tracks to mood: {e!s}")
+            QMessageBox.critical(self, "Error", f"Failed to add tracks to mood:\n{e!s}")
 
     def _get_track_value(self, track, db_field):
         """Extract value from track object for the given field."""
