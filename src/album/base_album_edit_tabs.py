@@ -272,7 +272,7 @@ class TrackCreditsTab:
     Also passes an on_convert_to_album hook so each role chip gets a
     "→ Album" button that turns a credit shared by every track into a
     single album-level credit instead (the inverse of the "→ Track" button
-    on the Artist Credits tab).
+    on the Album credit tab).
     """
 
     def __init__(self, editor: AlbumEditor):
