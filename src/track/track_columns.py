@@ -182,5 +182,5 @@ class ColumnCustomizationDialog(QDialog):
         except (RuntimeError, KeyError) as e:
             logger.error(f"Error applying column state: {e}")
             QMessageBox.warning(
-                self, "Error", f"Failed to apply column changes:\n{str(e)}"
+                self, "Error", f"Failed to apply column changes:\n{e!s}"
             )
