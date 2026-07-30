@@ -3,13 +3,10 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from sqlalchemy.exc import SQLAlchemyError
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
-    QDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -21,6 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -188,7 +186,9 @@ class _AddSampleBar(QWidget):
             # otherwise trigger thousands of album lookups just to throw
             # all but 50 of them away.
             tracks = tracks[:_MAX_SEARCH_RESULTS]
-            self._display_to_id = _build_track_index(tracks, exclude_id=self._exclude_id)
+            self._display_to_id = _build_track_index(
+                tracks, exclude_id=self._exclude_id
+            )
             for display in sorted(self._display_to_id.keys()):
                 self.name_combo.addItem(display, self._display_to_id[display])
             self.name_combo.setVisible(self.name_combo.count() > 0)
@@ -208,10 +208,13 @@ class _AddSampleBar(QWidget):
     def _handle_add(self):
         if self._matched_id is None:
             show_status_message(
-                self, "No track selected. Choose an existing track from the search results."
+                self,
+                "No track selected. Choose an existing track from the search results.",
             )
             return
-        self._on_add(direction=self.current_direction(), matched_track_id=self._matched_id)
+        self._on_add(
+            direction=self.current_direction(), matched_track_id=self._matched_id
+        )
 
     def clear_inputs(self):
         self.name_search.clear()
@@ -233,7 +236,9 @@ class SamplesTab(_BaseTab):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        self.add_bar = _AddSampleBar(controller=self.controller, on_add=self._handle_add)
+        self.add_bar = _AddSampleBar(
+            controller=self.controller, on_add=self._handle_add
+        )
         layout.addWidget(self.add_bar)
 
         # Samples used list
@@ -242,9 +247,7 @@ class SamplesTab(_BaseTab):
         self._used_list.itemDoubleClicked.connect(self._open_sampled)
         self._used_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self._used_list.customContextMenuRequested.connect(
-            lambda pos: self._list_context_menu(
-                self._used_list, pos, self._remove_used
-            )
+            lambda pos: self._list_context_menu(self._used_list, pos, self._remove_used)
         )
         layout.addWidget(self._used_list)
 
@@ -315,11 +318,20 @@ class SamplesTab(_BaseTab):
             return
 
         if direction == DIR_USES:
-            kwargs = dict(sampled_by_id=self.track.track_id, sampled_id=matched_track_id)
+            kwargs = {
+                "sampled_by_id": self.track.track_id,
+                "sampled_id": matched_track_id,
+            }
         else:
-            kwargs = dict(sampled_by_id=matched_track_id, sampled_id=self.track.track_id)
+            kwargs = {
+                "sampled_by_id": matched_track_id,
+                "sampled_id": self.track.track_id,
+            }
 
-        if (kwargs["sampled_by_id"], kwargs["sampled_id"]) in self._existing_sample_keys():
+        if (
+            kwargs["sampled_by_id"],
+            kwargs["sampled_id"],
+        ) in self._existing_sample_keys():
             show_status_message(self, "That sample relationship already exists.")
             return
 
@@ -377,8 +389,9 @@ class SamplesTab(_BaseTab):
         from src.track.track_edit import TrackEditDialog
 
         dialog = TrackEditDialog(track, self.controller, self)
-        if dialog.exec() == QDialog.Accepted:
-            self._reload_and_refresh()
+        dialog.accepted.connect(self._reload_and_refresh)
+        self._sample_edit_dialog = dialog
+        dialog.show()
 
     @staticmethod
     def _list_context_menu(list_widget, pos, remove_cb):
