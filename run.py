@@ -12,16 +12,16 @@ from PySide6.QtCore import QEventLoop, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from src.core.config_setup import Config
+from src.core.logger_config import logger
+from src.core.splash_screen import StartupSplash
+from src.core.startup_dialog import StartupDialog
 from src.db.db_defaults import Defaults
 from src.db.db_tables import MusicDatabase
 from src.display.display_settings import DisplaySettings
 from src.image.artwork_cache import ArtworkCache
-from src.core.logger_config import logger
+from src.musicbrainz.musicbrainz_client import configure as configure_musicbrainz
 from src.player.music_controller import MusicController
 from src.player.player_mpris2 import MPRIS2Player
-from src.core.splash_screen import StartupSplash
-from src.core.startup_dialog import StartupDialog
-from src.musicbrainz.musicbrainz_client import configure as configure_musicbrainz
 
 try:
     from src.core.main_window import GUI
@@ -166,17 +166,8 @@ def initialize_application(splash, app, config: Config):
 def main() -> None:
     """Main entry point for the TrackYak application."""
     try:
-        # Check Python version
-        if sys.version_info < (3, 9):
-            raise RuntimeError("Python 3.9 or higher required")
-
-        # Change #1 — display backend now configured via an explicit function call
         configure_display_backend()
 
-        # Must be set before QApplication is constructed. Without it, the first
-        # QWebEngineView created after other top-level windows already exist
-        # (e.g. opening the Places map) forces Qt to recreate every window to
-        # share a GL context, which is visible as a whole-app flash.
         QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
 
         # Initialize Qt application FIRST for splash screen
@@ -184,7 +175,6 @@ def main() -> None:
         app.setApplicationName("TrackYak")
         app.setApplicationVersion("0.4")
 
-        # Change #2 — single Config() instance created here and passed through
         config = Config()
 
         # Handle first run configuration
@@ -198,11 +188,8 @@ def main() -> None:
 
         try:
             # Pass config into initialize_application to avoid a second Config() call
-            window, display_settings = initialize_application(splash, app, config)
+            window, _display_settings = initialize_application(splash, app, config)
         except Exception:
-            # Intentional broad boundary catch: initialization can fail for any
-            # reason (config, DB, Qt, imports) — this only exists to close the
-            # splash screen before propagating, not to hide the failure.
             splash.close()
             raise
 
@@ -212,8 +199,6 @@ def main() -> None:
         sys.exit(app.exec())
 
     except Exception as e:
-        # Intentional broad boundary catch: top-level guard for main() — logs
-        # whatever went wrong before re-raising, doesn't hide it.
         logger.error(f"Unhandled exception in main: {e}")
         raise
 
@@ -222,10 +207,7 @@ if __name__ == "__main__":
     try:
         logger.info("Application starting")
         main()
-    except Exception as launch_error:
-        # Intentional broad boundary catch: this is the outermost entry point
-        # of the whole application — anything that reaches here must be shown
-        # to the user and logged rather than crash to a bare traceback.
+    except Exception as launch_error:  # ruff: ignore[blind-except]
         logger.error(f"Fatal error during application launch: {launch_error}")
         traceback_str = "".join(traceback.format_tb(launch_error.__traceback__))
         logger.error(f"Traceback:\n{traceback_str}")
