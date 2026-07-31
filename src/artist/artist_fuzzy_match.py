@@ -33,6 +33,61 @@ def _normalise(text: str) -> str:
     return " ".join(text.split())
 
 
+def _blocking_keys(name: str) -> set:
+    """Keys used to bucket an artist name for pairwise comparison.
+
+    The normalised-prefix key catches near-identical spellings. The
+    last-token key additionally catches pairs that only differ earlier in
+    the name -- e.g. an initialised first name ("J. Lennon" vs "John
+    Lennon") or a dropped "The" prefix -- which wouldn't share a 3-char
+    prefix and would otherwise never be compared at all.
+    """
+    norm = _normalise(name)
+    tokens = norm.split()
+    keys = set()
+    if norm[:3]:
+        keys.add(norm[:3])
+    if tokens:
+        keys.add(tokens[-1])
+    return keys
+
+
+_INITIALS_MATCH_FLOOR = 0.92
+
+
+def _tokens_match_with_initials(tokens_a: list, tokens_b: list) -> bool:
+    """True if every token pair is identical, or one side is a single
+    initial that the other side starts with (e.g. "j" vs "john")."""
+    if not tokens_a or len(tokens_a) != len(tokens_b):
+        return False
+    for a, b in zip(tokens_a, tokens_b):
+        if a == b:
+            continue
+        if len(a) == 1 and b.startswith(a):
+            continue
+        if len(b) == 1 and a.startswith(b):
+            continue
+        return False
+    return True
+
+
+def artist_name_similarity(name_a: str, name_b: str) -> float:
+    """Similarity ratio between two artist names, in [0, 1].
+
+    Plain character-level SequenceMatcher.ratio() scores initialised names
+    like "J. Lennon" too low against "John Lennon" -- the shared surname
+    gets diluted by the raw character-count difference. When every token
+    lines up exactly or as an initial, floor the score at
+    _INITIALS_MATCH_FLOOR so these pairs clear the usual fuzzy-match
+    thresholds.
+    """
+    norm_a, norm_b = _normalise(name_a), _normalise(name_b)
+    ratio = SequenceMatcher(None, norm_a, norm_b).ratio()
+    if _tokens_match_with_initials(norm_a.split(), norm_b.split()):
+        ratio = max(ratio, _INITIALS_MATCH_FLOOR)
+    return ratio
+
+
 # ---------------------------------------------------------------------------
 # ArtistFuzzyMatchWorker
 # ---------------------------------------------------------------------------
@@ -42,10 +97,12 @@ class ArtistFuzzyMatchWorker(CancellableWorker):
     """
     Background worker that finds fuzzy-duplicate artist name pairs.
 
-    Uses the same blocking strategy as duplicate_finder.py (first 3 chars of
-    the normalised name) to avoid comparing every artist against every other
-    artist. Unlike the original ad-hoc implementation this was extracted
-    from, cancellation is checked and progress is emitted every 500 pairs
+    Blocks artists by normalised-name prefix (same strategy as
+    duplicate_finder.py) plus last name-token, to avoid comparing every
+    artist against every other artist while still catching pairs that only
+    share a surname (see `_blocking_keys`). Unlike the original ad-hoc
+    implementation this was extracted from, cancellation is checked and
+    progress is emitted every 500 pairs
     *inside* the block loop rather than only between blocks — a single
     oversized block (e.g. hundreds of artists sharing a common name prefix)
     could otherwise run for a long time with no feedback and an unresponsive
@@ -82,8 +139,7 @@ class ArtistFuzzyMatchWorker(CancellableWorker):
     def _find_matches(self) -> list:
         blocks = defaultdict(list)
         for artist in self._artists:
-            key = _normalise(artist.artist_name)[:3]
-            if key:
+            for key in _blocking_keys(artist.artist_name):
                 blocks[key].append(artist)
         blocks = {k: v for k, v in blocks.items() if len(v) >= 2}
 
@@ -91,6 +147,11 @@ class ArtistFuzzyMatchWorker(CancellableWorker):
         self.progress.emit(0, max(total_pairs, 1))
 
         matches = []
+        # An artist can appear in more than one block (prefix key + last-
+        # token key), so the same pair can surface twice -- dedupe here
+        # rather than skip the second occurrence up front, so `checked`
+        # still tracks every loop iteration for accurate progress.
+        seen_pairs = set()
         checked = 0
         last_emitted = 0
         stopped = False
@@ -106,12 +167,13 @@ class ArtistFuzzyMatchWorker(CancellableWorker):
                     break
                 for j in range(i + 1, m):
                     a, b = block[i], block[j]
-                    ratio = SequenceMatcher(
-                        None, _normalise(a.artist_name), _normalise(b.artist_name)
-                    ).ratio()
-                    if ratio >= self._threshold:
-                        matches.append((a, b, round(ratio * 100)))
                     checked += 1
+                    pair_key = tuple(sorted((a.artist_id, b.artist_id)))
+                    if pair_key not in seen_pairs:
+                        seen_pairs.add(pair_key)
+                        ratio = artist_name_similarity(a.artist_name, b.artist_name)
+                        if ratio >= self._threshold:
+                            matches.append((a, b, round(ratio * 100)))
                     if checked - last_emitted >= 500:
                         self.progress.emit(checked, total_pairs)
                         last_emitted = checked
