@@ -3,7 +3,10 @@
 import configparser
 import json
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import QByteArray, QPoint, QSize
 
@@ -11,6 +14,195 @@ from src.core.asset_paths import config
 from src.core.logger_config import logger
 
 config_dir = config("config.ini")
+
+
+@dataclass(frozen=True)
+class ConfigField:
+    """Declarative description of one config-backed get_*/set_* accessor pair.
+
+    `decode`/`encode` are plain functions of the form
+    `decode(self, section, keys) -> value` / `encode(self, section, keys, *values)`.
+    `*values` mirrors the positional args the set_* method takes — one for
+    most fields, two for the handful (legend size/position) that store a pair.
+    Simple fields share the generic codecs built by `_primitive`; fields with
+    non-trivial storage (multi-key, JSON, Qt types, validation) supply their
+    own small decode/encode pair below instead of a hand-written method body.
+    """
+
+    name: str
+    section: str
+    keys: tuple
+    decode: Callable[["Config", str, tuple], Any]
+    encode: Callable[..., None]
+    getter_prefix: str = "get"
+
+
+_PRIMITIVE_ACCESSORS = {
+    "str": ("_get_str", "_set_str"),
+    "bool": ("_get_bool", "_set_bool"),
+    "int": ("_get_int", "_set_int"),
+    "float": ("_get_float", "_set_float"),
+    "list": ("_get_list", "_set_list"),
+    "int_list": ("_get_int_list", "_set_list"),
+}
+
+
+def _primitive(name, section, key, kind, default, prefix="get") -> ConfigField:
+    """Build a ConfigField for a single-key value of a built-in type."""
+    getter_name, setter_name = _PRIMITIVE_ACCESSORS[kind]
+
+    def decode(self, section, keys):
+        return getattr(self, getter_name)(section, keys[0], fallback=default)
+
+    def encode(self, section, keys, *values):
+        getattr(self, setter_name)(section, keys[0], values[0])
+
+    return ConfigField(name, section, (key,), decode, encode, prefix)
+
+
+# --- Custom codecs for fields that aren't a single primitive value ---------
+
+
+def _decode_base_directory(self, section, keys):
+    return Path(self._get_str(section, keys[0], fallback=str(Path.home() / "Music")))
+
+
+def _encode_base_directory(self, section, keys, *values):
+    self._set_str(section, keys[0], str(values[0]))
+
+
+def _decode_excluded_genres(self, section, keys):
+    raw = self._get_str(section, keys[0], fallback="")
+    return [g.strip() for g in raw.split(",") if g.strip()]
+
+
+def _encode_excluded_genres(self, section, keys, *values):
+    self._set_str(section, keys[0], ",".join(g.strip() for g in values[0] if g.strip()))
+
+
+def _decode_window_size(self, section, keys):
+    try:
+        size_str = self.config.get(section, keys[0], fallback="1280,720")
+        width, height = map(int, size_str.split(","))
+        return QSize(width, height)
+    except ValueError:
+        return QSize(1280, 720)
+
+
+def _encode_window_size(self, section, keys, *values):
+    value = values[0]
+    self._set_str(section, keys[0], f"{value.width()},{value.height()}")
+
+
+def _decode_window_position(self, section, keys):
+    try:
+        pos_str = self.config.get(section, keys[0], fallback="100,100")
+        x, y = map(int, pos_str.split(","))
+        return QPoint(x, y)
+    except ValueError:
+        return QPoint(100, 100)
+
+
+def _encode_window_position(self, section, keys, *values):
+    value = values[0]
+    self._set_str(section, keys[0], f"{value.x()},{value.y()}")
+
+
+def _decode_window_state(self, section, keys):
+    state_b64 = self.config.get(section, keys[0], fallback="")
+    if state_b64:
+        try:
+            return QByteArray.fromBase64(state_b64.encode())
+        except ValueError:
+            return QByteArray()
+    return QByteArray()
+
+
+def _encode_window_state(self, section, keys, *values):
+    self._set_str(section, keys[0], values[0].toBase64().data().decode())
+
+
+def _decode_logging_level(self, section, keys):
+    level_name = self._get_str(section, keys[0], fallback="INFO")
+    return getattr(logging, level_name, logging.INFO)
+
+
+def _encode_logging_level(self, section, keys, *values):
+    valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    value = values[0]
+    if value.upper() in valid_levels:
+        self._set_str(section, keys[0], value.upper())
+
+
+def _decode_band_gains(self, section, keys):
+    gains_str = self._get_str(
+        section, keys[0], fallback="0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0"
+    )
+    try:
+        return [float(gain) for gain in gains_str.split(",")]
+    except ValueError:
+        return [0.0] * 10
+
+
+def _encode_band_gains(self, section, keys, *values):
+    self._set_str(section, keys[0], ",".join(f"{gain:.1f}" for gain in values[0]))
+
+
+def _decode_lyrics_offset(self, section, keys):
+    try:
+        return self._get_int(section, keys[0], fallback=-5)
+    except ValueError:
+        return -5
+
+
+def _encode_lyrics_offset(self, section, keys, *values):
+    self._set_int(section, keys[0], int(values[0]))
+
+
+def _decode_legend_size(self, section, keys):
+    width_key, height_key = keys
+    width = self._get_int(section, width_key, fallback=240)
+    height = self._get_int(section, height_key, fallback=260)
+    return width, height
+
+
+def _encode_legend_size(self, section, keys, *values):
+    width_key, height_key = keys
+    width, height = values
+    self._set_int(section, width_key, int(width))
+    self._set_int(section, height_key, int(height))
+
+
+def _decode_legend_position(self, section, keys):
+    x_key, y_key = keys
+    if not self.config.has_option(section, x_key) or not self.config.has_option(
+        section, y_key
+    ):
+        return None
+    return self._get_int(section, x_key, fallback=0), self._get_int(
+        section, y_key, fallback=0
+    )
+
+
+def _encode_legend_position(self, section, keys, *values):
+    x_key, y_key = keys
+    x, y = values
+    self._set_int(section, x_key, int(x))
+    self._set_int(section, y_key, int(y))
+
+
+def _decode_json_dict(self, section, keys):
+    raw = self._get_str(section, keys[0], fallback="")
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _encode_json_dict(self, section, keys, *values):
+    self._set_str(section, keys[0], json.dumps(values[0]))
 
 
 class Config:
@@ -173,9 +365,9 @@ class Config:
             logger.error(f"Error saving config: {e}")
 
     # --- Generic section/type helpers -------------------------------------
-    # Every get_*/set_* pair below is a thin wrapper around one of these.
-    # Setters ensure the section exists first, since not all sections are
-    # guaranteed to be present in configs written by older app versions.
+    # Every field in _CONFIG_FIELDS below is a thin wrapper around one of
+    # these. Setters ensure the section exists first, since not all sections
+    # are guaranteed to be present in configs written by older app versions.
 
     def _ensure_section(self, section: str):
         if section not in self.config:
@@ -217,96 +409,8 @@ class Config:
         raw = self.config.get(section, key, fallback=fallback)
         return [int(item) for item in raw.split(",")] if raw else []
 
-    # Window properties
-    def get_window_size(self):
-        """Get window size from config"""
-        try:
-            size_str = self.config.get("window", "size", fallback="1280,720")
-            width, height = map(int, size_str.split(","))
-            return QSize(width, height)
-        except ValueError:
-            return QSize(1280, 720)
-
-    def set_window_size(self, size: QSize):
-        """Set window size in config"""
-        size_str = f"{size.width()},{size.height()}"
-        self._set_str("window", "size", size_str)
-
-    def get_window_position(self):
-        """Get window position from config"""
-        try:
-            pos_str = self.config.get("window", "position", fallback="100,100")
-            x, y = map(int, pos_str.split(","))
-            return QPoint(x, y)
-        except ValueError:
-            return QPoint(100, 100)
-
-    def set_window_position(self, position: QPoint):
-        """Set window position in config"""
-        pos_str = f"{position.x()},{position.y()}"
-        self._set_str("window", "position", pos_str)
-
-    def get_window_state(self):
-        """Get window state from config"""
-        state_b64 = self.config.get("window", "state", fallback="")
-        if state_b64:
-            try:
-                return QByteArray.fromBase64(state_b64.encode())
-            except ValueError:
-                return QByteArray()
-        return QByteArray()
-
-    def set_window_state(self, state: QByteArray):
-        """Set window state in config"""
-        state_b64 = state.toBase64().data().decode()
-        self._set_str("window", "state", state_b64)
-
-    def is_window_maximized(self):
-        """Check if window should be maximized"""
-        return self._get_bool("window", "maximized", fallback=False)
-
-    def set_window_maximized(self, maximized: bool):
-        """Set window maximized state"""
-        self._set_bool("window", "maximized", maximized)
-
-    # App properties
-    def get_theme(self):
-        """Get current theme"""
-        return self._get_str("app", "theme", fallback="dark_mode")
-
-    def set_theme(self, theme: str):
-        """Set theme"""
-        self._set_str("app", "theme", theme)
-
-    def get_theme_file(self):
-        """Get current theme file"""
-        return self._get_str("app", "theme_file", fallback="default.qss")
-
-    def set_theme_file(self, theme_file: str):
-        """Set theme file"""
-        self._set_str("app", "theme_file", theme_file)
-
-    def is_first_run(self):
-        """Check if this is the first run"""
-        return self._get_bool("app", "first_run", fallback=True)
-
-    def set_first_run(self, first_run: bool):
-        """Set first run flag"""
-        self._set_bool("app", "first_run", first_run)
-
-    # Base directory methods (replacing your deprecated code)
-    def get_base_directory(self):
-        """Get base music directory"""
-        return Path(
-            self._get_str(
-                "library", "root_directory", fallback=str(Path.home() / "Music")
-            )
-        )
-
-    def set_base_directory(self, directory: str | Path):
-        """Set base music directory"""
-        self._set_str("library", "root_directory", str(directory))
-
+    # Base directory has an alias name in addition to its generated
+    # get_base_directory/set_base_directory (see _CONFIG_FIELDS below).
     def get_music_directory(self):
         """Get music directory (alias for base directory)"""
         return self.get_base_directory()
@@ -315,111 +419,7 @@ class Config:
         """Set music directory (alias for base directory)"""
         self.set_base_directory(directory)
 
-    # Library properties
-    def get_scan_on_startup(self):
-        """Get scan on startup setting"""
-        return self._get_bool("library", "scan_on_startup", fallback=True)
-
-    def set_scan_on_startup(self, scan: bool):
-        """Set scan on startup setting"""
-        self._set_bool("library", "scan_on_startup", scan)
-
-    def get_auto_refresh(self):
-        """Get auto refresh setting"""
-        return self._get_bool("library", "auto_refresh", fallback=False)
-
-    def set_auto_refresh(self, refresh: bool):
-        """Set auto refresh setting"""
-        self._set_bool("library", "auto_refresh", refresh)
-
-    def get_excluded_genres(self) -> list:
-        """Get genre names that should never be created during import."""
-        raw = self._get_str("library", "excluded_genres", fallback="")
-        return [g.strip() for g in raw.split(",") if g.strip()]
-
-    def set_excluded_genres(self, genres: list):
-        """Set genre names that should never be created during import."""
-        self._set_str(
-            "library",
-            "excluded_genres",
-            ",".join(g.strip() for g in genres if g.strip()),
-        )
-
-    # Playback properties
-    def get_volume(self):
-        """Get volume setting"""
-        return self._get_int("playback", "volume", fallback=75)
-
-    def set_volume(self, volume: int):
-        """Set volume setting"""
-        self._set_int("playback", "volume", volume)
-
-    def get_shuffle(self):
-        """Get shuffle setting"""
-        return self._get_bool("playback", "shuffle", fallback=False)
-
-    def set_shuffle(self, shuffle: bool):
-        """Set shuffle setting"""
-        self._set_bool("playback", "shuffle", shuffle)
-
-    def get_repeat_mode(self):
-        """Get repeat mode"""
-        return self._get_str("playback", "repeat", fallback="none")
-
-    def set_repeat_mode(self, mode: str):
-        """Set repeat mode"""
-        self._set_str("playback", "repeat", mode)
-
-    def get_fade_duration(self):
-        """Get fade duration in seconds (0.1s granularity)"""
-        return self._get_float("playback", "fade_duration", fallback=0.0)
-
-    def set_fade_duration(self, duration: float):
-        """Set fade duration in seconds (0.1s granularity)"""
-        self._set_float("playback", "fade_duration", duration)
-
-    def get_crossfade(self):
-        """Get crossfade setting"""
-        return self._get_bool("playback", "crossfade", fallback=False)
-
-    def set_crossfade(self, crossfade: bool):
-        """Set crossfade setting"""
-        self._set_bool("playback", "crossfade", crossfade)
-
-    # Audio properties
-    def get_output_device(self):
-        """Get output device"""
-        return self._get_str("audio", "output_device", fallback="default")
-
-    def set_output_device(self, device: str):
-        """Set output device"""
-        self._set_str("audio", "output_device", device)
-
-    def get_sample_rate(self):
-        """Get sample rate"""
-        return self._get_int("audio", "sample_rate", fallback=44100)
-
-    def set_sample_rate(self, rate: int):
-        """Set sample rate"""
-        self._set_int("audio", "sample_rate", rate)
-
-    def get_buffer_size(self):
-        """Get buffer size"""
-        return self._get_int("audio", "buffer_size", fallback=1024)
-
-    def set_buffer_size(self, size: int):
-        """Set buffer size"""
-        self._set_int("audio", "buffer_size", size)
-
-    def get_exclusive_mode(self):
-        """Get bit-perfect/exclusive output mode"""
-        return self._get_bool("audio", "exclusive_mode", fallback=False)
-
-    def set_exclusive_mode(self, enabled: bool):
-        """Set bit-perfect/exclusive output mode"""
-        self._set_bool("audio", "exclusive_mode", enabled)
-
-    # Theme management
+    # Theme management (filesystem-backed, not config-value accessors)
     def get_available_themes(self):
         """Get list of available theme files"""
         theme_files = []
@@ -445,95 +445,6 @@ class Config:
                 logger.error(f"Error loading theme {theme_path}: {e}")
         return ""
 
-    # Logging properties
-    def get_logging_level(self):
-        """Get logging level"""
-        level_name = self._get_str("logging", "level", fallback="INFO")
-        return getattr(logging, level_name, logging.INFO)
-
-    def set_logging_level(self, level_name: str):
-        """Set logging level"""
-        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-        if level_name.upper() in valid_levels:
-            self._set_str("logging", "level", level_name.upper())
-
-    def is_console_logging_enabled(self):
-        """Check if console logging is enabled"""
-        return self._get_bool("logging", "console_enabled", fallback=True)
-
-    def set_console_logging_enabled(self, enabled: bool):
-        """Set console logging enabled"""
-        self._set_bool("logging", "console_enabled", enabled)
-
-    def is_file_logging_enabled(self):
-        """Check if file logging is enabled"""
-        return self._get_bool("logging", "file_enabled", fallback=True)
-
-    def set_file_logging_enabled(self, enabled: bool):
-        """Set file logging enabled"""
-        self._set_bool("logging", "file_enabled", enabled)
-
-    def get_max_file_size_mb(self):
-        """Get maximum log file size in MB"""
-        return self._get_int("logging", "max_file_size_mb", fallback=10)
-
-    def set_max_file_size_mb(self, size_mb: int):
-        """Set maximum log file size in MB"""
-        self._set_int("logging", "max_file_size_mb", size_mb)
-
-    def get_backup_count(self):
-        """Get number of backup log files to keep"""
-        return self._get_int("logging", "backup_count", fallback=14)
-
-    def set_backup_count(self, count: int):
-        """Set number of backup log files to keep"""
-        self._set_int("logging", "backup_count", count)
-
-    def get_equalizer_enabled(self):
-        """Get equalizer enabled state"""
-        return self._get_bool("equalizer", "enabled", fallback=False)
-
-    def set_equalizer_enabled(self, enabled: bool):
-        """Set equalizer enabled state"""
-        self._set_bool("equalizer", "enabled", enabled)
-
-    def get_equalizer_custom_preset_name(self):
-        """Get custom preset name"""
-        return self._get_str("equalizer", "custom_preset_name", fallback="My Custom EQ")
-
-    def set_equalizer_custom_preset_name(self, name: str):
-        """Set custom preset name"""
-        self._set_str("equalizer", "custom_preset_name", name)
-
-    def get_equalizer_band_gains(self):
-        """Get band gains as list of floats"""
-        gains_str = self._get_str(
-            "equalizer",
-            "band_gains",
-            fallback="0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0",
-        )
-        try:
-            return [float(gain) for gain in gains_str.split(",")]
-        except ValueError:
-            return [0.0] * 10
-
-    def set_equalizer_band_gains(self, gains: list):
-        """Set band gains from list of floats"""
-        gains_str = ",".join(f"{gain:.1f}" for gain in gains)
-        self._set_str("equalizer", "band_gains", gains_str)
-
-    def get_equalizer_presets(self):
-        """Get list of available presets"""
-        return self._get_list(
-            "equalizer",
-            "presets",
-            fallback="Flat,Bass Boost,Treble Boost,Rock,Pop,Jazz,Classical,Electronic,Hip Hop,Acoustic,Vocal Boost,Dance",
-        )
-
-    def set_equalizer_presets(self, presets: list):
-        """Set available presets"""
-        self._set_list("equalizer", "presets", presets)
-
     def save_equalizer_settings(
         self, enabled: bool, band_gains: list, preset_name: str = "Custom"
     ):
@@ -544,194 +455,183 @@ class Config:
             self.set_equalizer_custom_preset_name(preset_name)
         self.save()
 
-    def get_display_theme(self):
-        """Get display theme"""
-        return self._get_str("display", "theme", fallback="dark_mode")
 
-    def set_display_theme(self, theme: str):
-        """Set display theme"""
-        self._set_str("display", "theme", theme)
+# --- Declarative table of config-backed accessors ---------------------------
+# Each entry generates a get_{name}/set_{name} method pair (or is_{name} for
+# boolean flags phrased as questions) on Config. Simple fields reuse the
+# generic codecs from _primitive(); fields with non-trivial storage (multi-key,
+# JSON, Qt types, validation) supply their own decode/encode pair defined
+# above. Either way, every accessor is generated through the same mechanism.
 
-    def get_ui_scale(self):
-        """Get UI scale factor"""
-        return self._get_float("display", "ui_scale", fallback=1.0)
+_CONFIG_FIELDS = [
+    _primitive("theme", "app", "theme", "str", "dark_mode"),
+    _primitive("theme_file", "app", "theme_file", "str", "default.qss"),
+    _primitive("first_run", "app", "first_run", "bool", True, prefix="is"),
+    ConfigField(
+        "base_directory",
+        "library",
+        ("root_directory",),
+        _decode_base_directory,
+        _encode_base_directory,
+    ),
+    _primitive("scan_on_startup", "library", "scan_on_startup", "bool", True),
+    _primitive("auto_refresh", "library", "auto_refresh", "bool", False),
+    ConfigField(
+        "excluded_genres",
+        "library",
+        ("excluded_genres",),
+        _decode_excluded_genres,
+        _encode_excluded_genres,
+    ),
+    _primitive("volume", "playback", "volume", "int", 75),
+    _primitive("shuffle", "playback", "shuffle", "bool", False),
+    _primitive("repeat_mode", "playback", "repeat", "str", "none"),
+    _primitive("fade_duration", "playback", "fade_duration", "float", 0.0),
+    _primitive("crossfade", "playback", "crossfade", "bool", False),
+    _primitive("output_device", "audio", "output_device", "str", "default"),
+    _primitive("sample_rate", "audio", "sample_rate", "int", 44100),
+    _primitive("buffer_size", "audio", "buffer_size", "int", 1024),
+    _primitive("exclusive_mode", "audio", "exclusive_mode", "bool", False),
+    ConfigField(
+        "window_size", "window", ("size",), _decode_window_size, _encode_window_size
+    ),
+    ConfigField(
+        "window_position",
+        "window",
+        ("position",),
+        _decode_window_position,
+        _encode_window_position,
+    ),
+    ConfigField(
+        "window_state",
+        "window",
+        ("state",),
+        _decode_window_state,
+        _encode_window_state,
+    ),
+    _primitive("window_maximized", "window", "maximized", "bool", False, prefix="is"),
+    _primitive(
+        "console_logging_enabled",
+        "logging",
+        "console_enabled",
+        "bool",
+        True,
+        prefix="is",
+    ),
+    _primitive(
+        "file_logging_enabled", "logging", "file_enabled", "bool", True, prefix="is"
+    ),
+    _primitive("max_file_size_mb", "logging", "max_file_size_mb", "int", 10),
+    _primitive("backup_count", "logging", "backup_count", "int", 14),
+    ConfigField(
+        "logging_level",
+        "logging",
+        ("level",),
+        _decode_logging_level,
+        _encode_logging_level,
+    ),
+    _primitive("equalizer_enabled", "equalizer", "enabled", "bool", False),
+    _primitive(
+        "equalizer_custom_preset_name",
+        "equalizer",
+        "custom_preset_name",
+        "str",
+        "My Custom EQ",
+    ),
+    ConfigField(
+        "equalizer_band_gains",
+        "equalizer",
+        ("band_gains",),
+        _decode_band_gains,
+        _encode_band_gains,
+    ),
+    _primitive(
+        "equalizer_presets",
+        "equalizer",
+        "presets",
+        "list",
+        "Flat,Bass Boost,Treble Boost,Rock,Pop,Jazz,Classical,Electronic,Hip Hop,Acoustic,Vocal Boost,Dance",
+    ),
+    _primitive("display_theme", "display", "theme", "str", "dark_mode"),
+    _primitive("ui_scale", "display", "ui_scale", "float", 1.0),
+    _primitive("font_family", "display", "font_family", "str", "Inter"),
+    _primitive("font_size", "display", "font_size", "int", 10),
+    _primitive("blur_explicit_art", "display", "blur_explicit_art", "bool", False),
+    _primitive(
+        "censor_explicit_words", "display", "censor_explicit_words", "bool", False
+    ),
+    _primitive("persist_queue", "queue", "persist_queue", "bool", True),
+    _primitive(
+        "track_view_visible_columns", "track_view", "visible_columns", "list", ""
+    ),
+    _primitive("track_view_column_order", "track_view", "column_order", "list", ""),
+    _primitive(
+        "track_view_column_widths", "track_view", "column_widths", "int_list", ""
+    ),
+    ConfigField(
+        "lyrics_sync_offset",
+        "nowplaying",
+        ("lyrics_sync_offset",),
+        _decode_lyrics_offset,
+        _encode_lyrics_offset,
+    ),
+    _primitive(
+        "influence_legend_visible", "influences", "legend_visible", "bool", True
+    ),
+    ConfigField(
+        "influence_legend_size",
+        "influences",
+        ("legend_width", "legend_height"),
+        _decode_legend_size,
+        _encode_legend_size,
+    ),
+    ConfigField(
+        "influence_legend_position",
+        "influences",
+        ("legend_x", "legend_y"),
+        _decode_legend_position,
+        _encode_legend_position,
+    ),
+    ConfigField(
+        "influence_cluster_names",
+        "influences",
+        ("cluster_names",),
+        _decode_json_dict,
+        _encode_json_dict,
+    ),
+    ConfigField(
+        "album_view_filters",
+        "album_view",
+        ("filters",),
+        _decode_json_dict,
+        _encode_json_dict,
+    ),
+    ConfigField(
+        "artist_view_filters",
+        "artist_view",
+        ("filters",),
+        _decode_json_dict,
+        _encode_json_dict,
+    ),
+    _primitive("last_art_dir", "ui", "last_art_dir", "str", str(Path.home())),
+]
 
-    def set_ui_scale(self, scale: float):
-        """Set UI scale factor"""
-        self._set_float("display", "ui_scale", scale)
 
-    def get_font_family(self):
-        """Get font family"""
-        return self._get_str("display", "font_family", fallback="Inter")
+def _install_config_field(cls, field: ConfigField):
+    def getter(self, _field=field):
+        return _field.decode(self, _field.section, _field.keys)
 
-    def set_font_family(self, font_family: str):
-        """Set font family"""
-        self._set_str("display", "font_family", font_family)
+    def setter(self, *values, _field=field):
+        _field.encode(self, _field.section, _field.keys, *values)
 
-    def get_font_size(self):
-        """Get font size"""
-        return self._get_int("display", "font_size", fallback=10)
+    getter.__name__ = f"{field.getter_prefix}_{field.name}"
+    setter.__name__ = f"set_{field.name}"
+    setattr(cls, getter.__name__, getter)
+    setattr(cls, setter.__name__, setter)
 
-    def set_font_size(self, size: int):
-        """Set font size"""
-        self._set_int("display", "font_size", size)
 
-    def get_blur_explicit_art(self):
-        """Get whether album art marked explicit should be shown blurred"""
-        return self._get_bool("display", "blur_explicit_art", fallback=False)
-
-    def set_blur_explicit_art(self, enabled: bool):
-        """Set whether album art marked explicit should be shown blurred"""
-        self._set_bool("display", "blur_explicit_art", enabled)
-
-    def get_censor_explicit_words(self):
-        """Get whether explicit words should be censored throughout the app"""
-        return self._get_bool("display", "censor_explicit_words", fallback=False)
-
-    def set_censor_explicit_words(self, enabled: bool):
-        """Set whether explicit words should be censored throughout the app"""
-        self._set_bool("display", "censor_explicit_words", enabled)
-
-    # Queue properties
-    def get_persist_queue(self):
-        """Get whether to persist queue across sessions."""
-        return self._get_bool("queue", "persist_queue", fallback=True)
-
-    def set_persist_queue(self, persist: bool):
-        """Set whether to persist queue across sessions."""
-        self._set_bool("queue", "persist_queue", persist)
-
-    def get_track_view_visible_columns(self):
-        """Get visible columns from config."""
-        return self._get_list("track_view", "visible_columns", fallback="")
-
-    def set_track_view_visible_columns(self, columns: list):
-        """Set visible columns in config."""
-        self._set_list("track_view", "visible_columns", columns)
-
-    def get_track_view_column_order(self):
-        """Get column order from config."""
-        return self._get_list("track_view", "column_order", fallback="")
-
-    def set_track_view_column_order(self, order: list):
-        """Set column order in config."""
-        self._set_list("track_view", "column_order", order)
-
-    def get_track_view_column_widths(self):
-        """Get column widths from config."""
-        return self._get_int_list("track_view", "column_widths", fallback="")
-
-    def set_track_view_column_widths(self, widths: list):
-        """Set column widths in config."""
-        self._set_list("track_view", "column_widths", widths)
-
-    def get_lyrics_sync_offset(self) -> int:
-        """
-        Get the saved lyrics sync-offset slider value.
-        The value is stored as tenths of a second (e.g. -5 = −0.5 s).
-        Returns an int in the range the slider accepts (−50 … 50).
-        """
-        try:
-            return self._get_int("nowplaying", "lyrics_sync_offset", fallback=-5)
-        except ValueError:
-            return -5
-
-    def set_lyrics_sync_offset(self, value: int):
-        """
-        Persist the lyrics sync-offset slider value.
-        value is in tenths of a second (same unit the slider uses).
-        """
-        self._set_int("nowplaying", "lyrics_sync_offset", int(value))
-
-    def get_influence_legend_visible(self) -> bool:
-        """Get whether the cluster legend overlay is shown in the influences view."""
-        return self._get_bool("influences", "legend_visible", fallback=True)
-
-    def set_influence_legend_visible(self, visible: bool):
-        """Set whether the cluster legend overlay is shown in the influences view."""
-        self._set_bool("influences", "legend_visible", visible)
-
-    def get_influence_legend_size(self) -> tuple:
-        """Get the persisted (width, height) of the cluster legend overlay."""
-        width = self._get_int("influences", "legend_width", fallback=240)
-        height = self._get_int("influences", "legend_height", fallback=260)
-        return width, height
-
-    def set_influence_legend_size(self, width: int, height: int):
-        """Persist the (width, height) of the cluster legend overlay."""
-        self._set_int("influences", "legend_width", int(width))
-        self._set_int("influences", "legend_height", int(height))
-
-    def get_influence_legend_position(self):
-        """Get the persisted (x, y) of the cluster legend overlay, or None if
-        the user has never dragged it (falls back to the default bottom-left
-        anchor in that case)."""
-        if not self.config.has_option(
-            "influences", "legend_x"
-        ) or not self.config.has_option("influences", "legend_y"):
-            return None
-        return self._get_int("influences", "legend_x", fallback=0), self._get_int(
-            "influences", "legend_y", fallback=0
-        )
-
-    def set_influence_legend_position(self, x: int, y: int):
-        """Persist the (x, y) of the cluster legend overlay after a manual drag."""
-        self._set_int("influences", "legend_x", int(x))
-        self._set_int("influences", "legend_y", int(y))
-
-    def get_influence_cluster_names(self) -> dict:
-        """Get persisted Louvain cluster names, keyed by anchor artist ID (as string).
-
-        Community indices are reassigned on every Louvain recompute, so names
-        are pinned to each cluster's highest-degree "anchor" artist instead.
-        """
-        raw = self._get_str("influences", "cluster_names", fallback="")
-        if not raw:
-            return {}
-        try:
-            return json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return {}
-
-    def set_influence_cluster_names(self, names: dict):
-        """Set persisted Louvain cluster names, keyed by anchor artist ID (as string)."""
-        self._set_str("influences", "cluster_names", json.dumps(names))
-
-    def get_album_view_filters(self) -> dict:
-        """Get the Album view's persisted filter/search state from the previous session."""
-        raw = self._get_str("album_view", "filters", fallback="")
-        if not raw:
-            return {}
-        try:
-            return json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return {}
-
-    def set_album_view_filters(self, filters: dict):
-        """Persist the Album view's current filter/search state."""
-        self._set_str("album_view", "filters", json.dumps(filters))
-
-    def get_artist_view_filters(self) -> dict:
-        """Get the Artist view's persisted filter/search state from the previous session."""
-        raw = self._get_str("artist_view", "filters", fallback="")
-        if not raw:
-            return {}
-        try:
-            return json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return {}
-
-    def set_artist_view_filters(self, filters: dict):
-        """Persist the Artist view's current filter/search state."""
-        self._set_str("artist_view", "filters", json.dumps(filters))
-
-    def get_last_art_dir(self) -> str:
-        """Get the last directory used when picking album artwork."""
-        return self._get_str("ui", "last_art_dir", fallback=str(Path.home()))
-
-    def set_last_art_dir(self, directory: str) -> None:
-        """Persist the last directory used when picking album artwork."""
-        self._set_str("ui", "last_art_dir", directory)
+for _field in _CONFIG_FIELDS:
+    _install_config_field(Config, _field)
 
 
 app_config = Config()
