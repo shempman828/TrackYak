@@ -196,6 +196,11 @@ class PublisherEditDialog(QDialog):
         self.wiki_input.setPlaceholderText("https://en.wikipedia.org/...")
         details_grid.addWidget(QLabel("Wikipedia:"), 2, 0)
         details_grid.addWidget(self.wiki_input, 2, 1, 1, 3)
+
+        self.mbid_input = QLineEdit()
+        self.mbid_input.setPlaceholderText("MusicBrainz label ID")
+        details_grid.addWidget(QLabel("MBID:"), 3, 0)
+        details_grid.addWidget(self.mbid_input, 3, 1, 1, 3)
         details_grid.setColumnStretch(1, 1)
         details_grid.setColumnStretch(3, 1)
         content.addWidget(details_group)
@@ -298,6 +303,7 @@ class PublisherEditDialog(QDialog):
             self.end_year_edit.set_from_db(self.publisher.end_year)
             self.is_active_check.setChecked(bool(self.publisher.is_active))
             self.wiki_input.setText(self.publisher.wikipedia_link or "")
+            self.mbid_input.setText(self.publisher.MBID or "")
             self.is_fixed_check.setChecked(bool(self.publisher.is_fixed))
             self._set_logo_path(self.publisher.logo_path)
             if self.tab_aliases:
@@ -414,6 +420,7 @@ class PublisherEditDialog(QDialog):
         end_year = self.end_year_edit.get_value_or_none()
         is_active = 1 if self.is_active_check.isChecked() else 0
         wikipedia_link = self.wiki_input.text().strip() or None
+        mbid = self.mbid_input.text().strip() or None
         is_fixed = 1 if self.is_fixed_check.isChecked() else 0
 
         try:
@@ -428,6 +435,7 @@ class PublisherEditDialog(QDialog):
                     end_year=end_year,
                     is_active=is_active,
                     wikipedia_link=wikipedia_link,
+                    MBID=mbid,
                     is_fixed=is_fixed,
                     logo_path=self._logo_path,
                 )
@@ -442,6 +450,7 @@ class PublisherEditDialog(QDialog):
                     end_year=end_year,
                     is_active=is_active,
                     wikipedia_link=wikipedia_link,
+                    MBID=mbid,
                     is_fixed=is_fixed,
                 )
             self._save_headquarters(self.result_publisher.publisher_id, hq_place_id)
