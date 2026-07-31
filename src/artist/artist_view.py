@@ -1,12 +1,9 @@
 """Artist management view handling both individuals and groups."""
 
 import webbrowser
+from typing import ClassVar
 
-from sqlalchemy import func, select
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import selectinload
-
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -23,26 +20,30 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import selectinload
 
 from src.artist.artist_delete_orphans import OrphanArtistDialog
-from src.core.status_utility import show_status_message
 from src.artist.artist_detail import ArtistDetailTab
 from src.artist.artist_edit import ArtistEditor
 from src.artist.artist_fuzzy_match import ArtistFuzzyMatchWorker, FuzzyMatchDialog
-from src.artist.artist_image_manager import move_to_artist_images_dir
 from src.artist.artist_group_dialog import AddGroupDialog, AddMemberDialog
+from src.artist.artist_image_manager import move_to_artist_images_dir
 from src.artist.artist_place import PlaceSelectionDialog
 from src.award.award_new import AddAwardDialog
 from src.common.base_merge_dialog import MergeDBDialog
 from src.common.base_split_dialog import SplitDBDialog
-from src.db.db_tables import Artist, TrackArtistRole
-from src.track.base_track_view import BaseTrackView
-from src.influences.influences_dialog import AddInfluenceDialog
+from src.core.config_setup import app_config
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
+from src.db.db_tables import Artist, TrackArtistRole
+from src.influences.influences_dialog import AddInfluenceDialog
 from src.place.place_association_types import (
     fetch_association_types,
     find_or_create_association_type,
 )
+from src.track.base_track_view import BaseTrackView
 
 
 # -------------------------
@@ -53,7 +54,7 @@ class ArtistView(QWidget):
 
     # Sort options: (display label, sort key function)
     # None as the sort key signals a special-case sort handled in _apply_filters.
-    _SORT_OPTIONS = [
+    _SORT_OPTIONS: ClassVar = [
         ("Name (A–Z)", lambda a: a.artist_name.lower()),
         ("Name (Z–A)", lambda a: a.artist_name.lower()),  # reversed below
         ("Earliest First", lambda a: getattr(a, "begin_year", None) or 9999),
@@ -61,9 +62,14 @@ class ArtistView(QWidget):
         ("Most Tracks", None),  # special-case: requires track-count lookup
         ("Random", None),  # special-case: shuffled in _apply_filters
     ]
-    _SORT_REVERSED = {
+    _SORT_REVERSED: ClassVar = {
         "Name (Z–A)": True,
         "Latest First": True,
+    }
+    _MODE_MAP: ClassVar = {
+        "All": "all",
+        "Individuals": "individuals",
+        "Groups": "groups",
     }
 
     def __init__(self, controller, parent=None):
@@ -71,7 +77,21 @@ class ArtistView(QWidget):
         self.controller = controller
         self.all_artists = []
         self.current_mode = "all"
+        # Set by _restore_filter_state() when a persisted type filter exists;
+        # type_combo's options are rebuilt from the DB on every load_artists()
+        # call, so the restored value can't be applied until after that
+        # rebuild happens.
+        self._pending_restore_type: str | None = None
+
+        # Debounce timer for persisting filter state, so rapid changes (e.g.
+        # typing in the search box) don't hit disk on every keystroke.
+        self._filter_save_timer = QTimer(self)
+        self._filter_save_timer.setSingleShot(True)
+        self._filter_save_timer.setInterval(400)
+        self._filter_save_timer.timeout.connect(self._save_filter_state)
+
         self._setup_ui()
+        self._restore_filter_state()
         self.load_artists()
 
     # ----------------------------
@@ -194,17 +214,21 @@ class ArtistView(QWidget):
             self.all_artists = artists
 
             # Rebuild type filter options from loaded artists' ArtistType assignments
-            types = sorted(
-                {t.type_name for a in artists for t in (getattr(a, "types", None) or [])}
-            )
-            current_type = self.type_combo.currentText()
+            types = sorted({
+                t.type_name for a in artists for t in (getattr(a, "types", None) or [])
+            })
+            if self._pending_restore_type is not None:
+                current_type = self._pending_restore_type
+                self._pending_restore_type = None
+            else:
+                current_type = self.type_combo.currentText()
             self.type_combo.blockSignals(True)
             self.type_combo.clear()
             self.type_combo.addItem("Any Type")
             for t in types:
                 self.type_combo.addItem(t)
             idx = self.type_combo.findText(current_type)
-            self.type_combo.setCurrentIndex(idx if idx >= 0 else 0)
+            self.type_combo.setCurrentIndex(max(idx, 0))
             self.type_combo.blockSignals(False)
 
             self._apply_filters()
@@ -255,9 +279,9 @@ class ArtistView(QWidget):
             try:
                 counts = dict(
                     self.controller.get.session.execute(
-                        select(
-                            TrackArtistRole.artist_id, func.count()
-                        ).group_by(TrackArtistRole.artist_id)
+                        select(TrackArtistRole.artist_id, func.count()).group_by(
+                            TrackArtistRole.artist_id
+                        )
                     ).all()
                 )
                 artists = sorted(
@@ -281,6 +305,58 @@ class ArtistView(QWidget):
                 logger.warning(f"Sort failed: {e}")
 
         self._populate_list(artists)
+        self._filter_save_timer.start()
+
+    def _get_filter_state(self) -> dict:
+        """Snapshot the filter widgets' values for persistence."""
+        return {
+            "mode_text": self.mode_combo.currentText(),
+            "search": self.search_box.text(),
+            "sort": self.sort_combo.currentText(),
+            "metadata": self.metadata_combo.currentText(),
+            "image": self.image_combo.currentText(),
+            "type": self.type_combo.currentText(),
+        }
+
+    def _save_filter_state(self):
+        app_config.set_artist_view_filters(self._get_filter_state())
+        app_config.save()
+
+    def _set_combo_text(self, combo: QComboBox, text: str | None):
+        if not text:
+            return
+        idx = combo.findText(text)
+        if idx >= 0:
+            combo.blockSignals(True)
+            combo.setCurrentIndex(idx)
+            combo.blockSignals(False)
+
+    def _restore_filter_state(self):
+        """Restore filter widget values persisted from the previous session."""
+        state = app_config.get_artist_view_filters()
+        if not state:
+            return
+
+        mode_text = state.get("mode_text")
+        if mode_text:
+            idx = self.mode_combo.findText(mode_text)
+            if idx >= 0:
+                self.mode_combo.blockSignals(True)
+                self.mode_combo.setCurrentIndex(idx)
+                self.mode_combo.blockSignals(False)
+                self.current_mode = self._MODE_MAP.get(mode_text, "all")
+
+        self.search_box.blockSignals(True)
+        self.search_box.setText(state.get("search", ""))
+        self.search_box.blockSignals(False)
+
+        self._set_combo_text(self.sort_combo, state.get("sort"))
+        self._set_combo_text(self.metadata_combo, state.get("metadata"))
+        self._set_combo_text(self.image_combo, state.get("image"))
+
+        # type_combo only has "Any Type" until load_artists() rebuilds it from
+        # the DB, so stash the target for it to pick up at that point instead.
+        self._pending_restore_type = state.get("type")
 
     def _populate_list(self, artists):
         """Fill the list widget from a filtered/sorted list of artist objects."""
@@ -313,12 +389,7 @@ class ArtistView(QWidget):
 
     def _on_mode_changed(self, mode_text: str):
         """Handle mode changes between all/individuals/groups."""
-        mode_map = {
-            "All": "all",
-            "Individuals": "individuals",
-            "Groups": "groups",
-        }
-        self.current_mode = mode_map.get(mode_text, "all")
+        self.current_mode = self._MODE_MAP.get(mode_text, "all")
         self.load_artists()
 
     def _on_artist_selected(self):
@@ -461,7 +532,9 @@ class ArtistView(QWidget):
             tracks = self._get_all_artist_tracks(artist.artist_id)
 
             if not tracks:
-                show_status_message(self, f"No tracks found for '{artist.artist_name}'.")
+                show_status_message(
+                    self, f"No tracks found for '{artist.artist_name}'."
+                )
                 return
 
             track_view = BaseTrackView(
@@ -638,7 +711,11 @@ class ArtistView(QWidget):
             return
 
         dialog = SplitDBDialog(
-            self.controller.split, "Artist", artist, self, get_helper=self.controller.get
+            self.controller.split,
+            "Artist",
+            artist,
+            self,
+            get_helper=self.controller.get,
         )
         if dialog.exec_() == QDialog.Accepted:
             self.load_artists()
@@ -802,7 +879,9 @@ class ArtistView(QWidget):
             linked_ids = self._get_linked_artist_ids()
             orphans = [a for a in all_artists if a.artist_id not in linked_ids]
         except SQLAlchemyError as e:
-            QMessageBox.critical(self, "Error", f"Failed to scan for unused artists: {e}")
+            QMessageBox.critical(
+                self, "Error", f"Failed to scan for unused artists: {e}"
+            )
             return
 
         if not orphans:
@@ -877,7 +956,9 @@ class ArtistView(QWidget):
         def _on_progress(current, total):
             progress.setRange(0, total)
             progress.setValue(current)
-            progress.setLabelText(f"Scanning for duplicate artists… ({current:,} / {total:,})")
+            progress.setLabelText(
+                f"Scanning for duplicate artists… ({current:,} / {total:,})"
+            )
 
         def _on_finished(matches):
             progress.close()
