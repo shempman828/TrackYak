@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QDoubleSpinBox, QHBoxLayout, QSpinBox, QWidget
 _INT32_MIN = -2_147_483_648
 
 # Text shown when the spin box sits on its sentinel (i.e. "no value set").
-_EMPTY_TEXT = "—"
+_EMPTY_TEXT = ""
 
 
 class _NoScrollSpinBox(QSpinBox):
@@ -55,6 +55,7 @@ class NullableSpinBox(QWidget):
         is_float: bool = False,
         decimals: int = 4,
         step=None,
+        group_separator: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -70,6 +71,8 @@ class NullableSpinBox(QWidget):
         self._spin = _NoScrollDoubleSpinBox() if is_float else _NoScrollSpinBox()
         self._spin.setRange(self._sentinel, max_val)
         self._spin.setSpecialValueText(_EMPTY_TEXT)
+        if group_separator:
+            self._spin.setGroupSeparatorShown(True)
         if is_float:
             self._spin.setDecimals(decimals)
             if step is not None:
