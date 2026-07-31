@@ -1,7 +1,9 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # Tab: Influences
 # ══════════════════════════════════════════════════════════════════════════════
-from PySide6.QtCore import Qt
+from typing import ClassVar
+
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -26,8 +28,12 @@ from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 
 # Direction constants — stored in the table's UserRole+1 slot per row.
-DIR_INFLUENCED = "influenced"  # this artist -> other artist (other was influenced by this one)
-DIR_INFLUENCER = "influencer"  # other artist -> this artist (this one was influenced by other)
+DIR_INFLUENCED = (
+    "influenced"  # this artist -> other artist (other was influenced by this one)
+)
+DIR_INFLUENCER = (
+    "influencer"  # other artist -> this artist (this one was influenced by other)
+)
 
 _DIRECTION_COLOR = {
     DIR_INFLUENCED: QColor("#2f7dd1"),  # blue: this artist influenced them
@@ -308,7 +314,15 @@ class _AddInfluenceBar(QWidget):
         self.name_edit.set_index(index)
 
     def register_new_artist(self, display, artist_id):
-        self.name_edit.add_to_index(display, artist_id)
+        # Deferred: this can run nested inside EntityCompleterEdit's own
+        # keyPressEvent (Enter -> returnPressed fires *during* that native
+        # call, via _handle_add -> self._on_add -> here). add_to_index()
+        # replaces the QCompleter object in place, and doing that while Qt's
+        # own key handling is still mid-execution on that same completer
+        # corrupts its internals and crashes the process. See
+        # artist_edit_types.py _flush_new_chip_paint() for the same hazard.
+        name_edit = self.name_edit
+        QTimer.singleShot(0, lambda: name_edit.add_to_index(display, artist_id))
 
 
 class _EditDescriptionDialog(QDialog):
@@ -349,7 +363,7 @@ class InfluencesTab(QWidget):
     # Artist column stays for sorting/scanning; Relationship spells out the
     # full "X influenced Y" sentence naming both artists so it's unambiguous
     # on its own, without needing to cross-reference the Artist column.
-    COLUMNS = ["Artist", "Relationship", "Description"]
+    COLUMNS: ClassVar[list[str]] = ["Artist", "Relationship", "Description"]
 
     def __init__(self, controller, artist, parent=None):
         super().__init__(parent)
@@ -385,7 +399,9 @@ class InfluencesTab(QWidget):
         self.table.setSortingEnabled(True)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
-        self.table.cellDoubleClicked.connect(lambda row, _col: self._handle_edit_description(row))
+        self.table.cellDoubleClicked.connect(
+            lambda row, _col: self._handle_edit_description(row)
+        )
         layout.addWidget(self.table, 1)
 
         self.add_bar = _AddInfluenceBar(
@@ -511,13 +527,15 @@ class InfluencesTab(QWidget):
             return
 
         if direction == DIR_INFLUENCED:
-            kwargs = dict(
-                influencer_id=self.artist.artist_id, influenced_id=other.artist_id
-            )
+            kwargs = {
+                "influencer_id": self.artist.artist_id,
+                "influenced_id": other.artist_id,
+            }
         else:
-            kwargs = dict(
-                influencer_id=other.artist_id, influenced_id=self.artist.artist_id
-            )
+            kwargs = {
+                "influencer_id": other.artist_id,
+                "influenced_id": self.artist.artist_id,
+            }
 
         try:
             self.controller.add.add_entity(
@@ -540,14 +558,12 @@ class InfluencesTab(QWidget):
                 continue
             name_item = self.table.item(row, 0)
             desc_item = self.table.item(row, 2)
-            rows.append(
-                {
-                    "direction": rel_item.data(Qt.UserRole + 1),
-                    "other_id": rel_item.data(Qt.UserRole),
-                    "name": name_item.text() if name_item else "",
-                    "description": desc_item.text() if desc_item else "",
-                }
-            )
+            rows.append({
+                "direction": rel_item.data(Qt.UserRole + 1),
+                "other_id": rel_item.data(Qt.UserRole),
+                "name": name_item.text() if name_item else "",
+                "description": desc_item.text() if desc_item else "",
+            })
         return rows
 
     def _handle_remove_selected(self):
@@ -622,7 +638,7 @@ class InfluencesTab(QWidget):
                 if swapped is None:
                     errors.append(r["name"])
             except SQLAlchemyError as e:
-                errors.append(f'{r["name"]}: {e}')
+                errors.append(f"{r['name']}: {e}")
 
         if skipped:
             show_status_message(
