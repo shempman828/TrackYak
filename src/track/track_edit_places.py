@@ -3,7 +3,7 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from PySide6.QtCore import QStringListModel, Qt
+from PySide6.QtCore import QStringListModel, Qt, QTimer
 from PySide6.QtWidgets import (
     QCompleter,
     QHBoxLayout,
@@ -199,7 +199,16 @@ class PlacesTab(_BaseTab):
             logger.error(f"Failed to add place to tracks: {e}")
 
         if matched_id is None:
-            self._search.add_to_index(place.place_name, place.place_id)
+            # Deferred: _add() can run nested inside EntityCompleterEdit's own
+            # keyPressEvent (Enter -> returnPressed fires *during* that native
+            # call). add_to_index() replaces the QCompleter object in place,
+            # and doing that while Qt's own key handling is still
+            # mid-execution on that same completer corrupts its internals and
+            # crashes the process. See artist_edit_types.py
+            # _flush_new_chip_paint() for the same hazard.
+            search = self._search
+            place_name, place_id = place.place_name, place.place_id
+            QTimer.singleShot(0, lambda: search.add_to_index(place_name, place_id))
             register_cached_entity("Place", place)
 
         self._search.reset()
