@@ -14,7 +14,12 @@ from types import SimpleNamespace
 from PySide6.QtWidgets import QLabel
 
 from src.album.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
-from src.musicbrainz.musicbrainz_client import MBReleaseDetail, MBReleaseTrack
+from src.musicbrainz.musicbrainz_client import (
+    MBFounderRelation,
+    MBLabelInfo,
+    MBReleaseDetail,
+    MBReleaseTrack,
+)
 
 
 def _local_track(track_id, track_number, title):
@@ -43,7 +48,7 @@ def _mb_track(position, title):
     )
 
 
-def _album(tracks):
+def _album(tracks, publishers=None):
     return SimpleNamespace(
         tracks=tracks,
         discs=[],
@@ -51,6 +56,7 @@ def _album(tracks):
         album_name="Test Album",
         album_aliases=[],
         album_roles=[],
+        publishers=publishers or [],
     )
 
 
@@ -175,3 +181,62 @@ def test_unmatched_table_marks_error_row_confidence_text(qapp):
     )
     conf_item = table.item(0, 2)
     assert "ERROR" in conf_item.text()
+
+
+def _label(mbid="label-mbid", name="Atlantic Records", founders=None):
+    return MBLabelInfo(mbid=mbid, name=name, founders=founders or [])
+
+
+def test_publisher_section_shown_for_new_label(qapp):
+    local_tracks = [_local_track(1, 1, "Track 1")]
+    detail = _detail([_mb_track(1, "Track 1")])
+    detail.labels = [_label()]
+
+    dialog = AlbumMusicBrainzReviewDialog(
+        controller=SimpleNamespace(),
+        album=_album(local_tracks),
+        detail=detail,
+        aliases=[],
+    )
+
+    assert len(dialog._label_checks) == 1
+    cb, label = dialog._label_checks[0]
+    assert label.name == "Atlantic Records"
+    assert cb.isChecked()
+
+
+def test_publisher_section_shows_founders(qapp):
+    local_tracks = [_local_track(1, 1, "Track 1")]
+    detail = _detail([_mb_track(1, "Track 1")])
+    detail.labels = [
+        _label(founders=[MBFounderRelation(mbid="a-1", name="Ahmet Ertegun")])
+    ]
+
+    dialog = AlbumMusicBrainzReviewDialog(
+        controller=SimpleNamespace(),
+        album=_album(local_tracks),
+        detail=detail,
+        aliases=[],
+    )
+
+    cb, _label_obj = dialog._label_checks[0]
+    assert "Ahmet Ertegun" in cb.text()
+
+
+def test_publisher_already_linked_by_mbid_is_not_shown_again(qapp):
+    local_tracks = [_local_track(1, 1, "Track 1")]
+    detail = _detail([_mb_track(1, "Track 1")])
+    label = _label(mbid="already-linked-mbid")
+    detail.labels = [label]
+    existing_publisher = SimpleNamespace(
+        MBID="already-linked-mbid", publisher_name="Atlantic Records"
+    )
+
+    dialog = AlbumMusicBrainzReviewDialog(
+        controller=SimpleNamespace(),
+        album=_album(local_tracks, publishers=[existing_publisher]),
+        detail=detail,
+        aliases=[],
+    )
+
+    assert dialog._label_checks == []
