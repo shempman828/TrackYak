@@ -311,9 +311,20 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         change -- this is pure computation, no DB write, so callers can
         gather every track's update and apply them all in a single batch."""
         kwargs = {}
-        if mbt.track_number is not None and (force or track.track_number is None):
+        # mbt.side present means the local album is being reorganized into
+        # vinyl sides -- a locally flat/absolute track_number (e.g. 9) is
+        # *expected* to disagree with MB's side-relative one (e.g. B1 -> 1)
+        # even on a correct match (matching itself used absolute_position,
+        # not track_number, to find this local row). That disagreement
+        # isn't a reason for caution the way it is for a same-scheme
+        # mismatch, so treat it like a manual match and let MB's numbering
+        # win rather than only filling blanks.
+        renumbering_by_side = mbt.side is not None
+        if mbt.track_number is not None and (
+            force or renumbering_by_side or track.track_number is None
+        ):
             kwargs["track_number"] = mbt.track_number
-        if mbt.side and (force or not track.side):
+        if mbt.side and (force or renumbering_by_side or not track.side):
             kwargs["side"] = mbt.side
         # Manual match means the user just confirmed these are the same
         # recording, whatever their titles look like -- no fuzzy gate
