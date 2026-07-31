@@ -18,10 +18,15 @@ class Publisher(Base):
     logo_path = Column(String, unique=True)
     parent_id = Column(Integer, ForeignKey("publishers.publisher_id"))
     begin_year = Column(Integer)
+    begin_month = Column(Integer)
+    begin_day = Column(Integer)
     end_year = Column(Integer)
+    end_month = Column(Integer)
+    end_day = Column(Integer)
     is_active = Column(Integer, CheckConstraint("is_active IN (0, 1)"))
     wikipedia_link = Column(String)
     is_fixed = Column(Integer)
+    MBID = Column(String)
 
     album_associations = relationship(
         "AlbumPublisher",
