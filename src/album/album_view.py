@@ -310,6 +310,113 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         # Debounce: only filter after typing pauses
         self._search_timer.start()
 
+    def _get_current_filter_params(self):
+        """Snapshot the filter widget state, plus the artwork cache handle
+        needed to evaluate the Art filter/sort. Shared by all callers that
+        need to test albums (in bulk or individually) against the currently
+        active filters.
+        """
+        art_mode = self.art_combo.currentText()
+        needs_art_cache = art_mode != "Any" or self._sort_criteria == "art_dimensions"
+        return {
+            "text": self.search_bar.text().strip().lower(),
+            "year_from": self.year_from.value(),
+            "year_to": self.year_to.value(),
+            "min_tracks": self.min_tracks.value(),
+            "incomplete_mode": self.incomplete_combo.currentText(),
+            "fixed_mode": self.fixed_combo.currentText(),
+            "art_mode": art_mode,
+            "art_generation": self._art_filter_generation,
+            "art_cache": get_artwork_cache() if needs_art_cache else None,
+        }
+
+    def _album_matches_filters(self, album, params):
+        """Test a single album against the filter snapshot from
+        _get_current_filter_params().
+
+        Returns True (matches), False (excluded), or None (Art filter can't
+        be resolved synchronously - caller should treat it as pending/unknown
+        rather than excluding it).
+        """
+        # ── Text search ──────────────────────────────────────────────
+        text = params["text"]
+        if text:
+            title = getattr(album, "album_name", "").lower()
+            year_str = str(getattr(album, "release_year", "")).lower()
+            artist_names = self._get_artist_names(album)
+            genre_names = self._get_genre_names(album)
+
+            if not (
+                text in title
+                or text in year_str
+                or any(text in a for a in artist_names)
+                or any(text in g for g in genre_names)
+            ):
+                return False
+
+        # ── Year range ───────────────────────────────────────────────
+        year_from = params["year_from"]
+        year_to = params["year_to"]
+        album_year = getattr(album, "release_year", None)
+        if album_year:
+            try:
+                yr = int(album_year)
+                if year_from > 0 and yr < year_from:
+                    return False
+                if year_to > 0 and yr > year_to:
+                    return False
+            except (TypeError, ValueError):
+                pass
+        else:
+            # If we have a strict year filter and album has no year, skip it
+            if year_from > 0 or year_to > 0:
+                return False
+
+        # ── Min track count ──────────────────────────────────────────
+        min_tracks = params["min_tracks"]
+        if min_tracks > 0 and self._get_track_count(album) < min_tracks:
+            return False
+
+        # ── Possibly Incomplete filter ────────────────────────────────
+        incomplete_mode = params["incomplete_mode"]
+        if incomplete_mode != "Any":
+            is_incomplete = bool(getattr(album, "possibly_incomplete", False))
+            if incomplete_mode == "Possibly Incomplete" and not is_incomplete:
+                return False
+            if incomplete_mode == "Likely Complete" and is_incomplete:
+                return False
+
+        # ── Is Fixed filter ───────────────────────────────────────────
+        fixed_mode = params["fixed_mode"]
+        if fixed_mode != "Any":
+            is_fixed = bool(getattr(album, "is_fixed", False))
+            if fixed_mode == "Fixed Only" and not is_fixed:
+                return False
+            if fixed_mode == "Not Fixed" and is_fixed:
+                return False
+
+        # ── Album Art filter ──────────────────────────────────────────
+        art_mode = params["art_mode"]
+        if art_mode != "Any":
+            art_cache = params["art_cache"]
+            if art_cache is None:
+                has_art = False
+            else:
+                known = art_cache.peek_has_art(album, "front")
+                if known is None:
+                    # Cache miss/stale - resolving it means reading and
+                    # decoding the audio file, which is too slow to do
+                    # inline. Caller queues it for the background worker
+                    # instead of blocking here.
+                    return None
+                has_art = known
+            if art_mode == "No Art" and has_art:
+                return False
+            if art_mode == "Has Art" and not has_art:
+                return False
+
+        return True
+
     def _compute_filtered_results(self):
         """Run all active filters (search text, year range, track count,
         possibly_incomplete, is_fixed, art) against self.all_albums.
@@ -318,91 +425,18 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         _apply_filters and _apply_filters_preserve_scroll, which differ only
         in how they handle display_count/scroll position afterwards.
         """
-        text = self.search_bar.text().strip().lower()
-        year_from = self.year_from.value()
-        year_to = self.year_to.value()
-        min_tracks = self.min_tracks.value()
-        incomplete_mode = self.incomplete_combo.currentText()
-        fixed_mode = self.fixed_combo.currentText()
-        art_mode = self.art_combo.currentText()
-        art_generation = self._art_filter_generation
-        needs_art_cache = art_mode != "Any" or self._sort_criteria == "art_dimensions"
-        art_cache = get_artwork_cache() if needs_art_cache else None
+        params = self._get_current_filter_params()
+        art_cache = params["art_cache"]
 
         results = []
         pending_art = []
         for album in self.all_albums:
-            # ── Text search ──────────────────────────────────────────────
-            if text:
-                title = getattr(album, "album_name", "").lower()
-                year_str = str(getattr(album, "release_year", "")).lower()
-                artist_names = self._get_artist_names(album)
-                genre_names = self._get_genre_names(album)
-
-                if not (
-                    text in title
-                    or text in year_str
-                    or any(text in a for a in artist_names)
-                    or any(text in g for g in genre_names)
-                ):
-                    continue
-
-            # ── Year range ───────────────────────────────────────────────
-            album_year = getattr(album, "release_year", None)
-            if album_year:
-                try:
-                    yr = int(album_year)
-                    if year_from > 0 and yr < year_from:
-                        continue
-                    if year_to > 0 and yr > year_to:
-                        continue
-                except (TypeError, ValueError):
-                    pass
-            else:
-                # If we have a strict year filter and album has no year, skip it
-                if year_from > 0 or year_to > 0:
-                    continue
-
-            # ── Min track count ──────────────────────────────────────────
-            if min_tracks > 0 and self._get_track_count(album) < min_tracks:
+            verdict = self._album_matches_filters(album, params)
+            if verdict is None:
+                pending_art.append(album)
                 continue
-
-            # ── Possibly Incomplete filter ────────────────────────────────
-            if incomplete_mode != "Any":
-                is_incomplete = bool(getattr(album, "possibly_incomplete", False))
-                if incomplete_mode == "Possibly Incomplete" and not is_incomplete:
-                    continue
-                if incomplete_mode == "Likely Complete" and is_incomplete:
-                    continue
-
-            # ── Is Fixed filter ───────────────────────────────────────────
-            if fixed_mode != "Any":
-                is_fixed = bool(getattr(album, "is_fixed", False))
-                if fixed_mode == "Fixed Only" and not is_fixed:
-                    continue
-                if fixed_mode == "Not Fixed" and is_fixed:
-                    continue
-
-            # ── Album Art filter ──────────────────────────────────────────
-            if art_mode != "Any":
-                if art_cache is None:
-                    has_art = False
-                else:
-                    known = art_cache.peek_has_art(album, "front")
-                    if known is None:
-                        # Cache miss/stale - resolving it means reading and
-                        # decoding the audio file, which is too slow to do
-                        # inline for every album in this loop. Queue it for
-                        # the background worker instead of blocking here.
-                        pending_art.append(album)
-                        continue
-                    has_art = known
-                if art_mode == "No Art" and has_art:
-                    continue
-                if art_mode == "Has Art" and not has_art:
-                    continue
-
-            results.append(album)
+            if verdict:
+                results.append(album)
 
         # ── Art Size sort ──────────────────────────────────────────────────
         # Sorting by pixel area needs each album's dimensions, which have the
@@ -414,7 +448,7 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
                 if not known:
                     pending_art.append(album)
 
-        return results, pending_art, art_mode, art_generation
+        return results, pending_art, params["art_mode"], params["art_generation"]
 
     def _apply_filters(self):
         """Apply all active filters and rebuild the grid from the top."""
@@ -809,6 +843,29 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
             # Album was filtered out before; it may now match — re-filter
             # from scratch but without touching the scroll position.
             self._apply_filters_preserve_scroll()
+            return
+
+        # The edit may have made the album no longer satisfy the active
+        # filter (e.g. is_fixed flipped while filtering "Not Fixed") - drop
+        # it from the grid in place rather than leaving a stale match visible.
+        verdict = self._album_matches_filters(fresh, self._get_current_filter_params())
+        if verdict is False:
+            self.filtered_albums.pop(patched_idx)
+            if patched_idx < self.display_count:
+                item = self.grid_layout.takeAt(patched_idx)
+                w = item.widget() if item is not None else None
+                if w is not None:
+                    w.hide()
+                    w.deleteLater()
+                self.display_count -= 1
+                self.grid_layout.update()
+                self.scroll_content.updateGeometry()
+                bar = self.scroll_area.verticalScrollBar()
+                if bar.maximum() == 0 and self.display_count < len(
+                    self.filtered_albums
+                ):
+                    self._append_more_album_widgets()
+            self._update_stats()
             return
 
         # Re-sort in place and find where the patched album landed
