@@ -295,10 +295,17 @@ class FuzzyMatchDialog(QDialog):
             chk_merge.setChecked(False)  # Default to unchecked
             hbox.addWidget(chk_merge)
 
-            # Radio buttons for artist selection
-            radio_a = QRadioButton(artist_a.artist_name)
+            # Radio buttons for artist selection. Role count (album + track
+            # credits) is shown alongside each name since it's the strongest
+            # signal for which spelling is the canonical one -- e.g. "Lew"
+            # with 63 credits vs. "Lewis" with 2 suggests "Lewis" is the typo.
+            radio_a = QRadioButton(
+                f"{artist_a.artist_name} ({artist_a.role_count} roles)"
+            )
             radio_a.artist = artist_a
-            radio_b = QRadioButton(artist_b.artist_name)
+            radio_b = QRadioButton(
+                f"{artist_b.artist_name} ({artist_b.role_count} roles)"
+            )
             radio_b.artist = artist_b
             radio_a.setChecked(True)  # Default to first artist
 
