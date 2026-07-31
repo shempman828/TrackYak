@@ -11,7 +11,7 @@ forced into this shape.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QListWidget,
@@ -189,7 +189,15 @@ class _BaseTrackAssociationTab(_BaseTab):
         if matched_id is None:
             display = getattr(entity, self.name_field, None)
             if display:
-                self._search.add_to_index(display, entity_id)
+                # Deferred: _add() can run nested inside EntityCompleterEdit's
+                # own keyPressEvent (Enter -> returnPressed fires *during*
+                # that native call). add_to_index() replaces the QCompleter
+                # object in place, and doing that while Qt's own key handling
+                # is still mid-execution on that same completer corrupts its
+                # internals and crashes the process. See artist_edit_types.py
+                # _flush_new_chip_paint() for the same hazard.
+                search = self._search
+                QTimer.singleShot(0, lambda: search.add_to_index(display, entity_id))
             register_cached_entity(self.model_name, entity)
 
         self._search.reset()
