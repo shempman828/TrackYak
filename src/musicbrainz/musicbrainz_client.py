@@ -464,6 +464,41 @@ class MBReleaseTrack:
 
 
 @dataclass
+class MBFounderRelation:
+    """One 'founder' artist-relation on a label."""
+
+    mbid: str
+    name: str
+
+
+@dataclass
+class MBLabelInfo:
+    """One label (record company/publisher) attached to a release via its
+    label-info-list, enriched with a follow-up get_label_by_id lookup (see
+    _fetch_label_by_id/_parse_label) for life-span, annotation, headquarters
+    area, and founder relations -- none of which the release response's
+    embedded label stub carries."""
+
+    mbid: str
+    name: str
+    catalog_number: str | None = None
+    disambiguation: str | None = None
+    annotation: str | None = None
+    begin_year: int | None = None
+    begin_month: int | None = None
+    begin_day: int | None = None
+    end_year: int | None = None
+    end_month: int | None = None
+    end_day: int | None = None
+    # Full containing chain for the label's headquarters area (immediate
+    # area first, then its parents up to the outermost country) -- see
+    # resolve_area_chain. Each entry is
+    # {"mbid", "name", "type", "latitude", "longitude"}.
+    area_chain: list[dict[str, Any]] = field(default_factory=list)
+    founders: list[MBFounderRelation] = field(default_factory=list)
+
+
+@dataclass
 class MBReleaseDetail:
     release_group_mbid: str | None
     mbid: str | None = None
@@ -492,6 +527,8 @@ class MBReleaseDetail:
     # the place itself (e.g. the studio), the rest are its containing areas
     # in order (district, city, subdivision, country, ...).
     place_chains: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # Every unique label attached to this release via label-info-list.
+    labels: list[MBLabelInfo] = field(default_factory=list)
 
 
 def _parse_track_number_side(
@@ -588,6 +625,71 @@ def _resolve_place_area(place_mbid: str) -> tuple[str | None, str | None]:
         return None, None
     area = (result.get("place") or {}).get("area") or {}
     return area.get("id"), area.get("name")
+
+
+def _fetch_label_by_id(label_mbid: str) -> dict[str, Any]:
+    """Raw get_label_by_id call for a release's label-info-list entry --
+    the release response's embedded label is only a stub (name, sort-name,
+    life-span, area, disambiguation), missing the annotation and founder
+    relations this feature also imports, so a direct per-label follow-up
+    lookup is needed (same reasoning as _resolve_place_area for recording
+    locations). Raises MusicBrainzLookupError on failure; callers treat
+    this as best-effort, same as every other follow-up lookup in this
+    module."""
+    configure()
+    try:
+        result = musicbrainzngs.get_label_by_id(
+            label_mbid, includes=["annotation", "artist-rels"]
+        )
+    except Exception as e:
+        # Intentional broad boundary catch: musicbrainzngs has no single
+        # exception hierarchy covering every failure mode it can raise
+        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
+        # errors) — wrap all of them into this module's MusicBrainzLookupError
+        # so every caller elsewhere in the codebase only ever has to catch
+        # one type.
+        raise MusicBrainzLookupError(str(e)) from e
+    return result.get("label", {})
+
+
+def _parse_label(
+    label_mbid: str, catalog_number: str | None, label: dict[str, Any]
+) -> tuple[MBLabelInfo, str | None]:
+    """Pure parsing of a full get_label_by_id response into
+    (MBLabelInfo, headquarters_area_mbid) -- no network calls (the area
+    mbid is resolved into its full parent chain separately, by the caller,
+    via resolve_area_chain, same split as _apply_full_artist vs.
+    _resolve_artist_place_chains)."""
+    life_span = label.get("life-span") or {}
+    area = label.get("area") or {}
+    annotation = (label.get("annotation") or {}).get("text") or None
+
+    founders = []
+    for rel in label.get("artist-relation-list", []) or []:
+        if rel.get("type") != "founder":
+            continue
+        artist = rel.get("artist") or {}
+        if not artist.get("id") or not artist.get("name"):
+            continue
+        founders.append(MBFounderRelation(mbid=artist["id"], name=artist["name"]))
+
+    begin_parts = _parse_partial_date(life_span.get("begin"), "begin")
+    end_parts = _parse_partial_date(life_span.get("end"), "end")
+
+    return MBLabelInfo(
+        mbid=label_mbid,
+        name=label.get("name") or "",
+        catalog_number=catalog_number,
+        disambiguation=label.get("disambiguation") or None,
+        annotation=annotation,
+        begin_year=begin_parts.get("begin_year"),
+        begin_month=begin_parts.get("begin_month"),
+        begin_day=begin_parts.get("begin_day"),
+        end_year=end_parts.get("end_year"),
+        end_month=end_parts.get("end_month"),
+        end_day=end_parts.get("end_day"),
+        founders=founders,
+    ), area.get("id")
 
 
 def _to_float(value) -> float | None:
@@ -853,6 +955,27 @@ def fetch_release_detail(
                 raw_locations[location["place_mbid"]] = location
             detail.tracks.append(mb_track)
 
+    # Each unique label attached to this release needs its own direct
+    # lookup (see _fetch_label_by_id) -- the release response's embedded
+    # label is only a stub, missing annotation/founder relations. Done
+    # once per unique label mbid, same dedup approach as recording
+    # locations below (a release can list the same label against several
+    # tracks/media, e.g. one catalog number per format).
+    raw_labels: dict[str, tuple[MBLabelInfo, str | None]] = {}  # label_mbid -> (info, area_mbid)
+    for li in release.get("label-info-list", []) or []:
+        label_stub = li.get("label") or {}
+        label_mbid = label_stub.get("id")
+        if not label_mbid or label_mbid in raw_labels:
+            continue
+        try:
+            full_label = _fetch_label_by_id(label_mbid)
+        except MusicBrainzLookupError as e:
+            logger.warning(f"Could not resolve label {label_mbid}: {e}")
+            continue
+        raw_labels[label_mbid] = _parse_label(
+            label_mbid, li.get("catalog-number"), full_label
+        )
+
     # Each unique place needs its own direct lookup to find its containing
     # area (see _resolve_place_area) before that area's parent chain can be
     # walked -- done once per unique place, same as area chains are only
@@ -862,6 +985,9 @@ def fetch_release_detail(
         area_mbid, area_name = _resolve_place_area(place_mbid)
         location["area_mbid"] = area_mbid
         location["area_name"] = area_name
+        if area_mbid:
+            pending_areas.setdefault(area_mbid, None)
+    for _label_info, area_mbid in raw_labels.values():
         if area_mbid:
             pending_areas.setdefault(area_mbid, None)
 
@@ -888,6 +1014,10 @@ def fetch_release_detail(
             else []
         )
         detail.place_chains[place_mbid] = [place_node] + area_chain
+
+    for label_info, area_mbid in raw_labels.values():
+        label_info.area_chain = area_cache.get(area_mbid, []) if area_mbid else []
+        detail.labels.append(label_info)
 
     return detail
 
