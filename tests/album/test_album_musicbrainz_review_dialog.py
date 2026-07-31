@@ -112,6 +112,46 @@ def test_no_error_flagged_when_track_counts_reconcile(qapp):
     assert _find_error_label(dialog) is None
 
 
+def test_side_b_track_renumbers_flat_local_track_on_auto_match(qapp):
+    """Bug #253: importing a vinyl release with sides must replace flat
+    local numbering (1-16) with MB's side-relative scheme (A1-8, B1-8).
+    Matching uses absolute_position to find the right local row (side A
+    has 5 tracks, so B1's absolute_position is 6 -> matches local track
+    6), but the *written* track_number must be MB's side-relative value
+    (1), with side="B" -- turning local track 6 into "Side B, Track 1".
+    This must happen on plain auto-match (force=False), since a flat vs.
+    side-relative numbering mismatch is expected, not a sign of a bad
+    match."""
+    local_tracks = [_local_track(i, i, f"Track {i}") for i in range(1, 6)]
+    local_track_6 = _local_track(6, 6, "Track 6")
+    local_tracks.append(local_track_6)
+
+    mb_track_b1 = MBReleaseTrack(
+        disc_number=1,
+        disc_title=None,
+        track_number=1,
+        side="B",
+        title="Side B Track 1",
+        recording_mbid="mbid-b1",
+        absolute_position=6,
+    )
+
+    dialog = AlbumMusicBrainzReviewDialog(
+        controller=SimpleNamespace(),
+        album=_album(local_tracks),
+        detail=_detail([mb_track_b1]),
+        aliases=[],
+    )
+
+    assert dialog._matched.get(id(mb_track_b1)) is local_track_6
+
+    update = dialog._track_scalar_update(local_track_6, mb_track_b1)
+
+    assert update is not None
+    assert update["track_number"] == 1
+    assert update["side"] == "B"
+
+
 def test_unmatched_table_marks_error_row_confidence_text(qapp):
     """The unmatched-tracks table's confidence column must say something
     distinct from 'No suggestion' for a track that has no possible local
