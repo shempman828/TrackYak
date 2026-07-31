@@ -12,7 +12,6 @@ confirms what gets imported rather than it happening silently.
 from __future__ import annotations
 
 from collections import defaultdict
-from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 
 from PySide6.QtWidgets import (
@@ -28,7 +27,11 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.artist.artist_fuzzy_match import FuzzyMatchDialog, _normalise
+from src.artist.artist_fuzzy_match import (
+    FuzzyMatchDialog,
+    _blocking_keys,
+    artist_name_similarity,
+)
 from src.core.logger_config import logger
 from src.musicbrainz.musicbrainz_client import MBAlias, MBArtistRelations, MBGroupRelation
 from src.place.place_association_types import (
@@ -98,9 +101,9 @@ class ArtistEnrichmentReviewDialog(QDialog):
         name, to catch near-duplicates (punctuation, spelling, spacing)
         that `_usable_aliases()`'s exact-match check lets through -- e.g. an
         alias of "Guns N´ Roses" wouldn't exact-match a local "Guns N Roses"
-        but is almost certainly the same artist. Uses the same first-3-char
-        blocking strategy as ArtistFuzzyMatchWorker so this stays cheap even
-        with tens of thousands of local artists.
+        but is almost certainly the same artist. Uses the same blocking
+        strategy as ArtistFuzzyMatchWorker (`_blocking_keys`) so this stays
+        cheap even with tens of thousands of local artists.
 
         Returns alias.name -> (matching Artist, score_pct), one best match
         per alias, for any alias that scored above ALIAS_MERGE_THRESHOLD.
@@ -117,20 +120,21 @@ class ArtistEnrichmentReviewDialog(QDialog):
         for artist in all_artists:
             if artist.artist_id == self.artist.artist_id:
                 continue
-            key = _normalise(artist.artist_name)[:3]
-            if key:
+            for key in _blocking_keys(artist.artist_name):
                 blocks[key].append(artist)
 
         candidates: Dict[str, Tuple[object, int]] = {}
         for alias in aliases:
-            norm_alias = _normalise(alias.name)
+            candidate_ids_seen = set()
             best_artist, best_ratio = None, 0.0
-            for other in blocks.get(norm_alias[:3], []):
-                ratio = SequenceMatcher(
-                    None, norm_alias, _normalise(other.artist_name)
-                ).ratio()
-                if ratio >= ALIAS_MERGE_THRESHOLD and ratio > best_ratio:
-                    best_artist, best_ratio = other, ratio
+            for key in _blocking_keys(alias.name):
+                for other in blocks.get(key, []):
+                    if other.artist_id in candidate_ids_seen:
+                        continue
+                    candidate_ids_seen.add(other.artist_id)
+                    ratio = artist_name_similarity(alias.name, other.artist_name)
+                    if ratio >= ALIAS_MERGE_THRESHOLD and ratio > best_ratio:
+                        best_artist, best_ratio = other, ratio
             if best_artist is not None:
                 candidates[alias.name] = (best_artist, round(best_ratio * 100))
         return candidates
