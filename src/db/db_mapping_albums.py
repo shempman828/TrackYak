@@ -111,6 +111,8 @@ ALBUM_FIELDS = {
         type=int,
         friendly="Estimated Sales",
         short="Sales",
+        min=0,
+        max=999_999_999,
         tooltip="The estimated number of copies this release has sold.",
     ),
     "status": FieldSpec(
