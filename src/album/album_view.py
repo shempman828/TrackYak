@@ -922,11 +922,12 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
                 self.display_count -= 1
                 self.grid_layout.update()
                 self.scroll_content.updateGeometry()
-                bar = self.scroll_area.verticalScrollBar()
-                if bar.maximum() == 0 and self.display_count < len(
-                    self.filtered_albums
-                ):
-                    self._append_more_album_widgets()
+                # QScrollArea only recomputes the scrollbar range on a later
+                # event-loop turn, so bar.maximum() read synchronously here
+                # would still reflect the pre-removal value. Defer the
+                # viewport-fill check (same pattern as _apply_filters and
+                # _flush_art_batch) so it sees the real post-layout state.
+                QTimer.singleShot(100, self._check_viewport_fill)
             self._update_stats()
             return
 
