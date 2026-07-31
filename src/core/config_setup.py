@@ -19,7 +19,7 @@ class Config:
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(Config, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self):
@@ -148,6 +148,12 @@ class Config:
             "visible_columns": "track_file_name,artist_name,album_name,title,genre,duration,year",
             "column_order": "track_file_name,artist_name,album_name,title,genre,duration,year",
             "column_widths": "",
+        }
+        self.config["album_view"] = {
+            "filters": "",
+        }
+        self.config["artist_view"] = {
+            "filters": "",
         }
         self.config["nowplaying"] = {
             "lyrics_sync_offset": "-5",  # stored as tenths of a second (int)
@@ -334,7 +340,9 @@ class Config:
     def set_excluded_genres(self, genres: list):
         """Set genre names that should never be created during import."""
         self._set_str(
-            "library", "excluded_genres", ",".join(g.strip() for g in genres if g.strip())
+            "library",
+            "excluded_genres",
+            ",".join(g.strip() for g in genres if g.strip()),
         )
 
     # Playback properties
@@ -658,9 +666,9 @@ class Config:
         """Get the persisted (x, y) of the cluster legend overlay, or None if
         the user has never dragged it (falls back to the default bottom-left
         anchor in that case)."""
-        if not self.config.has_option("influences", "legend_x") or not self.config.has_option(
-            "influences", "legend_y"
-        ):
+        if not self.config.has_option(
+            "influences", "legend_x"
+        ) or not self.config.has_option("influences", "legend_y"):
             return None
         return self._get_int("influences", "legend_x", fallback=0), self._get_int(
             "influences", "legend_y", fallback=0
@@ -688,6 +696,34 @@ class Config:
     def set_influence_cluster_names(self, names: dict):
         """Set persisted Louvain cluster names, keyed by anchor artist ID (as string)."""
         self._set_str("influences", "cluster_names", json.dumps(names))
+
+    def get_album_view_filters(self) -> dict:
+        """Get the Album view's persisted filter/search state from the previous session."""
+        raw = self._get_str("album_view", "filters", fallback="")
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def set_album_view_filters(self, filters: dict):
+        """Persist the Album view's current filter/search state."""
+        self._set_str("album_view", "filters", json.dumps(filters))
+
+    def get_artist_view_filters(self) -> dict:
+        """Get the Artist view's persisted filter/search state from the previous session."""
+        raw = self._get_str("artist_view", "filters", fallback="")
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def set_artist_view_filters(self, filters: dict):
+        """Persist the Artist view's current filter/search state."""
+        self._set_str("artist_view", "filters", json.dumps(filters))
 
     def get_last_art_dir(self) -> str:
         """Get the last directory used when picking album artwork."""
