@@ -187,6 +187,14 @@ class MergeDB(BaseDBHelper):
                 model_name, source_entity, target_entity, resolved_fields
             )
 
+            # Expire any relationship collections that may have been loaded
+            # earlier in this session (e.g. by viewing the entity's detail
+            # panel before merging). Without this, ORM cascade-delete below
+            # would walk a stale in-memory collection and delete child rows
+            # by PK even though the FK-migration loop above already
+            # re-pointed them to target_id.
+            self.session.expire(source_entity)
+
             # Delete via ORM so cascade rules are respected
             self.session.delete(source_entity)
             self.session.flush()
