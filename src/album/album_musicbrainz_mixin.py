@@ -23,12 +23,14 @@ from src.musicbrainz.musicbrainz_match_dialog import (
     MusicBrainzMatchDialog,
 )
 
-# Album-level scalar fields filled onto the open editor's widgets (fill-blank
-# only, via _apply_musicbrainz_enrichment) -- everything else a release
-# carries (credits, recording locations, discs, track numbers, aliases,
-# barcode, Discogs link) is relational/track-level and applied directly to
-# the database by AlbumMusicBrainzReviewDialog instead, since there's no
-# corresponding open form widget for most of it.
+# Album-level scalar fields filled onto the open editor's widgets via
+# _apply_musicbrainz_enrichment -- fill-blank only, except release_year/
+# release_month/release_day, which are overwritten unconditionally (see that
+# method's docstring). Everything else a release carries (credits, recording
+# locations, discs, track numbers, aliases, barcode, Discogs link) is
+# relational/track-level and applied directly to the database by
+# AlbumMusicBrainzReviewDialog instead, since there's no corresponding open
+# form widget for most of it.
 #
 # MBID is a partial exception: it does have an open form widget, but is
 # written straight to the DB in _apply_release_detail() below rather than
@@ -197,13 +199,20 @@ class AlbumMusicBrainzMixin:
         self.refresh_view()
 
     def _apply_musicbrainz_enrichment(self, enrichment: dict):
-        """Fill field widgets from a MusicBrainz enrichment dict, but only
-        where the widget is still at its blank/default state -- never
-        overwrites something the user already filled in or typed moments ago.
+        """Fill field widgets from a MusicBrainz enrichment dict.
 
-        NullableSpinBox fields (release_year/month/day, estimated_sales) are
-        "blank" when the spin box sits on its empty sentinel -- value()
-        returns None.
+        Most fields are fill-blank only -- applied where the widget is still
+        at its blank/default state, never overwriting something the user
+        already filled in or typed moments ago.
+
+        NullableSpinBox fields (release_year/month/day) are the exception:
+        they're written unconditionally, overwriting an existing value.
+        Unlike the other enrichment fields, a wrong local release date is a
+        common case (bad file tags, manual entry error), and by the time
+        this runs the user has already explicitly confirmed the MB release
+        match via the review dialog -- so MB's date should win over
+        whatever's already in the field rather than only filling it in when
+        blank.
 
         QCheckBox fields (is_live/is_compilation) have no blank state at
         all, so they fall back to the originally-loaded album's value being
@@ -230,8 +239,7 @@ class AlbumMusicBrainzMixin:
                 if not widget.text().strip():
                     widget.setText(str(value))
             elif isinstance(widget, NullableSpinBox):
-                if widget.value() is None:
-                    widget.setValue(int(value))
+                widget.setValue(int(value))
             elif isinstance(widget, QSpinBox):
                 if widget.value() == widget.minimum():
                     widget.setValue(int(value))
