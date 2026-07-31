@@ -7,7 +7,10 @@ from PySide6.QtWidgets import QDoubleSpinBox, QHBoxLayout, QSpinBox, QWidget
 _INT32_MIN = -2_147_483_648
 
 # Text shown when the spin box sits on its sentinel (i.e. "no value set").
-_EMPTY_TEXT = ""
+# Qt treats an empty string as "no special text" and falls back to showing
+# the raw numeric sentinel, so this must be non-empty to actually blank the
+# box; a single space renders as visually empty.
+_EMPTY_TEXT = " "
 
 
 class _NoScrollSpinBox(QSpinBox):
