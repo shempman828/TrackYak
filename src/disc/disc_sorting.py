@@ -349,10 +349,16 @@ class TrackSortingDisplay(QTreeWidget):
 
             disc_item = QTreeWidgetItem(self, [disc_title])
             disc_item.setData(0, Qt.UserRole, data["disc"])
+            disc_item.setFlags(disc_item.flags() & ~Qt.ItemIsDragEnabled)
             disc_item.setExpanded(True)
 
             for side_name, side_tracks in sorted(data["sides"].items()):
                 side_item = QTreeWidgetItem(disc_item, [f"Side {side_name}"])
+                # Column 0 otherwise holds a Disc object (disc headers) or a
+                # track_id int (track rows) -- a str here is how dropEvent
+                # tells "this branch is a side group" apart from those.
+                side_item.setData(0, Qt.UserRole, side_name)
+                side_item.setFlags(side_item.flags() & ~Qt.ItemIsDragEnabled)
                 side_item.setExpanded(True)
                 for t in sorted(side_tracks, key=lambda x: x["track_number"] or 0):
                     self._create_track_node(side_item, t)
@@ -382,6 +388,9 @@ class TrackSortingDisplay(QTreeWidget):
         node.setData(1, Qt.UserRole, is_v)
 
         if is_v:
+            # Virtual tracks are borrowed from another album's row -- dragging
+            # them here wouldn't mean anything, so don't let them be dragged.
+            node.setFlags(node.flags() & ~Qt.ItemIsDragEnabled)
             for i in range(3):
                 node.setForeground(i, Qt.gray)
             node.setToolTip(1, "Virtual track — borrowed from another album")
@@ -442,15 +451,19 @@ class TrackSortingDisplay(QTreeWidget):
             show_status_message(self, "No tracks to renumber.")
             return
 
-        updated = 0
-        for track_id, (track_number, absolute_number) in updates.items():
-            if controller.update.update_entity(
-                "Track",
-                track_id,
-                track_number=track_number,
-                absolute_track_number=absolute_number,
-            ):
-                updated += 1
+        rows = [
+            {
+                "track_id": track_id,
+                "track_number": track_number,
+                "absolute_track_number": absolute_number,
+            }
+            for track_id, (track_number, absolute_number) in updates.items()
+        ]
+        updated, failed = controller.update.update_entities_bulk_with_fallback(
+            "Track", rows
+        )
+        for row in failed:
+            logger.error(f"Failed to renumber track {row['track_id']}")
 
         logger.info(f"Assigned track numbers to {updated} track(s)")
         show_status_message(self, f"Renumbered {updated} track(s).")
@@ -461,28 +474,19 @@ class TrackSortingDisplay(QTreeWidget):
     # -------------------------------------------------------------------------
 
     def dropEvent(self, event):
-        """Handles multi-selection drop logic."""
-        target_item = self.itemAt(event.pos())
-        if not target_item:
+        """Let Qt perform the actual internal move (reparenting the dragged
+        row(s) into whichever disc/side group and position they were dropped
+        on), then persist that new layout -- disc, side, track_number and
+        absolute_track_number for every physical track -- in a single batched
+        write. No full reload afterward: the tree is already visually correct
+        from Qt's own move, and the write already re-syncs the in-memory
+        Track objects the parent view holds, so only the stats bar needs a
+        (cheap, DB-free) refresh.
+        """
+        super().dropEvent(event)
+        if not event.isAccepted():
             return
 
-        # 1. Identify Target Disc
-        curr = target_item
-        disc_obj = None
-        while curr:
-            disc_obj = curr.data(0, Qt.UserRole)
-            if hasattr(disc_obj, "disc_id"):
-                break
-            curr = curr.parent()
-
-        target_disc_id = disc_obj.disc_id if disc_obj else None
-
-        # 2. Identify Selected Tracks
-        selected_items = self.selectedItems()
-        if not selected_items:
-            return
-
-        # 3. Locate Controller
         controller = self.controller
         if controller is None:
             parent_view = self.parent()
@@ -494,23 +498,49 @@ class TrackSortingDisplay(QTreeWidget):
         if not controller:
             return
 
-        # 4. Batch Update Database
-        updated_any = False
-        for item in selected_items:
-            is_virtual = item.data(1, Qt.UserRole)
-            if is_virtual is False:  # Only move physical tracks
-                track_id = item.data(0, Qt.UserRole)
-                success = controller.update.update_entity(
-                    "Track", track_id, disc_id=target_disc_id
-                )
-                if success:
-                    updated_any = True
+        rows = []
+        absolute_position = 0
 
-        if updated_any:
-            # Walk up to find the parent view that has refresh_view
-            parent_view = self.parent()
-            while parent_view and not hasattr(parent_view, "refresh_view"):
-                parent_view = parent_view.parent()
-            if parent_view:
-                parent_view.refresh_view()
-            event.acceptProposedAction()
+        def visit(item, disc_obj, side_name):
+            nonlocal absolute_position
+            group_position = 0
+            for i in range(item.childCount()):
+                child = item.child(i)
+                track_id = child.data(0, Qt.UserRole)
+                if isinstance(track_id, int):
+                    absolute_position += 1
+                    group_position += 1
+                    child.setText(0, str(group_position))
+                    if not child.data(1, Qt.UserRole):  # skip virtual tracks
+                        rows.append({
+                            "track_id": track_id,
+                            "track_number": group_position,
+                            "absolute_track_number": absolute_position,
+                            "side": side_name,
+                            "disc_id": disc_obj.disc_id if disc_obj else None,
+                        })
+                else:
+                    child_side = child.data(0, Qt.UserRole)
+                    visit(child, disc_obj, child_side if isinstance(child_side, str) else None)
+
+        for i in range(self.topLevelItemCount()):
+            disc_item = self.topLevelItem(i)
+            visit(disc_item, disc_item.data(0, Qt.UserRole), None)
+
+        if not rows:
+            return
+
+        _, failed = controller.update.update_entities_bulk_with_fallback("Track", rows)
+        for row in failed:
+            logger.error(
+                f"Failed to persist drag-and-drop reorder for track {row['track_id']}"
+            )
+
+        # Counts (Unassigned/per-disc) may have shifted if a track changed
+        # discs -- update_stats() reads the parent's already-synced in-memory
+        # track list, so this is free of any DB round trip.
+        parent_view = self.parent()
+        while parent_view and not hasattr(parent_view, "update_stats"):
+            parent_view = parent_view.parent()
+        if parent_view:
+            parent_view.update_stats()
