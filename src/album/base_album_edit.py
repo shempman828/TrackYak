@@ -177,6 +177,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                     min_val=int(min_val),
                     max_val=int(max_val),
                     current_value=current_value,
+                    group_separator=(field_name == "estimated_sales"),
                 )
             else:
                 widget = AlbumUIComponents.create_editable_field(
