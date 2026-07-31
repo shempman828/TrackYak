@@ -10,6 +10,8 @@ bad row doesn't sink the others, and must surface any dropped rows to the
 user instead of only logging.
 """
 
+import time
+
 from src.common.entity_completer_edit import invalidate_entity_cache
 from src.track.track_edit_genres import GenresTab
 
@@ -43,10 +45,14 @@ class _StubGet:
     def get_entity_object(self, model_name, **filters):
         return self.entity_object_return
 
+    def resolve_entity_or_alias(self, model_name, name_field, name):
+        return None
+
 
 class _StubAdd:
-    def __init__(self, failed_track_ids=None):
+    def __init__(self, failed_track_ids=None, new_entity=None):
         self._failed_track_ids = set(failed_track_ids or [])
+        self._new_entity = new_entity
         self.add_entities_with_fallback_calls = []
 
     def add_entities_with_fallback(self, model_name, rows):
@@ -55,6 +61,9 @@ class _StubAdd:
         for row in rows:
             (failed if row["track_id"] in self._failed_track_ids else succeeded).append(row)
         return succeeded, failed
+
+    def add_entity(self, model_name, **kwargs):
+        return self._new_entity
 
 
 class _StubController:
@@ -71,6 +80,7 @@ class _StubSearch:
         self._text = text
         self._matched_id = matched_id
         self.reset_calls = 0
+        self.add_to_index_calls = []
 
     def text(self):
         return self._text
@@ -82,7 +92,7 @@ class _StubSearch:
         self.reset_calls += 1
 
     def add_to_index(self, display, entity_id):
-        pass
+        self.add_to_index_calls.append((display, entity_id))
 
 
 # ---------------------------------------------------------------------------
@@ -148,5 +158,47 @@ def test_add_shows_no_warning_when_all_rows_succeed(qapp, monkeypatch):
 
         assert len(stub_add.add_entities_with_fallback_calls) == 1
         assert warning_calls == []
+    finally:
+        tab.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# _add() -- bug #250: crash on Enter for a brand-new (unmatched) name
+# ---------------------------------------------------------------------------
+
+
+def test_add_defers_completer_rebuild_for_newly_created_entity(qapp):
+    """_add() can run nested inside EntityCompleterEdit's own keyPressEvent
+    (Enter -> returnPressed fires *during* that native call). Calling
+    add_to_index() synchronously from there rebuilds/replaces the QCompleter
+    object while Qt's own key handling is still mid-execution on it,
+    corrupting Qt's internals and crashing the process with no traceback.
+
+    _add() must defer that call (e.g. via QTimer.singleShot(0, ...)) so it
+    runs on the next event-loop turn, off the returnPressed call stack.
+    """
+    invalidate_entity_cache("Genre")
+
+    new_genre = _StubGenre(9001, "Latin Jazz")
+    tracks = [_StubTrack(1), _StubTrack(2)]
+    stub_add = _StubAdd(new_entity=new_genre)
+    controller = _StubController(get=_StubGet(entity_object_return=None), add=stub_add)
+
+    tab = GenresTab(tracks, controller)
+    try:
+        search = _StubSearch("Latin Jazz", matched_id=None)
+        tab._search = search
+        tab._add()
+
+        # Not called synchronously within _add() itself...
+        assert search.add_to_index_calls == []
+
+        # ...only after the event loop gets a turn.
+        for _ in range(50):
+            if search.add_to_index_calls:
+                break
+            qapp.processEvents()
+            time.sleep(0.01)
+        assert search.add_to_index_calls == [("Latin Jazz", 9001)]
     finally:
         tab.cleanup()
