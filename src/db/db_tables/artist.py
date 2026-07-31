@@ -160,6 +160,11 @@ class Artist(Base):
         """Return the number of albums this artist is credited as Album Artist on."""
         return len(self.albums)
 
+    @property
+    def role_count(self):
+        """Return the total number of album and track credits for this artist."""
+        return len(self.album_roles) + len(self.track_roles)
+
 
 class ArtistAlias(Base):
     __tablename__ = "artist_alias"
