@@ -551,8 +551,10 @@ def _parse_artist_credits(entity: dict[str, Any]) -> list[MBTrackCredit]:
 
 def _parse_recording_location(recording: dict[str, Any]) -> dict[str, Any] | None:
     """Extract the "recorded at" place relation on a recording, if any, as a
-    flat dict -- the immediate place plus its immediate area (id/name only;
-    the full area chain is resolved separately via resolve_area_chain)."""
+    flat dict -- id/name/type/coordinates only. MusicBrainz embeds a reduced
+    place stub on this relation that never carries the place's containing
+    area (confirmed against the live API for bug #248), so the area has to
+    be looked up separately via _resolve_place_area."""
     for rel in recording.get("place-relation-list", []) or []:
         if rel.get("type") != "recorded at":
             continue
@@ -560,17 +562,32 @@ def _parse_recording_location(recording: dict[str, Any]) -> dict[str, Any] | Non
         if not place.get("id"):
             continue
         coords = place.get("coordinates") or {}
-        area = place.get("area") or {}
         return {
             "place_mbid": place["id"],
             "place_name": place.get("name") or "",
             "place_type": place.get("type"),
             "latitude": _to_float(coords.get("latitude")),
             "longitude": _to_float(coords.get("longitude")),
-            "area_mbid": area.get("id"),
-            "area_name": area.get("name"),
         }
     return None
+
+
+def _resolve_place_area(place_mbid: str) -> tuple[str | None, str | None]:
+    """Look up a Place's own containing Area via a direct place lookup.
+    Needed because the "recorded at" relation's embedded place (see
+    _parse_recording_location) never includes it -- without this, a
+    recording location's parent chain silently stopped at the place itself
+    (bug #248: "Church of the Holy Trinity" got added with no parent).
+    Best-effort: a failed lookup just leaves that one place without an area,
+    same as every other place/area resolution failure in this module."""
+    configure()
+    try:
+        result = musicbrainzngs.get_place_by_id(place_mbid)
+    except Exception as e:
+        logger.warning(f"Could not resolve area for place {place_mbid}: {e}")
+        return None, None
+    area = (result.get("place") or {}).get("area") or {}
+    return area.get("id"), area.get("name")
 
 
 def _to_float(value) -> float | None:
@@ -802,12 +819,11 @@ def fetch_release_detail(
         credits=_parse_artist_credits(release),
     )
 
-    # First pass: parse every track, collecting each unique immediate area
-    # MBID that needs its parent chain resolved, before making any of those
-    # extra requests -- this is what lets progress_callback report a real
-    # total up front instead of an ever-growing one.
+    # First pass: parse every track, collecting each unique recording-location
+    # place, before resolving any of their areas -- this is what lets
+    # progress_callback report a real total up front instead of an
+    # ever-growing one.
     raw_locations: dict[str, dict[str, Any]] = {}  # place_mbid -> raw location dict
-    pending_areas: dict[str, None] = {}  # ordered set of area MBIDs to resolve
 
     for medium in release.get("medium-list", []) or []:
         disc_number = int(medium.get("position") or 0)
@@ -835,9 +851,19 @@ def fetch_release_detail(
             if location:
                 mb_track.location_place_mbid = location["place_mbid"]
                 raw_locations[location["place_mbid"]] = location
-                if location.get("area_mbid"):
-                    pending_areas.setdefault(location["area_mbid"], None)
             detail.tracks.append(mb_track)
+
+    # Each unique place needs its own direct lookup to find its containing
+    # area (see _resolve_place_area) before that area's parent chain can be
+    # walked -- done once per unique place, same as area chains are only
+    # ever walked once per unique area below.
+    pending_areas: dict[str, None] = {}  # ordered set of area MBIDs to resolve
+    for place_mbid, location in raw_locations.items():
+        area_mbid, area_name = _resolve_place_area(place_mbid)
+        location["area_mbid"] = area_mbid
+        location["area_name"] = area_name
+        if area_mbid:
+            pending_areas.setdefault(area_mbid, None)
 
     total_areas = len(pending_areas)
     if progress_callback:
