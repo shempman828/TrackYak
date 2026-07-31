@@ -27,6 +27,7 @@ from src.album.album_flowlayout import FlowLayout
 from src.album.base_album_edit import AlbumEditor
 from src.album.base_album_widget import AlbumWidget
 from src.common.layout_utils import clear_layout
+from src.core.config_setup import app_config
 from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 
@@ -136,7 +137,15 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         self._art_batch_timer.setInterval(150)
         self._art_batch_timer.timeout.connect(self._flush_art_batch)
 
+        # Debounce timer for persisting filter state, so rapid changes (e.g.
+        # typing a year into a spinbox) don't hit disk on every keystroke.
+        self._filter_save_timer = QTimer(self)
+        self._filter_save_timer.setSingleShot(True)
+        self._filter_save_timer.setInterval(400)
+        self._filter_save_timer.timeout.connect(self._save_filter_state)
+
         self._init_ui()
+        self._restore_filter_state()
         self.load_albums()
 
     # =========================================================================
@@ -471,6 +480,8 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
                 pending_art, art_mode, self._sort_criteria, art_generation
             )
 
+        self._filter_save_timer.start()
+
     def _cancel_art_worker(self):
         """Stop any in-flight background art-cache resolution and
         invalidate its results, since a new filter/sort run supersedes it.
@@ -594,6 +605,57 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         self._sort_criteria = "title"
         self._sort_descending = False
         self._restore_sort_combo()
+
+    def _get_filter_state(self) -> dict:
+        """Snapshot the filter widgets' values for persistence."""
+        return {
+            "search": self.search_bar.text(),
+            "year_from": self.year_from.value(),
+            "year_to": self.year_to.value(),
+            "min_tracks": self.min_tracks.value(),
+            "incomplete_mode": self.incomplete_combo.currentText(),
+            "fixed_mode": self.fixed_combo.currentText(),
+            "art_mode": self.art_combo.currentText(),
+        }
+
+    def _save_filter_state(self):
+        app_config.set_album_view_filters(self._get_filter_state())
+        app_config.save()
+
+    def _set_combo_text(self, combo: QComboBox, text: str | None):
+        if not text:
+            return
+        idx = combo.findText(text)
+        if idx >= 0:
+            combo.blockSignals(True)
+            combo.setCurrentIndex(idx)
+            combo.blockSignals(False)
+
+    def _restore_filter_state(self):
+        """Restore filter widget values persisted from the previous session."""
+        state = app_config.get_album_view_filters()
+        if not state:
+            return
+
+        self.search_bar.blockSignals(True)
+        self.search_bar.setText(state.get("search", ""))
+        self.search_bar.blockSignals(False)
+
+        self.year_from.blockSignals(True)
+        self.year_from.setValue(state.get("year_from", 0))
+        self.year_from.blockSignals(False)
+
+        self.year_to.blockSignals(True)
+        self.year_to.setValue(state.get("year_to", 0))
+        self.year_to.blockSignals(False)
+
+        self.min_tracks.blockSignals(True)
+        self.min_tracks.setValue(state.get("min_tracks", 0))
+        self.min_tracks.blockSignals(False)
+
+        self._set_combo_text(self.incomplete_combo, state.get("incomplete_mode"))
+        self._set_combo_text(self.fixed_combo, state.get("fixed_mode"))
+        self._set_combo_text(self.art_combo, state.get("art_mode"))
 
     def _update_stats(self):
         total = len(self.all_albums)
