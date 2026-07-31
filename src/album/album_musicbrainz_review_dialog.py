@@ -46,12 +46,18 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.common.entity_completer_edit import find_or_create_by_name
 from src.common.match_confidence import confidence_color, confidence_label
 from src.core.logger_config import logger
-from src.musicbrainz.musicbrainz_client import MBAlias, MBReleaseDetail, MBReleaseTrack
+from src.musicbrainz.musicbrainz_client import (
+    MBAlias,
+    MBLabelInfo,
+    MBReleaseDetail,
+    MBReleaseTrack,
+)
 from src.place.place_association_types import (
     fetch_association_types,
     find_or_create_association_type,
 )
 from src.place.place_chain_resolver import resolve_place_chain
+from src.publisher.publisher_musicbrainz_import import import_album_labels
 
 _SKIP = "— Skip —"
 
@@ -88,6 +94,7 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         self._manual_combos: list[tuple[QComboBox, MBReleaseTrack]] = []
         self._alias_checks: list[tuple[QCheckBox, MBAlias]] = []
         self._album_credit_checks: list[tuple[QCheckBox, Any]] = []
+        self._label_checks: list[tuple[QCheckBox, MBLabelInfo]] = []
         self._credit_checks: list[tuple[QCheckBox, MBReleaseTrack, Any]] = []
         self._location_checks: list[tuple[QCheckBox, str, list[MBReleaseTrack]]] = []
         self._failed_writes: list[str] = []
@@ -387,6 +394,23 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             out.append(alias)
         return out
 
+    def _usable_labels(self) -> list[MBLabelInfo]:
+        existing_mbids = {
+            p.MBID for p in (self.album.publishers or []) if p.MBID
+        }
+        existing_names = {
+            (p.publisher_name or "").strip().lower()
+            for p in (self.album.publishers or [])
+        }
+        out = []
+        for label in self.detail.labels:
+            if label.mbid in existing_mbids:
+                continue
+            if label.name.strip().lower() in existing_names:
+                continue
+            out.append(label)
+        return out
+
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(self._match_summary))
@@ -510,6 +534,22 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                 self._album_credit_checks.append((cb, credit))
             inner_layout.addWidget(box)
 
+        labels = self._usable_labels()
+        if labels:
+            self.has_content = True
+            box = QGroupBox("Publisher(s)")
+            box_layout = QVBoxLayout(box)
+            for label in labels:
+                text = label.name
+                if label.founders:
+                    founder_names = ", ".join(f.name for f in label.founders)
+                    text += f" — founded by {founder_names}"
+                cb = QCheckBox(text)
+                cb.setChecked(True)
+                box_layout.addWidget(cb)
+                self._label_checks.append((cb, label))
+            inner_layout.addWidget(box)
+
         for mbt in self.detail.tracks:
             if not mbt.credits:
                 continue
@@ -626,6 +666,12 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             self._failed_writes.append(f"Album alias '{row['alias_name']}'")
 
         known_roles = self.controller.get.get_all_entities("Role") or []
+        place_cache: dict[str, Any] = {}
+
+        label_rows = [label for cb, label in self._label_checks if cb.isChecked()]
+        self._failed_writes.extend(
+            import_album_labels(self.controller, self.album, label_rows, place_cache)
+        )
 
         album_credit_rows = []
         next_sort_order_by_role: dict[int, int] = {}
@@ -667,7 +713,6 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             )
 
         known_place_types = fetch_association_types(self.controller)
-        place_cache: dict[str, Any] = {}
         place_rows = []
         for cb, place_mbid, mb_tracks in self._location_checks:
             if not cb.isChecked():
