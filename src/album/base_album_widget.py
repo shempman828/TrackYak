@@ -33,6 +33,7 @@ class AlbumWidget(QWidget):
         # UI Components
         self.art_label = QLabel()
         self.title_label = QLabel()
+        self.subtitle_label = QLabel()
         self.artist_label = QLabel()
 
         self.init_ui()
@@ -50,6 +51,12 @@ class AlbumWidget(QWidget):
         self.title_label.setAlignment(Qt.AlignCenter)
         self.title_label.setWordWrap(True)
         layout.addWidget(self.title_label)
+
+        self.subtitle_label.setObjectName("AlbumSubtitleLabel")
+        self.subtitle_label.setAlignment(Qt.AlignCenter)
+        self.subtitle_label.setWordWrap(True)
+        self.subtitle_label.setProperty("textRole", "note")
+        layout.addWidget(self.subtitle_label)
 
         self.artist_label.setObjectName("AlbumArtistLabel")
         self.artist_label.setAlignment(Qt.AlignCenter)
@@ -75,13 +82,24 @@ class AlbumWidget(QWidget):
 
         self.title_label.setText(f"{album_name}{year_str}")
 
-        # 3. Handle Artists
+        # 3. Handle Subtitle
+        subtitle = getattr(self.album, "album_subtitle", None)
+        if subtitle:
+            self.subtitle_label.setText(f"({subtitle})")
+            self.subtitle_label.show()
+        else:
+            self.subtitle_label.clear()
+            self.subtitle_label.hide()
+
+        # 4. Handle Artists
         artist_text = getattr(self.album, "album_artist_names", "Unknown Artist")
         self.artist_label.setText(artist_text)
 
-        # 4. Tooltip & Size
-        self.setToolTip(f"{album_name}{year_str}\n{artist_text}")
-        self.setFixedSize(self.size + 20, self.size + 90)
+        # 5. Tooltip & Size
+        subtitle_line = f"\n({subtitle})" if subtitle else ""
+        self.setToolTip(f"{album_name}{year_str}{subtitle_line}\n{artist_text}")
+        extra_height = 20 if subtitle else 0
+        self.setFixedSize(self.size + 20, self.size + 90 + extra_height)
 
     def _load_art(self):
         is_explicit = bool(getattr(self.album, "art_is_explicit", False))
