@@ -71,7 +71,11 @@ class PublisherTreeWidget(QTreeWidget):
         for publisher in publishers:
             album_count = recursive_counts.get(publisher.publisher_id, 0)
             item = QTreeWidgetItem()
-            item.setText(0, publisher.publisher_name)
+            name = publisher.publisher_name
+            if publisher.MBID:
+                name = f"{name} \U0001f517"
+                item.setToolTip(0, "Linked to MusicBrainz")
+            item.setText(0, name)
             if publisher.is_fixed:
                 item.setIcon(0, icon("checkmark.svg"))
             item.setFlags(item.flags() | Qt.ItemIsEditable)
