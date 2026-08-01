@@ -15,6 +15,7 @@ class Mood(Base):
     mood_name = Column(String)
     mood_description = Column(String)
     parent_id = Column(Integer, ForeignKey("moods.mood_id"))
+    parent = relationship("Mood", remote_side=[mood_id], backref="children")
 
     tracks = relationship(
         "Track", secondary="mood_track_association", back_populates="moods"
