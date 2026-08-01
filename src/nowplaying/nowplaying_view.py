@@ -883,13 +883,18 @@ class NowPlayingView(QWidget):
 
     def _start_art_slideshow(self, pixmaps: List[Tuple[QPixmap, bool, Optional[str]]]):
         """Begin cycling through the given list of (pixmap, is_artist, label)
-        triples."""
+        triples. The blurred backdrop stays pinned to the album art (the
+        first non-artist image) for the whole track; only the small art
+        card rotates through the full set, artist photos included."""
         self._art_slide_timer.stop()
         self._art_images = pixmaps
         self._art_slide_idx = 0
 
         first = pixmaps[0] if pixmaps else (None, False, None)
         self._apply_art(*first)
+
+        backdrop_pixmap = next((px for px, is_artist, _ in pixmaps if not is_artist), first[0])
+        self._apply_backdrop(backdrop_pixmap)
 
         if len(pixmaps) > 1:
             self._art_slide_timer.setInterval(_ARTIST_DWELL_MS if first[1] else _COVER_DWELL_MS)
@@ -908,7 +913,7 @@ class NowPlayingView(QWidget):
     def _apply_art(
         self, pixmap: Optional[QPixmap], is_artist: bool = False, label: Optional[str] = None
     ):
-        """Push a single pixmap to the art card and backdrop with a crossfade."""
+        """Push a single pixmap to the small art card with a crossfade."""
         self._current_pixmap = pixmap
         self._art_card.set_art(pixmap, is_artist, label)
 
@@ -922,6 +927,10 @@ class NowPlayingView(QWidget):
         self._art_transition_anim.setEasingCurve(QEasingCurve.InOutCubic)
         self._art_transition_anim.start()
 
+    def _apply_backdrop(self, pixmap: Optional[QPixmap]):
+        """Crossfade the full-window blurred backdrop to `pixmap`. Called
+        once per track (or when a new backdrop candidate appears), not on
+        every art-card slide."""
         if self._fade_anim:
             self._fade_anim.stop()
 
