@@ -586,6 +586,31 @@ def _parse_artist_credits(entity: dict[str, Any]) -> list[MBTrackCredit]:
     return credits
 
 
+def _parse_release_artist_credit(release: dict[str, Any]) -> list[MBTrackCredit]:
+    """Parse the release's `artist-credit` -- the actual "Album Artist"
+    byline (e.g. "Uncle Tupelo"), structurally distinct from
+    `artist-relation-list` (producer/engineer/performer-type credits
+    handled by _parse_artist_credits). musicbrainzngs interleaves each
+    named artist with a bare joinphrase string (e.g. " & ", " feat. ");
+    only the dict entries are real credits."""
+    credits = []
+    for entry in release.get("artist-credit", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        artist = entry.get("artist") or {}
+        if not artist.get("id"):
+            continue
+        credits.append(
+            MBTrackCredit(
+                artist_mbid=artist["id"],
+                artist_name=entry.get("name") or artist.get("name") or "",
+                role_name="Album Artist",
+                canonical_name=artist.get("name") or "",
+            )
+        )
+    return credits
+
+
 def _parse_recording_location(recording: dict[str, Any]) -> dict[str, Any] | None:
     """Extract the "recorded at" place relation on a recording, if any, as a
     flat dict -- id/name/type/coordinates only. MusicBrainz embeds a reduced
@@ -918,7 +943,7 @@ def fetch_release_detail(
         release_year=date_parts.get("release_year"),
         release_month=date_parts.get("release_month"),
         release_day=date_parts.get("release_day"),
-        credits=_parse_artist_credits(release),
+        credits=_parse_release_artist_credit(release) + _parse_artist_credits(release),
     )
 
     # First pass: parse every track, collecting each unique recording-location
