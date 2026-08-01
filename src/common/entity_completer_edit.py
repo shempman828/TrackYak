@@ -55,9 +55,23 @@ class EntityCompleterEdit(QLineEdit):
             e.accept()
 
     def set_index(self, display_to_id: dict) -> None:
-        """Rebuild the completer's backing model."""
+        """Refresh the completer's backing model.
+
+        Updates the existing QCompleter's model in place rather than
+        replacing the QCompleter (setCompleter() deletes the old one, since
+        it's parented to this widget) -- set_index() can run synchronously
+        from returnPressed while the completer's own popup is still
+        mid-dispatch of that same Enter keypress (it goes on to emit
+        activated() after returnPressed's slot returns), so destroying it
+        here was a use-after-free that crashed the app.
+        """
         self._display_to_id = dict(display_to_id)
-        model = QStringListModel(sorted(self._display_to_id.keys()), self)
+        sorted_keys = sorted(self._display_to_id.keys())
+        existing = self.completer()
+        if existing is not None and isinstance(existing.model(), QStringListModel):
+            existing.model().setStringList(sorted_keys)
+            return
+        model = QStringListModel(sorted_keys, self)
         completer = QCompleter(model, self)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
         completer.setFilterMode(Qt.MatchContains)
