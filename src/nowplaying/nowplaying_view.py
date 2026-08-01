@@ -232,6 +232,7 @@ class NowPlayingView(QWidget):
         self._album_lbl = QLabel("—")
         self._album_lbl.setFont(self._ALBUM_FONT)
         self._album_lbl.setProperty("npRole", "album")
+        self._album_lbl.setWordWrap(True)
         right_layout.addWidget(self._album_lbl)
 
         right_layout.addSpacing(10)
