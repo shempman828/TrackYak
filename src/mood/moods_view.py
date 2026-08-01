@@ -23,7 +23,7 @@ from src.common.hierarchy_tree_style import (
     filter_tree_widget,
     icon_for_depth,
     is_hierarchy_descendant,
-    restore_expanded_ids,
+    restore_expanded_ids_or_expand_all,
 )
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -279,12 +279,8 @@ class MoodView(QWidget):
 
             add_children(item, mood, 1)
 
-        if had_items:
-            # We had a previous state — restore it, even if everything was collapsed
-            restore_expanded_ids(self.mood_tree, expanded_ids)
-        else:
-            # First time loading — expand everything like before
-            self.mood_tree.expandAll()
+        # Restore expansion state, or expand everything on first build
+        restore_expanded_ids_or_expand_all(self.mood_tree, expanded_ids, not had_items)
 
     def get_track_counts_for_all_moods(self):
         """Get track counts for all moods in the database"""
