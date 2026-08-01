@@ -41,7 +41,7 @@ class _ArtCard(QWidget):
     # the transition reads as motion rather than a flat opacity dissolve.
     _ZOOM_AMOUNT = 0.035
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, backdrop: Optional[QWidget] = None):
         super().__init__(parent)
         self._pixmap: Optional[QPixmap] = None
         self._is_artist = False
@@ -51,6 +51,9 @@ class _ArtCard(QWidget):
         self._prev_label: Optional[str] = None
         self._transition = 1.0  # 0 = showing prev, 1 = showing current
         self._prev_content_rect = QRect()
+        # The widget the letterbox margin around the art should reveal — see
+        # the stale-region handling in paintEvent().
+        self._backdrop = backdrop
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     def set_art(
@@ -115,18 +118,23 @@ class _ArtCard(QWidget):
             )
             content_rect = content_rect.united(self._scale_rect_about_center(frame, zoom))
 
-        # Clear only pixels left over from a previous, larger/differently
-        # shaped paint (e.g. an artist photo's wide crop shrinking down to a
-        # square cover) — never the permanent letterbox margin outside the
-        # art itself, since that margin must keep showing the blurred
-        # backdrop drawn underneath by the parent view.
+        # Pixels left over from a previous, larger/differently shaped paint
+        # (e.g. an artist photo's wide crop shrinking down to a square cover)
+        # need to go back to showing the blurred backdrop drawn underneath by
+        # the parent view. This widget has no alpha channel of its own (it's
+        # an ordinary opaque child, not a translucent window), so painting
+        # "transparent" here doesn't reveal anything — it just writes solid
+        # black and permanently hides the backdrop under that patch. Instead,
+        # leave those pixels untouched and ask the backdrop to repaint them;
+        # it always redraws its full rect opaquely, so the patch is correct
+        # again by the very next frame.
         stale = QRegion(self._prev_content_rect).subtracted(QRegion(content_rect))
-        if not stale.isEmpty():
-            painter.setClipRegion(stale)
-            painter.setCompositionMode(QPainter.CompositionMode_Source)
-            painter.fillRect(self.rect(), Qt.transparent)
-            painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-            painter.setClipping(False)
+        if not stale.isEmpty() and self._backdrop is not None:
+            bounds = stale.boundingRect()
+            # mapTo() requires an actual ancestor, and the backdrop is a
+            # sibling (not a parent) of this widget, so go via global coords.
+            top_left = self._backdrop.mapFromGlobal(self.mapToGlobal(bounds.topLeft()))
+            self._backdrop.update(QRect(top_left, bounds.size()))
 
         self._prev_content_rect = content_rect
         painter.end()
