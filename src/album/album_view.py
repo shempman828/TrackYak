@@ -26,7 +26,7 @@ from src.album.album_context_menu import AlbumContextMenuMixin
 from src.album.album_flowlayout import FlowLayout
 from src.album.base_album_edit import AlbumEditor
 from src.album.base_album_widget import AlbumWidget
-from src.common.layout_utils import clear_layout
+from src.common.layout_utils import FlowLayoutContainer, clear_layout
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
@@ -159,8 +159,11 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
 
         main_layout.addLayout(self._build_top_controls())
 
-        # Filter bar is a QWidget so we can show/hide it cleanly
-        self._filter_row_widget = QWidget()
+        # Filter bar is a QWidget so we can show/hide it cleanly. It's a
+        # FlowLayoutContainer (not a plain QWidget) so the row wraps onto a
+        # second line -- and reserves the height for it -- instead of
+        # crushing/overlapping when a larger UI font won't fit in one row.
+        self._filter_row_widget = FlowLayoutContainer()
         filter_layout = self._build_filter_bar()
         self._filter_row_widget.setLayout(filter_layout)
         main_layout.addWidget(self._filter_row_widget)
@@ -215,33 +218,42 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
 
         return row
 
-    def _build_filter_bar(self) -> QHBoxLayout:
+    def _build_filter_bar(self) -> FlowLayout:
         """Secondary row with advanced filter chips."""
-        row = QHBoxLayout()
-        row.setSpacing(12)
-        row.setContentsMargins(0, 0, 0, 0)
+        row = FlowLayout(margin=0, h_spacing=12, v_spacing=6)
+
+        def add(widget):
+            row.addWidget(widget)
+            # A freshly created widget's "show" is deferred to the next
+            # event-loop turn, so isVisible() is still False if a layout
+            # pass (e.g. the forced repaint() on first view switch) runs
+            # synchronously right after -- FlowLayout skips positioning
+            # invisible widgets. Force it visible now, same fix as
+            # _add_album_widget's grid_layout.addWidget below.
+            widget.show()
+            return widget
 
         # Year range
-        row.addWidget(QLabel("Year:"))
+        add(QLabel("Year:"))
         self.year_from = _AnySpinBox()
-        self.year_from.setFixedWidth(70)
+        self.year_from.setMinimumWidth(70)
         self.year_from.valueChanged.connect(self._apply_filters)
-        row.addWidget(self.year_from)
-        row.addWidget(QLabel("–"))
+        add(self.year_from)
+        add(QLabel("–"))
         self.year_to = _AnySpinBox()
-        self.year_to.setFixedWidth(70)
+        self.year_to.setMinimumWidth(70)
         self.year_to.valueChanged.connect(self._apply_filters)
-        row.addWidget(self.year_to)
+        add(self.year_to)
 
         # Min track count
-        row.addWidget(QLabel("Min tracks:"))
+        add(QLabel("Min tracks:"))
         self.min_tracks = _AnySpinBox()
-        self.min_tracks.setFixedWidth(65)
+        self.min_tracks.setMinimumWidth(65)
         self.min_tracks.valueChanged.connect(self._apply_filters)
-        row.addWidget(self.min_tracks)
+        add(self.min_tracks)
 
         # Possibly Incomplete filter
-        row.addWidget(QLabel("Completeness:"))
+        add(QLabel("Completeness:"))
         self.incomplete_combo = QComboBox()
         self.incomplete_combo.addItems([
             "Any",
@@ -249,35 +261,33 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
             "Likely Complete",
         ])
         self.incomplete_combo.currentIndexChanged.connect(self._apply_filters)
-        row.addWidget(self.incomplete_combo)
+        add(self.incomplete_combo)
 
         # Is Fixed filter
-        row.addWidget(QLabel("Fixed:"))
+        add(QLabel("Fixed:"))
         self.fixed_combo = QComboBox()
         self.fixed_combo.addItems(["Any", "Fixed Only", "Not Fixed"])
         self.fixed_combo.currentIndexChanged.connect(self._apply_filters)
-        row.addWidget(self.fixed_combo)
+        add(self.fixed_combo)
 
         # Album Art filter
-        row.addWidget(QLabel("Art:"))
+        add(QLabel("Art:"))
         self.art_combo = QComboBox()
         self.art_combo.addItems(["Any", "No Art", "Has Art"])
         self.art_combo.currentIndexChanged.connect(self._apply_filters)
-        row.addWidget(self.art_combo)
+        add(self.art_combo)
 
         # Stats label
         self.stats_label = QLabel()
         self.stats_label.setProperty("textRole", "muted")
-        row.addWidget(self.stats_label)
-
-        row.addStretch()
+        add(self.stats_label)
 
         # Clear filters
         clear_btn = QPushButton("Clear Filters")
         clear_btn.setFlat(True)
         clear_btn.setToolTip("Reset all filters")
         clear_btn.clicked.connect(self._clear_filters)
-        row.addWidget(clear_btn)
+        add(clear_btn)
 
         return row
 
