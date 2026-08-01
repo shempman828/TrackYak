@@ -80,7 +80,8 @@ class AlbumWidget(QWidget):
         release_year = getattr(self.album, "release_year", "")
         year_str = f" ({release_year})" if release_year else ""
 
-        self.title_label.setText(f"{album_name}{year_str}")
+        mb_badge = " \U0001f517" if getattr(self.album, "MBID", None) else ""
+        self.title_label.setText(f"{album_name}{year_str}{mb_badge}")
 
         # 3. Handle Subtitle
         subtitle = getattr(self.album, "album_subtitle", None)
@@ -97,7 +98,8 @@ class AlbumWidget(QWidget):
 
         # 5. Tooltip & Size
         subtitle_line = f"\n({subtitle})" if subtitle else ""
-        self.setToolTip(f"{album_name}{year_str}{subtitle_line}\n{artist_text}")
+        mb_line = "\nLinked to MusicBrainz" if getattr(self.album, "MBID", None) else ""
+        self.setToolTip(f"{album_name}{year_str}{subtitle_line}\n{artist_text}{mb_line}")
         extra_height = 20 if subtitle else 0
         self.setFixedSize(self.size + 20, self.size + 90 + extra_height)
 
