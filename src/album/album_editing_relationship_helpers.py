@@ -105,13 +105,16 @@ class RelationshipHelpers:
     # Artist credit management
     # =========================================================================
 
-    def add_artist_credit(self, artist_name, role_name, matched_artist_id=None):
+    def add_artist_credit(
+        self, artist_name, role_name, matched_artist_id=None, matched_role_id=None
+    ):
         """Add a new artist credit with role to the album.
 
         `artist_name`/`role_name` come from the inline entity-completer row
         in the Artists tab (album_tab.py) rather than a popup dialog.
-        `matched_artist_id`, when set, skips the name lookup entirely --
-        the user picked an existing artist from the completer.
+        `matched_artist_id`/`matched_role_id`, when set, skip the name
+        lookup entirely -- the user picked an existing artist/role from the
+        completer.
         """
         artist_name = (artist_name or "").strip()
         role_name = (role_name or "").strip()
@@ -134,9 +137,19 @@ class RelationshipHelpers:
                     )
                     register_cached_entity("Artist", artist)
 
-            role = self.controller.get.get_entity_object("Role", role_name=role_name)
-            if not role:
-                role = self.controller.add.add_entity("Role", role_name=role_name)
+            if matched_role_id is not None:
+                role = self.controller.get.get_entity_object(
+                    "Role", role_id=matched_role_id
+                )
+            else:
+                role = self.controller.get.get_entity_object(
+                    "Role", role_name=role_name
+                )
+                if not role:
+                    role = self.controller.add.add_entity(
+                        "Role", role_name=role_name
+                    )
+                    register_cached_entity("Role", role)
 
             # New credits go to the end of their role group rather than
             # defaulting to sort_order 0, which would jump them to the front.
