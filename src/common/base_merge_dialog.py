@@ -1,3 +1,4 @@
+import html
 import re
 from difflib import SequenceMatcher
 
@@ -21,6 +22,11 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
+
+
+def _esc_amp(text):
+    """Escape '&' so it doesn't act as a Qt mnemonic prefix in button/label text."""
+    return (text or "").replace("&", "&&")
 
 
 class MergeDBDialog(QDialog):
@@ -383,7 +389,7 @@ class MergeDBDialog(QDialog):
         name = getattr(entity, self.name_attr, "Unknown")
         entity_id = getattr(entity, self.id_attr)
 
-        info = f"<b>{name}</b><br>"
+        info = f"<b>{html.escape(str(name))}</b><br>"
 
         # Add related entity count if available
         related_count = self._get_related_count(entity_id)
@@ -541,7 +547,9 @@ class MergeDBDialog(QDialog):
         if different:
             source_name = getattr(self.source_entity, self.name_attr, "Source")
             target_name = getattr(self.target_entity, self.name_attr, "Target")
-            self.next_btn.setText(f"Next: Merge '{source_name}' into '{target_name}' →")
+            self.next_btn.setText(
+                _esc_amp(f"Next: Merge '{source_name}' into '{target_name}' →")
+            )
         else:
             self.next_btn.setText("Next: Resolve Conflicts →")
 
@@ -616,8 +624,12 @@ class MergeDBDialog(QDialog):
                 source_name = getattr(self.source_entity, self.name_attr, "Source")
                 target_name = getattr(self.target_entity, self.name_attr, "Target")
 
-                s_radio = QRadioButton(f"Keep Source ({source_name}): {s_display}")
-                t_radio = QRadioButton(f"Keep Target ({target_name}): {t_display}")
+                s_radio = QRadioButton(
+                    _esc_amp(f"Keep Source ({source_name}): {s_display}")
+                )
+                t_radio = QRadioButton(
+                    _esc_amp(f"Keep Target ({target_name}): {t_display}")
+                )
 
                 group.addButton(s_radio, 0)
                 group.addButton(t_radio, 1)
@@ -731,8 +743,8 @@ class MergeDBDialog(QDialog):
             "Final Confirmation",
             (
                 f"Are you sure you want to merge "
-                f"'{getattr(self.source_entity, self.name_attr)}' "
-                f"into '{getattr(self.target_entity, self.name_attr)}'?\n\n"
+                f"'{_esc_amp(str(getattr(self.source_entity, self.name_attr)))}' "
+                f"into '{_esc_amp(str(getattr(self.target_entity, self.name_attr)))}'?\n\n"
                 "This action cannot be undone."
             ),
             QMessageBox.Yes | QMessageBox.No,
