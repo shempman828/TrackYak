@@ -25,7 +25,7 @@ from src.common.hierarchy_tree_style import (
     filter_tree_widget,
     icon_for_depth,
     is_hierarchy_descendant,
-    restore_expanded_ids,
+    restore_expanded_ids_or_expand_all,
 )
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -325,6 +325,7 @@ class RoleView(QWidget):
         # Remember which roles were expanded so the rebuild doesn't collapse
         # everything the user had opened.
         expanded_ids = collect_expanded_ids(self.role_tree)
+        is_initial_load = self.role_tree.topLevelItemCount() == 0
 
         self.role_tree.clear()
 
@@ -358,10 +359,7 @@ class RoleView(QWidget):
         )
 
         # Restore expansion state, or expand everything on first build
-        if expanded_ids:
-            restore_expanded_ids(self.role_tree, expanded_ids)
-        else:
-            self.role_tree.expandAll()
+        restore_expanded_ids_or_expand_all(self.role_tree, expanded_ids, is_initial_load)
 
         # Build status bar summary from the cached counts (no DB calls)
         total = len(all_roles)
