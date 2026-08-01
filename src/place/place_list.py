@@ -27,6 +27,7 @@ from src.place.place_detail import PlaceDetailView
 from src.place.place_edit import PlaceEditDialog
 from src.place.place_html import HtmlDelegate
 from src.place.place_map_filter import MultiSelectWidget
+from src.place.place_merge_dialog import PlaceMergeDialog
 
 # Pseudo-type bucket for places with no place_type set, so they can still be
 # included/excluded via the type filter instead of always being shown.
@@ -694,8 +695,13 @@ class ListView(QWidget):
             logger.info(f"Deleted {count} place(s) successfully")
 
     def merge_place(self, place):
-        """Merge this place into another. Not yet implemented."""
-        show_status_message(self, "Merge is not yet available for places.")
+        """Open the merge dialog, pre-populated with the given place as source."""
+        merge_dialog = PlaceMergeDialog(self.controller, self, place_obj=place)
+        if merge_dialog.exec_() == QDialog.Accepted:
+            self.load_places()
+            if self.parent_view:
+                self.parent_view.refresh_views()
+            logger.info("Places merged successfully.")
 
     def _split_place(self):
         """Split this place into multiple places. Not yet implemented."""
