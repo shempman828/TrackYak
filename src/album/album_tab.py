@@ -20,12 +20,10 @@ Changes (this revision)
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QCompleter,
     QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -119,9 +117,8 @@ class AlbumTabBuilder:
     def _build_add_artist_credit_row(self):
         """Inline artist + role entry row, replacing the old popup dialog.
 
-        Mirrors the search bar in track_edit_roles.py: a bare entity
-        completer for the artist plus a plain (completer-assisted) text
-        field for the role, with an Add button — no modal.
+        Mirrors the search bar in track_edit_roles.py: entity completers for
+        both artist and role, with an Add button — no modal.
         """
         row = QWidget()
         row_layout = QHBoxLayout(row)
@@ -132,18 +129,13 @@ class AlbumTabBuilder:
             self.controller, "Artist", "artist_name", "artist_id", "Search artists…"
         )
 
-        role_edit = QLineEdit()
-        role_edit.setPlaceholderText("Role (e.g. Performer, Composer…)")
-        existing_roles = [
-            r.role_name
-            for r in (self.controller.get.get_all_entities("Role") or [])
-            if r.role_name
-        ]
-        if existing_roles:
-            completer = QCompleter(existing_roles, role_edit)
-            completer.setCaseSensitivity(Qt.CaseInsensitive)
-            completer.setFilterMode(Qt.MatchContains)
-            role_edit.setCompleter(completer)
+        role_search = build_entity_search_widget(
+            self.controller,
+            "Role",
+            "role_name",
+            "role_id",
+            "Role (e.g. Performer, Composer…)",
+        )
 
         add_btn = QPushButton("Add Artist Credit")
         add_btn.setEnabled(False)
@@ -151,29 +143,32 @@ class AlbumTabBuilder:
         def _update_add_btn(*_args):
             add_btn.setEnabled(
                 len(artist_search.text().strip()) >= 2
-                and len(role_edit.text().strip()) >= 2
+                and len(role_search.text().strip()) >= 2
             )
 
         artist_search.textChanged.connect(_update_add_btn)
-        role_edit.textChanged.connect(_update_add_btn)
+        role_search.textChanged.connect(_update_add_btn)
 
         def _handle_add():
             artist_name = artist_search.text().strip()
-            role_name = role_edit.text().strip()
+            role_name = role_search.text().strip()
             if not artist_name or not role_name:
                 return
             self.helper.add_artist_credit(
-                artist_name, role_name, matched_artist_id=artist_search.matched_id()
+                artist_name,
+                role_name,
+                matched_artist_id=artist_search.matched_id(),
+                matched_role_id=role_search.matched_id(),
             )
             artist_search.reset()
-            role_edit.clear()
+            role_search.reset()
 
         add_btn.clicked.connect(_handle_add)
-        role_edit.returnPressed.connect(_handle_add)
+        role_search.returnPressed.connect(_handle_add)
         artist_search.returnPressed.connect(_handle_add)
 
         row_layout.addWidget(artist_search, 3)
-        row_layout.addWidget(role_edit, 2)
+        row_layout.addWidget(role_search, 2)
         row_layout.addWidget(add_btn)
         return row
 
