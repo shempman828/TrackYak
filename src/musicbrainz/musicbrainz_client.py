@@ -850,6 +850,8 @@ def search_canonical_releases(
         detail_bits = [b for b in (status, date, country, format_str) if b]
         if detail_bits:
             label_bits.append(f"[{' — '.join(detail_bits)}]")
+        if r.get("disambiguation"):
+            label_bits.append(f"[{r['disambiguation']}]")
         catalog = next(
             (
                 li.get("catalog-number")
