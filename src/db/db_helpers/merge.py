@@ -19,7 +19,7 @@ from src.db.db_tables import (
     Role,
 )
 from src.db.db_tables.award import AwardAssociation
-from src.db.db_tables.place import PlaceAssociation
+from src.db.db_tables.place import Place, PlaceAssociation
 
 # Model registry — safer than globals()
 _MERGE_MODEL_REGISTRY: dict = {
@@ -30,6 +30,7 @@ _MERGE_MODEL_REGISTRY: dict = {
     "Role": Role,
     "Album": Album,
     "ArtistType": ArtistType,
+    "Place": Place,
 }
 
 # For these entity types, merging automatically preserves the merged-away
@@ -183,6 +184,22 @@ class MergeDB(BaseDBHelper):
                         )
                         skipped_tables.add(assoc_table.name)
 
+            if model_name == "Place":
+                # `places.parent_id` is a self-referential FK, so the generic
+                # FK-scanning loop above skips it entirely (it only looks at
+                # tables other than the entity's own table). Without this,
+                # source's children would fall through to the ORM's default
+                # delete-time behavior of nulling their parent_id, silently
+                # detaching them from the hierarchy instead of reparenting
+                # them onto the target.
+                self._reparent_place_children(source_id, target_id)
+                # place_associations has no unique constraint, so the usual
+                # IntegrityError-triggered "drop duplicate rows" fallback in
+                # the FK loop above never fires for it. Explicitly drop exact
+                # duplicates left behind after source's associations were
+                # migrated onto the target.
+                self._dedupe_place_associations(target_id)
+
             self._preserve_alias_on_merge(
                 model_name, source_entity, target_entity, resolved_fields
             )
@@ -291,6 +308,96 @@ class MergeDB(BaseDBHelper):
             f"Preserved '{discarded_name}' as an alias of {model_name} {target_id} "
             f"after merge."
         )
+
+    def _reparent_place_children(self, source_id, target_id):
+        """Reparent source's child places onto the target instead of letting
+        them fall through to the ORM's default null-out-on-delete behavior.
+
+        If the target is itself a descendant of the source (e.g. merging a
+        country into one of its own states), naively pointing every one of
+        source's children at target would create a cycle: the single child
+        that leads down to target would end up with target as its parent
+        while target is that child's own descendant. That one branch is
+        promoted onto source's former parent instead; every other child of
+        source reparents onto target normally.
+        """
+        source_entity = self.session.get(Place, source_id)
+        grandparent_id = source_entity.parent_id if source_entity else None
+
+        chain_child_id = None
+        current = self.session.get(Place, target_id)
+        visited = set()
+        while current is not None and current.place_id not in visited:
+            visited.add(current.place_id)
+            if current.parent_id == source_id:
+                chain_child_id = current.place_id
+                break
+            current = current.parent
+
+        # Raw SQL, not ORM attribute assignment: `session.expire(source_entity)`
+        # further down reloads its `children` collection from the database to
+        # decide what to null out on delete. If these reparenting updates were
+        # only pending ORM changes rather than already committed to the DB,
+        # that reload would still see the old parent_id and cascade-null the
+        # rows we just repointed, clobbering this step.
+        table = Place.__table__
+        if chain_child_id is not None:
+            self._safe_execute(
+                update(table)
+                .where(table.c.place_id == chain_child_id)
+                .values(parent_id=grandparent_id)
+            )
+            self._safe_execute(
+                update(table)
+                .where(
+                    table.c.parent_id == source_id,
+                    table.c.place_id != chain_child_id,
+                )
+                .values(parent_id=target_id)
+            )
+        else:
+            self._safe_execute(
+                update(table)
+                .where(table.c.parent_id == source_id)
+                .values(parent_id=target_id)
+            )
+
+    def _dedupe_place_associations(self, place_id):
+        """Remove exact-duplicate PlaceAssociation rows left on `place_id`
+        after source's rows were migrated onto it, keeping the lowest-id row
+        for each (entity_type, entity_id, association_type_id) combination.
+        Uses raw table access (not ORM entities) to avoid stale identity-map
+        objects left over from earlier views of the place's associations.
+        """
+        table = PlaceAssociation.__table__
+        rows = self.session.execute(
+            select(
+                table.c.association_id,
+                table.c.entity_type,
+                table.c.entity_id,
+                table.c.association_type_id,
+            )
+            .where(table.c.place_id == place_id)
+            .order_by(table.c.association_id)
+        ).fetchall()
+
+        seen = set()
+        dropped = 0
+        for assoc_id, entity_type, entity_id, association_type_id in rows:
+            key = (entity_type, entity_id, association_type_id)
+            if key in seen:
+                self._safe_execute(
+                    sql_delete(table).where(table.c.association_id == assoc_id)
+                )
+                dropped += 1
+            else:
+                seen.add(key)
+
+        if dropped:
+            logger.info(
+                f"Removed {dropped} duplicate place_associations row(s) after "
+                f"merging into place {place_id}."
+            )
 
     def _safe_execute(self, stmt) -> int:
         """
