@@ -47,6 +47,7 @@ class PlacesWidget(QWidget):
             )
 
             birth_places = []
+            origin_places = []
             death_places = []
             other_places = []
 
@@ -58,6 +59,8 @@ class PlacesWidget(QWidget):
                 )
                 if type_name == "Birthplace":
                     birth_places.append(assoc.place)
+                elif type_name == "Origin":
+                    origin_places.append(assoc.place)
                 elif type_name == "Deathplace":
                     death_places.append(assoc.place)
                 else:
@@ -75,6 +78,18 @@ class PlacesWidget(QWidget):
                 birth_label.setWordWrap(True)
                 layout.addWidget(birth_label)
 
+            # Display origin (formed-in) place
+            if origin_places:
+                origin_text = "Formed in: " + ", ".join(
+                    [p.place_name for p in origin_places[:3]]
+                )
+                if len(origin_places) > 3:
+                    origin_text += f" (+{len(origin_places) - 3} more)"
+                origin_label = QLabel(origin_text)
+                origin_label.setObjectName("PlaceLabel")
+                origin_label.setWordWrap(True)
+                layout.addWidget(origin_label)
+
             # Display death place
             if death_places:
                 death_text = "Died in: " + ", ".join(
@@ -88,7 +103,7 @@ class PlacesWidget(QWidget):
                 layout.addWidget(death_label)
 
             # Display other significant places (if any and space permits)
-            if other_places and not (birth_places or death_places):
+            if other_places and not (birth_places or origin_places or death_places):
                 places_text = "Associated with: " + ", ".join(
                     [p.place_name for p in other_places[:2]]
                 )
