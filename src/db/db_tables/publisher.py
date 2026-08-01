@@ -17,6 +17,7 @@ class Publisher(Base):
     description = Column(String)
     logo_path = Column(String, unique=True)
     parent_id = Column(Integer, ForeignKey("publishers.publisher_id"))
+    parent = relationship("Publisher", remote_side=[publisher_id], backref="children")
     begin_year = Column(Integer)
     begin_month = Column(Integer)
     begin_day = Column(Integer)
