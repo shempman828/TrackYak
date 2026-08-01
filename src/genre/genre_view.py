@@ -27,7 +27,7 @@ from src.common.hierarchy_tree_style import (
     filter_tree_widget,
     icon_for_depth,
     is_hierarchy_descendant,
-    restore_expanded_ids,
+    restore_expanded_ids_or_expand_all,
 )
 from src.core.status_utility import show_status_message
 from src.db.db_tables import TrackGenre
@@ -152,6 +152,7 @@ class GenreView(QWidget):
         try:
             # Save which genre IDs are currently expanded
             expanded_ids = collect_expanded_ids(self.tree)
+            is_initial_load = self.tree.topLevelItemCount() == 0
 
             self.tree.clear()
             genres = self.controller.get.get_all_entities("Genre")
@@ -189,10 +190,7 @@ class GenreView(QWidget):
             # Build the tree recursively starting from root nodes (parent_id=None)
             self._build_genre_tree(None, children_map, genre_map, track_counts, 0)
 
-            if expanded_ids:
-                restore_expanded_ids(self.tree, expanded_ids)
-            else:
-                self.tree.expandAll()
+            restore_expanded_ids_or_expand_all(self.tree, expanded_ids, is_initial_load)
             logger.info(f"Loaded {len(genres)} genres with track counts")
 
         except (SQLAlchemyError, RuntimeError) as e:
