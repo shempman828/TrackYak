@@ -198,7 +198,7 @@ class NowPlayingView(QWidget):
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(32, 36, 16, 36)
 
-        self._art_card = _ArtCard()
+        self._art_card = _ArtCard(backdrop=self._backdrop)
         self._art_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         left_layout.addWidget(self._art_card, stretch=1)
 
