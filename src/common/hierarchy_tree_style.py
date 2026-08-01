@@ -130,6 +130,29 @@ def restore_expanded_ids(
         _restore(root.child(i))
 
 
+def restore_expanded_ids_or_expand_all(
+    tree: QTreeWidget,
+    expanded_ids: set,
+    is_initial_load: bool,
+    *,
+    id_role: int = Qt.UserRole,
+) -> None:
+    """After rebuilding `tree`, restore the expand state captured by
+    `collect_expanded_ids`, or expand everything if this is the tree's
+    first-ever population.
+
+    An empty `expanded_ids` is ambiguous by itself: it means either "the
+    user had fully collapsed the tree" (keep it collapsed) or "there's no
+    saved state yet" (expand by default). `is_initial_load` disambiguates
+    the two -- pass `tree.topLevelItemCount() == 0`, checked *before*
+    `tree.clear()`.
+    """
+    if expanded_ids or not is_initial_load:
+        restore_expanded_ids(tree, expanded_ids, id_role=id_role)
+    else:
+        tree.expandAll()
+
+
 def is_hierarchy_descendant(
     ancestor_id, candidate_id, entities, *, id_attr: str, parent_attr: str = "parent_id"
 ) -> bool:
