@@ -365,14 +365,7 @@ class MenuBar:
 
     def toggle_queue_visibility(self, checked):
         """Toggle queue dock visibility."""
-        if not hasattr(self, "queue_dock"):
-            return
-
-        self.queue_dock.setVisible(checked)
-        if checked:
-            self.addDockWidget(Qt.RightDockWidgetArea, self.queue_dock)
-            self.queue_dock.raise_()
-        self.toggle_queue_action.setChecked(checked)
+        self.set_queue_visible(checked)
 
     def show_audio_properties(self):
         dialog = AudioAnalysisDialog(self.controller)
