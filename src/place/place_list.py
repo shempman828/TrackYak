@@ -334,8 +334,10 @@ class ListView(QWidget):
             place_type = "No type"
             type_class = "place-type-missing"
 
+        mb_badge = " \U0001f517" if place.MBID else ""
+
         base_text = (
-            f"<span class='place-name'>{place_name}</span> "
+            f"<span class='place-name'>{place_name}</span>{mb_badge} "
             f"(<span class='{type_class}'>{place_type}</span>)"
         )
 
@@ -370,6 +372,8 @@ class ListView(QWidget):
         tooltip += f"Type: {place.place_type}\n"
         tooltip += f"Coordinates: {place.place_latitude}, {place.place_longitude}\n"
         tooltip += f"Description: {place.place_description or 'No description'}\n"
+        if place.MBID:
+            tooltip += "Linked to MusicBrainz\n"
         tooltip += f"Direct associations: {direct}"
         if recursive > direct:
             tooltip += f"\nTotal (including children): {recursive}"
