@@ -53,7 +53,7 @@ _COVER_DWELL_MS = 6_000
 _ARTIST_DWELL_MS = 2_500
 
 # Duration of the crossfade between successive art-slideshow images.
-_ART_TRANSITION_MS = 650
+_ART_TRANSITION_MS = 950
 
 # Tab and toggle button visuals live in themes/dark_mode.qss under the
 # [npTab="true"] / [npToggle="true"] / [active=...] selectors — see _set_active().
@@ -929,7 +929,7 @@ class NowPlayingView(QWidget):
         self._backdrop._opacity = 0.0
 
         self._fade_anim = QPropertyAnimation(self._backdrop, b"backdropOpacity")
-        self._fade_anim.setDuration(600)
+        self._fade_anim.setDuration(_ART_TRANSITION_MS)
         self._fade_anim.setStartValue(0.0)
         self._fade_anim.setEndValue(1.0)
         self._fade_anim.setEasingCurve(QEasingCurve.InOutCubic)
