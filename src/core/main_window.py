@@ -391,6 +391,20 @@ class GUI(QMainWindow, MenuBar):
         self.queue_dock.hide()
         logger.info("Queue dock created and hidden by default")
 
+    def set_queue_visible(self, visible: bool):
+        """Single source of truth for showing/hiding the queue dock.
+
+        Only touches visibility -- never re-adds the dock to an area, so a
+        user-dragged or floated placement survives repeated toggles.
+        """
+        if not hasattr(self, "queue_dock"):
+            return
+        self.queue_dock.setVisible(visible)
+        if visible:
+            self.queue_dock.raise_()
+        if hasattr(self, "toggle_queue_action"):
+            self.toggle_queue_action.setChecked(visible)
+
     def _on_queue_track_double_clicked(self, file_path):
         if self.mediaplayer.load_track(file_path):
             self.mediaplayer.play()
@@ -550,6 +564,8 @@ class GUI(QMainWindow, MenuBar):
                     app_config, "queue_visible", True
                 ):
                     dock.hide()
+                if attr_name == "queue_dock" and hasattr(self, "toggle_queue_action"):
+                    self.toggle_queue_action.setChecked(dock.isVisible())
 
         if hasattr(self, "_restore_player"):
             self._restore_player()
