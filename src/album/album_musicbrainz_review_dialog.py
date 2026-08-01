@@ -333,15 +333,17 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             kwargs["track_number"] = mbt.track_number
         if mbt.side and (force or renumbering_by_side or not track.side):
             kwargs["side"] = mbt.side
-        # Manual match means the user just confirmed these are the same
+        # A manual match means the user just confirmed these are the same
         # recording, whatever their titles look like -- no fuzzy gate
-        # needed, that confirmation is the gate. Take MB's title as the
-        # corrected one whenever it isn't already what's stored locally,
-        # e.g. a locally-truncated "Good Riddance" becoming "Good
-        # Riddance (Time of Your Life)".
+        # needed, that confirmation is the gate. An auto-match already
+        # passed _position_match_confirmed's title-similarity floor (or the
+        # local track had no name at all), so it's equally trustworthy here.
+        # Either way, take MB's title as the corrected one whenever it isn't
+        # already what's stored locally -- covers both small discrepancies
+        # (e.g. "Layin'" vs "Laying") and a locally-truncated "Good
+        # Riddance" becoming "Good Riddance (Time of Your Life)".
         if (
-            force
-            and mbt.title
+            mbt.title
             and mbt.title.strip().lower() != (track.track_name or "").strip().lower()
         ):
             kwargs["track_name"] = mbt.title
