@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLayout,
-    QLineEdit,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -304,8 +303,13 @@ class RolesTab(_BaseTab):
         self._artist_search.textChanged.connect(self._update_add_btn)
         search_row.addWidget(self._artist_search)
 
-        self._role_edit = QLineEdit()
-        self._role_edit.setPlaceholderText("Role (e.g. Performer, Composer…)")
+        self._role_edit = build_entity_search_widget(
+            self.controller,
+            "Role",
+            "role_name",
+            "role_id",
+            "Role (e.g. Performer, Composer…)",
+        )
         self._role_edit.textChanged.connect(self._update_add_btn)
         search_row.addWidget(self._role_edit)
 
@@ -546,17 +550,25 @@ class RolesTab(_BaseTab):
             register_cached_entity("Artist", artist)
         return artist
 
-    def _resolve_role(self, role_name: str):
+    def _resolve_role(self, role_name: str, matched_id=None):
+        if matched_id is not None:
+            return self.controller.get.get_entity_object("Role", role_id=matched_id)
+
         existing_role = self.controller.get.get_entity_object(
             "Role", role_name=role_name
         )
-        if existing_role:
-            return (
-                existing_role
-                if not isinstance(existing_role, list)
-                else existing_role[0]
-            )
-        return self.controller.add.add_entity("Role", role_name=role_name)
+        role = (
+            existing_role
+            if not isinstance(existing_role, list)
+            else (existing_role[0] if existing_role else None)
+        )
+        if not role:
+            role = self.controller.add.add_entity("Role", role_name=role_name)
+            register_cached_entity("Role", role)
+
+        if role:
+            self._role_edit.add_to_index(role.role_name, role.role_id)
+        return role
 
     # ── Add / Remove ──────────────────────────────────────────────────────
 
@@ -567,7 +579,7 @@ class RolesTab(_BaseTab):
             return
 
         artist = self._resolve_artist(artist_name)
-        role = self._resolve_role(role_name)
+        role = self._resolve_role(role_name, matched_id=self._role_edit.matched_id())
 
         if not artist or not role:
             QMessageBox.warning(self, "Error", "Could not resolve artist or role.")
@@ -582,7 +594,7 @@ class RolesTab(_BaseTab):
         )
 
         self._artist_search.reset()
-        self._role_edit.clear()
+        self._role_edit.reset()
         self.load(self.tracks)
 
     def _prompt_add_role_for_artist(self, artist_id, artist_name):
@@ -598,7 +610,7 @@ class RolesTab(_BaseTab):
             self._role_edit.setFocus()
             return
 
-        role = self._resolve_role(role_name)
+        role = self._resolve_role(role_name, matched_id=self._role_edit.matched_id())
         if not role:
             QMessageBox.warning(self, "Error", "Could not resolve role.")
             return
@@ -614,7 +626,7 @@ class RolesTab(_BaseTab):
         self._batch_add_track_artist_role(
             artist_id, role.role_id, credited_alias_id=credited_alias_id
         )
-        self._role_edit.clear()
+        self._role_edit.reset()
         self.load(self.tracks)
 
     def _prompt_credited_alias(self, artist, current_alias_id=None):
