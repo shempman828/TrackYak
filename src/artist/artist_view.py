@@ -371,8 +371,13 @@ class ArtistView(QWidget):
             if getattr(artist, "is_fixed", 0):
                 display_name = f"{display_name} ✓"
 
+            if getattr(artist, "MBID", None):
+                display_name = f"{display_name} \U0001f517"
+
             item = QListWidgetItem(display_name)
             item.setData(Qt.UserRole, artist.artist_id)
+            if getattr(artist, "MBID", None):
+                item.setToolTip("Linked to MusicBrainz")
             self.artist_list.addItem(item)
 
         # Update count label
