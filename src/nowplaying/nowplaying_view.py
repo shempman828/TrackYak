@@ -153,12 +153,16 @@ class NowPlayingView(QWidget):
         self._cinema_mode = not self._cinema_mode
         try:
             main_win = self.window()
+            mb = getattr(main_win, "menuBar", lambda: None)()
             if self._cinema_mode:
-                # Hide menu bar
-                mb = getattr(main_win, "menuBar", lambda: None)()
                 if mb:
                     mb.setVisible(False)
-                # Hide docks
+                # Remember whether the queue was actually open so exiting
+                # cinema mode doesn't force it open regardless of prior state.
+                queue_dock = getattr(main_win, "queue_dock", None)
+                self._pre_cinema_queue_visible = (
+                    queue_dock.isVisible() if queue_dock else False
+                )
                 for attr in ("player_dock", "navigation_dock", "queue_dock"):
                     dock = getattr(main_win, attr, None)
                     if dock:
@@ -166,13 +170,16 @@ class NowPlayingView(QWidget):
             else:
                 # Re-fetch widgets fresh — stored references go stale after
                 # track changes, which caused docks/menu bar to stay hidden.
-                mb = getattr(main_win, "menuBar", lambda: None)()
                 if mb:
                     mb.setVisible(True)
-                for attr in ("player_dock", "navigation_dock", "queue_dock"):
+                for attr in ("player_dock", "navigation_dock"):
                     dock = getattr(main_win, attr, None)
                     if dock:
                         dock.setVisible(True)
+                if hasattr(main_win, "set_queue_visible"):
+                    main_win.set_queue_visible(
+                        getattr(self, "_pre_cinema_queue_visible", False)
+                    )
         except RuntimeError as exc:
             logger.warning(f"toggle_cinema_mode: {exc}")
 
