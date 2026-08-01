@@ -43,8 +43,12 @@ QMainWindow {
 
 QMainWindow::separator {
     background-color: #1e1f2b;
-    width: 1px;
-    height: 1px;
+    width: 5px;
+    height: 5px;
+}
+
+QMainWindow::separator:hover {
+    background-color: rgba(133, 153, 234, 0.4);
 }
 
 /* ── DIALOGS ─────────────────────────────────────────────────────────────────── */
