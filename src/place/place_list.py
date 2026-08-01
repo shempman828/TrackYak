@@ -3,6 +3,7 @@ import html as html_escape
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QTreeWidget,
     QTreeWidgetItem,
     QTreeWidgetItemIterator,
@@ -24,6 +26,11 @@ from src.place.place_assoc_details import AssociationDetailsDialog
 from src.place.place_detail import PlaceDetailView
 from src.place.place_edit import PlaceEditDialog
 from src.place.place_html import HtmlDelegate
+from src.place.place_map_filter import MultiSelectWidget
+
+# Pseudo-type bucket for places with no place_type set, so they can still be
+# included/excluded via the type filter instead of always being shown.
+_NO_TYPE_LABEL = "No Type"
 
 
 class DraggableTreeWidget(QTreeWidget):
@@ -116,24 +123,62 @@ class DraggableTreeWidget(QTreeWidget):
             iterator += 1
         return count
 
-    def filter_items(self, search_text):
-        """Filter tree items based on search text, matching against place name."""
+    def filter_items(
+        self,
+        search_text,
+        selected_types=None,
+        mbid_missing_only=False,
+        coords_missing_only=False,
+        expand_matches=False,
+    ):
+        """Filter tree items based on search text plus optional type/MBID/coordinate criteria.
 
-        def filter_item(item, text):
-            text_lower = text.lower()
+        An ancestor is kept visible whenever any descendant matches, so the
+        path down to a match is never hidden, even if the ancestor itself
+        doesn't satisfy the criteria.
+        """
+        text_lower = search_text.lower()
+
+        def item_matches(place):
+            if place is None:
+                return False
+
+            name_lower = (place.place_name or "").lower()
+            if text_lower not in name_lower:
+                return False
+
+            if selected_types is not None:
+                place_type = (
+                    place.place_type.strip().title()
+                    if place.place_type and place.place_type.strip()
+                    else _NO_TYPE_LABEL
+                )
+                if place_type not in selected_types:
+                    return False
+
+            if mbid_missing_only and place.MBID:
+                return False
+
+            if coords_missing_only and (
+                place.place_latitude is not None and place.place_longitude is not None
+            ):
+                return False
+
+            return True
+
+        def filter_item(item):
             place = item.data(0, Qt.UserRole)
-            name_lower = (place.place_name or "").lower() if place else ""
-            matches = text_lower in name_lower
+            matches = item_matches(place)
 
             child_matches = False
             for i in range(item.childCount()):
-                if filter_item(item.child(i), text):
+                if filter_item(item.child(i)):
                     child_matches = True
 
             should_show = matches or child_matches
             item.setHidden(not should_show)
 
-            if text and should_show:
+            if expand_matches and should_show:
                 item.setExpanded(True)
                 parent = item.parent()
                 while parent:
@@ -143,7 +188,7 @@ class DraggableTreeWidget(QTreeWidget):
             return should_show
 
         for i in range(self.topLevelItemCount()):
-            filter_item(self.topLevelItem(i), search_text)
+            filter_item(self.topLevelItem(i))
 
 
 class ListView(QWidget):
@@ -155,6 +200,10 @@ class ListView(QWidget):
         self.parent_view = None
         self.sort_mode = "alphabetical"
         self.filter_text = ""
+        self.all_place_types = set()
+        self.selected_types = set()
+        self.mbid_missing_only = False
+        self.coords_missing_only = False
         self.init_ui()
 
     def set_parent_view(self, parent_view):
@@ -178,10 +227,39 @@ class ListView(QWidget):
         self.sort_toggle_button.clicked.connect(self.toggle_sort_mode)
         control_layout.addWidget(self.sort_toggle_button)
 
+        self.toggle_filter_button = QPushButton("Show Filters")
+        self.toggle_filter_button.setCheckable(True)
+        self.toggle_filter_button.setChecked(False)
+        self.toggle_filter_button.clicked.connect(self.toggle_filter_visibility)
+        control_layout.addWidget(self.toggle_filter_button)
+
         # Search bar
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("Search places...")
         self.search_bar.textChanged.connect(self.filter_places)
+
+        # Advanced filter bar (type / MBID missing / coordinates missing) —
+        # hidden by default, toggled via toggle_filter_button.
+        self.filter_container = QWidget()
+        self.filter_container.setVisible(False)
+        self.filter_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        filter_layout = QHBoxLayout(self.filter_container)
+        filter_layout.setContentsMargins(0, 0, 0, 0)
+
+        filter_layout.addWidget(QLabel("Type:"))
+        self.type_filter_widget = MultiSelectWidget()
+        self.type_filter_widget.selection_changed.connect(self.apply_type_filter)
+        filter_layout.addWidget(self.type_filter_widget)
+
+        self.mbid_missing_checkbox = QCheckBox("MBID missing")
+        self.mbid_missing_checkbox.toggled.connect(self.toggle_mbid_missing_filter)
+        filter_layout.addWidget(self.mbid_missing_checkbox)
+
+        self.coords_missing_checkbox = QCheckBox("Coordinates missing")
+        self.coords_missing_checkbox.toggled.connect(self.toggle_coords_missing_filter)
+        filter_layout.addWidget(self.coords_missing_checkbox)
+
+        filter_layout.addStretch()
 
         # Count label — shows "N places" or "Showing X of Y" while filtering
         self.count_label = QLabel()
@@ -202,6 +280,7 @@ class ListView(QWidget):
 
         main_layout.addLayout(control_layout)
         main_layout.addWidget(self.search_bar)
+        main_layout.addWidget(self.filter_container)
         main_layout.addWidget(self.count_label)
         main_layout.addWidget(self.tree_widget)
 
@@ -219,19 +298,87 @@ class ListView(QWidget):
         """Load places into the tree with hierarchical indentation."""
         self.tree_widget.clear()
         places = self.controller.get.get_all_entities("Place")
+        self._refresh_type_filter_options(places)
         hierarchy = self._build_hierarchy(places)
 
         # Add places to the tree with expand/collapse capability
         self._add_places_to_tree(hierarchy, None, self.tree_widget.invisibleRootItem())
 
-        # Reapply any active search filter, since the tree was just rebuilt
-        self.tree_widget.filter_items(self.filter_text)
-        self._update_count_label()
+        # Reapply any active search/type/MBID/coordinate filters, since the
+        # tree was just rebuilt from scratch.
+        self._apply_filters()
 
     def filter_places(self, text):
         """Filter places based on search text."""
         self.filter_text = text
-        self.tree_widget.filter_items(text)
+        self._apply_filters()
+
+    def toggle_filter_visibility(self):
+        """Toggle the advanced filter bar (type / MBID missing / coordinates missing)."""
+        is_visible = self.filter_container.isVisible()
+        self.filter_container.setVisible(not is_visible)
+        self.toggle_filter_button.setText(
+            "Hide Filters" if not is_visible else "Show Filters"
+        )
+
+    def apply_type_filter(self, selected_types):
+        """Handle a change in the selected place types from the type filter dropdown."""
+        self.selected_types = set(selected_types)
+        self._apply_filters()
+
+    def toggle_mbid_missing_filter(self, checked):
+        """Handle toggling the "MBID missing" checkbox."""
+        self.mbid_missing_only = checked
+        self._apply_filters()
+
+    def toggle_coords_missing_filter(self, checked):
+        """Handle toggling the "Coordinates missing" checkbox."""
+        self.coords_missing_only = checked
+        self._apply_filters()
+
+    def _refresh_type_filter_options(self, places):
+        """Sync the type filter's checkboxes with the types currently present in the data.
+
+        Preserves the user's existing selection across reloads (limited to
+        types that still exist); the first time it's populated, everything
+        is selected so the filter starts out as a no-op.
+        """
+        unique_types = set()
+        for place in places:
+            if place.place_type and place.place_type.strip():
+                unique_types.add(place.place_type.strip().title())
+            else:
+                unique_types.add(_NO_TYPE_LABEL)
+
+        if unique_types == self.all_place_types:
+            return
+
+        is_first_load = not self.all_place_types
+        previous_selection = self.selected_types
+        self.all_place_types = unique_types
+
+        ordered_types = sorted(unique_types, key=lambda t: (t == _NO_TYPE_LABEL, t))
+        self.type_filter_widget.set_items(ordered_types, default_selected=False)
+
+        restored = unique_types if is_first_load else (previous_selection & unique_types)
+        self.type_filter_widget.set_selected_items(restored)
+        self.selected_types = set(self.type_filter_widget.get_selected_items())
+
+    def _apply_filters(self):
+        """Reapply all active filters (search text, type, MBID missing, coordinates missing)."""
+        filters_active = bool(
+            self.filter_text
+            or self.mbid_missing_only
+            or self.coords_missing_only
+            or (self.all_place_types and self.selected_types != self.all_place_types)
+        )
+        self.tree_widget.filter_items(
+            self.filter_text,
+            self.selected_types,
+            self.mbid_missing_only,
+            self.coords_missing_only,
+            expand_matches=filters_active,
+        )
         self._update_count_label()
 
     def _update_count_label(self):
