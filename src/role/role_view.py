@@ -24,6 +24,8 @@ from src.common.hierarchy_tree_style import (
     configure_hierarchy_tree,
     filter_tree_widget,
     icon_for_depth,
+    insert_as_new_child,
+    insert_as_new_parent,
     is_hierarchy_descendant,
     restore_expanded_ids_or_expand_all,
 )
@@ -758,12 +760,7 @@ class RoleView(QWidget):
 
         new_role = dialog.result_role
         try:
-            self.controller.update.update_entity(
-                "Role", new_role.role_id, parent_id=role.parent_id
-            )
-            self.controller.update.update_entity(
-                "Role", role.role_id, parent_id=new_role.role_id
-            )
+            insert_as_new_parent(self.controller, "Role", "role_id", role, new_role)
             self.load_roles()
             self.role_updated.emit()
             self.status_bar.setText(
@@ -786,9 +783,7 @@ class RoleView(QWidget):
 
         new_role = dialog.result_role
         try:
-            self.controller.update.update_entity(
-                "Role", new_role.role_id, parent_id=role.role_id
-            )
+            insert_as_new_child(self.controller, "Role", "role_id", role, new_role)
             self.load_roles()
             self.role_updated.emit()
             self.status_bar.setText(

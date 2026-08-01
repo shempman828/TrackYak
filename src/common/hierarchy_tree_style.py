@@ -153,6 +153,26 @@ def restore_expanded_ids_or_expand_all(
         tree.expandAll()
 
 
+def insert_as_new_parent(controller, entity_type: str, id_attr: str, entity, new_entity) -> None:
+    """Splice `new_entity` in as the parent of `entity`: it takes over
+    `entity`'s old parent slot (preserving the grandparent chain), and
+    `entity` becomes its child.
+    """
+    controller.update.update_entity(
+        entity_type, getattr(new_entity, id_attr), parent_id=entity.parent_id
+    )
+    controller.update.update_entity(
+        entity_type, getattr(entity, id_attr), parent_id=getattr(new_entity, id_attr)
+    )
+
+
+def insert_as_new_child(controller, entity_type: str, id_attr: str, entity, new_entity) -> None:
+    """Set `new_entity` as a child of `entity`."""
+    controller.update.update_entity(
+        entity_type, getattr(new_entity, id_attr), parent_id=getattr(entity, id_attr)
+    )
+
+
 def is_hierarchy_descendant(
     ancestor_id, candidate_id, entities, *, id_attr: str, parent_attr: str = "parent_id"
 ) -> bool:

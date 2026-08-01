@@ -22,6 +22,8 @@ from src.common.hierarchy_tree_style import (
     create_colored_icon,
     filter_tree_widget,
     icon_for_depth,
+    insert_as_new_child,
+    insert_as_new_parent,
     is_hierarchy_descendant,
     restore_expanded_ids_or_expand_all,
 )
@@ -490,12 +492,7 @@ class MoodView(QWidget):
             if not new_mood:
                 raise ValueError("Failed to create new mood")
 
-            self.controller.update.update_entity(
-                "Mood", new_mood.mood_id, parent_id=mood.parent_id
-            )
-            self.controller.update.update_entity(
-                "Mood", mood.mood_id, parent_id=new_mood.mood_id
-            )
+            insert_as_new_parent(self.controller, "Mood", "mood_id", mood, new_mood)
             self.mood_created.emit(new_mood)
             self.load_moods()
             show_status_message(
@@ -530,9 +527,7 @@ class MoodView(QWidget):
             if not new_mood:
                 raise ValueError("Failed to create new mood")
 
-            self.controller.update.update_entity(
-                "Mood", new_mood.mood_id, parent_id=mood.mood_id
-            )
+            insert_as_new_child(self.controller, "Mood", "mood_id", mood, new_mood)
             self.mood_created.emit(new_mood)
             self.load_moods()
             show_status_message(

@@ -26,6 +26,8 @@ from src.common.hierarchy_tree_style import (
     configure_hierarchy_tree,
     filter_tree_widget,
     icon_for_depth,
+    insert_as_new_child,
+    insert_as_new_parent,
     is_hierarchy_descendant,
     restore_expanded_ids_or_expand_all,
 )
@@ -432,12 +434,7 @@ class GenreView(QWidget):
 
         new_genre = dialog.result_genre
         try:
-            self.controller.update.update_entity(
-                "Genre", new_genre.genre_id, parent_id=genre.parent_id
-            )
-            self.controller.update.update_entity(
-                "Genre", genre.genre_id, parent_id=new_genre.genre_id
-            )
+            insert_as_new_parent(self.controller, "Genre", "genre_id", genre, new_genre)
             self.load_genres()
             self.genre_updated.emit()
             self.status_bar.setText(
@@ -460,9 +457,7 @@ class GenreView(QWidget):
 
         new_genre = dialog.result_genre
         try:
-            self.controller.update.update_entity(
-                "Genre", new_genre.genre_id, parent_id=genre.genre_id
-            )
+            insert_as_new_child(self.controller, "Genre", "genre_id", genre, new_genre)
             self.load_genres()
             self.genre_updated.emit()
             self.status_bar.setText(
