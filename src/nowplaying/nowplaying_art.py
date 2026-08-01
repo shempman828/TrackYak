@@ -36,6 +36,11 @@ class _ArtCard(QWidget):
     # scanned/exported slightly off-square).
     _SQUARE_TOLERANCE = 0.08
 
+    # Subtle Ken-Burns-style scale accompanying each crossfade: the outgoing
+    # image eases out to 1+ZOOM, the incoming one eases in from 1-ZOOM, so
+    # the transition reads as motion rather than a flat opacity dissolve.
+    _ZOOM_AMOUNT = 0.035
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._pixmap: Optional[QPixmap] = None
@@ -83,27 +88,32 @@ class _ArtCard(QWidget):
 
         w, h = self.width(), self.height()
         t = max(0.0, min(1.0, self._transition))
-        drawn_rect = QRect()
+
+        prev_rect = self._layout_rect(self._prev_pixmap, self._prev_is_artist, w, h)
+        cur_rect = self._layout_rect(self._pixmap, self._is_artist, w, h)
+        # The visible frame morphs between the outgoing and incoming content's
+        # own shape over the course of the crossfade, so e.g. a square cover
+        # swapping for a portrait artist photo reads as one smooth resize
+        # instead of two mismatched rectangles snapping in and out.
+        frame = self._lerp_rect(prev_rect, cur_rect, t)
+
+        content_rect = QRect()
 
         if t < 1.0:
-            painter.setOpacity(1.0 - t)
-            prev_rect = self._paint_content(painter, self._prev_pixmap, self._prev_is_artist, w, h)
-            painter.setOpacity(1.0)
-            self._draw_label(
-                painter, prev_rect, self._prev_label if self._prev_is_artist else None, 1.0 - t
+            zoom = 1.0 + self._ZOOM_AMOUNT * t
+            self._paint_layer(
+                painter, self._prev_pixmap, self._prev_is_artist, self._prev_label,
+                frame, 1.0 - t, zoom,
             )
-            drawn_rect = drawn_rect.united(prev_rect)
+            content_rect = content_rect.united(self._scale_rect_about_center(frame, zoom))
 
         if t > 0.0:
-            painter.setOpacity(t)
-            cur_rect = self._paint_content(painter, self._pixmap, self._is_artist, w, h)
-            painter.setOpacity(1.0)
-            self._draw_label(
-                painter, cur_rect, self._label if self._is_artist else None, t
+            zoom = 1.0 - self._ZOOM_AMOUNT * (1.0 - t)
+            self._paint_layer(
+                painter, self._pixmap, self._is_artist, self._label,
+                frame, t, zoom,
             )
-            drawn_rect = drawn_rect.united(cur_rect)
-
-        content_rect = drawn_rect
+            content_rect = content_rect.united(self._scale_rect_about_center(frame, zoom))
 
         # Clear only pixels left over from a previous, larger/differently
         # shaped paint (e.g. an artist photo's wide crop shrinking down to a
@@ -121,34 +131,83 @@ class _ArtCard(QWidget):
         self._prev_content_rect = content_rect
         painter.end()
 
-    def _paint_content(
-        self, painter: QPainter, pixmap: Optional[QPixmap], is_artist: bool, w: int, h: int
-    ) -> QRect:
-        if pixmap and not pixmap.isNull() and is_artist:
-            return self._paint_artist_photo(painter, pixmap, w, h)
-        elif pixmap and not pixmap.isNull():
-            return self._paint_square_art(painter, pixmap, w, h)
-        return self._paint_placeholder(painter, w, h)
+    def _paint_layer(
+        self,
+        painter: QPainter,
+        pixmap: Optional[QPixmap],
+        is_artist: bool,
+        label: Optional[str],
+        rect: QRect,
+        opacity: float,
+        zoom: float,
+    ):
+        painter.save()
+        painter.setOpacity(opacity)
+        if zoom != 1.0:
+            center = rect.center()
+            painter.translate(center)
+            painter.scale(zoom, zoom)
+            painter.translate(-center)
+        if pixmap and not pixmap.isNull():
+            self._paint_pixmap_cover(painter, pixmap, rect)
+        else:
+            self._paint_placeholder_in_rect(painter, rect)
+        painter.restore()
+        self._draw_label(painter, rect, label if is_artist else None, opacity)
 
-    def _paint_placeholder(self, painter: QPainter, w: int, h: int) -> QRect:
+    @staticmethod
+    def _lerp_rect(a: QRect, b: QRect, t: float) -> QRect:
+        if not a.isValid():
+            return b
+        if not b.isValid():
+            return a
+        x = round(a.x() + (b.x() - a.x()) * t)
+        y = round(a.y() + (b.y() - a.y()) * t)
+        w = round(a.width() + (b.width() - a.width()) * t)
+        h = round(a.height() + (b.height() - a.height()) * t)
+        return QRect(x, y, w, h)
+
+    @staticmethod
+    def _scale_rect_about_center(rect: QRect, zoom: float) -> QRect:
+        if zoom == 1.0 or not rect.isValid():
+            return rect
+        cx, cy = rect.center().x(), rect.center().y()
+        w, h = rect.width() * zoom, rect.height() * zoom
+        return QRect(round(cx - w / 2), round(cy - h / 2), round(w), round(h))
+
+    def _layout_rect(self, pixmap: Optional[QPixmap], is_artist: bool, w: int, h: int) -> QRect:
+        """Compute the rect this content would occupy at rest (transition
+        progress 1), without painting anything."""
+        if pixmap and not pixmap.isNull() and is_artist:
+            return self._artist_photo_rect(pixmap, w, h)
+        elif pixmap and not pixmap.isNull():
+            return self._square_art_rect(pixmap, w, h)
+        return self._placeholder_rect(w, h)
+
+    def _placeholder_rect(self, w: int, h: int) -> QRect:
         side = min(w, h)
         x, y = (w - side) // 2, (h - side) // 2
+        return QRect(x, y, side, side)
+
+    def _paint_placeholder_in_rect(self, painter: QPainter, rect: QRect):
+        if not rect.isValid() or rect.width() <= 0 or rect.height() <= 0:
+            return
+        x, y, rw, rh = rect.x(), rect.y(), rect.width(), rect.height()
         path = QPainterPath()
-        path.addRoundedRect(x, y, side, side, self._RADIUS, self._RADIUS)
+        path.addRoundedRect(x, y, rw, rh, self._RADIUS, self._RADIUS)
         painter.setClipPath(path)
         # Default art: dark gradient with a music note
-        bg = QLinearGradient(x, y, x + side, y + side)
+        bg = QLinearGradient(x, y, x + rw, y + rh)
         bg.setColorAt(0.0, QColor(30, 35, 60))
         bg.setColorAt(1.0, QColor(15, 18, 35))
         painter.fillPath(path, bg)
 
         # Draw a simple music note using text
         painter.setClipping(False)
-        note_font = QFont("Arial", max(24, side // 4), QFont.Bold)
+        note_font = QFont("Arial", max(24, min(rw, rh) // 4), QFont.Bold)
         painter.setFont(note_font)
         painter.setPen(QColor(100, 120, 200, 80))
-        painter.drawText(x, y, side, side, Qt.AlignCenter, "♪")
-        return QRect(x, y, side, side)
+        painter.drawText(x, y, rw, rh, Qt.AlignCenter, "♪")
 
     def _draw_label(
         self, painter: QPainter, rect: QRect, text: Optional[str], opacity: float
@@ -180,10 +239,9 @@ class _ArtCard(QWidget):
 
         painter.restore()
 
-    def _paint_square_art(self, painter: QPainter, pixmap: QPixmap, w: int, h: int):
-        """Album art: fill the available space. Nearly-square art is shown at
-        its native aspect ratio; anything further off-square is cropped to a
-        perfect square, as before."""
+    def _square_art_rect(self, pixmap: QPixmap, w: int, h: int) -> QRect:
+        """Album art's at-rest rect: nearly-square art keeps its native aspect
+        ratio; anything further off-square is cropped to a perfect square."""
         pw, ph = pixmap.width(), pixmap.height()
 
         if pw > 0 and ph > 0 and abs((pw / ph) - 1.0) <= self._SQUARE_TOLERANCE:
@@ -192,35 +250,16 @@ class _ArtCard(QWidget):
             art_w = max(1, round(pw * scale))
             art_h = max(1, round(ph * scale))
             x, y = (w - art_w) // 2, (h - art_h) // 2
-
-            path = QPainterPath()
-            path.addRoundedRect(x, y, art_w, art_h, self._RADIUS, self._RADIUS)
-            painter.setClipPath(path)
-
-            scaled = pixmap.scaled(
-                art_w, art_h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation
-            )
-            painter.drawPixmap(x, y, scaled)
             return QRect(x, y, art_w, art_h)
 
         side = min(w, h)
         x, y = (w - side) // 2, (h - side) // 2
-
-        path = QPainterPath()
-        path.addRoundedRect(x, y, side, side, self._RADIUS, self._RADIUS)
-        painter.setClipPath(path)
-
-        scaled = pixmap.scaled(
-            side, side, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
-        )
-        ox = x + (side - scaled.width()) // 2
-        oy = y + (side - scaled.height()) // 2
-        painter.drawPixmap(ox, oy, scaled)
         return QRect(x, y, side, side)
 
-    def _paint_artist_photo(self, painter: QPainter, pixmap: QPixmap, w: int, h: int):
-        """Artist photo: keep its native aspect ratio and avoid over-enlarging
-        small images, instead of cropping it into a forced square."""
+    def _artist_photo_rect(self, pixmap: QPixmap, w: int, h: int) -> QRect:
+        """Artist photo's at-rest rect: keeps its native aspect ratio and
+        avoids over-enlarging small images, instead of cropping it into a
+        forced square."""
         pw, ph = pixmap.width(), pixmap.height()
         if pw <= 0 or ph <= 0:
             return QRect()
@@ -229,15 +268,28 @@ class _ArtCard(QWidget):
         scale = min(fit_scale, self._MAX_UPSCALE)
         new_w = max(1, round(pw * scale))
         new_h = max(1, round(ph * scale))
-
         x, y = (w - new_w) // 2, (h - new_h) // 2
-
-        path = QPainterPath()
-        path.addRoundedRect(x, y, new_w, new_h, self._RADIUS, self._RADIUS)
-        painter.setClipPath(path)
-
-        scaled = pixmap.scaled(
-            new_w, new_h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation
-        )
-        painter.drawPixmap(x, y, scaled)
         return QRect(x, y, new_w, new_h)
+
+    def _paint_pixmap_cover(self, painter: QPainter, pixmap: QPixmap, rect: QRect):
+        """Draw `pixmap` scaled/cropped to cover `rect`, clipped to its
+        rounded shape. When `rect` is the content's own at-rest rect (the
+        steady-state case, once the crossfade settles) this reproduces the
+        un-cropped layout exactly; mid-transition, where `rect` is
+        interpolated between the outgoing and incoming content's shapes, it
+        crops as needed so the frame morphs smoothly instead of the image
+        stretching or snapping between aspect ratios."""
+        if not rect.isValid() or rect.width() <= 0 or rect.height() <= 0:
+            return
+        path = QPainterPath()
+        path.addRoundedRect(
+            rect.x(), rect.y(), rect.width(), rect.height(), self._RADIUS, self._RADIUS
+        )
+        painter.setClipPath(path)
+        scaled = pixmap.scaled(
+            rect.width(), rect.height(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+        )
+        ox = rect.x() + (rect.width() - scaled.width()) // 2
+        oy = rect.y() + (rect.height() - scaled.height()) // 2
+        painter.drawPixmap(ox, oy, scaled)
+        painter.setClipping(False)
