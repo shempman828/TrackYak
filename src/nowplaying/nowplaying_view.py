@@ -48,9 +48,19 @@ _LYRIC_GAP_THRESHOLD_MS = 5_000
 _OFFSET_DEBOUNCE_MS = 600
 
 # Art slideshow dwell times. Album covers get more screen time than artist
-# photos so the cover art still dominates the rotation.
+# photos so the cover art still dominates the rotation. Both are long enough
+# to actually read a credit line / take in a photo, not just flash by.
 _COVER_DWELL_MS = 6_000
-_ARTIST_DWELL_MS = 2_500
+_ARTIST_DWELL_MS = 5_000
+
+# When a front cover is present, it's interleaved between every other image
+# (front, rear, front, liner, front, artist-photo, ...) rather than shown as
+# one single slide, so it never gets rotated away for long and doesn't turn
+# into one giant multi-minute freeze on a track with many contributors. Each
+# time it's shown, its dwell is set relative to the *next* image's dwell so
+# the front cover ends up with this fraction of total cycle time no matter
+# how many secondary images are in the rotation.
+_FRONT_COVER_SHARE = 0.8
 
 # Duration of the crossfade between successive art-slideshow images.
 _ART_TRANSITION_MS = 950
@@ -111,6 +121,7 @@ class NowPlayingView(QWidget):
 
         # Art slideshow state
         self._art_images: List[Tuple[QPixmap, bool, Optional[str]]] = []
+        self._art_has_front: bool = False
         self._art_slide_idx: int = 0
         self._art_slide_timer = QTimer(self)
         self._art_slide_timer.setInterval(_COVER_DWELL_MS)
@@ -832,6 +843,7 @@ class NowPlayingView(QWidget):
         # without forcing a square crop, since they aren't necessarily
         # square, and carry the artist's name to caption the photo.
         pixmaps: List[Tuple[QPixmap, bool, Optional[str]]] = []
+        has_front = False
         if album and cache:
             # peek_has_art never reads/decodes the audio file. If the cache
             # row is confirmed valid, front/rear/liner are all safe to fetch
@@ -847,6 +859,8 @@ class NowPlayingView(QWidget):
                     px = cache.get_pixmap(album, role, is_explicit)
                     if not px.isNull():
                         pixmaps.append((px, False, None))
+                        if role == "front":
+                            has_front = True
 
         # Also try artist-level image
         album_artist_ids = {
@@ -880,7 +894,7 @@ class NowPlayingView(QWidget):
                 if not px.isNull():
                     pixmaps.append((px, False, None))
 
-        self._start_art_slideshow(pixmaps)
+        self._start_art_slideshow(pixmaps, has_front=has_front)
 
     def _cancel_art_worker(self):
         if self._art_worker is not None:
@@ -904,23 +918,43 @@ class NowPlayingView(QWidget):
             return
         self._load_art_from_track(track)
 
-    def _start_art_slideshow(self, pixmaps: List[Tuple[QPixmap, bool, Optional[str]]]):
+    def _start_art_slideshow(
+        self,
+        pixmaps: List[Tuple[QPixmap, bool, Optional[str]]],
+        has_front: bool = False,
+    ):
         """Begin cycling through the given list of (pixmap, is_artist, label)
         triples. The blurred backdrop stays pinned to the album art (the
         first non-artist image) for the whole track; only the small art
-        card rotates through the full set, artist photos included."""
+        card rotates through the full set, artist photos included.
+
+        When a front cover is present, the rotation interleaves it between
+        every other image (front, rear, front, liner, front, artist, ...)
+        instead of visiting it once per lap - see _dwell_for_index.
+        """
         self._art_slide_timer.stop()
-        self._art_images = pixmaps
-        self._art_slide_idx = 0
 
         first = pixmaps[0] if pixmaps else (None, False, None)
-        self._apply_art(*first)
-
         backdrop_pixmap = next((px for px, is_artist, _ in pixmaps if not is_artist), first[0])
+
+        if has_front and len(pixmaps) > 1:
+            front, secondaries = pixmaps[0], pixmaps[1:]
+            sequence = []
+            for img in secondaries:
+                sequence.append(front)
+                sequence.append(img)
+        else:
+            sequence = pixmaps
+
+        self._art_images = sequence
+        self._art_has_front = has_front
+        self._art_slide_idx = 0
+
+        self._apply_art(*first)
         self._apply_backdrop(backdrop_pixmap)
 
-        if len(pixmaps) > 1:
-            self._art_slide_timer.setInterval(_ARTIST_DWELL_MS if first[1] else _COVER_DWELL_MS)
+        if len(sequence) > 1:
+            self._art_slide_timer.setInterval(self._dwell_for_index(0))
             self._art_slide_timer.start()
 
     def _advance_art_slide(self):
@@ -929,9 +963,29 @@ class NowPlayingView(QWidget):
         self._art_slide_idx = (self._art_slide_idx + 1) % len(self._art_images)
         current = self._art_images[self._art_slide_idx]
         self._apply_art(*current)
-        # Album covers get more screen time than artist photos in the
-        # rotation, so the cover art still dominates overall.
-        self._art_slide_timer.setInterval(_ARTIST_DWELL_MS if current[1] else _COVER_DWELL_MS)
+        self._art_slide_timer.setInterval(self._dwell_for_index(self._art_slide_idx))
+
+    def _dwell_for_index(self, idx: int) -> int:
+        """How long the image at `idx` should stay on screen.
+
+        Normally each image just dwells for its per-type duration. When a
+        front cover is in the rotation, it occupies every even slot
+        (front/secondary/front/secondary/...) - each visit's dwell is set
+        relative to the secondary image right after it, so the front cover
+        gets _FRONT_COVER_SHARE of cycle time regardless of how many
+        secondary images there are, without any single slide ballooning.
+        """
+        _, is_artist, _ = self._art_images[idx]
+        base = _ARTIST_DWELL_MS if is_artist else _COVER_DWELL_MS
+        if not self._art_has_front or len(self._art_images) <= 1:
+            return base
+        is_front_slot = idx % 2 == 0
+        if not is_front_slot:
+            return base
+        next_idx = (idx + 1) % len(self._art_images)
+        _, next_is_artist, _ = self._art_images[next_idx]
+        neighbor = _ARTIST_DWELL_MS if next_is_artist else _COVER_DWELL_MS
+        return round(neighbor * _FRONT_COVER_SHARE / (1 - _FRONT_COVER_SHARE))
 
     def _apply_art(
         self, pixmap: Optional[QPixmap], is_artist: bool = False, label: Optional[str] = None
