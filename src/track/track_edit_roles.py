@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLayout,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -263,11 +264,34 @@ class _RolesTable(QTableWidget):
     per row changes whenever the widget is resized. Qt doesn't recompute
     row heights on its own when a stretched column's width changes, so we
     do it explicitly here.
+
+    QAbstractScrollArea (QTableWidget's base) defaults to an Expanding
+    vertical size policy, so this table would otherwise inflate to fill
+    whatever leftover space its parent layout hands it -- with only one or
+    two artist rows (a single-artist track, or an album's Track Credits
+    tab), that left a mostly-empty grid stretching down the page. Sizing to
+    content instead (capped so a long artist list still scrolls rather than
+    pushing the dialog taller) keeps the table only as tall as its rows.
     """
+
+    _MAX_CONTENT_HEIGHT = 260
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.resizeRowsToContents()
+        self.updateGeometry()
+
+    def sizeHint(self):
+        header = self.horizontalHeader()
+        header_h = 0 if header.isHidden() else header.height()
+        rows_h = sum(self.rowHeight(r) for r in range(self.rowCount()))
+        frame = 2 * self.frameWidth()
+        content_h = header_h + rows_h + frame
+        return QSize(super().sizeHint().width(), min(content_h, self._MAX_CONTENT_HEIGHT))
 
 
 class RolesTab(_BaseTab):
@@ -395,6 +419,11 @@ class RolesTab(_BaseTab):
         self._table.resizeColumnToContents(0)
         self._table.resizeColumnToContents(2)
         self._table.setEnabled(True)
+
+        # Row count/heights just changed, which changes the table's content
+        # based sizeHint (see _RolesTable) -- tell the layout to re-query it
+        # rather than leaving the table sized for whatever it hinted before.
+        self._table.updateGeometry()
 
     def _on_roles_load_error(self, message: str) -> None:
         logger.error(f"Error loading artist roles: {message}")
