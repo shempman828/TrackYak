@@ -32,6 +32,39 @@ from src.musicbrainz.musicbrainz_client import MBCandidate
 from src.musicbrainz.musicbrainz_worker import MusicBrainzWorker
 
 
+def _detach_running_worker(worker: Optional[MusicBrainzWorker]) -> None:
+    """Let a still-running MusicBrainzWorker finish on its own instead of
+    being destroyed mid-flight when the owning dialog is closed early
+    (Skip/Cancel/Esc/X while a search or follow-up lookup is in flight).
+
+    MusicBrainzWorker.run() isn't cooperatively cancellable mid-call (the
+    network call itself can't be interrupted), so synchronously wait()-ing
+    here would just freeze the UI for as long as that call takes. Instead,
+    detach it from the dialog (so its finished/error signals can't call
+    back into now-dead widgets) and let it clean itself up when done.
+    Undetached, a still-running QThread destroyed along with its parent
+    dialog triggers "QThread: Destroyed while thread is still running" --
+    undefined behavior in Qt that can crash the app.
+    """
+    if worker is None or not worker.isRunning():
+        return
+    try:
+        worker.finished.disconnect()
+    except RuntimeError:
+        pass
+    try:
+        worker.error.disconnect()
+    except RuntimeError:
+        pass
+    try:
+        worker.progress.disconnect()
+    except RuntimeError:
+        pass
+    worker.setParent(None)
+    worker.finished.connect(worker.deleteLater)
+    worker.error.connect(worker.deleteLater)
+
+
 class MusicBrainzMatchDialog(QDialog):
     """
     Args:
@@ -193,6 +226,14 @@ class MusicBrainzMatchDialog(QDialog):
         exec() returns something other than Accepted."""
         return len(self._candidates)
 
+    def reject(self):
+        _detach_running_worker(self._worker)
+        super().reject()
+
+    def closeEvent(self, event):
+        _detach_running_worker(self._worker)
+        super().closeEvent(event)
+
 
 class MusicBrainzImportDialog(QDialog):
     """
@@ -287,3 +328,11 @@ class MusicBrainzImportDialog(QDialog):
 
     def result_candidate(self):
         return self._result_candidate
+
+    def reject(self):
+        _detach_running_worker(self._worker)
+        super().reject()
+
+    def closeEvent(self, event):
+        _detach_running_worker(self._worker)
+        super().closeEvent(event)
