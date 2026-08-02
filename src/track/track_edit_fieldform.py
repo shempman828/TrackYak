@@ -351,6 +351,13 @@ class FieldFormTab(_BaseTab):
             _write_widget(widget, value)
             self._mark_dirty(field_name)
 
+    def get_field_value(self, field_name: str) -> Any:
+        """Live, currently-typed value for one editable field on this tab --
+        reflects unsaved edits, unlike the same field read off self.track.
+        Returns None if the field isn't editable/present on this tab."""
+        widget = self._widgets.get(field_name)
+        return _read_widget(widget) if widget is not None else None
+
     def collect_all_values(self) -> dict[str, Any]:
         """Return every currently displayed field with a value, editable or
         read-only -- unlike collect_changes(), this isn't limited to fields
