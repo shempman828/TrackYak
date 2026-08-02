@@ -130,7 +130,9 @@ class TrackEditDialog(QDialog):
             "Basic", lambda: FieldFormTab("Basic", self.tracks, self.controller)
         )
         self._add_tab("Artists & Roles", lambda: RolesTab(self.tracks, self.controller))
-        self._add_tab("Albums", lambda: AlbumsTab(self.tracks, self.controller))
+        self._add_tab(
+            "Albums", lambda: AlbumsTab(self.tracks, self.controller, dialog=self)
+        )
         self._add_tab(
             "Dates", lambda: FieldFormTab("Date", self.tracks, self.controller)
         )
@@ -156,7 +158,7 @@ class TrackEditDialog(QDialog):
         )
         self._add_tab(
             "Identification",
-            lambda: IdentificationTab(self.tracks, self.controller),
+            lambda: IdentificationTab(self.tracks, self.controller, dialog=self),
         )
         self._add_tab("Used In", lambda: UsedInTab(self.tracks, self.controller))
         self._add_tab(
@@ -171,6 +173,20 @@ class TrackEditDialog(QDialog):
             sc.activated.connect(lambda idx=i: self._sidebar.setCurrentRow(idx))
 
         self._sidebar.setCurrentRow(0)
+
+    def get_live_track_name(self) -> str:
+        """Track title as currently typed in the Basic tab, if it's been
+        built, else falls back to the last-saved value. Basic is always
+        tab 0 and is built eagerly on dialog open (see _build_ui), so the
+        live value is normally available -- used by tabs whose MusicBrainz
+        searches (e.g. Albums' "Find Canonical Album") must reflect an
+        unsaved title edit rather than the stale value on self.track."""
+        basic_tab = self._tabs[0]
+        if isinstance(basic_tab, FieldFormTab):
+            value = basic_tab.get_field_value("track_name")
+            if value:
+                return value
+        return self.track.track_name
 
     def _make_advanced_tab(self):
         advanced_tab = AdvancedTab(self.tracks, self.controller)
