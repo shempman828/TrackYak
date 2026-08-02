@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.core.logger_config import logger
+from src.player.player_reader import READER_LOCK_TIMEOUT
 
 SUPPORTED_FORMATS = {".wav", ".flac", ".mp3", ".aiff", ".aif", ".ogg"}
 
@@ -97,18 +98,27 @@ class PlayerTrackLoadingMixin:
 
             # Swap in the new reader and close the old one.
             old_reader = None
-            with self._reader_lock:
+            if not self._reader_lock.acquire(timeout=READER_LOCK_TIMEOUT):
+                new_reader.close()
+                # TimeoutError subclasses OSError, so this is caught by the
+                # except clause below like any other open failure.
+                raise TimeoutError(
+                    "reader lock busy (reader thread likely stuck on slow I/O)"
+                )
+            try:
                 old_reader = self._sf_reader
                 self._sf_reader = new_reader
                 self._current_frame = 0
                 self.current_sample_rate = new_sr
                 self.current_channels = new_ch
                 self._total_frames = new_frames
+            finally:
+                self._reader_lock.release()
 
             if old_reader is not None:
                 try:
                     old_reader.close()
-                except OSError:
+                except (OSError, self.sf.LibsndfileError):
                     pass
 
             logger.debug(f"file opened at {time.time()}")
