@@ -186,6 +186,13 @@ class MusicBrainzMatchDialog(QDialog):
         this is for entities that follow up with a review dialog."""
         return self._result_candidate
 
+    def candidate_count(self) -> int:
+        """How many candidates the search actually found -- lets a caller
+        distinguish "search came back genuinely empty" (e.g. a misspelled
+        artist name) from "the user just skipped a non-empty list", after
+        exec() returns something other than Accepted."""
+        return len(self._candidates)
+
 
 class MusicBrainzImportDialog(QDialog):
     """
