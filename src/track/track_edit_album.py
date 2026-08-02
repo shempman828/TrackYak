@@ -41,11 +41,19 @@ _ART_SIZE = 96
 
 
 class AlbumsTab(_BaseTab):
-    def __init__(self, tracks: list, controller, parent=None):
+    def __init__(self, tracks: list, controller, parent=None, dialog=None):
         super().__init__(tracks, controller, parent)
+        self._dialog = dialog
         self._wiki_link = ""
         self._mb_link = ""
         self._build_ui()
+
+    def _live_track_name(self) -> str:
+        """Current track title, reflecting an unsaved edit on the Basic tab
+        if there is one -- see TrackEditDialog.get_live_track_name."""
+        if self._dialog is not None:
+            return self._dialog.get_live_track_name()
+        return self.track.track_name
 
     # ── UI ────────────────────────────────────────────────────────────────
 
@@ -541,14 +549,15 @@ class AlbumsTab(_BaseTab):
     # ── Find canonical album (MusicBrainz) ─────────────────────────────────
 
     def _find_canonical_album(self):
+        track_name = self._live_track_name()
         artist_name = self.track.primary_artist_names
         if artist_name == "Unknown Artist":
             artist_name = None
 
         dialog = MusicBrainzMatchDialog(
-            entity_label=f"canonical album for '{self.track.track_name}'",
+            entity_label=f"canonical album for '{track_name}'",
             search_call=lambda: search_canonical_album_for_recording(
-                self.track.track_name, artist_name, recording_mbid=self.track.MBID
+                track_name, artist_name, recording_mbid=self.track.MBID
             ),
             parent=self,
         )
