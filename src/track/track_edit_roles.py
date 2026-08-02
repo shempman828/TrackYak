@@ -367,6 +367,11 @@ class RolesTab(_BaseTab):
             "individual remove (×) buttons."
         )
         layout.addWidget(self._table)
+        # Preferred vertical policy lets the table grow, so without a
+        # stretch here a QVBoxLayout with no other expanding widget hands
+        # it any leftover space instead of collapsing to _RolesTable's
+        # content-based sizeHint.
+        layout.addStretch(1)
 
     # ── Loading ───────────────────────────────────────────────────────────
 
