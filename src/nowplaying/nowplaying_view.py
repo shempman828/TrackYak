@@ -849,12 +849,28 @@ class NowPlayingView(QWidget):
                         pixmaps.append((px, False, None))
 
         # Also try artist-level image
+        album_artist_ids = {
+            a.artist_id for a in (getattr(album, "album_artists", None) or [])
+        }
         for artist in getattr(track, "artists", None) or []:
             p = getattr(artist, "profile_pic_path", None) or ""
             if p and Path(p).exists():
                 px = QPixmap(str(p))
                 if not px.isNull():
                     name = getattr(artist, "artist_name", None) or None
+                    if name and artist.artist_id not in album_artist_ids:
+                        credit_roles = []
+                        for ar in getattr(track, "artist_roles", None) or []:
+                            if ar.artist_id != artist.artist_id:
+                                continue
+                            role_name = getattr(ar.role, "role_name", None)
+                            if role_name and role_name not in (
+                                "Primary Artist",
+                                "Album Artist",
+                            ) and role_name not in credit_roles:
+                                credit_roles.append(role_name)
+                        if credit_roles:
+                            name = f"{name} ({', '.join(credit_roles)})"
                     pixmaps.append((px, True, name))
 
         if not pixmaps:
