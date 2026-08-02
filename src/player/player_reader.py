@@ -14,6 +14,12 @@ import numpy as np
 from src.core.logger_config import logger
 
 BLOCKSIZE = 16384  # Frames per audio callback buffer. Larger = more stable.
+# How long UI-thread callers (seek/stop/load_track) will wait to acquire
+# _reader_lock before giving up. The reader thread can be blocked inside a
+# stalled disk read (flaky external/network storage) while holding this
+# lock; without a timeout, acquiring it from the UI thread blocks the Qt
+# event loop indefinitely -- observed as "Python is not responding."
+READER_LOCK_TIMEOUT = 2.0
 # How many blocks to read ahead into the ring buffer. At 44.1kHz this is
 # ~37s of lookahead (100 * 16384 / 44100) -- deliberately generous so the
 # reader thread has enough banked audio to absorb OS scheduling stalls
@@ -67,7 +73,7 @@ class PlayerReaderMixin:
                         if len(chunk):
                             with self._buffer_lock:
                                 self._audio_buffer.append(chunk)
-        except OSError as exc:
+        except (OSError, self.sf.LibsndfileError) as exc:
             logger.warning(f"Buffer priming failed, deferring to reader thread: {exc}")
 
         self._reader_thread = threading.Thread(
@@ -126,7 +132,7 @@ class PlayerReaderMixin:
                 try:
                     chunk = reader.read(to_read, dtype="float32", always_2d=True)
                     self._current_frame += len(chunk)
-                except OSError as exc:
+                except (OSError, self.sf.LibsndfileError) as exc:
                     logger.error(
                         f"Reader thread decode error, attempting to resync: {exc}"
                     )
@@ -142,7 +148,7 @@ class PlayerReaderMixin:
                         reader.seek(self._current_frame)
                         chunk = reader.read(to_read, dtype="float32", always_2d=True)
                         self._current_frame += len(chunk)
-                    except OSError:
+                    except (OSError, self.sf.LibsndfileError):
                         # Same-handle retry also failed. If we're still at frame 0,
                         # the handle itself is the likely culprit rather than a
                         # transient decode hiccup — this is the common case for a
@@ -165,12 +171,12 @@ class PlayerReaderMixin:
                                 self._current_frame += len(chunk)
                                 try:
                                     reader.close()
-                                except OSError:
+                                except (OSError, self.sf.LibsndfileError):
                                     pass
                                 reader = fresh_reader
                                 self._sf_reader = fresh_reader
                                 recovered = True
-                            except OSError as reopen_exc:
+                            except (OSError, self.sf.LibsndfileError) as reopen_exc:
                                 logger.error(
                                     f"Fresh reopen after decode error also failed: {reopen_exc}"
                                 )
@@ -181,7 +187,7 @@ class PlayerReaderMixin:
                                     skip_to = min(skip_to, self._total_frames)
                                 reader.seek(skip_to)
                                 self._current_frame = skip_to
-                            except OSError as seek_exc:
+                            except (OSError, self.sf.LibsndfileError) as seek_exc:
                                 logger.error(
                                     f"Reader thread could not resync after decode error, "
                                     f"ending track: {seek_exc}"
