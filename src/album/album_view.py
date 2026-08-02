@@ -4,8 +4,8 @@ import random
 import sqlite3
 from typing import ClassVar
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QStandardItem, QStandardItemModel
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import QFontMetrics, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -236,19 +236,16 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         # Year range
         add(QLabel("Year:"))
         self.year_from = _AnySpinBox()
-        self.year_from.setMinimumWidth(70)
         self.year_from.valueChanged.connect(self._apply_filters)
         add(self.year_from)
         add(QLabel("–"))
         self.year_to = _AnySpinBox()
-        self.year_to.setMinimumWidth(70)
         self.year_to.valueChanged.connect(self._apply_filters)
         add(self.year_to)
 
         # Min track count
         add(QLabel("Min tracks:"))
         self.min_tracks = _AnySpinBox()
-        self.min_tracks.setMinimumWidth(65)
         self.min_tracks.valueChanged.connect(self._apply_filters)
         add(self.min_tracks)
 
@@ -261,21 +258,21 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
             "Likely Complete",
         ])
         self.incomplete_combo.currentIndexChanged.connect(self._apply_filters)
-        add(self.incomplete_combo)
+        add(_shrink_combo_to_content(self.incomplete_combo))
 
         # Is Fixed filter
         add(QLabel("Fixed:"))
         self.fixed_combo = QComboBox()
         self.fixed_combo.addItems(["Any", "Fixed Only", "Not Fixed"])
         self.fixed_combo.currentIndexChanged.connect(self._apply_filters)
-        add(self.fixed_combo)
+        add(_shrink_combo_to_content(self.fixed_combo))
 
         # Album Art filter
         add(QLabel("Art:"))
         self.art_combo = QComboBox()
         self.art_combo.addItems(["Any", "No Art", "Has Art"])
         self.art_combo.currentIndexChanged.connect(self._apply_filters)
-        add(self.art_combo)
+        add(_shrink_combo_to_content(self.art_combo))
 
         # Stats label
         self.stats_label = QLabel()
@@ -1051,6 +1048,18 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         return names
 
 
+def _shrink_combo_to_content(combo: QComboBox) -> QComboBox:
+    """The theme QSS gives every QComboBox a 80px min-width, which is wider
+    than several of the filter bar's combos actually need (e.g. "Has Art").
+    A widget-level style override wins over that app-level rule, but only
+    once the widget has been polished with it in place -- otherwise
+    sizeHint() still reports the stale, QSS-only width.
+    """
+    combo.setStyleSheet("min-width: 0px;")
+    combo.ensurePolished()
+    return combo
+
+
 class _AnySpinBox(QSpinBox):
     """SpinBox that shows 'Any' when value is 0 and accepts direct number entry
     without requiring the user to clear the placeholder text first."""
@@ -1075,3 +1084,19 @@ class _AnySpinBox(QSpinBox):
 
     def fixup(self, text: str) -> str:
         return text.strip() or "0"
+
+    def sizeHint(self) -> QSize:
+        # QSpinBox's built-in sizeHint() reserves room for spin-button
+        # chrome even though the theme QSS shrinks those buttons to
+        # nothing, leaving a lot of dead space around a value that's at
+        # most 4 digits. Size to the widest text we'll actually show
+        # ("9999" or "Any") instead.
+        fm = QFontMetrics(self.font())
+        text_width = max(
+            fm.horizontalAdvance(str(self.maximum())),
+            fm.horizontalAdvance(self.specialValueText()),
+        )
+        return QSize(text_width + 28, super().sizeHint().height())
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
