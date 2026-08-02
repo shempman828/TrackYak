@@ -17,6 +17,7 @@ from typing import Callable, Dict, List, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -116,6 +117,20 @@ class MusicBrainzMatchDialog(QDialog):
         self.list_widget.itemDoubleClicked.connect(lambda _item: self._on_accept())
         layout.addWidget(self.list_widget, stretch=1)
 
+        # Hidden unless the selected row's candidate carries `alternates`
+        # (e.g. canonical-album search collapses other-country/other-
+        # pressing releases of the same release-group into one row) -- lets
+        # the user pick the specific variant instead of only ever getting
+        # whichever one the search ranked first.
+        variant_row = QHBoxLayout()
+        self.variant_label = QLabel("Pressing:")
+        variant_row.addWidget(self.variant_label)
+        self.variant_combo = QComboBox()
+        variant_row.addWidget(self.variant_combo, stretch=1)
+        self.variant_label.setVisible(False)
+        self.variant_combo.setVisible(False)
+        layout.addLayout(variant_row)
+
         button_row = QHBoxLayout()
         button_row.addStretch()
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -163,8 +178,20 @@ class MusicBrainzMatchDialog(QDialog):
         logger.error(f"MusicBrainz lookup failed: {message}")
 
     def _on_selection_changed(self):
-        has_selection = bool(self.list_widget.selectedItems())
-        self.buttons.button(QDialogButtonBox.Ok).setEnabled(has_selection)
+        items = self.list_widget.selectedItems()
+        self.buttons.button(QDialogButtonBox.Ok).setEnabled(bool(items))
+
+        self.variant_combo.blockSignals(True)
+        self.variant_combo.clear()
+        candidate: Optional[MBCandidate] = items[0].data(Qt.UserRole) if items else None
+        has_variants = bool(candidate and candidate.alternates)
+        if has_variants:
+            for variant in [candidate, *candidate.alternates]:
+                self.variant_combo.addItem(variant.label, variant)
+            self.variant_combo.setCurrentIndex(0)
+        self.variant_label.setVisible(has_variants)
+        self.variant_combo.setVisible(has_variants)
+        self.variant_combo.blockSignals(False)
 
     # ------------------------------------------------------------------
     # Accept step (optional follow-up enrichment call)
@@ -175,6 +202,16 @@ class MusicBrainzMatchDialog(QDialog):
         if not items:
             return
         candidate: MBCandidate = items[0].data(Qt.UserRole)
+        # Read off the combo's own populated state, not `isVisible()` --
+        # visibility depends on the whole ancestor chain being shown, which
+        # (harmlessly in production, since exec() has the dialog on screen
+        # by the time a row can be accepted, but not in tests that drive
+        # the dialog without showing it) isn't the same thing as "does this
+        # row actually have variants selected."
+        if self.variant_combo.count() > 0:
+            variant = self.variant_combo.currentData()
+            if variant is not None:
+                candidate = variant
 
         if self._complete_call is None:
             self._result_enrichment = candidate.enrichment
