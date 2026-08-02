@@ -311,6 +311,11 @@ class TrackCreditsTab:
         )
         roles_widget.load(tracks)
         layout.addWidget(roles_widget)
+        # roles_widget defaults to a Preferred vertical size policy, so
+        # without a stretch here this outer layout would hand it any
+        # leftover tab space too, on top of the same fix inside RolesTab
+        # itself.
+        layout.addStretch(1)
         return tab
 
     def _convert_to_album(self, artist_id, role_id):
