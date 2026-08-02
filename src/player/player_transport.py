@@ -9,12 +9,13 @@ PlayerDeviceMixin), self.queue_manager, self._position_timer, and the
 state_changed/error_occurred signals.
 """
 
+import threading
 import time
 from pathlib import Path
 
 from src.core.logger_config import logger
 from src.player.player_position import PLAY_COUNT_THRESHOLD
-from src.player.player_reader import BLOCKSIZE
+from src.player.player_reader import BLOCKSIZE, READER_LOCK_TIMEOUT
 
 RESTART_THRESHOLD_MS = 10_000
 
@@ -74,11 +75,14 @@ class PlayerTransportMixin:
             self._close_stream()
             self._stream_generation += 1
             my_generation = self._stream_generation
+            self._callback_native_tid = None
             self._finish_pending.clear()
 
             device_config = self._get_device_config()
 
             def _stamped_callback(outdata, frames, time, status, _gen=my_generation):
+                if self._callback_native_tid is None:
+                    self._callback_native_tid = threading.get_native_id()
                 self._audio_callback(outdata, frames, time, status, _gen)
 
             def _open_stream(device):
@@ -96,11 +100,13 @@ class PlayerTransportMixin:
 
             open_device = device_config["device"]
             open_attempts = 1
+            opened_exclusive_device = False
             if self.exclusive_mode:
                 grabbed_index = self._prepare_exclusive_device(open_device)
                 if grabbed_index is not None:
                     open_device = grabbed_index
                     open_attempts = 3
+                    opened_exclusive_device = True
 
             try:
                 last_exc = None
@@ -116,6 +122,7 @@ class PlayerTransportMixin:
                 if last_exc is not None:
                     raise last_exc
             except (self.sd.PortAudioError, OSError, ValueError) as exc:
+                opened_exclusive_device = False
                 if self._suspended_sink_name is not None:
                     self._suspend_sink(self._suspended_sink_name, False)
                     self._suspended_sink_name = None
@@ -145,6 +152,8 @@ class PlayerTransportMixin:
                     self.audio_stream = _open_stream(fallback_config["device"])
                 else:
                     raise
+            if opened_exclusive_device:
+                self._request_exclusive_realtime_priority()
             self._start_reader_thread()
 
             self.playing = True
@@ -179,13 +188,21 @@ class PlayerTransportMixin:
         self._play_count_recorded = False
         # Reset the reader cursor to the beginning of the track
         self._stop_reader_thread()
-        with self._reader_lock:
-            if self._sf_reader is not None:
-                try:
-                    self._sf_reader.seek(0)
-                    self._current_frame = 0
-                except OSError as e:
-                    logger.debug(f"Could not seek reader to 0 on stop: {e}")
+        if self._reader_lock.acquire(timeout=READER_LOCK_TIMEOUT):
+            try:
+                if self._sf_reader is not None:
+                    try:
+                        self._sf_reader.seek(0)
+                        self._current_frame = 0
+                    except (OSError, self.sf.LibsndfileError) as e:
+                        logger.debug(f"Could not seek reader to 0 on stop: {e}")
+            finally:
+                self._reader_lock.release()
+        else:
+            logger.warning(
+                "stop(): reader lock busy (reader thread likely stuck on slow "
+                "I/O); skipping cursor reset"
+            )
         self._frames_played = 0
         with self._buffer_lock:
             self._audio_buffer.clear()
@@ -273,9 +290,21 @@ class PlayerTransportMixin:
             # Stop the reader thread so it isn't mid-read when we move the file cursor.
             self._stop_reader_thread()
 
-            with self._reader_lock:
+            if not self._reader_lock.acquire(timeout=READER_LOCK_TIMEOUT):
+                logger.warning(
+                    "seek(): reader lock busy (reader thread likely stuck on "
+                    "slow I/O); aborting seek"
+                )
+                # _stop_reader_thread() already tore down the reader thread;
+                # restart it (from the unchanged position) so playback
+                # doesn't stay silently stopped.
+                self._start_reader_thread()
+                return
+            try:
                 self._sf_reader.seek(target_frame)
                 self._current_frame = target_frame
+            finally:
+                self._reader_lock.release()
 
             self._position = position_ms
             self._frames_played = int(position_ms / 1000.0 * self.current_sample_rate)
