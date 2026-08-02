@@ -71,6 +71,13 @@ class MBCandidate:
     label: str
     enrichment: dict[str, Any] = field(default_factory=dict)
     relations: MBArtistRelations | None = None
+    # Other releases collapsed into this same candidate (e.g. other-country
+    # pressings of the same release-group) -- populated only by search
+    # functions that group multiple releases under one picker row, so a
+    # picker UI can offer them as a same-row variant dropdown instead of
+    # silently discarding all but the top-ranked one. Empty for candidates
+    # that already are the only release for what they represent.
+    alternates: list[MBCandidate] = field(default_factory=list)
 
 
 @dataclass
@@ -1329,11 +1336,17 @@ def search_canonical_album_for_recording(
     Deliberately does NOT collapse to a single globally-earliest release --
     a single can be released a day (or decades) before the release most
     people actually think of as "the album," and date alone can't tell
-    those apart. Instead this returns one representative release per
-    release-group (its earliest, most-official pressing), across every
-    type (single/EP/album/compilation), sorted by date -- so a human can
-    look at the spread and judge which one is canonical, rather than the
-    ranking deciding for them.
+    those apart. Instead this returns one top-level candidate per
+    release-group, across every type (single/EP/album/compilation), sorted
+    by date -- so a human can look at the spread and judge which one is
+    canonical, rather than the ranking deciding for them. That top-level
+    candidate is its group's earliest/most-official/preferred-country
+    pressing, but every other release in the same group (other countries,
+    other pressings) rides along on `MBCandidate.alternates` rather than
+    being discarded -- a date/status tie can still land on the "wrong"
+    country pick, and a picker UI can offer the alternates as a same-row
+    variant dropdown so the user can correct that without the group being
+    buried entirely.
 
     If `recording_mbid` is already known (e.g. the track's own MBID from a
     prior Identification-tab lookup), it's used directly and no artist
@@ -1453,25 +1466,41 @@ def search_canonical_album_for_recording(
     def _rank_key(r: dict[str, Any]):
         status_rank = 0 if (r.get("status") or "").lower() == "official" else 1
         date_parts = _parse_partial_date(r.get("date"), "d")
+        country = r.get("country") or ""
+        country_rank = (
+            _COUNTRY_PREFERENCE.index(country)
+            if country in _COUNTRY_PREFERENCE
+            else len(_COUNTRY_PREFERENCE)
+        )
         return (
             status_rank,
             date_parts.get("d_year", 9999),
             date_parts.get("d_month", 99),
             date_parts.get("d_day", 99),
+            country_rank,
         )
 
-    # One representative per release-group (its earliest/most-official
-    # pressing) -- otherwise a handful of countries' worth of single
-    # pressings can bury the one true album release-group under near-
-    # duplicate rows, defeating the point of showing a type spread at all.
-    groups: dict[str, dict[str, Any]] = {}
+    # Group by release-group, but keep every release in the group (sorted
+    # best-first by status/date/country) instead of collapsing to a single
+    # representative -- otherwise a handful of countries' worth of single
+    # pressings buries the one true album release-group under near-
+    # duplicate rows, but picking only ONE of them by ranking heuristic
+    # alone can guess wrong (e.g. an earlier-dated release in an unwanted
+    # country beats the intended worldwide/home-country pressing on a date
+    # tie). The best-ranked release per group becomes that group's picker
+    # row; the rest ride along as `alternates` so a picker UI can offer
+    # them as a same-row variant dropdown instead of silently discarding
+    # them.
+    groups: dict[str, list[dict[str, Any]]] = {}
     for r in releases_by_id.values():
         group_id = (r.get("release-group") or {}).get("id") or r["id"]
-        current = groups.get(group_id)
-        if current is None or _rank_key(r) < _rank_key(current):
-            groups[group_id] = r
+        groups.setdefault(group_id, []).append(r)
+    for releases in groups.values():
+        releases.sort(key=_rank_key)
 
-    representatives = sorted(groups.values(), key=_rank_key)[:limit]
+    representative_groups = sorted(
+        groups.values(), key=lambda releases: _rank_key(releases[0])
+    )[:limit]
 
     # Label distinct recordings among the final candidates -- e.g. "Ain't
     # Nobody Here but Us Chickens" by Louis Jordan has a 1946 original and a
@@ -1482,9 +1511,12 @@ def search_canonical_album_for_recording(
     # realizing a same-titled but musically different recording exists.
     # Only labeled when 2+ distinct recordings actually appear in this
     # specific result set -- the common case (one recording, many
-    # pressings) stays unannotated.
+    # pressings) stays unannotated. Keyed off each group's top-ranked
+    # release only -- alternates within a group are, in practice, always
+    # other pressings of that same recording.
     recording_earliest: dict[str, tuple] = {}
-    for r in representatives:
+    for releases in representative_groups:
+        r = releases[0]
         rec_id = release_recording.get(r["id"])
         if rec_id is None:
             continue
@@ -1499,8 +1531,7 @@ def search_canonical_album_for_recording(
             for i, (rec_id, _) in enumerate(ordered)
         }
 
-    candidates = []
-    for r in representatives:
+    def _build_candidate(r: dict[str, Any]) -> MBCandidate:
         credits = _parse_release_artist_credit(r)
         release_group = r.get("release-group") or {}
         secondary_types = release_group.get("secondary-type-list") or []
@@ -1515,33 +1546,41 @@ def search_canonical_album_for_recording(
         credit_phrase = r.get("artist-credit-phrase")
         if credit_phrase:
             label_bits.append(f"by {credit_phrase}")
-        detail_bits = [b for b in (release_type, r.get("date"), r.get("status")) if b]
+        # Country is always shown here (not just for non-preferred ones) --
+        # this label is what distinguishes same-group alternates from one
+        # another in a variant dropdown, so the one detail the user picks
+        # by can't be the one detail that's sometimes hidden.
+        detail_bits = [
+            b for b in (release_type, r.get("date"), r.get("status"), r.get("country")) if b
+        ]
         if detail_bits:
             label_bits.append(f"[{' — '.join(detail_bits)}]")
         if recording_label:
             label_bits.append(f"[{recording_label}]")
-        if r.get("country") and r.get("country") not in _COUNTRY_PREFERENCE:
-            label_bits.append(f"({r['country']})")
 
-        candidates.append(
-            MBCandidate(
-                id=r["id"],
-                label=" ".join(label_bits),
-                enrichment={
-                    "album_name": r.get("title"),
-                    "MBID": r["id"],
-                    "release_group_mbid": release_group.get("id"),
-                    "recording_mbid": recording_id,
-                    "release_year": date_parts.get("release_year"),
-                    "release_month": date_parts.get("release_month"),
-                    "release_day": date_parts.get("release_day"),
-                    "release_type": release_type,
-                    "status": r.get("status"),
-                    "country": r.get("country"),
-                    "artist_credits": [
-                        {"mbid": c.artist_mbid, "name": c.artist_name} for c in credits
-                    ],
-                },
-            )
+        return MBCandidate(
+            id=r["id"],
+            label=" ".join(label_bits),
+            enrichment={
+                "album_name": r.get("title"),
+                "MBID": r["id"],
+                "release_group_mbid": release_group.get("id"),
+                "recording_mbid": recording_id,
+                "release_year": date_parts.get("release_year"),
+                "release_month": date_parts.get("release_month"),
+                "release_day": date_parts.get("release_day"),
+                "release_type": release_type,
+                "status": r.get("status"),
+                "country": r.get("country"),
+                "artist_credits": [
+                    {"mbid": c.artist_mbid, "name": c.artist_name} for c in credits
+                ],
+            },
         )
+
+    candidates = []
+    for releases in representative_groups:
+        primary = _build_candidate(releases[0])
+        primary.alternates = [_build_candidate(alt) for alt in releases[1:]]
+        candidates.append(primary)
     return candidates
