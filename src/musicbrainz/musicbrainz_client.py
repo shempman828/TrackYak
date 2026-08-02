@@ -220,6 +220,22 @@ def search_artists(name: str, limit: int = 25) -> list[MBCandidate]:
     return candidates
 
 
+def suggest_artist_names(artist_name: str, limit: int = 5) -> list[str]:
+    """Best-effort "did you mean" suggestions for an artist name whose
+    canonical-album search came back with zero matches -- e.g. a
+    misspelling, or a name MusicBrainz files under a related but
+    differently-named entity. Returns display labels (name plus type/
+    disambiguation, same formatting as search_artists), purely for showing
+    the user something actionable instead of a bare empty result.
+    Best-effort: any lookup failure just yields no suggestions rather than
+    surfacing a second error on top of the original empty result."""
+    try:
+        candidates = search_artists(artist_name, limit=limit)
+    except MusicBrainzLookupError:
+        return []
+    return [c.label for c in candidates]
+
+
 # Relation "type" strings, per MusicBrainz's url-relationship vocabulary.
 _ARTIST_LINK_RELATIONS = {
     "wikipedia": "wikipedia_link",
@@ -611,6 +627,36 @@ def _parse_release_artist_credit(release: dict[str, Any]) -> list[MBTrackCredit]
     return credits
 
 
+# MusicBrainz titles inconsistently use curly vs. straight quotes for the
+# same contraction across different entries of the same era/song (e.g.
+# "Ain't" vs "Ain’t") -- normalizing both sides of an exact-title match
+# avoids silently missing genuine matches (including, in one real case
+# found while building this feature, the actual earliest/canonical release)
+# purely because of which quote character a cataloger happened to type.
+_QUOTE_NORMALIZE = str.maketrans({
+    "‘": "'", "’": "'", "‚": "'", "‛": "'",
+    "“": '"', "”": '"', "„": '"', "‟": '"',
+})
+
+
+def _normalize_title(title: str) -> str:
+    return title.strip().translate(_QUOTE_NORMALIZE).lower()
+
+
+def _matching_track_recording_id(release: dict[str, Any], title_key: str) -> str | None:
+    """The recording MBID of the track on `release` with the exact given
+    title (case/quote-insensitive, not substring -- "In the Mood" must not
+    match "In the Mood for Love", a different song entirely), or None if no
+    track on this release matches."""
+    for medium in release.get("medium-list", []) or []:
+        for track in medium.get("track-list", []) or []:
+            recording = track.get("recording", {})
+            title = recording.get("title") or track.get("title") or ""
+            if _normalize_title(title) == title_key:
+                return recording.get("id")
+    return None
+
+
 def _parse_recording_location(recording: dict[str, Any]) -> dict[str, Any] | None:
     """Extract the "recorded at" place relation on a recording, if any, as a
     flat dict -- id/name/type/coordinates only. MusicBrainz embeds a reduced
@@ -645,7 +691,7 @@ def _resolve_place_area(place_mbid: str) -> tuple[str | None, str | None]:
     configure()
     try:
         result = musicbrainzngs.get_place_by_id(place_mbid)
-    except Exception as e:
+    except Exception as e:  # ruff: ignore[blind-except]
         logger.warning(f"Could not resolve area for place {place_mbid}: {e}")
         return None, None
     area = (result.get("place") or {}).get("area") or {}
@@ -724,6 +770,61 @@ def _to_float(value) -> float | None:
         return None
 
 
+def _ext_score(r: dict[str, Any]) -> float:
+    """MusicBrainz search results carry a Lucene relevance score under
+    `ext:score` -- used to keep only genuine close matches out of a search
+    endpoint's result list (as opposed to browse endpoints, which return
+    everything unranked)."""
+    try:
+        return float(r.get("ext:score", 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _resolve_primary_artist_mbids(artist_name: str) -> list[str]:
+    """Resolve every MusicBrainz artist MBID plausibly representing the same
+    performer as `artist_name`, not just the single best name match.
+
+    MusicBrainz often models a performer's original-era ensemble credit as a
+    distinct artist entity from a later "solo" umbrella credit used for
+    reissues/compilations -- e.g. "Glenn Miller" (person) vs. "Glenn Miller
+    and His Orchestra" (the actual credit on the original-era releases,
+    explicitly disambiguated on MusicBrainz as "use only for releases Glenn
+    Miller performed with"). Resolving only the solo entity would silently
+    exclude every original-era release credited to the ensemble -- exactly
+    the releases a "canonical first release" search most needs to find.
+
+    Common names collide, though -- a plain "Glenn Miller" artist search
+    also returns several entirely unrelated people who happen to share that
+    exact name (an accordion player, a mastering engineer, a Chilliwack
+    band member...), all tied at nearly the same relevance score. Including
+    every same-named entity would flood the recording search with noise
+    (and multiply API calls) for zero benefit, so only two kinds of hit
+    qualify: MusicBrainz's own top-ranked match for the name (the "main"
+    entity a plain-text search is presumably after), and any other hit
+    whose name is a strict superset containing the query -- e.g. "Glenn
+    Miller and His Orchestra", "Glenn Miller Orchestra" -- which catches the
+    ensemble-credit pattern without matching an unrelated same-named person
+    (their name is identical to the query, not a superset of it).
+    """
+    try:
+        result = musicbrainzngs.search_artists(_escape_lucene(artist_name), limit=10)
+    except Exception as e:
+        raise MusicBrainzLookupError(str(e)) from e
+
+    artists = result.get("artist-list", [])
+    if not artists:
+        return []
+
+    query = artist_name.lower()
+    mbids = [artists[0]["id"]]
+    for a in artists[1:]:
+        name = (a.get("name") or "").lower()
+        if name != query and query in name:
+            mbids.append(a["id"])
+    return mbids
+
+
 def _resolve_artist_mbid(artist_name: str) -> str | None:
     """Resolve an artist name to a MusicBrainz artist MBID via the
     alias-aware artist search, so release search can filter by `arid` --
@@ -756,7 +857,7 @@ def _backfill_release_details(r: dict[str, Any]) -> None:
         return
     try:
         detail = musicbrainzngs.get_release_by_id(r["id"], includes=["media"])
-    except Exception:
+    except Exception:  # ruff: ignore[blind-except]
         # Best-effort enrichment -- fall back to whatever the search result
         # already had (possibly still missing) rather than failing the
         # whole search over one release's lookup.
@@ -800,17 +901,11 @@ def search_canonical_releases(
     if not releases:
         return []
 
-    def _score(r: dict[str, Any]) -> float:
-        try:
-            return float(r.get("ext:score", 0))
-        except (TypeError, ValueError):
-            return 0.0
-
-    top_score = max(_score(r) for r in releases)
+    top_score = max(_ext_score(r) for r in releases)
     # Keep everything within 10 points of MB's own top relevance score --
     # the canonical-ranking heuristic below only needs to choose among
     # releases MB itself considers close matches, not the whole result set.
-    candidates_pool = [r for r in releases if top_score - _score(r) <= 10]
+    candidates_pool = [r for r in releases if top_score - _ext_score(r) <= 10]
 
     for r in candidates_pool:
         _backfill_release_details(r)
@@ -843,9 +938,9 @@ def search_canonical_releases(
         status = r.get("status")
         date = r.get("date")
         country = r.get("country")
-        media_formats = sorted(
-            {m.get("format") for m in (r.get("medium-list") or []) if m.get("format")}
-        )
+        media_formats = sorted({
+            m.get("format") for m in (r.get("medium-list") or []) if m.get("format")
+        })
         format_str = "/".join(media_formats) if media_formats else None
         detail_bits = [b for b in (status, date, country, format_str) if b]
         if detail_bits:
@@ -988,7 +1083,9 @@ def fetch_release_detail(
     # once per unique label mbid, same dedup approach as recording
     # locations below (a release can list the same label against several
     # tracks/media, e.g. one catalog number per format).
-    raw_labels: dict[str, tuple[MBLabelInfo, str | None]] = {}  # label_mbid -> (info, area_mbid)
+    raw_labels: dict[
+        str, tuple[MBLabelInfo, str | None]
+    ] = {}  # label_mbid -> (info, area_mbid)
     for li in release.get("label-info-list", []) or []:
         label_stub = li.get("label") or {}
         label_mbid = label_stub.get("id")
@@ -1218,3 +1315,233 @@ def complete_recording_enrichment(candidate: MBCandidate) -> MBCandidate:
     if isrcs and "isrc" not in candidate.enrichment:
         candidate.enrichment["isrc"] = isrcs[0]
     return candidate
+
+
+def search_canonical_album_for_recording(
+    track_name: str,
+    artist_name: str | None = None,
+    recording_mbid: str | None = None,
+    limit: int = 15,
+) -> list[MBCandidate]:
+    """Find candidate "canonical first album" releases for a recording, by
+    its primary artist.
+
+    Deliberately does NOT collapse to a single globally-earliest release --
+    a single can be released a day (or decades) before the release most
+    people actually think of as "the album," and date alone can't tell
+    those apart. Instead this returns one representative release per
+    release-group (its earliest, most-official pressing), across every
+    type (single/EP/album/compilation), sorted by date -- so a human can
+    look at the spread and judge which one is canonical, rather than the
+    ranking deciding for them.
+
+    If `recording_mbid` is already known (e.g. the track's own MBID from a
+    prior Identification-tab lookup), it's used directly and no artist
+    catalog scan is performed.
+
+    Otherwise, once the primary artist is resolved, this scans that
+    artist's *entire* release catalog (paginated, ~100 releases per call)
+    rather than searching for matching recordings first. An earlier version
+    searched MusicBrainz's recording index and browsed releases per
+    matching recording instead -- for a heavily-reissued track that could
+    mean dozens of small, sequential, rate-limited calls, AND it was
+    unreliable: an extremely famous recording can tie dozens of genuinely
+    distinct historical recordings at the same relevance score with
+    MusicBrainz returning them in no chronological (or even stable) order,
+    so no cap or early-stop on that path could avoid a real chance of
+    missing the actual earliest one. Scanning the full discography instead
+    is both faster in practice (far fewer, larger calls) and strictly more
+    complete (deterministic -- every release is checked, so nothing can be
+    missed by bad luck in result ordering).
+
+    A matching title doesn't guarantee the same performance, though -- some
+    songs have a genuinely different, later re-recording released under the
+    same title and artist credit. When the final results span more than one
+    distinct recording MBID, each candidate's label is tagged "Recording N
+    of M" so that isn't silently conflated; `enrichment["recording_mbid"]`
+    carries the specific recording either way, letting a caller stamp it
+    onto a track once picked instead of only recording which album it's on.
+    """
+    configure()
+    artist_mbids = _resolve_primary_artist_mbids(artist_name) if artist_name else []
+    artist_mbid_set = set(artist_mbids)
+
+    def _is_primary_artist_release(r: dict[str, Any]) -> bool:
+        # Excludes compilations/various-artists releases that merely
+        # contain the recording -- an exact MBID match against any of the
+        # resolved primary-artist identities, not a name comparison (see
+        # _resolve_primary_artist_mbids for why a single resolved MBID
+        # isn't enough here).
+        if not artist_mbid_set:
+            return True
+        return any(
+            c.artist_mbid in artist_mbid_set for c in _parse_release_artist_credit(r)
+        )
+
+    releases_by_id: dict[str, dict[str, Any]] = {}
+    # release MBID -> the recording MBID that matched on it. Distinct
+    # recording identities (not just distinct pressings/editions of the
+    # same performance) get called out in the final labels below -- e.g. a
+    # song re-recorded years later is a real, common case a title-only
+    # match can't otherwise distinguish for the user.
+    release_recording: dict[str, str] = {}
+
+    def _browse_and_collect(rec_id: str) -> None:
+        """Browse one known recording's releases into releases_by_id."""
+        try:
+            result = musicbrainzngs.browse_releases(
+                recording=rec_id,
+                includes=["release-groups", "artist-credits"],
+                limit=100,
+            )
+        except Exception as e:
+            raise MusicBrainzLookupError(str(e)) from e
+        for r in result.get("release-list", []):
+            releases_by_id[r["id"]] = r
+            release_recording[r["id"]] = rec_id
+
+    if recording_mbid:
+        _browse_and_collect(recording_mbid)
+    elif artist_mbids:
+        title_key = _normalize_title(track_name)
+        for artist_mbid in artist_mbids:
+            offset = 0
+            while True:
+                try:
+                    result = musicbrainzngs.browse_releases(
+                        artist=artist_mbid,
+                        includes=["release-groups", "artist-credits", "recordings"],
+                        limit=100,
+                        offset=offset,
+                    )
+                except Exception as e:
+                    raise MusicBrainzLookupError(str(e)) from e
+                releases = result.get("release-list", [])
+                for r in releases:
+                    if r["id"] in releases_by_id:
+                        continue
+                    matched_recording_id = _matching_track_recording_id(r, title_key)
+                    if matched_recording_id is not None:
+                        releases_by_id[r["id"]] = r
+                        release_recording[r["id"]] = matched_recording_id
+                offset += len(releases)
+                if not releases or offset >= result.get("release-count", 0):
+                    break
+    else:
+        # No artist identity resolved at all (e.g. the track has no known
+        # artist) -- there's no discography to browse, so fall back to a
+        # plain-text recording search instead.
+        try:
+            result = musicbrainzngs.search_recordings(
+                _query_term(track_name, {}), limit=25
+            )
+        except Exception as e:
+            raise MusicBrainzLookupError(str(e)) from e
+        recordings = result.get("recording-list", [])
+        if recordings:
+            top_score = max(_ext_score(r) for r in recordings)
+            for r in recordings:
+                if top_score - _ext_score(r) <= 10:
+                    _browse_and_collect(r["id"])
+
+    releases_by_id = {
+        rid: r for rid, r in releases_by_id.items() if _is_primary_artist_release(r)
+    }
+    if not releases_by_id:
+        return []
+
+    def _rank_key(r: dict[str, Any]):
+        status_rank = 0 if (r.get("status") or "").lower() == "official" else 1
+        date_parts = _parse_partial_date(r.get("date"), "d")
+        return (
+            status_rank,
+            date_parts.get("d_year", 9999),
+            date_parts.get("d_month", 99),
+            date_parts.get("d_day", 99),
+        )
+
+    # One representative per release-group (its earliest/most-official
+    # pressing) -- otherwise a handful of countries' worth of single
+    # pressings can bury the one true album release-group under near-
+    # duplicate rows, defeating the point of showing a type spread at all.
+    groups: dict[str, dict[str, Any]] = {}
+    for r in releases_by_id.values():
+        group_id = (r.get("release-group") or {}).get("id") or r["id"]
+        current = groups.get(group_id)
+        if current is None or _rank_key(r) < _rank_key(current):
+            groups[group_id] = r
+
+    representatives = sorted(groups.values(), key=_rank_key)[:limit]
+
+    # Label distinct recordings among the final candidates -- e.g. "Ain't
+    # Nobody Here but Us Chickens" by Louis Jordan has a 1946 original and a
+    # genuinely different mid-1950s re-recording, both released under
+    # matching titles/artist credits. Without this, two such candidates
+    # would look like just two dated editions of the same performance, and
+    # a user could pick one thinking it's "the classic version" without
+    # realizing a same-titled but musically different recording exists.
+    # Only labeled when 2+ distinct recordings actually appear in this
+    # specific result set -- the common case (one recording, many
+    # pressings) stays unannotated.
+    recording_earliest: dict[str, tuple] = {}
+    for r in representatives:
+        rec_id = release_recording.get(r["id"])
+        if rec_id is None:
+            continue
+        key = _rank_key(r)
+        if rec_id not in recording_earliest or key < recording_earliest[rec_id]:
+            recording_earliest[rec_id] = key
+    recording_labels: dict[str, str] = {}
+    if len(recording_earliest) > 1:
+        ordered = sorted(recording_earliest.items(), key=lambda kv: kv[1])
+        recording_labels = {
+            rec_id: f"Recording {i + 1} of {len(ordered)}"
+            for i, (rec_id, _) in enumerate(ordered)
+        }
+
+    candidates = []
+    for r in representatives:
+        credits = _parse_release_artist_credit(r)
+        release_group = r.get("release-group") or {}
+        secondary_types = release_group.get("secondary-type-list") or []
+        release_type = (
+            secondary_types[0] if secondary_types else release_group.get("primary-type")
+        )
+        date_parts = _parse_partial_date(r.get("date"), "release")
+        recording_id = release_recording.get(r["id"])
+        recording_label = recording_labels.get(recording_id) if recording_id else None
+
+        label_bits = [r.get("title", "?")]
+        credit_phrase = r.get("artist-credit-phrase")
+        if credit_phrase:
+            label_bits.append(f"by {credit_phrase}")
+        detail_bits = [b for b in (release_type, r.get("date"), r.get("status")) if b]
+        if detail_bits:
+            label_bits.append(f"[{' — '.join(detail_bits)}]")
+        if recording_label:
+            label_bits.append(f"[{recording_label}]")
+        if r.get("country") and r.get("country") not in _COUNTRY_PREFERENCE:
+            label_bits.append(f"({r['country']})")
+
+        candidates.append(
+            MBCandidate(
+                id=r["id"],
+                label=" ".join(label_bits),
+                enrichment={
+                    "album_name": r.get("title"),
+                    "MBID": r["id"],
+                    "release_group_mbid": release_group.get("id"),
+                    "recording_mbid": recording_id,
+                    "release_year": date_parts.get("release_year"),
+                    "release_month": date_parts.get("release_month"),
+                    "release_day": date_parts.get("release_day"),
+                    "release_type": release_type,
+                    "status": r.get("status"),
+                    "country": r.get("country"),
+                    "artist_credits": [
+                        {"mbid": c.artist_mbid, "name": c.artist_name} for c in credits
+                    ],
+                },
+            )
+        )
+    return candidates
