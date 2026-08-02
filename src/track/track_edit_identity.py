@@ -14,8 +14,9 @@ from src.track.track_edit_fieldform import FieldFormTab
 
 
 class IdentificationTab(FieldFormTab):
-    def __init__(self, tracks: list, controller, parent=None):
+    def __init__(self, tracks: list, controller, parent=None, dialog=None):
         super().__init__("Identification", tracks, controller, parent)
+        self._dialog = dialog
         # A single MusicBrainz recording match doesn't apply to a batch of
         # different tracks, so the lookup is single-track only.
         if not self.is_multi:
@@ -32,7 +33,12 @@ class IdentificationTab(FieldFormTab):
         self.layout().addRow(self.lookup_button)
 
     def _lookup_musicbrainz(self):
-        track_name = (self.track.track_name or "").strip()
+        live_name = (
+            self._dialog.get_live_track_name()
+            if self._dialog is not None
+            else self.track.track_name
+        )
+        track_name = (live_name or "").strip()
         if not track_name:
             QMessageBox.warning(
                 self, "MusicBrainz Lookup", "This track has no title to look up."
