@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -28,6 +29,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
+from src.musicbrainz.musicbrainz_client import (
+    MusicBrainzLookupError,
+    search_canonical_album_for_recording,
+    suggest_artist_names,
+)
+from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzMatchDialog
 from src.track.track_edit_basetab import _BaseTab
 
 _ART_SIZE = 96
@@ -119,6 +126,16 @@ class AlbumsTab(_BaseTab):
         self._mb_open_btn.clicked.connect(self._open_mb_link)
         self._mb_open_btn.setVisible(False)
         btn_row.addWidget(self._mb_open_btn)
+
+        self._find_canonical_btn = QPushButton("🎵 Find Canonical Album")
+        self._find_canonical_btn.setToolTip(
+            "Search MusicBrainz for the earliest release(s) of this "
+            "recording by its primary artist, and link or create the "
+            "matching local album"
+        )
+        self._find_canonical_btn.setEnabled(not self.is_multi)
+        self._find_canonical_btn.clicked.connect(self._find_canonical_album)
+        btn_row.addWidget(self._find_canonical_btn)
 
         btn_row.addStretch(1)
         current_layout.addLayout(btn_row)
@@ -520,6 +537,186 @@ class AlbumsTab(_BaseTab):
     def _open_mb_link(self):
         if self._mb_link:
             webbrowser.open(self._mb_link)
+
+    # ── Find canonical album (MusicBrainz) ─────────────────────────────────
+
+    def _find_canonical_album(self):
+        artist_name = self.track.primary_artist_names
+        if artist_name == "Unknown Artist":
+            artist_name = None
+
+        dialog = MusicBrainzMatchDialog(
+            entity_label=f"canonical album for '{self.track.track_name}'",
+            search_call=lambda: search_canonical_album_for_recording(
+                self.track.track_name, artist_name, recording_mbid=self.track.MBID
+            ),
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            if dialog.candidate_count() == 0:
+                self._offer_artist_name_suggestions(artist_name)
+            return
+
+        picked = dialog.result_candidate()
+        if picked is None:
+            return
+
+        album = self._resolve_or_create_album_from_mb(picked.enrichment)
+        if album is None:
+            return
+
+        # Stamp the specific recording onto the track too, not just the
+        # album -- fill-blank only, same convention as the Identification
+        # tab's own MB lookup. Without this, picking one of several
+        # distinct recordings of the same title (see
+        # search_canonical_album_for_recording's "Recording N of M"
+        # labeling) would leave the track's own identity ambiguous even
+        # after the user has explicitly resolved which performance it is.
+        update_kwargs = {"album_id": album.album_id}
+        recording_mbid = picked.enrichment.get("recording_mbid")
+        if recording_mbid and not self.track.MBID:
+            update_kwargs["MBID"] = recording_mbid
+
+        try:
+            self.controller.update.update_entity(
+                "Track", self.track.track_id, **update_kwargs
+            )
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to set canonical album: {e}")
+            QMessageBox.warning(self, "Error", f"Failed to set album:\n{e}")
+            return
+
+        self._refresh_tracks()
+        self.load(self.tracks)
+
+    def _offer_artist_name_suggestions(self, artist_name: str | None) -> None:
+        """Called when a canonical-album search finds zero matches at all --
+        as opposed to the user just skipping a non-empty picker list. Most
+        likely cause is a misspelled/incomplete artist credit on the track,
+        so surface a few similarly-named MusicBrainz artists rather than
+        just leaving the user with a bare empty dialog."""
+        if not artist_name:
+            return
+        try:
+            suggestions = suggest_artist_names(artist_name)
+        except MusicBrainzLookupError as e:
+            logger.warning(f"Could not fetch artist name suggestions: {e}")
+            return
+        if not suggestions:
+            return
+        QMessageBox.information(
+            self,
+            "No Matches Found",
+            f"No MusicBrainz releases were found for artist '{artist_name}'.\n\n"
+            "Similar artists on MusicBrainz:\n"
+            + "\n".join(f"• {s}" for s in suggestions),
+        )
+
+    def _resolve_or_create_album_from_mb(self, enrichment: dict):
+        """MBID match, then name/alias match confirmed by artist overlap,
+        else create a new album -- same tiered idea as
+        AlbumMusicBrainzReviewDialog._resolve_artist, adapted for Album."""
+        mbid = enrichment.get("MBID")
+        if mbid:
+            album = self.controller.get.get_entity_object("Album", MBID=mbid)
+            if album is not None:
+                return album
+
+        album_name = enrichment.get("album_name")
+        artist_credits = enrichment.get("artist_credits") or []
+        if album_name:
+            candidate_album = self.controller.get.resolve_entity_or_alias(
+                "Album", "album_name", album_name
+            )
+            if candidate_album is not None:
+                # Overlap, not exact-set-equality (unlike get_album_exists) --
+                # this is matching one recording's credit against a possibly
+                # larger album artist roster, not deduping a full import.
+                existing_ids = {a.MBID for a in candidate_album.album_artists if a.MBID}
+                credit_ids = {c["mbid"] for c in artist_credits if c.get("mbid")}
+                if existing_ids & credit_ids:
+                    return candidate_album
+
+        return self._create_album_from_mb(enrichment)
+
+    def _create_album_from_mb(self, enrichment: dict):
+        album_name = enrichment.get("album_name") or "Unknown Album"
+        artist_credits = enrichment.get("artist_credits") or []
+        artist_names = (
+            ", ".join(c["name"] for c in artist_credits if c.get("name"))
+            or "Unknown Artist"
+        )
+
+        date_bits = [
+            str(enrichment[k])
+            for k in ("release_year", "release_month", "release_day")
+            if enrichment.get(k) is not None
+        ]
+        detail_lines = [f"Album:   {album_name}", f"Artist:  {artist_names}"]
+        if date_bits:
+            detail_lines.append(f"Release: {'-'.join(date_bits)}")
+        if enrichment.get("release_type"):
+            detail_lines.append(f"Type:    {enrichment['release_type']}")
+        if enrichment.get("status"):
+            detail_lines.append(f"Status:  {enrichment['status']}")
+        if enrichment.get("country"):
+            detail_lines.append(f"Country: {enrichment['country']}")
+        if enrichment.get("MBID"):
+            detail_lines.append(f"MBID:    {enrichment['MBID']}")
+
+        confirm = QMessageBox.question(
+            self,
+            "Create New Album",
+            "No matching album found locally. Create a new album with "
+            "these details?\n\n" + "\n".join(detail_lines),
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return None
+
+        try:
+            new_album = self.controller.add.add_entity(
+                "Album",
+                album_name=album_name,
+                release_year=enrichment.get("release_year"),
+                release_month=enrichment.get("release_month"),
+                release_day=enrichment.get("release_day"),
+                MBID=enrichment.get("MBID"),
+            )
+            for credit in artist_credits:
+                artist = self._resolve_or_create_artist(
+                    credit.get("mbid"), credit.get("name")
+                )
+                if artist is None:
+                    continue
+                self.controller.add.add_entity(
+                    "AlbumRoleAssociation",
+                    album_id=new_album.album_id,
+                    artist_id=artist.artist_id,
+                    role_id=1,  # "Album Artist" -- seeded convention, see db_defaults.py
+                )
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to create album from MusicBrainz match: {e}")
+            QMessageBox.warning(self, "Error", f"Failed to create album:\n{e}")
+            return None
+
+        return new_album
+
+    def _resolve_or_create_artist(self, artist_mbid, artist_name):
+        if not artist_name:
+            return None
+        if artist_mbid:
+            artist = self.controller.get.get_entity_object("Artist", MBID=artist_mbid)
+            if artist is not None:
+                return artist
+        artist = self.controller.get.resolve_entity_or_alias(
+            "Artist", "artist_name", artist_name
+        )
+        if artist is not None:
+            return artist
+        return self.controller.add.add_entity(
+            "Artist", artist_name=artist_name, MBID=artist_mbid
+        )
 
     # ── Virtual appearance search / add / remove ──────────────────────────
 
