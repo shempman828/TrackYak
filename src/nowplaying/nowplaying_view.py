@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
-from PySide6.QtGui import QFont, QFontMetrics, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -196,6 +197,16 @@ class NowPlayingView(QWidget):
 
     # ── build UI ──────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _apply_text_shadow(widget, blur=14, y_offset=2, alpha=215):
+        """Dark drop shadow so title/artist/album text stays legible when the
+        blurred backdrop art itself contains text (e.g. busy cover art)."""
+        effect = QGraphicsDropShadowEffect(widget)
+        effect.setBlurRadius(blur)
+        effect.setOffset(0, y_offset)
+        effect.setColor(QColor(0, 0, 0, alpha))
+        widget.setGraphicsEffect(effect)
+
     def _initUI(self):
         self.setMinimumSize(760, 480)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -235,6 +246,7 @@ class NowPlayingView(QWidget):
         self._title_lbl.setFont(self._TITLE_FONT)
         self._title_lbl.setProperty("npRole", "title")
         self._title_lbl.setWordWrap(True)
+        self._apply_text_shadow(self._title_lbl, blur=16, y_offset=2, alpha=225)
         right_layout.addWidget(self._title_lbl)
 
         # Artist — scrolling marquee so long names pan rather than truncate
@@ -244,6 +256,7 @@ class NowPlayingView(QWidget):
         # Match the title/album labels' natural line height instead of a
         # hardcoded value, so vertical spacing between the three lines is even.
         self._artist_marquee.setFixedHeight(QFontMetrics(self._ARTIST_FONT).height())
+        self._apply_text_shadow(self._artist_marquee, blur=12, y_offset=1, alpha=200)
         right_layout.addWidget(self._artist_marquee)
 
         # Album
@@ -251,6 +264,7 @@ class NowPlayingView(QWidget):
         self._album_lbl.setFont(self._ALBUM_FONT)
         self._album_lbl.setProperty("npRole", "album")
         self._album_lbl.setWordWrap(True)
+        self._apply_text_shadow(self._album_lbl, blur=10, y_offset=1, alpha=190)
         right_layout.addWidget(self._album_lbl)
 
         right_layout.addSpacing(10)
