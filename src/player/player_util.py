@@ -146,6 +146,7 @@ class MusicPlayer(
 
         self._is_advancing: bool = False
         self._stream_generation: int = 0
+        self._callback_native_tid: Optional[int] = None  # set by _stamped_callback on first fire
         self._finish_pending = threading.Event()  # thread-safe flag for end-of-stream
         self._stream_close_event = threading.Event()  # set when async close completes
         self._stream_close_event.set()  # starts "set" (no close in progress)
