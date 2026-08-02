@@ -12,11 +12,24 @@ self.stop()/self.seek()/self.play() (transport controls).
 import json
 import re
 import subprocess
+import threading
 import time
 
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
 from src.player.player_reader import BLOCKSIZE
+
+try:
+    import dbus
+
+    DBUS_AVAILABLE = True
+except ImportError:
+    DBUS_AVAILABLE = False
+
+RTKIT_BUS_NAME = "org.freedesktop.RealtimeKit1"
+RTKIT_OBJECT_PATH = "/org/freedesktop/RealtimeKit1"
+REALTIME_PROMOTION_PRIORITY = 10
+REALTIME_PROMOTION_POLL_TIMEOUT = 0.5  # seconds to wait for the callback to fire
 
 
 class PlayerDeviceMixin:
@@ -234,6 +247,55 @@ class PlayerDeviceMixin:
         self._suspend_sink(sink_name, False)
         self._suspended_sink_name = None
         return None
+
+    def _promote_callback_to_realtime(self, native_tid: int, priority: int) -> bool:
+        """Ask RTKit -- the same system service PipeWire/JACK use for this --
+        to give a thread in this process real-time (SCHED_RR) scheduling,
+        without needing root or rtprio ulimits; RTKit performs the
+        privileged sched_setscheduler call on our behalf via polkit.
+        Returns True on success, False on any failure (dbus/rtkit
+        unavailable, denied, etc.) -- callers treat this as best-effort.
+        """
+        if not DBUS_AVAILABLE:
+            return False
+        try:
+            bus = dbus.SystemBus()
+            rtkit = bus.get_object(RTKIT_BUS_NAME, RTKIT_OBJECT_PATH)
+            dbus.Interface(rtkit, RTKIT_BUS_NAME).MakeThreadRealtime(
+                dbus.UInt64(native_tid), dbus.UInt32(priority)
+            )
+            return True
+        except dbus.exceptions.DBusException as exc:
+            logger.debug(f"RTKit real-time promotion failed: {exc}")
+            return False
+
+    def _request_exclusive_realtime_priority(self):
+        """Exclusive mode talks to the raw ALSA hw: device directly, with no
+        PipeWire mixing layer underneath to absorb scheduling jitter -- so
+        the PortAudio callback thread (ordinary SCHED_OTHER by default) can
+        miss its hardware deadline under any system CPU pressure (confirmed:
+        opening a browser tab is enough to cause an audible dropout).
+        PortAudio's ALSA backend doesn't request real-time scheduling for
+        this thread itself, so we do it here via RTKit -- the same service
+        PipeWire's own real-time thread already gets its priority from.
+
+        Runs in a background thread: play() shouldn't block on this, and
+        the callback thread's native id isn't known until it has fired at
+        least once (see `_stamped_callback` in player_transport.py).
+        """
+
+        def _worker():
+            deadline = time.monotonic() + REALTIME_PROMOTION_POLL_TIMEOUT
+            while self._callback_native_tid is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            tid = self._callback_native_tid
+            if tid is None:
+                logger.debug("Realtime promotion: audio callback never fired in time")
+                return
+            if self._promote_callback_to_realtime(tid, REALTIME_PROMOTION_PRIORITY):
+                logger.info("Exclusive-mode audio callback promoted to real-time priority")
+
+        threading.Thread(target=_worker, daemon=True, name="RTKitPromote").start()
 
     def _get_device_config(self) -> dict:
         try:
