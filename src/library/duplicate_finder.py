@@ -23,24 +23,34 @@ Two mutually-exclusive search modes (never blended):
                   of tags entirely, catching duplicates that were mislabeled
                   or retitled. Blocks by a 4-second duration bucket instead
                   of by title, then compares fingerprints within each bucket
-                  via acoustid.compare_fingerprints() -- a local, offline
-                  Hamming-distance comparison (no AcoustID web service call).
-                  Only tracks with a fingerprint already computed by the
-                  audio analysis pipeline (audio_calculations.py) are eligible.
+                  via a local, offline Hamming-distance comparison (no
+                  AcoustID web service call). Only tracks with a fingerprint
+                  already computed by the audio analysis pipeline
+                  (audio_calculations.py) are eligible.
+
+                  The comparison itself uses fingerprint_matching.py's
+                  numpy-vectorized reimplementation of
+                  acoustid.compare_fingerprints() (same algorithm, same
+                  scores, ~40-90x faster per pair -- the reference pure-Python
+                  version is too slow to make a process pool worthwhile),
+                  spread across a ProcessPoolExecutor since it's CPU-bound
+                  work that a single GIL-bound thread can't parallelize.
 
 Architecture:
   - DuplicateScanWorker  : QThread — all comparison work off the UI thread
   - DuplicateFinderDialog: QDialog — UI opened from the File menu
 """
 
+import multiprocessing
 import re
 import time
 from collections import defaultdict
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from difflib import SequenceMatcher
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
-import acoustid
 import chromaprint
+import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -64,9 +74,17 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
+from src.library.fingerprint_matching import score_fingerprint_batch
+from src.statistics.batch_analysis_scheduler import recommended_worker_count
 from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
+
+# Pair count per process-pool task. Large enough to keep IPC/pickling
+# overhead low relative to compute, small enough to keep progress reporting
+# and cancellation reasonably responsive (a batch is the smallest unit of
+# work that can't be interrupted mid-flight).
+_FINGERPRINT_BATCH_SIZE = 2000
 
 # ---------------------------------------------------------------------------
 # String helpers
@@ -219,30 +237,27 @@ class DuplicateScanWorker(CancellableWorker):
                     blocks[key].append(track)
         return {k: v for k, v in blocks.items() if len(v) >= 2}
 
-    def _score_pair(self, a, b) -> float:
-        if self._match_mode == "fingerprint":
-            return self._score_pair_fingerprint(a, b)
-        return self._score_pair_metadata(a, b)
-
-    def _score_pair_fingerprint(self, a, b) -> float:
-        """Local, offline chromaprint similarity score [0,1] -- a failure to
-        decode either fingerprint (e.g. corrupt/legacy data) safely scores
-        as 0.0 rather than raising, matching this file's other scoring
-        methods.
+    def _decode_fingerprint(self, track) -> "np.ndarray | None":
+        """Decode a track's stored chromaprint fingerprint into the int
+        array fast_match_fingerprints() operates on. Returns None on failure
+        (e.g. corrupt/legacy data) so the caller can drop the track from
+        fingerprint-mode blocks entirely -- it could never score above 0.0
+        against anything anyway.
 
         Fingerprints are stored as str (Track.acoustid_fingerprint is a Text
-        column), but acoustid.compare_fingerprints requires the raw bytes
-        form it originally returned from fingerprint_file() -- chromaprint
+        column), but chromaprint.decode_fingerprint requires the raw bytes
+        form originally returned by fingerprint_file() -- chromaprint
         fingerprints are plain-ASCII base64, so encode() round-trips exactly.
         """
         try:
-            return acoustid.compare_fingerprints(
-                (a.acoustid_fingerprint_duration, a.acoustid_fingerprint.encode()),
-                (b.acoustid_fingerprint_duration, b.acoustid_fingerprint.encode()),
-            )
+            ints = chromaprint.decode_fingerprint(track.acoustid_fingerprint.encode())[0]
+            return np.asarray(ints, dtype=np.uint32)
         except (chromaprint.FingerprintError, AttributeError) as e:
-            logger.warning(f"Fingerprint comparison failed: {e}")
-            return 0.0
+            logger.warning(
+                f"Fingerprint decode failed for track "
+                f"{getattr(track, 'track_id', None)}: {e}"
+            )
+            return None
 
     def _score_pair_metadata(self, a, b) -> float:
         """
@@ -315,6 +330,142 @@ class DuplicateScanWorker(CancellableWorker):
 
         return weighted_sum / weight_total if weight_total else 0.0
 
+    def _find_duplicates_metadata(
+        self, blocks: Dict[str, list], track_index: Dict[int, int], union, total_pairs: int
+    ) -> Tuple[int, bool]:
+        """Single-threaded scan: string-similarity scoring is cheap enough
+        (and already short-circuits via the best_possible check in
+        _score_pair_metadata) that a process pool isn't worth the IPC
+        overhead here."""
+        checked = 0
+        last_emitted = 0
+        stopped = False
+
+        for block_tracks in blocks.values():
+            if self.is_cancelled:
+                stopped = True
+                break
+
+            m = len(block_tracks)
+            for i in range(m):
+                if self.is_cancelled:
+                    stopped = True
+                    break
+                for j in range(i + 1, m):
+                    score = self._score_pair_metadata(block_tracks[i], block_tracks[j])
+                    if score >= self._threshold:
+                        union(
+                            track_index[id(block_tracks[i])],
+                            track_index[id(block_tracks[j])],
+                        )
+                    checked += 1
+                    if checked - last_emitted >= 500:
+                        self.progress.emit(checked, total_pairs)
+                        last_emitted = checked
+                        if self.is_cancelled:
+                            stopped = True
+                            break
+                if stopped:
+                    break
+            if stopped:
+                break
+
+        return checked, stopped
+
+    def _find_duplicates_fingerprint(
+        self, blocks: Dict[str, list], track_index: Dict[int, int], union, total_pairs: int
+    ) -> Tuple[int, bool]:
+        """Process-pool scan: fingerprint comparison is CPU-bound pure work
+        (see fingerprint_matching.py) that benefits from real parallelism
+        across cores -- a single GIL-bound thread can't get that.
+
+        Each track's fingerprint is decoded once here (cheap, negligible
+        cost) rather than per-pair. Candidate pairs are flattened across all
+        blocks and chunked into fixed-size batches so IPC overhead stays low
+        while progress/cancellation stay reasonably responsive; only decoded
+        fingerprint arrays and integer pair indices cross the process
+        boundary, never Qt/ORM objects.
+        """
+        decoded: Dict[int, np.ndarray] = {}
+        for block_tracks in blocks.values():
+            for track in block_tracks:
+                idx = track_index[id(track)]
+                if idx in decoded:
+                    continue
+                array = self._decode_fingerprint(track)
+                if array is not None:
+                    decoded[idx] = array
+
+        all_pairs: List[Tuple[int, int]] = []
+        for block_tracks in blocks.values():
+            m = len(block_tracks)
+            for i in range(m):
+                idx_i = track_index[id(block_tracks[i])]
+                if idx_i not in decoded:
+                    continue
+                for j in range(i + 1, m):
+                    idx_j = track_index[id(block_tracks[j])]
+                    if idx_j in decoded:
+                        all_pairs.append((idx_i, idx_j))
+
+        checked = 0
+        stopped = False
+        if not all_pairs:
+            self.progress.emit(0, max(total_pairs, 1))
+            return checked, stopped
+
+        batches = [
+            all_pairs[k : k + _FINGERPRINT_BATCH_SIZE]
+            for k in range(0, len(all_pairs), _FINGERPRINT_BATCH_SIZE)
+        ]
+        num_workers = min(recommended_worker_count(), len(batches))
+        last_emitted = 0
+
+        logger.info(
+            f"Fingerprint scan: {len(all_pairs):,} pairs -> {len(batches):,} "
+            f"batches across {num_workers} worker process(es)"
+        )
+
+        # Forking a process that already has Qt/PySide6 initialised is a
+        # known source of rare, hard-to-diagnose deadlocks (same rationale
+        # as BatchAnalysisScheduler) -- use spawn explicitly rather than the
+        # platform default.
+        ctx = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=num_workers, mp_context=ctx) as executor:
+            pending = list(batches)
+            in_flight: Dict = {}
+
+            def submit_more():
+                while pending and len(in_flight) < num_workers * 2:
+                    if self.is_cancelled:
+                        return
+                    batch = pending.pop(0)
+                    referenced = {idx for pair in batch for idx in pair}
+                    fp_subset = {idx: decoded[idx] for idx in referenced}
+                    future = executor.submit(
+                        score_fingerprint_batch, fp_subset, batch, self._threshold
+                    )
+                    in_flight[future] = len(batch)
+
+            submit_more()
+            while in_flight:
+                done, _ = wait(in_flight.keys(), timeout=1.0, return_when=FIRST_COMPLETED)
+                for future in done:
+                    batch_len = in_flight.pop(future)
+                    for i, j in future.result():
+                        union(i, j)
+                    checked += batch_len
+                    if checked - last_emitted >= 500 or checked == len(all_pairs):
+                        self.progress.emit(checked, total_pairs)
+                        last_emitted = checked
+
+                if self.is_cancelled:
+                    pending.clear()
+                submit_more()
+
+        stopped = checked < len(all_pairs)
+        return checked, stopped
+
     def _find_duplicates(self) -> list:
         """
         Main routine:
@@ -353,38 +504,14 @@ class DuplicateScanWorker(CancellableWorker):
         def union(x: int, y: int):
             parent[find(x)] = find(y)
 
-        checked = 0
-        last_emitted = 0
-        stopped = False
-
-        for block_tracks in blocks.values():
-            if self.is_cancelled:
-                stopped = True
-                break
-
-            m = len(block_tracks)
-            for i in range(m):
-                if self.is_cancelled:
-                    stopped = True
-                    break
-                for j in range(i + 1, m):
-                    score = self._score_pair(block_tracks[i], block_tracks[j])
-                    if score >= self._threshold:
-                        union(
-                            track_index[id(block_tracks[i])],
-                            track_index[id(block_tracks[j])],
-                        )
-                    checked += 1
-                    if checked - last_emitted >= 500:
-                        self.progress.emit(checked, total_pairs)
-                        last_emitted = checked
-                        if self.is_cancelled:
-                            stopped = True
-                            break
-                if stopped:
-                    break
-            if stopped:
-                break
+        if self._match_mode == "fingerprint":
+            checked, stopped = self._find_duplicates_fingerprint(
+                blocks, track_index, union, total_pairs
+            )
+        else:
+            checked, stopped = self._find_duplicates_metadata(
+                blocks, track_index, union, total_pairs
+            )
 
         self._stopped_early = stopped
         if stopped:
