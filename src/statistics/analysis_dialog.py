@@ -43,15 +43,34 @@ from src.core.status_utility import StatusManager, show_status_message
 
 
 # Fields that must be present and non-zero/None for a track to be
-# considered fully analysed.  Extend this list if new metrics are added.
+# considered fully analysed.  Must track every field AudioCalculations.run_all()
+# writes (audio_calculations.py) except acoustid_fingerprint/_duration, which
+# can be legitimately and permanently None (e.g. no native chromaprint library
+# available) — see AudioCalculations.calculate_fingerprint's docstring.
 _REQUIRED_FIELDS = [
     "bpm",
+    "tempo_confidence",
     "key",
+    "mode",
+    "key_confidence",
     "track_gain",
+    "track_peak",
+    "crest_factor",
     "spectral_centroid",
+    "spectral_rolloff",
+    "spectral_flatness",
+    "spectral_flux",
     "dynamic_range",
+    "stereo_width",
+    "ms_energy_ratio",
+    "channel_coherence",
+    "transient_strength",
     "energy",
     "danceability",
+    "acousticness",
+    "liveness",
+    "valence",
+    "audiophile_score",
 ]
 
 
@@ -75,7 +94,7 @@ class _PendingTracksWorker(QThread):
     eager-loads the artist relationship in one extra query instead.
     """
 
-    tracks_loaded = Signal(list)
+    tracks_loaded = Signal(list, int)  # pending tracks, total track count
     failed = Signal(str)
 
     def __init__(self, controller, force_all: bool = False, parent=None):
@@ -106,13 +125,20 @@ class _PendingTracksWorker(QThread):
             # invalidates previously-computed values still sitting in the DB.
             pending = list(all_tracks)
         else:
+            # A track counts as "cached" (complete) only if it is BOTH marked
+            # analysed in the cache AND has every required field populated —
+            # so it's pending if EITHER is false. Using AND here (as before)
+            # left a gap: a track missing a field the cache doesn't know
+            # about (or one added to _REQUIRED_FIELDS later) could be neither
+            # cached nor pending, so cached+pending fell short of the total
+            # track count.
             pending = [
                 track
                 for track in all_tracks
                 if not analysis_cache.is_analysed(track.track_id)
-                and _track_needs_analysis(track)
+                or _track_needs_analysis(track)
             ]
-        self.tracks_loaded.emit(pending)
+        self.tracks_loaded.emit(pending, len(all_tracks))
 
 
 class AudioAnalysisDialog(QDialog):
@@ -143,6 +169,7 @@ class AudioAnalysisDialog(QDialog):
         self.setModal(False)  # Non-modal so the user can keep using the app
 
         self._tracks_pending: list = []  # tracks not yet in the cache
+        self._total_tracks: int = 0  # total library track count, from last scan
         self._track_id_to_item: dict = {}  # track_id → QListWidgetItem
         self._scan_worker: _PendingTracksWorker | None = None
 
@@ -285,9 +312,10 @@ class AudioAnalysisDialog(QDialog):
     def _on_force_all_toggled(self, _checked: bool):
         self._start_pending_scan()
 
-    @Slot(list)
-    def _on_pending_tracks_loaded(self, pending_tracks: list):
+    @Slot(list, int)
+    def _on_pending_tracks_loaded(self, pending_tracks: list, total_tracks: int):
         self._tracks_pending = pending_tracks
+        self._total_tracks = total_tracks
         self._refresh_list()
 
         # If the scheduler is already running, reflect the live state now
@@ -317,8 +345,11 @@ class AudioAnalysisDialog(QDialog):
             self._list.addItem(item)
             self._track_id_to_item[track.track_id] = item
 
-        total_cached = analysis_cache.count()
+        # Derived as the complement of pending (rather than read from
+        # analysis_cache.count() directly) so cached+pending always equals
+        # the total track count — see _PendingTracksWorker.run().
         pending = len(self._tracks_pending)
+        total_cached = max(self._total_tracks - pending, 0)
 
         if self._force_all_checkbox.isChecked():
             self._summary_label.setText(
@@ -371,9 +402,12 @@ class AudioAnalysisDialog(QDialog):
 
         self._set_running_ui(len(self._tracks_pending))
         StatusManager.start_task(f"Analysing {len(self._tracks_pending)} tracks…")
-        self._scheduler.start(
-            self._tracks_pending, ignore_cache=self._force_all_checkbox.isChecked()
-        )
+        # self._tracks_pending is already the authoritative list (see
+        # _PendingTracksWorker.run()) — pass ignore_cache=True so the
+        # scheduler doesn't re-apply its own cache-only filter on top and
+        # silently drop tracks that are cache-marked but still missing a
+        # field.
+        self._scheduler.start(self._tracks_pending, ignore_cache=True)
 
     def _on_pause_resume(self):
         if self._scheduler.is_paused:
