@@ -351,7 +351,21 @@ class AlbumTabBuilder:
         small_font = QFont()
         small_font.setPointSize(9)
 
-        for role_name, artist_tuples in roles_by_type.items():
+        # Role-group display order must be stable and independent of
+        # AlbumRoleAssociation.sort_order — that column is only unique
+        # *within* a role's own credits (see add_artist_credit /
+        # move_artist_credit), so the album's flat, globally-ordered
+        # album_roles list interleaves different roles arbitrarily. Using
+        # that list's first-appearance order as group order meant editing
+        # any single credit could change which role's group renders first
+        # (groups "jumping around"). Pin Album Artist to the top and sort
+        # the rest alphabetically instead, so group order never shifts.
+        ordered_role_names = sorted(
+            roles_by_type, key=lambda name: (name != "Album Artist", name.lower())
+        )
+
+        for role_name in ordered_role_names:
+            artist_tuples = roles_by_type[role_name]
             role_group = QGroupBox(role_name)
             role_group.setFont(small_font)  # ← shrinks the group title
             # QVBoxLayout stretches child widgets to the full available width
