@@ -190,7 +190,12 @@ class AlbumTabBuilder:
                     widget = QWidget()
                     widget_layout = QHBoxLayout(widget)
                     widget_layout.setContentsMargins(0, 0, 0, 0)
-                    widget_layout.addWidget(QLabel(publisher.publisher_name))
+
+                    mb_badge = " \U0001f517" if publisher.MBID else ""
+                    name_label = QLabel(f"{publisher.publisher_name}{mb_badge}")
+                    if publisher.MBID:
+                        name_label.setToolTip("Linked to MusicBrainz")
+                    widget_layout.addWidget(name_label)
 
                     remove_btn = QPushButton("Remove")
                     remove_btn.clicked.connect(
@@ -231,8 +236,12 @@ class AlbumTabBuilder:
                         if association.association_type
                         else ""
                     )
-                    place_text = f"{place.place_name} ({assoc_type_name})"
-                    widget_layout.addWidget(QLabel(place_text))
+                    mb_badge = " \U0001f517" if place.MBID else ""
+                    place_text = f"{place.place_name} ({assoc_type_name}){mb_badge}"
+                    place_label = QLabel(place_text)
+                    if place.MBID:
+                        place_label.setToolTip("Linked to MusicBrainz")
+                    widget_layout.addWidget(place_label)
 
                     remove_btn = QPushButton("Remove")
                     remove_btn.clicked.connect(
