@@ -13,7 +13,10 @@ from types import SimpleNamespace
 
 from PySide6.QtWidgets import QLabel
 
-from src.album.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
+from src.album.album_musicbrainz_review_dialog import (
+    AlbumMusicBrainzReviewDialog,
+    _track_scalar_update,
+)
 from src.musicbrainz.musicbrainz_client import (
     MBFounderRelation,
     MBLabelInfo,
@@ -151,7 +154,7 @@ def test_side_b_track_renumbers_flat_local_track_on_auto_match(qapp):
 
     assert dialog._matched.get(id(mb_track_b1)) is local_track_6
 
-    update = dialog._track_scalar_update(local_track_6, mb_track_b1)
+    update = _track_scalar_update(local_track_6, mb_track_b1, {}, None)
 
     assert update is not None
     assert update["track_number"] == 1
