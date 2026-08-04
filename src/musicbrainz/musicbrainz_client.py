@@ -572,15 +572,22 @@ def _parse_track_number_side(
 
 
 def _relation_role_name(rel: dict[str, Any]) -> str | None:
-    """One credit's Role name for an artist-relation: the attribute
-    (instrument/vocal/sub-role) if present, else the relation type itself
-    -- both title-cased. Same rule for performer and production relations,
-    since MB doesn't consistently model a nuance as a `type` vs. an
-    `attribute` across relation kinds."""
+    """One credit's Role name for an artist-relation. For performer
+    relations (instrument/vocal), the attribute alone is the full role
+    (e.g. "Piano", "Lead Vocals") -- the generic type adds nothing. For
+    production relations (producer/engineer/mix/...), the attribute is a
+    *modifier* of the type, not a replacement for it -- MB credits like
+    "assistant engineer" or "mastering engineer" are the `engineer` type
+    with an "assistant"/"mastering" attribute, so both must be combined or
+    the type name is silently dropped."""
+    rel_type = rel.get("type")
     attributes = rel.get("attribute-list") or []
+    if rel_type in _PRODUCTION_RELATION_TYPES:
+        if attributes:
+            return f"{attributes[0].title()} {rel_type.title()}"
+        return rel_type.title() if rel_type else None
     if attributes:
         return attributes[0].title()
-    rel_type = rel.get("type")
     return rel_type.title() if rel_type else None
 
 
