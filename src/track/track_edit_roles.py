@@ -276,6 +276,12 @@ class _RolesTable(QTableWidget):
 
     _MAX_CONTENT_HEIGHT = 260
 
+    # Emitted whenever a resize or row-count change flips whether the table's
+    # content exceeds _MAX_CONTENT_HEIGHT, so an owning layout can decide
+    # whether the table should claim leftover vertical space instead of
+    # leaving it blank below a capped table.
+    content_changed = Signal()
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -284,17 +290,32 @@ class _RolesTable(QTableWidget):
         super().resizeEvent(event)
         self.resizeRowsToContents()
         self.updateGeometry()
+        self.content_changed.emit()
 
-    def sizeHint(self):
+    def content_height(self) -> int:
         header = self.horizontalHeader()
         header_h = 0 if header.isHidden() else header.height()
         rows_h = sum(self.rowHeight(r) for r in range(self.rowCount()))
         frame = 2 * self.frameWidth()
-        content_h = header_h + rows_h + frame
-        return QSize(super().sizeHint().width(), min(content_h, self._MAX_CONTENT_HEIGHT))
+        return header_h + rows_h + frame
+
+    def is_overflowing(self) -> bool:
+        return self.content_height() > self._MAX_CONTENT_HEIGHT
+
+    def sizeHint(self):
+        return QSize(
+            super().sizeHint().width(),
+            min(self.content_height(), self._MAX_CONTENT_HEIGHT),
+        )
 
 
 class RolesTab(_BaseTab):
+    # Mirrors _RolesTable.is_overflowing(): lets an owning widget (e.g. the
+    # album editor's Track Credits tab, which wraps this tab in its own
+    # layout) give this tab priority for leftover space too, instead of
+    # only the table inside it -- see _sync_table_stretch.
+    overflow_changed = Signal(bool)
+
     def __init__(self, tracks: list, controller, parent=None, on_convert_to_album=None):
         super().__init__(tracks, controller, parent)
         self._loader_thread: QThread | None = None
@@ -371,7 +392,24 @@ class RolesTab(_BaseTab):
         # stretch here a QVBoxLayout with no other expanding widget hands
         # it any leftover space instead of collapsing to _RolesTable's
         # content-based sizeHint.
+        self._table_stretch_idx = layout.count() - 1
         layout.addStretch(1)
+        self._trailing_stretch_idx = layout.count() - 1
+        self._layout = layout
+
+        self._table.content_changed.connect(self._sync_table_stretch)
+        self._sync_table_stretch()
+
+    def _sync_table_stretch(self) -> None:
+        """Give the table priority for this tab's leftover vertical space
+        once its content no longer fits within _RolesTable's height cap,
+        instead of leaving that space blank below a capped table -- and
+        tell any owning widget (overflow_changed) so it can do the same
+        with its own layout."""
+        overflow = self._table.is_overflowing()
+        self._layout.setStretch(self._table_stretch_idx, 1 if overflow else 0)
+        self._layout.setStretch(self._trailing_stretch_idx, 0 if overflow else 1)
+        self.overflow_changed.emit(overflow)
 
     # ── Loading ───────────────────────────────────────────────────────────
 
@@ -429,6 +467,7 @@ class RolesTab(_BaseTab):
         # based sizeHint (see _RolesTable) -- tell the layout to re-query it
         # rather than leaving the table sized for whatever it hinted before.
         self._table.updateGeometry()
+        self._sync_table_stretch()
 
     def _on_roles_load_error(self, message: str) -> None:
         logger.error(f"Error loading artist roles: {message}")
