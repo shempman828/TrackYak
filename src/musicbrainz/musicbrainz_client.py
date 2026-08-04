@@ -438,7 +438,7 @@ _COUNTRY_PREFERENCE = ("XW", "GB", "US")
 # credited under the relation type itself when no attribute refines it
 # further. Anything outside this set (e.g. "samples material", "cover art")
 # is not imported as a credit.
-_PERFORMER_RELATION_TYPES = {"performer", "vocal", "instrument"}
+_PERFORMER_RELATION_TYPES = {"performer", "vocal", "instrument", "performing orchestra"}
 _PRODUCTION_RELATION_TYPES = {
     "producer",
     "engineer",
@@ -449,8 +449,22 @@ _PRODUCTION_RELATION_TYPES = {
     "conductor",
     "programming",
     "remixer",
+    "sound",
 }
 _CREDIT_RELATION_TYPES = _PERFORMER_RELATION_TYPES | _PRODUCTION_RELATION_TYPES
+
+# Boolean-style qualifier words MB allows on performer/instrument/vocal
+# relations alongside (not instead of) the actual instrument/vocal name --
+# MB's own link-phrase template for these relations is literally
+# "{additional} {guest} {solo} {instrument}", so attribute-list can contain
+# a qualifier *before* the real value, and a single relation can carry more
+# than one instrument/vocal value (e.g. one person credited for both piano
+# and organ). Confirmed against the live API: Eagles' "Hotel California"
+# (release 76df3287-6cda-33eb-8e9e-f5b0f0625372) credits Bill Armstrong's
+# trumpet as attribute-list ["additional", "trumpet"] -- naively taking
+# attribute-list[0] reports his role as "Additional" and drops "trumpet"
+# entirely.
+_PERFORMER_ATTRIBUTE_QUALIFIERS = {"additional", "guest", "solo"}
 
 _SIDE_TRACK_NUMBER_RE = re.compile(r"^([A-Za-z])(\d+)$")
 
@@ -586,8 +600,19 @@ def _relation_role_name(rel: dict[str, Any]) -> str | None:
         if attributes:
             return f"{attributes[0].title()} {rel_type.title()}"
         return rel_type.title() if rel_type else None
-    if attributes:
-        return attributes[0].title()
+    # Performer/instrument/vocal: split out qualifier words ("additional"/
+    # "guest"/"solo") from the actual instrument/vocal value(s) rather than
+    # assuming attribute-list[0] is the value -- see
+    # _PERFORMER_ATTRIBUTE_QUALIFIERS.
+    qualifiers = [a for a in attributes if a.lower() in _PERFORMER_ATTRIBUTE_QUALIFIERS]
+    values = [a for a in attributes if a.lower() not in _PERFORMER_ATTRIBUTE_QUALIFIERS]
+    if values:
+        name = " & ".join(v.title() for v in values)
+        if qualifiers:
+            name = f"{' '.join(q.title() for q in qualifiers)} {name}"
+        return name
+    if qualifiers:
+        return " ".join(q.title() for q in qualifiers)
     return rel_type.title() if rel_type else None
 
 
