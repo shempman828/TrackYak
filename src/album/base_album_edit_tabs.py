@@ -311,11 +311,25 @@ class TrackCreditsTab:
         )
         roles_widget.load(tracks)
         layout.addWidget(roles_widget)
+        roles_stretch_idx = layout.count() - 1
         # roles_widget defaults to a Preferred vertical size policy, so
         # without a stretch here this outer layout would hand it any
         # leftover tab space too, on top of the same fix inside RolesTab
         # itself.
         layout.addStretch(1)
+        trailing_stretch_idx = layout.count() - 1
+
+        def _sync_outer_stretch(overflow: bool) -> None:
+            # Mirrors RolesTab's own internal table/stretch swap: once its
+            # table no longer fits its height cap, this tab's roles_widget
+            # should claim this layout's leftover space too, instead of the
+            # trailing stretch leaving it blank below an inner table that
+            # itself wants to be taller.
+            layout.setStretch(roles_stretch_idx, 1 if overflow else 0)
+            layout.setStretch(trailing_stretch_idx, 0 if overflow else 1)
+
+        roles_widget.overflow_changed.connect(_sync_outer_stretch)
+        _sync_outer_stretch(False)
         return tab
 
     def _convert_to_album(self, artist_id, role_id):
