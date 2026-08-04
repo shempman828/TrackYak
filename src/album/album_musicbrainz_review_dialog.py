@@ -258,6 +258,58 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                 return data
         return None
 
+    def _on_manual_combo_changed(self, _index: int):
+        self._refresh_manual_combo_options(changed_combo=self.sender())
+
+    def _refresh_manual_combo_options(self, changed_combo=None):
+        """Once a local track is picked in one row's combo, remove it from
+        every other row's option list -- otherwise the same local track can
+        be manually assigned to more than one MusicBrainz track. Any other
+        row that already held that same track (e.g. from its own auto-guess)
+        is bumped back to "Skip" -- the row the user just edited wins the
+        claim, since it's the one they're actively acting on.
+
+        Compares local-track options by identity (`is`), not `==`/hashing --
+        local tracks here can be plain SQLAlchemy rows (default identity
+        hash) or test doubles like SimpleNamespace (unhashable, and `==`
+        would compare field values rather than "same row")."""
+        if changed_combo is not None:
+            claimed = changed_combo.currentData()
+            if claimed is not None:
+                for combo, _mbt in self._manual_combos:
+                    if combo is changed_combo:
+                        continue
+                    if combo.currentData() is claimed:
+                        combo.blockSignals(True)
+                        combo.setCurrentIndex(0)  # back to Skip -- just claimed elsewhere
+                        combo.blockSignals(False)
+
+        selections = [combo.currentData() for combo, _mbt in self._manual_combos]
+        for row, (combo, _mbt) in enumerate(self._manual_combos):
+            current = selections[row]
+            taken_elsewhere = [
+                data
+                for i, data in enumerate(selections)
+                if i != row and data is not None
+            ]
+            available = [
+                local
+                for local in self._remaining_local_options
+                if local is current or not any(local is t for t in taken_elsewhere)
+            ]
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem(_SKIP, None)
+            for local in available:
+                local_side = f", side {local.side}" if local.side else ""
+                combo.addItem(
+                    f"{local.track_name} (currently track {local.track_number or '?'}{local_side})",
+                    local,
+                )
+            idx = combo.findData(current) if current is not None else 0
+            combo.setCurrentIndex(idx if idx >= 0 else 0)
+            combo.blockSignals(False)
+
     # ------------------------------------------------------------------
     # Fill-blank scalars for auto-matched tracks (disc assignment, track
     # number/side/barcode). Computed against self._matched at construction
@@ -500,6 +552,12 @@ class AlbumMusicBrainzReviewDialog(QDialog):
                     bold_font.setBold(True)
                     conf_item.setFont(bold_font)
                 table.setItem(row, 2, conf_item)
+
+            # Connect after every row's combo exists (and its initial guess
+            # is set) so a mid-loop selection doesn't fire a refresh against
+            # a still-partially-built self._manual_combos.
+            for combo, _mbt in self._manual_combos:
+                combo.currentIndexChanged.connect(self._on_manual_combo_changed)
 
             table.resizeRowsToContents()
             table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
