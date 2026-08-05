@@ -200,6 +200,7 @@ class ListView(QWidget):
         self.controller = controller
         self.parent_view = None
         self.sort_mode = "alphabetical"
+        self.flat_view = False
         self.filter_text = ""
         self.all_place_types = set()
         self.selected_types = set()
@@ -233,6 +234,15 @@ class ListView(QWidget):
         self.toggle_filter_button.setChecked(False)
         self.toggle_filter_button.clicked.connect(self.toggle_filter_visibility)
         control_layout.addWidget(self.toggle_filter_button)
+
+        self.flat_view_button = QPushButton("Flat View")
+        self.flat_view_button.setCheckable(True)
+        self.flat_view_button.setChecked(False)
+        self.flat_view_button.setToolTip(
+            "Toggle between the hierarchical tree and a flat alphabetical list"
+        )
+        self.flat_view_button.clicked.connect(self.toggle_flat_view)
+        control_layout.addWidget(self.flat_view_button)
 
         # Search bar
         self.search_bar = QLineEdit()
@@ -300,14 +310,26 @@ class ListView(QWidget):
         self.tree_widget.clear()
         places = self.controller.get.get_all_entities("Place")
         self._refresh_type_filter_options(places)
-        hierarchy = self._build_hierarchy(places)
 
-        # Add places to the tree with expand/collapse capability
-        self._add_places_to_tree(hierarchy, None, self.tree_widget.invisibleRootItem())
+        if self.flat_view:
+            self._add_places_flat(places)
+        else:
+            hierarchy = self._build_hierarchy(places)
+            # Add places to the tree with expand/collapse capability
+            self._add_places_to_tree(hierarchy, None, self.tree_widget.invisibleRootItem())
 
         # Reapply any active search/type/MBID/coordinate filters, since the
         # tree was just rebuilt from scratch.
         self._apply_filters()
+
+    def toggle_flat_view(self):
+        """Toggle between the nested hierarchy and a flat alphabetical list."""
+        self.flat_view = self.flat_view_button.isChecked()
+        self.flat_view_button.setText("Tree View" if self.flat_view else "Flat View")
+        # Drag-and-drop reparenting doesn't make sense against a flat,
+        # always-sorted list.
+        self.tree_widget.setDragEnabled(not self.flat_view)
+        self.load_places()
 
     def filter_places(self, text):
         """Filter places based on search text."""
@@ -471,6 +493,27 @@ class ListView(QWidget):
             parent_tree_item.addChild(item)
 
             self._add_places_to_tree(hierarchy, place.place_id, item)
+
+    def _add_places_flat(self, places):
+        """Add every place as a top-level item, sorted per self.sort_mode, with no nesting."""
+        if self.sort_mode == "associations":
+            ordered = sorted(
+                places,
+                key=lambda p: (
+                    -p.recursive_association_count,
+                    (p.place_name or "").lower(),
+                ),
+            )
+        else:
+            ordered = sorted(places, key=lambda p: (p.place_name or "").lower())
+
+        root = self.tree_widget.invisibleRootItem()
+        for place in ordered:
+            item_text = self.format_list_item(place)
+            item = QTreeWidgetItem([item_text])
+            item.setData(0, Qt.UserRole, place)
+            item.setToolTip(0, self.create_tooltip(place))
+            root.addChild(item)
 
     def format_list_item(self, place):
         """Return HTML-formatted text for the place entry."""

@@ -49,6 +49,7 @@ class GenreView(QWidget):
         self.current_genre_id: Optional[int] = None
         self.controller = controller
         self.show_recursive_tracks = False
+        self.flat_view = False
         self.init_UI()
         self.load_genres()
 
@@ -92,6 +93,15 @@ class GenreView(QWidget):
         self.collapse_all_button = QPushButton("Collapse All")
         self.collapse_all_button.clicked.connect(self.tree.collapseAll)
         top_row.addWidget(self.collapse_all_button)
+
+        self.flat_view_button = QPushButton("Flat View")
+        self.flat_view_button.setCheckable(True)
+        self.flat_view_button.setChecked(False)
+        self.flat_view_button.setToolTip(
+            "Toggle between the hierarchical tree and a flat alphabetical list"
+        )
+        self.flat_view_button.clicked.connect(self.toggle_flat_view)
+        top_row.addWidget(self.flat_view_button)
 
         # Add horizontal layout to the main vertical layout
         layout.addLayout(top_row)
@@ -189,14 +199,50 @@ class GenreView(QWidget):
 
                 children_map[genre.parent_id].append(genre)
 
-            # Build the tree recursively starting from root nodes (parent_id=None)
-            self._build_genre_tree(None, children_map, genre_map, track_counts, 0)
+            if self.flat_view:
+                self._build_genre_flat(genres, track_counts)
+            else:
+                # Build the tree recursively starting from root nodes (parent_id=None)
+                self._build_genre_tree(None, children_map, genre_map, track_counts, 0)
 
             restore_expanded_ids_or_expand_all(self.tree, expanded_ids, is_initial_load)
             logger.info(f"Loaded {len(genres)} genres with track counts")
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error loading genres: {str(e)}")
+
+    def toggle_flat_view(self):
+        """Toggle between the nested hierarchy and a flat alphabetical list."""
+        self.flat_view = self.flat_view_button.isChecked()
+        self.flat_view_button.setText("Tree View" if self.flat_view else "Flat View")
+        self.expand_all_button.setEnabled(not self.flat_view)
+        self.collapse_all_button.setEnabled(not self.flat_view)
+        # Drag-and-drop reparenting doesn't make sense against a flat,
+        # always-sorted list.
+        self.tree.setDragEnabled(not self.flat_view)
+        self.load_genres()
+
+    def _make_genre_item(self, genre, count, depth):
+        """Build a single genre's tree item, shared by the tree and flat builders."""
+        display_text = f"{genre.genre_name} ({count})"
+
+        item = QTreeWidgetItem([display_text])
+        item.setData(0, Qt.UserRole, genre.genre_id)
+        item.setFlags(item.flags() | Qt.ItemIsEditable)
+
+        # Store original genre name as tooltip data for editing
+        item.setData(1, Qt.UserRole, genre.genre_name)
+
+        item.setIcon(0, icon_for_depth(depth))
+
+        # Update tooltip to include track count
+        tooltip = f"ID: {genre.genre_id}\nTracks: {count}"
+        if genre.description:
+            tooltip += f"\nDescription: {genre.description}"
+        if genre.parent:
+            tooltip += f"\nParent: {genre.parent.genre_name}"
+        item.setToolTip(0, tooltip)
+        return item
 
     def _build_genre_tree(
         self, parent_item, children_map, genre_map, track_counts, depth
@@ -206,28 +252,8 @@ class GenreView(QWidget):
         for genre in sorted(
             children_map.get(parent_id, []), key=lambda g: g.genre_name.lower()
         ):
-            # Get track count for this genre
             count = track_counts.get(genre.genre_id, 0)
-
-            # Create display text with track count
-            display_text = f"{genre.genre_name} ({count})"
-
-            item = QTreeWidgetItem([display_text])
-            item.setData(0, Qt.UserRole, genre.genre_id)
-            item.setFlags(item.flags() | Qt.ItemIsEditable)
-
-            # Store original genre name as tooltip data for editing
-            item.setData(1, Qt.UserRole, genre.genre_name)
-
-            item.setIcon(0, icon_for_depth(depth))
-
-            # Update tooltip to include track count
-            tooltip = f"ID: {genre.genre_id}\nTracks: {count}"
-            if genre.description:
-                tooltip += f"\nDescription: {genre.description}"
-            if genre.parent:
-                tooltip += f"\nParent: {genre.parent.genre_name}"
-            item.setToolTip(0, tooltip)
+            item = self._make_genre_item(genre, count, depth)
 
             if parent_item:
                 parent_item.addChild(item)
@@ -237,6 +263,13 @@ class GenreView(QWidget):
             self._build_genre_tree(
                 item, children_map, genre_map, track_counts, depth + 1
             )
+
+    def _build_genre_flat(self, genres, track_counts):
+        """Populate the tree as a single alphabetical list with no nesting."""
+        for genre in sorted(genres, key=lambda g: g.genre_name.lower()):
+            count = track_counts.get(genre.genre_id, 0)
+            item = self._make_genre_item(genre, count, 0)
+            self.tree.addTopLevelItem(item)
 
     def on_item_edited(self, item, column):
         """Handle genre name updates."""

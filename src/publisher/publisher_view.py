@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QMessageBox,
+    QPushButton,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -67,6 +68,15 @@ class PublisherView(QWidget):
         self.fixed_combo.setToolTip("Filter by fixed status")
         self.fixed_combo.currentTextChanged.connect(self.filter_publishers)
         filter_bar.addWidget(self.fixed_combo)
+
+        self.flat_view_button = QPushButton("Flat View")
+        self.flat_view_button.setCheckable(True)
+        self.flat_view_button.setChecked(False)
+        self.flat_view_button.setToolTip(
+            "Toggle between the hierarchical tree and a flat alphabetical list"
+        )
+        self.flat_view_button.clicked.connect(self.toggle_flat_view)
+        filter_bar.addWidget(self.flat_view_button)
 
         left_layout.addLayout(filter_bar)
 
@@ -501,6 +511,14 @@ class PublisherView(QWidget):
     def load_publishers(self):
         """Load publishers into the hierarchical tree."""
         self.publishers_tree.load_publishers()
+        self._update_count_label()
+
+    def toggle_flat_view(self):
+        """Toggle between the nested hierarchy and a flat alphabetical list."""
+        self.publishers_tree.toggle_flat_view()
+        self.flat_view_button.setText(
+            "Tree View" if self.publishers_tree.flat_view else "Flat View"
+        )
         self._update_count_label()
 
     def _update_count_label(self):

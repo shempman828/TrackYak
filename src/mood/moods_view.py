@@ -47,6 +47,7 @@ class MoodView(QWidget):
         self.controller = controller
         self.current_mood_id = None
         self.moods_data = []
+        self.flat_view = False
         self.setWindowTitle("Moods|Folksonomy")
         self.setGeometry(100, 100, 1000, 700)
         self.init_ui()
@@ -67,15 +68,24 @@ class MoodView(QWidget):
         header_layout.addStretch()
 
         # Expand/Collapse all buttons
-        btn_expand_all = QPushButton("Expand All")
-        btn_expand_all.setToolTip("Expand all items in the tree")
-        btn_expand_all.clicked.connect(lambda: self.mood_tree.expandAll())
-        header_layout.addWidget(btn_expand_all)
+        self.btn_expand_all = QPushButton("Expand All")
+        self.btn_expand_all.setToolTip("Expand all items in the tree")
+        self.btn_expand_all.clicked.connect(lambda: self.mood_tree.expandAll())
+        header_layout.addWidget(self.btn_expand_all)
 
-        btn_collapse_all = QPushButton("Collapse All")
-        btn_collapse_all.setToolTip("Collapse all items in the tree")
-        btn_collapse_all.clicked.connect(lambda: self.mood_tree.collapseAll())
-        header_layout.addWidget(btn_collapse_all)
+        self.btn_collapse_all = QPushButton("Collapse All")
+        self.btn_collapse_all.setToolTip("Collapse all items in the tree")
+        self.btn_collapse_all.clicked.connect(lambda: self.mood_tree.collapseAll())
+        header_layout.addWidget(self.btn_collapse_all)
+
+        self.flat_view_button = QPushButton("Flat View")
+        self.flat_view_button.setCheckable(True)
+        self.flat_view_button.setChecked(False)
+        self.flat_view_button.setToolTip(
+            "Toggle between the hierarchical tree and a flat alphabetical list"
+        )
+        self.flat_view_button.clicked.connect(self.toggle_flat_view)
+        header_layout.addWidget(self.flat_view_button)
 
         main_layout.addLayout(header_layout)
 
@@ -225,64 +235,75 @@ class MoodView(QWidget):
             self.mood_tree.expandAll()
             return
 
-        # Create a dictionary for quick lookup
-        mood_dict = {mood.mood_id: mood for mood in self.moods_data}
+        if self.flat_view:
+            for mood in sorted(self.moods_data, key=lambda m: m.mood_name.lower()):
+                item = self._make_mood_item(mood, mood_track_counts)
+                self.mood_tree.addTopLevelItem(item)
+                self._set_mood_item_style(item, 0, mood_track_counts)
+        else:
+            # Create a dictionary for quick lookup
+            mood_dict = {mood.mood_id: mood for mood in self.moods_data}
 
-        # Find root moods (no parent or parent not in current list)
-        root_moods = sorted(
-            [
-                mood
-                for mood in self.moods_data
-                if not mood.parent_id or mood.parent_id not in mood_dict
-            ],
-            key=lambda m: m.mood_name.lower(),
-        )
-
-        # Recursively build tree with depth tracking
-        def add_children(parent_item, parent_mood, depth):
-            children = sorted(
-                [m for m in self.moods_data if m.parent_id == parent_mood.mood_id],
+            # Find root moods (no parent or parent not in current list)
+            root_moods = sorted(
+                [
+                    mood
+                    for mood in self.moods_data
+                    if not mood.parent_id or mood.parent_id not in mood_dict
+                ],
                 key=lambda m: m.mood_name.lower(),
             )
-            for child in children:
-                # Get track count for this mood
-                track_count = mood_track_counts.get(child.mood_id, 0)
-                display_name = (
-                    f"{child.mood_name} ({track_count})"
-                    if track_count > 0
-                    else child.mood_name
+
+            # Recursively build tree with depth tracking
+            def add_children(parent_item, parent_mood, depth):
+                children = sorted(
+                    [m for m in self.moods_data if m.parent_id == parent_mood.mood_id],
+                    key=lambda m: m.mood_name.lower(),
                 )
+                for child in children:
+                    child_item = self._make_mood_item(child, mood_track_counts, parent_item)
 
-                child_item = QTreeWidgetItem(parent_item, [display_name])
-                child_item.setData(0, Qt.UserRole, child.mood_id)
-                child_item.setData(0, Qt.UserRole + 1, child)  # Store full mood object
+                    # Set color based on depth
+                    self._set_mood_item_style(child_item, depth, mood_track_counts)
 
-                # Set color based on depth
-                self._set_mood_item_style(child_item, depth, mood_track_counts)
+                    add_children(child_item, child, depth + 1)
 
-                add_children(child_item, child, depth + 1)
+            # Add root moods to tree
+            for mood in root_moods:
+                item = self._make_mood_item(mood, mood_track_counts, self.mood_tree)
 
-        # Add root moods to tree
-        for mood in root_moods:
-            # Get track count for this mood
-            track_count = mood_track_counts.get(mood.mood_id, 0)
-            display_name = (
-                f"{mood.mood_name} ({track_count})"
-                if track_count > 0
-                else mood.mood_name
-            )
+                # Set color for root items (depth 0)
+                self._set_mood_item_style(item, 0, mood_track_counts)
 
-            item = QTreeWidgetItem(self.mood_tree, [display_name])
-            item.setData(0, Qt.UserRole, mood.mood_id)
-            item.setData(0, Qt.UserRole + 1, mood)  # Store full mood object
-
-            # Set color for root items (depth 0)
-            self._set_mood_item_style(item, 0, mood_track_counts)
-
-            add_children(item, mood, 1)
+                add_children(item, mood, 1)
 
         # Restore expansion state, or expand everything on first build
         restore_expanded_ids_or_expand_all(self.mood_tree, expanded_ids, not had_items)
+
+    def toggle_flat_view(self):
+        """Toggle between the nested hierarchy and a flat alphabetical list."""
+        self.flat_view = self.flat_view_button.isChecked()
+        self.flat_view_button.setText("Tree View" if self.flat_view else "Flat View")
+        self.btn_expand_all.setEnabled(not self.flat_view)
+        self.btn_collapse_all.setEnabled(not self.flat_view)
+        # Drag-and-drop reparenting doesn't make sense against a flat,
+        # always-sorted list.
+        self.mood_tree.setDragEnabled(not self.flat_view)
+        self.build_mood_tree()
+
+    def _make_mood_item(self, mood, mood_track_counts, parent=None):
+        """Build a single mood's tree item, shared by the tree and flat builders."""
+        track_count = mood_track_counts.get(mood.mood_id, 0)
+        display_name = (
+            f"{mood.mood_name} ({track_count})" if track_count > 0 else mood.mood_name
+        )
+
+        item = QTreeWidgetItem(parent, [display_name]) if parent else QTreeWidgetItem(
+            [display_name]
+        )
+        item.setData(0, Qt.UserRole, mood.mood_id)
+        item.setData(0, Qt.UserRole + 1, mood)  # Store full mood object
+        return item
 
     def get_track_counts_for_all_moods(self):
         """Get track counts for all moods in the database"""

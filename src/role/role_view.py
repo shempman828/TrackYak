@@ -122,6 +122,7 @@ class RoleView(QWidget):
 
         # "name" (alphabetical) or "count" (total assignments, descending)
         self.sort_mode = "name"
+        self.flat_view = False
 
         # Keep a reference to the running thread so it isn't garbage-collected.
         self._loader_thread: QThread | None = None
@@ -165,6 +166,15 @@ class RoleView(QWidget):
         self.collapse_all_button = QPushButton("Collapse All")
         self.collapse_all_button.clicked.connect(lambda: self.role_tree.collapseAll())
         top_row.addWidget(self.collapse_all_button)
+
+        self.flat_view_button = QPushButton("Flat View")
+        self.flat_view_button.setCheckable(True)
+        self.flat_view_button.setChecked(False)
+        self.flat_view_button.setToolTip(
+            "Toggle between the hierarchical tree and a flat alphabetical list"
+        )
+        self.flat_view_button.clicked.connect(self.toggle_flat_view)
+        top_row.addWidget(self.flat_view_button)
 
         self.main_layout.addLayout(top_row)
 
@@ -350,15 +360,20 @@ class RoleView(QWidget):
                 children_map[None].append(role)
 
         # Build the tree — uses pre-fetched counts, zero extra queries
-        root_count = self._build_role_tree(
-            None,
-            children_map,
-            role_map,
-            0,
-            self.role_tree,
-            album_counts,
-            track_counts,
-        )
+        if self.flat_view:
+            root_count = self._build_role_flat(
+                all_roles, role_map, self.role_tree, album_counts, track_counts
+            )
+        else:
+            root_count = self._build_role_tree(
+                None,
+                children_map,
+                role_map,
+                0,
+                self.role_tree,
+                album_counts,
+                track_counts,
+            )
 
         # Restore expansion state, or expand everything on first build
         restore_expanded_ids_or_expand_all(self.role_tree, expanded_ids, is_initial_load)
@@ -390,6 +405,18 @@ class RoleView(QWidget):
             f"Loaded {total} roles into unified tree with hierarchy "
             f"({root_count} root items)"
         )
+
+    def toggle_flat_view(self):
+        """Toggle between the nested hierarchy and a flat alphabetical list."""
+        self.flat_view = self.flat_view_button.isChecked()
+        self.flat_view_button.setText("Tree View" if self.flat_view else "Flat View")
+        self.expand_all_button.setEnabled(not self.flat_view)
+        self.collapse_all_button.setEnabled(not self.flat_view)
+        # Drag-and-drop reparenting doesn't make sense against a flat,
+        # always-sorted list.
+        self.role_tree.setDragEnabled(not self.flat_view)
+        if self._all_roles:
+            self._rebuild_tree()
 
     def _on_roles_load_error(self, error_message: str):
         """Called on the main thread if the background worker hits an exception."""
@@ -431,43 +458,7 @@ class RoleView(QWidget):
             sorted_roles = sorted(roles, key=lambda r: r.role_name.lower())
 
         for role in sorted_roles:
-            # Look up counts from the pre-fetched dicts (O(1), no DB call)
-            album_count = album_counts.get(role.role_id, 0)
-            track_count = track_counts.get(role.role_id, 0)
-            total_count = album_count + track_count
-
-            # Display text mirrors the genre tree's "Name (count)" style
-            display_text = f"{role.role_name} ({total_count})"
-
-            item = QTreeWidgetItem([display_text])
-            item.setData(0, Qt.UserRole, role.role_id)
-            item.setFlags(item.flags() | Qt.ItemIsEditable)
-
-            # Store original name and counts for editing / potential future use
-            item.setData(1, Qt.UserRole, role.role_name)
-            item.setData(0, Qt.UserRole + 1, track_count)
-            item.setData(0, Qt.UserRole + 2, album_count)
-
-            item.setIcon(0, icon_for_depth(depth))
-
-            # Gray out unassigned roles
-            if total_count == 0:
-                item.setForeground(0, QBrush(QColor(128, 128, 128)))
-
-            # Tooltip with detailed information (album/track breakdown kept here)
-            tooltip = f"ID: {role.role_id}"
-            if role.role_description:
-                tooltip += f"\nDescription: {role.role_description}"
-
-            tooltip += f"\nTrack assignments: {track_count}"
-            tooltip += f"\nAlbum assignments: {album_count}"
-
-            if role.parent_id:
-                parent_role = role_map.get(role.parent_id)
-                if parent_role:
-                    tooltip += f"\nParent: {parent_role.role_name}"
-
-            item.setToolTip(0, tooltip)
+            item = self._make_role_item(role, depth, role_map, album_counts, track_counts)
 
             if parent_item:
                 parent_item.addChild(item)
@@ -486,6 +477,64 @@ class RoleView(QWidget):
             )
 
         return len(roles)
+
+    def _make_role_item(self, role, depth, role_map, album_counts, track_counts):
+        """Build a single role's tree item, shared by the tree and flat builders."""
+        # Look up counts from the pre-fetched dicts (O(1), no DB call)
+        album_count = album_counts.get(role.role_id, 0)
+        track_count = track_counts.get(role.role_id, 0)
+        total_count = album_count + track_count
+
+        # Display text mirrors the genre tree's "Name (count)" style
+        display_text = f"{role.role_name} ({total_count})"
+
+        item = QTreeWidgetItem([display_text])
+        item.setData(0, Qt.UserRole, role.role_id)
+        item.setFlags(item.flags() | Qt.ItemIsEditable)
+
+        # Store original name and counts for editing / potential future use
+        item.setData(1, Qt.UserRole, role.role_name)
+        item.setData(0, Qt.UserRole + 1, track_count)
+        item.setData(0, Qt.UserRole + 2, album_count)
+
+        item.setIcon(0, icon_for_depth(depth))
+
+        # Gray out unassigned roles
+        if total_count == 0:
+            item.setForeground(0, QBrush(QColor(128, 128, 128)))
+
+        # Tooltip with detailed information (album/track breakdown kept here)
+        tooltip = f"ID: {role.role_id}"
+        if role.role_description:
+            tooltip += f"\nDescription: {role.role_description}"
+
+        tooltip += f"\nTrack assignments: {track_count}"
+        tooltip += f"\nAlbum assignments: {album_count}"
+
+        if role.parent_id:
+            parent_role = role_map.get(role.parent_id)
+            if parent_role:
+                tooltip += f"\nParent: {parent_role.role_name}"
+
+        item.setToolTip(0, tooltip)
+        return item
+
+    def _build_role_flat(self, all_roles, role_map, tree_widget, album_counts, track_counts):
+        """Populate the tree as a single alphabetical list with no nesting."""
+        if self.sort_mode == "count":
+            sorted_roles = sorted(
+                all_roles,
+                key=lambda r: album_counts.get(r.role_id, 0) + track_counts.get(r.role_id, 0),
+                reverse=True,
+            )
+        else:
+            sorted_roles = sorted(all_roles, key=lambda r: r.role_name.lower())
+
+        for role in sorted_roles:
+            item = self._make_role_item(role, 0, role_map, album_counts, track_counts)
+            tree_widget.addTopLevelItem(item)
+
+        return len(all_roles)
 
     # -----------------------------------------------------------------------
     # Role selection

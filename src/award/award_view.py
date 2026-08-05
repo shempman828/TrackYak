@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QMessageBox,
+    QPushButton,
     QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
@@ -38,6 +39,7 @@ class AwardView(QWidget):
         self.controller = controller
         self.all_awards: List[Any] = []  # Safe default in case load_awards() fails
         self._is_deleting = False  # Guard flag to block selection signal during delete
+        self.flat_view = False
         self.init_ui()
         self.award_updated.connect(self.refresh_award_list)
         self.load_awards()
@@ -83,6 +85,18 @@ class AwardView(QWidget):
         # Award tree
         list_group = QGroupBox("Awards")
         list_layout = QVBoxLayout(list_group)
+
+        list_header_layout = QHBoxLayout()
+        list_header_layout.addStretch()
+        self.flat_view_button = QPushButton("Flat View")
+        self.flat_view_button.setCheckable(True)
+        self.flat_view_button.setChecked(False)
+        self.flat_view_button.setToolTip(
+            "Toggle between the hierarchical tree and a flat list"
+        )
+        self.flat_view_button.clicked.connect(self.toggle_flat_view)
+        list_header_layout.addWidget(self.flat_view_button)
+        list_layout.addLayout(list_header_layout)
 
         self.award_tree = QTreeWidget()
         self.award_tree.setMinimumWidth(300)
@@ -204,9 +218,34 @@ class AwardView(QWidget):
             self.year_filter.blockSignals(False)
             self.category_filter.blockSignals(False)
 
+    def toggle_flat_view(self) -> None:
+        """Toggle between the nested hierarchy and a flat list."""
+        self.flat_view = self.flat_view_button.isChecked()
+        self.flat_view_button.setText("Tree View" if self.flat_view else "Flat View")
+        # Drag-and-drop reparenting doesn't make sense against a flat list.
+        self.award_tree.setDragEnabled(not self.flat_view)
+        self._populate_award_list(self.all_awards)
+
+    @staticmethod
+    def _award_display_text(award: Any) -> str:
+        """Display text with year and category if available."""
+        display_text = award.award_name
+        if award.award_year:
+            display_text = f"[{award.award_year}] {display_text}"
+        if award.award_category:
+            display_text = f"{display_text} - {award.award_category}"
+        return display_text
+
     def _populate_award_list(self, awards: List[Any]) -> None:
         """Populate the award tree widget with award data in hierarchical structure."""
         self.award_tree.clear()
+
+        if self.flat_view:
+            # `awards` is already sorted (year desc, then name) by load_awards().
+            for award in awards:
+                item = QTreeWidgetItem(self.award_tree, [self._award_display_text(award)])
+                item.setData(0, Qt.UserRole, award.award_id)
+            return
 
         # Create a dictionary to store awards by parent_id
         awards_by_parent = {}
@@ -222,14 +261,7 @@ class AwardView(QWidget):
 
         # Helper function to recursively build tree
         def add_award_to_tree(parent_item, award):
-            # Create display text with year and category if available
-            display_text = award.award_name
-            if award.award_year:
-                display_text = f"[{award.award_year}] {display_text}"
-            if award.award_category:
-                display_text = f"{display_text} - {award.award_category}"
-
-            item = QTreeWidgetItem(parent_item, [display_text])
+            item = QTreeWidgetItem(parent_item, [self._award_display_text(award)])
             item.setData(0, Qt.UserRole, award.award_id)
 
             # Add children if any

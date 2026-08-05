@@ -29,6 +29,7 @@ class PublisherTreeWidget(QTreeWidget):
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
+        self.flat_view = False
         self.setHeaderHidden(False)
         self.setColumnCount(2)
         self.setHeaderLabels(["Publisher", "Albums"])
@@ -67,45 +68,42 @@ class PublisherTreeWidget(QTreeWidget):
 
         recursive_counts = self.calculate_recursive_album_counts(publishers)
 
-        # Create dictionaries for hierarchy
-        publisher_dict = {}
-        root_items = []
+        if self.flat_view:
+            root_items = [
+                self._make_publisher_item(
+                    publisher, recursive_counts.get(publisher.publisher_id, 0)
+                )
+                for publisher in sorted(
+                    publishers, key=lambda p: (p.publisher_name or "").lower()
+                )
+            ]
+        else:
+            # Create dictionaries for hierarchy
+            publisher_dict = {}
+            root_items = []
 
-        # First pass: create all items with recursive track count
-        for publisher in publishers:
-            album_count = recursive_counts.get(publisher.publisher_id, 0)
-            item = QTreeWidgetItem()
-            name = publisher.publisher_name
-            if publisher.MBID:
-                name = f"{name} \U0001f517"
-                item.setToolTip(0, "Linked to MusicBrainz")
-            item.setText(0, name)
-            if publisher.is_fixed:
-                item.setIcon(0, icon("checkmark.svg"))
-            item.setFlags(item.flags() | Qt.ItemIsEditable)
-            item.setData(1, Qt.DisplayRole, album_count)
-            item.setData(0, Qt.UserRole, publisher.publisher_id)
-            item.setData(0, self._MBID_ROLE, bool(publisher.MBID))
-            item.setData(0, self._FIXED_ROLE, bool(publisher.is_fixed))
+            # First pass: create all items with recursive track count
+            for publisher in publishers:
+                album_count = recursive_counts.get(publisher.publisher_id, 0)
+                item = self._make_publisher_item(publisher, album_count)
+                publisher_dict[publisher.publisher_id] = {
+                    "item": item,
+                    "publisher": publisher,
+                }
 
-            publisher_dict[publisher.publisher_id] = {
-                "item": item,
-                "publisher": publisher,
-            }
+            # Second pass: build hierarchy
+            for publisher_id, data in publisher_dict.items():
+                publisher = data["publisher"]
+                item = data["item"]
 
-        # Second pass: build hierarchy
-        for publisher_id, data in publisher_dict.items():
-            publisher = data["publisher"]
-            item = data["item"]
-
-            if publisher.parent_id is None:
-                root_items.append(item)
-            else:
-                parent_data = publisher_dict.get(publisher.parent_id)
-                if parent_data:
-                    parent_data["item"].addChild(item)
-                else:
+                if publisher.parent_id is None:
                     root_items.append(item)
+                else:
+                    parent_data = publisher_dict.get(publisher.parent_id)
+                    if parent_data:
+                        parent_data["item"].addChild(item)
+                    else:
+                        root_items.append(item)
 
         # Add root items
         self.addTopLevelItems(root_items)
@@ -118,6 +116,31 @@ class PublisherTreeWidget(QTreeWidget):
         # --- Restore scroll position ---
         if scrollbar:
             scrollbar.setValue(scroll_value)
+
+    def toggle_flat_view(self):
+        """Toggle between the nested hierarchy and a flat alphabetical list."""
+        self.flat_view = not self.flat_view
+        # Drag-and-drop reparenting doesn't make sense against a flat,
+        # always-sorted list.
+        self.setDragEnabled(not self.flat_view)
+        self.load_publishers()
+
+    def _make_publisher_item(self, publisher, album_count):
+        """Build a single publisher's tree item, shared by the tree and flat builders."""
+        item = QTreeWidgetItem()
+        name = publisher.publisher_name
+        if publisher.MBID:
+            name = f"{name} \U0001f517"
+            item.setToolTip(0, "Linked to MusicBrainz")
+        item.setText(0, name)
+        if publisher.is_fixed:
+            item.setIcon(0, icon("checkmark.svg"))
+        item.setFlags(item.flags() | Qt.ItemIsEditable)
+        item.setData(1, Qt.DisplayRole, album_count)
+        item.setData(0, Qt.UserRole, publisher.publisher_id)
+        item.setData(0, self._MBID_ROLE, bool(publisher.MBID))
+        item.setData(0, self._FIXED_ROLE, bool(publisher.is_fixed))
+        return item
 
     def keyPressEvent(self, event):
         """Trigger delete when the Delete key is pressed."""

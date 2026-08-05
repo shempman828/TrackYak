@@ -73,6 +73,7 @@ class PlaylistView(QWidget):
         self.controller = controller
         self.open_playlist_windows = {}
         self.selected_item: Optional[QTreeWidgetItem] = None
+        self.flat_view = False
         self.exporter = PlaylistExporter(self.controller, parent_widget=self)
         self.init_ui()
         self.load_playlists()
@@ -96,9 +97,18 @@ class PlaylistView(QWidget):
         self.btn_export = QPushButton("Export")
         self.btn_export.clicked.connect(self.export_selected_playlist)
 
+        self.flat_view_button = QPushButton("Flat View")
+        self.flat_view_button.setCheckable(True)
+        self.flat_view_button.setChecked(False)
+        self.flat_view_button.setToolTip(
+            "Toggle between the hierarchical tree and a flat alphabetical list"
+        )
+        self.flat_view_button.clicked.connect(self.toggle_flat_view)
+
         button_layout.addWidget(self.btn_new)
         button_layout.addWidget(self.btn_smart)
         button_layout.addStretch()
+        button_layout.addWidget(self.flat_view_button)
         button_layout.addWidget(self.btn_export)
         main_layout.addLayout(button_layout)
 
@@ -168,8 +178,11 @@ class PlaylistView(QWidget):
                 parent_id = getattr(playlist, "parent_id", None)
                 children_map[parent_id].append(playlist)
 
-            # Build tree recursively from root (None parent)
-            self._build_tree(None, children_map, 0)
+            if self.flat_view:
+                self._build_flat(playlists)
+            else:
+                # Build tree recursively from root (None parent)
+                self._build_tree(None, children_map, 0)
 
             # Restore the expanded state from before the rebuild
             self._restore_expanded_ids(expanded_ids)
@@ -417,6 +430,31 @@ class PlaylistView(QWidget):
         if "·" in item.text(1):
             item.setToolTip(1, "Own tracks · total including sub-playlists")
 
+    def toggle_flat_view(self) -> None:
+        """Toggle between the nested hierarchy and a flat alphabetical list."""
+        self.flat_view = self.flat_view_button.isChecked()
+        self.flat_view_button.setText("Tree View" if self.flat_view else "Flat View")
+        # Drag-and-drop reparenting doesn't make sense against a flat,
+        # always-sorted list.
+        self.tree.setDragEnabled(not self.flat_view)
+        self.load_playlists()
+
+    def _make_playlist_item(self, playlist, depth):
+        """Build a single playlist's tree item, shared by the tree and flat builders."""
+        display_name = self._format_playlist_name(playlist)
+        count_text = self._format_track_count(playlist)
+
+        item = QTreeWidgetItem([display_name, count_text])
+        item.setData(0, Qt.UserRole, ("playlist", playlist.playlist_id))
+        item.setFlags(item.flags() | Qt.ItemIsEditable)
+
+        # Store whether this is a smart playlist for context menu checks
+        item.setData(0, Qt.UserRole + 1, getattr(playlist, "is_smart", False))
+
+        item.setIcon(0, icon_for_depth(depth))
+        self._style_count_cell(item)
+        return item
+
     def _build_tree(self, parent_item, children_map, depth):
         """Recursively build playlist tree with smart playlist symbols."""
         parent_id = parent_item.data(0, Qt.UserRole)[1] if parent_item else None
@@ -427,18 +465,7 @@ class PlaylistView(QWidget):
         )
 
         for child in children:
-            display_name = self._format_playlist_name(child)
-            count_text = self._format_track_count(child)
-
-            item = QTreeWidgetItem([display_name, count_text])
-            item.setData(0, Qt.UserRole, ("playlist", child.playlist_id))
-            item.setFlags(item.flags() | Qt.ItemIsEditable)
-
-            # Store whether this is a smart playlist for context menu checks
-            item.setData(0, Qt.UserRole + 1, getattr(child, "is_smart", False))
-
-            item.setIcon(0, icon_for_depth(depth))
-            self._style_count_cell(item)
+            item = self._make_playlist_item(child, depth)
 
             if parent_item:
                 parent_item.addChild(item)
@@ -448,6 +475,14 @@ class PlaylistView(QWidget):
             # Recursively add children
             if depth < self.MAX_HIERARCHY_DEPTH:
                 self._build_tree(item, children_map, depth + 1)
+
+    def _build_flat(self, playlists) -> None:
+        """Populate the tree as a single alphabetical list with no nesting."""
+        for playlist in sorted(
+            playlists, key=lambda x: getattr(x, "playlist_name", "").lower()
+        ):
+            item = self._make_playlist_item(playlist, 0)
+            self.tree.addTopLevelItem(item)
 
     def _cleanup_editor(self, editor) -> None:
         """Remove reference to closed editor."""
