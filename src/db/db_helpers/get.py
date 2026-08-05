@@ -91,11 +91,9 @@ class GetFromDB(BaseDBHelper):
                     case "gte":
                         stmt = stmt.where(column >= value)
                     case "isnull":
-                        stmt = stmt.where(
-                            column.is_(None) if value else column.is_not(None)
-                        )
+                        stmt = stmt.where(column == None if value else column != None)
                     case "notnull":
-                        stmt = stmt.where(column.is_not(None))
+                        stmt = stmt.where(column != None)
                     case "lte":
                         stmt = stmt.where(column <= value)
                     case "range":
