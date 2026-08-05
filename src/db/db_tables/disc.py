@@ -18,7 +18,7 @@ class Disc(Base):
     disc_number = Column(Integer, nullable=False)
     disc_title = Column(String)
 
-    album = relationship("Album", backref="discs")
+    album = relationship("Album", back_populates="discs")
     tracks = relationship(
         "Track",
         backref="disc",
