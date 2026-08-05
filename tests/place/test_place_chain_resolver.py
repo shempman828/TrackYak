@@ -188,6 +188,45 @@ def test_name_match_stops_climbing_once_it_reaches_a_real_mbid_anchor():
     assert all(p.place_name != "United States" for p in controller._places)
 
 
+def test_name_only_match_backfills_missing_coordinates():
+    """A&M Studios exists locally by name only, with no coordinates on file.
+    The freshly-resolved MusicBrainz node for it does carry coordinates, so
+    the existing row should have them backfilled rather than left NULL."""
+    existing_studio = _FakePlace(
+        place_id=1,
+        place_name="A&M Studios",
+        MBID=None,
+        place_latitude=None,
+        place_longitude=None,
+    )
+    controller = _StubController([existing_studio])
+
+    resolve_place_chain(controller, CHAIN, {})
+
+    assert existing_studio.MBID == "mbid-studio"
+    assert existing_studio.place_latitude == 34.09
+    assert existing_studio.place_longitude == -118.36
+
+
+def test_name_only_match_does_not_overwrite_existing_coordinates():
+    """If the local row already has coordinates (e.g. hand-entered), a
+    later MusicBrainz name match must not clobber them."""
+    existing_studio = _FakePlace(
+        place_id=1,
+        place_name="A&M Studios",
+        MBID=None,
+        place_latitude=1.23,
+        place_longitude=4.56,
+    )
+    controller = _StubController([existing_studio])
+
+    resolve_place_chain(controller, CHAIN, {})
+
+    assert existing_studio.MBID == "mbid-studio"
+    assert existing_studio.place_latitude == 1.23
+    assert existing_studio.place_longitude == 4.56
+
+
 def test_name_match_with_conflicting_mbid_is_not_merged():
     """A same-named row that already has a *different* MBID is a distinct
     real-world place (or a rare id reassignment) -- it must not be reused,
