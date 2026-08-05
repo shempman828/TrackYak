@@ -22,6 +22,10 @@ from src.db.db_tables import AlbumPublisher
 class PublisherTreeWidget(QTreeWidget):
     """Modern tree widget for publishers with drag-and-drop and sorting."""
 
+    # Extra data roles for filter criteria, alongside Qt.UserRole (publisher_id)
+    _MBID_ROLE = Qt.UserRole + 1
+    _FIXED_ROLE = Qt.UserRole + 2
+
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
@@ -81,6 +85,8 @@ class PublisherTreeWidget(QTreeWidget):
             item.setFlags(item.flags() | Qt.ItemIsEditable)
             item.setData(1, Qt.DisplayRole, album_count)
             item.setData(0, Qt.UserRole, publisher.publisher_id)
+            item.setData(0, self._MBID_ROLE, bool(publisher.MBID))
+            item.setData(0, self._FIXED_ROLE, bool(publisher.is_fixed))
 
             publisher_dict[publisher.publisher_id] = {
                 "item": item,
@@ -204,23 +210,40 @@ class PublisherTreeWidget(QTreeWidget):
             iterator += 1
         return count
 
-    def filter_items(self, search_text):
-        """Filter tree items based on search text."""
+    def filter_items(self, search_text, mbid_filter="Any", fixed_filter="Any"):
+        """Filter tree items based on search text, MusicBrainz link status, and fixed status.
 
-        def filter_item(item, text):
-            text_lower = text.lower()
-            item_text_lower = item.text(0).lower()
-            matches = text_lower in item_text_lower
+        An item is shown if it matches all active criteria itself, or if any
+        descendant does (so ancestors of a match stay visible for context).
+        """
+        text_lower = search_text.lower()
+        has_criteria = bool(search_text) or mbid_filter != "Any" or fixed_filter != "Any"
+
+        def item_matches(item):
+            if text_lower and text_lower not in item.text(0).lower():
+                return False
+            if mbid_filter == "Linked" and not item.data(0, self._MBID_ROLE):
+                return False
+            if mbid_filter == "Not Linked" and item.data(0, self._MBID_ROLE):
+                return False
+            if fixed_filter == "Fixed" and not item.data(0, self._FIXED_ROLE):
+                return False
+            if fixed_filter == "Not Fixed" and item.data(0, self._FIXED_ROLE):
+                return False
+            return True
+
+        def filter_item(item):
+            matches = item_matches(item)
 
             child_matches = False
             for i in range(item.childCount()):
-                if filter_item(item.child(i), text):
+                if filter_item(item.child(i)):
                     child_matches = True
 
             should_show = matches or child_matches
             item.setHidden(not should_show)
 
-            if text and should_show:
+            if has_criteria and should_show:
                 item.setExpanded(True)
                 parent = item.parent()
                 while parent:
@@ -230,7 +253,7 @@ class PublisherTreeWidget(QTreeWidget):
             return should_show
 
         for i in range(self.topLevelItemCount()):
-            filter_item(self.topLevelItem(i), search_text)
+            filter_item(self.topLevelItem(i))
 
     def startDrag(self, supportedActions):
         """Start drag operation for parent-child relationships."""

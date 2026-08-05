@@ -1,7 +1,9 @@
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMenu,
@@ -45,11 +47,28 @@ class PublisherView(QWidget):
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
 
-        # Search bar
+        # Filter bar: search box + MusicBrainz/fixed status combos
+        filter_bar = QHBoxLayout()
+
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("Search publishers...")
+        self.search_bar.setClearButtonEnabled(True)
         self.search_bar.textChanged.connect(self.filter_publishers)
-        left_layout.addWidget(self.search_bar)
+        filter_bar.addWidget(self.search_bar, stretch=1)
+
+        self.mbid_combo = QComboBox()
+        self.mbid_combo.addItems(["Any", "Linked", "Not Linked"])
+        self.mbid_combo.setToolTip("Filter by MusicBrainz link status")
+        self.mbid_combo.currentTextChanged.connect(self.filter_publishers)
+        filter_bar.addWidget(self.mbid_combo)
+
+        self.fixed_combo = QComboBox()
+        self.fixed_combo.addItems(["Any", "Fixed", "Not Fixed"])
+        self.fixed_combo.setToolTip("Filter by fixed status")
+        self.fixed_combo.currentTextChanged.connect(self.filter_publishers)
+        filter_bar.addWidget(self.fixed_combo)
+
+        left_layout.addLayout(filter_bar)
 
         # Count label — shows "N publishers" or "Showing X of Y" while filtering
         self.count_label = QLabel()
@@ -499,7 +518,11 @@ class PublisherView(QWidget):
             publisher_id = item.data(0, Qt.UserRole)
             self.detail_tab.load_publisher_data(publisher_id)
 
-    def filter_publishers(self, text):
-        """Filter publishers based on search text."""
-        self.publishers_tree.filter_items(text)
+    def filter_publishers(self, *_args):
+        """Filter publishers based on search text, MBID link status, and fixed status."""
+        self.publishers_tree.filter_items(
+            self.search_bar.text(),
+            self.mbid_combo.currentText(),
+            self.fixed_combo.currentText(),
+        )
         self._update_count_label()
