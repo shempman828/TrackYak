@@ -1,50 +1,45 @@
 """
-Global manager for Religion rows: rename, describe, set parent, add, and
-delete the shared religion/denomination vocabulary usable across all artists,
-independent of any single artist's edit dialog.
+Global manager for Religion rows: rename, describe, reparent (via drag-and-drop),
+add, and delete the shared religion/denomination vocabulary usable across all
+artists, independent of any single artist's edit dialog.
 """
+
+from collections import defaultdict
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QComboBox,
     QDialog,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
     QMessageBox,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
 )
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.hierarchy_tree_style import (
+    collect_expanded_ids,
+    icon_for_depth,
+    is_hierarchy_descendant,
+    restore_expanded_ids_or_expand_all,
+)
 from src.core.logger_config import logger
 from src.db.db_tables import Artist
 
 _NAME_COL = 0
-_PARENT_COL = 1
-_DESC_COL = 2
-_COUNT_COL = 3
-
-
-def _valid_parents(all_religions, religion):
-    """Every religion except itself and its direct children -- doesn't walk
-    the full descendant subtree, matching the same known limitation as
-    genre_edit.get_valid_parents."""
-    child_ids = {r.religion_id for r in all_religions if r.parent_id == religion.religion_id}
-    return [
-        r
-        for r in all_religions
-        if r.religion_id != religion.religion_id and r.religion_id not in child_ids
-    ]
+_DESC_COL = 1
+_COUNT_COL = 2
 
 
 class ReligionManagerDialog(QDialog):
-    """Table of every Religion in the library with inline rename/description
-    editing, parent selection, add, and delete."""
+    """Tree of every Religion in the library, nested by parent/child, with
+    inline rename/description editing, drag-and-drop reparenting, add, and
+    delete."""
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
@@ -57,27 +52,25 @@ class ReligionManagerDialog(QDialog):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(
-            ["Name", "Parent", "Description", "# Artists"]
-        )
-        self._table.horizontalHeader().setSectionResizeMode(
-            _NAME_COL, QHeaderView.ResizeToContents
-        )
-        self._table.horizontalHeader().setSectionResizeMode(
-            _PARENT_COL, QHeaderView.ResizeToContents
-        )
-        self._table.horizontalHeader().setSectionResizeMode(
-            _DESC_COL, QHeaderView.Stretch
-        )
-        self._table.horizontalHeader().setSectionResizeMode(
-            _COUNT_COL, QHeaderView.ResizeToContents
-        )
-        self._table.verticalHeader().setVisible(False)
-        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self._table.setAlternatingRowColors(True)
-        self._table.itemChanged.connect(self._on_item_changed)
-        layout.addWidget(self._table)
+        self._tree = QTreeWidget()
+        self._tree.setColumnCount(3)
+        self._tree.setHeaderLabels(["Name", "Description", "# Artists"])
+        header = self._tree.header()
+        header.setSectionResizeMode(_NAME_COL, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(_DESC_COL, QHeaderView.Stretch)
+        header.setSectionResizeMode(_COUNT_COL, QHeaderView.ResizeToContents)
+        self._tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self._tree.setAlternatingRowColors(True)
+        self._tree.setAnimated(True)
+        self._tree.setDragEnabled(True)
+        self._tree.setAcceptDrops(True)
+        self._tree.setDropIndicatorShown(True)
+        self._tree.setDragDropMode(QAbstractItemView.InternalMove)
+        self._tree.itemChanged.connect(self._on_item_changed)
+        # Wrapper to keep `self` context inside the drop event, same trick
+        # used by the Role/Genre/Mood hierarchy trees.
+        self._tree.dropEvent = lambda event: self._on_drop_event(event)
+        layout.addWidget(self._tree)
 
         btn_row = QHBoxLayout()
         add_btn = QPushButton("Add Religion")
@@ -111,7 +104,10 @@ class ReligionManagerDialog(QDialog):
             return {}
 
     def _load(self):
-        self._table.blockSignals(True)
+        expanded_ids = collect_expanded_ids(self._tree)
+        is_initial_load = self._tree.topLevelItemCount() == 0
+
+        self._tree.blockSignals(True)
         try:
             self._religions = sorted(
                 self.controller.get.get_all_entities("Religion") or [],
@@ -119,52 +115,47 @@ class ReligionManagerDialog(QDialog):
             )
             counts = self._fetch_counts()
 
-            self._table.setRowCount(len(self._religions))
-            for row, r in enumerate(self._religions):
-                name_item = QTableWidgetItem(r.religion_name)
-                name_item.setData(Qt.UserRole, r.religion_id)
-                self._table.setItem(row, _NAME_COL, name_item)
+            religion_ids = {r.religion_id for r in self._religions}
+            children_map = defaultdict(list)
+            for r in self._religions:
+                parent_key = r.parent_id if r.parent_id in religion_ids else None
+                children_map[parent_key].append(r)
 
-                self._table.setCellWidget(row, _PARENT_COL, self._build_parent_combo(r))
+            self._tree.clear()
+            self._build_level(None, children_map, counts, 0, None)
 
-                self._table.setItem(
-                    row, _DESC_COL, QTableWidgetItem(r.description or "")
-                )
-
-                count_item = QTableWidgetItem(str(counts.get(r.religion_id, 0)))
-                count_item.setFlags(count_item.flags() & ~Qt.ItemIsEditable)
-                self._table.setItem(row, _COUNT_COL, count_item)
+            restore_expanded_ids_or_expand_all(self._tree, expanded_ids, is_initial_load)
         finally:
-            self._table.blockSignals(False)
+            self._tree.blockSignals(False)
 
-    def _build_parent_combo(self, religion):
-        combo = QComboBox()
-        combo.addItem("(No parent)", None)
-        for candidate in sorted(
-            _valid_parents(self._religions, religion), key=lambda r: r.religion_name.lower()
-        ):
-            combo.addItem(candidate.religion_name, candidate.religion_id)
-        idx = combo.findData(religion.parent_id)
-        combo.setCurrentIndex(max(idx, 0))
-        combo.currentIndexChanged.connect(
-            lambda _idx, rid=religion.religion_id, cb=combo: self._on_parent_changed(rid, cb)
-        )
-        return combo
+    def _build_level(self, parent_id, children_map, counts, depth, parent_item):
+        for r in sorted(children_map.get(parent_id, []), key=lambda r: r.religion_name.lower()):
+            item = self._make_item(r, depth, counts)
+            if parent_item is None:
+                self._tree.addTopLevelItem(item)
+            else:
+                parent_item.addChild(item)
+            self._build_level(r.religion_id, children_map, counts, depth + 1, item)
 
-    def _on_parent_changed(self, religion_id, combo):
-        self.controller.update.update_entity(
-            "Religion", religion_id, parent_id=combo.currentData()
-        )
+    def _make_item(self, religion, depth, counts) -> QTreeWidgetItem:
+        item = QTreeWidgetItem()
+        item.setText(_NAME_COL, religion.religion_name)
+        item.setText(_DESC_COL, religion.description or "")
+        item.setText(_COUNT_COL, str(counts.get(religion.religion_id, 0)))
+        item.setData(_NAME_COL, Qt.UserRole, religion.religion_id)
+        item.setIcon(_NAME_COL, icon_for_depth(depth))
+        item.setFlags(item.flags() | Qt.ItemIsEditable)
+        return item
 
     # ── Editing ───────────────────────────────────────────────────────────
 
-    def _on_item_changed(self, item: QTableWidgetItem):
-        row = item.row()
-        name_item = self._table.item(row, _NAME_COL)
-        religion_id = name_item.data(Qt.UserRole)
+    def _on_item_changed(self, item: QTreeWidgetItem, column: int):
+        religion_id = item.data(_NAME_COL, Qt.UserRole)
+        if religion_id is None:
+            return
 
-        if item.column() == _NAME_COL:
-            new_name = item.text().strip()
+        if column == _NAME_COL:
+            new_name = item.text(_NAME_COL).strip()
             if not new_name:
                 QMessageBox.warning(self, "Invalid Name", "Religion name cannot be empty.")
                 self._load()
@@ -186,10 +177,57 @@ class ReligionManagerDialog(QDialog):
                 "Religion", religion_id, religion_name=new_name
             )
 
-        elif item.column() == _DESC_COL:
+        elif column == _DESC_COL:
             self.controller.update.update_entity(
-                "Religion", religion_id, description=item.text().strip() or None
+                "Religion", religion_id, description=item.text(_DESC_COL).strip() or None
             )
+
+        elif column == _COUNT_COL:
+            # Not a user-editable field; discard any accidental edit.
+            self._load()
+
+    def _on_drop_event(self, event):
+        """Reparent the dragged religion(s) onto whatever item they're dropped
+        on (or to the root if dropped on empty space)."""
+        selected_items = self._tree.selectedItems()
+        if not selected_items:
+            event.ignore()
+            return
+
+        target_item = self._tree.itemAt(event.pos())
+        new_parent_id = target_item.data(_NAME_COL, Qt.UserRole) if target_item else None
+
+        try:
+            moved_any = False
+            for item in selected_items:
+                religion_id = item.data(_NAME_COL, Qt.UserRole)
+                if religion_id is None or religion_id == new_parent_id:
+                    continue
+
+                if is_hierarchy_descendant(
+                    religion_id, new_parent_id, self._religions, id_attr="religion_id"
+                ):
+                    QMessageBox.warning(
+                        self,
+                        "Invalid Move",
+                        f"Moving '{item.text(_NAME_COL)}' there would create a "
+                        "circular reference in the hierarchy.",
+                    )
+                    continue
+
+                self.controller.update.update_entity(
+                    "Religion", religion_id, parent_id=new_parent_id
+                )
+                moved_any = True
+
+            if moved_any:
+                self._load()
+                event.accept()
+            else:
+                event.ignore()
+        except SQLAlchemyError as e:
+            logger.error(f"Error moving religion: {e!s}")
+            event.ignore()
 
     def _add_religion(self):
         name, ok = QInputDialog.getText(self, "Add Religion", "Name:")
@@ -208,20 +246,17 @@ class ReligionManagerDialog(QDialog):
         self._load()
 
     def _delete_selected(self):
-        rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
-        if not rows:
+        items = self._tree.selectedItems()
+        if not items:
             QMessageBox.information(
                 self, "Delete Religion", "Select one or more religions first."
             )
             return
 
-        entries = []
-        for row in rows:
-            name_item = self._table.item(row, _NAME_COL)
-            count_item = self._table.item(row, _COUNT_COL)
-            entries.append(
-                (name_item.data(Qt.UserRole), name_item.text(), count_item.text())
-            )
+        entries = [
+            (item.data(_NAME_COL, Qt.UserRole), item.text(_NAME_COL), item.text(_COUNT_COL))
+            for item in items
+        ]
 
         lines = [f"• {name} ({count} artist(s))" for _id, name, count in entries]
         reply = QMessageBox.question(
