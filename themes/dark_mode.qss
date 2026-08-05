@@ -193,6 +193,21 @@ QListWidget#splitList::item {
     border-radius: 0;
 }
 
+/* Same stacking problem, more general case: any inline rename editor (F2 /
+   double-click on genre, role, religion, publisher, playlist trees, ...) is
+   a plain QLineEdit that Qt drops into the item's existing row rect. The
+   generic QLineEdit rule's padding + double border below is sized for a
+   standalone field, not for squeezing into a row that already reserves only
+   the item padding above — stacked together they clip the text being edited.
+   Trim the editor's own chrome so it fits the row instead of fighting it. */
+QTreeView QLineEdit,
+QListView QLineEdit,
+QTableView QLineEdit {
+    padding: 1px 2px;
+    border: 1px solid rgba(133, 153, 234, 0.6);
+    border-radius: 2px;
+}
+
 QListView::item:hover,
 QTreeView::item:hover {
     background-color: rgba(234, 133, 153, 0.12);

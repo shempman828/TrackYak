@@ -138,6 +138,18 @@ QListWidget#splitList::item {
     border-radius: 0;
 }
 
+/* Same stacking problem, more general case: any inline rename editor (F2 /
+   double-click on genre, role, religion, publisher, playlist trees, ...) is
+   a plain QLineEdit that Qt drops into the item's existing row rect. Trim
+   the editor's own chrome so it fits the row instead of fighting it. */
+QTreeView QLineEdit,
+QListView QLineEdit,
+QTableView QLineEdit {
+    padding: 1px 2px;
+    border: 1px solid #ea8599;
+    border-radius: 2px;
+}
+
 QListWidget::item:hover,
 QTreeWidget::item:hover {
     background-color: #ea8599;
