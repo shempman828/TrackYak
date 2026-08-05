@@ -47,6 +47,12 @@ class Album(Base):
         order_by="AlbumRoleAssociation.sort_order, AlbumRoleAssociation.association_id",
     )
     tracks = relationship("Track", back_populates="album")
+    discs = relationship(
+        "Disc",
+        back_populates="album",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     publisher_associations = relationship(
         "AlbumPublisher",
         back_populates="album",
