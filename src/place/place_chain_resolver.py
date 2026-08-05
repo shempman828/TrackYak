@@ -24,7 +24,8 @@ def resolve_place_chain(
     genuine MBID match is trusted enough to stop the walk -- it means this
     exact place was resolved before, so its own ancestry is assumed already
     correct. A *name*-only match (no MBID on file -- e.g. a manually-entered
-    stub) does NOT stop the walk: its MBID gets backfilled, but climbing
+    stub) does NOT stop the walk: its MBID (and any missing coordinates) get
+    backfilled, but climbing
     continues, since a name-only row isn't trusted to already have its own
     parent wired up correctly. The walk ends when it hits a real MBID match,
     or runs off the top of the chain (no more parent areas in MusicBrainz).
@@ -65,8 +66,14 @@ def resolve_place_chain(
                 None,
             )
             if match is not None:
-                controller.update.update_entity("Place", match.place_id, MBID=mbid)
-                match.MBID = mbid
+                updates: dict[str, Any] = {"MBID": mbid}
+                if match.place_latitude is None and node.get("latitude") is not None:
+                    updates["place_latitude"] = node["latitude"]
+                if match.place_longitude is None and node.get("longitude") is not None:
+                    updates["place_longitude"] = node["longitude"]
+                controller.update.update_entity("Place", match.place_id, **updates)
+                for field, value in updates.items():
+                    setattr(match, field, value)
                 cache[mbid] = match
                 name_matches[i] = match
         # No MBID match and no name match: this level gets created in phase 2.
