@@ -51,38 +51,41 @@ class _PublisherMergeWorker(CancellableWorker):
         success_count = 0
         errors: list[str] = []
 
-        for idx, (old_publisher, new_publisher) in enumerate(self.jobs):
-            try:
-                logger.info(
-                    f"Merging {old_publisher.publisher_name} (ID: {old_publisher.publisher_id}) "
-                    f"into {new_publisher.publisher_name} (ID: {new_publisher.publisher_id})"
-                )
-                merged = self.controller.merge.merge_entities(
-                    "Publisher",
-                    old_publisher.publisher_id,
-                    new_publisher.publisher_id,
-                )
-                if merged:
-                    success_count += 1
-                else:
+        try:
+            for idx, (old_publisher, new_publisher) in enumerate(self.jobs):
+                try:
+                    logger.info(
+                        f"Merging {old_publisher.publisher_name} (ID: {old_publisher.publisher_id}) "
+                        f"into {new_publisher.publisher_name} (ID: {new_publisher.publisher_id})"
+                    )
+                    merged = self.controller.merge.merge_entities(
+                        "Publisher",
+                        old_publisher.publisher_id,
+                        new_publisher.publisher_id,
+                    )
+                    if merged:
+                        success_count += 1
+                    else:
+                        msg = (
+                            f"Failed to merge {old_publisher.publisher_name} → "
+                            f"{new_publisher.publisher_name}: merge_entities returned False"
+                        )
+                        logger.error(msg)
+                        errors.append(msg)
+                except Exception as e:
+                    # Intentional broad boundary catch: this runs on a QThread and
+                    # merge_entities can fail in many ways per pair — one bad pair
+                    # must not kill the whole batch, so log and keep going.
                     msg = (
                         f"Failed to merge {old_publisher.publisher_name} → "
-                        f"{new_publisher.publisher_name}: merge_entities returned False"
+                        f"{new_publisher.publisher_name}: {e}"
                     )
-                    logger.error(msg)
+                    logger.exception(msg)
                     errors.append(msg)
-            except Exception as e:
-                # Intentional broad boundary catch: this runs on a QThread and
-                # merge_entities can fail in many ways per pair — one bad pair
-                # must not kill the whole batch, so log and keep going.
-                msg = (
-                    f"Failed to merge {old_publisher.publisher_name} → "
-                    f"{new_publisher.publisher_name}: {e}"
-                )
-                logger.exception(msg)
-                errors.append(msg)
 
-            self.progress.emit(idx + 1, total)
+                self.progress.emit(idx + 1, total)
+        finally:
+            self._release_db_session()
 
         self.finished.emit(success_count, total, errors)
 
