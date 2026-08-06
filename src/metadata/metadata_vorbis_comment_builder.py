@@ -162,9 +162,18 @@ class VorbisCommentBuilder:
         # MusicBrainz Picard convention: alongside the display name, also
         # write a stable per-artist ID tag so re-imports can resolve identity
         # even when the display name is an alias override, not the artist's
-        # canonical name. Only ARTIST/ALBUMARTIST have a standard ID
-        # counterpart; other roles don't get one.
+        # canonical name. ARTIST/ALBUMARTIST use Picard's standard tag
+        # names; every other role gets an analogous MUSICBRAINZ_{ROLE}ID
+        # tag so each artist credit's mbid is encoded whenever the artist
+        # has one.
         ID_TAG_MAP = {"ARTIST": "MUSICBRAINZ_ARTISTID", "ALBUMARTIST": "MUSICBRAINZ_ALBUMARTISTID"}
+        ID_TAG_MAP.update(
+            {
+                tag: f"MUSICBRAINZ_{tag}ID"
+                for tag in ROLE_TO_TAG.values()
+                if tag not in ID_TAG_MAP
+            }
+        )
 
         all_artist_data = artists_with_roles + album_artists_with_roles
         artists_by_tag, mbids_by_tag = group_artists_by_tag(
