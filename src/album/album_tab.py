@@ -35,6 +35,28 @@ from src.album.album_flowlayout import FlowLayout
 from src.common.entity_completer_edit import build_entity_search_widget
 from src.core.logger_config import logger
 
+# Prefixes that mark a role as a variant of a base role, e.g. "Assistant
+# Producer" / "Additional Producer" are both variants of "Producer".
+_ROLE_VARIANT_PREFIXES = ("Additional ", "Assistant ")
+
+
+def _role_group_sort_key(name: str) -> tuple:
+    """Sort key grouping role variants (Additional/Assistant X) under their
+    base role X, base-role groups ordered alphabetically, "Album Artist"
+    pinned first."""
+    if name == "Album Artist":
+        return (0, "", 0, "")
+
+    base_name = name
+    variant_rank = 0
+    for prefix in _ROLE_VARIANT_PREFIXES:
+        if name.startswith(prefix) and len(name) > len(prefix):
+            base_name = name[len(prefix) :]
+            variant_rank = 1
+            break
+
+    return (1, base_name.lower(), variant_rank, name.lower())
+
 
 class _CreditFlowArea(QWidget):
     """Container for a role group's FlowLayout of credit chips.
@@ -369,9 +391,10 @@ class AlbumTabBuilder:
         # any single credit could change which role's group renders first
         # (groups "jumping around"). Pin Album Artist to the top and sort
         # the rest alphabetically instead, so group order never shifts.
-        ordered_role_names = sorted(
-            roles_by_type, key=lambda name: (name != "Album Artist", name.lower())
-        )
+        # "Additional "/"Assistant " variants (e.g. "Assistant Producer")
+        # are grouped under their base role ("Producer") rather than
+        # sorting purely alphabetically, which would scatter them.
+        ordered_role_names = sorted(roles_by_type, key=_role_group_sort_key)
 
         for role_name in ordered_role_names:
             artist_tuples = roles_by_type[role_name]
