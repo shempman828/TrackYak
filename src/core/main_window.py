@@ -604,3 +604,4 @@ class GUI(QMainWindow, MenuBar):
         self.mediaplayer.cleanup()
         if self.player_ui is not None:
             self.player_ui.cleanup()
+        self.controller.close_session()
