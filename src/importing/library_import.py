@@ -721,6 +721,8 @@ class ImportWorker(CancellableWorker):
             error_msg = f"Import worker failed: {e!s}"
             logger.exception(error_msg)
             self.error_occurred.emit(error_msg)
+        finally:
+            self._release_db_session()
 
     def _process_all_files(self) -> int:
         """Collect and process all audio files, returning successful import count."""
