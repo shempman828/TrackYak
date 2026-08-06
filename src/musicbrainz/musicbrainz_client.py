@@ -450,8 +450,25 @@ _PRODUCTION_RELATION_TYPES = {
     "programming",
     "remixer",
     "sound",
+    "recording",
 }
 _CREDIT_RELATION_TYPES = _PERFORMER_RELATION_TYPES | _PRODUCTION_RELATION_TYPES
+
+# Display name for a production relation type when its attribute-list is
+# empty (or supplies only a qualifier). Defaults to rel_type.title(), but a
+# handful of MB relation types have an internal `type` slug that differs
+# from the noun MB itself uses for the credit -- confirmed against MB's
+# relationship-type docs (reverse link phrase is the credited noun): "sound"
+# credits as "sound engineer" (#326), "mix" credits as "mixer", and
+# "recording" credits as "recording engineer" -- title-casing the type name
+# directly is only safe for the types where the slug and the credited noun
+# happen to match (producer, engineer, mastering, arranger, orchestrator,
+# conductor, programming, remixer).
+_PRODUCTION_RELATION_DISPLAY_NAMES = {
+    "sound": "Sound Engineer",
+    "mix": "Mixer",
+    "recording": "Recording Engineer",
+}
 
 # Boolean-style qualifier words MB allows on performer/instrument/vocal
 # relations alongside (not instead of) the actual instrument/vocal name --
@@ -597,9 +614,10 @@ def _relation_role_name(rel: dict[str, Any]) -> str | None:
     rel_type = rel.get("type")
     attributes = rel.get("attribute-list") or []
     if rel_type in _PRODUCTION_RELATION_TYPES:
+        base_name = _PRODUCTION_RELATION_DISPLAY_NAMES.get(rel_type, rel_type.title() if rel_type else None)
         if attributes:
-            return f"{attributes[0].title()} {rel_type.title()}"
-        return rel_type.title() if rel_type else None
+            return f"{attributes[0].title()} {base_name}"
+        return base_name
     # Performer/instrument/vocal: split out qualifier words ("additional"/
     # "guest"/"solo") from the actual instrument/vocal value(s) rather than
     # assuming attribute-list[0] is the value -- see
