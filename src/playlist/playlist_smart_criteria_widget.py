@@ -7,7 +7,6 @@ Widget for a single smart playlist criteria row.
 from datetime import datetime
 
 from PySide6.QtCore import QDate, QDateTime, Qt, Signal
-from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -17,9 +16,12 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QStyle,
+    QToolButton,
     QWidget,
 )
 
@@ -287,28 +289,32 @@ class CriteriaWidget(QWidget):
         layout.setContentsMargins(0, 2, 0, 2)
         layout.setSpacing(5)
 
-        # Field selector — grouped under bold, unselectable category headers
-        # (same pattern as AlbumView's sort combo).
-        self.field_combo = QComboBox()
-        field_model = QStandardItemModel(self.field_combo)
+        # Field selector — a combo-like button whose popup menu groups fields
+        # into a submenu per category, so picking a field is a two-click
+        # "category -> field" drill-down instead of scrolling one long list.
+        self.field_button = QToolButton()
+        self.field_button.setPopupMode(QToolButton.InstantPopup)
+        self.field_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._field_name = None
+        self.field_menu = QMenu(self.field_button)
+
         current_category = None
+        submenu = None
+        first_field_name = first_display = None
         for field_name, op_group, display, tooltip, mn, mx, category in CRITERIA_FIELDS:
             if category != current_category:
-                header = QStandardItem(category)
-                header.setFlags(Qt.NoItemFlags)
-                font = header.font()
-                font.setBold(True)
-                header.setFont(font)
-                field_model.appendRow(header)
+                submenu = self.field_menu.addMenu(category)
                 current_category = category
-            item = QStandardItem(f"    {display}")
-            item.setData(field_name, Qt.UserRole)
+            action = submenu.addAction(display)
             if tooltip:
-                item.setToolTip(tooltip)
-            field_model.appendRow(item)
-        self.field_combo.setModel(field_model)
-        self.field_combo.setCurrentIndex(1)  # skip the first category header
-        self.field_combo.currentIndexChanged.connect(self._on_field_changed)
+                action.setToolTip(tooltip)
+            action.triggered.connect(
+                lambda checked=False, fn=field_name, disp=display: self._on_field_selected(fn, disp)
+            )
+            if first_field_name is None:
+                first_field_name, first_display = field_name, display
+
+        self.field_button.setMenu(self.field_menu)
 
         # Operator selector
         self.operator_combo = QComboBox()
@@ -327,20 +333,20 @@ class CriteriaWidget(QWidget):
         delete_btn.setToolTip("Remove this criteria")
         delete_btn.clicked.connect(lambda: self.delete_requested.emit(self))
 
-        layout.addWidget(self.field_combo, 2)
+        layout.addWidget(self.field_button, 2)
         layout.addWidget(self.operator_combo, 2)
         layout.addWidget(self.value_widget, 3)
         layout.addWidget(delete_btn)
 
         # Populate initial state
-        self._on_field_changed(self.field_combo.currentIndex())
+        self._on_field_selected(first_field_name, first_display)
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
     def _current_field_name(self) -> str:
-        return self.field_combo.currentData() or ""
+        return self._field_name or ""
 
     def _current_meta(self):
         """Return (op_group, display, tooltip, min, max) for selected field."""
@@ -449,12 +455,9 @@ class CriteriaWidget(QWidget):
     # Slots
     # ------------------------------------------------------------------
 
-    def _on_field_changed(self, index):
-        if index < 0:
-            return
-        if self.field_combo.itemData(index) is None:
-            # Category header row — not selectable, ignore.
-            return
+    def _on_field_selected(self, field_name, display):
+        self._field_name = field_name
+        self.field_button.setText(display)
         self._rebuild_operator_combo()
         self._rebuild_value_widget()
 
@@ -517,11 +520,9 @@ class CriteriaWidget(QWidget):
         """
         # Set field first — this triggers operator + value widget rebuild
         field = criteria_dict.get("field")
-        if field:
-            for i in range(self.field_combo.count()):
-                if self.field_combo.itemData(i) == field:
-                    self.field_combo.setCurrentIndex(i)
-                    break
+        if field and field in self._field_meta:
+            display = self._field_meta[field][1]
+            self._on_field_selected(field, display)
 
         # Set operator (key is "comparison" in our saved format)
         operator = criteria_dict.get("comparison") or criteria_dict.get("operator")
