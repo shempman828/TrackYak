@@ -760,22 +760,29 @@ class AudioCalculations:
             diff = np.diff(smooth_env)
             diff = np.maximum(diff, 0.0)  # only rises
 
-            # Normalise diff by local envelope level
-            normalised = diff / (smooth_env[:-1] + 1e-9)
-
-            # Find actual onset peaks — real transients are rare events, not
-            # the top 5 % of all frames, so a blanket percentile mostly picks
-            # up noise instead of attacks.
-            peaks, props = signal.find_peaks(
-                normalised, height=0.05, distance=max(1, int(frame_sr * 0.05))
-            )
-            if len(peaks) == 0:
+            # How much do the sharpest onsets stand out above the track's
+            # *typical* rate of change? Dividing each rise by the envelope
+            # level immediately preceding it (as before) rewards tracks with
+            # near-silent gaps between hits and structurally deflates
+            # anything with continuously loud backing — a live mix, a
+            # compressed master, reverb tails — even when its actual attacks
+            # are sharp (empirically: live/pop/acoustic tracks all collapsed
+            # to ~0.12-0.14 regardless of real transient content, while an
+            # isolated funk slap-bass groove with silent gaps scored
+            # correctly). A crest-factor-style ratio of the extreme rises to
+            # the RMS of all rises is scale-invariant and doesn't depend on
+            # what else was playing right before the hit.
+            rms_rise = float(np.sqrt(np.mean(diff**2)))
+            if rms_rise < 1e-9:
                 return 0.0
+            peak_rise = float(np.percentile(diff, 99.9))
+            crest = peak_rise / rms_rise
 
-            transient_score = float(np.mean(props["peak_heights"]))
-
-            # Clip to [0, 1] — values above ~2.0 are uncommon
-            return float(np.clip(transient_score * 0.5, 0.0, 1.0))
+            # Calibrated against real library tracks: ambient/pad material
+            # sits ~4-5, most percussive/rock/electronic material ~6-8,
+            # isolated funk/slap-bass transients (e.g. Hancock's
+            # "Chameleon") ~9.
+            return float(np.clip((crest - 4.0) / 5.5, 0.0, 1.0))
 
         except ValueError as e:
             logger.error(f"Transient strength calculation failed: {e}")
