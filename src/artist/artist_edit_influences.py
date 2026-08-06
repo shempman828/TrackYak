@@ -296,14 +296,17 @@ class _AddInfluenceBar(QWidget):
         self.btn_influencer.setToolTip(influencer_sentence + ".")
 
     def _handle_add(self):
-        name = self.name_edit.text().strip()
-        if not name:
+        names = self.name_edit.split_names()
+        if not names:
             return
         self._on_add(
             direction=self.current_direction(),
-            name=name,
+            names=names,
             description=self.desc_edit.text().strip() or None,
-            matched_artist_id=self.name_edit.matched_id(),
+            # matched_id only names a single typed artist -- with several
+            # typed at once (e.g. "A;B;C") each is resolved by name instead
+            # of relying on that one-shot completer pick.
+            matched_artist_id=self.name_edit.matched_id() if len(names) == 1 else None,
         )
 
     def clear_inputs(self):
@@ -508,42 +511,48 @@ class InfluencesTab(QWidget):
 
     # ── add / remove ─────────────────────────────────────────────────────────
 
-    def _handle_add(self, direction, name, description, matched_artist_id):
-        try:
-            if matched_artist_id is not None:
-                other = self.controller.get.get_entity_object(
-                    "Artist", artist_id=matched_artist_id
-                )
-                other = other[0] if isinstance(other, list) else other
+    def _handle_add(self, direction, names, description, matched_artist_id):
+        errors = []
+        for name in names:
+            try:
+                if matched_artist_id is not None:
+                    other = self.controller.get.get_entity_object(
+                        "Artist", artist_id=matched_artist_id
+                    )
+                    other = other[0] if isinstance(other, list) else other
+                else:
+                    other = _find_or_create_artist(self.controller, name)
+                    # newly created (or newly matched-by-name) artist: make it
+                    # immediately available in the completer without a full reload
+                    self.add_bar.register_new_artist(
+                        _artist_display(other), getattr(other, "artist_id", None)
+                    )
+            except SQLAlchemyError as e:
+                errors.append(f"{name}: could not find/create artist ({e})")
+                continue
+
+            if direction == DIR_INFLUENCED:
+                kwargs = {
+                    "influencer_id": self.artist.artist_id,
+                    "influenced_id": other.artist_id,
+                }
             else:
-                other = _find_or_create_artist(self.controller, name)
-                # newly created (or newly matched-by-name) artist: make it
-                # immediately available in the completer without a full reload
-                self.add_bar.register_new_artist(
-                    _artist_display(other), getattr(other, "artist_id", None)
+                kwargs = {
+                    "influencer_id": other.artist_id,
+                    "influenced_id": self.artist.artist_id,
+                }
+
+            try:
+                self.controller.add.add_entity(
+                    "ArtistInfluence", description=description, **kwargs
                 )
-        except SQLAlchemyError as e:
-            QMessageBox.critical(self, "Error", f"Could not find/create artist:\n{e}")
-            return
+            except SQLAlchemyError as e:
+                errors.append(f"{name}: could not add influence ({e})")
 
-        if direction == DIR_INFLUENCED:
-            kwargs = {
-                "influencer_id": self.artist.artist_id,
-                "influenced_id": other.artist_id,
-            }
-        else:
-            kwargs = {
-                "influencer_id": other.artist_id,
-                "influenced_id": self.artist.artist_id,
-            }
-
-        try:
-            self.controller.add.add_entity(
-                "ArtistInfluence", description=description, **kwargs
+        if errors:
+            QMessageBox.critical(
+                self, "Error", "Could not add some influences:\n" + "\n".join(errors)
             )
-        except SQLAlchemyError as e:
-            QMessageBox.critical(self, "Error", f"Could not add influence:\n{e}")
-            return
 
         self._reload_and_refresh()
         self.add_bar.clear_inputs()
