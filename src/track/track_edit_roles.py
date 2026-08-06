@@ -666,24 +666,34 @@ class RolesTab(_BaseTab):
 
     def _add_role(self):
         artist_name = self._artist_search.text().strip()
-        role_name = self._role_edit.text().strip()
-        if not artist_name or not role_name:
+        role_names = self._role_edit.split_names()
+        if not artist_name or not role_names:
             return
 
         artist = self._resolve_artist(artist_name)
-        role = self._resolve_role(role_name, matched_id=self._role_edit.matched_id())
+        if not artist:
+            QMessageBox.warning(self, "Error", "Could not resolve artist.")
+            return
 
-        if not artist or not role:
-            QMessageBox.warning(self, "Error", "Could not resolve artist or role.")
+        # matched_id only names a single typed role -- with several roles
+        # entered at once (e.g. "Bass;Lead Vocals") each is resolved by
+        # name instead of relying on that one-shot completer pick.
+        single_matched_id = self._role_edit.matched_id() if len(role_names) == 1 else None
+        roles = [
+            self._resolve_role(name, matched_id=single_matched_id) for name in role_names
+        ]
+        if any(role is None for role in roles):
+            QMessageBox.warning(self, "Error", "Could not resolve role.")
             return
 
         credited_alias_id = None
         if not self.is_multi:
             credited_alias_id = self._prompt_credited_alias(artist)
 
-        self._batch_add_track_artist_role(
-            artist.artist_id, role.role_id, credited_alias_id=credited_alias_id
-        )
+        for role in roles:
+            self._batch_add_track_artist_role(
+                artist.artist_id, role.role_id, credited_alias_id=credited_alias_id
+            )
 
         self._artist_search.reset()
         self._role_edit.reset()
@@ -692,8 +702,8 @@ class RolesTab(_BaseTab):
     def _prompt_add_role_for_artist(self, artist_id, artist_name):
         """Add another role to an artist already shown in the table, via
         the existing role input field (reused as a quick prompt)."""
-        role_name = self._role_edit.text().strip()
-        if len(role_name) < 2:
+        role_names = self._role_edit.split_names()
+        if not role_names:
             show_status_message(
                 self,
                 f"Type a role name (min 2 chars) in the role field, then click "
@@ -702,8 +712,11 @@ class RolesTab(_BaseTab):
             self._role_edit.setFocus()
             return
 
-        role = self._resolve_role(role_name, matched_id=self._role_edit.matched_id())
-        if not role:
+        single_matched_id = self._role_edit.matched_id() if len(role_names) == 1 else None
+        roles = [
+            self._resolve_role(name, matched_id=single_matched_id) for name in role_names
+        ]
+        if any(role is None for role in roles):
             QMessageBox.warning(self, "Error", "Could not resolve role.")
             return
 
@@ -715,9 +728,10 @@ class RolesTab(_BaseTab):
             if artist:
                 credited_alias_id = self._prompt_credited_alias(artist)
 
-        self._batch_add_track_artist_role(
-            artist_id, role.role_id, credited_alias_id=credited_alias_id
-        )
+        for role in roles:
+            self._batch_add_track_artist_role(
+                artist_id, role.role_id, credited_alias_id=credited_alias_id
+            )
         self._role_edit.reset()
         self.load(self.tracks)
 
