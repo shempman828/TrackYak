@@ -511,7 +511,9 @@ class PublisherView(QWidget):
     def load_publishers(self):
         """Load publishers into the hierarchical tree."""
         self.publishers_tree.load_publishers()
-        self._update_count_label()
+        # Reapply any active search/MBID/fixed-status filters, since the
+        # tree was just rebuilt from scratch.
+        self.filter_publishers()
 
     def toggle_flat_view(self):
         """Toggle between the nested hierarchy and a flat alphabetical list."""
