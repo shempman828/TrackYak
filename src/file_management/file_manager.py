@@ -109,6 +109,7 @@ class FileOrganizer(CancellableWorker):
 
             logger.error(traceback.format_exc())
         finally:
+            self._release_db_session()
             self.finished.emit(success, files_moved)
 
     def user_approval_received(self, approved_ops: List[Dict]):
