@@ -91,6 +91,10 @@ class MetadataScannerWorker(CancellableWorker):
             logger.exception("Library metadata scan failed")
             self.log_message.emit(f"Scan failed: {str(e)}")
             self.finished.emit({})
+        finally:
+            # get_all_entities is read-only and nothing else here commits --
+            # see CancellableWorker's docstring.
+            self._release_db_session()
 
 
 class MetadataWriteWorker(CancellableWorker):
@@ -121,27 +125,30 @@ class MetadataWriteWorker(CancellableWorker):
         total = len(self.track_ids)
         results = {}
 
-        for i, track_id in enumerate(self.track_ids):
-            if self.is_cancelled:
-                break
+        try:
+            for i, track_id in enumerate(self.track_ids):
+                if self.is_cancelled:
+                    break
 
-            self.progress.emit(i + 1, total, track_id)
+                self.progress.emit(i + 1, total, track_id)
 
-            try:
-                success = self.metadata_writer.write_metadata_to_track(
-                    track_id, self.mode
-                )
-                results[track_id] = success
+                try:
+                    success = self.metadata_writer.write_metadata_to_track(
+                        track_id, self.mode
+                    )
+                    results[track_id] = success
 
-                if success:
-                    self.log_message.emit(f"✓ Updated track {track_id}")
-                else:
-                    self.log_message.emit(f"✗ Failed to update track {track_id}")
+                    if success:
+                        self.log_message.emit(f"✓ Updated track {track_id}")
+                    else:
+                        self.log_message.emit(f"✗ Failed to update track {track_id}")
 
-            except RuntimeError as e:
-                logger.error(f"Error updating track {track_id}: {e}")
-                self.log_message.emit(f"✗ Error updating track {track_id}: {str(e)}")
-                results[track_id] = False
+                except RuntimeError as e:
+                    logger.error(f"Error updating track {track_id}: {e}")
+                    self.log_message.emit(f"✗ Error updating track {track_id}: {str(e)}")
+                    results[track_id] = False
+        finally:
+            self._release_db_session()
 
         self.finished.emit(results)
 
