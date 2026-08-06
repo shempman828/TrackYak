@@ -503,37 +503,48 @@ class PublisherEditDialog(QDialog):
             self.founders_list.addItem(item)
 
     def _add_founder(self):
-        name = self.founder_edit.text().strip()
-        if not name:
+        names = self.founder_edit.split_names()
+        if not names:
             return
 
-        # Same resolution order as the parent publisher/headquarters fields:
-        # prefer the id locked in by picking a completion, else an exact-name
-        # lookup, else create a new Artist on the fly.
-        artist_id = self.founder_edit.matched_id()
-        artist_name = name
-        if artist_id is None:
-            artist_obj = self.controller.get.get_entity_object(
-                "Artist", artist_name=name
-            )
-            if artist_obj is None:
-                artist_obj = find_or_create_by_name(
-                    self.controller, "Artist", "artist_name", name, self._known_artists
+        # matched_id only names a single typed founder -- with several typed
+        # at once (e.g. "Ahmet Ertegun;Herb Abramson") each is resolved by
+        # name instead of relying on that one-shot completer pick.
+        single_matched_id = self.founder_edit.matched_id() if len(names) == 1 else None
+        already_listed = []
+        for name in names:
+            # Same resolution order as the parent publisher/headquarters
+            # fields: prefer the id locked in by picking a completion, else
+            # an exact-name lookup, else create a new Artist on the fly.
+            artist_id = single_matched_id
+            artist_name = name
+            if artist_id is None:
+                artist_obj = self.controller.get.get_entity_object(
+                    "Artist", artist_name=name
                 )
-            if artist_obj is not None:
-                artist_id = artist_obj.artist_id
-                artist_name = artist_obj.artist_name
+                if artist_obj is None:
+                    artist_obj = find_or_create_by_name(
+                        self.controller, "Artist", "artist_name", name, self._known_artists
+                    )
+                if artist_obj is not None:
+                    artist_id = artist_obj.artist_id
+                    artist_name = artist_obj.artist_name
 
-        if artist_id is None:
-            return
+            if artist_id is None:
+                continue
 
-        if any(fid == artist_id for fid, _ in self._founder_ids):
+            if any(fid == artist_id for fid, _ in self._founder_ids):
+                already_listed.append(artist_name)
+            else:
+                self._founder_ids.append((artist_id, artist_name))
+
+        self._refresh_founders_list()
+        if already_listed:
             QMessageBox.information(
-                self, "Already Added", f"{artist_name} is already listed as a founder."
+                self,
+                "Already Added",
+                "Already listed as a founder:\n" + "\n".join(already_listed),
             )
-        else:
-            self._founder_ids.append((artist_id, artist_name))
-            self._refresh_founders_list()
 
         self.founder_edit.reset()
 
