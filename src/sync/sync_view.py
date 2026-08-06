@@ -58,7 +58,16 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
-        self.sync_manager = SyncManager(Session())
+        # Pass the scoped_session proxy itself, not a resolved Session --
+        # SyncManager's calls happen from both this (main) thread and
+        # SyncWorker's background thread. A resolved Session() is pinned to
+        # whichever thread called it, so handing that concrete object to a
+        # long-lived SyncManager used from both threads meant SyncWorker was
+        # silently reusing the main thread's Session cross-thread (not
+        # thread-safe). The proxy resolves to each calling thread's own
+        # Session instead, matching how every other controller.* helper is
+        # wired (see MusicController.__init__).
+        self.sync_manager = SyncManager(Session)
         self.profile_store = SyncProfileStore()
         self.mtp_manager = MtpManager()
 
