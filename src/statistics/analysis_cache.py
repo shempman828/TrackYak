@@ -99,3 +99,51 @@ class AnalysisCache:
 
 # Shared singleton so the dialog and scheduler always reference the same state
 analysis_cache = AnalysisCache()
+
+
+# Fields that must be present and non-zero/None for a track to be
+# considered fully analysed.  Must track every field AudioCalculations.run_all()
+# writes (audio_calculations.py) except acoustid_fingerprint/_duration, which
+# can be legitimately and permanently None (e.g. no native chromaprint library
+# available) — see AudioCalculations.calculate_fingerprint's docstring.
+REQUIRED_ANALYSIS_FIELDS = [
+    "bpm",
+    "tempo_confidence",
+    "key",
+    "mode",
+    "key_confidence",
+    "track_gain",
+    "track_peak",
+    "crest_factor",
+    "spectral_centroid",
+    "spectral_rolloff",
+    "spectral_flatness",
+    "spectral_flux",
+    "dynamic_range",
+    "stereo_width",
+    "ms_energy_ratio",
+    "channel_coherence",
+    "transient_strength",
+    "energy",
+    "danceability",
+    "acousticness",
+    "liveness",
+    "valence",
+    "audiophile_score",
+]
+
+
+def track_needs_analysis(track) -> bool:
+    """Return True if any required audio field is missing or zero.
+
+    The JSON cache alone (``analysis_cache.is_analysed``) is not a reliable
+    signal that a track is analysed — it can drift from the DB (re-imports,
+    restored backups, manual edits, reused track_ids). Callers that need to
+    know whether a track is *actually* analysed should OR this with
+    ``analysis_cache.is_analysed(track.track_id)``.
+    """
+    for field in REQUIRED_ANALYSIS_FIELDS:
+        val = getattr(track, field, None)
+        if val is None or val == 0 or val == 0.0:
+            return True
+    return False
