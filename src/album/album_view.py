@@ -260,10 +260,10 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
         self.incomplete_combo.currentIndexChanged.connect(self._apply_filters)
         add(_shrink_combo_to_content(self.incomplete_combo))
 
-        # Is Fixed filter
-        add(QLabel("Fixed:"))
+        # Metadata review-tier filter
+        add(QLabel("Metadata:"))
         self.fixed_combo = QComboBox()
-        self.fixed_combo.addItems(["Any", "Fixed Only", "Not Fixed"])
+        self.fixed_combo.addItems(["Any", "Not Started", "First Pass", "Second Pass"])
         self.fixed_combo.currentIndexChanged.connect(self._apply_filters)
         add(_shrink_combo_to_content(self.fixed_combo))
 
@@ -402,13 +402,16 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
             if incomplete_mode == "Likely Complete" and is_incomplete:
                 return False
 
-        # ── Is Fixed filter ───────────────────────────────────────────
+        # ── Metadata review-tier filter ─────────────────────────────────
         fixed_mode = params["fixed_mode"]
         if fixed_mode != "Any":
-            is_fixed = bool(getattr(album, "is_fixed", False))
-            if fixed_mode == "Fixed Only" and not is_fixed:
+            first_pass = bool(getattr(album, "first_pass", False))
+            second_pass = bool(getattr(album, "second_pass", False))
+            if fixed_mode == "Not Started" and first_pass:
                 return False
-            if fixed_mode == "Not Fixed" and is_fixed:
+            if fixed_mode == "First Pass" and not (first_pass and not second_pass):
+                return False
+            if fixed_mode == "Second Pass" and not second_pass:
                 return False
 
         # ── Album Art filter ──────────────────────────────────────────
@@ -435,7 +438,7 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
 
     def _compute_filtered_results(self):
         """Run all active filters (search text, year range, track count,
-        possibly_incomplete, is_fixed, art) against self.all_albums.
+        possibly_incomplete, first_pass/second_pass, art) against self.all_albums.
 
         Returns (results, pending_art, art_mode, art_generation). Shared by
         _apply_filters and _apply_filters_preserve_scroll, which differ only
@@ -915,8 +918,9 @@ class AlbumView(AlbumContextMenuMixin, QWidget):
             return
 
         # The edit may have made the album no longer satisfy the active
-        # filter (e.g. is_fixed flipped while filtering "Not Fixed") - drop
-        # it from the grid in place rather than leaving a stale match visible.
+        # filter (e.g. first_pass/second_pass flipped while filtering "Not
+        # Started") - drop it from the grid in place rather than leaving a
+        # stale match visible.
         verdict = self._album_matches_filters(fresh, self._get_current_filter_params())
         if verdict is False:
             self.filtered_albums.pop(patched_idx)

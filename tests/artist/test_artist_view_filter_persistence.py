@@ -11,7 +11,8 @@ class StubArtist:
         self.artist_id = artist_id
         self.artist_name = artist_name
         self.isgroup = isgroup
-        self.is_fixed = False
+        self.first_pass = False
+        self.second_pass = False
         self.profile_pic_path = None
         self.begin_year = None
         self.types = types or []
@@ -64,7 +65,7 @@ def test_restores_filters_from_previous_session(qapp, monkeypatch):
         "mode_text": "Groups",
         "search": "band",
         "sort": "Name (Z–A)",
-        "metadata": "Fixed Only",
+        "metadata": "Second Pass",
         "image": "Has Image",
         "type": "Rock",
     })
@@ -78,7 +79,7 @@ def test_restores_filters_from_previous_session(qapp, monkeypatch):
         assert view.current_mode == "groups"
         assert view.search_box.text() == "band"
         assert view.sort_combo.currentText() == "Name (Z–A)"
-        assert view.metadata_combo.currentText() == "Fixed Only"
+        assert view.metadata_combo.currentText() == "Second Pass"
         assert view.image_combo.currentText() == "Has Image"
         assert view.type_combo.currentText() == "Rock"
     finally:
@@ -103,14 +104,14 @@ def test_filter_change_persists_to_config(qapp, monkeypatch):
     view = _make_view(monkeypatch, artists, fake_config)
     try:
         view.search_box.setText("gamma")
-        view.metadata_combo.setCurrentText("Fixed Only")
+        view.metadata_combo.setCurrentText("Second Pass")
 
         view._filter_save_timer.stop()
         view._save_filter_state()
 
         saved = fake_config.get_artist_view_filters()
         assert saved["search"] == "gamma"
-        assert saved["metadata"] == "Fixed Only"
+        assert saved["metadata"] == "Second Pass"
         assert fake_config.save_calls >= 1
     finally:
         view.close()

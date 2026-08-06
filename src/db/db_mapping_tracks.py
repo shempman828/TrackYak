@@ -435,13 +435,22 @@ TRACK_FIELDS = {
         tooltip="The user's assessment of the track's quality.",
         multiple=True,
     ),
-    "is_fixed": FieldSpec(
+    "first_pass": FieldSpec(
         type=bool,
         category="User",
         section="Your Rating & Notes",
-        friendly="Is Fixed",
-        short="Fixed",
-        tooltip="Indicates whether the user considers track metadata complete.",
+        friendly="First Pass",
+        short="1st Pass",
+        tooltip="Indicates the track has had an initial metadata review.",
+        multiple=True,
+    ),
+    "second_pass": FieldSpec(
+        type=bool,
+        category="User",
+        section="Your Rating & Notes",
+        friendly="Second Pass",
+        short="2nd Pass",
+        tooltip="Indicates the track has had a final, thorough metadata review.",
         multiple=True,
     ),
     "comment": FieldSpec(

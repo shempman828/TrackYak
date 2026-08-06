@@ -63,11 +63,17 @@ ALBUM_FIELDS = {
         short="Catalog #",
         tooltip="The official identifier assigned to this release by the label or distributor, used for inventory, manufacturing, and archival tracking.",
     ),
-    "is_fixed": FieldSpec(
+    "first_pass": FieldSpec(
         type=bool,
-        friendly="Metadata Complete",
-        short="Complete",
-        tooltip="Marks this album as having fully verified and finalized metadata, indicating no further edits are expected.",
+        friendly="First Pass",
+        short="1st Pass",
+        tooltip="Marks this album as having had an initial metadata review.",
+    ),
+    "second_pass": FieldSpec(
+        type=bool,
+        friendly="Second Pass",
+        short="2nd Pass",
+        tooltip="Marks this album as having had a final, thorough metadata review, indicating no further edits are expected.",
     ),
     "album_gain": FieldSpec(
         type=float,

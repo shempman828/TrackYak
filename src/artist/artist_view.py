@@ -34,6 +34,7 @@ from src.artist.artist_place import PlaceSelectionDialog
 from src.award.award_new import AddAwardDialog
 from src.common.base_merge_dialog import MergeDBDialog
 from src.common.base_split_dialog import SplitDBDialog
+from src.core.asset_paths import icon
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -128,9 +129,9 @@ class ArtistView(QWidget):
         filter_bar.addWidget(self.sort_combo)
 
         self.metadata_combo = QComboBox()
-        self.metadata_combo.addItems(["Any", "Fixed Only", "Not Fixed"])
+        self.metadata_combo.addItems(["Any", "Not Started", "First Pass", "Second Pass"])
         self.metadata_combo.setToolTip(
-            "Filter by whether the artist's metadata has been marked fixed"
+            "Filter by the artist's metadata review tier"
         )
         self.metadata_combo.currentTextChanged.connect(self._apply_filters)
         filter_bar.addWidget(self.metadata_combo)
@@ -245,12 +246,18 @@ class ArtistView(QWidget):
         if text:
             artists = [a for a in artists if text in a.artist_name.lower()]
 
-        # --- Is Fixed filter ---
+        # --- Metadata review-tier filter ---
         metadata_mode = self.metadata_combo.currentText()
-        if metadata_mode == "Fixed Only":
-            artists = [a for a in artists if getattr(a, "is_fixed", 0)]
-        elif metadata_mode == "Not Fixed":
-            artists = [a for a in artists if not getattr(a, "is_fixed", 0)]
+        if metadata_mode == "Not Started":
+            artists = [a for a in artists if not getattr(a, "first_pass", 0)]
+        elif metadata_mode == "First Pass":
+            artists = [
+                a
+                for a in artists
+                if getattr(a, "first_pass", 0) and not getattr(a, "second_pass", 0)
+            ]
+        elif metadata_mode == "Second Pass":
+            artists = [a for a in artists if getattr(a, "second_pass", 0)]
 
         # --- Profile image filter ---
         image_mode = self.image_combo.currentText()
@@ -367,15 +374,17 @@ class ArtistView(QWidget):
             if getattr(artist, "isgroup", 0):
                 display_name = f"👥 {display_name}"
 
-            # Small badge if metadata is flagged complete
-            if getattr(artist, "is_fixed", 0):
-                display_name = f"{display_name} ✓"
-
             if getattr(artist, "MBID", None):
                 display_name = f"{display_name} \U0001f517"
 
             item = QListWidgetItem(display_name)
             item.setData(Qt.UserRole, artist.artist_id)
+
+            # Small icon badge for the metadata review tier
+            if getattr(artist, "second_pass", 0):
+                item.setIcon(icon("checkmark_green.svg"))
+            elif getattr(artist, "first_pass", 0):
+                item.setIcon(icon("checkmark.svg"))
             if getattr(artist, "MBID", None):
                 item.setToolTip("Linked to MusicBrainz")
             self.artist_list.addItem(item)

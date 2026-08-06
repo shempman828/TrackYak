@@ -361,9 +361,10 @@ class AdvancedTab:
                 row.addWidget(w, 1)
             layout.addLayout(row)
 
-        is_fixed_widget = self.editor.field_widgets.get("is_fixed")
-        if is_fixed_widget:
-            layout.addWidget(is_fixed_widget)
+        for field_name in ("first_pass", "second_pass"):
+            field_widget = self.editor.field_widgets.get(field_name)
+            if field_widget:
+                layout.addWidget(field_widget)
 
         def _read_only_row(label_text, value_text):
             row = QHBoxLayout()

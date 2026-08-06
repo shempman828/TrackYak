@@ -62,7 +62,7 @@ class MusicStatistics:
             leaderboards_data = self._get_leaderboards(session)
             stats["leaderboards"] = leaderboards_data
 
-            # Metadata completeness — 5 axes using is_fixed / is_complete flags
+            # Metadata completeness — 5 axes using second_pass / is_complete flags
             completeness_stats = self._get_metadata_completeness(
                 session, total_tracks, total_artists, total_albums
             )
@@ -189,13 +189,13 @@ class MusicStatistics:
     def _get_metadata_completeness(
         self, session, total_tracks=None, total_artists=None, total_albums=None
     ):
-        """Calculate metadata completeness using is_fixed flags.
+        """Calculate metadata completeness using second_pass flags.
 
         Five axes:
-          - tracks:     tracks with is_fixed == 1
-          - artists:    artists with is_fixed == 1
-          - albums:     albums  with is_fixed == 1
-          - publishers: publishers with is_fixed == 1
+          - tracks:     tracks with second_pass == 1
+          - artists:    artists with second_pass == 1
+          - albums:     albums  with second_pass == 1
+          - publishers: publishers with second_pass == 1
           - total:      average of the four percentages above
         """
         if total_tracks is None:
@@ -224,25 +224,25 @@ class MusicStatistics:
 
         fixed_tracks = (
             session.query(func.count(Track.track_id))
-            .filter(Track.is_fixed == 1)
+            .filter(Track.second_pass == 1)
             .scalar()
             or 0
         )
         fixed_artists = (
             session.query(func.count(Artist.artist_id))
-            .filter(Artist.is_fixed == 1)
+            .filter(Artist.second_pass == 1)
             .scalar()
             or 0
         )
         fixed_albums = (
             session.query(func.count(Album.album_id))
-            .filter(Album.is_fixed == 1)
+            .filter(Album.second_pass == 1)
             .scalar()
             or 0
         )
         fixed_publishers = (
             session.query(func.count(Publisher.publisher_id))
-            .filter(Publisher.is_fixed == 1)
+            .filter(Publisher.second_pass == 1)
             .scalar()
             or 0
         )

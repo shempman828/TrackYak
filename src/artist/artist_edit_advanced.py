@@ -44,8 +44,11 @@ class AdvancedTab(QWidget):
         self.website_edit.setPlaceholderText("https://...")
         form.addRow("Website:", self.website_edit)
 
-        self.is_fixed_check = QCheckBox("Mark metadata as complete")
-        form.addRow("Metadata Complete:", self.is_fixed_check)
+        self.first_pass_check = QCheckBox("Initial metadata review complete")
+        form.addRow("First Pass:", self.first_pass_check)
+
+        self.second_pass_check = QCheckBox("Final metadata review complete")
+        form.addRow("Second Pass:", self.second_pass_check)
 
         self.artist_id_label = QLabel()
         self.artist_id_label.setProperty("textRole", "muted")
@@ -82,7 +85,8 @@ class AdvancedTab(QWidget):
         self.mbid_edit.setText(artist.MBID or "")
         self.wiki_edit.setText(artist.wikipedia_link or "")
         self.website_edit.setText(artist.website_link or "")
-        self.is_fixed_check.setChecked(bool(artist.is_fixed))
+        self.first_pass_check.setChecked(bool(artist.first_pass))
+        self.second_pass_check.setChecked(bool(artist.second_pass))
         self.artist_id_label.setText(str(artist.artist_id))
 
     def collect_changes(self):
@@ -90,7 +94,8 @@ class AdvancedTab(QWidget):
             MBID=self.mbid_edit.text().strip() or None,
             wikipedia_link=self.wiki_edit.text().strip() or None,
             website_link=self.website_edit.text().strip() or None,
-            is_fixed=1 if self.is_fixed_check.isChecked() else 0,
+            first_pass=1 if self.first_pass_check.isChecked() else 0,
+            second_pass=1 if self.second_pass_check.isChecked() else 0,
         )
         return {
             field: new

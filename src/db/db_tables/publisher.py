@@ -26,7 +26,8 @@ class Publisher(Base):
     end_day = Column(Integer)
     is_active = Column(Integer, CheckConstraint("is_active IN (0, 1)"))
     wikipedia_link = Column(String)
-    is_fixed = Column(Integer)
+    first_pass = Column(Integer, CheckConstraint("first_pass IN (0, 1)"))
+    second_pass = Column(Integer, CheckConstraint("second_pass IN (0, 1)"))
     MBID = Column(String)
 
     album_associations = relationship(

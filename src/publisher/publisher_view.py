@@ -64,8 +64,8 @@ class PublisherView(QWidget):
         filter_bar.addWidget(self.mbid_combo)
 
         self.fixed_combo = QComboBox()
-        self.fixed_combo.addItems(["Any", "Fixed", "Not Fixed"])
-        self.fixed_combo.setToolTip("Filter by fixed status")
+        self.fixed_combo.addItems(["Any", "Not Started", "First Pass", "Second Pass"])
+        self.fixed_combo.setToolTip("Filter by metadata review tier")
         self.fixed_combo.currentTextChanged.connect(self.filter_publishers)
         filter_bar.addWidget(self.fixed_combo)
 

@@ -1,6 +1,6 @@
 """Regression test for #251: an album edited so it no longer satisfies the
-active grid filter (e.g. is_fixed flips while filtering "Not Fixed") must be
-removed from the grid in place, without a full grid rebuild.
+active grid filter (e.g. first_pass flips while filtering "Not Started") must
+be removed from the grid in place, without a full grid rebuild.
 
 Also covers #260: that same in-place removal must not leave lazy-loading
 stuck. It used to read the scroll bar's maximum synchronously right after
@@ -32,10 +32,11 @@ class StubAlbumWidget(QWidget):
 
 
 class StubAlbum:
-    def __init__(self, album_id, album_name, is_fixed=False):
+    def __init__(self, album_id, album_name, first_pass=False, second_pass=False):
         self.album_id = album_id
         self.album_name = album_name
-        self.is_fixed = is_fixed
+        self.first_pass = first_pass
+        self.second_pass = second_pass
         self.release_year = None
         self.possibly_incomplete = False
 
@@ -68,10 +69,10 @@ def _make_view(monkeypatch, albums):
 def test_edit_that_fails_active_filter_removes_widget_without_full_reload(
     qapp, monkeypatch
 ):
-    albums = [StubAlbum(1, "Alpha", is_fixed=False), StubAlbum(2, "Beta", is_fixed=False)]
+    albums = [StubAlbum(1, "Alpha"), StubAlbum(2, "Beta")]
     view, albums_by_id = _make_view(monkeypatch, albums)
     try:
-        view.fixed_combo.setCurrentText("Not Fixed")
+        view.fixed_combo.setCurrentText("Not Started")
         assert [a.album_id for a in view.filtered_albums] == [1, 2]
         assert view.grid_layout.count() == 2
 
@@ -82,9 +83,9 @@ def test_edit_that_fails_active_filter_removes_widget_without_full_reload(
         monkeypatch.setattr(view, "load_albums", _fail)
         monkeypatch.setattr(view, "_apply_filters_preserve_scroll", _fail)
 
-        # Simulate the edit: album 1 becomes fixed, no longer matching
-        # the "Not Fixed" filter.
-        albums_by_id[1].is_fixed = True
+        # Simulate the edit: album 1 starts its first pass, no longer
+        # matching the "Not Started" filter.
+        albums_by_id[1].first_pass = True
         view._patch_album_after_edit(1)
 
         assert [a.album_id for a in view.filtered_albums] == [2]
@@ -96,10 +97,10 @@ def test_edit_that_fails_active_filter_removes_widget_without_full_reload(
 
 
 def test_edit_that_still_matches_filter_keeps_widget(qapp, monkeypatch):
-    albums = [StubAlbum(1, "Alpha", is_fixed=False), StubAlbum(2, "Beta", is_fixed=False)]
+    albums = [StubAlbum(1, "Alpha"), StubAlbum(2, "Beta")]
     view, albums_by_id = _make_view(monkeypatch, albums)
     try:
-        view.fixed_combo.setCurrentText("Not Fixed")
+        view.fixed_combo.setCurrentText("Not Started")
         assert view.grid_layout.count() == 2
 
         albums_by_id[1].album_name = "Alpha Renamed"
@@ -123,7 +124,7 @@ def test_removal_that_fills_viewport_does_not_strand_remaining_albums(
 
     # 12 albums, zero-padded names so title-sort order matches album_id order.
     albums = [
-        StubAlbum(i, f"Album {i:03d}", is_fixed=False) for i in range(1, 13)
+        StubAlbum(i, f"Album {i:03d}") for i in range(1, 13)
     ]
     albums_by_id = {a.album_id: a for a in albums}
     view = AlbumView(StubController(albums_by_id))
@@ -144,15 +145,15 @@ def test_removal_that_fills_viewport_does_not_strand_remaining_albums(
         view.load_albums()
         QTest.qWait(150)
 
-        view.fixed_combo.setCurrentText("Not Fixed")
+        view.fixed_combo.setCurrentText("Not Started")
         QTest.qWait(150)
         assert view.display_count == 10
         assert len(view.filtered_albums) == 12
 
         # Edit the last currently-displayed album so it drops out of the
-        # "Not Fixed" filter, shrinking the grid down to exactly 9 rows.
+        # "Not Started" filter, shrinking the grid down to exactly 9 rows.
         target = view.filtered_albums[9]
-        albums_by_id[target.album_id].is_fixed = True
+        albums_by_id[target.album_id].first_pass = True
         view._patch_album_after_edit(target.album_id)
 
         assert len(view.filtered_albums) == 11

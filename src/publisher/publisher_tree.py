@@ -24,7 +24,8 @@ class PublisherTreeWidget(QTreeWidget):
 
     # Extra data roles for filter criteria, alongside Qt.UserRole (publisher_id)
     _MBID_ROLE = Qt.UserRole + 1
-    _FIXED_ROLE = Qt.UserRole + 2
+    _FIRST_PASS_ROLE = Qt.UserRole + 2
+    _SECOND_PASS_ROLE = Qt.UserRole + 3
 
     def __init__(self, controller):
         super().__init__()
@@ -133,13 +134,16 @@ class PublisherTreeWidget(QTreeWidget):
             name = f"{name} \U0001f517"
             item.setToolTip(0, "Linked to MusicBrainz")
         item.setText(0, name)
-        if publisher.is_fixed:
+        if publisher.second_pass:
+            item.setIcon(0, icon("checkmark_green.svg"))
+        elif publisher.first_pass:
             item.setIcon(0, icon("checkmark.svg"))
         item.setFlags(item.flags() | Qt.ItemIsEditable)
         item.setData(1, Qt.DisplayRole, album_count)
         item.setData(0, Qt.UserRole, publisher.publisher_id)
         item.setData(0, self._MBID_ROLE, bool(publisher.MBID))
-        item.setData(0, self._FIXED_ROLE, bool(publisher.is_fixed))
+        item.setData(0, self._FIRST_PASS_ROLE, bool(publisher.first_pass))
+        item.setData(0, self._SECOND_PASS_ROLE, bool(publisher.second_pass))
         return item
 
     def keyPressEvent(self, event):
@@ -234,7 +238,8 @@ class PublisherTreeWidget(QTreeWidget):
         return count
 
     def filter_items(self, search_text, mbid_filter="Any", fixed_filter="Any"):
-        """Filter tree items based on search text, MusicBrainz link status, and fixed status.
+        """Filter tree items based on search text, MusicBrainz link status, and
+        metadata review tier.
 
         An item is shown if it matches all active criteria itself, or if any
         descendant does (so ancestors of a match stay visible for context).
@@ -249,9 +254,13 @@ class PublisherTreeWidget(QTreeWidget):
                 return False
             if mbid_filter == "Not Linked" and item.data(0, self._MBID_ROLE):
                 return False
-            if fixed_filter == "Fixed" and not item.data(0, self._FIXED_ROLE):
+            first_pass = item.data(0, self._FIRST_PASS_ROLE)
+            second_pass = item.data(0, self._SECOND_PASS_ROLE)
+            if fixed_filter == "Not Started" and first_pass:
                 return False
-            if fixed_filter == "Not Fixed" and item.data(0, self._FIXED_ROLE):
+            if fixed_filter == "First Pass" and not (first_pass and not second_pass):
+                return False
+            if fixed_filter == "Second Pass" and not second_pass:
                 return False
             return True
 

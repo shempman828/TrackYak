@@ -188,19 +188,22 @@ class PublisherEditDialog(QDialog):
         details_grid.addWidget(self.end_year_edit, 0, 3)
 
         self.is_active_check = QCheckBox("Active")
-        self.is_fixed_check = QCheckBox("Mark metadata as complete")
+        self.first_pass_check = QCheckBox("First pass complete")
         details_grid.addWidget(self.is_active_check, 1, 0, 1, 2)
-        details_grid.addWidget(self.is_fixed_check, 1, 2, 1, 2)
+        details_grid.addWidget(self.first_pass_check, 1, 2, 1, 2)
+
+        self.second_pass_check = QCheckBox("Second pass complete")
+        details_grid.addWidget(self.second_pass_check, 2, 0, 1, 2)
 
         self.wiki_input = QLineEdit()
         self.wiki_input.setPlaceholderText("https://en.wikipedia.org/...")
-        details_grid.addWidget(QLabel("Wikipedia:"), 2, 0)
-        details_grid.addWidget(self.wiki_input, 2, 1, 1, 3)
+        details_grid.addWidget(QLabel("Wikipedia:"), 3, 0)
+        details_grid.addWidget(self.wiki_input, 3, 1, 1, 3)
 
         self.mbid_input = QLineEdit()
         self.mbid_input.setPlaceholderText("MusicBrainz label ID")
-        details_grid.addWidget(QLabel("MBID:"), 3, 0)
-        details_grid.addWidget(self.mbid_input, 3, 1, 1, 3)
+        details_grid.addWidget(QLabel("MBID:"), 4, 0)
+        details_grid.addWidget(self.mbid_input, 4, 1, 1, 3)
         details_grid.setColumnStretch(1, 1)
         details_grid.setColumnStretch(3, 1)
         content.addWidget(details_group)
@@ -304,7 +307,8 @@ class PublisherEditDialog(QDialog):
             self.is_active_check.setChecked(bool(self.publisher.is_active))
             self.wiki_input.setText(self.publisher.wikipedia_link or "")
             self.mbid_input.setText(self.publisher.MBID or "")
-            self.is_fixed_check.setChecked(bool(self.publisher.is_fixed))
+            self.first_pass_check.setChecked(bool(self.publisher.first_pass))
+            self.second_pass_check.setChecked(bool(self.publisher.second_pass))
             self._set_logo_path(self.publisher.logo_path)
             if self.tab_aliases:
                 self.tab_aliases.load(self.publisher)
@@ -421,7 +425,8 @@ class PublisherEditDialog(QDialog):
         is_active = 1 if self.is_active_check.isChecked() else 0
         wikipedia_link = self.wiki_input.text().strip() or None
         mbid = self.mbid_input.text().strip() or None
-        is_fixed = 1 if self.is_fixed_check.isChecked() else 0
+        first_pass = 1 if self.first_pass_check.isChecked() else 0
+        second_pass = 1 if self.second_pass_check.isChecked() else 0
 
         try:
             if self.publisher:  # Editing
@@ -436,7 +441,8 @@ class PublisherEditDialog(QDialog):
                     is_active=is_active,
                     wikipedia_link=wikipedia_link,
                     MBID=mbid,
-                    is_fixed=is_fixed,
+                    first_pass=first_pass,
+                    second_pass=second_pass,
                     logo_path=self._logo_path,
                 )
                 self.result_publisher = self.publisher
@@ -451,7 +457,8 @@ class PublisherEditDialog(QDialog):
                     is_active=is_active,
                     wikipedia_link=wikipedia_link,
                     MBID=mbid,
-                    is_fixed=is_fixed,
+                    first_pass=first_pass,
+                    second_pass=second_pass,
                 )
             self._save_headquarters(self.result_publisher.publisher_id, hq_place_id)
             self._save_founders(self.result_publisher.publisher_id)

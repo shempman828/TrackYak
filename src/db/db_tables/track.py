@@ -124,7 +124,8 @@ class Track(Base):
     bit_depth = Column(Integer)
     channels = Column(Integer)
     last_listened_date = Column(DateTime)
-    is_fixed = Column(Integer)
+    first_pass = Column(Integer, CheckConstraint("first_pass IN (0, 1)"))
+    second_pass = Column(Integer, CheckConstraint("second_pass IN (0, 1)"))
     track_quality = Column(String)
 
     # User Metadata
@@ -352,7 +353,7 @@ class Track(Base):
         """Return True if track has all album-level metadata filled in, False otherwise."""
         if not self.album:
             return False
-        return self.album.is_fixed == 1
+        return self.album.second_pass == 1
 
     @property
     def is_complete(self):

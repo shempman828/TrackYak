@@ -115,6 +115,9 @@ class MusicDatabase:
                 self._rename_column_if_needed(
                     "tracks", "fidelity_score", "audiophile_score"
                 )
+            for table_name in ("albums", "artists", "tracks", "publishers"):
+                if table_name in existing_tables:
+                    self._rename_column_if_needed(table_name, "is_fixed", "first_pass")
 
             # ── Step 2: Column check ─────────────────────────────────────────
             # For every ORM model, compare the columns defined in Python against

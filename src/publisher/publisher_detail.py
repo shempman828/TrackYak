@@ -1,3 +1,4 @@
+import html
 import re
 from pathlib import Path
 from urllib.parse import urlparse
@@ -202,8 +203,11 @@ class PublisherDetailTab(QWidget):
 
     def _display_publisher_info(self, publisher):
         """Update publisher information display."""
-        if publisher.is_fixed:
-            self.name_label.setText(f"{publisher.publisher_name} ✓")
+        name = html.escape(publisher.publisher_name)
+        if publisher.second_pass:
+            self.name_label.setText(f'{name} <span style="color:#43a047;">✓</span>')
+        elif publisher.first_pass:
+            self.name_label.setText(f'{name} <span style="color:#8599ea;">✓</span>')
         else:
             self.name_label.setText(publisher.publisher_name)
 

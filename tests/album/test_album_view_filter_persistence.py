@@ -25,7 +25,8 @@ class StubAlbum:
         self.album_id = album_id
         self.album_name = album_name
         self.release_year = None
-        self.is_fixed = False
+        self.first_pass = False
+        self.second_pass = False
         self.possibly_incomplete = False
 
 
@@ -75,7 +76,7 @@ def test_restores_filters_from_previous_session(qapp, monkeypatch):
         "year_to": 1999,
         "min_tracks": 5,
         "incomplete_mode": "Possibly Incomplete",
-        "fixed_mode": "Fixed Only",
+        "fixed_mode": "Second Pass",
         "art_mode": "Has Art",
     })
     albums = [StubAlbum(1, "Alpha")]
@@ -86,7 +87,7 @@ def test_restores_filters_from_previous_session(qapp, monkeypatch):
         assert view.year_to.value() == 1999
         assert view.min_tracks.value() == 5
         assert view.incomplete_combo.currentText() == "Possibly Incomplete"
-        assert view.fixed_combo.currentText() == "Fixed Only"
+        assert view.fixed_combo.currentText() == "Second Pass"
         assert view.art_combo.currentText() == "Has Art"
     finally:
         view.close()
@@ -110,7 +111,7 @@ def test_filter_change_persists_to_config(qapp, monkeypatch):
     view = _make_view(monkeypatch, albums, fake_config)
     try:
         view.search_bar.setText("beta")
-        view.fixed_combo.setCurrentText("Fixed Only")
+        view.fixed_combo.setCurrentText("Second Pass")
 
         # Force the debounced save to run immediately instead of waiting
         # out its 400ms timer.
@@ -119,7 +120,7 @@ def test_filter_change_persists_to_config(qapp, monkeypatch):
 
         saved = fake_config.get_album_view_filters()
         assert saved["search"] == "beta"
-        assert saved["fixed_mode"] == "Fixed Only"
+        assert saved["fixed_mode"] == "Second Pass"
         assert fake_config.save_calls >= 1
     finally:
         view.close()
