@@ -158,25 +158,32 @@ class PlacesTab(_BaseTab):
         self._table.setCellWidget(row, 2, btn)
 
     def _add(self):
-        place_name = self._search.text().strip()
+        place_names = self._search.split_names()
         assoc_type = self._type_edit.text().strip() or None
-        if not place_name:
+        if not place_names:
             return
 
-        matched_id = self._search.matched_id()
+        # matched_id only names a single typed place -- with several typed
+        # at once (e.g. "London;Paris") each is resolved by name instead of
+        # relying on that one-shot completer pick.
+        single_matched_id = self._search.matched_id() if len(place_names) == 1 else None
+        places = []
         try:
-            if matched_id is not None:
-                place = self.controller.get.get_entity_object(
-                    "Place", place_id=matched_id
-                )
-            else:
-                place = _find_or_create_place(
-                    self.controller, place_name, self._known_places()
-                )
+            for place_name in place_names:
+                if single_matched_id is not None:
+                    place = self.controller.get.get_entity_object(
+                        "Place", place_id=single_matched_id
+                    )
+                else:
+                    place = _find_or_create_place(
+                        self.controller, place_name, self._known_places()
+                    )
+                if place:
+                    places.append(place)
         except SQLAlchemyError as e:
             logger.error(f"Failed to find/create place: {e}")
             return
-        if not place:
+        if not places:
             return
 
         assoc_type_obj = find_or_create_association_type(
@@ -191,6 +198,7 @@ class PlacesTab(_BaseTab):
                 if assoc_type_obj
                 else None,
             }
+            for place in places
             for track in self.tracks
         ]
         try:
@@ -198,18 +206,21 @@ class PlacesTab(_BaseTab):
         except SQLAlchemyError as e:
             logger.error(f"Failed to add place to tracks: {e}")
 
-        if matched_id is None:
-            # Deferred: _add() can run nested inside EntityCompleterEdit's own
-            # keyPressEvent (Enter -> returnPressed fires *during* that native
-            # call). add_to_index() replaces the QCompleter object in place,
-            # and doing that while Qt's own key handling is still
-            # mid-execution on that same completer corrupts its internals and
-            # crashes the process. See artist_edit_types.py
-            # _flush_new_chip_paint() for the same hazard.
-            search = self._search
-            place_name, place_id = place.place_name, place.place_id
-            QTimer.singleShot(0, lambda: search.add_to_index(place_name, place_id))
-            register_cached_entity("Place", place)
+        if single_matched_id is None:
+            for place in places:
+                # Deferred: _add() can run nested inside EntityCompleterEdit's own
+                # keyPressEvent (Enter -> returnPressed fires *during* that native
+                # call). add_to_index() replaces the QCompleter object in place,
+                # and doing that while Qt's own key handling is still
+                # mid-execution on that same completer corrupts its internals and
+                # crashes the process. See artist_edit_types.py
+                # _flush_new_chip_paint() for the same hazard.
+                search = self._search
+                place_name, place_id = place.place_name, place.place_id
+                QTimer.singleShot(
+                    0, lambda n=place_name, i=place_id: search.add_to_index(n, i)
+                )
+                register_cached_entity("Place", place)
 
         self._search.reset()
         self._type_edit.clear()
