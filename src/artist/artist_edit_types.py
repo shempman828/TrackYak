@@ -210,49 +210,59 @@ class ArtistTypesWidget(QWidget):
         self._chips[artist_type_id] = chip
 
     def _add(self):
-        name = self._search.text().strip()
-        if not name:
+        names = self._search.split_names()
+        if not names:
             return
 
-        matched_id = self._search.matched_id()
+        # matched_id only names a single typed type -- with several typed at
+        # once (e.g. "Composer;Producer") each is resolved by name instead
+        # of relying on that one-shot completer pick.
+        single_matched_id = self._search.matched_id() if len(names) == 1 else None
+        entities = []
         try:
-            if matched_id is not None:
-                entity = self.controller.get.get_entity_object(
-                    "ArtistType", artist_type_id=matched_id
-                )
-            else:
-                entity = find_or_create_by_name(
-                    self.controller,
-                    "ArtistType",
-                    "type_name",
-                    name,
-                    self._known_types,
-                )
+            for name in names:
+                if single_matched_id is not None:
+                    entity = self.controller.get.get_entity_object(
+                        "ArtistType", artist_type_id=single_matched_id
+                    )
+                else:
+                    entity = find_or_create_by_name(
+                        self.controller,
+                        "ArtistType",
+                        "type_name",
+                        name,
+                        self._known_types,
+                    )
+                if entity:
+                    entities.append(entity)
         except SQLAlchemyError as e:
             logger.error(f"Failed to find/create ArtistType: {e}")
             return
-        if not entity:
+        if not entities:
             return
 
-        added = entity.artist_type_id not in self._chips
-        try:
-            self.controller.add.add_entities(
-                "ArtistTypeAssociation",
-                [
-                    {
-                        "artist_id": self.artist.artist_id,
-                        "artist_type_id": entity.artist_type_id,
-                    }
-                ],
-            )
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to add type to artist: {e}")
-            added = False
+        new_entities = [e for e in entities if e.artist_type_id not in self._chips]
+        if new_entities:
+            try:
+                self.controller.add.add_entities(
+                    "ArtistTypeAssociation",
+                    [
+                        {
+                            "artist_id": self.artist.artist_id,
+                            "artist_type_id": e.artist_type_id,
+                        }
+                        for e in new_entities
+                    ],
+                )
+            except SQLAlchemyError as e:
+                logger.error(f"Failed to add type to artist: {e}")
+                new_entities = []
 
         self._search.reset()
         self._refresh_completer_index()
-        if added:
-            self._add_chip(entity.artist_type_id, entity.type_name)
+        if new_entities:
+            for e in new_entities:
+                self._add_chip(e.artist_type_id, e.type_name)
             self._empty_label.setVisible(False)
             self._relayout()
             self._flush_new_chip_paint()
