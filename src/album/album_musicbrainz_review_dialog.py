@@ -435,6 +435,8 @@ class _ReviewAcceptWorker(CancellableWorker):
             # silently instead of surfacing to the UI.
             logger.error(f"MusicBrainz review accept failed: {e}", exc_info=True)
             self.error.emit(str(e))
+        finally:
+            self._release_db_session()
 
     def _run(self):
         controller = self._controller
