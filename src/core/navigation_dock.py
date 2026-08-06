@@ -154,6 +154,11 @@ class NavigationDock(QDockWidget):
 
     def toggle_navigation(self):
         """Toggle between collapsed and expanded navigation states."""
+        if not self.isVisible():
+            # The dock itself was closed/hidden (e.g. floated and closed),
+            # not just collapsed - restore visibility before toggling width.
+            self.setFloating(False)
+            self.show()
         if self.nav_collapsed:
             self.expand_navigation()
         else:
