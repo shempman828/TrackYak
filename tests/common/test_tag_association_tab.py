@@ -88,6 +88,9 @@ class _StubSearch:
     def matched_id(self):
         return self._matched_id
 
+    def split_names(self):
+        return [part.strip() for part in self._text.split(";") if part.strip()]
+
     def reset(self):
         self.reset_calls += 1
 
