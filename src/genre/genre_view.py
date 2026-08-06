@@ -33,7 +33,7 @@ from src.common.hierarchy_tree_style import (
 )
 from src.core.status_utility import show_status_message
 from src.db.db_tables import TrackGenre
-from src.genre.genre_edit import GenreEditDialog
+from src.genre.genre_edit import GenreEditDialog, GenreSetParentDialog
 from src.genre.genre_merge import GenreMergeDialog
 from src.genre.genre_tracks import GenreTracksWindow
 from src.core.logger_config import logger
@@ -393,6 +393,9 @@ class GenreView(QWidget):
             menu.addAction("Split", lambda: self._split_genre())
             menu.addSeparator()
             menu.addAction(
+                "Set Parent...", lambda: self.set_parent_for_selected_genres()
+            )
+            menu.addAction(
                 "New Parent Genre", lambda: self.create_new_parent(self.current_genre_id)
             )
             menu.addAction(
@@ -401,6 +404,9 @@ class GenreView(QWidget):
         else:
             # Multiple selection
             self.current_genre_id = None
+            menu.addAction(
+                "Set Parent...", lambda: self.set_parent_for_selected_genres()
+            )
 
         # Always show delete option (works for single or multiple)
         menu.addAction("Delete", lambda: self.delete_selected_genres())
@@ -453,6 +459,36 @@ class GenreView(QWidget):
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error editing genre: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to edit genre")
+
+    def set_parent_for_selected_genres(self):
+        """Open a dialog to set the parent for all selected genres at once."""
+        selected_items = self.tree.selectedItems()
+        if not selected_items:
+            show_status_message(self, "Please select genres to edit.")
+            return
+
+        genres = []
+        for item in selected_items:
+            genre_id = item.data(0, Qt.UserRole)
+            genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
+            if genre:
+                genres.append(genre)
+
+        if not genres:
+            return
+
+        try:
+            dialog = GenreSetParentDialog(self.controller, genres, self)
+            if dialog.exec_() == QDialog.Accepted:
+                self.load_genres()
+                self.genre_updated.emit()
+                if len(genres) == 1:
+                    self.status_bar.setText(f"Updated parent for '{genres[0].genre_name}'")
+                else:
+                    self.status_bar.setText(f"Updated parent for {len(genres)} genres")
+        except (SQLAlchemyError, RuntimeError) as e:
+            logger.error(f"Error setting parent for genres: {str(e)}")
+            QMessageBox.critical(self, "Error", "Failed to set parent")
 
     def create_new_parent(self, genre_id):
         """Create a new genre and insert it as the parent of the given genre.
