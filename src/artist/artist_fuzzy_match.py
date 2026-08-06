@@ -214,40 +214,43 @@ class _ArtistMergeWorker(CancellableWorker):
         total = len(self.jobs)
         success_count = 0
 
-        for idx, (old_artist, new_artist) in enumerate(self.jobs):
-            try:
-                logger.info(
-                    f"Merging {old_artist.artist_name} (ID: {old_artist.artist_id}) "
-                    f"into {new_artist.artist_name} (ID: {new_artist.artist_id})"
-                )
-                merged = self.controller.merge.merge_entities(
-                    "Artist",
-                    old_artist.artist_id,
-                    new_artist.artist_id,
-                )
-                if not merged:
-                    logger.error(
-                        f"Failed to merge {old_artist.artist_name} → "
-                        f"{new_artist.artist_name}: merge_entities returned False"
+        try:
+            for idx, (old_artist, new_artist) in enumerate(self.jobs):
+                try:
+                    logger.info(
+                        f"Merging {old_artist.artist_name} (ID: {old_artist.artist_id}) "
+                        f"into {new_artist.artist_name} (ID: {new_artist.artist_id})"
                     )
-                    self.progress.emit(idx + 1, total)
-                    continue
+                    merged = self.controller.merge.merge_entities(
+                        "Artist",
+                        old_artist.artist_id,
+                        new_artist.artist_id,
+                    )
+                    if not merged:
+                        logger.error(
+                            f"Failed to merge {old_artist.artist_name} → "
+                            f"{new_artist.artist_name}: merge_entities returned False"
+                        )
+                        self.progress.emit(idx + 1, total)
+                        continue
 
-                logger.info(
-                    f"adding alias for {old_artist.artist_name} to {new_artist.artist_name}"
-                )
-                self.controller.add.add_entity(
-                    "ArtistAlias",
-                    artist_id=new_artist.artist_id,
-                    alias_name=old_artist.artist_name,
-                )
-                success_count += 1
-            except SQLAlchemyError as e:
-                logger.error(
-                    f"Failed to merge {old_artist.artist_name} → {new_artist.artist_name}: {e}"
-                )
+                    logger.info(
+                        f"adding alias for {old_artist.artist_name} to {new_artist.artist_name}"
+                    )
+                    self.controller.add.add_entity(
+                        "ArtistAlias",
+                        artist_id=new_artist.artist_id,
+                        alias_name=old_artist.artist_name,
+                    )
+                    success_count += 1
+                except SQLAlchemyError as e:
+                    logger.error(
+                        f"Failed to merge {old_artist.artist_name} → {new_artist.artist_name}: {e}"
+                    )
 
-            self.progress.emit(idx + 1, total)
+                self.progress.emit(idx + 1, total)
+        finally:
+            self._release_db_session()
 
         self.finished.emit(success_count, total)
 
