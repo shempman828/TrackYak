@@ -56,5 +56,10 @@ class MusicBrainzWorker(CancellableWorker):
             logger.error(f"MusicBrainzWorker call failed: {e}", exc_info=True)
             self.error.emit(str(e))
             return
+        finally:
+            # `_call` frequently includes a controller.get.* lookup (e.g.
+            # checking for an existing local match) before deciding whether
+            # to write anything -- see CancellableWorker's docstring.
+            self._release_db_session()
         if not self.is_cancelled:
             self.finished.emit(result)
