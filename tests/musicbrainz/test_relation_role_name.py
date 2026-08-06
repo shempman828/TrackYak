@@ -54,10 +54,39 @@ class TestProductionRoleNameUnaffected:
         assert mc._relation_role_name(_rel("engineer", ["assistant"])) == "Assistant Engineer"
 
     def test_sound_with_additional_modifier(self):
-        assert mc._relation_role_name(_rel("sound", ["additional"])) == "Additional Sound"
+        assert mc._relation_role_name(_rel("sound", ["additional"])) == "Additional Sound Engineer"
 
     def test_no_modifier_falls_back_to_type_name(self):
         assert mc._relation_role_name(_rel("producer")) == "Producer"
+
+    def test_sound_with_no_modifier_reports_sound_engineer(self):
+        # Bug #326: "sound" is the one production relation type whose own
+        # name ("sound") isn't the full credited role -- MB's link phrase is
+        # the compound "sound engineer", unlike "mastering"/"mix"/etc. which
+        # are single words. Naive rel_type.title() silently dropped
+        # "Engineer" from every plain sound-engineer credit.
+        assert mc._relation_role_name(_rel("sound")) == "Sound Engineer"
+
+    def test_mix_with_no_modifier_reports_mixer(self):
+        # Same root cause as #326: MB's "mix" relation type credits as
+        # "Mixer", not "Mix" -- confirmed live on Nirvana's Nevermind, where
+        # Andy Wallace's mix relation has an empty attribute-list. Naive
+        # rel_type.title() produced "Mix", not a real credit noun.
+        assert mc._relation_role_name(_rel("mix")) == "Mixer"
+
+    def test_mix_with_modifier_prefixes_mixer_not_mix(self):
+        assert mc._relation_role_name(_rel("mix", ["assistant"])) == "Assistant Mixer"
+
+    def test_recording_with_no_modifier_reports_recording_engineer(self):
+        # "recording" was entirely missing from the credit-type whitelist
+        # (silently dropped, not mislabeled) until this was added alongside
+        # the sound/mix display-name fixes. Confirmed live on Nirvana's
+        # Nevermind ("Something in the Way" credits James Johnson, Jeff
+        # Sheehan, and Butch Vig via a plain "recording" relation).
+        assert mc._relation_role_name(_rel("recording")) == "Recording Engineer"
+
+    def test_recording_with_modifier_prefixes_recording_engineer(self):
+        assert mc._relation_role_name(_rel("recording", ["assistant"])) == "Assistant Recording Engineer"
 
 
 class TestCreditRelationTypesIncludesPreviouslyDropped:
@@ -66,6 +95,9 @@ class TestCreditRelationTypesIncludesPreviouslyDropped:
 
     def test_sound_is_a_credit_type(self):
         assert "sound" in mc._CREDIT_RELATION_TYPES
+
+    def test_recording_is_a_credit_type(self):
+        assert "recording" in mc._CREDIT_RELATION_TYPES
 
 
 class TestParseArtistCreditsIntegration:
@@ -103,5 +135,5 @@ class TestParseArtistCreditsIntegration:
         roles = {c.artist_name: c.role_name for c in credits}
         assert roles == {
             "MGM Studio Orchestra": "Performing Orchestra",
-            "Gary Lyons": "Additional Sound",
+            "Gary Lyons": "Additional Sound Engineer",
         }
