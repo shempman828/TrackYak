@@ -3,7 +3,7 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QThread, Signal
+from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -455,6 +455,7 @@ class RolesTab(_BaseTab):
 
     def _on_roles_loaded(self, grouped: dict) -> None:
         """Called on the main thread once the background worker finishes."""
+        saved_scroll = self._table.verticalScrollBar().value()
         self._table.setRowCount(0)
 
         for (artist_id, credited_name), entry in self._sorted_groups(grouped):
@@ -478,6 +479,14 @@ class RolesTab(_BaseTab):
         # rather than leaving the table sized for whatever it hinted before.
         self._table.updateGeometry()
         self._sync_table_stretch()
+
+        # The scrollbar range isn't recomputed until Qt processes the
+        # geometry changes above, so defer the restore to the next event
+        # loop pass -- otherwise setValue clamps to the stale (pre-rebuild)
+        # range and silently resets to the top.
+        QTimer.singleShot(
+            0, lambda: self._table.verticalScrollBar().setValue(saved_scroll)
+        )
 
     def _on_roles_load_error(self, message: str) -> None:
         logger.error(f"Error loading artist roles: {message}")
