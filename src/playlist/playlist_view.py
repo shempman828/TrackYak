@@ -53,7 +53,10 @@ class _SmartPlaylistRefreshWorker(CancellableWorker):
         self._playlist_id = playlist_id
 
     def run(self) -> None:
-        success = self._builder.refresh_playlist(self._playlist_id)
+        try:
+            success = self._builder.refresh_playlist(self._playlist_id)
+        finally:
+            self._release_db_session()
         self.finished.emit(success, self._playlist_id)
 
 
