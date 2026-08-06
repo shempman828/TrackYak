@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.orm import selectinload
 
 from src.db.db_tables import Track, TrackArtistRole
-from src.statistics.analysis_cache import analysis_cache
+from src.statistics.analysis_cache import analysis_cache, track_needs_analysis
 from src.statistics.batch_analysis_scheduler import (
     BatchAnalysisScheduler,
     max_worker_count,
@@ -40,47 +40,6 @@ from src.statistics.batch_analysis_scheduler import (
 )
 from src.core.logger_config import logger
 from src.core.status_utility import StatusManager, show_status_message
-
-
-# Fields that must be present and non-zero/None for a track to be
-# considered fully analysed.  Must track every field AudioCalculations.run_all()
-# writes (audio_calculations.py) except acoustid_fingerprint/_duration, which
-# can be legitimately and permanently None (e.g. no native chromaprint library
-# available) — see AudioCalculations.calculate_fingerprint's docstring.
-_REQUIRED_FIELDS = [
-    "bpm",
-    "tempo_confidence",
-    "key",
-    "mode",
-    "key_confidence",
-    "track_gain",
-    "track_peak",
-    "crest_factor",
-    "spectral_centroid",
-    "spectral_rolloff",
-    "spectral_flatness",
-    "spectral_flux",
-    "dynamic_range",
-    "stereo_width",
-    "ms_energy_ratio",
-    "channel_coherence",
-    "transient_strength",
-    "energy",
-    "danceability",
-    "acousticness",
-    "liveness",
-    "valence",
-    "audiophile_score",
-]
-
-
-def _track_needs_analysis(track) -> bool:
-    """Return True if any required audio field is missing or zero."""
-    for field in _REQUIRED_FIELDS:
-        val = getattr(track, field, None)
-        if val is None or val == 0 or val == 0.0:
-            return True
-    return False
 
 
 class _PendingTracksWorker(QThread):
@@ -138,14 +97,14 @@ class _PendingTracksWorker(QThread):
             # analysed in the cache AND has every required field populated —
             # so it's pending if EITHER is false. Using AND here (as before)
             # left a gap: a track missing a field the cache doesn't know
-            # about (or one added to _REQUIRED_FIELDS later) could be neither
+            # about (or one added to REQUIRED_ANALYSIS_FIELDS later) could be neither
             # cached nor pending, so cached+pending fell short of the total
             # track count.
             pending = [
                 track
                 for track in all_tracks
                 if not analysis_cache.is_analysed(track.track_id)
-                or _track_needs_analysis(track)
+                or track_needs_analysis(track)
             ]
         self.tracks_loaded.emit(pending, len(all_tracks))
 

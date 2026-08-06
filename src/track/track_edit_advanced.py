@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.metadata.metadata_writer import MetadataWriter
-from src.statistics.analysis_cache import analysis_cache
+from src.statistics.analysis_cache import analysis_cache, track_needs_analysis
 from src.statistics.batch_analysis_scheduler import BatchAnalysisScheduler
 from src.track.track_edit_basetab import _BaseTab
 from src.track.track_edit_fieldform import FieldFormTab
@@ -224,10 +224,15 @@ class AdvancedTab(_BaseTab):
                 f"{len(self.tracks)} track(s)"
             )
 
-        # Check whether everything is already cached (and we're not forcing)
+        # Check whether everything is already cached (and we're not forcing).
+        # A track counts as analysed only if it's BOTH marked so in the cache
+        # AND has every required DSP field populated — the cache alone can
+        # drift from the DB (re-imports, restored backups, manual edits).
         if not force:
             uncached = [
-                t for t in self.tracks if not analysis_cache.is_analysed(t.track_id)
+                t
+                for t in self.tracks
+                if not analysis_cache.is_analysed(t.track_id) or track_needs_analysis(t)
             ]
             if not uncached:
                 show_status_message(
