@@ -49,6 +49,11 @@ class _GlobalGraphWorker(CancellableWorker):
             # not let an exception kill the thread silently — surface it to the UI.
             logger.error(f"Error computing influence graph: {e}", exc_info=True)
             self.error.emit(str(e))
+        finally:
+            # Extraction is read-only (DB queries via self._view.controller),
+            # so nothing else on this thread ever commits/closes -- see
+            # CancellableWorker's docstring.
+            self._release_db_session()
 
 
 class InfluenceGraphView(QWidget):
