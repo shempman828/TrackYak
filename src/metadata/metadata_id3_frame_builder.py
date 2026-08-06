@@ -89,9 +89,18 @@ class ID3FrameBuilder:
         # MusicBrainz Picard convention: alongside the display name, also
         # write a stable per-artist ID as a TXXX frame so re-imports can
         # resolve identity even when the display name is an alias override,
-        # not the artist's canonical name. Only the primary/album artist
-        # frames have a standard ID counterpart.
+        # not the artist's canonical name. TPE1/TPE2 use Picard's standard
+        # TXXX descriptions; every other role gets an analogous
+        # "MusicBrainz {Role} Id" description so each artist credit's mbid
+        # is encoded whenever the artist has one.
         id_frame_map = {"TPE1": "MusicBrainz Artist Id", "TPE2": "MusicBrainz Album Artist Id"}
+        id_frame_map.update(
+            {
+                frame_id: f"MusicBrainz {role_name} Id"
+                for role_name, frame_id in role_to_frame_map.items()
+                if frame_id not in id_frame_map
+            }
+        )
 
         # Group artists by role for each frame type. Album artists only
         # count here under the "Album Artist" role, matching the original
