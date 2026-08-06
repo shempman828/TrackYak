@@ -25,6 +25,33 @@ def _rank_by_query(text: str, keys) -> list[str]:
     return sorted(keys, key=lambda key: (0 if key.lower().startswith(lowered) else 1, key))
 
 
+# Multiple entities can be typed into one completer field at once, e.g.
+# "Bass;Lead Vocals" -- split_entity_names() below parses that; the widgets
+# use the same delimiter to figure out which segment of the field is
+# currently being searched/completed.
+_MULTI_ENTITY_DELIMITER = ";"
+
+
+def split_entity_names(text: str) -> list[str]:
+    """Split a completer field's text on `_MULTI_ENTITY_DELIMITER` into the
+    individual entity names it names, trimming whitespace around each --
+    "Bass;Lead Vocals" and "Bass; Lead Vocals" parse identically -- and
+    dropping empty segments (e.g. a trailing "Bass;")."""
+    return [
+        part.strip()
+        for part in text.split(_MULTI_ENTITY_DELIMITER)
+        if part.strip()
+    ]
+
+
+def _current_segment(text: str) -> str:
+    """The portion of `text` after its last delimiter (the whole string if
+    there is none) -- what the user is actively searching/completing right
+    now, e.g. "Le" out of "Bass;Le"."""
+    idx = text.rfind(_MULTI_ENTITY_DELIMITER)
+    return text[idx + 1 :].lstrip() if idx != -1 else text
+
+
 class EntityCompleterEdit(QLineEdit):
     """
     QLineEdit with a QCompleter over a caller-supplied {display_text: id}
@@ -40,8 +67,9 @@ class EntityCompleterEdit(QLineEdit):
             self.setPlaceholderText(placeholder_text)
         self._display_to_id: dict = {}
         self._matched_id = None
+        self._completer: QCompleter | None = None
         self.textEdited.connect(self._on_manual_edit)
-        self.textEdited.connect(self._reorder_completer)
+        self.textEdited.connect(self._update_completions)
 
     def event(self, e) -> bool:
         # Claim Enter/Return as a ShortcutOverride so a dialog's default
@@ -71,25 +99,32 @@ class EntityCompleterEdit(QLineEdit):
         """Refresh the completer's backing model.
 
         Updates the existing QCompleter's model in place rather than
-        replacing the QCompleter (setCompleter() deletes the old one, since
-        it's parented to this widget) -- set_index() can run synchronously
-        from returnPressed while the completer's own popup is still
-        mid-dispatch of that same Enter keypress (it goes on to emit
-        activated() after returnPressed's slot returns), so destroying it
-        here was a use-after-free that crashed the app.
+        replacing it -- set_index() can run synchronously from
+        returnPressed while the completer's own popup is still mid-dispatch
+        of that same Enter keypress (it goes on to emit activated() after
+        returnPressed's slot returns), so destroying it here was a
+        use-after-free that crashed the app.
+
+        The completer is wired up manually (QCompleter.setWidget()) rather
+        than via QLineEdit.setCompleter() -- Qt's automatic wiring forces
+        the completion prefix to the field's *entire* text on every
+        keystroke, which would make suggestions vanish the moment a second
+        entity name starts after a delimiter (the prefix "Bass;Le" matches
+        nothing). Driving it manually lets _update_completions() search
+        against just the segment being typed.
         """
         self._display_to_id = dict(display_to_id)
-        ranked_keys = _rank_by_query(self.text(), self._display_to_id.keys())
-        existing = self.completer()
-        if existing is not None and isinstance(existing.model(), QStringListModel):
-            existing.model().setStringList(ranked_keys)
+        ranked_keys = _rank_by_query(_current_segment(self.text()), self._display_to_id.keys())
+        if self._completer is not None and isinstance(self._completer.model(), QStringListModel):
+            self._completer.model().setStringList(ranked_keys)
             return
         model = QStringListModel(ranked_keys, self)
         completer = QCompleter(model, self)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
         completer.setFilterMode(Qt.MatchContains)
+        completer.setWidget(self)
         completer.activated.connect(self._on_completion_picked)
-        self.setCompleter(completer)
+        self._completer = completer
 
     def add_to_index(self, display: str, entity_id) -> None:
         """Hot-register a newly created entity into the completer index
@@ -98,19 +133,40 @@ class EntityCompleterEdit(QLineEdit):
         self._display_to_id[display] = entity_id
         self.set_index(self._display_to_id)
 
-    def _on_completion_picked(self, text: str) -> None:
-        self._matched_id = self._display_to_id.get(text)
+    def _on_completion_picked(self, candidate: str) -> None:
+        # Replace only the segment being completed (the text after the
+        # last delimiter, or the whole field if there isn't one) so picking
+        # a suggestion for the 2nd+ item doesn't wipe out ones already typed.
+        text = self.text()
+        idx = text.rfind(_MULTI_ENTITY_DELIMITER)
+        prefix = text[: idx + 1] if idx != -1 else ""
+        self.setText(prefix + candidate)
+        self._matched_id = self._display_to_id.get(candidate)
+        if self._completer is not None:
+            self._completer.popup().hide()
 
     def _on_manual_edit(self, _text: str) -> None:
         self._matched_id = None
 
-    def _reorder_completer(self, text: str) -> None:
-        completer = self.completer()
-        if completer is not None and isinstance(completer.model(), QStringListModel):
-            completer.model().setStringList(_rank_by_query(text, self._display_to_id.keys()))
+    def _update_completions(self, text: str) -> None:
+        completer = self._completer
+        if completer is None or not isinstance(completer.model(), QStringListModel):
+            return
+        segment = _current_segment(text)
+        completer.model().setStringList(_rank_by_query(segment, self._display_to_id.keys()))
+        completer.setCompletionPrefix(segment)
+        if completer.completionCount() > 0:
+            completer.complete()
+        elif completer.popup() is not None:
+            completer.popup().hide()
 
     def matched_id(self):
         return self._matched_id
+
+    def split_names(self) -> list[str]:
+        """Every entity name currently typed into the field, split on the
+        multi-entity delimiter (see split_entity_names())."""
+        return split_entity_names(self.text())
 
     def reset(self) -> None:
         self.clear()
@@ -277,21 +333,25 @@ class BoundedSearchEdit(QLineEdit):
             self.setPlaceholderText(f"{placeholder_text} (min {self._MIN_CHARS} chars)")
 
         self._model = QStringListModel(self)
-        completer = QCompleter(self._model, self)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchContains)
-        completer.activated.connect(self._on_completion_picked)
-        self.setCompleter(completer)
+        self._completer = QCompleter(self._model, self)
+        self._completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self._completer.setFilterMode(Qt.MatchContains)
+        # Wired manually (setWidget()) rather than via QLineEdit.setCompleter()
+        # -- see EntityCompleterEdit.set_index() for why: Qt's automatic
+        # wiring would force the completion prefix to the whole field text,
+        # breaking suggestions for a 2nd+ entity typed after a delimiter.
+        self._completer.setWidget(self)
+        self._completer.activated.connect(self._on_completion_picked)
 
         self.textEdited.connect(self._on_text_edited)
 
     def _on_text_edited(self, text: str) -> None:
         self._matched_id = None
-        text = text.strip()
-        if len(text) >= self._MIN_CHARS:
+        segment = _current_segment(text)
+        if len(segment) >= self._MIN_CHARS:
             self._last_matches = (
                 self._controller.get.get_all_entities(
-                    self._model_name, **{f"{self._name_field}__contains": text}
+                    self._model_name, **{f"{self._name_field}__contains": segment}
                 )
                 or []
             )[: self._MAX_RESULTS]
@@ -303,26 +363,34 @@ class BoundedSearchEdit(QLineEdit):
         else:
             self._last_matches = []
             self._display_to_id = {}
-        # The model must be refreshed *before* re-triggering completion --
-        # QLineEdit.setCompleter() already wires textEdited to update the
-        # completer's prefix, but that wiring ran (and filtered the *old*
-        # model) before this slot got a chance to load fresh matches, so
-        # the popup needs an explicit nudge to show the new results now.
-        self._model.setStringList(_rank_by_query(text, self._display_to_id.keys()))
+        self._model.setStringList(_rank_by_query(segment, self._display_to_id.keys()))
+        self._completer.setCompletionPrefix(segment)
         if self._display_to_id:
-            self.completer().complete()
+            self._completer.complete()
+        elif self._completer.popup() is not None:
+            self._completer.popup().hide()
 
-    def _on_completion_picked(self, text: str) -> None:
-        self._matched_id = self._display_to_id.get(text)
+    def _on_completion_picked(self, candidate: str) -> None:
+        text = self.text()
+        idx = text.rfind(_MULTI_ENTITY_DELIMITER)
+        prefix = text[: idx + 1] if idx != -1 else ""
+        self.setText(prefix + candidate)
+        self._matched_id = self._display_to_id.get(candidate)
+        self._completer.popup().hide()
 
     def matched_id(self):
         return self._matched_id
 
     def known_matches(self) -> list:
-        """Entities matched by the current text's last on-demand query --
+        """Entities matched by the current segment's last on-demand query --
         the bounded-mode equivalent of a preloaded known_entities list, for
         find_or_create_by_name's case-insensitive duplicate check."""
         return self._last_matches
+
+    def split_names(self) -> list[str]:
+        """Every entity name currently typed into the field, split on the
+        multi-entity delimiter (see split_entity_names())."""
+        return split_entity_names(self.text())
 
     def add_to_index(self, display: str, entity_id) -> None:
         # Nothing to hot-patch -- the next keystroke re-queries the DB, so a
