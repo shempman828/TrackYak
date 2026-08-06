@@ -84,6 +84,12 @@ class SyncWorker(CancellableWorker):
             logger.exception("SyncWorker error")
             StatusManager.end_task(f"Sync error: {str(e)}", 5000)
             self.finished.emit([])
+        finally:
+            # sync_manager now resolves its own session lazily per calling
+            # thread (see sync_view.py) -- this thread's first DB touch
+            # (get_item_tracks, called from sync_playlist_to_*) registered a
+            # fresh Session here that nothing else releases.
+            self._release_db_session()
 
     def _progress_callback(self, current: int, total: int, message: str):
         self.progress.emit(current, total, message)
