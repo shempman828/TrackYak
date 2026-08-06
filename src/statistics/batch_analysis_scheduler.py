@@ -284,31 +284,41 @@ class BatchAnalysisScheduler:
         """
         in_flight: dict[concurrent.futures.Future, tuple[int, str]] = {}
 
-        while True:
-            if not self._stop_flag:
-                while len(in_flight) < self.num_workers:
-                    if not self._pause_event.wait(timeout=1.0):
-                        break  # still paused
-                    try:
-                        track_id, file_path = self._pending.get_nowait()
-                    except queue.Empty:
-                        break
-                    future = self._executor.submit(
-                        _analyze_track_worker, track_id, file_path
-                    )
-                    in_flight[future] = (track_id, file_path)
+        try:
+            while True:
+                if not self._stop_flag:
+                    while len(in_flight) < self.num_workers:
+                        if not self._pause_event.wait(timeout=1.0):
+                            break  # still paused
+                        try:
+                            track_id, file_path = self._pending.get_nowait()
+                        except queue.Empty:
+                            break
+                        future = self._executor.submit(
+                            _analyze_track_worker, track_id, file_path
+                        )
+                        in_flight[future] = (track_id, file_path)
 
-            if not in_flight:
-                break  # nothing left to do and nothing pending/in flight
+                if not in_flight:
+                    break  # nothing left to do and nothing pending/in flight
 
-            done, _ = concurrent.futures.wait(
-                in_flight.keys(),
-                timeout=1.0,
-                return_when=concurrent.futures.FIRST_COMPLETED,
-            )
-            for future in done:
-                track_id, file_path = in_flight.pop(future)
-                self._handle_result(track_id, file_path, future)
+                done, _ = concurrent.futures.wait(
+                    in_flight.keys(),
+                    timeout=1.0,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+                for future in done:
+                    track_id, file_path = in_flight.pop(future)
+                    self._handle_result(track_id, file_path, future)
+        finally:
+            # This thread's DB writes (update_entity, recompute_album_gain_peak)
+            # commit as they go, so this isn't a pinned-connection leak like
+            # the read-only workers -- but the scoped_session registry entry
+            # for this (now-dead) thread is otherwise never cleaned up either.
+            # See CancellableWorker's _release_db_session docstring.
+            from src.db.db_engine import Session
+
+            Session.remove()
 
         logger.debug("AnalysisCoordinator: exiting")
 
