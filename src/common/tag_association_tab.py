@@ -142,27 +142,35 @@ class _BaseTrackAssociationTab(_BaseTab):
         )
 
     def _add(self):
-        name = self._search.text().strip()
-        if not name:
+        names = self._search.split_names()
+        if not names:
             return
 
-        matched_id = self._search.matched_id()
+        # matched_id only names a single typed entry -- with several typed
+        # at once (e.g. "Rock;Pop") each is resolved by name instead of
+        # relying on that one-shot completer pick.
+        single_matched_id = self._search.matched_id() if len(names) == 1 else None
+
+        entities = []
         try:
-            if matched_id is not None:
-                entity = self.controller.get.get_entity_object(
-                    self.model_name, **{self.id_field: matched_id}
-                )
-            else:
-                entity = self._find_or_create(name)
+            for name in names:
+                if single_matched_id is not None:
+                    entity = self.controller.get.get_entity_object(
+                        self.model_name, **{self.id_field: single_matched_id}
+                    )
+                else:
+                    entity = self._find_or_create(name)
+                if entity:
+                    entities.append((name, entity))
         except SQLAlchemyError as e:
             logger.error(f"Failed to find/create {self.model_name}: {e}")
             return
-        if not entity:
+        if not entities:
             return
 
-        entity_id = getattr(entity, self.id_field)
         rows = [
-            {"track_id": track.track_id, self.id_field: entity_id}
+            {"track_id": track.track_id, self.id_field: getattr(entity, self.id_field)}
+            for _name, entity in entities
             for track in self.tracks
         ]
         try:
@@ -173,32 +181,36 @@ class _BaseTrackAssociationTab(_BaseTab):
             logger.error(f"Failed to add {self.model_name} to tracks: {e}")
             failed = []
         if failed:
-            bad_track_ids = ", ".join(str(row["track_id"]) for row in failed)
+            bad_track_ids = ", ".join(
+                dict.fromkeys(str(row["track_id"]) for row in failed)
+            )
             logger.warning(
-                f"Failed to tag {len(failed)} track(s) with {self.model_name} "
-                f"'{name}': track_id(s) {bad_track_ids}"
+                f"Failed to tag {len(failed)} track(s) with {self.model_name}: "
+                f"track_id(s) {bad_track_ids}"
             )
             QMessageBox.warning(
                 self,
                 "Some tracks not updated",
-                f"Could not add '{name}' to {len(failed)} of {len(rows)} track(s) "
+                f"Could not add to {len(failed)} of {len(rows)} track(s) "
                 f"(track_id(s) {bad_track_ids}). They may have been deleted or "
                 f"changed since this tab was opened; try closing and reopening it.",
             )
 
-        if matched_id is None:
-            display = getattr(entity, self.name_field, None)
-            if display:
-                # Deferred: _add() can run nested inside EntityCompleterEdit's
-                # own keyPressEvent (Enter -> returnPressed fires *during*
-                # that native call). add_to_index() replaces the QCompleter
-                # object in place, and doing that while Qt's own key handling
-                # is still mid-execution on that same completer corrupts its
-                # internals and crashes the process. See artist_edit_types.py
-                # _flush_new_chip_paint() for the same hazard.
-                search = self._search
-                QTimer.singleShot(0, lambda: search.add_to_index(display, entity_id))
-            register_cached_entity(self.model_name, entity)
+        if single_matched_id is None:
+            for _name, entity in entities:
+                entity_id = getattr(entity, self.id_field)
+                display = getattr(entity, self.name_field, None)
+                if display:
+                    # Deferred: _add() can run nested inside EntityCompleterEdit's
+                    # own keyPressEvent (Enter -> returnPressed fires *during*
+                    # that native call). add_to_index() replaces the QCompleter
+                    # object in place, and doing that while Qt's own key handling
+                    # is still mid-execution on that same completer corrupts its
+                    # internals and crashes the process. See artist_edit_types.py
+                    # _flush_new_chip_paint() for the same hazard.
+                    search = self._search
+                    QTimer.singleShot(0, lambda d=display, i=entity_id: search.add_to_index(d, i))
+                register_cached_entity(self.model_name, entity)
 
         self._search.reset()
         self.load(self.tracks)
