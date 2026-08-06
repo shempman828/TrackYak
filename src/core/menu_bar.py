@@ -135,6 +135,14 @@ class MenuBar:
             self.view_menu, "Mini Player", slot=self.open_miniplayer, shortcut="Ctrl+M"
         )
 
+        self.view_menu.addSeparator()
+        self.add_action(
+            self.view_menu,
+            "Reset Layout",
+            slot=self._reset_ui_layout,
+            tooltip="Restore the navigation, queue, and player panels to their default positions",
+        )
+
         # Help menu
         help_menu = menu_bar.addMenu("Help")
 
