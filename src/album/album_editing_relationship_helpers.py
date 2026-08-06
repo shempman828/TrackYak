@@ -106,19 +106,22 @@ class RelationshipHelpers:
     # =========================================================================
 
     def add_artist_credit(
-        self, artist_name, role_name, matched_artist_id=None, matched_role_id=None
+        self, artist_name, role_names, matched_artist_id=None, matched_role_id=None
     ):
-        """Add a new artist credit with role to the album.
+        """Add a new artist credit with one or more roles to the album.
 
-        `artist_name`/`role_name` come from the inline entity-completer row
-        in the Artists tab (album_tab.py) rather than a popup dialog.
+        `artist_name`/`role_names` come from the inline entity-completer row
+        in the Artists tab (album_tab.py) rather than a popup dialog --
+        `role_names` is already split on the completer's multi-entity
+        delimiter (e.g. "Producer;Mixer" -> two roles for the same artist).
         `matched_artist_id`/`matched_role_id`, when set, skip the name
         lookup entirely -- the user picked an existing artist/role from the
-        completer.
+        completer (matched_role_id only applies when exactly one role name
+        was typed).
         """
         artist_name = (artist_name or "").strip()
-        role_name = (role_name or "").strip()
-        if not artist_name or not role_name:
+        role_names = [name.strip() for name in role_names if name.strip()]
+        if not artist_name or not role_names:
             show_status_message(self.widget, "Both artist and role are required.")
             return
 
@@ -137,39 +140,48 @@ class RelationshipHelpers:
                     )
                     register_cached_entity("Artist", artist)
 
-            if matched_role_id is not None:
-                role = self.controller.get.get_entity_object(
-                    "Role", role_id=matched_role_id
-                )
-            else:
-                role = self.controller.get.get_entity_object(
-                    "Role", role_name=role_name
-                )
-                if not role:
-                    role = self.controller.add.add_entity(
+            roles = []
+            for role_name in role_names:
+                if matched_role_id is not None:
+                    role = self.controller.get.get_entity_object(
+                        "Role", role_id=matched_role_id
+                    )
+                else:
+                    role = self.controller.get.get_entity_object(
                         "Role", role_name=role_name
                     )
-                    register_cached_entity("Role", role)
+                    if not role:
+                        role = self.controller.add.add_entity(
+                            "Role", role_name=role_name
+                        )
+                        register_cached_entity("Role", role)
+                if role:
+                    roles.append(role)
 
-            # New credits go to the end of their role group rather than
-            # defaulting to sort_order 0, which would jump them to the front.
-            siblings = [
-                ra for ra in self.album.album_roles if ra.role_id == role.role_id
-            ]
-            next_sort_order = (
-                max(ra.sort_order for ra in siblings) + 1 if siblings else 0
-            )
+            if not roles:
+                show_status_message(self.widget, "Could not resolve role.")
+                return
 
             credited_alias_id = self._prompt_credited_alias(artist)
 
-            self.controller.add.add_entity(
-                "AlbumRoleAssociation",
-                album_id=self.album.album_id,
-                artist_id=artist.artist_id,
-                role_id=role.role_id,
-                sort_order=next_sort_order,
-                credited_alias_id=credited_alias_id,
-            )
+            for role in roles:
+                # New credits go to the end of their role group rather than
+                # defaulting to sort_order 0, which would jump them to the front.
+                siblings = [
+                    ra for ra in self.album.album_roles if ra.role_id == role.role_id
+                ]
+                next_sort_order = (
+                    max(ra.sort_order for ra in siblings) + 1 if siblings else 0
+                )
+
+                self.controller.add.add_entity(
+                    "AlbumRoleAssociation",
+                    album_id=self.album.album_id,
+                    artist_id=artist.artist_id,
+                    role_id=role.role_id,
+                    sort_order=next_sort_order,
+                    credited_alias_id=credited_alias_id,
+                )
 
             self.show_updated_view()
 
