@@ -163,6 +163,16 @@ class _RolesLoaderWorker(QObject):
             # and must not let an exception be lost silently.
             logger.exception("Failed to load track roles")
             self.error.emit(str(e))
+        finally:
+            # load() spins up a brand-new QThread per call, and each new OS
+            # thread gets its own entry in the scoped_session registry the
+            # first time it's touched above. Nothing else ever removes that
+            # entry, so its checked-out connection was never released back to
+            # the pool -- repeated reloads (e.g. removing several track
+            # credits in a row, each of which calls load() again) exhausted
+            # the pool. Removing it here returns the connection once this
+            # thread's work is done.
+            self.controller.SessionFactory.remove()
 
 
 class _FlowLayout(QLayout):
