@@ -104,20 +104,29 @@ class _PendingTracksWorker(QThread):
 
     def run(self):
         try:
-            all_tracks = self._controller.get.get_all_entities(
-                "Track",
-                load_options=[
-                    selectinload(Track.artist_roles).selectinload(
-                        TrackArtistRole.artist
-                    )
-                ],
-            )
-        except Exception as e:
-            # Intentional broad boundary catch: this runs on a QThread and must
-            # not let an exception kill the thread silently.
-            logger.exception("Failed to load tracks for analysis")
-            self.failed.emit(str(e))
-            return
+            try:
+                all_tracks = self._controller.get.get_all_entities(
+                    "Track",
+                    load_options=[
+                        selectinload(Track.artist_roles).selectinload(
+                            TrackArtistRole.artist
+                        )
+                    ],
+                )
+            except Exception as e:
+                # Intentional broad boundary catch: this runs on a QThread and must
+                # not let an exception kill the thread silently.
+                logger.exception("Failed to load tracks for analysis")
+                self.failed.emit(str(e))
+                return
+        finally:
+            # get_all_entities is read-only and this worker never commits --
+            # see CancellableWorker's _release_db_session docstring. This
+            # worker is a plain QThread rather than a CancellableWorker, so
+            # it can't inherit the helper; call it directly instead.
+            from src.db.db_engine import Session
+
+            Session.remove()
 
         if self._force_all:
             # Ignore both the cache and each track's existing field values —
