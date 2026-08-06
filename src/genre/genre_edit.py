@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.entity_alias_tab import EntityAliasesTab
+from src.common.hierarchy_tree_style import is_hierarchy_descendant
 from src.core.logger_config import logger
 
 
@@ -177,3 +178,75 @@ class GenreEditDialog(QDialog):
             self.accept()
         except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Failed to save genre: {str(e)}")
+
+
+class GenreSetParentDialog(QDialog):
+    """Set the parent genre for one or more selected genres at once."""
+
+    def __init__(self, controller, genres, parent=None):
+        super().__init__(parent)
+        self.controller = controller
+        self.genres = genres
+        self.setup_ui()
+        self.load_data()
+
+    def setup_ui(self):
+        self.setWindowTitle("Set Parent Genre")
+
+        layout = QFormLayout(self)
+
+        if len(self.genres) == 1:
+            summary = f"Set parent for '{self.genres[0].genre_name}':"
+        else:
+            summary = f"Set parent for {len(self.genres)} selected genres:"
+        layout.addRow(QLabel(summary))
+
+        self.parent_combo = QComboBox()
+        self.parent_combo.addItem("(No parent)", None)
+        layout.addRow("Parent Genre:", self.parent_combo)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.validate)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def load_data(self):
+        all_genres = self.controller.get.get_all_entities("Genre")
+        selected_ids = {g.genre_id for g in self.genres}
+
+        # A valid parent must not be one of the selected genres themselves,
+        # nor a descendant of any of them -- either case would create a cycle.
+        invalid_ids = set(selected_ids)
+        for genre_id in selected_ids:
+            for g in all_genres:
+                if g.genre_id in invalid_ids:
+                    continue
+                if is_hierarchy_descendant(
+                    genre_id, g.genre_id, all_genres, id_attr="genre_id"
+                ):
+                    invalid_ids.add(g.genre_id)
+
+        valid_parents = [g for g in all_genres if g.genre_id not in invalid_ids]
+        valid_parents.sort(key=lambda g: g.genre_name.lower())
+
+        for g in valid_parents:
+            self.parent_combo.addItem(g.genre_name, g.genre_id)
+
+        # Pre-select the current parent, but only if every selected genre
+        # already shares that same parent.
+        parent_ids = {g.parent_id for g in self.genres}
+        if len(parent_ids) == 1:
+            idx = self.parent_combo.findData(next(iter(parent_ids)))
+            if idx >= 0:
+                self.parent_combo.setCurrentIndex(idx)
+
+    def validate(self):
+        parent_id = self.parent_combo.currentData()
+        try:
+            for genre in self.genres:
+                self.controller.update.update_entity(
+                    "Genre", genre.genre_id, parent_id=parent_id
+                )
+            self.accept()
+        except SQLAlchemyError as e:
+            QMessageBox.critical(self, "Error", f"Failed to set parent: {str(e)}")
