@@ -13,6 +13,18 @@ from PySide6.QtCore import QEvent, QStringListModel, Qt
 from PySide6.QtWidgets import QCompleter, QLineEdit
 
 
+def _rank_by_query(text: str, keys) -> list[str]:
+    """Order candidate names so ones `text` matches at the start (e.g.
+    "Guitar" for query "guitar") outrank ones where it only appears
+    mid-string (e.g. "Additional Guitar") -- QCompleter's MatchContains
+    filtering keeps the source model's row order for whatever it lets
+    through, so without this a plain alphabetical list surfaces
+    "Additional Guitar" before "Guitar" purely because 'A' < 'G'.
+    """
+    lowered = text.strip().lower()
+    return sorted(keys, key=lambda key: (0 if key.lower().startswith(lowered) else 1, key))
+
+
 class EntityCompleterEdit(QLineEdit):
     """
     QLineEdit with a QCompleter over a caller-supplied {display_text: id}
@@ -29,6 +41,7 @@ class EntityCompleterEdit(QLineEdit):
         self._display_to_id: dict = {}
         self._matched_id = None
         self.textEdited.connect(self._on_manual_edit)
+        self.textEdited.connect(self._reorder_completer)
 
     def event(self, e) -> bool:
         # Claim Enter/Return as a ShortcutOverride so a dialog's default
@@ -66,12 +79,12 @@ class EntityCompleterEdit(QLineEdit):
         here was a use-after-free that crashed the app.
         """
         self._display_to_id = dict(display_to_id)
-        sorted_keys = sorted(self._display_to_id.keys())
+        ranked_keys = _rank_by_query(self.text(), self._display_to_id.keys())
         existing = self.completer()
         if existing is not None and isinstance(existing.model(), QStringListModel):
-            existing.model().setStringList(sorted_keys)
+            existing.model().setStringList(ranked_keys)
             return
-        model = QStringListModel(sorted_keys, self)
+        model = QStringListModel(ranked_keys, self)
         completer = QCompleter(model, self)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
         completer.setFilterMode(Qt.MatchContains)
@@ -90,6 +103,11 @@ class EntityCompleterEdit(QLineEdit):
 
     def _on_manual_edit(self, _text: str) -> None:
         self._matched_id = None
+
+    def _reorder_completer(self, text: str) -> None:
+        completer = self.completer()
+        if completer is not None and isinstance(completer.model(), QStringListModel):
+            completer.model().setStringList(_rank_by_query(text, self._display_to_id.keys()))
 
     def matched_id(self):
         return self._matched_id
@@ -290,7 +308,7 @@ class BoundedSearchEdit(QLineEdit):
         # completer's prefix, but that wiring ran (and filtered the *old*
         # model) before this slot got a chance to load fresh matches, so
         # the popup needs an explicit nudge to show the new results now.
-        self._model.setStringList(sorted(self._display_to_id.keys()))
+        self._model.setStringList(_rank_by_query(text, self._display_to_id.keys()))
         if self._display_to_id:
             self.completer().complete()
 
