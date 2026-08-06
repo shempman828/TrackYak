@@ -984,7 +984,11 @@ class AudioCalculations:
             # tonal energy (low flatness) in that band — but flatness alone
             # is degenerate when the band is near-silent (a uniform noise
             # floor of all-eps values is technically "flat" too), so gate it
-            # by how much real energy is actually up there.
+            # by how much real energy is actually up there. Kept as a minor,
+            # secondary signal only: measured against ~20 real library
+            # tracks, it runs noisy per-track but is directionally right on
+            # average (about 2x higher for live tracks than studio) — the
+            # persistence term below is the one that actually discriminates.
             noise_mask = f > 8000
             if np.any(noise_mask):
                 hf = mag[noise_mask]
@@ -994,24 +998,41 @@ class AudioCalculations:
             else:
                 noise_factor = 0.0
 
-            # Noise-floor persistence: how elevated the quietest frames are
-            # relative to the loudest. A live recording's crowd/room tone
-            # never truly drops out, so quiet passages stay close to loud
-            # ones; a studio recording can fall toward true silence between
-            # phrases. (Previously this measured overall loudness variance,
-            # which just tracked the song's arrangement/dynamics — a *good*,
-            # dynamic studio mix scored as more "live" than a constant wall
-            # of crowd noise.)
-            frame_totals = np.mean(mag, axis=0)
-            order = np.argsort(frame_totals)
-            tenth = max(1, len(order) // 10)
-            quiet = frame_totals[order[:tenth]]
-            loud = frame_totals[order[-tenth:]]
-            floor_ratio = np.mean(quiet) / (np.mean(loud) + eps)
-            variance_factor = float(np.clip(floor_ratio * 3.0, 0.0, 1.0))
+            # Noise-floor persistence: how close to true silence the
+            # track's own quietest moments get, relative to its peak (see
+            # _quiet_frame_headroom_db — shared with _noise_floor_gate).
+            # Previously this compared the quietest 10% of *this 30s
+            # window's* STFT frames against the loudest 10% of the same
+            # window — which mostly tracked the arrangement's own dynamics
+            # and mastering compression within that window, not genuine
+            # ambience: a heavily-compressed dry studio track can have a
+            # narrower loud/quiet spread *in that window* than a genuinely
+            # live recording whose quiet verse is still much quieter than
+            # its loud chorus despite a real crowd underneath. Measuring
+            # headroom against the track's true peak over its full length
+            # fixes that — confirmed against Peter Frampton's "Show Me the
+            # Way (Live)" (~21dB headroom, never gets that quiet) versus
+            # three studio comparisons that all reach 29-31dB.
+            headroom_db = self._quiet_frame_headroom_db()
+            if headroom_db is None:
+                persistence_factor = 0.3
+            else:
+                # Across a broader sample of real live vs. studio tracks,
+                # loud/arena live recordings clustered ~19-26dB and studio
+                # tracks ~27-34dB, with quiet/hushed live performances
+                # (e.g. a polite jazz-club or acoustic-set audience) as a
+                # known miss — they can legitimately reach studio-like
+                # headroom when the audience isn't audibly present during
+                # the sampled passage. Ramp is placed right at that
+                # boundary (full credit by 20dB, zero by 30dB) rather than
+                # spread across the whole observed range, so a clearly
+                # live arena recording scores near the top of the scale
+                # and a clearly dry studio recording scores near zero,
+                # instead of both landing in a mushy middle.
+                persistence_factor = float(np.clip((30.0 - headroom_db) / 10.0, 0.0, 1.0))
 
             return float(
-                np.clip(noise_factor * 0.55 + variance_factor * 0.45, 0.0, 1.0)
+                np.clip(noise_factor * 0.15 + persistence_factor * 0.85, 0.0, 1.0)
             )
 
         except ValueError as e:
@@ -1143,6 +1164,38 @@ class AudioCalculations:
         dr = self.calculate_dynamic_range()
         return float(np.clip((dr - 5.0) / 5.0, 0.0, 1.0))
 
+    def _quiet_frame_headroom_db(self) -> float | None:
+        """
+        How far below the track's own peak the quietest ~75ms frames sit,
+        in dB. Shared by `_noise_floor_gate` (audiophile scoring) and
+        `calculate_liveness` (persistent room/crowd presence detection) —
+        both start from the same question, "how close to true silence do
+        this track's quiet moments get", just map a low answer to opposite
+        conclusions (a defect for audiophile scoring, a live-ambience
+        signal for liveness). Returns None if the track is too short to
+        estimate this reliably.
+        """
+        mono = self._mono()
+        frame = max(1, int(self.sr * 0.075))  # ~75ms frames
+        n_frames = len(mono) // frame
+        if n_frames < 20:
+            return None
+        chunks = mono[: n_frames * frame].reshape(n_frames, frame)
+        frame_rms = np.sqrt(np.mean(chunks**2, axis=1))
+        # Exclude digital-silence padding (leading/trailing zeros, encoder
+        # gaps) — that's not the recording's noise floor, it's silence.
+        active = frame_rms[frame_rms > 1e-6]
+        if len(active) < 20:
+            return None
+
+        quiet_threshold = np.percentile(active, 10)
+        quiet = active[active <= quiet_threshold]
+        noise_floor_db = 20.0 * np.log10(np.mean(quiet) + 1e-9)
+
+        peak = np.max(np.abs(mono))
+        peak_db = 20.0 * np.log10(peak + 1e-9)
+        return peak_db - noise_floor_db
+
     def _noise_floor_gate(self) -> float:
         """
         How far below the track's own peak the quietest real moments sit.
@@ -1154,26 +1207,9 @@ class AudioCalculations:
         is for); it isolates whether the *quiet moments specifically* are
         genuinely quiet.
         """
-        mono = self._mono()
-        frame = max(1, int(self.sr * 0.075))  # ~75ms frames
-        n_frames = len(mono) // frame
-        if n_frames < 20:
+        headroom_db = self._quiet_frame_headroom_db()
+        if headroom_db is None:
             return 0.5
-        chunks = mono[: n_frames * frame].reshape(n_frames, frame)
-        frame_rms = np.sqrt(np.mean(chunks**2, axis=1))
-        # Exclude digital-silence padding (leading/trailing zeros, encoder
-        # gaps) — that's not the recording's noise floor, it's silence.
-        active = frame_rms[frame_rms > 1e-6]
-        if len(active) < 20:
-            return 0.5
-
-        quiet_threshold = np.percentile(active, 10)
-        quiet = active[active <= quiet_threshold]
-        noise_floor_db = 20.0 * np.log10(np.mean(quiet) + 1e-9)
-
-        peak = np.max(np.abs(mono))
-        peak_db = 20.0 * np.log10(peak + 1e-9)
-        headroom_db = peak_db - noise_floor_db
 
         # This is a gate, not a graded axis: it should give full credit to
         # the typical/default case and only punish tracks that actually
