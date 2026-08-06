@@ -519,7 +519,9 @@ class PublisherView(QWidget):
         self.flat_view_button.setText(
             "Tree View" if self.publishers_tree.flat_view else "Flat View"
         )
-        self._update_count_label()
+        # Reapply any active search/MBID/fixed-status filters, since the
+        # tree was just rebuilt from scratch.
+        self.filter_publishers()
 
     def _update_count_label(self):
         """Refresh the "N publishers" / "Showing X of Y" count label."""

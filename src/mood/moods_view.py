@@ -290,6 +290,9 @@ class MoodView(QWidget):
         # always-sorted list.
         self.mood_tree.setDragEnabled(not self.flat_view)
         self.build_mood_tree()
+        # Reapply any active search filter, since the tree was just rebuilt
+        # from scratch.
+        self.filter_moods()
 
     def _make_mood_item(self, mood, mood_track_counts, parent=None):
         """Build a single mood's tree item, shared by the tree and flat builders."""

@@ -208,6 +208,10 @@ class GenreView(QWidget):
             restore_expanded_ids_or_expand_all(self.tree, expanded_ids, is_initial_load)
             logger.info(f"Loaded {len(genres)} genres with track counts")
 
+            # Reapply any active search filter, since the tree was just
+            # rebuilt from scratch.
+            self.filter_genres(self.search_bar.text())
+
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error loading genres: {str(e)}")
 

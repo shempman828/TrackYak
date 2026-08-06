@@ -224,7 +224,9 @@ class AwardView(QWidget):
         self.flat_view_button.setText("Tree View" if self.flat_view else "Flat View")
         # Drag-and-drop reparenting doesn't make sense against a flat list.
         self.award_tree.setDragEnabled(not self.flat_view)
-        self._populate_award_list(self.all_awards)
+        # Reapply any active search/year/category filters, rather than
+        # repopulating from the full unfiltered award list.
+        self._filter_awards()
 
     @staticmethod
     def _award_display_text(award: Any) -> str:

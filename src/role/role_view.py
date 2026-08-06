@@ -417,6 +417,9 @@ class RoleView(QWidget):
         self.role_tree.setDragEnabled(not self.flat_view)
         if self._all_roles:
             self._rebuild_tree()
+            # Reapply any active search filter, since the tree was just
+            # rebuilt from scratch.
+            self._filter_roles(self.search_field.text())
 
     def _on_roles_load_error(self, error_message: str):
         """Called on the main thread if the background worker hits an exception."""
