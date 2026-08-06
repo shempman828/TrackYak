@@ -46,6 +46,11 @@ class StatisticsWorker(CancellableWorker):
         except SQLAlchemyError as e:
             logger.error(f"Error loading statistics: {e}")
             self.error.emit(str(e))
+        finally:
+            # Read-only, and this dialog auto-refreshes every 30s -- without
+            # this, each refresh pins another connection. See
+            # CancellableWorker's _release_db_session docstring.
+            self._release_db_session()
 
 
 class MusicStatsDialog(QDialog):
