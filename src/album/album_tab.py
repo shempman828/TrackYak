@@ -172,16 +172,16 @@ class AlbumTabBuilder:
         role_search.textChanged.connect(_update_add_btn)
 
         def _handle_add():
-            artist_name = artist_search.text().strip()
+            artist_names = artist_search.split_names()
             role_names = role_search.split_names()
-            if not artist_name or not role_names:
+            if not artist_names or not role_names:
                 return
             self.helper.add_artist_credit(
-                artist_name,
+                artist_names,
                 role_names,
-                matched_artist_id=artist_search.matched_id(),
-                # matched_id only names a single typed role -- with several
-                # roles entered at once each is resolved by name instead.
+                # matched_id only names a single typed artist/role -- with
+                # several entered at once each is resolved by name instead.
+                matched_artist_id=artist_search.matched_id() if len(artist_names) == 1 else None,
                 matched_role_id=role_search.matched_id() if len(role_names) == 1 else None,
             )
             artist_search.reset()
