@@ -260,6 +260,11 @@ class EntityAliasesTab(QWidget):
             self.list_layout.setContentsMargins(0, 0, 0, 0)
             self.list_layout.setSpacing(2)
             layout.addWidget(self.list_container)
+            # Without this, list_container is the sole remaining item in a
+            # QVBoxLayout with no expanding-policy widgets, so Qt stretches
+            # it (and in turn its one row) to fill all leftover vertical
+            # space instead of leaving rows packed at the top.
+            layout.addStretch()
             return
 
         headers = ["Alias Name"]
