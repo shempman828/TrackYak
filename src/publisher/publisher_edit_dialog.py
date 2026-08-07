@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
-    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -19,7 +18,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
+    QTabWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -85,28 +85,163 @@ class PublisherEditDialog(QDialog):
     def setup_ui(self):
         self.setWindowTitle("Edit Publisher" if self.publisher else "New Publisher")
         if self.publisher:
-            self.setMinimumSize(480, 560)
-            self.resize(520, 640)
+            self.setMinimumSize(820, 700)
+            self.resize(900, 780)
         else:
-            self.setMinimumWidth(420)
+            self.setMinimumSize(560, 480)
+            self.resize(600, 520)
 
         root = QVBoxLayout(self)
 
-        # All the group boxes below are stacked in a single column that can
-        # get taller than the dialog (e.g. an existing publisher with many
-        # founders/aliases). Wrapped in a scroll area so that content scrolls
-        # instead of every group being compressed toward its minimum size --
-        # same pattern used for artist_edit_basic.py.
-        content = QVBoxLayout()
-
-        # -- Basic information -------------------------------------------------
-        basic_group = QGroupBox("Basic Information")
-        basic_form = QFormLayout(basic_group)
+        # -- Title -------------------------------------------------------------
+        # The publisher's own name, styled as a page title (Wikipedia-style)
+        # rather than buried as one more row in a form.
         self.name_input = QLineEdit()
-        basic_form.addRow("Publisher Name:", self.name_input)
+        self.name_input.setPlaceholderText("Publisher Name")
+        self.name_input.setFrame(False)
+        title_font = self.name_input.font()
+        title_font.setPointSize(title_font.pointSize() + 8)
+        title_font.setBold(True)
+        self.name_input.setFont(title_font)
+        root.addWidget(self.name_input)
 
-        self.desc_input = QLineEdit()
-        basic_form.addRow("Description:", self.desc_input)
+        title_rule = QFrame()
+        title_rule.setFrameShape(QFrame.HLine)
+        title_rule.setFrameShadow(QFrame.Sunken)
+        root.addWidget(title_rule)
+
+        overview = self._build_overview_page()
+
+        # Aliases only make sense once the publisher exists (they need a
+        # publisher_id to point at), so the tab is edit-only. A brand-new
+        # publisher just gets the overview page directly -- a lone tab would
+        # be pointless chrome.
+        if self.publisher:
+            tabs = QTabWidget()
+            tabs.addTab(overview, "Overview")
+
+            self.tab_aliases = EntityAliasesTab(
+                self.controller,
+                self.publisher,
+                "Publisher",
+                "publisher_id",
+                placeholder="e.g. EMI Records",
+                list_style=True,
+            )
+            aliases_page = QWidget()
+            aliases_layout = QVBoxLayout(aliases_page)
+            aliases_layout.setContentsMargins(12, 12, 12, 12)
+            aliases_layout.addWidget(self.tab_aliases)
+            tabs.addTab(aliases_page, "Aliases")
+
+            root.addWidget(tabs, 1)
+        else:
+            root.addWidget(overview, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.validate)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def _build_overview_page(self):
+        """
+        Two-column "article" layout: prose-like content (description,
+        founders) on the left, a Wikipedia-infobox-style panel of quick
+        facts (parent, headquarters, dates, links, logo) on the right.
+        Wrapped in a scroll area since an existing publisher with many
+        founders can get taller than the dialog -- same pattern used for
+        artist_edit_basic.py.
+        """
+        body = QHBoxLayout()
+        body.setSpacing(16)
+
+        # -- Main content (left) ------------------------------------------
+        main_col = QVBoxLayout()
+        main_col.setSpacing(12)
+
+        desc_group = QGroupBox("Description")
+        desc_layout = QVBoxLayout(desc_group)
+        self.desc_input = QTextEdit()
+        self.desc_input.setPlaceholderText(
+            "A short summary of this publisher/label…"
+        )
+        self.desc_input.setMinimumHeight(160)
+        desc_layout.addWidget(self.desc_input)
+        main_col.addWidget(desc_group)
+
+        # Artists credited with founding this record company. Staged in
+        # self._founder_ids and synced to PublisherFounder rows on save (see
+        # _save_founders) so it works for both new and existing publishers.
+        founders_group = QGroupBox("Founded By")
+        founders_layout = QVBoxLayout(founders_group)
+
+        self.founders_list = QListWidget()
+        self.founders_list.setMaximumHeight(110)
+        founders_layout.addWidget(self.founders_list)
+
+        founder_add_row = QHBoxLayout()
+        self.founder_edit = EntityCompleterEdit("Search artist…")
+        artists = self.controller.get.get_all_entities("Artist") or []
+        self._known_artists = artists
+        self.founder_edit.set_index(
+            {a.artist_name: a.artist_id for a in artists if a.artist_name}
+        )
+        self.founder_edit.returnPressed.connect(self._add_founder)
+        founder_add_btn = QPushButton("Add")
+        founder_add_btn.clicked.connect(self._add_founder)
+        founder_remove_btn = QPushButton("Remove Selected")
+        founder_remove_btn.clicked.connect(self._remove_selected_founder)
+        founder_add_row.addWidget(self.founder_edit, 1)
+        founder_add_row.addWidget(founder_add_btn)
+        founder_add_row.addWidget(founder_remove_btn)
+        founders_layout.addLayout(founder_add_row)
+        main_col.addWidget(founders_group)
+        main_col.addStretch()
+
+        body.addLayout(main_col, 2)
+
+        # -- Infobox (right) -----------------------------------------------
+        infobox = QFrame()
+        infobox.setObjectName("publisherInfobox")
+        infobox.setFrameShape(QFrame.StyledPanel)
+        infobox.setStyleSheet(
+            "#publisherInfobox { background: palette(alternate-base); "
+            "border: 1px solid palette(mid); border-radius: 4px; }"
+        )
+        infobox.setMaximumWidth(300)
+        infobox_layout = QVBoxLayout(infobox)
+        infobox_layout.setContentsMargins(12, 12, 12, 12)
+        infobox_layout.setSpacing(10)
+
+        # Logo picker only makes sense once the publisher exists -- like
+        # the artist profile picture, the picked file is moved into the
+        # managed images dir immediately using publisher_id in its
+        # filename, so this section is edit-only.
+        if self.publisher:
+            self.logo_label = QLabel()
+            self.logo_label.setFixedSize(LOGO_MAX_SIZE)
+            self.logo_label.setAlignment(Qt.AlignCenter)
+            self.logo_label.setStyleSheet(
+                "border: 1px solid palette(mid); background: palette(base);"
+            )
+            logo_row = QHBoxLayout()
+            logo_row.addStretch()
+            logo_row.addWidget(self.logo_label)
+            logo_row.addStretch()
+            infobox_layout.addLayout(logo_row)
+
+            logo_buttons = QHBoxLayout()
+            self.logo_browse_button = QPushButton("Browse...")
+            self.logo_browse_button.clicked.connect(self._browse_logo)
+            self.logo_clear_button = QPushButton("Clear")
+            self.logo_clear_button.clicked.connect(self._clear_logo)
+            logo_buttons.addWidget(self.logo_browse_button)
+            logo_buttons.addWidget(self.logo_clear_button)
+            infobox_layout.addLayout(logo_buttons)
+
+        facts_form = QFormLayout()
+        facts_form.setLabelAlignment(Qt.AlignRight)
+        facts_form.setFormAlignment(Qt.AlignTop)
 
         # Parent publisher picker. Excludes this publisher and its own
         # descendants from the index so a completion can never introduce a
@@ -131,7 +266,7 @@ class PublisherEditDialog(QDialog):
         }
         self.parent_edit.set_index(parent_index)
         self.parent_edit.returnPressed.connect(self.validate)
-        basic_form.addRow("Parent Publisher:", self.parent_edit)
+        facts_form.addRow("Parent:", self.parent_edit)
 
         # Headquarters place picker -- same find-or-create completer pattern
         # as the parent publisher field above, backed by a Place row linked
@@ -144,133 +279,55 @@ class PublisherEditDialog(QDialog):
             {p.place_name: p.place_id for p in places if p.place_name}
         )
         self.hq_edit.returnPressed.connect(self.validate)
-        basic_form.addRow("Headquarters:", self.hq_edit)
-        content.addWidget(basic_group)
-
-        # -- Founders -----------------------------------------------------------
-        # Artists credited with founding this record company. Staged in
-        # self._founder_ids and synced to PublisherFounder rows on save (see
-        # _save_founders) so it works for both new and existing publishers.
-        founders_group = QGroupBox("Founded By")
-        founders_layout = QVBoxLayout(founders_group)
-
-        self.founders_list = QListWidget()
-        self.founders_list.setMaximumHeight(90)
-        founders_layout.addWidget(self.founders_list)
-
-        founder_add_row = QHBoxLayout()
-        self.founder_edit = EntityCompleterEdit("Search artist…")
-        artists = self.controller.get.get_all_entities("Artist") or []
-        self._known_artists = artists
-        self.founder_edit.set_index(
-            {a.artist_name: a.artist_id for a in artists if a.artist_name}
-        )
-        self.founder_edit.returnPressed.connect(self._add_founder)
-        founder_add_btn = QPushButton("Add")
-        founder_add_btn.clicked.connect(self._add_founder)
-        founder_remove_btn = QPushButton("Remove Selected")
-        founder_remove_btn.clicked.connect(self._remove_selected_founder)
-        founder_add_row.addWidget(self.founder_edit, 1)
-        founder_add_row.addWidget(founder_add_btn)
-        founder_add_row.addWidget(founder_remove_btn)
-        founders_layout.addLayout(founder_add_row)
-        content.addWidget(founders_group)
-
-        # -- Details: dates, status, links -------------------------------------
-        details_group = QGroupBox("Details")
-        details_grid = QGridLayout(details_group)
+        facts_form.addRow("Headquarters:", self.hq_edit)
 
         self.begin_year_edit = OptionalIntEdit("YYYY")
+        facts_form.addRow("Founded:", self.begin_year_edit)
+
         self.end_year_edit = OptionalIntEdit("YYYY")
-        details_grid.addWidget(QLabel("Begin Year:"), 0, 0)
-        details_grid.addWidget(self.begin_year_edit, 0, 1)
-        details_grid.addWidget(QLabel("End Year:"), 0, 2)
-        details_grid.addWidget(self.end_year_edit, 0, 3)
+        facts_form.addRow("Defunct:", self.end_year_edit)
 
         self.is_active_check = QCheckBox("Active")
-        self.first_pass_check = QCheckBox("First pass complete")
-        details_grid.addWidget(self.is_active_check, 1, 0, 1, 2)
-        details_grid.addWidget(self.first_pass_check, 1, 2, 1, 2)
-
-        self.second_pass_check = QCheckBox("Second pass complete")
-        details_grid.addWidget(self.second_pass_check, 2, 0, 1, 2)
+        facts_form.addRow("Status:", self.is_active_check)
 
         self.wiki_input = QLineEdit()
         self.wiki_input.setPlaceholderText("https://en.wikipedia.org/...")
-        details_grid.addWidget(QLabel("Wikipedia:"), 3, 0)
-        details_grid.addWidget(self.wiki_input, 3, 1, 1, 3)
+        facts_form.addRow("Wikipedia:", self.wiki_input)
 
         self.mbid_input = QLineEdit()
         self.mbid_input.setPlaceholderText("MusicBrainz label ID")
-        details_grid.addWidget(QLabel("MBID:"), 4, 0)
-        details_grid.addWidget(self.mbid_input, 4, 1, 1, 3)
-        details_grid.setColumnStretch(1, 1)
-        details_grid.setColumnStretch(3, 1)
-        content.addWidget(details_group)
+        facts_form.addRow("MBID:", self.mbid_input)
 
-        # Logo picker only makes sense once the publisher exists -- like
-        # the artist profile picture, the picked file is moved into the
-        # managed images dir immediately using publisher_id in its
-        # filename, so this section is edit-only.
-        if self.publisher:
-            logo_group = QGroupBox("Logo")
-            logo_row = QHBoxLayout(logo_group)
+        infobox_layout.addLayout(facts_form)
 
-            self.logo_label = QLabel()
-            self.logo_label.setFixedSize(LOGO_MAX_SIZE)
-            self.logo_label.setAlignment(Qt.AlignCenter)
-            self.logo_label.setStyleSheet("border: 1px solid palette(mid);")
-            logo_row.addWidget(self.logo_label)
+        review_rule = QFrame()
+        review_rule.setFrameShape(QFrame.HLine)
+        infobox_layout.addWidget(review_rule)
 
-            logo_buttons = QVBoxLayout()
-            self.logo_browse_button = QPushButton("Browse...")
-            self.logo_browse_button.clicked.connect(self._browse_logo)
-            self.logo_clear_button = QPushButton("Clear")
-            self.logo_clear_button.clicked.connect(self._clear_logo)
-            logo_buttons.addWidget(self.logo_browse_button)
-            logo_buttons.addWidget(self.logo_clear_button)
-            logo_buttons.addStretch()
-            logo_row.addLayout(logo_buttons)
-            logo_row.addStretch()
-            content.addWidget(logo_group)
+        review_label = QLabel("Review Status")
+        review_label.setProperty("textRole", "muted")
+        infobox_layout.addWidget(review_label)
+        self.first_pass_check = QCheckBox("First pass complete")
+        self.second_pass_check = QCheckBox("Second pass complete")
+        infobox_layout.addWidget(self.first_pass_check)
+        infobox_layout.addWidget(self.second_pass_check)
+        infobox_layout.addStretch()
 
-        # Aliases only make sense once the publisher exists (they need a
-        # publisher_id to point at), so this section is edit-only.
-        if self.publisher:
-            aliases_group = QGroupBox("Aliases")
-            aliases_layout = QVBoxLayout(aliases_group)
-            self.tab_aliases = EntityAliasesTab(
-                self.controller,
-                self.publisher,
-                "Publisher",
-                "publisher_id",
-                placeholder="e.g. EMI Records",
-                list_style=True,
-            )
-            aliases_layout.addWidget(self.tab_aliases)
-            aliases_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            content.addWidget(aliases_group, 1)
-
-        content.addStretch()
+        body.addWidget(infobox, 1)
 
         content_container = QWidget()
-        content_container.setLayout(content)
+        content_container.setLayout(body)
 
         content_scroll = QScrollArea()
         content_scroll.setWidgetResizable(True)
         content_scroll.setFrameShape(QFrame.NoFrame)
         content_scroll.setWidget(content_container)
-        root.addWidget(content_scroll, 1)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.validate)
-        buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
+        return content_scroll
 
     def load_data(self):
         if self.publisher:
             self.name_input.setText(self.publisher.publisher_name or "")
-            self.desc_input.setText(self.publisher.description or "")
+            self.desc_input.setPlainText(self.publisher.description or "")
             if self.publisher.parent_id:
                 parent = self.controller.get.get_entity_object(
                     "Publisher", publisher_id=self.publisher.parent_id
@@ -349,7 +406,7 @@ class PublisherEditDialog(QDialog):
 
     def validate(self):
         name = self.name_input.text().strip()
-        description = self.desc_input.text().strip() or None
+        description = self.desc_input.toPlainText().strip() or None
 
         if not name:
             QMessageBox.warning(self, "Validation", "Publisher name is required")
