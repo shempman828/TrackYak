@@ -3,7 +3,7 @@
 import webbrowser
 from typing import ClassVar
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -162,6 +162,7 @@ class ArtistView(QWidget):
         # but users can drag to make it wider.
         self.artist_list = QListWidget()
         self.artist_list.setMinimumWidth(180)
+        self.artist_list.setIconSize(QSize(14, 14))
         self.artist_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.artist_list.customContextMenuRequested.connect(self._show_context_menu)
         self.artist_list.currentItemChanged.connect(self._on_artist_selected)
