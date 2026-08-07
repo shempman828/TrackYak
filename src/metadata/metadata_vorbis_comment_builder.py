@@ -12,7 +12,11 @@ from src.metadata.metadata_mapping import (
     VORBIS_DISC_MAPPINGS,
     VORBIS_TRACK_MAPPINGS,
 )
-from src.metadata.metadata_text import build_iso_date_string, group_artists_by_tag
+from src.metadata.metadata_text import (
+    build_iso_date_string,
+    format_track_number,
+    group_artists_by_tag,
+)
 from src.core.logger_config import logger
 
 
@@ -57,6 +61,11 @@ class VorbisCommentBuilder:
         for tag_name, mapping in VORBIS_TRACK_MAPPINGS.items():
             field_name = mapping["field"]
             if field_name in SKIP_TRACK_FIELDS:
+                continue
+            if tag_name == "TRACKNUMBER":
+                # Vinyl side + number (e.g. "B1") when the track has a side,
+                # so records get labeled the way they're actually printed.
+                _set(tag_name, format_track_number(track))
                 continue
             field_value = getattr(track, field_name, None)
             if field_value is not None and field_value != "":

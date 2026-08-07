@@ -16,7 +16,11 @@ from src.metadata.metadata_mapping import (
     ID3_SPECIAL_MAPPINGS,
     ID3_TRACK_MAPPINGS,
 )
-from src.metadata.metadata_text import build_iso_date_string, group_artists_by_tag
+from src.metadata.metadata_text import (
+    build_iso_date_string,
+    format_track_number,
+    group_artists_by_tag,
+)
 from src.core.logger_config import logger
 
 
@@ -41,6 +45,15 @@ class ID3FrameBuilder:
         # Track mappings
         for tag_id, mapping in ID3_TRACK_MAPPINGS.items():
             field_name = mapping["field"]
+            if tag_id == "TRCK":
+                # Vinyl side + number (e.g. "B1") when the track has a side,
+                # so records get labeled the way they're actually printed.
+                track_number_text = format_track_number(track)
+                if track_number_text:
+                    frames.append(
+                        self.id3_writer.create_text_frame(tag_id, track_number_text)
+                    )
+                continue
             field_value = getattr(track, field_name, None)
             if field_value is not None and field_value != "":
                 if mapping["type"] == str:  # noqa: E721

@@ -42,6 +42,21 @@ from src.metadata.metadata_mapping import (
 )
 
 
+def format_track_number(track: Any) -> Optional[str]:
+    """Build the track-number string to write to file metadata. When the
+    track has a vinyl side (e.g. "B"), it's prefixed onto the number
+    (side "B" + track_number 1 -> "B1"), matching how records are labeled.
+    Falls back to a plain number string when there's no side.
+    """
+    track_number = getattr(track, "track_number", None)
+    if track_number is None:
+        return None
+    side = getattr(track, "side", None)
+    if side:
+        return f"{side}{track_number}"
+    return str(track_number)
+
+
 def build_iso_date_string(entity: Any, fields: List[str]) -> Optional[str]:
     """Build a YYYY[-MM[-DD]] date string from up to 3 year/month/day DB
     columns on `entity`, named by `fields` (year field first, then month,
