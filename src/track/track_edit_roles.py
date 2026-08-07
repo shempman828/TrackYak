@@ -625,8 +625,7 @@ class RolesTab(_BaseTab):
 
     # ── Resolution helpers ────────────────────────────────────────────────
 
-    def _resolve_artist(self, artist_name: str):
-        matched_id = self._artist_search.matched_id()
+    def _resolve_artist(self, artist_name: str, matched_id=None):
         if matched_id is not None:
             return self.controller.get.get_entity_object("Artist", artist_id=matched_id)
 
@@ -665,35 +664,41 @@ class RolesTab(_BaseTab):
     # ── Add / Remove ──────────────────────────────────────────────────────
 
     def _add_role(self):
-        artist_name = self._artist_search.text().strip()
+        artist_names = self._artist_search.split_names()
         role_names = self._role_edit.split_names()
-        if not artist_name or not role_names:
+        if not artist_names or not role_names:
             return
 
-        artist = self._resolve_artist(artist_name)
-        if not artist:
+        # matched_id only names a single typed artist/role -- with several
+        # entered at once (e.g. "Deakin;Panda Bear") each is resolved by
+        # name instead of relying on that one-shot completer pick.
+        single_artist_matched_id = (
+            self._artist_search.matched_id() if len(artist_names) == 1 else None
+        )
+        artists = [
+            self._resolve_artist(name, matched_id=single_artist_matched_id)
+            for name in artist_names
+        ]
+        if any(artist is None for artist in artists):
             QMessageBox.warning(self, "Error", "Could not resolve artist.")
             return
 
-        # matched_id only names a single typed role -- with several roles
-        # entered at once (e.g. "Bass;Lead Vocals") each is resolved by
-        # name instead of relying on that one-shot completer pick.
-        single_matched_id = self._role_edit.matched_id() if len(role_names) == 1 else None
+        single_role_matched_id = self._role_edit.matched_id() if len(role_names) == 1 else None
         roles = [
-            self._resolve_role(name, matched_id=single_matched_id) for name in role_names
+            self._resolve_role(name, matched_id=single_role_matched_id) for name in role_names
         ]
         if any(role is None for role in roles):
             QMessageBox.warning(self, "Error", "Could not resolve role.")
             return
 
-        credited_alias_id = None
-        if not self.is_multi:
-            credited_alias_id = self._prompt_credited_alias(artist)
-
-        for role in roles:
-            self._batch_add_track_artist_role(
-                artist.artist_id, role.role_id, credited_alias_id=credited_alias_id
-            )
+        for artist in artists:
+            credited_alias_id = None
+            if not self.is_multi:
+                credited_alias_id = self._prompt_credited_alias(artist)
+            for role in roles:
+                self._batch_add_track_artist_role(
+                    artist.artist_id, role.role_id, credited_alias_id=credited_alias_id
+                )
 
         self._artist_search.reset()
         self._role_edit.reset()
