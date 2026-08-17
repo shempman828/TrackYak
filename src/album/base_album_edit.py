@@ -6,8 +6,9 @@ import sqlite3
 import webbrowser
 from typing import ClassVar
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
+    QAbstractScrollArea,
     QApplication,
     QComboBox,
     QCompleter,
@@ -712,6 +713,33 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             "Advanced": lambda: AdvancedTab(self).build(),
         }
 
+    @staticmethod
+    def _capture_scroll_positions(widget: QWidget) -> list[int]:
+        """Return the vertical scroll value of every scroll area in widget,
+        in traversal order, so it can be reapplied to a rebuilt replacement."""
+        return [
+            area.verticalScrollBar().value()
+            for area in widget.findChildren(QAbstractScrollArea)
+        ]
+
+    @staticmethod
+    def _restore_scroll_positions(widget: QWidget, positions: list[int]):
+        """Reapply values captured by _capture_scroll_positions to the
+        corresponding scroll areas of a rebuilt tab widget.
+
+        Deferred via singleShot(0, ...): a just-inserted QScrollArea hasn't
+        had its resize/layout event processed yet, so its scrollbar range
+        (and therefore setValue's clamp) isn't valid until the event loop
+        catches up.
+        """
+
+        def _apply():
+            areas = widget.findChildren(QAbstractScrollArea)
+            for area, value in zip(areas, positions):
+                area.verticalScrollBar().setValue(value)
+
+        QTimer.singleShot(0, _apply)
+
     def _rebuild_current_tab(self):
         """Replace the currently visible tab with a freshly built version."""
         try:
@@ -719,10 +747,13 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             tab_title = self.tabs.tabText(idx)
             builder = self._get_tab_rebuild_map().get(tab_title)
             if builder:
+                old_tab = self.tabs.widget(idx)
+                scroll_positions = self._capture_scroll_positions(old_tab)
                 new_tab = builder()
                 self.tabs.removeTab(idx)
                 self.tabs.insertTab(idx, new_tab, tab_title)
                 self.tabs.setCurrentIndex(idx)
+                self._restore_scroll_positions(new_tab, scroll_positions)
         except (SQLAlchemyError, sqlite3.Error) as e:
             logger.error(f"Error rebuilding tab: {e}")
 
@@ -736,6 +767,8 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             for idx in range(self.tabs.count()):
                 if self.tabs.tabText(idx) == title:
                     was_current = self.tabs.currentIndex() == idx
+                    old_tab = self.tabs.widget(idx)
+                    scroll_positions = self._capture_scroll_positions(old_tab)
                     new_tab = builder()
                     self.tabs.removeTab(idx)
                     self.tabs.insertTab(idx, new_tab, title)
@@ -744,6 +777,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                     # tab was the current one, so restore it explicitly.
                     if was_current:
                         self.tabs.setCurrentIndex(idx)
+                    self._restore_scroll_positions(new_tab, scroll_positions)
                     return
         except (SQLAlchemyError, sqlite3.Error) as e:
             logger.error(f"Error rebuilding tab '{title}': {e}")
