@@ -24,6 +24,7 @@ from src.album.album_view import AlbumView
 from src.artist.artist_view import ArtistView
 from src.core.asset_paths import icon, resolve_theme_assets, theme
 from src.award.award_view import AwardView
+from src.charts.charts_view import ChartsView
 from src.core.config_setup import app_config
 from src.dates.dates_view import TimelineView
 from src.file_management.file_manager_dialog import FileManager
@@ -161,6 +162,7 @@ class GUI(QMainWindow, MenuBar):
             "Moods": lambda: MoodView(self.controller),
             "Influences": lambda: InfluencesView(self.controller),
             "Awards": lambda: AwardView(self.controller),
+            "Charts": lambda: ChartsView(self.controller),
             "Sync": lambda: SyncView(self.controller),
             "Timeline": lambda: TimelineView(self.controller),
         }
@@ -266,6 +268,7 @@ class GUI(QMainWindow, MenuBar):
                 "refresh_views",
                 "load_moods",
                 "load_awards",
+                "load_charts",
                 "load_groups",
                 "load_publishers",
                 "load_roles",
