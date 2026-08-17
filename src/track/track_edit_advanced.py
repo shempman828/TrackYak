@@ -30,7 +30,6 @@ from PySide6.QtWidgets import (
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.metadata.metadata_writer import MetadataWriter
-from src.statistics.analysis_cache import analysis_cache, track_needs_analysis
 from src.statistics.batch_analysis_scheduler import BatchAnalysisScheduler
 from src.track.track_edit_basetab import _BaseTab
 from src.track.track_edit_fieldform import FieldFormTab
@@ -94,8 +93,7 @@ class AdvancedTab(_BaseTab):
 
         self._analyze_btn = QPushButton("Analyze Audio")
         self._analyze_btn.setToolTip(
-            "Run audio analysis on the selected track(s).\n"
-            "Tracks already cached are skipped; hold Shift to force re-analyze."
+            "Run audio analysis on the selected track(s)."
         )
         self._analyze_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._analyze_btn.clicked.connect(self._on_analyze)
@@ -201,46 +199,13 @@ class AdvancedTab(_BaseTab):
     # ── Audio analysis ────────────────────────────────────────────────────
 
     def _on_analyze(self):
-        """
-        Start BatchAnalysisScheduler for the tracks being edited.
-
-        Shift+click clears those track IDs from the analysis cache first,
-        forcing a full re-analyze even if they were already processed.
-        """
+        """Start BatchAnalysisScheduler for the tracks being edited, always
+        re-analyzing regardless of cache state."""
         if self._scheduler and self._scheduler.is_running:
             # Button acts as a stop button while a run is in progress
             self._scheduler.stop()
             self._set_status("Stopping…")
             return
-
-        modifiers = QApplication.keyboardModifiers()
-        force = bool(modifiers & Qt.ShiftModifier)
-
-        if force:
-            for track in self.tracks:
-                analysis_cache.remove(track.track_id)
-            logger.info(
-                f"AdvancedTab: forced re-analyze — cleared cache for "
-                f"{len(self.tracks)} track(s)"
-            )
-
-        # Check whether everything is already cached (and we're not forcing).
-        # A track counts as analysed only if it's BOTH marked so in the cache
-        # AND has every required DSP field populated — the cache alone can
-        # drift from the DB (re-imports, restored backups, manual edits).
-        if not force:
-            uncached = [
-                t
-                for t in self.tracks
-                if not analysis_cache.is_analysed(t.track_id) or track_needs_analysis(t)
-            ]
-            if not uncached:
-                show_status_message(
-                    self,
-                    "All selected track(s) are already analyzed.\n\n"
-                    "Shift+click 'Analyze Audio' to force re-analysis.",
-                )
-                return
 
         self._scheduler = BatchAnalysisScheduler(self.controller)
 
@@ -253,7 +218,7 @@ class AdvancedTab(_BaseTab):
 
         self._analyze_btn.setText("Stop Analysis")
         self._set_status(f"Queuing {len(self.tracks)} track(s)…")
-        self._scheduler.start(self.tracks)
+        self._scheduler.start(self.tracks, ignore_cache=True)
 
     # ── Scheduler signal handlers ─────────────────────────────────────────
 
