@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QDialog,
     QHBoxLayout,
     QHeaderView,
@@ -393,6 +394,12 @@ class RolesTab(_BaseTab):
         self._table.setWordWrap(True)
         self._table.verticalHeader().setVisible(False)
         self._table.verticalHeader().setDefaultSectionSize(36)
+        # Rows wrap to fit their chips, so heights vary a lot row to row.
+        # The default ScrollPerItem mode jumps a full (variable) row per
+        # wheel notch, which feels jumpy and makes it hard to track a row
+        # across a scroll -- ScrollPerPixel scrolls smoothly instead.
+        self._table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self._table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
         self._table.setToolTip(
             "Each artist gets one row; their roles are shown as chips with "
             "individual remove (×) buttons."
