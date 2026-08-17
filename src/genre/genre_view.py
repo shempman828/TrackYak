@@ -36,6 +36,7 @@ from src.db.db_tables import TrackGenre
 from src.genre.genre_edit import GenreEditDialog, GenreSetParentDialog
 from src.genre.genre_merge import GenreMergeDialog
 from src.genre.genre_tracks import GenreTracksWindow
+from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
 
 
@@ -405,6 +406,10 @@ class GenreView(QWidget):
             # Multiple selection
             self.current_genre_id = None
             menu.addAction(
+                f"View Tracks ({len(selected_items)} genres)",
+                lambda: self.view_tracks_for_selected_genres(selected_items),
+            )
+            menu.addAction(
                 "Set Parent...", lambda: self.set_parent_for_selected_genres()
             )
 
@@ -426,6 +431,33 @@ class GenreView(QWidget):
         if genre:
             tracks_window = GenreTracksWindow(self.controller, genre, self)
             tracks_window.show()
+
+    def view_tracks_for_selected_genres(self, items):
+        """Open a combined, deduplicated tracks view for multiple selected genres."""
+        genre_ids = [it.data(0, Qt.UserRole) for it in items]
+
+        try:
+            track_genres = self.controller.get.get_all_entities(
+                "TrackGenre", genre_id__in=genre_ids
+            )
+            track_ids = list({tg.track_id for tg in track_genres})
+            tracks = (
+                self.controller.get.get_all_entities("Track", track_id__in=track_ids)
+                if track_ids
+                else []
+            )
+        except SQLAlchemyError as e:
+            logger.error(f"Error loading tracks for selected genres: {e}")
+            QMessageBox.critical(self, "Error", "Failed to load tracks for genres")
+            return
+
+        names = ", ".join(it.text(0).rsplit(" (", 1)[0] for it in items)
+        tracks_window = BaseTrackView(
+            controller=self.controller,
+            tracks=tracks,
+            title=f"Tracks in {len(genre_ids)} genres: {names}",
+        )
+        tracks_window.exec_()
 
     def merge_genre(self, source_genre_id):
         """Open the merge dialog for the selected genre."""

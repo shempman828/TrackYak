@@ -37,6 +37,7 @@ from src.playlist.playlist_smart_builder import SmartPlaylistBuilder
 from src.playlist.playlist_smart_edit import SmartPlaylistEditDialog
 from src.playlist.playlist_smart_new import SmartPlaylistCreateDialog
 from src.playlist.playlist_tracks_window import PlaylistTracksWindow
+from src.track.base_track_view import BaseTrackView
 
 
 class _SmartPlaylistRefreshWorker(CancellableWorker):
@@ -307,6 +308,13 @@ class PlaylistView(QWidget):
 
         menu = QMenu()
 
+        if len(playlist_items) > 1:
+            menu.addAction(
+                f"View Tracks ({len(playlist_items)} playlists)",
+                lambda: self.view_tracks_for_selected_playlists(playlist_items),
+            )
+            menu.addSeparator()
+
         if playlists_with_parent:
             menu.addAction(
                 "Add All Tracks to Parent Playlist",
@@ -316,6 +324,33 @@ class PlaylistView(QWidget):
 
         menu.addAction("Delete", self.delete_selected)
         menu.exec_(self.tree.viewport().mapToGlobal(pos))
+
+    def view_tracks_for_selected_playlists(self, items) -> None:
+        """Open a combined, deduplicated tracks view for multiple selected playlists."""
+        playlist_ids = [it.data(0, Qt.UserRole)[1] for it in items]
+
+        try:
+            playlist_tracks = self.controller.get.get_all_entities(
+                "PlaylistTracks", playlist_id__in=playlist_ids
+            )
+            track_ids = list({pt.track_id for pt in playlist_tracks})
+            tracks = (
+                self.controller.get.get_all_entities("Track", track_id__in=track_ids)
+                if track_ids
+                else []
+            )
+        except SQLAlchemyError as e:
+            logger.error(f"Error loading tracks for selected playlists: {str(e)}")
+            QMessageBox.critical(self, "Error", "Failed to load tracks for playlists")
+            return
+
+        names = ", ".join(it.text(0) for it in items)
+        tracks_window = BaseTrackView(
+            controller=self.controller,
+            tracks=tracks,
+            title=f"Tracks in {len(playlist_ids)} playlists: {names}",
+        )
+        tracks_window.exec_()
 
     def _add_tracks_to_parent_playlists(self, items: list) -> None:
         """Add every track in each selected playlist to that playlist's parent.

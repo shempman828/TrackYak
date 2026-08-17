@@ -31,6 +31,7 @@ from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.mood.mood_dialog import MoodDialog
 from src.mood.mood_tracks import MoodTracksWindow
+from src.track.base_track_view import BaseTrackView
 
 
 class MoodView(QWidget):
@@ -407,8 +408,26 @@ class MoodView(QWidget):
         new_action.triggered.connect(self.show_new_mood_dialog)
         menu.addAction(new_action)
 
-        # Only show edit/delete if we have a real mood selected
-        if item and item.data(0, Qt.UserRole) is not None:
+        # A right-click on an item that's part of a multi-selection keeps the
+        # whole selection (standard Qt behavior); otherwise it's just this item.
+        selected_items = self.mood_tree.selectedItems()
+        if item and item not in selected_items:
+            selected_items = [item]
+        real_selected = [
+            it for it in selected_items if it.data(0, Qt.UserRole) is not None
+        ]
+
+        if len(real_selected) > 1:
+            menu.addSeparator()
+            view_tracks_action = QAction(
+                f"View Tracks ({len(real_selected)} moods)", self
+            )
+            view_tracks_action.triggered.connect(
+                lambda: self.view_tracks_for_selected_moods(real_selected)
+            )
+            menu.addAction(view_tracks_action)
+        # Only show edit/delete if we have a single real mood selected
+        elif item and item.data(0, Qt.UserRole) is not None:
             menu.addSeparator()
 
             # Item-specific actions
@@ -465,6 +484,33 @@ class MoodView(QWidget):
         if mood:
             tracks_window = MoodTracksWindow(self.controller, mood, self)
             tracks_window.show()
+
+    def view_tracks_for_selected_moods(self, items):
+        """Open a combined, deduplicated tracks view for multiple selected moods."""
+        mood_ids = [it.data(0, Qt.UserRole) for it in items]
+
+        try:
+            associations = self.controller.get.get_all_entities(
+                "MoodTrackAssociation", mood_id__in=mood_ids
+            )
+            track_ids = list({a.track_id for a in associations})
+            tracks = (
+                self.controller.get.get_all_entities("Track", track_id__in=track_ids)
+                if track_ids
+                else []
+            )
+        except SQLAlchemyError as e:
+            logger.error(f"Error loading tracks for selected moods: {e}")
+            QMessageBox.critical(self, "Error", "Failed to load tracks for moods")
+            return
+
+        names = ", ".join(it.text(0).rsplit(" (", 1)[0] for it in items)
+        tracks_window = BaseTrackView(
+            controller=self.controller,
+            tracks=tracks,
+            title=f"Tracks in {len(mood_ids)} moods: {names}",
+        )
+        tracks_window.exec_()
 
     def edit_selected_mood(self):
         """Edit the currently selected mood"""
