@@ -63,11 +63,18 @@ from src.publisher.publisher_musicbrainz_import import import_album_labels
 
 _SKIP = "— Skip —"
 
-# Floor for the position-match title sanity check in _match_tracks: a real
-# discrepancy (different song at the same position -- wrong regional
-# tracklist, mis-tagged file, etc.) should be well below this, while
-# formatting noise (remaster tags, case, punctuation) should clear it.
-_POSITION_MATCH_TITLE_FLOOR = 0.4
+# _match_tracks' auto-match pass scores every (MB track, local track) pair
+# it's willing to consider and blind-matches the best one -- no user review
+# -- once its combined score clears this floor. Title similarity is the
+# dominant signal (see _TITLE_WEIGHT/_POSITION_WEIGHT below); position only
+# nudges the score, so this floor is calibrated against title_sim at an
+# *exact* position match (score = _TITLE_WEIGHT * title_sim + _POSITION_WEIGHT,
+# since exact-position agreement is 1.0) -- i.e. even with perfect position
+# agreement, the title still has to clear roughly title_sim >= 0.53 to
+# blind-match, and considerably higher the further the position is off.
+_TITLE_WEIGHT = 0.75
+_POSITION_WEIGHT = 0.25
+_AUTO_MATCH_SCORE_FLOOR = 0.65
 
 
 def _format_mb_track_label(mbt: MBReleaseTrack) -> str:
@@ -662,10 +669,11 @@ class AlbumMusicBrainzReviewDialog(QDialog):
         self._build_ui()
 
     # ------------------------------------------------------------------
-    # Track matching (no DB writes) -- exact (disc_number, absolute
-    # position) match confirmed by title agreement, then a title-similarity
-    # guess for a single-medium release, then a manual QComboBox for
-    # anything left.
+    # Track matching (no DB writes) -- title-dominant combined score across
+    # every disc-compatible (MB track, local track) pair, blind-matching
+    # the best-scoring pairs first; then a title-similarity guess for a
+    # single-medium release covers whatever's left; then a manual
+    # QComboBox for anything still unresolved.
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -674,21 +682,28 @@ class AlbumMusicBrainzReviewDialog(QDialog):
             return 0.0
         return SequenceMatcher(None, a.lower().strip(), b.lower().strip()).ratio()
 
+    @staticmethod
+    def _position_agreement(mb_pos: int | None, local_pos: int | None) -> float:
+        """1.0 for an exact position match, decaying with distance. Neither
+        side having a usable position is a lack of signal, not disagreement,
+        so it scores neutrally rather than dragging the combined score down."""
+        if mb_pos is None or local_pos is None:
+            return 0.5
+        return 1.0 / (1.0 + abs(mb_pos - local_pos))
+
     @classmethod
-    def _position_match_confirmed(cls, mbt: MBReleaseTrack, local) -> bool:
-        """Position alone (disc_number, absolute_position) isn't sufficient
-        confirmation that two tracks are the same recording -- it's just
-        where each happens to sit in its own list. If the local track has
-        no name yet there's nothing to contradict the position, so trust
-        it. Otherwise require the titles to reasonably agree; a real title
-        conflict at the same position is a discrepancy that needs manual
-        review, not something to silently paper over."""
+    def _combined_score(cls, mbt: MBReleaseTrack, local) -> float:
+        """Track name is the primary matching signal -- position is a minor
+        factor, not a filter, so a same-numbered-but-wrong-song candidate
+        doesn't beat the actual best title match sitting at another
+        position. A local track with no name yet has nothing to compare
+        textually, so position is the only signal available for it."""
+        mb_pos = mbt.absolute_position if mbt.absolute_position is not None else mbt.track_number
+        pos_agreement = cls._position_agreement(mb_pos, local.track_number)
         if not local.track_name:
-            return True
-        return (
-            cls._title_similarity(mbt.title, local.track_name)
-            >= _POSITION_MATCH_TITLE_FLOOR
-        )
+            return pos_agreement
+        title_sim = cls._title_similarity(mbt.title, local.track_name)
+        return _TITLE_WEIGHT * title_sim + _POSITION_WEIGHT * pos_agreement
 
     @staticmethod
     def _discs_compatible(local_disc_num: int | None, mb_disc_num: int | None) -> bool:
@@ -703,45 +718,30 @@ class AlbumMusicBrainzReviewDialog(QDialog):
 
     def _match_tracks(self):
         local_tracks = list(self.album.tracks or [])
-        local_by_number: dict[int, list] = {}
-        for t in local_tracks:
-            if t.track_number is not None:
-                local_by_number.setdefault(t.track_number, []).append(t)
+
+        # Score every disc-compatible pair (title-dominant, position as a
+        # minor factor -- see _combined_score) and blind-match the
+        # best-scoring pairs first, so a much better title match elsewhere
+        # in the tracklist always wins over a same-numbered-but-wrong-song
+        # candidate instead of that candidate being the only one considered.
+        pairs = []
+        for mbt in self.detail.tracks:
+            for local in local_tracks:
+                cand_disc_num = local.disc.disc_number if local.disc else None
+                if not self._discs_compatible(cand_disc_num, mbt.disc_number):
+                    continue
+                pairs.append((self._combined_score(mbt, local), mbt, local))
+        pairs.sort(key=lambda p: -p[0])
 
         used_ids = set()
         matched: dict[int, Any] = {}
-        for mbt in self.detail.tracks:
-            # Local track numbering is absolute (sequential across a
-            # vinyl disc's sides), while mbt.track_number is deliberately
-            # side-relative (e.g. "B1" -> 1) for display/apply purposes.
-            # Matching must use the medium-sequential absolute_position
-            # instead, or vinyl releases would never auto-match and would
-            # always fall through to manual review.
-            key_number = mbt.absolute_position
-            if key_number is None:
-                key_number = mbt.track_number
-            candidates = local_by_number.get(key_number, [])
-            # Prefer a candidate whose disc number actually agrees with
-            # mbt's over one that's merely compatible (e.g. untagged, disc
-            # number None) so a real same-position match on another disc
-            # doesn't get shadowed by an untagged track.
-            candidates = sorted(
-                candidates,
-                key=lambda c: (c.disc.disc_number if c.disc else None)
-                != mbt.disc_number,
-            )
-            local = None
-            for cand in candidates:
-                if cand.track_id in used_ids:
-                    continue
-                cand_disc_num = cand.disc.disc_number if cand.disc else None
-                if not self._discs_compatible(cand_disc_num, mbt.disc_number):
-                    continue
-                local = cand
+        for score, mbt, local in pairs:
+            if score < _AUTO_MATCH_SCORE_FLOOR:
                 break
-            if local is not None and self._position_match_confirmed(mbt, local):
-                matched[id(mbt)] = local
-                used_ids.add(local.track_id)
+            if id(mbt) in matched or local.track_id in used_ids:
+                continue
+            matched[id(mbt)] = local
+            used_ids.add(local.track_id)
 
         remaining_mb = [mbt for mbt in self.detail.tracks if id(mbt) not in matched]
         remaining_local = sorted(

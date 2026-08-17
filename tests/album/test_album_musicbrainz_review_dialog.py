@@ -161,6 +161,35 @@ def test_side_b_track_renumbers_flat_local_track_on_auto_match(qapp):
     assert update["side"] == "B"
 
 
+def test_title_beats_same_position_wrong_track(qapp):
+    """Track name must be the dominant matching signal: a local track that
+    merely sits at the same position as the MusicBrainz track ("Black Dog"
+    at position 5) but is a different, only loosely-similar song must lose
+    out to the real match sitting one slot away ("Blackbird" at position 6)
+    rather than being confidently auto-matched on position alone."""
+    local_tracks = [
+        _local_track(1, 1, "Come Together"),
+        _local_track(2, 2, "Something"),
+        _local_track(3, 3, "Octopus's Garden"),
+        _local_track(4, 4, "Oh Darling"),
+        _local_track(5, 5, "Black Dog"),
+        _local_track(6, 6, "Blackbird"),
+    ]
+    mb_track = _mb_track(5, "Blackbird")
+
+    dialog = AlbumMusicBrainzReviewDialog(
+        controller=SimpleNamespace(),
+        album=_album(local_tracks),
+        detail=_detail([mb_track]),
+        aliases=[],
+    )
+
+    matched = dialog._matched.get(id(mb_track))
+    assert matched is not None
+    assert matched.track_name == "Blackbird"
+    assert matched.track_id == 6
+
+
 def test_unmatched_table_marks_error_row_confidence_text(qapp):
     """The unmatched-tracks table's confidence column must say something
     distinct from 'No suggestion' for a track that has no possible local
