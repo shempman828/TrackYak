@@ -684,6 +684,31 @@ def _parse_release_artist_credit(release: dict[str, Any]) -> list[MBTrackCredit]
     return credits
 
 
+def _parse_recording_artist_credit(recording: dict[str, Any]) -> list[MBTrackCredit]:
+    """Parse a recording's own `artist-credit` -- the track's "Primary
+    Artist" byline, which is usually the same as the release's Album
+    Artist but can diverge (e.g. a compilation track, or a feature credited
+    at the recording level but not the release level). Same dict shape as
+    _parse_release_artist_credit, just read off the embedded recording
+    instead of the release."""
+    credits = []
+    for entry in recording.get("artist-credit", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        artist = entry.get("artist") or {}
+        if not artist.get("id"):
+            continue
+        credits.append(
+            MBTrackCredit(
+                artist_mbid=artist["id"],
+                artist_name=entry.get("name") or artist.get("name") or "",
+                role_name="Primary Artist",
+                canonical_name=artist.get("name") or "",
+            )
+        )
+    return credits
+
+
 # MusicBrainz titles inconsistently use curly vs. straight quotes for the
 # same contraction across different entries of the same era/song (e.g.
 # "Ain't" vs "Ain’t") -- normalizing both sides of an exact-title match
@@ -1125,7 +1150,8 @@ def fetch_release_detail(
                 side=side,
                 title=recording.get("title") or track.get("title") or "",
                 recording_mbid=recording.get("id") or "",
-                credits=_parse_artist_credits(recording),
+                credits=_parse_recording_artist_credit(recording)
+                + _parse_artist_credits(recording),
                 absolute_position=absolute_position,
             )
             location = _parse_recording_location(recording)
