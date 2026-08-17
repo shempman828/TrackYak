@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.db.db_helpers.registry import BaseDBHelper
+from src.db.db_helpers.track_dirty import CASCADE_RESOLVERS, mark_tracks_dirty
 from src.db.db_tables import (
     Album,
     Artist,
@@ -88,6 +89,16 @@ class MergeDB(BaseDBHelper):
             metadata = entity_class.metadata
             updated_tables = set()
             skipped_tables = set()
+
+            # Resolve affected tracks before the FK-migration loop below moves
+            # source's association rows onto target -- source_id's tracks
+            # would otherwise be unresolvable afterwards. target_id's own
+            # tracks are included too, since resolved_fields (below) may
+            # rename the surviving entity.
+            resolver = CASCADE_RESOLVERS.get(model_name)
+            dirty_track_ids = (
+                resolver(self.session, [source_id, target_id]) if resolver else set()
+            )
 
             for table in metadata.tables.values():
                 if table.name == entity_class.__table__.name:
@@ -244,6 +255,8 @@ class MergeDB(BaseDBHelper):
                         return False
 
                     setattr(target_entity, field, value)
+
+            mark_tracks_dirty(self.session, dirty_track_ids)
             self.session.commit()
 
             logger.info(

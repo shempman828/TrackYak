@@ -33,28 +33,40 @@ class MetadataScannerWorker(CancellableWorker):
     """Worker thread that collects tracks eligible for a metadata write.
 
     Emits finished with {track_id: bool} where True = has a valid file
-    and should be written.  The dialog then passes all True IDs straight
-    to the write worker — no diff comparison, always write if data exists.
+    and should be written. The dialog then passes all True IDs straight
+    to the write worker — no diff comparison, always write if eligible.
+
+    By default only tracks flagged Track.needs_tag_write (something the DB
+    knows changed since the last write) are considered, instead of every
+    track in the library. Pass full_rescan=True to fall back to the old
+    behavior of checking every track, for reconciling files edited outside
+    the app.
     """
 
     progress = Signal(int, int)  # current, total
     finished = Signal(dict)  # {track_id: bool}  True = eligible
     log_message = Signal(str)
 
-    def __init__(self, metadata_writer, parent=None):
+    def __init__(self, metadata_writer, full_rescan: bool = False, parent=None):
         super().__init__(parent)
         self.metadata_writer = metadata_writer
+        self.full_rescan = full_rescan
 
     def cancel(self):
         self.request_cancel()
 
     def run(self):
         try:
-            tracks = self.metadata_writer.controller.get.get_all_entities("Track")
+            controller = self.metadata_writer.controller
+            if self.full_rescan:
+                tracks = controller.get.get_all_entities("Track")
+            else:
+                tracks = controller.get.get_all_entities("Track", needs_tag_write=1)
             total = len(tracks)
             results = {}
 
-            self.log_message.emit(f"Scanning {total} tracks for writable files...")
+            scan_kind = "full library" if self.full_rescan else "dirty (changed)"
+            self.log_message.emit(f"Scanning {total} {scan_kind} tracks for writable files...")
 
             for i, track in enumerate(tracks):
                 if self.is_cancelled:
@@ -201,6 +213,14 @@ class MetadataWriteDialog(QDialog):
         self.dry_run_check = QCheckBox("Preview only (don't write files)")
         mode_layout.addWidget(self.dry_run_check)
 
+        # Full rescan option — by default, scanning only considers tracks the
+        # database already knows changed (Track.needs_tag_write); this is the
+        # manual fallback for reconciling files edited outside the app.
+        self.full_rescan_check = QCheckBox(
+            "Full rescan (check every track, ignoring the changed-tracks flag)"
+        )
+        mode_layout.addWidget(self.full_rescan_check)
+
         layout.addWidget(mode_group)
 
         # Progress section (initially hidden)
@@ -278,14 +298,17 @@ class MetadataWriteDialog(QDialog):
         self.scan_results = {}
 
         # Start scanner thread
-        self.scanner_thread = MetadataScannerWorker(self.metadata_writer)
+        self.scanner_thread = MetadataScannerWorker(
+            self.metadata_writer, full_rescan=self.full_rescan_check.isChecked()
+        )
         self.scanner_thread.progress.connect(self.update_scan_progress)
         self.scanner_thread.finished.connect(self.on_scan_finished)
         self.scanner_thread.log_message.connect(self.log_message)
         self.scanner_thread.start()
 
-        self.log_message("=== Starting library scan ===")
-        self.update_status("Scanning library for metadata differences...")
+        scan_kind = "full library" if self.full_rescan_check.isChecked() else "dirty"
+        self.log_message(f"=== Starting {scan_kind} scan ===")
+        self.update_status(f"Scanning {scan_kind} tracks for metadata differences...")
 
     def update_scan_progress(self, current: int, total: int):
         """Update scan progress display."""
@@ -300,6 +323,7 @@ class MetadataWriteDialog(QDialog):
         be written.  No tuple unpacking needed.
         """
         self.scan_results = results
+        scan_kind = "full library" if self.full_rescan_check.isChecked() else "dirty"
 
         eligible_ids = [tid for tid, ok in results.items() if ok]
         eligible_count = len(eligible_ids)
@@ -323,10 +347,12 @@ class MetadataWriteDialog(QDialog):
         self.progress_group.setVisible(False)
 
         logger.info(
-            f"Metadata scan complete: {eligible_count}/{total_count} files eligible for update"
+            f"Metadata scan complete ({scan_kind}): "
+            f"{eligible_count}/{total_count} files eligible for update"
         )
         self.log_message(
-            f"=== Scan complete: {eligible_count}/{total_count} files eligible for update ==="
+            f"=== Scan complete ({scan_kind}): "
+            f"{eligible_count}/{total_count} files eligible for update ==="
         )
 
     def start_update(self):

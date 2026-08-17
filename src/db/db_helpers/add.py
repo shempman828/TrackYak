@@ -4,6 +4,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.db.db_helpers.registry import MODEL_REGISTRY, BaseDBHelper
+from src.db.db_helpers.track_dirty import mark_dirty_for_new_rows
 
 
 class AddToDB(BaseDBHelper):
@@ -36,6 +37,7 @@ class AddToDB(BaseDBHelper):
 
         new_entity = entity_class(**kwargs)
         self.session.add(new_entity)
+        mark_dirty_for_new_rows(self.session, model_name, [kwargs])
 
         if not commit:
             self.session.flush()
@@ -83,6 +85,7 @@ class AddToDB(BaseDBHelper):
 
         new_link = link_class(**kwargs)
         self.session.add(new_link)
+        mark_dirty_for_new_rows(self.session, link_type, [kwargs])
         self.session.commit()
         return new_link
 
@@ -142,6 +145,7 @@ class AddToDB(BaseDBHelper):
         logger.debug(f"Batch-adding {len(rows_to_add)} {model_name} row(s)")
         new_entities = [entity_class(**row) for row in rows_to_add]
         self.session.add_all(new_entities)
+        mark_dirty_for_new_rows(self.session, model_name, rows_to_add)
 
         try:
             self.session.commit()

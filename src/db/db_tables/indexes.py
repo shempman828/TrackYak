@@ -53,6 +53,7 @@ Index("idx_track_disc_id", Track.disc_id)
 Index("idx_tracks_track_number", Track.track_number)  # Used in sort and gap detection
 Index("idx_tracks_play_count", Track.play_count)  # Useful for "most played" queries
 Index("idx_tracks_user_rating", Track.user_rating)  # Useful for "top rated" queries
+Index("idx_tracks_needs_tag_write", Track.needs_tag_write)  # Dirty-tracking scan filter
 
 # --- Genre ---
 Index("idx_genres_name", Genre.genre_name)

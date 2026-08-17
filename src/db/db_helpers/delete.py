@@ -6,6 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.db.db_helpers.registry import MODEL_REGISTRY, BaseDBHelper
+from src.db.db_helpers.track_dirty import mark_dirty_for_rows
 
 
 class DeleteDB(BaseDBHelper):
@@ -51,9 +52,11 @@ class DeleteDB(BaseDBHelper):
                 pk_cols = list(entity_class.__table__.primary_key.columns)
                 pk_col = pk_cols[0].name if pk_cols else "id"
 
-                self.session.query(entity_class).filter(
+                to_delete = self.session.query(entity_class).filter(
                     getattr(entity_class, pk_col).in_(entity_ids)
-                ).delete(synchronize_session="fetch")
+                )
+                mark_dirty_for_rows(self.session, model_name, to_delete.all())
+                to_delete.delete(synchronize_session="fetch")
                 # "fetch" tells SQLAlchemy to load the objects first so that
                 # cascade rules (e.g. deleting related join rows) fire correctly.
                 self.session.commit()
@@ -71,6 +74,7 @@ class DeleteDB(BaseDBHelper):
                 if not entity:
                     logger.warning(f"{model_name} with ID {entity_id} not found")
                     return False
+                mark_dirty_for_rows(self.session, model_name, [entity])
                 self.session.delete(entity)
                 self.session.commit()
                 logger.info(f"Deleted {model_name} with ID {entity_id}")
@@ -91,6 +95,7 @@ class DeleteDB(BaseDBHelper):
                     else:
                         query = query.filter(column == value)
                 entities = query.all()
+                mark_dirty_for_rows(self.session, model_name, entities)
                 for entity in entities:
                     self.session.delete(entity)
                 self.session.commit()

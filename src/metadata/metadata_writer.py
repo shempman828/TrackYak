@@ -87,6 +87,9 @@ class MetadataWriter:
                 raise ValueError(f"Unsupported audio format: {audio_format}")
 
             if result:
+                self.controller.update.update_entity(
+                    "Track", track_id, needs_tag_write=0
+                )
                 self.status_manager.end_task(
                     f"Updated {os.path.basename(file_path)}", 3000
                 )

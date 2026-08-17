@@ -128,6 +128,14 @@ class Track(Base):
     second_pass = Column(Integer, CheckConstraint("second_pass IN (0, 1)"))
     track_quality = Column(String)
 
+    # Set whenever a change to this track (or something it references —
+    # artist/genre/mood/place/publisher credits, its album/disc, a rename or
+    # merge of one of those entities) makes its on-disk tags stale. Cleared
+    # by MetadataWriter after a successful write. See src/db/db_helpers/track_dirty.py.
+    needs_tag_write = Column(
+        Integer, CheckConstraint("needs_tag_write IN (0, 1)"), nullable=False, default=1
+    )
+
     # User Metadata
     comment = Column(String)
     date_added = Column(DateTime, default=datetime.now)
