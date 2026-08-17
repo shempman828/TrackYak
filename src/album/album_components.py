@@ -95,7 +95,9 @@ class AlbumUIComponents:
                 return None
             if field_type == int:
                 try:
-                    return int(text)
+                    # Strip thousands separators (e.g. "1,234,567" on the
+                    # estimated_sales field) before parsing.
+                    return int(text.replace(",", ""))
                 except ValueError:
                     return None
             if field_type == float:

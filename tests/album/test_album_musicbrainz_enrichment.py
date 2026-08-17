@@ -3,9 +3,9 @@ never overwrote an incorrect existing release date.
 
 Root cause: _apply_musicbrainz_enrichment() in album_musicbrainz_mixin.py
 applied the same fill-blank-only guard to every scalar enrichment field,
-including release_year/release_month/release_day (NullableSpinBox widgets)
--- so once an album already had a (possibly wrong) date, MB's confirmed date
-could never replace it. Fixed by writing NullableSpinBox fields
+including release_year/release_month/release_day (nullable QLineEdit
+fields) -- so once an album already had a (possibly wrong) date, MB's
+confirmed date could never replace it. Fixed by writing those fields
 unconditionally, since by the time this runs the user has already reviewed
 and accepted the MB release match.
 """
@@ -15,7 +15,10 @@ from types import SimpleNamespace
 from PySide6.QtWidgets import QLineEdit
 
 from src.album.album_musicbrainz_mixin import AlbumMusicBrainzMixin
-from src.common.nullable_spinbox import NullableSpinBox
+from src.common.nullable_numeric_field import (
+    create_nullable_int_field,
+    nullable_field_value,
+)
 
 
 class _Host(AlbumMusicBrainzMixin):
@@ -25,9 +28,9 @@ class _Host(AlbumMusicBrainzMixin):
 
 
 def test_apply_musicbrainz_enrichment_overwrites_existing_date(qapp):
-    year_widget = NullableSpinBox(min_val=1000, max_val=9999, current_value=1999)
-    month_widget = NullableSpinBox(min_val=1, max_val=12, current_value=6)
-    day_widget = NullableSpinBox(min_val=1, max_val=31, current_value=15)
+    year_widget = create_nullable_int_field(min_val=1000, max_val=9999, current_value=1999)
+    month_widget = create_nullable_int_field(min_val=1, max_val=12, current_value=6)
+    day_widget = create_nullable_int_field(min_val=1, max_val=31, current_value=15)
 
     host = _Host(
         field_widgets={
@@ -42,19 +45,19 @@ def test_apply_musicbrainz_enrichment_overwrites_existing_date(qapp):
         {"release_year": 2005, "release_month": 3, "release_day": 21}
     )
 
-    assert year_widget.value() == 2005
-    assert month_widget.value() == 3
-    assert day_widget.value() == 21
+    assert nullable_field_value(year_widget) == 2005
+    assert nullable_field_value(month_widget) == 3
+    assert nullable_field_value(day_widget) == 21
 
 
 def test_apply_musicbrainz_enrichment_still_fills_blank_date(qapp):
-    year_widget = NullableSpinBox(min_val=1000, max_val=9999, current_value=None)
+    year_widget = create_nullable_int_field(min_val=1000, max_val=9999, current_value=None)
 
     host = _Host(field_widgets={"release_year": year_widget}, album=SimpleNamespace())
 
     host._apply_musicbrainz_enrichment({"release_year": 2005})
 
-    assert year_widget.value() == 2005
+    assert nullable_field_value(year_widget) == 2005
 
 
 def test_apply_musicbrainz_enrichment_still_fill_blank_only_for_other_fields(qapp):

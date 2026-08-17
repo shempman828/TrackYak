@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QDoubleValidator, QIntValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
@@ -18,7 +19,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.common.nullable_spinbox import NullableSpinBox
+from src.common.nullable_numeric_field import (
+    create_nullable_float_field,
+    create_nullable_int_field,
+    nullable_field_value,
+    set_nullable_field_value,
+)
 from src.core.logger_config import logger
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.track.track_edit_basetab import _BaseTab
@@ -40,7 +46,7 @@ def _make_widget_for_field(field_name: str, field_config, on_change_cb):
         # Every int field on Track is nullable in the DB, so we always give
         # the user a way to clear it back to NULL rather than being stuck
         # with whatever number is left in a plain QSpinBox.
-        w = NullableSpinBox(
+        w = create_nullable_int_field(
             min_val=(
                 int(field_config.min)
                 if field_config.min is not None
@@ -50,16 +56,14 @@ def _make_widget_for_field(field_name: str, field_config, on_change_cb):
                 int(field_config.max) if field_config.max is not None else 2_147_483_647
             ),
         )
-        w.valueChanged.connect(lambda fn=field_name: on_change_cb(fn))
+        w.textChanged.connect(lambda _t, fn=field_name: on_change_cb(fn))
     elif field_config.type == float:
-        w = NullableSpinBox(
+        w = create_nullable_float_field(
             min_val=field_config.min if field_config.min is not None else -1e9,
             max_val=field_config.max if field_config.max is not None else 1e9,
-            is_float=True,
             decimals=field_config.decimals if field_config.decimals is not None else 4,
-            step=field_config.step,
         )
-        w.valueChanged.connect(lambda fn=field_name: on_change_cb(fn))
+        w.textChanged.connect(lambda _t, fn=field_name: on_change_cb(fn))
     elif field_config.longtext:
         w = QTextEdit()
         w.textChanged.connect(lambda fn=field_name: on_change_cb(fn))
@@ -81,40 +85,38 @@ def _read_widget(widget) -> Any:
     """Return the current value from any supported widget type."""
     if isinstance(widget, QCheckBox):
         return widget.isChecked()
-    if isinstance(widget, (NullableSpinBox, QSpinBox, QDoubleSpinBox)):
+    if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
         return widget.value()
     if isinstance(widget, QTextEdit):
         return widget.toPlainText()
     if isinstance(widget, QLineEdit):
+        validator = widget.validator()
+        if isinstance(validator, QDoubleValidator):
+            return nullable_field_value(widget, is_float=True)
+        if isinstance(validator, QIntValidator):
+            return nullable_field_value(widget)
         return widget.text()
     return None
 
 
 def _write_widget(widget, value) -> None:
     """Write a value into any supported widget type without triggering signals."""
-    if value is None:
-        value_for_widget = None
-    else:
-        value_for_widget = value
-
     widget.blockSignals(True)
     try:
         if isinstance(widget, QCheckBox):
-            widget.setChecked(
-                bool(value_for_widget) if value_for_widget is not None else False
-            )
-        elif isinstance(widget, NullableSpinBox):
-            widget.setValue(value_for_widget)
+            widget.setChecked(bool(value) if value is not None else False)
         elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-            widget.setValue(value_for_widget if value_for_widget is not None else 0)
+            widget.setValue(value if value is not None else 0)
         elif isinstance(widget, QTextEdit):
-            widget.setPlainText(
-                str(value_for_widget) if value_for_widget is not None else ""
-            )
+            widget.setPlainText(str(value) if value is not None else "")
         elif isinstance(widget, QLineEdit):
-            widget.setText(
-                str(value_for_widget) if value_for_widget is not None else ""
-            )
+            validator = widget.validator()
+            if isinstance(validator, QDoubleValidator):
+                set_nullable_field_value(widget, value, is_float=True)
+            elif isinstance(validator, QIntValidator):
+                set_nullable_field_value(widget, value)
+            else:
+                widget.setText(str(value) if value is not None else "")
     finally:
         widget.blockSignals(False)
 

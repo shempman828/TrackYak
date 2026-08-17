@@ -47,7 +47,7 @@ from src.album.release_type_utils import (
 )
 from src.common.edit_dirty import value_changed
 from src.common.layout_utils import clear_layout
-from src.common.nullable_spinbox import NullableSpinBox
+from src.common.nullable_numeric_field import create_nullable_int_field
 from src.core.config_setup import Config
 from src.core.logger_config import logger
 from src.db.db_mapping_albums import ALBUM_FIELDS
@@ -155,8 +155,9 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     def init_editable_widgets(self):
         """Create one widget per editable ALBUM_FIELD, pre-filled from the album.
 
-        For integer fields that allow NULL we use NullableSpinBox instead of a
-        plain QSpinBox so the user can clear the value back to NULL.
+        For integer fields that allow NULL we use a nullable QLineEdit
+        instead of a plain QSpinBox so the user can clear the value back to
+        NULL by clearing the text.
         """
         NULLABLE_INT_FIELDS = {
             "release_day",
@@ -174,7 +175,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 max_val = (
                     field_config.max if field_config.max is not None else 9_999_999
                 )
-                widget = NullableSpinBox(
+                widget = create_nullable_int_field(
                     min_val=int(min_val),
                     max_val=int(max_val),
                     current_value=current_value,
@@ -608,11 +609,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             field_config = ALBUM_FIELDS.get(field_name)
             if not (field_config and field_config.editable):
                 continue
-            # NullableSpinBox
-            if isinstance(widget, NullableSpinBox):
-                current = widget.value()
-            else:
-                current = AlbumUIComponents.get_field_value(widget, field_config.type)
+            current = AlbumUIComponents.get_field_value(widget, field_config.type)
             if field_name == "release_type":
                 current = normalize_release_type(current)
             original = getattr(self.album, field_name, None)

@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
 from src.album.release_type_utils import normalize_release_type
-from src.common.nullable_spinbox import NullableSpinBox
+from src.common.nullable_numeric_field import set_nullable_field_value
 from src.core.logger_config import logger
 from src.musicbrainz.musicbrainz_client import (
     MusicBrainzLookupError,
@@ -53,6 +53,12 @@ _SCALAR_ENRICHMENT_FIELDS = (
     "release_month",
     "release_day",
 )
+
+# The release-date fields are nullable QLineEdits (see
+# src/common/nullable_numeric_field.py) indistinguishable by widget type
+# from any other text field, so the unconditional-overwrite exception below
+# is keyed on field name instead.
+_UNCONDITIONAL_OVERWRITE_FIELDS = frozenset({"release_year", "release_month", "release_day"})
 
 
 class AlbumMusicBrainzMixin:
@@ -205,14 +211,14 @@ class AlbumMusicBrainzMixin:
         at its blank/default state, never overwriting something the user
         already filled in or typed moments ago.
 
-        NullableSpinBox fields (release_year/month/day) are the exception:
-        they're written unconditionally, overwriting an existing value.
-        Unlike the other enrichment fields, a wrong local release date is a
-        common case (bad file tags, manual entry error), and by the time
-        this runs the user has already explicitly confirmed the MB release
-        match via the review dialog -- so MB's date should win over
-        whatever's already in the field rather than only filling it in when
-        blank.
+        release_year/month/day (nullable QLineEdit fields, see
+        _UNCONDITIONAL_OVERWRITE_FIELDS) are the exception: they're written
+        unconditionally, overwriting an existing value. Unlike the other
+        enrichment fields, a wrong local release date is a common case (bad
+        file tags, manual entry error), and by the time this runs the user
+        has already explicitly confirmed the MB release match via the
+        review dialog -- so MB's date should win over whatever's already in
+        the field rather than only filling it in when blank.
 
         QCheckBox fields (is_live/is_compilation) have no blank state at
         all, so they fall back to the originally-loaded album's value being
@@ -228,7 +234,9 @@ class AlbumMusicBrainzMixin:
             widget = self.field_widgets.get(field_name)
             if widget is None:
                 continue
-            if isinstance(widget, QComboBox):
+            if field_name in _UNCONDITIONAL_OVERWRITE_FIELDS:
+                set_nullable_field_value(widget, int(value))
+            elif isinstance(widget, QComboBox):
                 if not widget.currentText().strip():
                     idx = widget.findText(str(value))
                     if idx >= 0:
@@ -238,8 +246,6 @@ class AlbumMusicBrainzMixin:
             elif isinstance(widget, QLineEdit):
                 if not widget.text().strip():
                     widget.setText(str(value))
-            elif isinstance(widget, NullableSpinBox):
-                widget.setValue(int(value))
             elif isinstance(widget, QSpinBox):
                 if widget.value() == widget.minimum():
                     widget.setValue(int(value))
