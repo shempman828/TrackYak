@@ -23,6 +23,7 @@ from src.charts.chart_download import chart_csv_exists
 from src.charts.chart_download_worker import ChartDownloadWorker
 from src.charts.chart_import_worker import ChartImportWorker
 from src.charts.chart_matching_worker import ChartMatchingWorker
+from src.charts.chart_recommendations_tab import ChartRecommendationsTab
 from src.charts.chart_search_tab import ChartSearchTab
 from src.charts.chart_week_browser_tab import ChartWeekBrowserTab
 from src.core.logger_config import logger
@@ -72,8 +73,10 @@ class ChartsView(QWidget):
         self.tabs = QTabWidget()
         self.week_tab = ChartWeekBrowserTab(self.controller)
         self.search_tab = ChartSearchTab(self.controller)
+        self.recommendations_tab = ChartRecommendationsTab(self.controller)
         self.tabs.addTab(self.week_tab, "Week Browser")
         self.tabs.addTab(self.search_tab, "Search")
+        self.tabs.addTab(self.recommendations_tab, "Recommendations")
         layout.addWidget(self.tabs)
 
     # -----------------------------------------------------------------------
@@ -98,6 +101,7 @@ class ChartsView(QWidget):
         if synced_charts:
             self.week_tab.set_charts(synced_charts)
             self.search_tab.set_charts(synced_charts)
+            self.recommendations_tab.set_charts(synced_charts)
             latest = max(
                 (c.last_downloaded_at for c in self._charts if c.last_downloaded_at),
                 default=None,
@@ -153,6 +157,7 @@ class ChartsView(QWidget):
             self.load_charts()
             self.week_tab.refresh()
             self.search_tab.refresh()
+            self.recommendations_tab.refresh()
             return
 
         chart_key = self._import_queue.pop(0)
@@ -195,6 +200,7 @@ class ChartsView(QWidget):
             self.load_charts()
             self.week_tab.refresh()
             self.search_tab.refresh()
+            self.recommendations_tab.refresh()
             return
 
         chart_key = self._match_queue.pop(0)
