@@ -13,3 +13,4 @@ publisher_logos/
 *.bak
 bugs.md
 *.toml
+*.csv
