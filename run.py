@@ -11,6 +11,7 @@ import traceback
 from PySide6.QtCore import QEventLoop, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
+from src.core.asset_paths import ensure_directories_exist
 from src.core.config_setup import Config
 from src.core.logger_config import logger
 from src.core.splash_screen import StartupSplash
@@ -176,6 +177,10 @@ def main() -> None:
         app.setApplicationVersion("0.4")
 
         config = Config()
+
+        # Create any missing asset/data directories (e.g. assets/charts)
+        # before anything tries to read or write into them.
+        ensure_directories_exist()
 
         # Handle first run configuration
         if not handle_first_run(config):
