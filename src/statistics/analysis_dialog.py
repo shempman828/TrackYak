@@ -410,6 +410,16 @@ class AudioAnalysisDialog(QDialog):
     @Slot(int, dict)
     def _on_track_done(self, track_id: int, metadata: dict):
         """Remove the finished track from the pending list display."""
+        # The worker wrote `metadata` to the DB from its own thread-local
+        # session. Mirror it onto the main-thread session's identity-mapped
+        # Track object too, so other open views (Track Edit, NowPlaying)
+        # don't keep showing the pre-analysis values — see
+        # AdvancedTab._on_track_done for the same pattern.
+        track = self.controller.get.get_entity_object("Track", track_id=track_id)
+        if track is not None:
+            for field_name, value in metadata.items():
+                setattr(track, field_name, value)
+
         item = self._track_id_to_item.pop(track_id, None)
         if item:
             row = self._list.row(item)
