@@ -25,6 +25,7 @@ CONFIG_DIR = BASE_DIR / "config"
 ARTIST_IMAGES_DIR = IMAGES_DIR / "artist_images"
 PUBLISHER_LOGOS_DIR = IMAGES_DIR / "publisher_logos"
 IMAGECACHE_DIR = IMAGES_DIR / "imagecache"
+CHARTS_DIR = ASSETS_DIR / "charts"
 
 # --- Helpers -----------------------------------------------------------------
 
@@ -47,6 +48,11 @@ def log(path: str) -> str:
 def playlist_path(path: str) -> str:
     """Return absolute path to a playlist file inside /playlists."""
     return str(PLAYLISTS_DIR / path)
+
+
+def chart_data_path(path: str) -> str:
+    """Return absolute path to a downloaded chart CSV inside /assets/charts."""
+    return str(CHARTS_DIR / path)
 
 
 def icon(name: str) -> QIcon:
@@ -87,6 +93,7 @@ def ensure_directories_exist():
         PUBLISHER_LOGOS_DIR,
         IMAGECACHE_DIR,
         THEMES_DIR,
+        CHARTS_DIR,
     ]:
         if not path.exists():
             logger.info(f"Creating missing directory: {path}")

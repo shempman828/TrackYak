@@ -27,6 +27,7 @@ from src.db.db_tables.associations import (
 )
 from src.db.db_tables.award import Award, AwardAssociation
 from src.db.db_tables.base import Base, set_sqlite_pragma
+from src.db.db_tables.chart import Chart, ChartEntry
 from src.db.db_tables.database import MusicDatabase
 from src.db.db_tables.disc import Disc
 from src.db.db_tables.genre import Genre, GenreAlias
@@ -58,6 +59,8 @@ __all__ = [
     "Award",
     "AwardAssociation",
     "Base",
+    "Chart",
+    "ChartEntry",
     "Disc",
     "Genre",
     "GenreAlias",

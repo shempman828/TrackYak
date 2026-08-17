@@ -12,6 +12,9 @@ existing PRIMARY KEY / UNIQUE constraint (SQLite auto-indexes both):
   - AlbumPublisher(album_id, publisher_id) — already a composite primary key
   - AlbumRoleAssociation(album_id, artist_id) — already a leftmost prefix of
     the uq_album_artist_role(album_id, artist_id, role_id) unique constraint
+  - ChartEntry(chart_id, chart_week) — already a leftmost prefix of the
+    uq_chart_entry_week_position(chart_id, chart_week, position) unique
+    constraint, which covers the week-browser's primary query
 
 Note: SQLAlchemy's create_all() only emits DDL (including indexes) for
 tables that don't already exist — adding an Index() here does nothing for
@@ -32,6 +35,7 @@ from src.db.db_tables.associations import (
     TrackGenre,
 )
 from src.db.db_tables.award import AwardAssociation
+from src.db.db_tables.chart import ChartEntry
 from src.db.db_tables.disc import Disc
 from src.db.db_tables.genre import Genre
 from src.db.db_tables.mood import MoodTrackAssociation
@@ -110,6 +114,14 @@ Index(
 Index(
     "idx_smart_playlist_criteria_playlist_id", SmartPlaylistCriteria.smart_playlist_id
 )  # Loaded whenever a smart playlist is built/edited
+
+# --- Charts ---
+Index(
+    "idx_chart_entries_entity", ChartEntry.entity_type, ChartEntry.entity_id
+)  # Reverse lookup: track/album -> its chart history
+Index(
+    "idx_chart_entries_raw_title", ChartEntry.raw_title
+)  # Search tab lookups; also the matcher's title-bucket build query
 
 # --- Samples ---
 Index(

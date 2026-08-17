@@ -1,6 +1,6 @@
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.db.db_tables import ArtistType, Place, PlaceAssociationType, Role
+from src.db.db_tables import ArtistType, Chart, Place, PlaceAssociationType, Role
 from src.core.logger_config import logger
 
 
@@ -376,6 +376,34 @@ class Defaults:
 
             else:
                 logger.debug("Places already exist, skipping place defaults.")
+
+            # -----------------
+            # Charts
+            # -----------------
+            from src.charts.chart_download import CHART_FILES
+
+            chart_count = session.query(Chart).count()
+            if chart_count == 0:
+                session.add_all(
+                    [
+                        Chart(
+                            chart_key="hot-100",
+                            chart_name="Billboard Hot 100",
+                            source_url=CHART_FILES["hot-100"][1],
+                            matched_entity_type="Track",
+                        ),
+                        Chart(
+                            chart_key="billboard-200",
+                            chart_name="Billboard 200",
+                            source_url=CHART_FILES["billboard-200"][1],
+                            matched_entity_type="Album",
+                        ),
+                    ]
+                )
+                session.commit()
+                logger.info("Inserted default chart registry rows: Hot 100, Billboard 200")
+            else:
+                logger.debug("Charts already exist, skipping chart defaults.")
 
         except SQLAlchemyError as e:
             session.rollback()
