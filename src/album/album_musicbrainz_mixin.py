@@ -125,7 +125,7 @@ class AlbumMusicBrainzMixin:
             return detail, aliases
 
         dialog = MusicBrainzImportDialog(
-            entity_label=f"release details for '{album_name}'",
+            entity_label=f"release '{album_name}'",
             fetch_call=_fetch_all,
             supports_progress=True,
             parent=self,
