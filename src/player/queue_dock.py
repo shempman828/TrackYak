@@ -347,6 +347,16 @@ class QueueDockWidget(QWidget):
         """Public slot — called by main_window on global refresh."""
         self._refresh_display()
 
+    def clear(self):
+        """Drop all Track references before the DB session is closed.
+
+        Without this, stale Track instances sit in the model until Qt
+        tears down the widget at interpreter shutdown, which triggers a
+        DetachedInstanceError trying to lazy-load their relationships.
+        """
+        self._model.reset_data([])
+        self._now_playing_card.clear()
+
     # ── Lazy loading ──────────────────────────────────────────────────────────
 
     def _on_scroll(self, value: int):
