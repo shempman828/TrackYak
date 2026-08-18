@@ -16,16 +16,18 @@ from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTreeWidget, QTree
 from src.common.match_confidence import confidence_color
 from src.db.db_tables.chart import ChartEntry
 
-_COLUMNS = ["Pos", "Title", "Artist", "Peak", "Weeks on Chart", "Matched"]
+_COLUMNS = ["Pos", "Title", "Artist", "Peak", "Weeks on Chart"]
 
 
 class ChartEntryTable(QTreeWidget):
     """Flat (non-hierarchical) results list for ChartEntry rows.
 
-    No existing view in this codebase renders a literal checkmark column --
-    kept as simple as possible: the Matched cell is "✓" or blank, colored
-    via the house match_confidence.py convention (already used for
-    MusicBrainz match review) rather than inventing a new color scheme.
+    Match status is conveyed by row coloration rather than a dedicated
+    column: matched rows are tinted via the house match_confidence.py
+    convention (already used for MusicBrainz match review), unmatched rows
+    are grayed out the same way disc_sorting.py grays virtual tracks --
+    per-column setForeground() plus a tooltip, since no existing view in
+    this codebase colors a whole row via a single call.
     """
 
     def __init__(self, parent=None):
@@ -48,12 +50,17 @@ class ChartEntryTable(QTreeWidget):
                     entry.raw_performer,
                     str(entry.peak_position) if entry.peak_position else "",
                     str(entry.weeks_on_chart) if entry.weeks_on_chart else "",
-                    "✓" if entry.is_matched else "",
                 ]
             )
             item.setData(0, Qt.UserRole, entry.chart_entry_id)
             if entry.is_matched:
-                item.setForeground(5, confidence_color(entry.match_score or 0.0))
+                color = confidence_color(entry.match_score or 0.0)
+                for col in range(len(_COLUMNS)):
+                    item.setForeground(col, color)
+            else:
+                for col in range(len(_COLUMNS)):
+                    item.setForeground(col, Qt.gray)
+                item.setToolTip(1, "Not yet matched to a library track")
             self.addTopLevelItem(item)
 
     def selected_entry_id(self):
