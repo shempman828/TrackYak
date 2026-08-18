@@ -7,7 +7,7 @@ import traceback
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
@@ -22,49 +22,27 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.album.album_art_worker import ArtCacheWorker
 from src.common.style_utils import set_style_property
 from src.core.asset_paths import asset
 from src.core.censor import censor_text
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
-from src.album.album_art_worker import ArtCacheWorker
-from src.image.artwork_cache import get_artwork_cache
 from src.nowplaying.nowplaying_art import _ArtCard
+from src.nowplaying.nowplaying_art_slideshow import NowPlayingArtMixin, _COVER_DWELL_MS
 from src.nowplaying.nowplaying_backdrop import _BlurredBackdrop
 from src.nowplaying.nowplaying_chip import _Chip, _ScrollingChipRow
 from src.nowplaying.nowplaying_credits import _CreditsPanel
 from src.nowplaying.nowplaying_karaoke import _KaraokeLine
-from src.nowplaying.nowplaying_lyrics_parser import active_index, parse_lyrics
+from src.nowplaying.nowplaying_lyrics import NowPlayingLyricsMixin
 from src.nowplaying.nowplaying_marquee import FadedScrollArea, MarqueeLabel
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Constants
 # ──────────────────────────────────────────────────────────────────────────────
 
-# If the next lyric line starts more than this many ms in the future, show a
-# countdown timer instead of a blank karaoke display.
-_LYRIC_GAP_THRESHOLD_MS = 5_000
-
 # Debounce delay (ms) before persisting the sync-offset slider to config.
 _OFFSET_DEBOUNCE_MS = 600
-
-# Art slideshow dwell times. Album covers get more screen time than artist
-# photos so the cover art still dominates the rotation. Both are long enough
-# to actually read a credit line / take in a photo, not just flash by.
-_COVER_DWELL_MS = 6_000
-_ARTIST_DWELL_MS = 5_000
-
-# When a front cover is present, it's interleaved between every other image
-# (front, rear, front, liner, front, artist-photo, ...) rather than shown as
-# one single slide, so it never gets rotated away for long and doesn't turn
-# into one giant multi-minute freeze on a track with many contributors. Each
-# time it's shown, its dwell is set relative to the *next* image's dwell so
-# the front cover ends up with this fraction of total cycle time no matter
-# how many secondary images are in the rotation.
-_FRONT_COVER_SHARE = 0.8
-
-# Duration of the crossfade between successive art-slideshow images.
-_ART_TRANSITION_MS = 950
 
 # Tab and toggle button visuals live in themes/dark_mode.qss under the
 # [npTab="true"] / [npToggle="true"] / [active=...] selectors — see _set_active().
@@ -75,8 +53,15 @@ _ART_TRANSITION_MS = 950
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class NowPlayingView(QWidget):
-    """Cinematic now-playing view with blurred backdrop and rich metadata."""
+class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
+    """Cinematic now-playing view with blurred backdrop and rich metadata.
+
+    Lyrics/karaoke sync lives in NowPlayingLyricsMixin (nowplaying_lyrics.py).
+    Album-art/backdrop slideshow lives in NowPlayingArtMixin
+    (nowplaying_art_slideshow.py). This class owns UI construction, cinema
+    mode, chips, and the public updateUI/clearUI entry points, and composes
+    the other two.
+    """
 
     _TITLE_FONT = QFont("Georgia", 28, QFont.Bold)
     _ARTIST_FONT = QFont("Cambria", 16, QFont.Normal)
@@ -449,33 +434,6 @@ class NowPlayingView(QWidget):
             self._set_active(self._tab_credits, True)
             self._credits_panel.load_credits(self.track)
 
-    # ── lyrics mode toggle ─────────────────────────────────────────────────
-
-    def _on_toggle_lyrics_mode(self):
-        """Switch between karaoke (synced) and full plain text view."""
-        self._show_all_lyrics = not self._show_all_lyrics
-        if self._show_all_lyrics:
-            self._toggle_mode_btn.setText("KARAOKE")
-            self._set_active(self._toggle_mode_btn, True)
-            # Show full plain text from the synced lines
-            text = "\n".join(t for _, t in self._lyrics_lines)
-            self._karaoke_lbl.setVisible(False)
-            self._next_lyric_lbl.setVisible(False)
-            self._karaoke_block.setVisible(False)
-            self._countdown_lbl.setVisible(False)
-            self._countdown_timer.stop()
-            self._plain_lbl.setText(text)
-            self._plain_area.setVisible(True)
-            self._plain_area.verticalScrollBar().setValue(0)
-        else:
-            self._toggle_mode_btn.setText("SHOW ALL")
-            self._set_active(self._toggle_mode_btn, False)
-            self._plain_area.setVisible(False)
-            self._karaoke_block.setVisible(True)
-            self._karaoke_lbl.setVisible(True)
-            # Re-trigger display at current position
-            self._last_position_ms = -1
-
     # ── resize ────────────────────────────────────────────────────────────
 
     def resizeEvent(self, event):
@@ -550,213 +508,6 @@ class NowPlayingView(QWidget):
             self._load_art(QPixmap(self.default_art_path))
         else:
             self._load_art(None)
-
-    # ── lyrics ────────────────────────────────────────────────────────────
-
-    def _update_lyrics(self, track):
-        raw = censor_text(getattr(track, "lyrics", None))
-
-        # Reset state
-        self._is_synced = False
-        self._show_all_lyrics = False
-        self._lyrics_lines = []
-        self._active_idx = -1
-        self._last_position_ms = -1
-        self._countdown_timer.stop()
-        self._next_lyric_ms = -1
-
-        if not raw or not raw.strip():
-            self._set_lyrics_mode_none()
-            return
-
-        is_synced, lines = parse_lyrics(raw)
-        self._lyrics_lines = lines
-        self._is_synced = is_synced
-
-        if is_synced:
-            self._set_lyrics_mode_karaoke()
-            # Don't blindly show first line — let position sync handle it.
-            # (Handles the case where lyrics start 5 min in.)
-        else:
-            self._set_lyrics_mode_plain("\n".join(t for _, t in lines))
-
-    def _set_lyrics_mode_none(self):
-        """No lyrics available — switch to Credits tab automatically."""
-        self._is_synced = False
-        self._lyrics_lines = []
-        self._active_idx = -1
-        self._countdown_timer.stop()
-        self._karaoke_lbl.setVisible(False)
-        self._karaoke_lbl.clear_line()
-        self._next_lyric_lbl.setVisible(False)
-        self._karaoke_block.setVisible(False)
-        self._plain_area.setVisible(False)
-        self._plain_lbl.setText("")
-        self._no_lyrics_lbl.setVisible(False)
-        self._countdown_lbl.setVisible(False)
-        self._offset_row.setVisible(False)
-        # Auto-switch to Credits
-        self._switch_tab(self._PAGE_CREDITS)
-
-    def _set_lyrics_mode_karaoke(self):
-        self._plain_area.setVisible(False)
-        self._no_lyrics_lbl.setVisible(False)
-        self._countdown_lbl.setVisible(False)
-        self._next_lyric_lbl.setVisible(False)
-        self._karaoke_block.setVisible(True)
-        self._karaoke_lbl.setVisible(True)
-        # Restore saved slider value (already set in __init__, keep it)
-        # Slider row stays hidden until user clicks the ⏱ toggle
-        # Reset toggle button label
-        self._toggle_mode_btn.setText("SHOW ALL")
-        self._set_active(self._toggle_mode_btn, False)
-        # Switch to lyrics tab
-        self._switch_tab(self._PAGE_LYRICS)
-
-    def _set_lyrics_mode_plain(self, text: str):
-        self._karaoke_lbl.setVisible(False)
-        self._karaoke_lbl.clear_line()
-        self._karaoke_block.setVisible(False)
-        self._no_lyrics_lbl.setVisible(False)
-        self._countdown_lbl.setVisible(False)
-        self._offset_row.setVisible(False)
-        self._plain_lbl.setText(text)
-        self._plain_area.setVisible(True)
-        self._plain_area.verticalScrollBar().setValue(0)
-        # Switch to lyrics tab
-        self._switch_tab(self._PAGE_LYRICS)
-
-    # ── position sync ─────────────────────────────────────────────────────
-
-    def _on_position_changed(self, position_ms: int):
-        if not self._is_synced or not self._lyrics_lines:
-            return
-        # Skip if we're in "show all" mode — no karaoke tracking needed
-        if self._show_all_lyrics:
-            return
-        if abs(position_ms - self._last_position_ms) < 150:
-            return
-        self._last_position_ms = position_ms
-
-        effective_ms = position_ms + self._sync_offset_ms
-
-        # Find which line is current and what the next line's timestamp is
-        new_idx = active_index(self._lyrics_lines, effective_ms)
-
-        # Check gap to next upcoming lyric
-        next_ts = self._find_next_lyric_ts(effective_ms)
-        gap_ms = next_ts - effective_ms if next_ts >= 0 else -1
-
-        # If we haven't reached the first lyric yet and it's far away → countdown
-        if new_idx == 0 and self._lyrics_lines[0][0] > effective_ms:
-            gap_to_first = self._lyrics_lines[0][0] - effective_ms
-            if gap_to_first >= _LYRIC_GAP_THRESHOLD_MS:
-                self._start_countdown(self._lyrics_lines[0][0])
-                return
-
-        # If current line is showing but next is far away → countdown after showing
-        if new_idx == self._active_idx and gap_ms >= _LYRIC_GAP_THRESHOLD_MS:
-            self._start_countdown(next_ts)
-            return
-
-        # Normal lyric display
-        if new_idx != self._active_idx:
-            self._stop_countdown()
-            self._active_idx = new_idx
-            text = self._lyrics_lines[new_idx][1]
-            if text.strip():
-                self._karaoke_lbl.show_line(text)
-            else:
-                # Blank line — check if next lyric is far
-                if gap_ms >= _LYRIC_GAP_THRESHOLD_MS and next_ts >= 0:
-                    self._start_countdown(next_ts)
-
-            # Update next-line preview
-            self._update_next_lyric_lbl(new_idx)
-
-    def _update_next_lyric_lbl(self, current_idx: int):
-        """Show the next non-empty lyric line below the current karaoke line."""
-        next_text = ""
-        for i in range(current_idx + 1, len(self._lyrics_lines)):
-            t = self._lyrics_lines[i][1].strip()
-            if t:
-                next_text = t
-                break
-        if next_text:
-            self._next_lyric_lbl.setText(next_text)
-            self._next_lyric_lbl.setVisible(True)
-        else:
-            self._next_lyric_lbl.setText("")
-            self._next_lyric_lbl.setVisible(False)
-
-    def _on_toggle_sync_slider(self):
-        """Show/hide the sync offset slider row."""
-        visible = self._offset_row.isVisible()
-        self._offset_row.setVisible(not visible)
-        self._set_active(self._sync_toggle_btn, not visible)
-
-    def _find_next_lyric_ts(self, effective_ms: int) -> int:
-        """Return timestamp of the next lyric line after effective_ms, or -1."""
-        for ts, text in self._lyrics_lines:
-            if ts > effective_ms and text.strip():
-                return ts
-        return -1
-
-    def _start_countdown(self, target_ms: int):
-        """Show countdown to target_ms below the current lyric line.
-        The karaoke label stays visible so the last line isn't clipped away —
-        only the small countdown indicator is added beneath it."""
-        self._next_lyric_ms = target_ms
-        # Keep karaoke label showing — don't hide it
-        self._karaoke_lbl.setVisible(True)
-        self._countdown_lbl.setVisible(True)
-        self._update_countdown()
-        if not self._countdown_timer.isActive():
-            self._countdown_timer.start()
-
-    def _stop_countdown(self):
-        self._countdown_timer.stop()
-        self._countdown_lbl.setVisible(False)
-        self._karaoke_lbl.setVisible(True)
-        self._next_lyric_ms = -1
-
-    def _update_countdown(self):
-        """Refresh the countdown label text."""
-        if self._next_lyric_ms < 0:
-            self._countdown_timer.stop()
-            return
-        remaining_ms = self._next_lyric_ms - (
-            self._last_position_ms + self._sync_offset_ms
-        )
-        if remaining_ms <= 0:
-            self._stop_countdown()
-            return
-        secs = remaining_ms / 1000
-        if secs >= 60:
-            m, s = int(secs) // 60, int(secs) % 60
-            txt = f"♪  in {m}:{s:02d}"
-        else:
-            txt = f"♪  in {secs:.0f}s"
-        self._countdown_lbl.setText(txt)
-
-    def _on_offset_changed(self, value: int):
-        """Slider moved — update offset immediately, debounce the config save."""
-        self._sync_offset_ms = value * 100
-        secs = self._sync_offset_ms / 1000
-        sign = "+" if secs >= 0 else "−"
-        self._offset_lbl.setText(f"Sync  {sign}{abs(secs):.1f}s")
-        self._last_position_ms = -1
-        # Restart debounce timer
-        self._offset_save_timer.start()
-
-    def _save_offset_to_config(self):
-        """Persist the current offset value to config."""
-        try:
-            app_config.set_lyrics_sync_offset(self._offset_slider.value())
-            app_config.save()
-            logger.debug(f"Saved lyrics sync offset: {self._offset_slider.value()}")
-        except RuntimeError as exc:
-            logger.warning(f"Could not save lyrics sync offset: {exc}")
 
     # ── chips ─────────────────────────────────────────────────────────────
 
@@ -836,201 +587,3 @@ class NowPlayingView(QWidget):
         )
 
         self._chip_row.set_chips(visible)
-
-    # ── art ───────────────────────────────────────────────────────────────
-
-    def _load_art(self, pixmap: Optional[QPixmap]):
-        """Single-image path kept for clearUI / fallback use."""
-        self._start_art_slideshow([(pixmap, False, None)] if pixmap else [])
-
-    def _load_art_from_track(self, track):
-        """Build slideshow from all available art images for this track."""
-        self._cancel_art_worker()
-        self._art_generation += 1
-        gen = self._art_generation
-
-        album = getattr(track, "album", None)
-        is_explicit = bool(getattr(album, "art_is_explicit", False)) if album else False
-        cache = get_artwork_cache()
-
-        # (pixmap, is_artist_photo, label) — artist photos are rendered
-        # without forcing a square crop, since they aren't necessarily
-        # square, and carry the artist's name to caption the photo.
-        pixmaps: List[Tuple[QPixmap, bool, Optional[str]]] = []
-        has_front = False
-        if album and cache:
-            # peek_has_art never reads/decodes the audio file. If the cache
-            # row is confirmed valid, front/rear/liner are all safe to fetch
-            # synchronously (get_pixmap warms all three roles in one pass,
-            # so a hit on "front" means the others are cache hits too). If
-            # it's unknown (cold cache/stale mtime), resolve it on a
-            # background thread instead of blocking the UI on a file decode.
-            known = cache.peek_has_art(album, "front")
-            if known is None:
-                self._start_art_worker(album, gen, track)
-            else:
-                for role in ("front", "rear", "liner"):
-                    px = cache.get_pixmap(album, role, is_explicit)
-                    if not px.isNull():
-                        pixmaps.append((px, False, None))
-                        if role == "front":
-                            has_front = True
-
-        # Also try artist-level image
-        album_artist_ids = {
-            a.artist_id for a in (getattr(album, "album_artists", None) or [])
-        }
-        for artist in getattr(track, "artists", None) or []:
-            p = getattr(artist, "profile_pic_path", None) or ""
-            if p and Path(p).exists():
-                px = QPixmap(str(p))
-                if not px.isNull():
-                    name = getattr(artist, "artist_name", None) or None
-                    if name and artist.artist_id not in album_artist_ids:
-                        credit_roles = []
-                        for ar in getattr(track, "artist_roles", None) or []:
-                            if ar.artist_id != artist.artist_id:
-                                continue
-                            role_name = getattr(ar.role, "role_name", None)
-                            if role_name and role_name not in (
-                                "Primary Artist",
-                                "Album Artist",
-                            ) and role_name not in credit_roles:
-                                credit_roles.append(role_name)
-                        if credit_roles:
-                            name = f"{name} ({', '.join(credit_roles)})"
-                    pixmaps.append((px, True, name))
-
-        if not pixmaps:
-            default = self.default_art_path
-            if default and Path(default).exists():
-                px = QPixmap(default)
-                if not px.isNull():
-                    pixmaps.append((px, False, None))
-
-        self._start_art_slideshow(pixmaps, has_front=has_front)
-
-    def _cancel_art_worker(self):
-        if self._art_worker is not None:
-            self._art_worker.request_cancel()
-            self._art_worker.wait()
-            self._art_worker = None
-
-    def _start_art_worker(self, album, gen: int, track):
-        cache = get_artwork_cache()
-        self._art_worker = ArtCacheWorker([album], cache, "front")
-        self._art_worker.resolved.connect(
-            lambda _album_id, g=gen, t=track: self._on_art_resolved(g, t)
-        )
-        self._art_worker.start()
-
-    def _on_art_resolved(self, gen: int, track):
-        """Cache row for `track`'s album is now warm - re-run the (now
-        synchronous/cheap) art lookup, but only if nothing has superseded
-        this request in the meantime."""
-        if gen != self._art_generation or track is not self.track:
-            return
-        self._load_art_from_track(track)
-
-    def _start_art_slideshow(
-        self,
-        pixmaps: List[Tuple[QPixmap, bool, Optional[str]]],
-        has_front: bool = False,
-    ):
-        """Begin cycling through the given list of (pixmap, is_artist, label)
-        triples. The blurred backdrop stays pinned to the album art (the
-        first non-artist image) for the whole track; only the small art
-        card rotates through the full set, artist photos included.
-
-        When a front cover is present, the rotation interleaves it between
-        every other image (front, rear, front, liner, front, artist, ...)
-        instead of visiting it once per lap - see _dwell_for_index.
-        """
-        self._art_slide_timer.stop()
-
-        first = pixmaps[0] if pixmaps else (None, False, None)
-        backdrop_pixmap = next((px for px, is_artist, _ in pixmaps if not is_artist), first[0])
-
-        if has_front and len(pixmaps) > 1:
-            front, secondaries = pixmaps[0], pixmaps[1:]
-            sequence = []
-            for img in secondaries:
-                sequence.append(front)
-                sequence.append(img)
-        else:
-            sequence = pixmaps
-
-        self._art_images = sequence
-        self._art_has_front = has_front
-        self._art_slide_idx = 0
-
-        self._apply_art(*first)
-        self._apply_backdrop(backdrop_pixmap)
-
-        if len(sequence) > 1:
-            self._art_slide_timer.setInterval(self._dwell_for_index(0))
-            self._art_slide_timer.start()
-
-    def _advance_art_slide(self):
-        if not self._art_images:
-            return
-        self._art_slide_idx = (self._art_slide_idx + 1) % len(self._art_images)
-        current = self._art_images[self._art_slide_idx]
-        self._apply_art(*current)
-        self._art_slide_timer.setInterval(self._dwell_for_index(self._art_slide_idx))
-
-    def _dwell_for_index(self, idx: int) -> int:
-        """How long the image at `idx` should stay on screen.
-
-        Normally each image just dwells for its per-type duration. When a
-        front cover is in the rotation, it occupies every even slot
-        (front/secondary/front/secondary/...) - each visit's dwell is set
-        relative to the secondary image right after it, so the front cover
-        gets _FRONT_COVER_SHARE of cycle time regardless of how many
-        secondary images there are, without any single slide ballooning.
-        """
-        _, is_artist, _ = self._art_images[idx]
-        base = _ARTIST_DWELL_MS if is_artist else _COVER_DWELL_MS
-        if not self._art_has_front or len(self._art_images) <= 1:
-            return base
-        is_front_slot = idx % 2 == 0
-        if not is_front_slot:
-            return base
-        next_idx = (idx + 1) % len(self._art_images)
-        _, next_is_artist, _ = self._art_images[next_idx]
-        neighbor = _ARTIST_DWELL_MS if next_is_artist else _COVER_DWELL_MS
-        return round(neighbor * _FRONT_COVER_SHARE / (1 - _FRONT_COVER_SHARE))
-
-    def _apply_art(
-        self, pixmap: Optional[QPixmap], is_artist: bool = False, label: Optional[str] = None
-    ):
-        """Push a single pixmap to the small art card with a crossfade."""
-        self._current_pixmap = pixmap
-        self._art_card.set_art(pixmap, is_artist, label)
-
-        if self._art_transition_anim:
-            self._art_transition_anim.stop()
-
-        self._art_transition_anim = QPropertyAnimation(self._art_card, b"transitionProgress")
-        self._art_transition_anim.setDuration(_ART_TRANSITION_MS)
-        self._art_transition_anim.setStartValue(0.0)
-        self._art_transition_anim.setEndValue(1.0)
-        self._art_transition_anim.setEasingCurve(QEasingCurve.InOutCubic)
-        self._art_transition_anim.start()
-
-    def _apply_backdrop(self, pixmap: Optional[QPixmap]):
-        """Crossfade the full-window blurred backdrop to `pixmap`. Called
-        once per track (or when a new backdrop candidate appears), not on
-        every art-card slide."""
-        if self._fade_anim:
-            self._fade_anim.stop()
-
-        self._backdrop.set_pixmap(pixmap)
-        self._backdrop._opacity = 0.0
-
-        self._fade_anim = QPropertyAnimation(self._backdrop, b"backdropOpacity")
-        self._fade_anim.setDuration(_ART_TRANSITION_MS)
-        self._fade_anim.setStartValue(0.0)
-        self._fade_anim.setEndValue(1.0)
-        self._fade_anim.setEasingCurve(QEasingCurve.InOutCubic)
-        self._fade_anim.start()
