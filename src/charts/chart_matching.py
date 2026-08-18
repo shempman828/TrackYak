@@ -152,7 +152,8 @@ def _combined_score(chart_title: str, chart_artist: str, cand: _Candidate) -> fl
 def match_chart(
     session,
     chart: Chart,
-    progress_callback: Optional[Callable[[int, int], None]] = None,
+    progress_callback: Optional[Callable[[int, int, int], None]] = None,
+    stage_callback: Optional[Callable[[str], None]] = None,
     is_cancelled: Optional[Callable[[], bool]] = None,
 ) -> MatchStats:
     """Match every currently-unmatched ChartEntry belonging to `chart`
@@ -162,12 +163,20 @@ def match_chart(
     re-running after the library grows re-attempts everything still
     unmatched, without re-scoring entries that already matched.
 
-    `progress_callback(scored, total)` is invoked periodically (not every
-    entry -- that would dominate runtime at chart scale) so a caller (e.g.
-    ChartMatchingWorker) can drive a progress bar. `is_cancelled()` is
-    polled at the same cadence for cooperative cancellation; a cancelled run
-    commits whatever was scored so far rather than discarding it.
+    `stage_callback(message)` fires once per phase ("Building title index...",
+    "Matching entries...") so a caller can show what's actually happening
+    during the index build, which otherwise looks identical to a hang --
+    it's O(library size) and reports no per-item progress of its own.
+
+    `progress_callback(scored, total, matched)` is invoked periodically (not
+    every entry -- that would dominate runtime at chart scale) so a caller
+    (e.g. ChartMatchingWorker) can drive a progress bar and show a live
+    matched-so-far count. `is_cancelled()` is polled at the same cadence for
+    cooperative cancellation; a cancelled run commits whatever was scored so
+    far rather than discarding it.
     """
+    if stage_callback:
+        stage_callback("Building title index...")
     index = build_title_index(session, chart.matched_entity_type)
     secondary_index = _build_secondary_index(index)
 
@@ -178,11 +187,14 @@ def match_chart(
         )
     ).all()
 
+    if stage_callback:
+        stage_callback("Matching entries...")
+
     matched = 0
     for scored, entry in enumerate(unmatched, start=1):
         if scored % 500 == 0:
             if progress_callback:
-                progress_callback(scored, len(unmatched))
+                progress_callback(scored, len(unmatched), matched)
             if is_cancelled and is_cancelled():
                 break
 
@@ -205,7 +217,7 @@ def match_chart(
             matched += 1
 
     if progress_callback:
-        progress_callback(len(unmatched), len(unmatched))
+        progress_callback(len(unmatched), len(unmatched), matched)
 
     chart.last_matched_at = datetime.now()
     session.commit()
