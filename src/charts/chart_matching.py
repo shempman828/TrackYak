@@ -182,6 +182,14 @@ def _rebuild_scratch_index(session, entity_type: str) -> dict:
         exact_index[normalize_title(row["title"])].append(
             (row["entity_id"], normalize_title(row["artist_names"]))
         )
+
+    # Commit here rather than leaving this open until match_chart's final
+    # commit: the DROP/CREATE/INSERT above open a real write transaction,
+    # and the matching loop that follows is a long, read-only pass (up to
+    # ~975k chart entries) -- holding the write lock for all of it starves
+    # every other writer in the app (e.g. the batch-analysis coordinator)
+    # until they hit busy_timeout and fail with "database is locked".
+    session.commit()
     return exact_index
 
 
