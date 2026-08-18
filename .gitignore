@@ -14,3 +14,5 @@ publisher_logos/
 bugs.md
 *.toml
 *.csv
+*.db-wal
+*.db-shm
