@@ -294,12 +294,24 @@ class SamplesTab(_BaseTab):
                 self._by_list.addItem(item)
 
     def _reload_and_refresh(self):
+        # get_entity_object returns the SAME identity-mapped Track instance
+        # (this session never expunges it) -- reassigning self.tracks[0] to
+        # it is a no-op for staleness purposes. The actual write above went
+        # through the Samples model directly, not by mutating
+        # track.samples_used/sampled_by_tracks, and the session is opened
+        # with expire_on_commit=False (src/db/db_engine.py), so those two
+        # relationship collections -- once loaded by the load() call below --
+        # would otherwise keep showing pre-edit state indefinitely. Expire
+        # them so the reload actually reflects the DB write just made.
         try:
             refreshed = self.controller.get.get_entity_object(
                 "Track", track_id=self.track.track_id
             )
             if refreshed:
                 self.tracks[0] = refreshed
+                self.controller.get.session.expire(
+                    refreshed, ["samples_used", "sampled_by_tracks"]
+                )
         except SQLAlchemyError as e:
             logger.warning(f"Could not reload track: {e}")
         self.load(self.tracks)
