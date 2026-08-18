@@ -2,7 +2,7 @@
 album_musicbrainz_review_dialog.py
 
 Review/checkbox dialog shown after a MusicBrainz canonical release has been
-fetched in full (see musicbrainz_client.fetch_release_detail). Modeled on
+fetched in full (see musicbrainz_release.fetch_release_detail). Modeled on
 src/artist/artist_enrichment_review_dialog.py's checkbox-per-item /
 apply-on-accept pattern, scaled up to per-track groups: album credits, track
 credits, and recording locations are relational data that needs
@@ -48,8 +48,8 @@ from src.common.cancellable_worker import CancellableWorker
 from src.common.entity_completer_edit import find_or_create_by_name
 from src.common.match_confidence import confidence_color, confidence_label
 from src.core.logger_config import logger
-from src.musicbrainz.musicbrainz_client import (
-    MBAlias,
+from src.musicbrainz.musicbrainz_artist import MBAlias
+from src.musicbrainz.musicbrainz_release import (
     MBLabelInfo,
     MBReleaseDetail,
     MBReleaseTrack,
