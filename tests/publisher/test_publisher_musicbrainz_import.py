@@ -22,7 +22,7 @@ from src.db.db_tables.base import Base
 from src.db.db_tables.place import Place, PlaceAssociation
 from src.db.db_tables.place_association_type import PlaceAssociationType
 from src.db.db_tables.publisher import Publisher, PublisherAlias
-from src.musicbrainz.musicbrainz_client import MBFounderRelation, MBLabelInfo
+from src.musicbrainz.musicbrainz_release import MBFounderRelation, MBLabelInfo
 from src.publisher.publisher_musicbrainz_import import (
     apply_publisher_founders,
     apply_publisher_headquarters,

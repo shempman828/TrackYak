@@ -6,7 +6,7 @@ test_fetch_release_detail_labels.py's neighbors for that path).
 
 from unittest.mock import patch
 
-from src.musicbrainz import musicbrainz_client as mc
+from src.musicbrainz import musicbrainz_release as mc
 
 _ARTIST_ID = "9b58a6ab-9d70-4d1a-994b-1af881000000"
 _ARTIST_ID_2 = "0d557908-0d24-4a15-9982-9d1e1e000000"

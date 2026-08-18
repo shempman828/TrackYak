@@ -13,7 +13,7 @@ orchestra" (Judy Garland's "Over the Rainbow") and "sound" (Queen's
 "Bohemian Rhapsody").
 """
 
-from src.musicbrainz import musicbrainz_client as mc
+from src.musicbrainz import musicbrainz_release as mc
 
 
 def _rel(type_, attributes=None):

@@ -15,7 +15,7 @@ itself, no parent) every time.
 
 from unittest.mock import patch
 
-from src.musicbrainz import musicbrainz_client as mc
+from src.musicbrainz import musicbrainz_release as mc
 
 _CHURCH_ID = "063005ea-5f9c-45c3-aff2-f4b11f966aae"
 _TORONTO_ID = "74b24e62-d2fe-42d2-9d96-31f2da756c77"

@@ -16,7 +16,7 @@ walking upward into parents.
 
 from unittest.mock import patch
 
-from src.musicbrainz import musicbrainz_client as mc
+from src.musicbrainz import musicbrainz_core as mc
 
 _NC_ID = "d4ab49e7-1d25-45e2-8659-b147e0ea3684"
 _US_ID = "489ce91b-6658-3307-9877-795b68554c98"

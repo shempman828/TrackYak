@@ -12,7 +12,7 @@ by date":
 
 from unittest.mock import patch
 
-from src.musicbrainz import musicbrainz_client as mc
+from src.musicbrainz import musicbrainz_recording as mc
 
 _ARTIST_MBID = "artist-glenn-miller"
 _OTHER_ARTIST_MBID = "artist-various"

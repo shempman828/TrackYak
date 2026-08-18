@@ -7,7 +7,7 @@ headquarters area, and founder relations.
 
 from unittest.mock import patch
 
-from src.musicbrainz import musicbrainz_client as mc
+from src.musicbrainz import musicbrainz_release as mc
 
 _LABEL_ID = "5a5c8d97-9d47-49d8-9958-4b06e6e0f81a"
 _NYC_ID = "5099dc37-eab7-3c96-a20d-6f0b3c5f9601"
