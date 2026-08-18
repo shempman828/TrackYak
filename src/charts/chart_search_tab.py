@@ -4,9 +4,11 @@ chart_search_tab.py
 Search tab: title/artist search across all weeks/years for one or both
 charts. Given ~975K rows at full scale, a leading-wildcard LIKE can't use
 idx_chart_entries_raw_title (SQLite can't use a B-tree index for a leading
-wildcard) and is a genuine scan -- so results are debounced and capped,
-following the plan's explicit call-out of this as the one place search
-must be bounded rather than unlimited.
+wildcard) and would be a genuine scan, so this queries the chart_entries_fts
+FTS5 virtual table (see MusicDatabase._ensure_chart_entries_fts) instead --
+results are still debounced and capped, following the plan's explicit
+call-out of this as the one place search must be bounded rather than
+unlimited.
 """
 
 from typing import Optional
@@ -20,9 +22,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from sqlalchemy import or_, select
+from sqlalchemy import bindparam, select, text
 
 from src.charts.chart_entry_table import ChartEntryTable
+from src.charts.fts_query import build_and_query
 from src.db.db_tables.chart import ChartEntry
 
 _MATCH_FILTERS = ["All", "Matched Only", "Unmatched Only"]
@@ -90,31 +93,45 @@ class ChartSearchTab(QWidget):
         return [self._charts[idx - 1][1]]
 
     def _run_search(self):
-        text = self.search_box.text().strip()
-        if not text:
+        search_text = self.search_box.text().strip()
+        if not search_text:
             self.table.populate([])
             self.result_label.setText("")
             return
 
-        session = self.controller.get.session
-        stmt = select(ChartEntry).where(
-            or_(
-                ChartEntry.raw_title.ilike(f"%{text}%"),
-                ChartEntry.raw_performer.ilike(f"%{text}%"),
-            )
-        )
+        match_query = build_and_query(search_text)
+        if not match_query:
+            self.table.populate([])
+            self.result_label.setText("")
+            return
+
+        conditions = ["chart_entries_fts MATCH :match_query"]
+        params = {"match_query": match_query, "result_limit": _RESULT_LIMIT + 1}
+        bind_params = [bindparam("match_query"), bindparam("result_limit")]
+
         chart_ids = self._selected_chart_ids()
         if chart_ids:
-            stmt = stmt.where(ChartEntry.chart_id.in_(chart_ids))
+            conditions.append("chart_entries.chart_id IN :chart_ids")
+            params["chart_ids"] = tuple(chart_ids)
+            bind_params.append(bindparam("chart_ids", expanding=True))
 
         choice = self.match_filter.currentText()
         if choice == "Matched Only":
-            stmt = stmt.where(ChartEntry.entity_id.is_not(None))
+            conditions.append("chart_entries.entity_id IS NOT NULL")
         elif choice == "Unmatched Only":
-            stmt = stmt.where(ChartEntry.entity_id.is_(None))
+            conditions.append("chart_entries.entity_id IS NULL")
 
-        stmt = stmt.order_by(ChartEntry.chart_week.desc()).limit(_RESULT_LIMIT + 1)
-        results = session.scalars(stmt).all()
+        sql = text(
+            "SELECT chart_entries.* FROM chart_entries "
+            "JOIN chart_entries_fts ON chart_entries_fts.rowid = chart_entries.chart_entry_id "
+            f"WHERE {' AND '.join(conditions)} "
+            "ORDER BY chart_entries.chart_week DESC "
+            "LIMIT :result_limit"
+        ).bindparams(*bind_params)
+
+        session = self.controller.get.session
+        stmt = select(ChartEntry).from_statement(sql)
+        results = session.scalars(stmt, params).all()
 
         truncated = len(results) > _RESULT_LIMIT
         results = results[:_RESULT_LIMIT]
