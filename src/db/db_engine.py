@@ -7,10 +7,31 @@ this same engine instead of opening a second, uncoordinated connection pool
 against the same SQLite file.
 """
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import scoped_session, sessionmaker
 
 engine = create_engine(
-    "sqlite:///music_library.db", connect_args={"check_same_thread": False}
+    "sqlite:///music_library.db",
+    connect_args={"check_same_thread": False, "timeout": 30},
 )
+
+
+@event.listens_for(engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, connection_record):
+    """Put every new connection in this pool into WAL mode.
+
+    Default SQLite (rollback-journal) mode requires a writer's COMMIT to
+    wait for every other connection's read transaction to end, and this one
+    engine is shared by every background worker thread/process in the app
+    (analysis scheduler, chart search/matching, etc). WAL mode lets readers
+    and a single writer proceed without blocking each other, which is what
+    "database is locked" during batch operations like audio analysis
+    actually indicates.
+    """
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.close()
+
+
 Session = scoped_session(sessionmaker(bind=engine))
