@@ -40,6 +40,9 @@ class ChartsView(QWidget):
         self._match_worker = None
         self._import_queue = []
         self._match_queue = []
+        self._match_total = 0
+        self._match_chart_key = ""
+        self._match_queue_label = ""
         self.init_ui()
         self.load_charts()
 
@@ -197,6 +200,7 @@ class ChartsView(QWidget):
         self._match_queue = [
             c.chart_key for c in self._charts if c.last_synced_week is not None
         ]
+        self._match_total = len(self._match_queue)
         self._run_next_match()
 
     def _run_next_match(self):
@@ -210,14 +214,35 @@ class ChartsView(QWidget):
             return
 
         chart_key = self._match_queue.pop(0)
-        self.status_label.setText(f"Matching {chart_key}...")
+        self._match_chart_key = chart_key
+        position = self._match_total - len(self._match_queue)
+        self._match_queue_label = f"chart {position}/{self._match_total}"
+        self.progress_bar.setRange(0, 0)
+        self.status_label.setText(
+            f"Matching {chart_key} ({self._match_queue_label})..."
+        )
         self._match_worker = ChartMatchingWorker(self.controller, chart_key)
-        self._match_worker.progress.connect(self._on_progress)
+        self._match_worker.stage.connect(self._on_match_stage)
+        self._match_worker.progress.connect(self._on_match_progress)
         self._match_worker.finished.connect(
             lambda stats, key=chart_key: self._on_match_finished(key, stats)
         )
         self._match_worker.error.connect(self._on_worker_error)
         self._match_worker.start()
+
+    def _on_match_stage(self, stage: str):
+        self.status_label.setText(
+            f"{stage} ({self._match_chart_key}, {self._match_queue_label})"
+        )
+
+    def _on_match_progress(self, scored: int, total: int, matched: int):
+        if total > 0:
+            self.progress_bar.setRange(0, total)
+            self.progress_bar.setValue(scored)
+        self.status_label.setText(
+            f"Matching {self._match_chart_key} ({self._match_queue_label}): "
+            f"{scored}/{total} scored, {matched} matched"
+        )
 
     def _on_match_finished(self, chart_key: str, stats):
         show_status_message(self, f"Matched {stats.matched}/{stats.total_unmatched} for {chart_key}")
