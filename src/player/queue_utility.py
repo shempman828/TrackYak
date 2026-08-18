@@ -402,6 +402,14 @@ class QueueManager(QObject):
             loaded_history = _fetch_tracks(history_ids)
             loaded_queue = _fetch_tracks(queue_ids)
 
+            # These reads leave db_session's transaction open (a read-only
+            # query never calls commit/rollback on its own -- see
+            # CancellableWorker's docstring for the same pattern elsewhere).
+            # This runs once on the main thread at startup, so left
+            # unclosed it pins a pooled connection for the rest of the
+            # app's life instead of just for this one call.
+            db_session.commit()
+
             self.history = deque(loaded_history, maxlen=SAVE_HISTORY_LIMIT)
             self.queue = loaded_queue
 
