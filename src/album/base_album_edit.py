@@ -672,6 +672,22 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 "Album", album_id=self.album.album_id
             )
             if updated:
+                # get_entity_object returns the SAME identity-mapped Album
+                # instance (this session never expunges it), and every write
+                # that lands here -- RelationshipHelpers' add/remove/move on
+                # AlbumRoleAssociation, AlbumPublisher, PlaceAssociation,
+                # AwardAssociation, a track add/delete, etc. -- goes through
+                # the DB layer directly rather than mutating `updated`'s own
+                # relationship collections (album_roles, publisher_associations,
+                # places, awards, tracks, discs, ...). The session is opened
+                # with expire_on_commit=False (src/db/db_engine.py), so the
+                # commit() those writes already did doesn't invalidate an
+                # already-cached collection either -- without this, a tab
+                # rebuilt below (even one in _ALWAYS_REFRESHED_TABS) would
+                # just redisplay the same pre-edit list. Expiring forces the
+                # next access of any of `updated`'s attributes to reload from
+                # the DB actually just written to.
+                self.controller.get.session.expire(updated)
                 self.album = updated
                 self.helper.album = updated
                 self.tab_builder.album = updated
@@ -790,6 +806,10 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 "Album", album_id=self.album.album_id
             )
             if updated:
+                # Same staleness hazard as refresh_view() above -- expire so
+                # whatever the sub-dialog changed (aliases, etc.) is actually
+                # visible instead of a cached pre-edit relationship collection.
+                self.controller.get.session.expire(updated)
                 self.album = updated
                 self.helper.album = updated
                 self.tab_builder.album = updated
