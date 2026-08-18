@@ -22,12 +22,28 @@ from src.db.db_tables.chart import ChartEntry
 
 _MATCH_FILTERS = ["All", "Matched Only", "Unmatched Only"]
 
+_MONTH_NAMES = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+]
+
 
 class ChartWeekBrowserTab(QWidget):
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
         self._charts = []  # [(chart_key, chart_id, chart_name)], populated by set_charts()
+        self._weeks = []  # all distinct ChartEntry.chart_week dates for the current chart
         self.init_ui()
 
     def init_ui(self):
@@ -38,6 +54,16 @@ class ChartWeekBrowserTab(QWidget):
         self.chart_combo = QComboBox()
         self.chart_combo.currentIndexChanged.connect(self._on_chart_changed)
         controls.addWidget(self.chart_combo)
+
+        controls.addWidget(QLabel("Year:"))
+        self.year_combo = QComboBox()
+        self.year_combo.currentIndexChanged.connect(self._on_year_changed)
+        controls.addWidget(self.year_combo)
+
+        controls.addWidget(QLabel("Month:"))
+        self.month_combo = QComboBox()
+        self.month_combo.currentIndexChanged.connect(self._on_month_changed)
+        controls.addWidget(self.month_combo)
 
         controls.addWidget(QLabel("Week:"))
         self.week_combo = QComboBox()
@@ -74,17 +100,49 @@ class ChartWeekBrowserTab(QWidget):
 
     def _on_chart_changed(self):
         chart_id = self._current_chart_id()
-        self.week_combo.blockSignals(True)
-        self.week_combo.clear()
         if chart_id is not None:
-            weeks = self.controller.get.session.scalars(
+            self._weeks = self.controller.get.session.scalars(
                 select(ChartEntry.chart_week)
                 .where(ChartEntry.chart_id == chart_id)
                 .distinct()
                 .order_by(ChartEntry.chart_week.desc())
             ).all()
-            for week in weeks:
-                self.week_combo.addItem(week.isoformat(), week)
+        else:
+            self._weeks = []
+
+        years = sorted({w.year for w in self._weeks}, reverse=True)
+        self.year_combo.blockSignals(True)
+        self.year_combo.clear()
+        for year in years:
+            self.year_combo.addItem(str(year), year)
+        self.year_combo.blockSignals(False)
+        self._on_year_changed()
+
+    def _on_year_changed(self):
+        year = self.year_combo.currentData()
+        months = sorted({w.month for w in self._weeks if w.year == year})
+        self.month_combo.blockSignals(True)
+        self.month_combo.clear()
+        for month in months:
+            self.month_combo.addItem(_MONTH_NAMES[month - 1], month)
+        if months:
+            self.month_combo.setCurrentIndex(months.index(max(months)))
+        self.month_combo.blockSignals(False)
+        self._on_month_changed()
+
+    def _on_month_changed(self):
+        year = self.year_combo.currentData()
+        month = self.month_combo.currentData()
+        weeks = []
+        if year is not None and month is not None:
+            weeks = sorted(
+                (w for w in self._weeks if w.year == year and w.month == month),
+                reverse=True,
+            )
+        self.week_combo.blockSignals(True)
+        self.week_combo.clear()
+        for week in weeks:
+            self.week_combo.addItem(week.isoformat(), week)
         self.week_combo.blockSignals(False)
         self._reload_entries()
 
