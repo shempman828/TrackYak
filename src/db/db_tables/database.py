@@ -169,6 +169,10 @@ class MusicDatabase:
             if "albums" in existing_tables:
                 self._normalize_release_type_casing()
 
+            # ── Step 5: FTS5 virtual table setup ─────────────────────────────
+            if "chart_entries" in existing_tables:
+                self._ensure_chart_entries_fts()
+
         except SQLAlchemyError as e:
             logger.error(f"Integrity check failed: {e}")
             raise
@@ -225,6 +229,92 @@ class MusicDatabase:
                     logger.info(f"Created missing index {index.name} on {table_name}.")
                 except SQLAlchemyError as e:
                     logger.error(f"Failed to create index {index.name}: {e}")
+
+    def _ensure_chart_entries_fts(self) -> None:
+        """Create the chart_entries_fts FTS5 virtual table if it doesn't
+        already exist, backed by chart_entries as an external-content table
+        (no duplicated storage) and kept in sync via triggers, so a row
+        change made anywhere -- ORM, bulk import, or raw SQL -- keeps the
+        index current without every write path needing to know it exists.
+
+        This is the first virtual table in the schema, needed because
+        title/artist search over chart_entries (~975K rows at full scale)
+        uses a leading wildcard LIKE that can't use a B-tree index; FTS5
+        gives that search an actual index instead of a table scan. See
+        src/charts/chart_search_tab.py.
+        """
+        try:
+            with self.engine.begin() as conn:
+                exists = conn.execute(
+                    text(
+                        "SELECT 1 FROM sqlite_master "
+                        "WHERE type = 'table' AND name = 'chart_entries_fts'"
+                    )
+                ).first()
+                if exists:
+                    return
+
+                conn.execute(
+                    text(
+                        "CREATE VIRTUAL TABLE chart_entries_fts USING fts5("
+                        "raw_title, raw_performer, "
+                        "content='chart_entries', content_rowid='chart_entry_id'"
+                        ")"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO chart_entries_fts(rowid, raw_title, raw_performer) "
+                        "SELECT chart_entry_id, raw_title, raw_performer FROM chart_entries"
+                    )
+                )
+
+                # Standard external-content FTS5 sync triggers (per SQLite docs):
+                # a plain row op mirrors into the index; an update is a delete
+                # of the old row image followed by an insert of the new one.
+                conn.execute(
+                    text(
+                        """
+                        CREATE TRIGGER chart_entries_fts_ai
+                        AFTER INSERT ON chart_entries
+                        BEGIN
+                            INSERT INTO chart_entries_fts(rowid, raw_title, raw_performer)
+                            VALUES (new.chart_entry_id, new.raw_title, new.raw_performer);
+                        END
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        CREATE TRIGGER chart_entries_fts_ad
+                        AFTER DELETE ON chart_entries
+                        BEGIN
+                            INSERT INTO chart_entries_fts(chart_entries_fts, rowid, raw_title, raw_performer)
+                            VALUES ('delete', old.chart_entry_id, old.raw_title, old.raw_performer);
+                        END
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        CREATE TRIGGER chart_entries_fts_au
+                        AFTER UPDATE ON chart_entries
+                        BEGIN
+                            INSERT INTO chart_entries_fts(chart_entries_fts, rowid, raw_title, raw_performer)
+                            VALUES ('delete', old.chart_entry_id, old.raw_title, old.raw_performer);
+                            INSERT INTO chart_entries_fts(rowid, raw_title, raw_performer)
+                            VALUES (new.chart_entry_id, new.raw_title, new.raw_performer);
+                        END
+                        """
+                    )
+                )
+            logger.info(
+                "Created chart_entries_fts FTS5 virtual table and sync triggers."
+            )
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to create chart_entries_fts: {e}")
 
     def _rename_column_if_needed(
         self, table_name: str, old_name: str, new_name: str
