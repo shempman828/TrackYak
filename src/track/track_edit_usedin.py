@@ -216,6 +216,7 @@ class UsedInTab(_BaseTab):
         self._description_edit.clear()
         self._wiki_edit.clear()
 
+        self._invalidate_usages_cache()
         self.load(self.tracks)
 
     def _remove_row(self, row: int):
@@ -246,4 +247,17 @@ class UsedInTab(_BaseTab):
             QMessageBox.warning(self, "Error", f"Failed to remove entry:\n{e}")
             return
 
+        self._invalidate_usages_cache()
         self.load(self.tracks)
+
+    def _invalidate_usages_cache(self):
+        # track.usages is a relationship() -- once load() above has accessed
+        # it, it's cached on the Track instance, and the writes above went
+        # through the TrackUsage model directly rather than mutating that
+        # collection. The session is opened with expire_on_commit=False
+        # (src/db/db_engine.py), so a plain commit() doesn't invalidate it
+        # either -- without this, load() would just redisplay the same
+        # pre-edit list.
+        session = self.controller.get.session
+        for track in self.tracks:
+            session.expire(track, ["usages"])
