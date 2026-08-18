@@ -5,6 +5,7 @@ restored on the next session and persisted whenever they change.
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget
 
+from src.album import album_filtering as album_filtering_module
 from src.album import album_view as album_view_module
 from src.album.album_view import AlbumView
 
@@ -62,7 +63,7 @@ class FakeAppConfig:
 
 def _make_view(monkeypatch, albums, fake_config):
     monkeypatch.setattr(album_view_module, "AlbumWidget", StubAlbumWidget)
-    monkeypatch.setattr(album_view_module, "app_config", fake_config)
+    monkeypatch.setattr(album_filtering_module, "app_config", fake_config)
     albums_by_id = {a.album_id: a for a in albums}
     view = AlbumView(StubController(albums_by_id))
     view.show()
