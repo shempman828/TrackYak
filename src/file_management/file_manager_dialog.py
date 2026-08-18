@@ -31,12 +31,6 @@ _DIR_EXPLANATION = (
     "This is where file operations will be performed."
 )
 
-_TIPS_TEXT = (
-    "• Backup your library before major changes<br>"
-    "• Organization will move files on disk<br>"
-    "• Metadata updates overwrite file tags"
-)
-
 
 class FileManager(QDialog):
     """Cleaner, modular FileManager dialog with modernized structure.
@@ -74,9 +68,6 @@ class FileManager(QDialog):
         main_layout.addWidget(self._build_card(self._build_dir_section()))
         main_layout.addWidget(self._build_card(self._build_organization_section()))
         main_layout.addWidget(self._build_card(self._build_metadata_section()))
-
-        tips = self._build_tips_section()
-        main_layout.addWidget(tips)
 
         main_layout.addStretch()
 
@@ -203,17 +194,6 @@ class FileManager(QDialog):
         layout.addWidget(self.metadata_progress)
         layout.addLayout(btn_layout)
 
-        return container
-
-    def _build_tips_section(self) -> QFrame:
-        container = QFrame()
-        layout = QVBoxLayout(container)
-        header = QLabel("Usage Tips")
-        header.setAlignment(Qt.AlignLeft)
-        tips = QLabel(_TIPS_TEXT)
-        tips.setWordWrap(True)
-        layout.addWidget(header)
-        layout.addWidget(tips)
         return container
 
     # -------------------- Helpers & Small Utilities --------------------
