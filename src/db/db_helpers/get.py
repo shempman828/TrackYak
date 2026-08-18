@@ -108,9 +108,20 @@ class GetFromDB(BaseDBHelper):
                         continue
 
             if multiple:
-                return self.session.scalars(stmt).all()
+                result = self.session.scalars(stmt).all()
             else:
-                return self.session.scalar(stmt)
+                result = self.session.scalar(stmt)
+
+            # Close out the read transaction this query just opened -- left
+            # open (SQLAlchemy autobegin never ends it on its own), a
+            # long-lived caller's session (MainThread's, above all: it's
+            # never torn down for the app's whole lifetime) pins a pooled
+            # connection indefinitely. See project memory on the "database
+            # is locked" investigation. Session is configured with
+            # expire_on_commit=False so this doesn't invalidate the
+            # attributes on the objects being returned.
+            self.session.commit()
+            return result
 
         except SQLAlchemyError as e:
             logger.error(f"Database error querying {entity_class}: {e}")
@@ -150,6 +161,7 @@ class GetFromDB(BaseDBHelper):
 
             if not candidate_albums:
                 logger.debug("No albums found with matching name and year")
+                self.session.commit()
                 return None
 
             # For each candidate album, check if it has exactly the expected album artists
@@ -173,13 +185,16 @@ class GetFromDB(BaseDBHelper):
                     logger.debug(
                         f"Found matching album: {album.album_id} - {album.album_name}"
                     )
+                    self.session.commit()
                     return album
 
         except SQLAlchemyError as e:
             logger.error(f"Error in album existence check: {e}")
+            self.session.rollback()
             return None
 
         logger.debug("No matching album found.")
+        self.session.commit()
         return None
 
     def get_entity_links(self, link_type: str, **kwargs):
@@ -195,9 +210,12 @@ class GetFromDB(BaseDBHelper):
             return 0
         try:
             stmt = select(func.count()).select_from(entity_class_obj)
-            return self.session.scalar(stmt) or 0
+            count = self.session.scalar(stmt) or 0
+            self.session.commit()
+            return count
         except SQLAlchemyError as e:
             logger.error(f"Database error counting {model_name}: {e}")
+            self.session.rollback()
             return 0
 
     def resolve_entity_or_alias(self, model_name: str, name_field: str, name: str):
