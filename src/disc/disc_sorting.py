@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -43,13 +43,25 @@ class TrackSortingDisplay(QTreeWidget):
         self.populate_tree()
 
     def _prepare_track_items(self):
+        # Look discs up by id from self.discs (freshly queried by the parent
+        # view's load_data()) instead of the track.disc relationship -- once
+        # lazily loaded, that relationship is cached on the Track instance
+        # and the app's session is opened with expire_on_commit=False (see
+        # src/db/db_engine.py), so a plain commit() after a disc_id change
+        # (e.g. drag-and-drop reassignment) doesn't invalidate it: track.disc
+        # keeps returning whatever it resolved to the first time it was
+        # accessed, even though track.disc_id (the scalar FK column) is
+        # correctly updated and re-synced. A track dragged onto a disc would
+        # still group under "Unassigned" here despite disc_id being correct.
+        discs_by_id = {disc.disc_id: disc for disc in self.discs}
         items = []
         for track in self.physical_tracks:
+            disc = discs_by_id.get(track.disc_id)
             items.append({
                 "track": track,
                 "is_virtual": False,
                 "disc_id": track.disc_id,
-                "disc_number": track.disc.disc_number if track.disc else None,
+                "disc_number": disc.disc_number if disc else None,
                 "track_number": track.track_number,
                 "side": track.side,
             })
@@ -487,6 +499,21 @@ class TrackSortingDisplay(QTreeWidget):
         if not event.isAccepted():
             return
 
+        # QAbstractItemView's internal-move drop only *inserts* the dragged
+        # row(s) into their new parent inside dropEvent() -- the original
+        # row(s) aren't removed from their old parent until the base
+        # class's startDrag() calls its own clearOrRemove(), which happens
+        # later, after this dropEvent() call (and the QDrag::exec() it's
+        # nested inside) returns. Walking the tree synchronously here would
+        # therefore see BOTH the new copy and the not-yet-removed old copy
+        # of every dragged track and write both -- a duplicate-row race
+        # where whichever happens to come last in traversal order wins,
+        # regardless of which one is actually correct. Deferring to the
+        # next event-loop tick guarantees clearOrRemove() has already run,
+        # so the tree is fully settled (no duplicates) by the time we walk it.
+        QTimer.singleShot(0, self._persist_drop)
+
+    def _persist_drop(self):
         controller = self.controller
         if controller is None:
             parent_view = self.parent()
