@@ -8,6 +8,12 @@ import random
 import sys
 import traceback
 
+from src.core.installation_check import verify_installation
+
+# Runs before any third-party import (PySide6 included) so a broken
+# install prints a clear, actionable message instead of a raw traceback.
+verify_installation()
+
 from PySide6.QtCore import QEventLoop, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
