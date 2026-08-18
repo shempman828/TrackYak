@@ -13,10 +13,8 @@ from types import SimpleNamespace
 
 from PySide6.QtWidgets import QLabel
 
-from src.album.album_musicbrainz_review_dialog import (
-    AlbumMusicBrainzReviewDialog,
-    _track_scalar_update,
-)
+from src.album.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
+from src.album.album_musicbrainz_review_import import _track_scalar_update
 from src.musicbrainz.musicbrainz_release import (
     MBFounderRelation,
     MBLabelInfo,
