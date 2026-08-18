@@ -132,6 +132,16 @@ class _BaseTrackAssociationTab(_BaseTab):
             common &= s
         return list(common)
 
+    def _invalidate_cache(self) -> None:
+        """Hook for subclasses whose `_load_track_items` reads a cached ORM
+        relationship instead of querying fresh (see GenresTab). The base
+        implementation here (get_entity_links) always queries fresh, so
+        this is a no-op by default; override wherever a relationship
+        attribute could have already been loaded and cached on `self.track`
+        objects before the add/remove below writes past it -- the session
+        is opened with expire_on_commit=False, so commit() alone won't
+        invalidate it (see src/db/db_engine.py)."""
+
     def _find_or_create(self, name: str):
         return find_or_create_by_name(
             self.controller,
@@ -213,6 +223,7 @@ class _BaseTrackAssociationTab(_BaseTab):
                 register_cached_entity(self.model_name, entity)
 
         self._search.reset()
+        self._invalidate_cache()
         self.load(self.tracks)
 
     def _remove_selected(self):
@@ -228,6 +239,7 @@ class _BaseTrackAssociationTab(_BaseTab):
                 )
             except SQLAlchemyError as e:
                 logger.error(f"Failed to remove {self.model_name} from tracks: {e}")
+        self._invalidate_cache()
         self.load(self.tracks)
 
     def contextMenuEvent(self, event):
