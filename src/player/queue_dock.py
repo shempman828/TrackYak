@@ -250,10 +250,10 @@ class QueueDockWidget(QWidget):
         self._status_label = QLabel("")
         self._status_label.setObjectName("QueueStatusLabel")
 
-        self._shuffle_btn = QPushButton("⇌ Shuffle")
+        self._shuffle_btn = QPushButton("⇌ Shuffle ▾")
         self._shuffle_btn.setProperty("queueTool", True)
         self._shuffle_btn.setToolTip("Shuffle upcoming tracks")
-        self._shuffle_btn.clicked.connect(self._on_shuffle)
+        self._shuffle_btn.clicked.connect(self._show_shuffle_menu)
 
         self._clear_btn = QPushButton("✕ Clear")
         self._clear_btn.setProperty("queueTool", True)
@@ -407,8 +407,17 @@ class QueueDockWidget(QWidget):
                 self.queue_manager.queue_changed.emit()
             self.track_double_clicked.emit(Path(file_path))
 
+    def _show_shuffle_menu(self):
+        menu = QMenu(self)
+        menu.addAction("Shuffle", self._on_shuffle)
+        menu.addAction("Weighted Shuffle (by Rating)", self._on_weighted_shuffle)
+        menu.exec_(self._shuffle_btn.mapToGlobal(self._shuffle_btn.rect().bottomLeft()))
+
     def _on_shuffle(self):
         self.queue_manager.shuffle_queue()
+
+    def _on_weighted_shuffle(self):
+        self.queue_manager.weighted_shuffle_queue()
 
     def _on_clear(self):
         self.queue_manager.clear_queue()
