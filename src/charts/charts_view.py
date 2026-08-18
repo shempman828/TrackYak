@@ -173,6 +173,12 @@ class ChartsView(QWidget):
 
     def _on_import_finished(self, chart_key: str, imported: int):
         show_status_message(self, f"Imported {imported} new row(s) for {chart_key}")
+        # finished is a custom payload signal emitted from inside run(), before
+        # the thread has actually unwound (its finally block still has to
+        # release the DB session). wait() blocks until QThread.isRunning() is
+        # actually False, so _run_next_import() doesn't clobber self._import_worker
+        # -- the only reference to this QThread -- while it's still alive.
+        self._import_worker.wait()
         self._run_next_import()
 
     def _on_progress(self, done: int, total: int):
@@ -215,6 +221,9 @@ class ChartsView(QWidget):
 
     def _on_match_finished(self, chart_key: str, stats):
         show_status_message(self, f"Matched {stats.matched}/{stats.total_unmatched} for {chart_key}")
+        # See _on_import_finished: finished fires before the thread has fully
+        # unwound, so wait() here before reassigning self._match_worker.
+        self._match_worker.wait()
         self._run_next_match()
 
     # -----------------------------------------------------------------------
