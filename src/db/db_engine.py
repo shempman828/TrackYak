@@ -34,4 +34,13 @@ def _set_sqlite_pragma(dbapi_connection, connection_record):
     cursor.close()
 
 
-Session = scoped_session(sessionmaker(bind=engine))
+Session = scoped_session(
+    sessionmaker(bind=engine, expire_on_commit=False)
+)
+# expire_on_commit=False: get.py's read helpers now commit right after
+# fetching (so a query doesn't leave its transaction open indefinitely --
+# see project memory on the "database is locked" investigation). Default
+# expire-on-commit would invalidate every attribute on every object that
+# commit touches, turning the next attribute access anywhere in the app
+# into an implicit reload -- catastrophic for a query like
+# get_all_entities("Track") returning 50k+ rows the UI reads repeatedly.
