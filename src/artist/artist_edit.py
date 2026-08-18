@@ -25,7 +25,7 @@ from src.artist.artist_edit_member import MembersTab
 from src.artist.artist_edit_placesawards import PlacesAwardsTab
 from src.artist.artist_enrichment_review_dialog import ArtistEnrichmentReviewDialog
 from src.core.logger_config import logger
-from src.musicbrainz.musicbrainz_client import (
+from src.musicbrainz.musicbrainz_artist import (
     complete_artist_enrichment,
     fetch_artist_by_mbid,
     search_artists,
