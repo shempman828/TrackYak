@@ -152,6 +152,7 @@ class AlbumMusicBrainzMixin:
         if review.has_content:
             if review.exec() != QDialog.Accepted:
                 return
+            self._expire_musicbrainz_touched_tracks(review)
         else:
             review.apply_immediate_scalars()
 
@@ -203,6 +204,29 @@ class AlbumMusicBrainzMixin:
                 logger.warning(f"Could not save Discogs master link: {e}")
 
         self.refresh_view()
+
+    def _expire_musicbrainz_touched_tracks(self, review: AlbumMusicBrainzReviewDialog):
+        """review.has_content means the actual track scalar writes
+        (track_number, side, disc_id, ...) happened in _ReviewAcceptWorker,
+        which runs on its own QThread and therefore its own scoped_session
+        Session (see that worker's docstring) -- a different Session object
+        than this editor's. SQLAlchemy's same-session bulk-UPDATE-by-primary-
+        key sync (relied on elsewhere, e.g. disc drag-and-drop) can't reach
+        across that boundary, so the Track objects this editor already
+        loaded (and the Tracks tab is about to redisplay) still hold their
+        pre-import track_number/side/disc_id. Expire them here, in this
+        editor's own session, so refresh_view() below rebuilds the Tracks
+        tab from the values the worker actually wrote instead of silently
+        redisplaying stale ones. The has_content=False path doesn't need
+        this: apply_immediate_scalars() runs on this same thread/session, so
+        the bulk-UPDATE sync already applies."""
+        session = self.controller.get.session
+        for track in review._matched.values():
+            session.expire(track)
+        for combo, _mbt in review._manual_combos:
+            track = combo.currentData()
+            if track is not None:
+                session.expire(track)
 
     def _apply_musicbrainz_enrichment(self, enrichment: dict):
         """Fill field widgets from a MusicBrainz enrichment dict.
