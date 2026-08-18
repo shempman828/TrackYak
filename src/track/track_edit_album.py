@@ -29,12 +29,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
-from src.musicbrainz.musicbrainz_client import (
-    MusicBrainzLookupError,
-    search_canonical_album_for_recording,
-    suggest_artist_names,
-)
+from src.musicbrainz.musicbrainz_artist import suggest_artist_names
+from src.musicbrainz.musicbrainz_core import MusicBrainzLookupError
 from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzMatchDialog
+from src.musicbrainz.musicbrainz_recording import search_canonical_album_for_recording
 from src.track.track_edit_basetab import _BaseTab
 
 _ART_SIZE = 96
