@@ -19,6 +19,12 @@ from src.metadata.metadata_writer_backup import atomic_write
 # ── Persistence limits ────────────────────────────────────────────────────────
 SAVE_HISTORY_LIMIT = 500  # most-recent N played tracks kept (recency buffer, not the full queue)
 
+# Weight given to tracks with no user_rating in weighted_shuffle_queue(), so they
+# still turn up at a reasonable rate instead of always sinking to the end.
+# Rating scale is 0.5–10 (see statistics_utility.RATING_MIN/RATING_MAX); this
+# sits below the midpoint so rated-and-liked tracks still skew earlier on average.
+WEIGHTED_SHUFFLE_UNRATED_WEIGHT = 3.0
+
 
 # ── Background worker for bulk queue additions ────────────────────────────────
 
@@ -254,6 +260,30 @@ class QueueManager(QObject):
         random.shuffle(upcoming)
         self.queue[1:] = upcoming
         logger.info(f"shuffle_queue: {len(upcoming)} upcoming tracks shuffled")
+        self.queue_changed.emit()
+
+    def weighted_shuffle_queue(self):
+        """
+        Shuffle upcoming tracks (index 1 onwards) with a bias toward
+        higher-rated tracks landing earlier. The currently playing track
+        (index 0) is never moved.
+
+        Uses the Efraimidis-Spirakis method: each track gets a random key
+        of random()**(1/weight), and sorting by that key descending yields
+        an unbiased weighted random permutation — higher-weight tracks tend
+        to sort earlier, but nothing is guaranteed or deterministic.
+        """
+        if len(self.queue) < 2:
+            return
+        upcoming = self.queue[1:]
+
+        def _key(track: Track) -> float:
+            weight = getattr(track, "user_rating", None) or WEIGHTED_SHUFFLE_UNRATED_WEIGHT
+            return random.random() ** (1.0 / weight)
+
+        upcoming.sort(key=_key, reverse=True)
+        self.queue[1:] = upcoming
+        logger.info(f"weighted_shuffle_queue: {len(upcoming)} upcoming tracks weighted-shuffled")
         self.queue_changed.emit()
 
     def clear_queue(self):
