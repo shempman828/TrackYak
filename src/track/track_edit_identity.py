@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton
 
-from src.musicbrainz.musicbrainz_client import (
+from src.musicbrainz.musicbrainz_recording import (
     complete_recording_enrichment,
     search_recordings,
 )
