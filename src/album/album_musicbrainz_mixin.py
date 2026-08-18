@@ -12,15 +12,15 @@ from src.album.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDial
 from src.album.release_type_utils import normalize_release_type
 from src.common.nullable_numeric_field import set_nullable_field_value
 from src.core.logger_config import logger
-from src.musicbrainz.musicbrainz_client import (
-    MusicBrainzLookupError,
-    fetch_release_detail,
-    fetch_release_group_aliases,
-    search_canonical_releases,
-)
+from src.musicbrainz.musicbrainz_core import MusicBrainzLookupError
 from src.musicbrainz.musicbrainz_match_dialog import (
     MusicBrainzImportDialog,
     MusicBrainzMatchDialog,
+)
+from src.musicbrainz.musicbrainz_release import (
+    fetch_release_detail,
+    fetch_release_group_aliases,
+    search_canonical_releases,
 )
 
 # Album-level scalar fields filled onto the open editor's widgets via
