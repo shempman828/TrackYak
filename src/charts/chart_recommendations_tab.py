@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from src.charts.chart_recommendation_table import ChartRecommendationTable
 from src.charts.chart_recommendations import get_missing_gap_fills, get_missing_popular
+from src.core.logger_config import logger
 
 _RESULT_LIMIT = 100
 _GAP_TAB_INDEX = 1
@@ -94,17 +96,27 @@ class ChartRecommendationsTab(QWidget):
     def _reload(self):
         session = self.controller.get.session
         chart_ids = self._selected_chart_ids()
-        if self.sub_tabs.currentIndex() == _GAP_TAB_INDEX:
-            items = get_missing_gap_fills(
-                session,
-                chart_ids=chart_ids,
-                min_gap=self.min_gap_spin.value(),
-                limit=_RESULT_LIMIT,
+        try:
+            if self.sub_tabs.currentIndex() == _GAP_TAB_INDEX:
+                items = get_missing_gap_fills(
+                    session,
+                    chart_ids=chart_ids,
+                    min_gap=self.min_gap_spin.value(),
+                    limit=_RESULT_LIMIT,
+                )
+                self.gap_table.populate(items)
+            else:
+                items = get_missing_popular(session, chart_ids=chart_ids, limit=_RESULT_LIMIT)
+                self.popular_table.populate(items)
+        except Exception as exc:
+            # Runs synchronously in a Qt slot (see module docstring) -- unlike
+            # the worker-thread pipeline in charts_view.py, an uncaught
+            # exception here isn't caught by any error signal and crashes the
+            # whole app instead of just this tab, so it must be handled here.
+            logger.error(f"Chart recommendations calculation failed: {exc}")
+            QMessageBox.warning(
+                self, "Recommendations", f"Failed to compute recommendations: {exc}"
             )
-            self.gap_table.populate(items)
-        else:
-            items = get_missing_popular(session, chart_ids=chart_ids, limit=_RESULT_LIMIT)
-            self.popular_table.populate(items)
 
     def refresh(self):
         """Re-run the current query (e.g. after a Fetch Updates/Match Now)."""

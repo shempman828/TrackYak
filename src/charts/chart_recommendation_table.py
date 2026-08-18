@@ -40,7 +40,7 @@ class ChartRecommendationTable(QTreeWidget):
                     [
                         item.raw_title,
                         item.raw_performer,
-                        item.entity_type,
+                        item.entity_type or "",
                         item.chart_name,
                         str(item.peak_position) if item.peak_position else "",
                         str(item.weeks_on_chart) if item.weeks_on_chart else "",
