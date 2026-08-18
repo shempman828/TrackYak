@@ -15,12 +15,14 @@ from src.core.logger_config import logger
 class ChartMatchingWorker(CancellableWorker):
     """
     Signals:
-        progress(entries_scored, entries_total)
+        stage(message)
+        progress(entries_scored, entries_total, entries_matched)
         finished(MatchStats)
         error(message)
     """
 
-    progress = Signal(int, int)
+    stage = Signal(str)
+    progress = Signal(int, int, int)
     finished = Signal(object)
     error = Signal(str)
 
@@ -43,6 +45,7 @@ class ChartMatchingWorker(CancellableWorker):
                 self.controller.get.session,
                 chart,
                 progress_callback=self.progress.emit,
+                stage_callback=self.stage.emit,
                 is_cancelled=lambda: self.is_cancelled,
             )
 
