@@ -8,6 +8,7 @@ from src.statistics.analysis_dialog import AudioAnalysisDialog
 from src.core.asset_paths import ASSETS_DIR, icon
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
+from src.core.version import get_version
 from src.library.duplicate_finder import DuplicateFinderDialog
 from src.equalizer.equalizer_dialog import EqualizerDialog
 from src.file_management.file_manager_dialog import FileManager
@@ -358,6 +359,7 @@ class MenuBar:
         about_box.setTextFormat(Qt.RichText)
         about_box.setText(
             f"<h2>TrackYak</h2>"
+            f"<p>Version {get_version()}</p>"
             f"<p><b>Developed by Baby Yak Studios</b></p>"
             f"<hr>"
             f"<h3>Description:</h3>"
