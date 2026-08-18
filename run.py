@@ -20,7 +20,7 @@ from src.db.db_defaults import Defaults
 from src.db.db_tables import MusicDatabase
 from src.display.display_settings import DisplaySettings
 from src.image.artwork_cache import ArtworkCache
-from src.musicbrainz.musicbrainz_client import configure as configure_musicbrainz
+from src.musicbrainz.musicbrainz_core import configure as configure_musicbrainz
 from src.player.music_controller import MusicController
 from src.player.player_mpris2 import MPRIS2Player
 
