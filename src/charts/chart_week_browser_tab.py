@@ -73,7 +73,7 @@ class ChartWeekBrowserTab(QWidget):
         controls.addWidget(QLabel("Show:"))
         self.match_filter = QComboBox()
         self.match_filter.addItems(_MATCH_FILTERS)
-        self.match_filter.currentIndexChanged.connect(self._reload_entries)
+        self.match_filter.currentIndexChanged.connect(self._on_match_filter_changed)
         controls.addWidget(self.match_filter)
         controls.addStretch()
         layout.addLayout(controls)
@@ -98,18 +98,33 @@ class ChartWeekBrowserTab(QWidget):
             return None
         return self._charts[idx][1]
 
+    def _query_weeks(self, chart_id: Optional[int]) -> list:
+        """Distinct ChartEntry.chart_week dates for chart_id, constrained to
+        the currently selected match filter so the year/month/week combos
+        only ever offer weeks that actually have matching results."""
+        if chart_id is None:
+            return []
+
+        query = select(ChartEntry.chart_week).where(ChartEntry.chart_id == chart_id)
+        choice = self.match_filter.currentText()
+        if choice == "Matched Only":
+            query = query.where(ChartEntry.entity_id.isnot(None))
+        elif choice == "Unmatched Only":
+            query = query.where(ChartEntry.entity_id.is_(None))
+        query = query.distinct().order_by(ChartEntry.chart_week.desc())
+        return self.controller.get.session.scalars(query).all()
+
     def _on_chart_changed(self):
         chart_id = self._current_chart_id()
-        if chart_id is not None:
-            self._weeks = self.controller.get.session.scalars(
-                select(ChartEntry.chart_week)
-                .where(ChartEntry.chart_id == chart_id)
-                .distinct()
-                .order_by(ChartEntry.chart_week.desc())
-            ).all()
-        else:
-            self._weeks = []
+        self._weeks = self._query_weeks(chart_id)
+        self._rebuild_year_combo()
 
+    def _on_match_filter_changed(self):
+        chart_id = self._current_chart_id()
+        self._weeks = self._query_weeks(chart_id)
+        self._rebuild_year_combo()
+
+    def _rebuild_year_combo(self):
         years = sorted({w.year for w in self._weeks}, reverse=True)
         self.year_combo.blockSignals(True)
         self.year_combo.clear()
