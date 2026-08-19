@@ -64,6 +64,7 @@ class DetailsTab:
         _row("Language:", "album_language")
         _row("Release Type:", "release_type")
         _row("Catalog Number:", "catalog_number")
+        _row("Release Country:", "release_country")
         _row("MBID:", "MBID")
         _row("Status:", "status")
         _row("Est. Sales:", "estimated_sales")
