@@ -7,11 +7,65 @@ self._resolved_file_path, self._total_frames, self._current_frame,
 self.current_channels, self.sf (soundfile module).
 """
 
+import os
+import subprocess
+import tempfile
 import threading
+from pathlib import Path
 
 import numpy as np
 
 from src.core.logger_config import logger
+
+# Formats libsndfile (soundfile) can't decode natively and must be
+# transcoded to WAV via ffmpeg before soundfile can open them.
+_FFMPEG_TRANSCODE_FORMATS = {".m4a"}
+
+
+def _transcode_to_wav(file_path: Path) -> Path:
+    """Decode file_path to a temp float32 WAV via ffmpeg so the rest of the
+    reader pipeline (SoundFile-based read/seek/resync) can treat it like any
+    other format. Raises OSError on failure. Caller is responsible for
+    unlinking the returned path once it has opened it."""
+    fd, tmp_name = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-v", "error",
+                "-y",
+                "-i", str(file_path),
+                "-f", "wav",
+                "-acodec", "pcm_f32le",
+                str(tmp_path),
+            ],
+            check=True,
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            timeout=30,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        tmp_path.unlink(missing_ok=True)
+        raise OSError(f"ffmpeg transcode failed: {exc}") from exc
+    return tmp_path
+
+
+def _open_soundfile(sf_module, file_path: Path):
+    """Open file_path as a soundfile.SoundFile, transcoding first via ffmpeg
+    if the format isn't natively decodable by libsndfile."""
+    if file_path.suffix.lower() in _FFMPEG_TRANSCODE_FORMATS:
+        tmp_path = _transcode_to_wav(file_path)
+        try:
+            return sf_module.SoundFile(str(tmp_path), mode="r")
+        finally:
+            # Safe to unlink immediately: soundfile/libsndfile keeps its own
+            # open file descriptor, and on Linux an unlinked-but-open file's
+            # data stays alive until that descriptor closes.
+            tmp_path.unlink(missing_ok=True)
+    return sf_module.SoundFile(str(file_path), mode="r")
+
 
 BLOCKSIZE = 16384  # Frames per audio callback buffer. Larger = more stable.
 # How long UI-thread callers (seek/stop/load_track) will wait to acquire
@@ -162,8 +216,8 @@ class PlayerReaderMixin:
                         recovered = False
                         if self._current_frame == 0 and self._resolved_file_path is not None:
                             try:
-                                fresh_reader = self.sf.SoundFile(
-                                    str(self._resolved_file_path), mode="r"
+                                fresh_reader = _open_soundfile(
+                                    self.sf, self._resolved_file_path
                                 )
                                 chunk = fresh_reader.read(
                                     to_read, dtype="float32", always_2d=True
