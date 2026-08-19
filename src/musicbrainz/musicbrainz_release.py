@@ -639,13 +639,35 @@ def _backfill_release_details(r: dict[str, Any]) -> None:
         r["medium-list"] = release.get("medium-list")
 
 
+_YEAR_HINT_TOLERANCE = 20
+# How many years a candidate's date may differ from expected_year (below)
+# and still be considered plausible. Wide enough to keep alternate
+# pressings/reissues of the *same* record in the running -- a
+# canonical-release search is expected to compare several pressings spread
+# across a handful of years -- but narrow enough to drop a same-titled,
+# unrelated release-group decades off from the album's known era (e.g. a
+# 1944 recording vs. an unrelated 2008 album that happened to score
+# similarly on the free-text title match, #366).
+
+
 def search_canonical_releases(
-    album_name: str, artist_name: str | None = None, limit: int = 100
+    album_name: str,
+    artist_name: str | None = None,
+    limit: int = 100,
+    expected_year: int | None = None,
 ) -> list[MBCandidate]:
     """Search MusicBrainz releases (not release-groups) and rank them so the
     single canonical pressing -- official, earliest, most "worldwide"/
     default-country -- sorts first. `MBCandidate.id` is a release MBID,
-    ready to pass straight to fetch_release_detail()."""
+    ready to pass straight to fetch_release_detail().
+
+    `expected_year`, if given (the album's already-known release year),
+    is used as a plausibility hint, not a strict filter: candidates whose
+    date lands within `_YEAR_HINT_TOLERANCE` years of it are preferred,
+    but if the hint would eliminate every candidate (e.g. MB genuinely has
+    nothing near that year, or dates are missing across the board) the
+    unfiltered pool is used instead -- a wrong hint should never turn "some
+    results" into "no results"."""
     configure()
     fields: dict[str, Any] = {}
     if artist_name:
@@ -679,6 +701,15 @@ def search_canonical_releases(
 
     for r in candidates_pool:
         _backfill_release_details(r)
+
+    if expected_year is not None:
+        def _within_year_hint(r: dict[str, Any]) -> bool:
+            year = _parse_partial_date(r.get("date"), "d").get("d_year")
+            return year is None or abs(year - expected_year) <= _YEAR_HINT_TOLERANCE
+
+        hinted_pool = [r for r in candidates_pool if _within_year_hint(r)]
+        if hinted_pool:
+            candidates_pool = hinted_pool
 
     def _rank_key(r: dict[str, Any]):
         status_rank = 0 if (r.get("status") or "").lower() == "official" else 1
