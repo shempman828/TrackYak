@@ -19,6 +19,7 @@ class Album(Base):
     album_subtitle = Column(String)
     MBID = Column(String)
     release_type = Column(String)
+    release_country = Column(String)
     album_description = Column(String)
     release_year = Column(Integer)
     release_month = Column(Integer, CheckConstraint("release_month BETWEEN 1 AND 12"))
