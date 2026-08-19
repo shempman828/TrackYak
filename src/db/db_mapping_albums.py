@@ -63,6 +63,11 @@ ALBUM_FIELDS = {
         short="Catalog #",
         tooltip="The official identifier assigned to this release by the label or distributor, used for inventory, manufacturing, and archival tracking.",
     ),
+    "release_country": FieldSpec(
+        friendly="Release Country",
+        short="Country",
+        tooltip="The country this specific release/pressing was issued in, as a MusicBrainz country code (e.g. US, GB, XW for Worldwide).",
+    ),
     "first_pass": FieldSpec(
         type=bool,
         friendly="First Pass",
