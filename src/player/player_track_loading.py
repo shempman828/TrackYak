@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Optional
 
 from src.core.logger_config import logger
-from src.player.player_reader import READER_LOCK_TIMEOUT
+from src.player.player_reader import READER_LOCK_TIMEOUT, _open_soundfile
 
-SUPPORTED_FORMATS = {".wav", ".flac", ".mp3", ".aiff", ".aif", ".ogg"}
+SUPPORTED_FORMATS = {".wav", ".flac", ".mp3", ".aiff", ".aif", ".ogg", ".m4a"}
 
 
 class PlayerTrackLoadingMixin:
@@ -91,7 +91,7 @@ class PlayerTrackLoadingMixin:
                     logger.info("Using pre-loaded reader for instant start")
                 else:
                     # Open fresh
-                    new_reader = self.sf.SoundFile(str(file_path), mode="r")
+                    new_reader = _open_soundfile(self.sf, file_path)
                     new_sr = new_reader.samplerate
                     new_ch = new_reader.channels
                     new_frames = len(new_reader)
@@ -187,7 +187,7 @@ class PlayerTrackLoadingMixin:
 
         def _preload():
             try:
-                reader = self.sf.SoundFile(str(next_path), mode="r")
+                reader = _open_soundfile(self.sf, next_path)
                 with self._preload_lock:
                     if my_generation != self._preload_generation:
                         # A different track became "next" while we were
