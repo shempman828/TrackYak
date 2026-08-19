@@ -124,7 +124,24 @@ class AlbumMusicBrainzMixin:
             return
         self._fetch_release_and_review(picked.id, album_name)
 
-    def _fetch_release_and_review(self, release_mbid: str, album_name: str):
+    def _reimport_musicbrainz(self):
+        """Re-fetch this album's already-matched release and check for updates.
+
+        Reuses the same fetch-with-progress -> review flow as a fresh
+        lookup, just seeded with the album's existing MBID instead of a
+        search result. Unlike a fresh lookup, the user explicitly asked to
+        check for changes here, so the "nothing to review" case gets a
+        status message instead of silently doing nothing visible.
+        """
+        mbid = getattr(self.album, "MBID", None)
+        if not mbid:
+            return
+        album_name = self.album.album_name or "this album"
+        self._fetch_release_and_review(mbid, album_name, notify_if_no_changes=True)
+
+    def _fetch_release_and_review(
+        self, release_mbid: str, album_name: str, *, notify_if_no_changes: bool = False
+    ):
         def _fetch_all(progress):
             detail = fetch_release_detail(release_mbid, progress_callback=progress)
             aliases = []
@@ -150,9 +167,9 @@ class AlbumMusicBrainzMixin:
         if result is None:
             return
         detail, aliases = result
-        self._apply_release_detail(detail, aliases)
+        self._apply_release_detail(detail, aliases, notify_if_no_changes=notify_if_no_changes)
 
-    def _apply_release_detail(self, detail, aliases):
+    def _apply_release_detail(self, detail, aliases, *, notify_if_no_changes: bool = False):
         # Build the review dialog first -- construction is pure computation
         # (track matching, deciding what's worth showing), no DB writes --
         # so has_content is known before anything commits. Cancelling here
@@ -168,6 +185,12 @@ class AlbumMusicBrainzMixin:
             self._expire_musicbrainz_touched_tracks(review)
         else:
             review.apply_immediate_scalars()
+            if notify_if_no_changes:
+                QMessageBox.information(
+                    self,
+                    "MusicBrainz",
+                    "This album's metadata is already up to date with MusicBrainz.",
+                )
 
         scalar_enrichment = {}
         if detail.status:
