@@ -32,6 +32,20 @@ class PlayerContextMenuMixin:
         if not self.current_track:
             return  # Nothing playing — skip the menu
 
+        # self.current_track is set once when playback starts (track_changed)
+        # and never touched again, so edits made elsewhere (Edit Track/Album/
+        # Artist here, or any other tab) while this track is loaded leave it
+        # stale. expire_on_commit=False means those commits don't invalidate
+        # it on their own -- expire + re-fetch forces a fresh read, mirroring
+        # refresh_view() in base_album_edit.py.
+        session = self.controller.get.session
+        track_id = self.current_track.track_id
+        session.expire(self.current_track)
+        updated = self.controller.get.get_entity_object("Track", track_id=track_id)
+        if not updated:
+            return  # Track was deleted elsewhere — skip the menu
+        self.current_track = updated
+
         menu = QMenu(self)
 
         # ── Edit Track ────────────────────────────────────────────────────
