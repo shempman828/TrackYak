@@ -51,6 +51,45 @@ def _query_term(term: str, fields: dict[str, Any]) -> str:
     return term if fields else _escape_lucene(term)
 
 
+def _and_query(term_field: str | None, term_value: str, fields: dict[str, Any]) -> str:
+    """Build a Lucene query string that ANDs the free-text title term
+    together with every field filter (e.g. arid/artist), instead of handing
+    the term and fields separately to musicbrainzngs.search_*() and letting
+    its own query-building (_do_mb_search) join them.
+
+    Unless strict=True, _do_mb_search joins the term clause and every field
+    clause with a bare space -- which Lucene's classic parser reads as OR,
+    not AND. That makes an artist filter merely optional: a release can
+    score as a top candidate by satisfying just the free-text words (or even
+    just the artist), with the other clause never enforced. Confirmed live
+    (#364): searching "Open Up And Say . . . Ahh!" (Poison) returned
+    unrelated ellipsis-titled releases by other artists ranked above the
+    real album, because the bare "." tokens plus common words ("open", "up",
+    "and", "say") satisfied the free-text clause on their own and the arid
+    filter was never required to match.
+
+    strict=True was tried and rejected: MB stores this title with a single
+    "…" ellipsis character, not spaced periods, so a quoted phrase match
+    against the raw local title returns zero results. Wrapping the lowercased,
+    escaped term in parens (`field:(word word word)`) keeps the same
+    tokenized, typo-tolerant matching musicbrainzngs's non-strict mode
+    already uses for field values -- the only change is joining every
+    clause with an explicit " AND " so filters are no longer optional.
+
+    `term_field=None` leaves the term clause without a field prefix, so MB
+    applies its own default-field expansion instead of restricting to one
+    field -- needed by search_recordings(), which deliberately searches the
+    unrestricted default (title + alias, per MB's indexed-search docs) so a
+    track known only by an alias still matches; scoping it to `recording:`
+    would silently drop that.
+    """
+    term_clause = _escape_lucene(term_value).lower()
+    clauses = [f"{term_field}:({term_clause})" if term_field else f"({term_clause})"]
+    for key, value in fields.items():
+        clauses.append(f"{key}:({_escape_lucene(value).lower()})")
+    return " AND ".join(clauses)
+
+
 class MusicBrainzLookupError(Exception):
     """Raised when a MusicBrainz search/lookup call fails."""
 
