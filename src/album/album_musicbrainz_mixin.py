@@ -10,7 +10,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
 from src.album.release_type_utils import normalize_release_type
-from src.common.nullable_numeric_field import set_nullable_field_value
+from src.common.nullable_numeric_field import (
+    nullable_field_value,
+    set_nullable_field_value,
+)
 from src.core.logger_config import logger
 from src.musicbrainz.musicbrainz_core import MusicBrainzLookupError
 from src.musicbrainz.musicbrainz_match_dialog import (
@@ -98,9 +101,18 @@ class AlbumMusicBrainzMixin:
         if artist_names in (None, "Unknown Artist"):
             artist_names = None
 
+        year_widget = self.field_widgets.get("release_year")
+        expected_year = (
+            nullable_field_value(year_widget) if isinstance(year_widget, QLineEdit) else None
+        )
+        if expected_year is None:
+            expected_year = getattr(self.album, "release_year", None)
+
         dialog = MusicBrainzMatchDialog(
             entity_label=f"album '{album_name}'",
-            search_call=lambda: search_canonical_releases(album_name, artist_names),
+            search_call=lambda: search_canonical_releases(
+                album_name, artist_names, expected_year=expected_year
+            ),
             parent=self,
         )
         if dialog.exec() != QDialog.Accepted:
