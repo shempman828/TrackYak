@@ -45,7 +45,7 @@ class AddToDB(BaseDBHelper):
             return new_entity
 
         try:
-            self.session.commit()
+            self._commit()
 
             # Safe refresh with error handling
             try:
@@ -86,7 +86,7 @@ class AddToDB(BaseDBHelper):
         new_link = link_class(**kwargs)
         self.session.add(new_link)
         mark_dirty_for_new_rows(self.session, link_type, [kwargs])
-        self.session.commit()
+        self._commit()
         return new_link
 
     def _split_existing_rows(self, entity_class, rows: list) -> tuple:
@@ -148,7 +148,7 @@ class AddToDB(BaseDBHelper):
         mark_dirty_for_new_rows(self.session, model_name, rows_to_add)
 
         try:
-            self.session.commit()
+            self._commit()
             logger.info(f"Batch-added {len(new_entities)} {model_name} row(s)")
             return new_entities
         except SQLAlchemyError as e:

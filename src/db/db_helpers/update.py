@@ -56,7 +56,7 @@ class UpdateDB(BaseDBHelper):
         try:
             mark_dirty_for_entity_update(self.session, model_name, [entity_id], kwargs)
             self.session.execute(stmt)
-            self.session.commit()
+            self._commit()
             return True
         except SQLAlchemyError as e:
             logger.error(f"Error updating {model_name} with ID {entity_id}: {e}")
@@ -91,7 +91,7 @@ class UpdateDB(BaseDBHelper):
 
             mark_dirty_for_rows(self.session, model_name, query.all())
             updated = query.update(kwargs, synchronize_session="fetch")
-            self.session.commit()
+            self._commit()
             logger.info(f"Updated {updated} {model_name} row(s) matching {filters}")
             return True
         except SQLAlchemyError as e:
@@ -142,7 +142,7 @@ class UpdateDB(BaseDBHelper):
         try:
             mark_dirty_for_entity_update(self.session, model_name, entity_ids, kwargs)
             self.session.execute(stmt)
-            self.session.commit()
+            self._commit()
             logger.info(f"Batch-updated {len(entity_ids)} {model_name} row(s)")
             return True
         except SQLAlchemyError as e:
@@ -180,7 +180,7 @@ class UpdateDB(BaseDBHelper):
             if model_name == "Track":
                 mark_dirty_for_bulk_track_update(self.session, updates)
             self.session.execute(update(entity_class), updates)
-            self.session.commit()
+            self._commit()
             logger.info(f"Bulk-updated {len(updates)} {model_name} row(s)")
             return True
         except SQLAlchemyError as e:

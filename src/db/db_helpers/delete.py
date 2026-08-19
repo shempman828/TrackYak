@@ -59,7 +59,7 @@ class DeleteDB(BaseDBHelper):
                 to_delete.delete(synchronize_session="fetch")
                 # "fetch" tells SQLAlchemy to load the objects first so that
                 # cascade rules (e.g. deleting related join rows) fire correctly.
-                self.session.commit()
+                self._commit()
                 logger.info(
                     f"Batch-deleted {len(entity_ids)} {model_name} row(s) "
                     f"(ids={entity_ids})"
@@ -76,7 +76,7 @@ class DeleteDB(BaseDBHelper):
                     return False
                 mark_dirty_for_rows(self.session, model_name, [entity])
                 self.session.delete(entity)
-                self.session.commit()
+                self._commit()
                 logger.info(f"Deleted {model_name} with ID {entity_id}")
                 return True
 
@@ -98,7 +98,7 @@ class DeleteDB(BaseDBHelper):
                 mark_dirty_for_rows(self.session, model_name, entities)
                 for entity in entities:
                     self.session.delete(entity)
-                self.session.commit()
+                self._commit()
                 logger.info(
                     f"Deleted {len(entities)} {model_name} entities matching {filters}"
                 )

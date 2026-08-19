@@ -148,7 +148,7 @@ class SplitDB(BaseDBHelper):
             if original_publisher not in new_publishers:
                 self.session.delete(original_publisher)
 
-            self.session.commit()
+            self._commit()
             logger.info(
                 f"Successfully split publisher {publisher_id} into "
                 f"{len(new_publishers)} publishers."
@@ -247,7 +247,7 @@ class SplitDB(BaseDBHelper):
             if original_artist not in new_artists:
                 self.session.delete(original_artist)
 
-            self.session.commit()
+            self._commit()
             logger.info(
                 f"Successfully split artist {artist_id} into {len(new_artists)} artists."
             )
@@ -323,7 +323,7 @@ class SplitDB(BaseDBHelper):
             if original_genre not in new_genres:
                 self.session.delete(original_genre)
 
-            self.session.commit()
+            self._commit()
             logger.info(
                 f"Successfully split genre {genre_id} into {len(new_genres)} genres."
             )
@@ -394,7 +394,7 @@ class SplitDB(BaseDBHelper):
             if original_mood not in new_moods:
                 self.session.delete(original_mood)
 
-            self.session.commit()
+            self._commit()
             logger.info(
                 f"Successfully split mood {mood_id} into {len(new_moods)} moods."
             )
@@ -497,7 +497,7 @@ class SplitDB(BaseDBHelper):
             if original_role not in new_roles:
                 self.session.delete(original_role)
 
-            self.session.commit()
+            self._commit()
             logger.info(
                 f"Successfully split role {role_id} into {len(new_roles)} roles."
             )

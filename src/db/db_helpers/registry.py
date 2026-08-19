@@ -24,6 +24,23 @@ class BaseDBHelper:
         """Initialize with a database session."""
         self.session = session
 
+    def _commit(self):
+        """Commit a write and expire every cached attribute in the session.
+
+        expire_on_commit=False (src/db/db_engine.py) means a plain commit()
+        never invalidates a relationship/attribute already loaded on some
+        other long-lived object elsewhere in the app -- see project memory
+        on "stale relationship cache" for the recurring bug shape this
+        caused (genres, disc, album credits, playlists, ...). expire_all()
+        issues no query itself; it just marks every loaded object's
+        attributes stale so the next read anywhere reloads for real. Only
+        write helpers (add/delete/update/split/merge) should call this --
+        get.py's read-path commits must NOT expire_all, or every fetch would
+        invalidate the rows it just returned.
+        """
+        self.session.commit()
+        self.session.expire_all()
+
     def _find_unique_conflict(self, entity_class, pk_col, entity_id, values: dict):
         """Check whether any of ``values`` would collide with a unique column
         on some *other* row of ``entity_class``.

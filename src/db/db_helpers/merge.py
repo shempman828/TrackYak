@@ -257,7 +257,7 @@ class MergeDB(BaseDBHelper):
                     setattr(target_entity, field, value)
 
             mark_tracks_dirty(self.session, dirty_track_ids)
-            self.session.commit()
+            self._commit()
 
             logger.info(
                 f"Merge complete: {model_name} {source_id} -> {target_id}. "
