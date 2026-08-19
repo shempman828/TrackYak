@@ -118,6 +118,32 @@ _PERFORMER_ATTRIBUTE_QUALIFIERS = {"additional", "guest", "solo"}
 
 _SIDE_TRACK_NUMBER_RE = re.compile(r"^([A-Za-z])(\d+)$")
 
+# Work-level artist-relation types this feature imports as a writing credit
+# (composer/lyricist/writer/...). Confirmed against the live API
+# (get_work_by_id responses for e.g. Queen's "Bohemian Rhapsody" and several
+# "My Way" works): unlike some recording/release relation types (see
+# _PRODUCTION_RELATION_DISPLAY_NAMES), every one of these title-cases
+# cleanly to its credited noun with no attribute-list involved, e.g.
+# "composer" -> "Composer", "instrument arranger" -> "Instrument Arranger".
+# Deliberately excludes other relation types also seen on works that are not
+# writing credits: "previous attribution" (a superseded historical credit,
+# not the current one) and "dedication" (the work's dedicatee, not a
+# writer).
+_WORK_RELATION_TYPES = {
+    "composer",
+    "lyricist",
+    "writer",
+    "librettist",
+    "arranger",
+    "orchestrator",
+    "translator",
+    "instrument arranger",
+    "vocal arranger",
+    "instrumentator",
+    "revised by",
+    "reconstructed by",
+}
+
 
 @dataclass
 class MBTrackCredit:
@@ -336,6 +362,71 @@ def _parse_recording_artist_credit(recording: dict[str, Any]) -> list[MBTrackCre
                 artist_mbid=artist["id"],
                 artist_name=entry.get("name") or artist.get("name") or "",
                 role_name="Primary Artist",
+                canonical_name=artist.get("name") or "",
+            )
+        )
+    return credits
+
+
+def _recording_work_mbids(recording: dict[str, Any]) -> list[str]:
+    """The MBID(s) of the work(s) a recording is a performance of, via its
+    work-relation-list. The embedded work stub here carries only
+    id/title/type/language (confirmed against the live API) -- not the
+    work's own artist-relation-list, where composer/lyricist/writer/...
+    credits actually live -- so each unique work needs its own
+    get_work_by_id follow-up (_fetch_work_by_id) to resolve those, same
+    reasoning as recording locations (_parse_recording_location) and labels
+    (_fetch_label_by_id) needing their own direct lookups."""
+    mbids = []
+    for rel in recording.get("work-relation-list", []) or []:
+        if rel.get("type") != "performance":
+            continue
+        work = rel.get("work") or {}
+        if work.get("id"):
+            mbids.append(work["id"])
+    return mbids
+
+
+def _fetch_work_by_id(work_mbid: str) -> dict[str, Any]:
+    """Raw get_work_by_id call for a work referenced by a recording's
+    work-relation-list -- the release response's embedded work stub is
+    missing the artist-relation-list this feature needs for writing
+    credits, so a direct per-work follow-up lookup is needed (same
+    reasoning as _fetch_label_by_id for release labels). Raises
+    MusicBrainzLookupError on failure; callers treat this as best-effort,
+    same as every other follow-up lookup in this module."""
+    configure()
+    try:
+        result = musicbrainzngs.get_work_by_id(work_mbid, includes=["artist-rels"])
+    except Exception as e:
+        # Intentional broad boundary catch: musicbrainzngs has no single
+        # exception hierarchy covering every failure mode it can raise
+        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
+        # errors) — wrap all of them into this module's MusicBrainzLookupError
+        # so every caller elsewhere in the codebase only ever has to catch
+        # one type.
+        raise MusicBrainzLookupError(str(e)) from e
+    return result.get("work", {})
+
+
+def _parse_work_credits(work: dict[str, Any]) -> list[MBTrackCredit]:
+    """Parse composer/lyricist/writer/... credits from a work's own
+    artist-relation-list (see _fetch_work_by_id) -- distinct from
+    _parse_artist_credits, which reads the same-shaped relation list off a
+    recording or release instead."""
+    credits = []
+    for rel in work.get("artist-relation-list", []) or []:
+        rel_type = rel.get("type")
+        if rel_type not in _WORK_RELATION_TYPES:
+            continue
+        artist = rel.get("artist") or {}
+        if not artist.get("id"):
+            continue
+        credits.append(
+            MBTrackCredit(
+                artist_mbid=artist["id"],
+                artist_name=rel.get("target-credit") or artist.get("name") or "",
+                role_name=rel_type.title(),
                 canonical_name=artist.get("name") or "",
             )
         )
@@ -727,6 +818,10 @@ def fetch_release_detail(
     # progress_callback report a real total up front instead of an
     # ever-growing one.
     raw_locations: dict[str, dict[str, Any]] = {}  # place_mbid -> raw location dict
+    # (mb_track, [work_mbid, ...]) for every track whose recording is a
+    # performance of at least one work -- resolved into writing credits
+    # below, once per unique work, same dedup approach as labels/locations.
+    track_work_mbids: list[tuple[MBReleaseTrack, list[str]]] = []
 
     for medium in release.get("medium-list", []) or []:
         disc_number = int(medium.get("position") or 0)
@@ -755,7 +850,31 @@ def fetch_release_detail(
             if location:
                 mb_track.location_place_mbid = location["place_mbid"]
                 raw_locations[location["place_mbid"]] = location
+            work_mbids = _recording_work_mbids(recording)
+            if work_mbids:
+                track_work_mbids.append((mb_track, work_mbids))
             detail.tracks.append(mb_track)
+
+    # Each unique work referenced above needs its own direct lookup (see
+    # _fetch_work_by_id) -- the release response's embedded work stub is
+    # missing the artist-relation-list where composer/lyricist/writer/...
+    # credits live. Done once per unique work mbid, same dedup approach as
+    # labels below (a work can be the target of more than one recording on
+    # the same release, e.g. a reprise or alternate take).
+    raw_work_credits: dict[str, list[MBTrackCredit]] = {}
+    for _mb_track, work_mbids in track_work_mbids:
+        for work_mbid in work_mbids:
+            if work_mbid in raw_work_credits:
+                continue
+            try:
+                full_work = _fetch_work_by_id(work_mbid)
+            except MusicBrainzLookupError as e:
+                logger.warning(f"Could not resolve work {work_mbid}: {e}")
+                continue
+            raw_work_credits[work_mbid] = _parse_work_credits(full_work)
+    for mb_track, work_mbids in track_work_mbids:
+        for work_mbid in work_mbids:
+            mb_track.credits.extend(raw_work_credits.get(work_mbid, []))
 
     # Each unique label attached to this release needs its own direct
     # lookup (see _fetch_label_by_id) -- the release response's embedded
