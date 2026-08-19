@@ -27,10 +27,10 @@ from src.musicbrainz.musicbrainz_artist import MBAlias, search_artists
 from src.musicbrainz.musicbrainz_core import (
     MBCandidate,
     MusicBrainzLookupError,
+    _and_query,
     _escape_lucene,
     _ext_score,
     _parse_partial_date,
-    _query_term,
     _resolve_place_area,
     _to_float,
     configure,
@@ -656,7 +656,7 @@ def search_canonical_releases(
             fields["artist"] = artist_name
     try:
         result = musicbrainzngs.search_releases(
-            _query_term(album_name, fields), limit=limit, **fields
+            _and_query("release", album_name, fields), limit=limit
         )
     except Exception as e:
         # Intentional broad boundary catch: musicbrainzngs has no single
