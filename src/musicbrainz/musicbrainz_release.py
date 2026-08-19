@@ -225,6 +225,10 @@ class MBReleaseDetail:
     release_type: str | None = None
     language: str | None = None
     catalog_number: str | None = None
+    # MusicBrainz country code for this specific release/pressing (e.g. "US",
+    # "GB", "XW" for Worldwide) -- distinct per pressing, unlike the abstract
+    # release-group, which has no single country of its own.
+    release_country: str | None = None
     discogs_master_url: str | None = None
     barcode: str | None = None
     release_year: int | None = None
@@ -836,6 +840,7 @@ def fetch_release_detail(
         release_type=release_type,
         language=_MB_LANGUAGE_NAMES.get(language_code, language_code),
         catalog_number=catalog_number,
+        release_country=release.get("country"),
         discogs_master_url=discogs_master_url,
         barcode=release.get("barcode"),
         release_year=date_parts.get("release_year"),
