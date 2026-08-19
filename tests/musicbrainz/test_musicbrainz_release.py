@@ -125,3 +125,66 @@ class TestSearchCanonicalReleases:
 
         ids = [c.id for c in candidates]
         assert ids[-1] == _VINYL_ID
+
+
+class TestSearchCanonicalReleasesYearHint:
+    """Covers #366: an album's already-known release year should steer a
+    same-titled search away from an unrelated, decades-off release."""
+
+    _WRONG_ERA_ID = "00000000-0000-0000-0000-00000000wrng"
+
+    def _mixed_era_result(self):
+        media = [{"format": "Vinyl"}]
+        return {
+            "release-list": [
+                _release(_VINYL_ID, date="1944-05-01", country="US", medium_list=media),
+                _release(
+                    self._WRONG_ERA_ID,
+                    date="2008-09-01",
+                    country="US",
+                    score=99,
+                    medium_list=media,
+                ),
+            ]
+        }
+
+    def test_hint_drops_candidate_decades_off_from_known_year(self):
+        with patch.object(mc, "configure"), patch.object(
+            mc, "_resolve_artist_mbid", return_value=None
+        ), patch.object(
+            mc.musicbrainzngs, "search_releases", return_value=self._mixed_era_result()
+        ), patch.object(mc.musicbrainzngs, "get_release_by_id") as get_by_id:
+            candidates = mc.search_canonical_releases(
+                "King of the Tenors", "Ben Webster", expected_year=1944
+            )
+
+        get_by_id.assert_not_called()  # both already have date + medium-list
+        ids = [c.id for c in candidates]
+        assert ids == [_VINYL_ID], (
+            f"expected the 2008 release to be dropped as implausible for a 1944 "
+            f"album, got: {ids}"
+        )
+
+    def test_no_hint_keeps_both_candidates(self):
+        with patch.object(mc, "configure"), patch.object(
+            mc, "_resolve_artist_mbid", return_value=None
+        ), patch.object(
+            mc.musicbrainzngs, "search_releases", return_value=self._mixed_era_result()
+        ), patch.object(mc.musicbrainzngs, "get_release_by_id"):
+            candidates = mc.search_canonical_releases("King of the Tenors", "Ben Webster")
+
+        assert {c.id for c in candidates} == {_VINYL_ID, self._WRONG_ERA_ID}
+
+    def test_hint_falls_back_to_unfiltered_pool_if_nothing_matches(self):
+        # Both candidates are decades off from the hinted year -- a wrong or
+        # stale hint must never turn "some results" into "no results".
+        with patch.object(mc, "configure"), patch.object(
+            mc, "_resolve_artist_mbid", return_value=None
+        ), patch.object(
+            mc.musicbrainzngs, "search_releases", return_value=self._mixed_era_result()
+        ), patch.object(mc.musicbrainzngs, "get_release_by_id"):
+            candidates = mc.search_canonical_releases(
+                "King of the Tenors", "Ben Webster", expected_year=1700
+            )
+
+        assert {c.id for c in candidates} == {_VINYL_ID, self._WRONG_ERA_ID}
