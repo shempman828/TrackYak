@@ -523,8 +523,14 @@ class AlbumsTab(_BaseTab):
         self.load(self.tracks)
 
     def _refresh_tracks(self):
+        # track.album is cached on the Track instance once accessed, and
+        # expire_on_commit=False means a plain commit() won't invalidate it,
+        # so re-fetching the same identity-mapped Track below is a no-op
+        # unless we explicitly expire the relationship first.
+        session = self.controller.get.session
         updated_tracks = []
         for track in self.tracks:
+            session.expire(track, ["album"])
             updated = self.controller.get.get_entity_object(
                 "Track", track_id=track.track_id
             )
@@ -790,6 +796,10 @@ class AlbumsTab(_BaseTab):
         self._virt_combo.setVisible(False)
         self._virt_track_num.setValue(0)
         self._virt_disc_num.setValue(0)
+        # virtual_appearances is cached on the Track instance once accessed;
+        # expire it before re-fetching (see _refresh_tracks for the same
+        # pattern with the album relationship).
+        self.controller.get.session.expire(self.track, ["virtual_appearances"])
         updated = self.controller.get.get_entity_object(
             "Track", track_id=self.track.track_id
         )
@@ -806,6 +816,7 @@ class AlbumsTab(_BaseTab):
             logger.error(f"Failed to remove virtual appearance: {e}")
             QMessageBox.warning(self, "Error", f"Failed to remove:\n{e}")
             return
+        self.controller.get.session.expire(self.track, ["virtual_appearances"])
         updated = self.controller.get.get_entity_object(
             "Track", track_id=self.track.track_id
         )
@@ -823,7 +834,9 @@ class AlbumsTab(_BaseTab):
             if album:
                 dlg = AlbumEditor(self.controller, album, self)
                 dlg.exec()
-                # Refresh track data after album edit closes
+                # Refresh track data after album edit closes; expire the
+                # cached album relationship first (see _refresh_tracks).
+                self.controller.get.session.expire(self.track, ["album"])
                 updated = self.controller.get.get_entity_object(
                     "Track", track_id=self.track.track_id
                 )
