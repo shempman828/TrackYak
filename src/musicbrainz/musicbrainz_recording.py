@@ -17,6 +17,7 @@ from src.core.logger_config import logger
 from src.musicbrainz.musicbrainz_core import (
     MBCandidate,
     MusicBrainzLookupError,
+    _and_query,
     _ext_score,
     _parse_partial_date,
     _query_term,
@@ -48,7 +49,7 @@ def search_recordings(
         fields["release"] = album_name
     try:
         result = musicbrainzngs.search_recordings(
-            _query_term(track_name, fields), limit=limit, **fields
+            _and_query(None, track_name, fields), limit=limit
         )
     except Exception as e:
         # Intentional broad boundary catch: musicbrainzngs has no single
