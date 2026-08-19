@@ -437,6 +437,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
         self._wiki_btn = None
         self._mb_btn = None
+        self._reimport_btn = None
 
         self._rebuild_link_buttons()
 
@@ -456,7 +457,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         saved so the button appears immediately without reopening the editor.
         """
         # Remove old buttons if they exist
-        for btn_attr in ("_wiki_btn", "_mb_btn"):
+        for btn_attr in ("_wiki_btn", "_mb_btn", "_reimport_btn"):
             btn = getattr(self, btn_attr, None)
             if btn is not None:
                 self._links_row.removeWidget(btn)
@@ -486,6 +487,14 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             self._mb_btn.clicked.connect(lambda: webbrowser.open(mb_url))
             insert_idx = 1 if self._wiki_btn is not None else 0
             self._links_row.insertWidget(insert_idx, self._mb_btn)
+
+            self._reimport_btn = QPushButton("🔄 Reimport from MusicBrainz")
+            self._reimport_btn.setToolTip(
+                "Re-fetch this release from MusicBrainz and check for metadata "
+                "changes since the last import."
+            )
+            self._reimport_btn.clicked.connect(self._reimport_musicbrainz)
+            self._links_row.insertWidget(insert_idx + 1, self._reimport_btn)
 
     # =========================================================================
     # Alias helpers  (called by AliasesTab, kept on the editor for
