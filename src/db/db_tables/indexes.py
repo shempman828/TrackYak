@@ -30,6 +30,7 @@ from src.db.db_tables.artist import Artist, ArtistInfluence, GroupMembership
 from src.db.db_tables.associations import (
     AlbumPublisher,
     AlbumRoleAssociation,
+    ArtistTypeAssociation,
     PublisherFounder,
     TrackArtistRole,
     TrackGenre,
@@ -38,17 +39,34 @@ from src.db.db_tables.award import AwardAssociation
 from src.db.db_tables.chart import ChartEntry
 from src.db.db_tables.disc import Disc
 from src.db.db_tables.genre import Genre
-from src.db.db_tables.mood import MoodTrackAssociation
-from src.db.db_tables.place import PlaceAssociation
+from src.db.db_tables.mood import Mood, MoodTrackAssociation
+from src.db.db_tables.place import Place, PlaceAssociation
 from src.db.db_tables.playlist import PlaylistTracks, SmartPlaylistCriteria
+from src.db.db_tables.publisher import Publisher
+from src.db.db_tables.role import Role
 from src.db.db_tables.track import Samples, Track, TrackUsage
 
 # --- Artist ---
 Index("idx_artists_religion_id", Artist.religion_id)  # Grouped counts in religion_manager
+Index(
+    "idx_artists_begin_month_day", Artist.begin_month, Artist.begin_day
+)  # "Most common birthdate (m+d)" statistic
+Index(
+    "idx_artists_end_month_day", Artist.end_month, Artist.end_day
+)  # "Most common deathdate (m+d)" statistic
+Index(
+    "idx_artists_begin_year", Artist.begin_year
+)  # Generation-bucket rating stat, oldest/youngest-artist stats
 
 # --- Album ---
 Index("idx_albums_title", Album.album_name)
 Index("idx_albums_release_year", Album.release_year)  # Commonly filtered/sorted
+Index(
+    "idx_albums_release_month_day", Album.release_month, Album.release_day
+)  # "Most common album release date (m+d)" statistic
+Index(
+    "idx_albums_release_country", Album.release_country
+)  # Release-country distribution / highest-rated-album-by-country statistics
 
 # --- Track ---
 Index("idx_tracks_title", Track.track_name)
@@ -61,6 +79,14 @@ Index("idx_tracks_needs_tag_write", Track.needs_tag_write)  # Dirty-tracking sca
 
 # --- Genre ---
 Index("idx_genres_name", Genre.genre_name)
+Index(
+    "idx_genres_parent_id", Genre.parent_id
+)  # Genre hierarchy walk: most-niche-genre depth, root-branch lookups
+
+# --- Mood ---
+Index(
+    "idx_moods_parent_id", Mood.parent_id
+)  # Mood hierarchy walk
 
 # --- Disc ---
 Index("idx_discs_album_number", Disc.album_id, Disc.disc_number)
@@ -76,6 +102,15 @@ Index(
 Index(
     "idx_mood_track_association_track_id", MoodTrackAssociation.track_id
 )  # Reverse lookup: track → moods
+Index(
+    "idx_artist_type_associations_type_id", ArtistTypeAssociation.artist_type_id
+)  # Reverse lookup: type → artists (artist-type distribution/rating statistics)
+Index(
+    "idx_track_artist_roles_role_id", TrackArtistRole.role_id
+)  # Reverse lookup: role → credited tracks/artists (role-credit statistics)
+Index(
+    "idx_album_role_association_role_id", AlbumRoleAssociation.role_id
+)  # Reverse lookup: role → credited albums/artists
 
 # --- Artist relationship self-joins ---
 Index(
@@ -90,6 +125,18 @@ Index("idx_album_publisher_publisher_id", AlbumPublisher.publisher_id)
 Index(
     "idx_publisher_founders_artist_id", PublisherFounder.artist_id
 )  # Reverse lookup: artist → publishers founded
+Index(
+    "idx_publishers_parent_id", Publisher.parent_id
+)  # Publisher hierarchy walk
+
+# --- Role ---
+Index("idx_roles_parent_id", Role.parent_id)  # Role hierarchy walk
+
+# --- Place ---
+Index("idx_places_parent_id", Place.parent_id)  # Recursive place/country rollups
+Index(
+    "idx_places_place_type", Place.place_type
+)  # Country-only filtering for recursive country rating statistics
 
 # --- Place associations ---
 Index("idx_place_associations", PlaceAssociation.place_id, PlaceAssociation.entity_id)

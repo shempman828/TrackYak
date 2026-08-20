@@ -76,6 +76,65 @@ class Place(Base):
         walk(self)
         return len(association_ids)
 
+    @property
+    def recursive_rated_tracks(self):
+        """Return (track_id, user_rating) pairs for every rated track
+        associated with this place or any descendant place -- the same
+        recursive walk as recursive_association_count, but collecting
+        rating data instead of a count. Used for "highest/lowest rated
+        place/country" statistics, which need to roll a country's rating
+        up from all of its subdivisions/cities.
+        """
+        from src.statistics.stats.helpers import RATING_MAX, RATING_MIN
+
+        visited_places = set()
+        seen_track_ids = set()
+        ratings = []
+
+        def walk(place):
+            if place.place_id in visited_places:
+                return
+            visited_places.add(place.place_id)
+
+            for track in place.tracks:
+                if track.track_id in seen_track_ids:
+                    continue
+                seen_track_ids.add(track.track_id)
+                rating = track.user_rating
+                if rating is not None and RATING_MIN <= rating <= RATING_MAX:
+                    ratings.append((track.track_id, rating))
+
+            for child in place.children:
+                walk(child)
+
+        walk(self)
+        return ratings
+
+    @property
+    def recursive_artist_ids(self):
+        """Return the set of artist_ids directly associated (entity_type ==
+        'Artist') with this place or any descendant place -- e.g. every
+        artist associated with a city rolls up to that city's country. Used
+        for "highest rated artist by country" statistics.
+        """
+        visited_places = set()
+        artist_ids = set()
+
+        def walk(place):
+            if place.place_id in visited_places:
+                return
+            visited_places.add(place.place_id)
+
+            for assoc in place.associations:
+                if assoc.entity_type == "Artist":
+                    artist_ids.add(assoc.entity_id)
+
+            for child in place.children:
+                walk(child)
+
+        walk(self)
+        return artist_ids
+
 
 class PlaceAssociation(Base):
     __tablename__ = "place_associations"
