@@ -12,6 +12,8 @@ publisher_logos/
 *.db-journal
 *.bak
 bugs.md
+CLAUDE.md
+.claude/
 *.toml
 *.csv
 *.db-wal
