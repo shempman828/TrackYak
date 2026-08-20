@@ -236,8 +236,23 @@ class InfluenceGraphDataMixin:
         size = min_size + normalized * (max_size - min_size)
         return size
 
+    # Cytoscape draws labels in graph space, not screen space, so a label's
+    # on-screen size is font-size-in-graph-units * current zoom -- there is
+    # no zoom-independent/HUD label mode. The global network can be ~600
+    # nodes across ~30 Louvain communities, so cy.fit() (used both by the
+    # initial layout and the "Fit to View" button) settles on a small zoom
+    # just to fit everyone at once; the previous 8-13 unit font range was
+    # sized as if that fit-zoom were close to 1, so at a real fit-zoom of
+    # ~0.09-0.12 labels rendered under 1.5px -- invisible, not just small
+    # (confirmed empirically against the real DB, see scratch/graph_repro/
+    # repro.py). This constant scales the whole label sizing system (font,
+    # label width) up together so text is legible at a *moderate* zoom-in
+    # from that overview (e.g. 3x), where a multi-community cross-section
+    # already fits in the viewport -- see get_label_font_size/get_label_width.
+    _LABEL_SCALE = 3.5
+
     @staticmethod
-    def get_label_width(size, name, min_width=70):
+    def get_label_width(size, name, min_width=70 * _LABEL_SCALE):
         """Width available to a node's label, in the same graph units as
         its box `size`. Small/low-influence nodes get a box far too
         narrow for most names -- decoupling the label from the box lets
@@ -245,10 +260,20 @@ class InfluenceGraphDataMixin:
         the small pill) while still capping to something sane for very
         long names, so the ellipsis only kicks in when it's genuinely
         needed rather than on almost every small node."""
-        return max(size, min(min_width + len(name) * 3.2, 260))
+        return max(
+            size,
+            min(
+                min_width + len(name) * 3.2 * InfluenceGraphDataMixin._LABEL_SCALE,
+                260 * InfluenceGraphDataMixin._LABEL_SCALE,
+            ),
+        )
 
     @staticmethod
-    def get_label_font_size(size, min_font=8, max_font=13):
+    def get_label_font_size(
+        size,
+        min_font=8 * _LABEL_SCALE,
+        max_font=13 * _LABEL_SCALE,
+    ):
         """Scale label font size down for small/low-influence nodes so
         more characters fit before eliding, instead of a fixed size that
         barely shows 2-3 letters on the smallest pills."""
