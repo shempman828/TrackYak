@@ -107,3 +107,25 @@ class TestFetchReleaseDetailPlaceChain:
             "expected the church's chain to include its parent areas, but got "
             f"a chain with no parent walked: {names}"
         )
+
+    def test_known_place_mbid_skips_area_chain_walk(self):
+        """A recording-location place already on file locally (see
+        album_musicbrainz_known_entities.known_place_mbids) shouldn't pay
+        for get_place_by_id/get_area_by_id -- resolve_place_chain matches
+        on MBID and trusts the place's existing local ancestry, so only a
+        one-node stub is needed."""
+        with (
+            patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=_RELEASE),
+            patch.object(mc.musicbrainzngs, "get_place_by_id") as get_place,
+            patch.object(mc.musicbrainzngs, "get_area_by_id") as get_area,
+        ):
+            detail = mc.fetch_release_detail(
+                "faada5d1-971b-499c-b902-5bab9e03bc1b",
+                known_place_mbids=frozenset({_CHURCH_ID}),
+            )
+
+        get_place.assert_not_called()
+        get_area.assert_not_called()
+        chain = detail.place_chains.get(_CHURCH_ID)
+        assert chain is not None
+        assert [node["mbid"] for node in chain] == [_CHURCH_ID]

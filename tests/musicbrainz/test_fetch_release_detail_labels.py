@@ -139,3 +139,30 @@ class TestFetchReleaseDetailLabels:
             detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b")
 
         assert detail.labels == []
+
+    def test_known_label_mbid_skips_network_fetch(self):
+        """A label MBID already on file locally (see
+        album_musicbrainz_known_entities.known_publisher_mbids) shouldn't
+        pay for a get_label_by_id/get_area_by_id round trip -- the local
+        Publisher already has founders/headquarters from whenever it was
+        first imported, and resolve_or_create_publisher matches on MBID
+        regardless of what's in the stub."""
+        with (
+            patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=_release()),
+            patch.object(mc.musicbrainzngs, "get_label_by_id") as get_label,
+            patch.object(mc.musicbrainzngs, "get_area_by_id") as get_area,
+        ):
+            detail = mc.fetch_release_detail(
+                "faada5d1-971b-499c-b902-5bab9e03bc1b",
+                known_label_mbids=frozenset({_LABEL_ID}),
+            )
+
+        get_label.assert_not_called()
+        get_area.assert_not_called()
+        assert len(detail.labels) == 1
+        label = detail.labels[0]
+        assert label.mbid == _LABEL_ID
+        assert label.name == "Atlantic Records"
+        assert label.catalog_number == "ATL-1"
+        assert label.founders == []
+        assert label.area_chain == []
