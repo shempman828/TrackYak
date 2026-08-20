@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from PySide6.QtCore import QMimeData, Qt, Signal
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -572,6 +573,43 @@ class GenreView(QWidget):
             logger.error(f"Error creating new child genre: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to create new child genre")
 
+    def _build_delete_confirmation_box(self, message):
+        """Build (but don't show) the Yes/No delete confirmation box, with an
+        'Also add deleted genre(s) to Excluded Genres list' checkbox attached."""
+        box = QMessageBox(self)
+        box.setWindowTitle("Confirm Delete")
+        box.setText(message)
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        # Keep a Python reference on the box itself: setCheckBox() reparents
+        # the checkbox in C++, but with no Python variable holding it, the
+        # wrapper can be garbage-collected out from under that reparenting
+        # and later box.checkBox() calls segfault on the dangling wrapper.
+        checkbox = QCheckBox("Also add deleted genre(s) to Excluded Genres list")
+        box.setCheckBox(checkbox)
+        box._exclusion_checkbox = checkbox
+        return box
+
+    def _confirm_delete(self, message):
+        """Show the delete confirmation box and return (confirmed, add_to_excluded)."""
+        box = self._build_delete_confirmation_box(message)
+        confirmed = box.exec_() == QMessageBox.Yes
+        return confirmed, box._exclusion_checkbox.isChecked()
+
+    def _add_to_excluded_genres(self, genre_names):
+        """Add genre_names to the Excluded Genres config list, case-insensitive
+        deduped against what's already there. Returns the count actually added."""
+        if not genre_names:
+            return 0
+        config = self.controller.config
+        existing = config.get_excluded_genres()
+        existing_lower = {name.lower() for name in existing}
+        added = [name for name in genre_names if name.lower() not in existing_lower]
+        if not added:
+            return 0
+        config.set_excluded_genres(existing + added)
+        config.save()
+        return len(added)
+
     def delete_selected_genres(self):
         """Delete all selected genres after confirmation."""
         selected_items = self.tree.selectedItems()
@@ -582,14 +620,14 @@ class GenreView(QWidget):
         # Get genre names for confirmation message, keeping each tree item
         # paired with its genre_id so we can target the right item on delete
         genre_names = []
-        to_delete = []  # list of (item, genre_id)
+        to_delete = []  # list of (item, genre_id, genre_name)
 
         for item in selected_items:
             genre_id = item.data(0, Qt.UserRole)
             genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
             if genre:
                 genre_names.append(genre.genre_name)
-                to_delete.append((item, genre_id))
+                to_delete.append((item, genre_id, genre.genre_name))
 
         if not to_delete:
             return
@@ -603,36 +641,37 @@ class GenreView(QWidget):
                 + "\n".join(f"• {name}" for name in genre_names)
             )
 
-        reply = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            message,
-            QMessageBox.Yes | QMessageBox.No,
-        )
+        confirmed, add_to_excluded = self._confirm_delete(message)
 
-        if reply == QMessageBox.Yes:
+        if confirmed:
             try:
                 # Delete each genre and remove just its tree item, rather
                 # than reloading the whole tree (which would collapse/expand
                 # items back to their saved state instead of leaving the
                 # rest of the tree untouched).
                 success_count = 0
-                for item, genre_id in to_delete:
+                deleted_names = []
+                for item, genre_id, genre_name in to_delete:
                     try:
                         self.controller.delete.delete_entity("Genre", genre_id)
                         self._remove_genre_tree_item(item)
                         success_count += 1
+                        deleted_names.append(genre_name)
                     except SQLAlchemyError as e:
                         logger.error(f"Error deleting genre {genre_id}: {str(e)}")
 
                 self.genre_updated.emit()
 
                 if success_count == len(to_delete):
-                    self.status_bar.setText(f"Deleted {success_count} genre(s)")
+                    status = f"Deleted {success_count} genre(s)"
                 else:
-                    self.status_bar.setText(
-                        f"Deleted {success_count} of {len(to_delete)} genre(s)"
-                    )
+                    status = f"Deleted {success_count} of {len(to_delete)} genre(s)"
+
+                if add_to_excluded:
+                    excluded_count = self._add_to_excluded_genres(deleted_names)
+                    status += f", added {excluded_count} to Excluded Genres"
+
+                self.status_bar.setText(status)
 
             except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Error in bulk delete: {str(e)}")
@@ -644,20 +683,21 @@ class GenreView(QWidget):
         """Delete single genre after confirmation (kept for backward compatibility)."""
         try:
             genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
-            reply = QMessageBox.question(
-                self,
-                "Confirm Delete",
-                f"Are you sure you want to delete '{genre.genre_name}'?",
-                QMessageBox.Yes | QMessageBox.No,
+            confirmed, add_to_excluded = self._confirm_delete(
+                f"Are you sure you want to delete '{genre.genre_name}'?"
             )
 
-            if reply == QMessageBox.Yes:
+            if confirmed:
                 self.controller.delete.delete_entity("Genre", genre_id)
                 item = self._find_genre_item(genre_id)
                 if item:
                     self._remove_genre_tree_item(item)
                 self.genre_updated.emit()
-                self.status_bar.setText(f"Deleted {genre.genre_name}")
+                status = f"Deleted {genre.genre_name}"
+                if add_to_excluded:
+                    excluded_count = self._add_to_excluded_genres([genre.genre_name])
+                    status += f", added {excluded_count} to Excluded Genres"
+                self.status_bar.setText(status)
 
         except (AttributeError, SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error deleting genre: {str(e)}")
