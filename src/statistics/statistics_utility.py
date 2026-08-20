@@ -189,13 +189,18 @@ class MusicStatistics:
     def _get_metadata_completeness(
         self, session, total_tracks=None, total_artists=None, total_albums=None
     ):
-        """Calculate metadata completeness using second_pass flags.
+        """Calculate metadata completeness using first_pass/second_pass flags.
+
+        Each row earns partial credit toward its axis:
+          - second_pass == 1                     -> full credit (1.0)
+          - first_pass == 1 and second_pass != 1  -> half credit (0.5)
+          - otherwise                             -> no credit (0.0)
 
         Five axes:
-          - tracks:     tracks with second_pass == 1
-          - artists:    artists with second_pass == 1
-          - albums:     albums  with second_pass == 1
-          - publishers: publishers with second_pass == 1
+          - tracks:     credit-weighted tracks
+          - artists:    credit-weighted artists
+          - albums:     credit-weighted albums
+          - publishers: credit-weighted publishers
           - total:      average of the four percentages above
         """
         if total_tracks is None:
@@ -222,42 +227,39 @@ class MusicStatistics:
                 "total_complete": 0.0,
             }
 
-        fixed_tracks = (
-            session.query(func.count(Track.track_id))
-            .filter(Track.second_pass == 1)
-            .scalar()
-            or 0
+        def _credit_expr(model):
+            return func.sum(
+                case(
+                    (model.second_pass == 1, 1.0),
+                    (model.first_pass == 1, 0.5),
+                    else_=0.0,
+                )
+            )
+
+        credit_tracks = (
+            session.query(_credit_expr(Track)).scalar() or 0
         )
-        fixed_artists = (
-            session.query(func.count(Artist.artist_id))
-            .filter(Artist.second_pass == 1)
-            .scalar()
-            or 0
+        credit_artists = (
+            session.query(_credit_expr(Artist)).scalar() or 0
         )
-        fixed_albums = (
-            session.query(func.count(Album.album_id))
-            .filter(Album.second_pass == 1)
-            .scalar()
-            or 0
+        credit_albums = (
+            session.query(_credit_expr(Album)).scalar() or 0
         )
-        fixed_publishers = (
-            session.query(func.count(Publisher.publisher_id))
-            .filter(Publisher.second_pass == 1)
-            .scalar()
-            or 0
+        credit_publishers = (
+            session.query(_credit_expr(Publisher)).scalar() or 0
         )
 
         tracks_pct = round(
-            (fixed_tracks / total_tracks * 100) if total_tracks else 0, 1
+            (credit_tracks / total_tracks * 100) if total_tracks else 0, 1
         )
         artists_pct = round(
-            (fixed_artists / total_artists * 100) if total_artists else 0, 1
+            (credit_artists / total_artists * 100) if total_artists else 0, 1
         )
         albums_pct = round(
-            (fixed_albums / total_albums * 100) if total_albums else 0, 1
+            (credit_albums / total_albums * 100) if total_albums else 0, 1
         )
         publishers_pct = round(
-            (fixed_publishers / total_publishers * 100) if total_publishers else 0, 1
+            (credit_publishers / total_publishers * 100) if total_publishers else 0, 1
         )
         total_pct = round(
             (tracks_pct + artists_pct + albums_pct + publishers_pct) / 4, 1
