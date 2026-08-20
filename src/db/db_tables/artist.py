@@ -4,7 +4,15 @@ Artist-related ORM models: Artist, ArtistAlias, ArtistInfluence, and GroupMember
 
 from datetime import datetime, timezone
 
-from sqlalchemy import CheckConstraint, Column, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.orm import relationship
 
@@ -181,6 +189,33 @@ class ArtistAlias(Base):
 
     artist = relationship("Artist", back_populates="aliases")
     artist_name = association_proxy("artist", "artist_name")
+
+
+class ArtistSplitAlias(Base):
+    """A recorded 'this combined name splits into these artists' rule.
+
+    Unlike ArtistAlias (name -> one artist), one alias_name here maps to
+    *multiple* Artist rows, ordered by sort_order. Created automatically
+    when an Artist is split into 2+ artists (see SplitDB.split_artist), or
+    directly via the alias-management dialog.
+    """
+
+    __tablename__ = "artist_split_alias"
+
+    split_alias_id = Column(Integer, primary_key=True)
+    alias_name = Column(String, nullable=False, index=True)
+    artist_id = Column(
+        Integer, ForeignKey("artists.artist_id", ondelete="CASCADE"), nullable=False
+    )
+    sort_order = Column(Integer, nullable=False, default=0)
+
+    artist = relationship("Artist")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "alias_name", "artist_id", name="uq_artist_split_alias_name_artist"
+        ),
+    )
 
 
 class ArtistInfluence(Base):

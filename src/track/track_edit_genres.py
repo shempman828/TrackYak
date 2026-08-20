@@ -31,6 +31,14 @@ class GenresTab(_BaseTrackAssociationTab):
             session.expire(track, ["genres"])
 
     def _find_or_create(self, name: str):
+        # A name previously split into 2+ genres (see
+        # SplitDB._record_split_alias) expands to that same ordered list
+        # instead of recreating/reusing one combined genre -- see
+        # docs/specs/split_and_merge_aliases.md.
+        split_targets = self.controller.get.resolve_split_alias("Genre", name)
+        if split_targets:
+            return split_targets
+
         return find_or_create_by_name(
             self.controller,
             self.model_name,

@@ -232,3 +232,30 @@ class GetFromDB(BaseDBHelper):
 
         alias = self.get_entity_object(f"{model_name}Alias", alias_name=name)
         return getattr(alias, model_name.lower()) if alias else None
+
+    def resolve_split_alias(self, model_name: str, name: str) -> list | None:
+        """Resolve `name` against a `<model_name>SplitAlias` table (e.g.
+        RoleSplitAlias, GenreSplitAlias) -- a name that was previously split
+        into 2+ entities (see SplitDB._record_split_alias) resolves to that
+        same ordered list of entities instead of the caller creating/
+        reusing one combined entity. Returns None if no rule matches (as
+        opposed to an empty list, which would mean "matched but every
+        target entity is gone" -- callers should treat both as "no split
+        happened" and fall back to normal single-entity resolution).
+        """
+        alias_class = MODEL_REGISTRY.get(f"{model_name}SplitAlias")
+        if alias_class is None:
+            return None
+        try:
+            rows = self.session.scalars(
+                select(alias_class)
+                .where(alias_class.alias_name == name)
+                .order_by(alias_class.sort_order)
+            ).all()
+        except SQLAlchemyError as e:
+            logger.error(f"Database error resolving split alias for {model_name}: {e}")
+            return None
+        if not rows:
+            return None
+        targets = [getattr(row, model_name.lower()) for row in rows]
+        return [t for t in targets if t is not None] or None

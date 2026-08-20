@@ -48,6 +48,9 @@ class _StubGet:
     def resolve_entity_or_alias(self, model_name, name_field, name):
         return None
 
+    def resolve_split_alias(self, model_name, name):
+        return None
+
 
 class _StubAdd:
     def __init__(self, failed_track_ids=None, new_entity=None):

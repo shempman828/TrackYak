@@ -1,22 +1,28 @@
 """Class for splitting different database models."""
 
+from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from src.core.logger_config import logger
-from src.db.db_helpers.registry import BaseDBHelper
+from src.db.db_helpers.registry import MODEL_REGISTRY, BaseDBHelper
 from src.db.db_tables import (
     AlbumPublisher,
     AlbumRoleAssociation,
     Artist,
     ArtistAlias,
+    ArtistSplitAlias,
     Genre,
     GenreAlias,
+    GenreSplitAlias,
     Mood,
     MoodTrackAssociation,
     Publisher,
     PublisherAlias,
+    PublisherSplitAlias,
     Role,
+    RoleAlias,
+    RoleSplitAlias,
     TrackArtistRole,
     TrackGenre,
 )
@@ -24,12 +30,25 @@ from src.db.db_tables import (
 # For these entity types, a split name that doesn't match an existing entity's
 # own name is also checked against its alias table before a new entity is
 # created, so e.g. splitting "O. Osbourne & Z.Wylde" resolves "Z.Wylde" to the
-# existing "Zakk Wylde" artist instead of creating a duplicate. Mood and Role
-# have no alias tables. Maps model name -> (alias model, relationship attr).
+# existing "Zakk Wylde" artist instead of creating a duplicate. Mood has no
+# alias table. Maps model name -> (alias model, relationship attr).
 _ALIAS_REGISTRY: dict = {
     "Artist": (ArtistAlias, "artist"),
     "Publisher": (PublisherAlias, "publisher"),
     "Genre": (GenreAlias, "genre"),
+    "Role": (RoleAlias, "role"),
+}
+
+# For these entity types, splitting an entity into 2+ names records the
+# original combined name as a rule against the resulting entities, so the
+# same combined name auto-splits the same way next time it's encountered
+# (e.g. on import) instead of recreating the combined entity. Maps model
+# name -> (split-alias model, fk field name).
+_SPLIT_ALIAS_REGISTRY: dict = {
+    "Artist": (ArtistSplitAlias, "artist_id"),
+    "Publisher": (PublisherSplitAlias, "publisher_id"),
+    "Genre": (GenreSplitAlias, "genre_id"),
+    "Role": (RoleSplitAlias, "role_id"),
 }
 
 
@@ -78,6 +97,75 @@ class SplitDB(BaseDBHelper):
                 f"Skipping duplicate {type(obj).__name__}: constraint violation"
             )
             return False
+
+    def set_split_alias(self, model_name: str, alias_name: str, target_ids: list) -> bool:
+        """Directly create/replace a split-alias rule for `alias_name`,
+        without splitting an existing entity -- the "set up a rule
+        proactively" path from the alias-management dialog, as opposed to
+        `_record_split_alias`'s "remember what I just split" path. Returns
+        False if `model_name` has no split-alias table or fewer than 2
+        target ids were given (a rule needs 2+ targets to mean anything).
+        """
+        alias_info = _SPLIT_ALIAS_REGISTRY.get(model_name)
+        if not alias_info or len(target_ids) < 2:
+            return False
+        entity_class = MODEL_REGISTRY.get(model_name)
+        if entity_class is None:
+            return False
+        entities = [
+            e for e in (self.session.get(entity_class, tid) for tid in target_ids) if e is not None
+        ]
+        if len(entities) < 2:
+            return False
+        self._record_split_alias(model_name, alias_name, entities)
+        self._commit()
+        return True
+
+    def delete_split_alias(self, model_name: str, alias_name: str) -> bool:
+        """Delete every row for `alias_name` in `model_name`'s split-alias
+        table -- the whole-rule counterpart to set_split_alias."""
+        alias_info = _SPLIT_ALIAS_REGISTRY.get(model_name)
+        if not alias_info:
+            return False
+        alias_model, _fk_field = alias_info
+        self.session.execute(
+            sql_delete(alias_model).where(alias_model.alias_name == alias_name)
+        )
+        self._commit()
+        return True
+
+    def _record_split_alias(self, model_name: str, original_name: str, new_entities: list):
+        """Record `original_name` as a split-alias rule pointing at
+        `new_entities`, so the same combined name auto-splits the same way
+        next time it's encountered (e.g. on import) -- see
+        `_SPLIT_ALIAS_REGISTRY`.
+
+        A no-op for model types with no split-alias table, and for a
+        "split" into a single name (nothing was actually split -- that's
+        the existing rename-via-duplicate path in SplitDBDialog). Re-running
+        this for a name that already has a rule *replaces* the old rows
+        rather than accumulating alongside them.
+        """
+        if len(new_entities) < 2 or not original_name:
+            return
+
+        alias_info = _SPLIT_ALIAS_REGISTRY.get(model_name)
+        if not alias_info:
+            return
+        alias_model, fk_field = alias_info
+
+        self.session.execute(
+            sql_delete(alias_model).where(alias_model.alias_name == original_name)
+        )
+        for sort_order, entity in enumerate(new_entities):
+            entity_id = getattr(entity, fk_field)
+            self._safe_add(
+                alias_model(
+                    alias_name=original_name,
+                    sort_order=sort_order,
+                    **{fk_field: entity_id},
+                )
+            )
 
     # ------------------------------------------------------------------
     # split_publisher
@@ -144,6 +232,10 @@ class SplitDB(BaseDBHelper):
                                 publisher_id=new_pub.publisher_id,
                             )
                         )
+
+            self._record_split_alias(
+                "Publisher", original_publisher.publisher_name, new_publishers
+            )
 
             if original_publisher not in new_publishers:
                 self.session.delete(original_publisher)
@@ -244,6 +336,8 @@ class SplitDB(BaseDBHelper):
                         if added:
                             existing_album_roles.add(combo)
 
+            self._record_split_alias("Artist", original_artist.artist_name, new_artists)
+
             if original_artist not in new_artists:
                 self.session.delete(original_artist)
 
@@ -319,6 +413,8 @@ class SplitDB(BaseDBHelper):
                 first_new_genre_id = new_genres[0].genre_id
                 for child_genre in original_genre.children:
                     child_genre.parent_id = first_new_genre_id
+
+            self._record_split_alias("Genre", original_genre.genre_name, new_genres)
 
             if original_genre not in new_genres:
                 self.session.delete(original_genre)
@@ -493,6 +589,8 @@ class SplitDB(BaseDBHelper):
                         )
                         if added:
                             existing_album_roles.add(combo)
+
+            self._record_split_alias("Role", original_role.role_name, new_roles)
 
             if original_role not in new_roles:
                 self.session.delete(original_role)

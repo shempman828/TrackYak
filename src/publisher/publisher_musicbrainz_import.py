@@ -136,6 +136,22 @@ def resolve_or_create_founder_artist(controller, founder: MBFounderRelation) -> 
     )
 
 
+def resolve_or_create_publishers(controller, label: MBLabelInfo) -> list[Any]:
+    """Every Publisher this label's name resolves to. A name that was
+    previously split into 2+ publishers (see
+    SplitDB._record_split_alias) resolves to that same ordered list
+    instead of resolve_or_create_publisher recreating/reusing one
+    combined Publisher -- see docs/specs/split_and_merge_aliases.md."""
+    split_targets = controller.get.resolve_split_alias("Publisher", label.name)
+    if split_targets:
+        for publisher in split_targets:
+            _fill_blank_scalars(controller, publisher, label)
+        return split_targets
+
+    publisher = resolve_or_create_publisher(controller, label)
+    return [publisher] if publisher is not None else []
+
+
 def apply_publisher_headquarters(
     controller, publisher, area_chain: list[dict[str, Any]], place_cache: dict[str, Any]
 ) -> None:
@@ -242,26 +258,27 @@ def import_album_labels(
 
     for label in labels:
         try:
-            publisher = resolve_or_create_publisher(controller, label)
+            publishers = resolve_or_create_publishers(controller, label)
         except SQLAlchemyError as e:
             logger.warning(f"Could not import label '{label.name}': {e}")
             failures.append(f"Publisher '{label.name}'")
             continue
-        if publisher is None:
+        if not publishers:
             failures.append(f"Publisher '{label.name}'")
             continue
 
-        if publisher.publisher_id not in existing_publisher_ids:
-            _, failed = controller.add.add_entities_with_fallback(
-                "AlbumPublisher",
-                [{"album_id": album.album_id, "publisher_id": publisher.publisher_id}],
-            )
-            if failed:
-                failures.append(f"Album/publisher link for '{label.name}'")
-            else:
-                existing_publisher_ids.add(publisher.publisher_id)
+        for publisher in publishers:
+            if publisher.publisher_id not in existing_publisher_ids:
+                _, failed = controller.add.add_entities_with_fallback(
+                    "AlbumPublisher",
+                    [{"album_id": album.album_id, "publisher_id": publisher.publisher_id}],
+                )
+                if failed:
+                    failures.append(f"Album/publisher link for '{label.name}'")
+                else:
+                    existing_publisher_ids.add(publisher.publisher_id)
 
-        apply_publisher_headquarters(controller, publisher, label.area_chain, place_cache)
-        apply_publisher_founders(controller, publisher, label.founders)
+            apply_publisher_headquarters(controller, publisher, label.area_chain, place_cache)
+            apply_publisher_founders(controller, publisher, label.founders)
 
     return failures

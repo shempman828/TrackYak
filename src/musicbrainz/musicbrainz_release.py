@@ -265,36 +265,43 @@ def _parse_track_number_side(
         return None, None
 
 
-def _relation_role_name(rel: dict[str, Any]) -> str | None:
-    """One credit's Role name for an artist-relation. For performer
-    relations (instrument/vocal), the attribute alone is the full role
-    (e.g. "Piano", "Lead Vocals") -- the generic type adds nothing. For
-    production relations (producer/engineer/mix/...), the attribute is a
-    *modifier* of the type, not a replacement for it -- MB credits like
-    "assistant engineer" or "mastering engineer" are the `engineer` type
-    with an "assistant"/"mastering" attribute, so both must be combined or
-    the type name is silently dropped."""
+def _relation_role_names(rel: dict[str, Any]) -> list[str]:
+    """This artist-relation's Role name(s). For production relations
+    (producer/engineer/mix/...), the attribute is a *modifier* of the
+    type, not a replacement for it -- MB credits like "assistant engineer"
+    or "mastering engineer" are the `engineer` type with an
+    "assistant"/"mastering" attribute, so both must be combined into one
+    name or the type name is silently dropped; a production relation
+    always yields exactly one name. For performer relations
+    (instrument/vocal), the attribute alone is the full role (e.g.
+    "Piano", "Lead Vocals") -- the generic type adds nothing -- and MB can
+    list more than one independent value on the same relation (one person
+    playing viola *and* violin on this recording), which now yields one
+    name per value instead of joining them into a single combined string
+    (see docs/specs/split_and_merge_aliases.md -- that combined-string
+    behavior is what forced role-splitting in the first place)."""
     rel_type = rel.get("type")
     attributes = rel.get("attribute-list") or []
     if rel_type in _PRODUCTION_RELATION_TYPES:
         base_name = _PRODUCTION_RELATION_DISPLAY_NAMES.get(rel_type, rel_type.title() if rel_type else None)
         if attributes:
-            return f"{attributes[0].title()} {base_name}"
-        return base_name
+            return [f"{attributes[0].title()} {base_name}"]
+        return [base_name] if base_name else []
     # Performer/instrument/vocal: split out qualifier words ("additional"/
     # "guest"/"solo") from the actual instrument/vocal value(s) rather than
     # assuming attribute-list[0] is the value -- see
     # _PERFORMER_ATTRIBUTE_QUALIFIERS.
     qualifiers = [a for a in attributes if a.lower() in _PERFORMER_ATTRIBUTE_QUALIFIERS]
     values = [a for a in attributes if a.lower() not in _PERFORMER_ATTRIBUTE_QUALIFIERS]
+    qualifier_prefix = " ".join(q.title() for q in qualifiers)
     if values:
-        name = " & ".join(v.title() for v in values)
-        if qualifiers:
-            name = f"{' '.join(q.title() for q in qualifiers)} {name}"
-        return name
-    if qualifiers:
-        return " ".join(q.title() for q in qualifiers)
-    return rel_type.title() if rel_type else None
+        names = [v.title() for v in values]
+        if qualifier_prefix:
+            names = [f"{qualifier_prefix} {name}" for name in names]
+        return names
+    if qualifier_prefix:
+        return [qualifier_prefix]
+    return [rel_type.title()] if rel_type else []
 
 
 def _parse_artist_credits(entity: dict[str, Any]) -> list[MBTrackCredit]:
@@ -308,17 +315,15 @@ def _parse_artist_credits(entity: dict[str, Any]) -> list[MBTrackCredit]:
         artist = rel.get("artist") or {}
         if not artist.get("id"):
             continue
-        role_name = _relation_role_name(rel)
-        if not role_name:
-            continue
-        credits.append(
-            MBTrackCredit(
-                artist_mbid=artist["id"],
-                artist_name=rel.get("target-credit") or artist.get("name") or "",
-                role_name=role_name,
-                canonical_name=artist.get("name") or "",
+        for role_name in _relation_role_names(rel):
+            credits.append(
+                MBTrackCredit(
+                    artist_mbid=artist["id"],
+                    artist_name=rel.get("target-credit") or artist.get("name") or "",
+                    role_name=role_name,
+                    canonical_name=artist.get("name") or "",
+                )
             )
-        )
     return credits
 
 

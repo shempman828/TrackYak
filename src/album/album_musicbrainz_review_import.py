@@ -129,6 +129,20 @@ def _batch_update_tracks(controller, updates: list[dict]) -> list[str]:
     return [f"Track {row['track_id']} scalar update" for row in failed]
 
 
+def _resolve_artists(controller, credit) -> list[Any]:
+    """Every Artist this credit's artist name resolves to. A name that was
+    previously split into 2+ artists (see SplitDB._record_split_alias)
+    resolves to that same ordered list instead of the single find-or-
+    create path recreating/reusing one combined Artist -- see
+    docs/specs/split_and_merge_aliases.md."""
+    split_targets = controller.get.resolve_split_alias("Artist", credit.artist_name)
+    if split_targets:
+        return split_targets
+
+    artist = _resolve_artist(controller, credit)
+    return [artist] if artist is not None else []
+
+
 def _resolve_artist(controller, credit) -> Any | None:
     # MBID, then as-credited name (+ known local alias), then the
     # artist's canonical MB name -- distinct from the as-credited name
@@ -171,48 +185,74 @@ def _resolve_artist(controller, credit) -> Any | None:
     )
 
 
+def _resolve_roles_for_credit(controller, role_name: str, known_roles: list[Any]) -> list[Any]:
+    """Every Role this credit's role name resolves to. A name that was
+    previously split into 2+ roles (see SplitDB._record_split_alias)
+    resolves to that same ordered list instead of find_or_create_by_name
+    recreating/reusing one combined Role -- see
+    docs/specs/split_and_merge_aliases.md."""
+    split_targets = controller.get.resolve_split_alias("Role", role_name)
+    if split_targets:
+        for role in split_targets:
+            if role not in known_roles:
+                known_roles.append(role)
+        return split_targets
+
+    role = find_or_create_by_name(controller, "Role", "role_name", role_name, known_roles)
+    if role is None:
+        return []
+    if role not in known_roles:
+        known_roles.append(role)
+    return [role]
+
+
 def _plan_track_credit(
     controller,
     track,
     credit,
     known_roles: list[Any],
     planned_by_track: dict[int, set],
-) -> dict | None:
-    """Resolve (and, if genuinely new, create) the artist/role for this
-    credit, but leave the actual TrackArtistRole junction row for the
-    caller to batch-insert alongside every other checked credit."""
+) -> list[dict]:
+    """Resolve (and, if genuinely new, create) the artist(s)/role(s) for
+    this credit, but leave the actual TrackArtistRole junction rows for
+    the caller to batch-insert alongside every other checked credit. A
+    credit ordinarily resolves to exactly one artist and one role -- it
+    resolves to more only when a split-alias rule matches (see
+    _resolve_artists/_resolve_roles_for_credit), in which case one row is
+    planned per (artist, role) pair."""
     try:
-        artist = _resolve_artist(controller, credit)
-        if artist is None:
-            return None
-        role = find_or_create_by_name(
-            controller, "Role", "role_name", credit.role_name, known_roles
-        )
-        if role is None:
-            return None
-        if role not in known_roles:
-            known_roles.append(role)
+        artists = _resolve_artists(controller, credit)
+        if not artists:
+            return []
+        roles = _resolve_roles_for_credit(controller, credit.role_name, known_roles)
+        if not roles:
+            return []
 
-        already = any(
-            ar.artist_id == artist.artist_id and ar.role_id == role.role_id
-            for ar in (track.artist_roles or [])
-        )
-        planned = planned_by_track.setdefault(track.track_id, set())
-        if already or (artist.artist_id, role.role_id) in planned:
-            return None
-        planned.add((artist.artist_id, role.role_id))
-
-        return {
-            "track_id": track.track_id,
-            "artist_id": artist.artist_id,
-            "role_id": role.role_id,
+        existing = {
+            (ar.artist_id, ar.role_id) for ar in (track.artist_roles or [])
         }
+        planned = planned_by_track.setdefault(track.track_id, set())
+        rows = []
+        for artist in artists:
+            for role in roles:
+                pair = (artist.artist_id, role.role_id)
+                if pair in existing or pair in planned:
+                    continue
+                planned.add(pair)
+                rows.append(
+                    {
+                        "track_id": track.track_id,
+                        "artist_id": artist.artist_id,
+                        "role_id": role.role_id,
+                    }
+                )
+        return rows
     except SQLAlchemyError as e:
         logger.warning(
             f"Could not import credit '{credit.artist_name} — "
             f"{credit.role_name}' on track {track.track_id}: {e}"
         )
-        return None
+        return []
 
 
 def _plan_album_credit(
@@ -222,50 +262,57 @@ def _plan_album_credit(
     known_roles: list[Any],
     next_sort_order_by_role: dict[int, int],
     planned_pairs: set[tuple[int, int]],
-) -> dict | None:
+) -> list[dict]:
     """Same idea as `_plan_track_credit`, for album-level credits. The
     sort_order that AlbumRoleAssociation rows for the same role share is
     normally derived by re-reading `album.album_roles` after each
     commit; since nothing is committed until the whole batch goes in,
-    `next_sort_order_by_role` tracks the same running count in memory."""
+    `next_sort_order_by_role` tracks the same running count in memory.
+    Unlike `_plan_track_credit`, this mutates `planned_pairs` itself
+    (rather than leaving that to the caller) since a single call can now
+    plan several rows that must not collide with each other."""
     try:
-        artist = _resolve_artist(controller, credit)
-        if artist is None:
-            return None
-        role = find_or_create_by_name(
-            controller, "Role", "role_name", credit.role_name, known_roles
-        )
-        if role is None:
-            return None
-        if role not in known_roles:
-            known_roles.append(role)
+        artists = _resolve_artists(controller, credit)
+        if not artists:
+            return []
+        roles = _resolve_roles_for_credit(controller, credit.role_name, known_roles)
+        if not roles:
+            return []
 
-        siblings = [
-            ra for ra in (album.album_roles or []) if ra.role_id == role.role_id
-        ]
-        if any(ra.artist_id == artist.artist_id for ra in siblings):
-            return None
-        if (artist.artist_id, role.role_id) in planned_pairs:
-            return None
-        if role.role_id not in next_sort_order_by_role:
-            next_sort_order_by_role[role.role_id] = (
-                max(ra.sort_order for ra in siblings) + 1 if siblings else 0
-            )
-        sort_order = next_sort_order_by_role[role.role_id]
-        next_sort_order_by_role[role.role_id] += 1
-
-        return {
-            "album_id": album.album_id,
-            "artist_id": artist.artist_id,
-            "role_id": role.role_id,
-            "sort_order": sort_order,
-        }
+        rows = []
+        for role in roles:
+            siblings = [
+                ra for ra in (album.album_roles or []) if ra.role_id == role.role_id
+            ]
+            existing_artist_ids = {ra.artist_id for ra in siblings}
+            if role.role_id not in next_sort_order_by_role:
+                next_sort_order_by_role[role.role_id] = (
+                    max(ra.sort_order for ra in siblings) + 1 if siblings else 0
+                )
+            for artist in artists:
+                if artist.artist_id in existing_artist_ids:
+                    continue
+                pair = (artist.artist_id, role.role_id)
+                if pair in planned_pairs:
+                    continue
+                planned_pairs.add(pair)
+                sort_order = next_sort_order_by_role[role.role_id]
+                next_sort_order_by_role[role.role_id] += 1
+                rows.append(
+                    {
+                        "album_id": album.album_id,
+                        "artist_id": artist.artist_id,
+                        "role_id": role.role_id,
+                        "sort_order": sort_order,
+                    }
+                )
+        return rows
     except SQLAlchemyError as e:
         logger.warning(
             f"Could not import album credit '{credit.artist_name} — "
             f"{credit.role_name}': {e}"
         )
-        return None
+        return []
 
 
 def _plan_location_rows(
@@ -501,7 +548,7 @@ class _ReviewAcceptWorker(CancellableWorker):
             for credit in self._checked_album_credits:
                 if self.is_cancelled:
                     return
-                row = _plan_album_credit(
+                rows = _plan_album_credit(
                     controller,
                     album,
                     credit,
@@ -509,9 +556,7 @@ class _ReviewAcceptWorker(CancellableWorker):
                     next_sort_order_by_role,
                     planned_album_pairs,
                 )
-                if row is not None:
-                    album_credit_rows.append(row)
-                    planned_album_pairs.add((row["artist_id"], row["role_id"]))
+                album_credit_rows.extend(rows)
                 tick()
             _, failed = controller.add.add_entities_with_fallback(
                 "AlbumRoleAssociation", album_credit_rows
@@ -532,11 +577,10 @@ class _ReviewAcceptWorker(CancellableWorker):
                     tid = self._manual_track_ids.get(mbt_id)
                 track = get_track(tid) if tid is not None else None
                 if track is not None:
-                    row = _plan_track_credit(
+                    rows = _plan_track_credit(
                         controller, track, credit, known_roles, planned_by_track
                     )
-                    if row is not None:
-                        track_credit_rows.append(row)
+                    track_credit_rows.extend(rows)
                 tick()
             _, failed = controller.add.add_entities_with_fallback(
                 "TrackArtistRole", track_credit_rows

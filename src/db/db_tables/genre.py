@@ -2,7 +2,7 @@
 Genre ORM model (self-referential hierarchy).
 """
 
-from sqlalchemy import Column, ForeignKey, Integer, String
+from sqlalchemy import Column, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.orm import relationship
 
@@ -97,3 +97,30 @@ class GenreAlias(Base):
 
     genre = relationship("Genre", back_populates="aliases")
     genre_name = association_proxy("genre", "genre_name")
+
+
+class GenreSplitAlias(Base):
+    """A recorded 'this combined name splits into these genres' rule.
+
+    Unlike GenreAlias (name -> one genre), one alias_name here maps to
+    *multiple* Genre rows, ordered by sort_order. Created automatically
+    when a Genre is split into 2+ genres (see SplitDB.split_genre), or
+    directly via the alias-management dialog.
+    """
+
+    __tablename__ = "genre_split_alias"
+
+    split_alias_id = Column(Integer, primary_key=True)
+    alias_name = Column(String, nullable=False, index=True)
+    genre_id = Column(
+        Integer, ForeignKey("genres.genre_id", ondelete="CASCADE"), nullable=False
+    )
+    sort_order = Column(Integer, nullable=False, default=0)
+
+    genre = relationship("Genre")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "alias_name", "genre_id", name="uq_genre_split_alias_name_genre"
+        ),
+    )

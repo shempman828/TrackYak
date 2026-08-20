@@ -18,6 +18,7 @@ from src.db.db_tables import (
     Publisher,
     PublisherAlias,
     Role,
+    RoleAlias,
 )
 from src.db.db_tables.award import AwardAssociation
 from src.db.db_tables.place import Place, PlaceAssociation
@@ -42,6 +43,7 @@ _ALIAS_ON_MERGE_REGISTRY: dict = {
     "Artist": (ArtistAlias, "artist_name", "artist_id"),
     "Publisher": (PublisherAlias, "publisher_name", "publisher_id"),
     "Genre": (GenreAlias, "genre_name", "genre_id"),
+    "Role": (RoleAlias, "role_name", "role_id"),
 }
 
 # Tables that link to entities polymorphically via an (entity_type, entity_id)

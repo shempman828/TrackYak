@@ -4,17 +4,18 @@ from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QCursor, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from src.statistics.analysis_dialog import AudioAnalysisDialog
+from src.common.alias_management_dialog import AliasManagementDialog
 from src.core.asset_paths import ASSETS_DIR, icon
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
 from src.core.version import get_version
-from src.library.duplicate_finder import DuplicateFinderDialog
 from src.equalizer.equalizer_dialog import EqualizerDialog
 from src.file_management.file_manager_dialog import FileManager
 from src.importing.import_dialog import ImportDialog
+from src.library.duplicate_finder import DuplicateFinderDialog
 from src.library.missing_tracks import MissingTracks
 from src.player.player_mini import MiniPlayerWindow
+from src.statistics.analysis_dialog import AudioAnalysisDialog
 from src.statistics.statistics_dialog import MusicStatsDialog
 
 
@@ -109,6 +110,16 @@ class MenuBar:
             "Audio File Analysis",
             "audio_analysis.svg",
             self.show_audio_properties,
+        )
+
+        # Tools menu
+        tools_menu = menu_bar.addMenu("Tools")
+
+        self.add_action(
+            tools_menu,
+            "Manage Aliases…",
+            slot=self.show_alias_management_dialog,
+            tooltip="View and edit merge/split aliases and skipped genres",
         )
 
         # View menu
@@ -341,6 +352,13 @@ class MenuBar:
         self.statistics_dialog.show()
         self.statistics_dialog.raise_()
         self.statistics_dialog.activateWindow()
+
+    def show_alias_management_dialog(self):
+        if not hasattr(self, "alias_management_dialog"):
+            self.alias_management_dialog = AliasManagementDialog(self.controller, self)
+        self.alias_management_dialog.show()
+        self.alias_management_dialog.raise_()
+        self.alias_management_dialog.activateWindow()
 
     def show_duplicate_finder(self):
         """Open the Duplicate Track Finder dialog."""

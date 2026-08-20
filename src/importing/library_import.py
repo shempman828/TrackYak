@@ -575,28 +575,36 @@ class TrackImporter:
                 continue
 
             try:
-                # Get or create genre, checking aliases first so a name
-                # merged/aliased to a canonical genre doesn't recreate it.
-                genre = self.controller.get.resolve_entity_or_alias(
-                    "Genre", "genre_name", genre_name
+                # A name previously split into 2+ genres (see
+                # SplitDB._record_split_alias) resolves to that same
+                # ordered list instead of recreating/reusing one combined
+                # genre. Otherwise, get or create genre, checking aliases
+                # first so a name merged/aliased to a canonical genre
+                # doesn't recreate it.
+                resolved_genres = self.controller.get.resolve_split_alias(
+                    "Genre", genre_name
                 )
-                if not genre:
-                    genre = self.controller.add.add_entity(
-                        "Genre", commit=False, genre_name=genre_name
+                if not resolved_genres:
+                    genre = self.controller.get.resolve_entity_or_alias(
+                        "Genre", "genre_name", genre_name
                     )
+                    if not genre:
+                        genre = self.controller.add.add_entity(
+                            "Genre", commit=False, genre_name=genre_name
+                        )
+                    resolved_genres = [genre]
 
-                # Create relationship
-                relationship_data = {
-                    "track_id": track.track_id,
-                    "genre_id": genre.genre_id,
-                }
-
-                self.controller.add.add_entity(
-                    "TrackGenre", commit=False, **relationship_data
-                )
-                logger.debug(
-                    f"Created genre relationship: {genre_name} -> {track.track_name}"
-                )
+                for genre in resolved_genres:
+                    relationship_data = {
+                        "track_id": track.track_id,
+                        "genre_id": genre.genre_id,
+                    }
+                    self.controller.add.add_entity(
+                        "TrackGenre", commit=False, **relationship_data
+                    )
+                    logger.debug(
+                        f"Created genre relationship: {genre.genre_name} -> {track.track_name}"
+                    )
             except SQLAlchemyError as e:
                 logger.error(
                     f"Error creating genre relationship for '{genre_name}': {e}"

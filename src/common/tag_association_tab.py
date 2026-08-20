@@ -170,7 +170,13 @@ class _BaseTrackAssociationTab(_BaseTab):
                     )
                 else:
                     entity = self._find_or_create(name)
-                if entity:
+                # _find_or_create ordinarily returns a single entity; a
+                # subclass (e.g. GenresTab) may return a list instead when
+                # `name` matches a split-alias rule, expanding into every
+                # target entity for that one typed name.
+                if isinstance(entity, list):
+                    entities.extend((name, e) for e in entity)
+                elif entity:
                     entities.append((name, entity))
         except SQLAlchemyError as e:
             logger.error(f"Failed to find/create {self.model_name}: {e}")

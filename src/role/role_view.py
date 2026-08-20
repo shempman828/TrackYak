@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.base_split_dialog import SplitDBDialog
 from src.common.hierarchy_tree_style import (
     collect_expanded_ids,
     configure_hierarchy_tree,
@@ -734,6 +735,7 @@ class RoleView(QWidget):
         menu.addAction("Rename", lambda: self.role_tree.editItem(item, 0))
         menu.addAction("Edit", lambda: self.edit_role(self.current_role_id))
         menu.addAction("Merge…", lambda: self.merge_role(self.current_role_id))
+        menu.addAction("Split…", lambda: self.split_role(self.current_role_id))
         menu.addSeparator()
         menu.addAction(
             "New Parent Role", lambda: self.create_new_parent_role(self.current_role_id)
@@ -794,6 +796,28 @@ class RoleView(QWidget):
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error merging role: {e!s}")
             QMessageBox.critical(self, "Error", f"Failed to merge role: {e!s}")
+
+    def split_role(self, role_id):
+        """Open the split dialog for the selected role (e.g. split 'Viola &
+        Violin' into 'Viola' and 'Violin')."""
+        try:
+            role_obj = self.controller.get.get_entity_object("Role", role_id=role_id)
+            if not role_obj:
+                show_status_message(self, "The selected role no longer exists.")
+                return
+
+            split_dialog = SplitDBDialog(
+                self.controller.split, "Role", role_obj, self, get_helper=self.controller.get
+            )
+
+            if split_dialog.exec_() == QDialog.Accepted:
+                self.load_roles()
+                self.role_updated.emit()
+                self.status_bar.setText("Role split completed successfully")
+
+        except (SQLAlchemyError, RuntimeError) as e:
+            logger.error(f"Error splitting role: {e!s}")
+            QMessageBox.critical(self, "Error", f"Failed to split role: {e!s}")
 
     def create_new_parent_role(self, role_id):
         """Create a new role and insert it as the parent of the given role.
