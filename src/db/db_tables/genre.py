@@ -35,6 +35,16 @@ class Genre(Base):
         return len(self.tracks) if self.tracks else 0
 
     @property
+    def depth(self):
+        """Get nesting depth (0 for a root genre with no parent)."""
+        depth = 0
+        current = self.parent
+        while current:
+            depth += 1
+            current = current.parent
+        return depth
+
+    @property
     def subgenres(self):
         """Get direct subgenres."""
         return self.children
