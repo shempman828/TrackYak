@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Set
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
+from src.playlist.playlist_track_sync import sync_playlist_tracks
 
 
 class SmartPlaylistBuilder:
@@ -275,125 +276,27 @@ class SmartPlaylistBuilder:
 
     def _update_playlist_tracks(self, playlist_id: int, track_ids: List[int]) -> bool:
         """
-        SUPER OPTIMIZED: Use bulk database operations for massive speed improvement.
-
-        Instead of 10,000+ individual inserts, we do 1 bulk insert.
-
-        Performance:
-        - OLD: 17,557 tracks = 17,557 separate transactions = 10+ minutes
-        - NEW: 17,557 tracks = 3 bulk operations = 5-10 seconds
-
-        Args:
-            playlist_id: The ID of the playlist to update
-            track_ids: List of track IDs that should be in the playlist
+        Bulk-diff the playlist's tracks against `track_ids` via the shared
+        sync_playlist_tracks() helper (src/playlist/playlist_track_sync.py),
+        which also underlies ChartPlaylistBuilder.
 
         Returns:
             True if successful, False if an error occurred
         """
         try:
-            from src.db.db_tables import PlaylistTracks  # Import the ORM model
-
-            # ═══════════════════════════════════════════════════════════════
-            # STEP 1: Load existing tracks
-            # ═══════════════════════════════════════════════════════════════
-
-            existing_tracks = self.controller.get.get_all_entities(
-                "PlaylistTracks", playlist_id__eq=playlist_id
-            )
-
-            # Create sets for comparison. Capture positions as plain values
-            # now — the ORM objects get expired by the commit() in STEP 3,
-            # and any that were bulk-deleted (synchronize_session=False, so
-            # the session doesn't know) would raise ObjectDeletedError if
-            # touched again afterward.
-            existing_track_ids = set(pt.track_id for pt in existing_tracks)
-            existing_positions = [
-                getattr(pt, "position", 0) for pt in existing_tracks
-            ]
-            new_track_ids = set(track_ids)
-
-            # ═══════════════════════════════════════════════════════════════
-            # STEP 2: Calculate differences
-            # ═══════════════════════════════════════════════════════════════
-
-            tracks_to_remove = existing_track_ids - new_track_ids
-            tracks_to_add = new_track_ids - existing_track_ids
-
-            now = datetime.datetime.now()
-
-            logger.info(
-                f"Playlist {playlist_id}: {len(tracks_to_add)} to add, "
-                f"{len(tracks_to_remove)} to remove, "
-                f"{len(existing_track_ids & new_track_ids)} to keep"
-            )
-
-            # ═══════════════════════════════════════════════════════════════
-            # STEP 3: BULK DELETE tracks that are no longer needed
-            # ═══════════════════════════════════════════════════════════════
-
-            if tracks_to_remove:
-                # Delete in bulk using SQLAlchemy's delete with IN clause
-                session = self.controller.get.session
-                session.query(PlaylistTracks).filter(
-                    PlaylistTracks.playlist_id == playlist_id,
-                    PlaylistTracks.track_id.in_(tracks_to_remove),
-                ).delete(synchronize_session=False)
-                session.commit()
-                logger.debug(f"BULK deleted {len(tracks_to_remove)} tracks")
-
-            # ═══════════════════════════════════════════════════════════════
-            # STEP 4: BULK INSERT new tracks
-            # ═══════════════════════════════════════════════════════════════
-
-            if tracks_to_add:
-                # Get current max position
-                next_position = max(existing_positions, default=0) + 1
-
-                # Create a list of PlaylistTracks objects to insert
-                new_entries = []
-                for track_id in tracks_to_add:
-                    new_entries.append(
-                        PlaylistTracks(
-                            playlist_id=playlist_id,
-                            track_id=track_id,
-                            position=next_position,
-                            date_added=now,
-                        )
-                    )
-                    next_position += 1
-
-                # BULK INSERT all at once!
-                session = self.controller.get.session
-                session.bulk_save_objects(new_entries)
-                session.commit()
-                logger.debug(f"BULK inserted {len(tracks_to_add)} tracks")
-
-            # ═══════════════════════════════════════════════════════════════
-            # STEP 5: Update playlist metadata
-            # ═══════════════════════════════════════════════════════════════
-
-            self.controller.update.update_entity(
-                "Playlist", playlist_id, last_modified=now
-            )
-
-            logger.info(
-                f"✅ Playlist {playlist_id} updated in bulk: "
-                f"{len(new_track_ids)} total tracks"
-            )
-
-            return True
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error updating playlist tracks: {e}")
-            # Rollback on error
-            try:
-                self.controller.get.session.rollback()
-            except SQLAlchemyError as rollback_exc:
-                logger.error(f"Rollback failed after playlist update error: {rollback_exc}")
-            return False
+            result = sync_playlist_tracks(self.controller, playlist_id, track_ids)
         except (ImportError, TypeError) as e:
             logger.error(f"Error updating playlist tracks: {e}")
             return False
+
+        if result is None:
+            return False
+
+        logger.info(
+            f"Playlist {playlist_id}: {result.added} to add, "
+            f"{result.removed} to remove, {result.kept} to keep"
+        )
+        return True
 
     def _touch_last_refreshed(self, playlist_id: int):
         """Update the last_refreshed timestamp on the SmartPlaylist record."""
