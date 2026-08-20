@@ -133,6 +133,7 @@ def test_no_data_shows_download_button(qapp, session, controller):
     assert view.download_btn.isVisible()
     assert not view.fetch_btn.isVisible()
     assert not view.match_btn.isVisible()
+    assert not view.playlists_btn.isVisible()  # AC12: same rule as match_btn
 
 
 def test_fully_synced_shows_fetch_and_match_buttons(qapp, session, controller, tmp_path):
@@ -148,6 +149,7 @@ def test_fully_synced_shows_fetch_and_match_buttons(qapp, session, controller, t
     assert not view.download_btn.isVisible()
     assert view.fetch_btn.isVisible()
     assert view.match_btn.isVisible()
+    assert view.playlists_btn.isVisible()  # AC12: same rule as match_btn
     assert "2023-12-31" in view.status_label.text()
 
 
