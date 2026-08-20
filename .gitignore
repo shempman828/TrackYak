@@ -21,3 +21,4 @@ CLAUDE.md
 scratch/
 .ruff_cache/
 .pytest_cache/
+docs/
