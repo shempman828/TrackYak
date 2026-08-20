@@ -8,6 +8,10 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.album.album_musicbrainz_known_entities import (
+    known_place_mbids,
+    known_publisher_mbids,
+)
 from src.album.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
 from src.album.release_type_utils import normalize_release_type
 from src.common.nullable_numeric_field import (
@@ -143,7 +147,12 @@ class AlbumMusicBrainzMixin:
         self, release_mbid: str, album_name: str, *, notify_if_no_changes: bool = False
     ):
         def _fetch_all(progress):
-            detail = fetch_release_detail(release_mbid, progress_callback=progress)
+            detail = fetch_release_detail(
+                release_mbid,
+                progress_callback=progress,
+                known_label_mbids=known_publisher_mbids(self.controller),
+                known_place_mbids=known_place_mbids(self.controller),
+            )
             aliases = []
             if detail.release_group_mbid:
                 try:
