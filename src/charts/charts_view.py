@@ -23,6 +23,7 @@ from src.charts.chart_download import chart_csv_exists
 from src.charts.chart_download_worker import ChartDownloadWorker
 from src.charts.chart_import_worker import ChartImportWorker
 from src.charts.chart_matching_worker import ChartMatchingWorker
+from src.charts.chart_playlist_worker import ChartPlaylistWorker
 from src.charts.chart_recommendations_tab import ChartRecommendationsTab
 from src.charts.chart_search_tab import ChartSearchTab
 from src.charts.chart_week_browser_tab import ChartWeekBrowserTab
@@ -38,6 +39,7 @@ class ChartsView(QWidget):
         self._download_worker = None
         self._import_worker = None
         self._match_worker = None
+        self._playlist_worker = None
         self._import_queue = []
         self._match_queue = []
         self._match_total = 0
@@ -61,6 +63,10 @@ class ChartsView(QWidget):
         self.match_btn = QPushButton("Match Now")
         self.match_btn.clicked.connect(self._start_match)
         header.addWidget(self.match_btn)
+
+        self.playlists_btn = QPushButton("Generate/Update Charts Playlists")
+        self.playlists_btn.clicked.connect(self._start_playlist_generation)
+        header.addWidget(self.playlists_btn)
 
         header.addStretch()
         self.status_label = QLabel("")
@@ -100,6 +106,7 @@ class ChartsView(QWidget):
         self.download_btn.setVisible(not all_downloaded)
         self.fetch_btn.setVisible(all_downloaded)
         self.match_btn.setVisible(bool(synced_charts))
+        self.playlists_btn.setVisible(bool(synced_charts))
 
         if synced_charts:
             self.week_tab.set_charts(synced_charts)
@@ -252,6 +259,46 @@ class ChartsView(QWidget):
         self._run_next_match()
 
     # -----------------------------------------------------------------------
+    # Chart playlist generation (Generate/Update Charts Playlists)
+    # -----------------------------------------------------------------------
+
+    def _start_playlist_generation(self):
+        self.download_btn.setEnabled(False)
+        self.fetch_btn.setEnabled(False)
+        self.match_btn.setEnabled(False)
+        self.playlists_btn.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+        self.status_label.setText("Generating charts playlists...")
+
+        self._playlist_worker = ChartPlaylistWorker(self.controller)
+        self._playlist_worker.progress.connect(self._on_playlist_progress)
+        self._playlist_worker.finished.connect(self._on_playlist_finished)
+        self._playlist_worker.error.connect(self._on_worker_error)
+        self._playlist_worker.start()
+
+    def _on_playlist_progress(self, done: int, total: int):
+        if total > 0:
+            self.progress_bar.setRange(0, total)
+            self.progress_bar.setValue(done)
+
+    def _on_playlist_finished(self, stats):
+        show_status_message(
+            self,
+            f"Charts playlists updated: {stats.playlists_created} created, "
+            f"{stats.playlists_updated} updated, {stats.tracks_added} track(s) "
+            f"added, {stats.tracks_removed} removed",
+        )
+        # See _on_import_finished: finished fires before the thread has fully
+        # unwound, so wait() here before reassigning self._playlist_worker.
+        self._playlist_worker.wait()
+        self.progress_bar.setVisible(False)
+        self.download_btn.setEnabled(True)
+        self.fetch_btn.setEnabled(True)
+        self.match_btn.setEnabled(True)
+        self.playlists_btn.setEnabled(True)
+
+    # -----------------------------------------------------------------------
     # Shared error handling
     # -----------------------------------------------------------------------
 
@@ -261,4 +308,5 @@ class ChartsView(QWidget):
         self.download_btn.setEnabled(True)
         self.fetch_btn.setEnabled(True)
         self.match_btn.setEnabled(True)
+        self.playlists_btn.setEnabled(True)
         QMessageBox.warning(self, "Charts", f"Operation failed: {message}")
