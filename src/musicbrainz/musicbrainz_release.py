@@ -768,7 +768,10 @@ def search_canonical_releases(
 
 
 def fetch_release_detail(
-    release_mbid: str, progress_callback: Callable[[int, int], None] | None = None
+    release_mbid: str,
+    progress_callback: Callable[[int, int], None] | None = None,
+    known_label_mbids: frozenset[str] = frozenset(),
+    known_place_mbids: frozenset[str] = frozenset(),
 ) -> MBReleaseDetail:
     """Fetch every rich per-pressing detail this feature imports for one
     release: album-level scalars, album-level credits, Discogs master link,
@@ -780,6 +783,20 @@ def fetch_release_detail(
     unique recording-location area resolved -- lets the UI switch from an
     indeterminate spinner to a determinate counter when there's enough
     location data to make that worthwhile (see album_musicbrainz_mixin.py).
+
+    `known_label_mbids`/`known_place_mbids`, if given (see
+    album_musicbrainz_known_entities.py), are plain sets of MBIDs the local
+    database already has a Publisher/Place row for -- this module has no DB
+    access of its own, it just trusts the caller's sets. A label or
+    recording-location place already on file locally had its full detail
+    (founders, headquarters/area chain) imported the first time it was
+    seen, so the per-label get_label_by_id call and the per-place
+    resolve_area_chain walk are both skipped for a known MBID, using only
+    the cheap stub data already embedded in the release response instead.
+    Everything downstream (resolve_or_create_publisher, resolve_place_chain)
+    already stops at a matched MBID and trusts its existing local data, so
+    this doesn't change what gets written -- only avoids re-fetching data
+    that would just be discarded once the write layer matches on MBID.
     """
     configure()
     try:
@@ -926,6 +943,20 @@ def fetch_release_detail(
         label_mbid = label_stub.get("id")
         if not label_mbid or label_mbid in raw_labels:
             continue
+        if label_mbid in known_label_mbids:
+            # Already have a Publisher for this MBID locally, founders and
+            # headquarters included from whenever it was first imported --
+            # the write layer (resolve_or_create_publisher) matches on
+            # MBID and only fills in blanks, so a bare stub is enough.
+            raw_labels[label_mbid] = (
+                MBLabelInfo(
+                    mbid=label_mbid,
+                    name=label_stub.get("name") or "",
+                    catalog_number=li.get("catalog-number"),
+                ),
+                None,
+            )
+            continue
         try:
             full_label = _fetch_label_by_id(label_mbid)
         except MusicBrainzLookupError as e:
@@ -941,6 +972,13 @@ def fetch_release_detail(
     # ever walked once per unique area below.
     pending_areas: dict[str, None] = {}  # ordered set of area MBIDs to resolve
     for place_mbid, location in raw_locations.items():
+        if place_mbid in known_place_mbids:
+            # Already have this exact Place locally, ancestry included --
+            # resolve_place_chain matches on MBID and trusts its existing
+            # parent chain, so there's nothing to walk for it here.
+            location["area_mbid"] = None
+            location["area_name"] = None
+            continue
         area_mbid, area_name = _resolve_place_area(place_mbid)
         location["area_mbid"] = area_mbid
         location["area_name"] = area_name
@@ -955,7 +993,20 @@ def fetch_release_detail(
         progress_callback(0, total_areas)
     area_cache: dict[str, list[dict[str, Any]]] = {}
     for idx, area_mbid in enumerate(pending_areas, start=1):
-        resolve_area_chain(area_mbid, area_cache)
+        if area_mbid in known_place_mbids:
+            # Same reasoning as the recording-location skip above -- this
+            # area already exists locally with its own ancestry intact.
+            area_cache[area_mbid] = [
+                {
+                    "mbid": area_mbid,
+                    "name": None,
+                    "type": None,
+                    "latitude": None,
+                    "longitude": None,
+                }
+            ]
+        else:
+            resolve_area_chain(area_mbid, area_cache)
         if progress_callback:
             progress_callback(idx, total_areas)
 
