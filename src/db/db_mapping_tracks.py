@@ -378,8 +378,9 @@ TRACK_FIELDS = {
         section="Musical Properties",
         friendly="Key Confidence",
         short="Key Conf.",
-        tooltip="The confidence level of the detected key.",
-        editable=False,
+        tooltip="The confidence level of the detected key. Normally set by audio "
+        "analysis (0.0-1.0) -- edit directly to confirm a manually-set key/mode "
+        "(e.g. set to 1.0) so it isn't flagged for re-analysis.",
         min=0.0,
         max=1.0,
     ),
