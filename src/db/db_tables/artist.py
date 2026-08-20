@@ -101,22 +101,26 @@ class Artist(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    # viewonly: writes to place_associations always go through PlaceAssociation
+    # objects directly (see Place.associations), never through this collection.
     places = relationship(
         "Place",
         secondary="place_associations",
         primaryjoin="and_(Artist.artist_id == PlaceAssociation.entity_id, "
         "PlaceAssociation.entity_type == 'Artist')",
         secondaryjoin="PlaceAssociation.place_id == Place.place_id",
-        passive_deletes=True,
+        viewonly=True,
     )
 
+    # viewonly: writes to award_associations always go through AwardAssociation
+    # objects directly (see Award.associations), never through this collection.
     awards = relationship(
         "Award",
         secondary="award_associations",
         primaryjoin="and_(Artist.artist_id == AwardAssociation.entity_id, "
         "AwardAssociation.entity_type == 'Artist')",
         secondaryjoin="AwardAssociation.award_id == Award.award_id",
-        passive_deletes=True,
+        viewonly=True,
     )
 
     founded_publisher_associations = relationship(

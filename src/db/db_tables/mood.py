@@ -17,8 +17,13 @@ class Mood(Base):
     parent_id = Column(Integer, ForeignKey("moods.mood_id"))
     parent = relationship("Mood", remote_side=[mood_id], backref="children")
 
+    # viewonly: writes to mood_track_association always go through
+    # MoodTrackAssociation objects directly, never through this collection.
     tracks = relationship(
-        "Track", secondary="mood_track_association", back_populates="moods"
+        "Track",
+        secondary="mood_track_association",
+        back_populates="moods",
+        viewonly=True,
     )
 
     @property

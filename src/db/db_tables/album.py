@@ -62,22 +62,26 @@ class Album(Base):
         passive_deletes=True,
     )
     publishers = association_proxy("publisher_associations", "publisher")
+    # viewonly: writes to place_associations always go through PlaceAssociation
+    # objects directly (see Place.associations), never through this collection.
     places = relationship(
         "Place",
         secondary="place_associations",
         primaryjoin="and_(Album.album_id == PlaceAssociation.entity_id, "
         "PlaceAssociation.entity_type == 'Album')",
         secondaryjoin="PlaceAssociation.place_id == Place.place_id",
-        passive_deletes=True,
+        viewonly=True,
     )
 
+    # viewonly: writes to award_associations always go through AwardAssociation
+    # objects directly (see Award.associations), never through this collection.
     awards = relationship(
         "Award",
         secondary="award_associations",
         primaryjoin="and_(Album.album_id == AwardAssociation.entity_id, "
         "AwardAssociation.entity_type == 'Album')",
         secondaryjoin="AwardAssociation.award_id == Award.award_id",
-        passive_deletes=True,
+        viewonly=True,
     )
     album_aliases = relationship(
         "AlbumAlias",

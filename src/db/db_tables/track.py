@@ -183,10 +183,17 @@ class Track(Base):
         passive_deletes=True,
     )
 
+    # viewonly: writes to mood_track_association always go through
+    # MoodTrackAssociation objects directly, never through this collection.
     moods = relationship(
-        "Mood", secondary="mood_track_association", back_populates="tracks"
+        "Mood",
+        secondary="mood_track_association",
+        back_populates="tracks",
+        viewonly=True,
     )
 
+    # viewonly: writes to place_associations always go through PlaceAssociation
+    # objects directly (see Place.associations), never through this collection.
     places = relationship(
         "Place",
         secondary="place_associations",
@@ -194,18 +201,17 @@ class Track(Base):
         "PlaceAssociation.entity_type == 'Track')",
         secondaryjoin="PlaceAssociation.place_id == Place.place_id",
         back_populates="tracks",
-        overlaps="associations",
-        cascade="save-update",  # Limit cascade behavior
-        passive_deletes=True,  # Let the database handle deletions
-        viewonly=False,
+        viewonly=True,
     )
+    # viewonly: writes to award_associations always go through AwardAssociation
+    # objects directly (see Award.associations), never through this collection.
     awards = relationship(
         "Award",
         secondary="award_associations",
         primaryjoin="and_(Track.track_id == AwardAssociation.entity_id, "
         "AwardAssociation.entity_type == 'Track')",
         secondaryjoin="AwardAssociation.award_id == Award.award_id",
-        passive_deletes=True,
+        viewonly=True,
     )
 
     playlists = relationship(

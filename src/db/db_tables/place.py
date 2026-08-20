@@ -28,6 +28,8 @@ class Place(Base):
         passive_deletes=True,
     )
 
+    # viewonly: writes to place_associations always go through PlaceAssociation
+    # objects directly, never through this collection (see associations above).
     tracks = relationship(
         "Track",
         secondary="place_associations",
@@ -35,7 +37,7 @@ class Place(Base):
         "PlaceAssociation.entity_type == 'Track')",
         secondaryjoin="PlaceAssociation.entity_id == Track.track_id",
         back_populates="places",
-        overlaps="associations",
+        viewonly=True,
     )
     artists = relationship(
         "Artist",
