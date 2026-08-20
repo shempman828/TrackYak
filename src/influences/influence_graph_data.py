@@ -1,18 +1,22 @@
 """
 influence_graph_data.py
 
-Pure data logic for InfluenceGraphView: DB extraction of artists/influence
+Data logic for InfluenceGraphView: DB extraction of artists/influence
 relationships, Louvain community assignment, and influence scoring
 (descendant counts + decayed PageRank). No Qt/JS dependency.
+
+The actual algorithms live in influence_graph_algorithms.py (Qt-free, so
+the statistics module can reuse them for library-wide influence/eclecticism
+stats without a QWidget context); this mixin is a thin adapter that calls
+them and assigns results onto the host view's instance attributes.
 """
 
 import math
-from collections import Counter
 
-import networkx as nx
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
+from src.influences import influence_graph_algorithms as algorithms
 
 
 class InfluenceGraphDataMixin:
@@ -93,55 +97,7 @@ class InfluenceGraphDataMixin:
 
     def extract_global_graph(self):
         """Extract only artists with influence relationships"""
-        try:
-            # Get all influence relationships first
-            all_influences = self.controller.get.get_all_entities("ArtistInfluence")
-            logger.info(
-                f"Found {len(all_influences)} influence relationships in database"
-            )
-
-            if not all_influences:
-                logger.warning("No influence relationships found in database!")
-                return [], []
-
-            # Collect all unique artist IDs involved in influences
-            involved_artist_ids = set()
-            edges = []
-
-            for influence in all_influences:
-                influencer_id = influence.influencer_id
-                influenced_id = influence.influenced_id
-
-                involved_artist_ids.add(influencer_id)
-                involved_artist_ids.add(influenced_id)
-                edges.append((influencer_id, influenced_id))
-
-            logger.info(
-                f"Found {len(involved_artist_ids)} artists with influence relationships"
-            )
-
-            # Get only the involved artists from the database in one batched
-            # query instead of one round trip per artist.
-            artists = self.controller.get.get_all_entities(
-                "Artist", artist_id__in=list(involved_artist_ids)
-            )
-            artists_by_id = {artist.artist_id: artist for artist in artists}
-            nodes = []
-            for artist_id in involved_artist_ids:
-                artist = artists_by_id.get(artist_id)
-                if artist:
-                    nodes.append((artist_id, artist.artist_name))
-                else:
-                    logger.warning(
-                        f"Artist {artist_id} not found in database but has influence relationships"
-                    )
-
-            logger.info(f"Extracted {len(nodes)} nodes and {len(edges)} edges")
-            return nodes, edges
-
-        except SQLAlchemyError as e:
-            logger.error(f"Error extracting global graph: {e}")
-            return [], []
+        return algorithms.extract_global_influence_graph(self.controller.get)
 
     # -----------------------
     # Node bookkeeping
@@ -151,6 +107,8 @@ class InfluenceGraphDataMixin:
         per-community "anchor" artist for persisted cluster names)."""
         # Single O(e) pass over the edge list building degree counts,
         # instead of rescanning the whole edge list once per node (O(n*e)).
+        from collections import Counter
+
         degree = Counter()
         for a, b in self.edges:
             degree[a] += 1
@@ -165,18 +123,7 @@ class InfluenceGraphDataMixin:
 
     def assign_louvain_communities(self, node_ids, edges):
         """Assign nodes to Louvain communities for clustering."""
-        try:
-            G = nx.Graph()
-            G.add_nodes_from(node_ids)
-            for a, b in edges:
-                G.add_edge(a, b)
-            import community as community_louvain
-
-            partition = community_louvain.best_partition(G)
-            self.community_id = partition
-        except (TypeError, nx.NetworkXException) as e:
-            logger.error(f"Error computing Louvain communities: {e}")
-            self.community_id = {nid: 0 for nid in node_ids}
+        self.community_id = algorithms.assign_louvain_communities(node_ids, edges)
 
     # -----------------------
     # Utilities
@@ -244,108 +191,29 @@ class InfluenceGraphDataMixin:
             logger.error(f"Error checking database relationships: {e}")
             return False
 
-    @staticmethod
-    def _compute_descendant_counts(G):
-        """Number of distinct nodes reachable from each node in G.
-
-        Equivalent to ``{n: len(nx.descendants(G, n)) for n in G}``, but
-        without a full traversal per node: condenses G into its
-        strongly-connected-component DAG, accumulates each SCC's downstream
-        reachable set once in reverse topological order, then shares that
-        set across every member node. This turns an O(n * (n + e)) scan
-        into a single O(n + e) pass.
-        """
-        condensation = nx.condensation(G)
-        mapping = condensation.graph["mapping"]
-
-        reachable = {}
-        for scc_index in reversed(list(nx.topological_sort(condensation))):
-            reach = set(condensation.nodes[scc_index]["members"])
-            for successor in condensation.successors(scc_index):
-                reach |= reachable[successor]
-            reachable[scc_index] = reach
-
-        return {
-            node_id: len(reachable[mapping[node_id]] - {node_id})
-            for node_id in G.nodes()
-        }
-
     def calculate_influence_scores(self, node_ids, edges):
         """Calculate influence scores and merge with decayed PageRank."""
-        try:
-            # Build directed graph (influencer -> influenced)
-            G = nx.DiGraph()
-            G.add_nodes_from(node_ids)
+        scores = algorithms.calculate_influence_scores(node_ids, edges)
+        self.influence_scores = scores.influence_scores
+        self.page_rank_scores = scores.page_rank_scores
+        self.combined_scores = scores.combined_scores
 
-            for source_id, target_id in edges:
-                G.add_edge(source_id, target_id)
+        top_influential = sorted(
+            self.influence_scores.items(), key=lambda x: x[1], reverse=True
+        )[:10]
+        logger.info("Top influential artists (unique descendants):")
+        for node_id, score in top_influential:
+            name = self.node_names.get(node_id, f"Artist {node_id}")
+            logger.info(f"  {name}: {score} total influenced artists")
 
-            # -----------------------------
-            # 1. Classic descendant-based influence score
-            # -----------------------------
-            descendant_counts = self._compute_descendant_counts(G)
-            self.influence_scores = {
-                node_id: descendant_counts.get(node_id, 0) for node_id in node_ids
-            }
-
-            # -----------------------------
-            # 2. Decayed PageRank influence weighting
-            # -----------------------------
-            try:
-                decayed_pr = self.compute_decayed_pagerank(G)
-
-                # Store for later use (visualization, layout, scoring)
-                self.page_rank_scores = decayed_pr
-
-                # Combine metrics, but keep them separate for now.
-                # If you later want a unified score, you can blend them here.
-                self.combined_scores = {
-                    node: (
-                        self.influence_scores.get(node, 0),
-                        decayed_pr.get(node, 0.0),
-                    )
-                    for node in node_ids
-                }
-
-            except nx.NetworkXException as e:
-                logger.error(f"Failed to compute decayed PageRank: {e}")
-                self.page_rank_scores = {}
-                self.combined_scores = {
-                    node: (self.influence_scores.get(node, 0), 0.0) for node in node_ids
-                }
-
-            # -----------------------------
-            # Logging output
-            # -----------------------------
-            logger.info(f"Calculated influence scores for {len(node_ids)} nodes")
-
-            top_influential = sorted(
-                self.influence_scores.items(), key=lambda x: x[1], reverse=True
+        if self.page_rank_scores:
+            top_pr = sorted(
+                self.page_rank_scores.items(), key=lambda x: x[1], reverse=True
             )[:10]
-
-            logger.info("Top influential artists (unique descendants):")
-            for node_id, score in top_influential:
+            logger.info("Top PageRank artists:")
+            for node_id, pr in top_pr:
                 name = self.node_names.get(node_id, f"Artist {node_id}")
-                logger.info(f"  {name}: {score} total influenced artists")
-
-            # If useful, log top PageRank too
-            if self.page_rank_scores:
-                top_pr = sorted(
-                    self.page_rank_scores.items(), key=lambda x: x[1], reverse=True
-                )[:10]
-
-                logger.info("Top PageRank artists:")
-                for node_id, pr in top_pr:
-                    name = self.node_names.get(node_id, f"Artist {node_id}")
-                    logger.info(f"  {name}: PR={pr:.5f}")
-
-        except nx.NetworkXException as e:
-            logger.error(f"Error calculating influence scores: {e}")
-            # Fallback: simple out-degree
-            self.influence_scores = {}
-            for node_id in node_ids:
-                direct = sum(1 for a, b in edges if a == node_id)
-                self.influence_scores[node_id] = direct
+                logger.info(f"  {name}: PR={pr:.5f}")
 
     def get_node_size(self, node_id, min_size=25, max_size=160):
         """Logarithmic scaling optimized for your score range (0-48)"""
@@ -423,20 +291,4 @@ class InfluenceGraphDataMixin:
 
         This treats every person an Artist influenced as a 'vote' for that Artist.
         """
-        try:
-            # We use the existing G passed from calculate_influence_scores
-            # G is directed: Influencer -> Influenced
-
-            # Reverse the graph so "votes" flow from the Influenced back to the Influencer
-            reversed_G = G.reverse(copy=True)
-
-            # Calculate PageRank
-            # alpha=0.85 is the standard decay factor (probability of continuing the chain)
-            pagerank_scores = nx.pagerank(reversed_G, alpha=alpha)
-
-            return pagerank_scores
-
-        except nx.NetworkXException as e:
-            logger.error(f"Error computing PageRank: {e}")
-            # Return 0.0 for all nodes on failure
-            return {n: 0.0 for n in G.nodes()}
+        return algorithms.compute_decayed_pagerank(G, alpha=alpha)
