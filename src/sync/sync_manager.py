@@ -11,11 +11,23 @@ completely agnostic about which path is running.
 import hashlib
 import os
 import shutil
-from typing import Dict, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Callable, Dict, List, Optional, Tuple
+
+from sqlalchemy.orm import selectinload
 
 from src.db.db_helpers import GetFromDB
+from src.db.db_tables import MoodTrackAssociation, PlaylistTracks, Track, TrackArtistRole
 from src.core.logger_config import logger
 from src.sync.mtp_manager import MtpDevice, MtpManager
+
+# Post-copy verification retries this many times before a track is
+# reported as failed (so up to _MAX_RETRIES + 1 total copy attempts).
+_MAX_RETRIES = 2
+
+# Local duplicate confirmation (MD5) is disk I/O-bound, so run it across
+# a small thread pool rather than sequentially in the diff pre-pass.
+_DUPLICATE_CHECK_WORKERS = 8
 
 
 class SyncManager:
@@ -74,13 +86,31 @@ class SyncManager:
 
     def get_playlist_tracks(self, playlist_id: int) -> List[Dict]:
         playlist_tracks = self.get_db.get_all_entities(
-            "PlaylistTracks", playlist_id=playlist_id
+            "PlaylistTracks",
+            playlist_id=playlist_id,
+            load_options=[
+                selectinload(PlaylistTracks.track)
+                .selectinload(Track.artist_roles)
+                .selectinload(TrackArtistRole.artist),
+                selectinload(PlaylistTracks.track)
+                .selectinload(Track.artist_roles)
+                .selectinload(TrackArtistRole.role),
+            ],
         )
         return [self._track_to_dict(pt.track) for pt in playlist_tracks]
 
     def get_mood_tracks(self, mood_id: int) -> List[Dict]:
         associations = self.get_db.get_all_entities(
-            "MoodTrackAssociation", mood_id=mood_id
+            "MoodTrackAssociation",
+            mood_id=mood_id,
+            load_options=[
+                selectinload(MoodTrackAssociation.track)
+                .selectinload(Track.artist_roles)
+                .selectinload(TrackArtistRole.artist),
+                selectinload(MoodTrackAssociation.track)
+                .selectinload(Track.artist_roles)
+                .selectinload(TrackArtistRole.role),
+            ],
         )
         return [self._track_to_dict(assoc.track) for assoc in associations]
 
@@ -131,20 +161,152 @@ class SyncManager:
         except OSError:
             return False
 
-    def _is_mtp_duplicate(
-        self, device: MtpDevice, local_path: str, remote_uri: str
-    ) -> bool:
-        """
-        True if the remote file already exists with the same size as local.
-        Size-only check — full MD5 over USB is too slow to be practical.
-        """
-        remote_size = self.mtp.remote_file_size(device, remote_uri)
-        if remote_size < 0:
-            return False  # file doesn't exist
+    def _list_local_pool(self, music_dir: str) -> Dict[str, int]:
+        """One directory scan → {filename: size} for everything already
+        present in music_dir. Backs both the diff pre-pass and post-copy
+        verification so neither pays a per-file stat/exists call."""
+        existing: Dict[str, int] = {}
         try:
-            return os.path.getsize(local_path) == remote_size
+            with os.scandir(music_dir) as it:
+                for entry in it:
+                    if entry.is_file():
+                        try:
+                            existing[entry.name] = entry.stat().st_size
+                        except OSError:
+                            continue
         except OSError:
-            return False
+            pass
+        return existing
+
+    def _diff_local_pool(
+        self, tracks: List[Dict], music_dir: str
+    ) -> Tuple[List[Dict], List[Dict]]:
+        """
+        Partition tracks into (to_copy, to_skip) using ONE directory listing
+        instead of a per-track existence check. Name+size matches are
+        confirmed with MD5 in parallel (I/O-bound); everything else is
+        scheduled to copy. Sets device_filename on every track it accepts.
+        """
+        existing = self._list_local_pool(music_dir)
+        to_copy: List[Dict] = []
+        md5_candidates: List[Tuple[Dict, str]] = []
+
+        for track in tracks:
+            if not track["file_path"] or not os.path.exists(track["file_path"]):
+                logger.warning(f"Source file not found: {track['file_path']}")
+                continue
+            ext = os.path.splitext(track["file_path"])[1]
+            device_filename = self._safe_filename(track["artist"], track["title"], ext)
+            track["device_filename"] = device_filename
+            try:
+                source_size = os.path.getsize(track["file_path"])
+            except OSError:
+                to_copy.append(track)
+                continue
+            if existing.get(device_filename) == source_size:
+                md5_candidates.append((track, os.path.join(music_dir, device_filename)))
+            else:
+                to_copy.append(track)
+
+        to_skip: List[Dict] = []
+        if md5_candidates:
+            with ThreadPoolExecutor(max_workers=_DUPLICATE_CHECK_WORKERS) as pool:
+                futures = {
+                    pool.submit(self._is_local_duplicate, t["file_path"], dest): t
+                    for t, dest in md5_candidates
+                }
+                for future in as_completed(futures):
+                    track = futures[future]
+                    (to_skip if future.result() else to_copy).append(track)
+
+        return to_copy, to_skip
+
+    def _diff_mtp_pool(
+        self, tracks: List[Dict], device: MtpDevice, music_dir_uri: str
+    ) -> Tuple[List[Dict], List[Dict]]:
+        """
+        Partition tracks into (to_copy, to_skip) using ONE remote directory
+        listing (one `gio list`) instead of a `gio info` round trip per
+        track. Same size-only comparison the per-file check used — only the
+        number of subprocess calls changes (N -> 1).
+        """
+        existing = self.mtp.list_remote_dir(device, music_dir_uri)
+        to_copy: List[Dict] = []
+        to_skip: List[Dict] = []
+
+        for track in tracks:
+            local_path = track.get("file_path", "")
+            if not local_path or not os.path.exists(local_path):
+                logger.warning(f"Source file not found: {local_path}")
+                continue
+            ext = os.path.splitext(local_path)[1]
+            device_filename = self._safe_filename(track["artist"], track["title"], ext)
+            track["device_filename"] = device_filename
+            try:
+                source_size = os.path.getsize(local_path)
+            except OSError:
+                to_copy.append(track)
+                continue
+            if existing.get(device_filename) == source_size:
+                to_skip.append(track)
+            else:
+                to_copy.append(track)
+
+        return to_copy, to_skip
+
+    def _copy_with_retry(
+        self,
+        tracks: List[Dict],
+        copy_one: Callable[[Dict], bool],
+        list_existing: Callable[[], Dict[str, int]],
+        expected_size: Callable[[Dict], Optional[int]],
+        progress_callback=None,
+        progress_total: int = 0,
+        progress_label: str = "Copying",
+    ) -> Tuple[List[Dict], List[Dict]]:
+        """
+        Copy `tracks` via copy_one(), then verify each one actually landed
+        by re-listing the destination ONCE and comparing sizes -- a
+        transport reporting success is not trusted on its own, since MTP
+        transfers can silently drop or truncate a file. Anything that
+        doesn't verify is retried, up to _MAX_RETRIES extra rounds.
+        Returns (succeeded, failed); succeeded tracks are marked
+        copied_successfully=True.
+        """
+        remaining = tracks
+        succeeded: List[Dict] = []
+
+        for attempt in range(_MAX_RETRIES + 1):
+            if not remaining:
+                break
+            label = progress_label if attempt == 0 else f"Retrying ({attempt + 1}/{_MAX_RETRIES + 1})"
+            for i, track in enumerate(remaining):
+                if progress_callback:
+                    progress_callback(i, progress_total, f"{label}: {track['title']}")
+                copy_one(track)
+
+            existing = list_existing()
+            still_failed = []
+            for track in remaining:
+                size = existing.get(track["device_filename"])
+                expected = expected_size(track)
+                if size is not None and expected is not None and size == expected:
+                    track["copied_successfully"] = True
+                    succeeded.append(track)
+                else:
+                    still_failed.append(track)
+            remaining = still_failed
+            if remaining and attempt < _MAX_RETRIES:
+                logger.warning(
+                    f"{len(remaining)} track(s) failed verification, "
+                    f"retrying (attempt {attempt + 2}/{_MAX_RETRIES + 1})"
+                )
+
+        for track in remaining:
+            track["copied_successfully"] = False
+            logger.error(f"Failed to sync after retries: {track.get('device_filename')}")
+
+        return succeeded, remaining
 
     def _build_m3u_content(
         self,
@@ -163,28 +325,25 @@ class SyncManager:
         return "\n".join(lines) + "\n"
 
     # ------------------------------------------------------------------
-    # Folder sync (original — kept intact)
+    # Folder sync
     # ------------------------------------------------------------------
 
-    def copy_track(self, source_path: str, dest_path: str) -> Tuple[bool, str]:
+    def copy_track(self, source_path: str, dest_path: str) -> bool:
         """
-        Copy a track to dest_path.
-        Returns (success, status) where status is 'copied', 'skipped', or 'error'.
+        Copy a track to dest_path. Callers are expected to have already
+        filtered out duplicates via _diff_local_pool.
         """
         try:
             if not os.path.exists(source_path):
                 logger.error(f"Source file not found: {source_path}")
-                return False, "error"
-            if self._is_local_duplicate(source_path, dest_path):
-                logger.debug(f"Duplicate skipped: {dest_path}")
-                return True, "skipped"
+                return False
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
             shutil.copy2(source_path, dest_path)
             logger.debug(f"Copied: {source_path} → {dest_path}")
-            return True, "copied"
+            return True
         except OSError as e:
             logger.error(f"Error copying {source_path}: {e}")
-            return False, "error"
+            return False
 
     def clear_device_folder(self, device_path: str):
         """Remove music/ and playlists/ subdirectories before a fresh folder sync."""
@@ -216,36 +375,39 @@ class SyncManager:
                 "message": "Playlist is empty",
                 "tracks_copied": 0,
                 "tracks_skipped": 0,
+                "tracks_failed": 0,
                 "total_tracks": 0,
             }
 
-        tracks_copied = 0
-        tracks_skipped = 0
         total_tracks = len(tracks)
-        processed_tracks = []
+        to_copy, to_skip = self._diff_local_pool(tracks, music_dir)
+        for track in to_skip:
+            track["copied_successfully"] = True
 
-        for i, track in enumerate(tracks):
-            if progress_callback:
-                progress_callback(i, total_tracks, f"Copying: {track['title']}")
+        def copy_one(track: Dict) -> bool:
+            dest_path = os.path.join(music_dir, track["device_filename"])
+            return self.copy_track(track["file_path"], dest_path)
 
-            if not track["file_path"] or not os.path.exists(track["file_path"]):
-                logger.warning(f"Source file not found: {track['file_path']}")
-                continue
+        def expected_size(track: Dict) -> Optional[int]:
+            try:
+                return os.path.getsize(track["file_path"])
+            except OSError:
+                return None
 
-            ext = os.path.splitext(track["file_path"])[1]
-            device_filename = self._safe_filename(track["artist"], track["title"], ext)
-            dest_path = os.path.join(music_dir, device_filename)
+        succeeded, failed = self._copy_with_retry(
+            to_copy,
+            copy_one,
+            lambda: self._list_local_pool(music_dir),
+            expected_size,
+            progress_callback,
+            progress_total=total_tracks,
+            progress_label="Copying",
+        )
 
-            success, status = self.copy_track(track["file_path"], dest_path)
-
-            processed_track = track.copy()
-            processed_track["device_filename"] = device_filename
-            processed_track["copied_successfully"] = success
-            processed_tracks.append(processed_track)
-
-            if success:
-                tracks_copied += 1 if status == "copied" else 0
-                tracks_skipped += 1 if status == "skipped" else 0
+        processed_tracks = to_skip + succeeded + failed
+        tracks_copied = len(succeeded)
+        tracks_skipped = len(to_skip)
+        tracks_failed = len(failed)
 
         m3u_content = self._build_m3u_content(playlist_data, processed_tracks)
         safe_name = "".join(
@@ -258,12 +420,17 @@ class SyncManager:
         except OSError as e:
             logger.error(f"Failed to write M3U: {e}")
 
+        message = f"{tracks_copied} copied, {tracks_skipped} skipped"
+        if tracks_failed:
+            message += f", {tracks_failed} failed"
+
         return {
             "playlist_name": playlist_name,
             "success": tracks_copied > 0 or tracks_skipped > 0,
-            "message": f"{tracks_copied} copied, {tracks_skipped} skipped",
+            "message": message,
             "tracks_copied": tracks_copied,
             "tracks_skipped": tracks_skipped,
+            "tracks_failed": tracks_failed,
             "total_tracks": total_tracks,
         }
 
@@ -325,11 +492,13 @@ class SyncManager:
                 "message": "Device not found — is it plugged in with File Transfer selected?",
                 "tracks_copied": 0,
                 "tracks_skipped": 0,
+                "tracks_failed": 0,
                 "total_tracks": 0,
             }
 
         # Ensure remote directories exist
-        self.mtp.make_remote_dir(device, self.mtp.build_music_uri(device, music_path))
+        music_dir_uri = self.mtp.build_music_uri(device, music_path)
+        self.mtp.make_remote_dir(device, music_dir_uri)
         self.mtp.make_remote_dir(
             device, self.mtp.build_playlists_dir_uri(device, music_path)
         )
@@ -342,48 +511,39 @@ class SyncManager:
                 "message": "Playlist is empty",
                 "tracks_copied": 0,
                 "tracks_skipped": 0,
+                "tracks_failed": 0,
                 "total_tracks": 0,
             }
 
-        tracks_copied = 0
-        tracks_skipped = 0
         total_tracks = len(tracks)
-        processed_tracks = []
+        to_copy, to_skip = self._diff_mtp_pool(tracks, device, music_dir_uri)
+        for track in to_skip:
+            track["copied_successfully"] = True
 
-        for i, track in enumerate(tracks):
-            if progress_callback:
-                progress_callback(i, total_tracks, f"Sending: {track['title']}")
+        def copy_one(track: Dict) -> bool:
+            remote_uri = self.mtp.build_file_uri(device, music_path, track["device_filename"])
+            return self.mtp.copy_file(device, track["file_path"], remote_uri)
 
-            local_path = track.get("file_path", "")
-            if not local_path or not os.path.exists(local_path):
-                logger.warning(f"Source file not found: {local_path}")
-                continue
+        def expected_size(track: Dict) -> Optional[int]:
+            try:
+                return os.path.getsize(track["file_path"])
+            except OSError:
+                return None
 
-            ext = os.path.splitext(local_path)[1]
-            device_filename = self._safe_filename(track["artist"], track["title"], ext)
-            remote_uri = self.mtp.build_file_uri(device, music_path, device_filename)
+        succeeded, failed = self._copy_with_retry(
+            to_copy,
+            copy_one,
+            lambda: self.mtp.list_remote_dir(device, music_dir_uri),
+            expected_size,
+            progress_callback,
+            progress_total=total_tracks,
+            progress_label="Sending",
+        )
 
-            # Skip if file already exists with matching size
-            if self._is_mtp_duplicate(device, local_path, remote_uri):
-                logger.debug(f"MTP duplicate skipped: {device_filename}")
-                tracks_skipped += 1
-                processed_track = track.copy()
-                processed_track["device_filename"] = device_filename
-                processed_track["copied_successfully"] = True
-                processed_tracks.append(processed_track)
-                continue
-
-            success = self.mtp.copy_file(device, local_path, remote_uri)
-
-            processed_track = track.copy()
-            processed_track["device_filename"] = device_filename
-            processed_track["copied_successfully"] = success
-            processed_tracks.append(processed_track)
-
-            if success:
-                tracks_copied += 1
-            else:
-                logger.error(f"Failed to send: {device_filename}")
+        processed_tracks = to_skip + succeeded + failed
+        tracks_copied = len(succeeded)
+        tracks_skipped = len(to_skip)
+        tracks_failed = len(failed)
 
         # Push M3U — relative path from Playlists dir back up to Music dir
         music_folder_name = music_path.strip("/").split("/")[-1]
@@ -410,11 +570,16 @@ class SyncManager:
         playlist_uri = self.mtp.build_playlist_uri(device, music_path, safe_name)
         self.mtp.copy_text_as_file(device, m3u_content, playlist_uri)
 
+        message = f"{tracks_copied} sent, {tracks_skipped} skipped"
+        if tracks_failed:
+            message += f", {tracks_failed} failed"
+
         return {
             "playlist_name": playlist_name,
             "success": tracks_copied > 0 or tracks_skipped > 0,
-            "message": f"{tracks_copied} sent, {tracks_skipped} skipped",
+            "message": message,
             "tracks_copied": tracks_copied,
             "tracks_skipped": tracks_skipped,
+            "tracks_failed": tracks_failed,
             "total_tracks": total_tracks,
         }
