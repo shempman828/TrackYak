@@ -32,9 +32,15 @@ class _StubGenre:
         self.genre_name = genre_name
 
 
+class _StubSession:
+    def expire(self, instance, attribute_names=None):
+        pass
+
+
 class _StubGet:
     def __init__(self, entity_object_return=None):
         self.entity_object_return = entity_object_return
+        self.session = _StubSession()
 
     def count_entities(self, model_name):
         return 0
