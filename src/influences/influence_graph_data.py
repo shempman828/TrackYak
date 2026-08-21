@@ -215,10 +215,23 @@ class InfluenceGraphDataMixin:
                 name = self.node_names.get(node_id, f"Artist {node_id}")
                 logger.info(f"  {name}: PR={pr:.5f}")
 
-    def get_node_size(self, node_id, min_size=25, max_size=160):
+    # min_size/max_size are calibrated against get_label_font_size's range
+    # (28-45.5 graph units, via _FONT_SCALE) so even the smallest,
+    # least-influential node's box can hold a short label -- e.g. an
+    # initials-style alias like "C. Aguilera" -- in one or two wrapped
+    # lines without graph.js's fitNodeLabel needing to grow it past this
+    # influence-driven size for anything but a genuinely long name. The
+    # box's pre-_FONT_SCALE dimensions (25-160) were never recalibrated
+    # when font size was scaled up 3.5x for legibility, so the smallest
+    # box (25 wide) was narrower than a single character at the new font
+    # size -- every node's box needed to grow just to hold ANY text, and
+    # low-influence nodes with long names grew the most, making node size
+    # track name length more than influence (confirmed empirically
+    # against the real DB, see scratch/graph_repro/repro.py).
+    def get_node_size(self, node_id, min_size=110, max_size=240):
         """Logarithmic scaling optimized for your score range (0-48)"""
         if not self.influence_scores or node_id not in self.influence_scores:
-            return 60
+            return 175
 
         score = self.influence_scores[node_id]
 
@@ -245,34 +258,30 @@ class InfluenceGraphDataMixin:
     # sized as if that fit-zoom were close to 1, so at a real fit-zoom of
     # ~0.09-0.12 labels rendered under 1.5px -- invisible, not just small
     # (confirmed empirically against the real DB, see scratch/graph_repro/
-    # repro.py). This constant scales the whole label sizing system (font,
-    # label width) up together so text is legible at a *moderate* zoom-in
-    # from that overview (e.g. 3x), where a multi-community cross-section
-    # already fits in the viewport -- see get_label_font_size/get_label_width.
-    _LABEL_SCALE = 3.5
-
-    @staticmethod
-    def get_label_width(size, name, min_width=70 * _LABEL_SCALE):
-        """Width available to a node's label, in the same graph units as
-        its box `size`. Small/low-influence nodes get a box far too
-        narrow for most names -- decoupling the label from the box lets
-        short and medium names render in full (the label simply overflows
-        the small pill) while still capping to something sane for very
-        long names, so the ellipsis only kicks in when it's genuinely
-        needed rather than on almost every small node."""
-        return max(
-            size,
-            min(
-                min_width + len(name) * 3.2 * InfluenceGraphDataMixin._LABEL_SCALE,
-                260 * InfluenceGraphDataMixin._LABEL_SCALE,
-            ),
-        )
+    # repro.py). This constant scales font size up so text is legible at a
+    # *moderate* zoom-in from that overview (e.g. 3x), where a
+    # multi-community cross-section already fits in the viewport.
+    #
+    # get_node_size's box is no longer the label's rendering box -- it's
+    # only a *minimum*. graph.js sizes each node's actual box to exactly
+    # contain its own word-wrapped label (Cytoscape's width/height:
+    # 'label'), floored at this minimum so low-influence/short-name nodes
+    # keep the size-encodes-influence visual language. Two earlier
+    # approaches both failed empirically against the real DB (see
+    # scratch/graph_repro/repro.py): scaling a separate label-width value
+    # in lockstep with font size let overflow reach far enough to be
+    # painted over by neighboring nodes' opaque boxes; scaling it down
+    # less aggressively still left every label wider than its own box.
+    # Auto-sizing the box to its content is the only way to guarantee zero
+    # overflow at a legible font size without also inflating the box for
+    # every short-named node.
+    _FONT_SCALE = 3.5
 
     @staticmethod
     def get_label_font_size(
         size,
-        min_font=8 * _LABEL_SCALE,
-        max_font=13 * _LABEL_SCALE,
+        min_font=8 * _FONT_SCALE,
+        max_font=13 * _FONT_SCALE,
     ):
         """Scale label font size down for small/low-influence nodes so
         more characters fit before eliding, instead of a fixed size that
