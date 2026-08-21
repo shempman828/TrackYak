@@ -20,7 +20,7 @@ class NavigationDock(QDockWidget):
     """navigation dock widget"""
 
     def __init__(self, gui_instance):
-        super().__init__("", gui_instance)
+        super().__init__("Navigation", gui_instance)
         self.gui = gui_instance
         self.nav_collapsed = False
         self.nav_auto_collapse = False
