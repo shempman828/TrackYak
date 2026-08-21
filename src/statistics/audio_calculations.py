@@ -165,6 +165,9 @@ class AudioCalculations(AudioRhythmMixin, AudioSpectralMixin, AudiophileScoreMix
             stft_20_4096 = self._stft_magnitude(self._segment(mono, 20.0), nperseg=4096)
 
             bpm, tempo_confidence = self.calculate_bpm()
+            primary_time_signature, time_signature_confidence = (
+                self.calculate_time_signature(bpm=bpm, tempo_confidence=tempo_confidence)
+            )
             key, mode, key_confidence = self.calculate_key()
             track_gain = self.calculate_track_gain()
             track_peak = self.calculate_track_peak()
@@ -198,6 +201,8 @@ class AudioCalculations(AudioRhythmMixin, AudioSpectralMixin, AudiophileScoreMix
             return {
                 "bpm": bpm,
                 "tempo_confidence": tempo_confidence,
+                "primary_time_signature": primary_time_signature,
+                "time_signature_confidence": time_signature_confidence,
                 "key": key,
                 "mode": mode,
                 "key_confidence": key_confidence,
@@ -237,6 +242,8 @@ class AudioCalculations(AudioRhythmMixin, AudioSpectralMixin, AudiophileScoreMix
         return {
             "bpm": 120.0,
             "tempo_confidence": 0.0,
+            "primary_time_signature": None,
+            "time_signature_confidence": 0.0,
             "key": "C",
             "mode": "major",
             "key_confidence": 0.0,
