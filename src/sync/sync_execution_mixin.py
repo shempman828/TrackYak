@@ -124,9 +124,15 @@ class SyncExecutionMixin:
     def _on_playlist_complete(self, result: Dict):
         icon = "✅" if result["success"] else "❌"
         skipped = result.get("tracks_skipped", 0)
-        skip_note = f"  ({skipped} duplicates skipped)" if skipped else ""
+        failed = result.get("tracks_failed", 0)
+        notes = []
+        if skipped:
+            notes.append(f"{skipped} duplicates skipped")
+        if failed:
+            notes.append(f"{failed} failed after retries")
+        note = f"  ({', '.join(notes)})" if notes else ""
         self.sync_log.append(
-            f"{icon} {result['playlist_name']}: {result['message']}{skip_note}"
+            f"{icon} {result['playlist_name']}: {result['message']}{note}"
         )
         self.sync_log.verticalScrollBar().setValue(
             self.sync_log.verticalScrollBar().maximum()
@@ -140,29 +146,33 @@ class SyncExecutionMixin:
         total = len(results)
         total_copied = sum(r.get("tracks_copied", 0) for r in results)
         total_skipped = sum(r.get("tracks_skipped", 0) for r in results)
+        total_failed = sum(r.get("tracks_failed", 0) for r in results)
+        failed_note = f", {total_failed} failed" if total_failed else ""
 
         logger.info(
             f"Sync finished: {successful}/{total} playlists succeeded, "
-            f"{total_copied} tracks copied, {total_skipped} skipped"
+            f"{total_copied} tracks copied, {total_skipped} skipped{failed_note}"
         )
 
         self.current_action.setText(
             f"Done — {successful}/{total} playlists  ·  "
-            f"{total_copied} copied, {total_skipped} skipped"
+            f"{total_copied} copied, {total_skipped} skipped{failed_note}"
         )
         self.sync_log.append(
             f"\n=== Sync complete: {successful}/{total} playlists  |  "
-            f"{total_copied} copied, {total_skipped} skipped ==="
+            f"{total_copied} copied, {total_skipped} skipped{failed_note} ==="
         )
 
         if successful > 0:
             self.status_manager.end_task(
-                f"Sync complete: {total_copied} copied, {total_skipped} skipped", 5000
+                f"Sync complete: {total_copied} copied, {total_skipped} skipped{failed_note}",
+                5000,
             )
             show_status_message(
                 self,
                 f"Sync finished! Playlists: {successful}/{total} successful  ·  "
-                f"Tracks copied: {total_copied}  ·  Duplicates skipped: {total_skipped}",
+                f"Tracks copied: {total_copied}  ·  Duplicates skipped: {total_skipped}"
+                + (f"  ·  Failed: {total_failed}" if total_failed else ""),
                 5000,
             )
         else:
