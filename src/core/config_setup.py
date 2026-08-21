@@ -464,7 +464,6 @@ class Config:
 # above. Either way, every accessor is generated through the same mechanism.
 
 _CONFIG_FIELDS = [
-    _primitive("theme", "app", "theme", "str", "dark_mode"),
     _primitive("theme_file", "app", "theme_file", "str", "default.qss"),
     _primitive("first_run", "app", "first_run", "bool", True, prefix="is"),
     ConfigField(

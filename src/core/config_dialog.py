@@ -207,11 +207,6 @@ class ConfigDialog(QDialog):
             self.theme_combo.currentTextChanged.connect(self._on_theme_changed)
         layout.addRow("Theme:", self.theme_combo)
 
-        # Color scheme
-        self.color_scheme_combo = QComboBox()
-        self.color_scheme_combo.addItems(["Dark", "Light", "System"])
-        layout.addRow("Color Scheme:", self.color_scheme_combo)
-
         # UI scale
         self.scale_slider = QSlider(Qt.Horizontal)
         self.scale_slider.setRange(80, 140)  # percent
@@ -492,10 +487,6 @@ class ConfigDialog(QDialog):
                 if index >= 0:
                     self.theme_combo.setCurrentIndex(index)
 
-            color_scheme = self.config.get_theme()
-            color_index = {"dark": 0, "light": 1, "system": 2}.get(color_scheme, 0)
-            self.color_scheme_combo.setCurrentIndex(color_index)
-
             ui_scale = (
                 self.display_settings.ui_scale
                 if self.display_settings is not None
@@ -643,9 +634,6 @@ class ConfigDialog(QDialog):
                 self.config.set_censor_explicit_words(
                     self.censor_words_check.isChecked()
                 )
-
-            color_schemes = {0: "dark", 1: "light", 2: "system"}
-            self.config.set_theme(color_schemes[self.color_scheme_combo.currentIndex()])
 
             # Audio settings
             sample_rate_text = self.sample_rate_combo.currentText()
