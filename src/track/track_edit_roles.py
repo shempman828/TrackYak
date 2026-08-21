@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.artist.artist_resolution import resolve_or_create_artist
 from src.common.credited_as_dialog import CreditedAsDialog
 from src.common.entity_completer_edit import (
     build_entity_search_widget,
@@ -636,12 +637,7 @@ class RolesTab(_BaseTab):
         if matched_id is not None:
             return self.controller.get.get_entity_object("Artist", artist_id=matched_id)
 
-        existing = self.controller.get.get_entity_object(
-            "Artist", artist_name=artist_name
-        )
-        artist = existing[0] if isinstance(existing, list) else existing
-        if not artist:
-            artist = self.controller.add.add_entity("Artist", artist_name=artist_name)
+        artist = resolve_or_create_artist(self.controller, artist_name)
 
         if artist:
             self._artist_search.add_to_index(artist.artist_name, artist.artist_id)
