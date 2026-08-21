@@ -57,16 +57,19 @@ class InfluenceGraphView(
             self,
             on_interact=self._reposition_legend,
             on_rename_all=self._open_rename_all_dialog,
+            on_level_changed=self._on_level_changed,
         )
         self._legend.raise_()
 
         # Graph model (pure data -- Cytoscape/fcose owns layout & rendering)
         self.node_names = {}  # node_id -> name
         self.edges = []  # list of (source_id, target_id) tuples, directed
-        self.node_mass = {}  # node_id -> mass (degree-based), used for anchor picking
-        self.community_id = {}  # node_id -> Louvain community
-        self.community_names = {}  # community_index -> user-given name (this session)
-        self._community_anchor = {}  # community_index -> anchor node_id (naming key)
+        self.node_mass = {}  # node_id -> mass (degree-based), used to rank representative artists
+        self.community_levels = []  # list[dict[node_id, community_index]], finest first
+        self.active_level = None  # index into community_levels; None until first compute
+        self.community_id = {}  # node_id -> Louvain community, for the active level
+        self.community_names = {}  # community_index -> user-given name, for the active level
+        self.community_names_by_level = {}  # level -> {community_index: name}, every eligible level
         self.influence_scores = {}  # node_id -> influence_score
 
         self.legend_enabled = app_config.get_influence_legend_visible()

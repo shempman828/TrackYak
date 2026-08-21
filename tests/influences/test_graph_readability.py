@@ -287,7 +287,6 @@ def _run_render_pipeline(qapp, harness_page, cases):
             self.node_mass = {}
             self.community_id = {}
             self.community_names = {}
-            self._community_anchor = {}
             self.influence_scores = {}
             self._page_ready = False
             self._pending_js = []

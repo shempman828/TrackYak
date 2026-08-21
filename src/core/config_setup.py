@@ -592,13 +592,6 @@ _CONFIG_FIELDS = [
         _encode_legend_position,
     ),
     ConfigField(
-        "influence_cluster_names",
-        "influences",
-        ("cluster_names",),
-        _decode_json_dict,
-        _encode_json_dict,
-    ),
-    ConfigField(
         "album_view_filters",
         "album_view",
         ("filters",),

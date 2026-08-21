@@ -1,5 +1,6 @@
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -63,9 +64,10 @@ class LegendPanel(QFrame):
         "bottom-left": Qt.SizeBDiagCursor,
     }
 
-    def __init__(self, parent=None, on_interact=None, on_rename_all=None):
+    def __init__(self, parent=None, on_interact=None, on_rename_all=None, on_level_changed=None):
         super().__init__(parent)
         self._on_interact = on_interact
+        self._on_level_changed = on_level_changed
         self.setAttribute(Qt.WA_StyledBackground, True)
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(10, 8, 10, 8)
@@ -86,6 +88,13 @@ class LegendPanel(QFrame):
             rename_button.clicked.connect(on_rename_all)
             header.addWidget(rename_button)
         self._layout.addLayout(header)
+
+        self._level_row = QHBoxLayout()
+        self._level_row.setSpacing(4)
+        self._level_group = QButtonGroup(self)
+        self._level_group.setExclusive(True)
+        self._level_group.idClicked.connect(self._on_level_button_clicked)
+        self._layout.addLayout(self._level_row)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -135,6 +144,36 @@ class LegendPanel(QFrame):
         max_x = max(0, parent.width() - self.width())
         max_y = max(0, parent.height() - self.height())
         return QPoint(self._clamp(point.x(), 0, max_x), self._clamp(point.y(), 0, max_y))
+
+    def set_level_count(self, count, active_level):
+        """Show a level-toggle button per eligible dendrogram level (level 0
+        = finest/most granular). Hidden entirely when there's only one
+        eligible level -- nothing to toggle between."""
+        for button in self._level_group.buttons():
+            self._level_group.removeButton(button)
+        while self._level_row.count():
+            item = self._level_row.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        if count <= 1:
+            return
+
+        for level in range(count):
+            button = QPushButton(f"L{level}")
+            button.setCheckable(True)
+            button.setChecked(level == active_level)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setFlat(True)
+            button.setFixedHeight(20)
+            self._level_group.addButton(button, level)
+            self._level_row.addWidget(button)
+        self._level_row.addStretch()
+
+    def _on_level_button_clicked(self, level):
+        if self._on_level_changed is not None:
+            self._on_level_changed(level)
 
     def set_communities(self, rows):
         clear_layout(self._rows_layout)

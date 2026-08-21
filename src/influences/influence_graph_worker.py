@@ -51,7 +51,8 @@ class InfluenceGraphWorkerMixin:
     """
     Expects the host class to provide: self.node_names, self.edges,
     self.node_mass, self.community_id, self.community_names,
-    self._community_anchor, self.influence_scores, self.extract_global_graph(),
+    self.community_levels, self.active_level, self.community_names_by_level,
+    self.influence_scores, self.extract_global_graph(),
     self._update_node_mass(), self.assign_louvain_communities(),
     self.calculate_influence_scores(), self._resolve_community_names(),
     self._update_legend(), self._push_graph(), self.debug_size_distribution(),
@@ -77,8 +78,12 @@ class InfluenceGraphWorkerMixin:
         self.node_mass = {}
         self.community_id = {}
         self.community_names = {}
-        self._community_anchor = {}
         self.influence_scores = {}
+        # community_levels/active_level/community_names_by_level are NOT
+        # reset here: assign_louvain_communities() re-derives community_levels
+        # fresh every recompute anyway, and preserving active_level across a
+        # recompute is what keeps the user's chosen granularity from
+        # snapping back to default on every "Refresh".
 
         self._graph_worker = _GlobalGraphWorker(self)
         self._graph_worker.finished.connect(self._on_global_graph_computed)

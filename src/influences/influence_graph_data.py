@@ -122,8 +122,16 @@ class InfluenceGraphDataMixin:
                 self.community_id.pop(nid, None)
 
     def assign_louvain_communities(self, node_ids, edges):
-        """Assign nodes to Louvain communities for clustering."""
-        self.community_id = algorithms.assign_louvain_communities(node_ids, edges)
+        """Assign nodes to Louvain communities at every eligible dendrogram
+        level, then activate one (the previously-selected level if it's
+        still in range, otherwise the coarsest eligible level)."""
+        dendrogram = algorithms.assign_louvain_communities(node_ids, edges)
+        self.community_levels = algorithms.filter_eligible_levels(dendrogram) or dendrogram[-1:]
+
+        if self.active_level is None or self.active_level >= len(self.community_levels):
+            self.active_level = len(self.community_levels) - 1
+
+        self.community_id = self.community_levels[self.active_level]
 
     # -----------------------
     # Utilities

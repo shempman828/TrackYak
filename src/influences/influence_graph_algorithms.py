@@ -176,10 +176,14 @@ def calculate_influence_scores(node_ids, edges):
 
 
 def assign_louvain_communities(node_ids, edges):
-    """Assign nodes to Louvain communities for clustering.
+    """Assign nodes to Louvain communities at every dendrogram level.
 
-    Returns dict[node_id, community_index]. Falls back to a single
-    community for every node on failure.
+    Returns list[dict[node_id, community_index]], finest-grained first
+    (level 0) and coarsening from there -- the same hierarchy Louvain
+    computes internally via its aggregation passes (Blondel et al. 2008),
+    previously discarded by best_partition(), which returns only the
+    single highest-modularity level. Falls back to one flat community for
+    every node on failure.
     """
     try:
         G = nx.Graph()
@@ -188,10 +192,58 @@ def assign_louvain_communities(node_ids, edges):
             G.add_edge(a, b)
         import community as community_louvain
 
-        return community_louvain.best_partition(G)
+        dendrogram = community_louvain.generate_dendrogram(G)
+        return [
+            community_louvain.partition_at_level(dendrogram, level)
+            for level in range(len(dendrogram))
+        ]
     except (TypeError, nx.NetworkXException) as e:
         logger.error(f"Error computing Louvain communities: {e}")
-        return {nid: 0 for nid in node_ids}
+        return [{nid: 0 for nid in node_ids}]
+
+
+def filter_eligible_levels(dendrogram, max_dominant_fraction=0.8):
+    """Filter a dendrogram down to levels worth surfacing in the UI.
+
+    Drops levels with fewer than 2 communities, drops levels where the
+    largest community holds more than `max_dominant_fraction` of all
+    nodes (near-degenerate "everything is one blob" cuts), and collapses
+    consecutive levels whose grouping of nodes is identical (Louvain's
+    aggregation passes sometimes produce no real structural change
+    between adjacent levels).
+
+    Returns list[dict[node_id, community_index]], same finest-first
+    order, a subset of the input. Thresholds are a starting point, tuned
+    against real data as described in the feature spec.
+    """
+    eligible = []
+    prev_signature = None
+    total_nodes = None
+    for partition in dendrogram:
+        if total_nodes is None:
+            total_nodes = len(partition)
+        if not total_nodes:
+            continue
+
+        members_by_community = {}
+        for node_id, community_index in partition.items():
+            members_by_community.setdefault(community_index, set()).add(node_id)
+
+        if len(members_by_community) < 2:
+            continue
+        if max(len(m) for m in members_by_community.values()) > (
+            max_dominant_fraction * total_nodes
+        ):
+            continue
+
+        signature = frozenset(frozenset(m) for m in members_by_community.values())
+        if signature == prev_signature:
+            continue
+
+        eligible.append(partition)
+        prev_signature = signature
+
+    return eligible
 
 
 def compute_community_bridge_counts(node_ids, edges, community_id):
