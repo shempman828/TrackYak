@@ -63,6 +63,32 @@ def configure_display_backend() -> None:
         os.environ["GDK_BACKEND"] = "x11"
 
 
+def _prewarm_webengine(window) -> None:
+    """Force the main window's native (X11) window handle to be created
+    before it's ever shown, by giving it a throwaway QWebEngineView child.
+
+    QtWebEngine's GPU-compositing surface needs a native-backed widget
+    hierarchy. The first time a QWebEngineView is added anywhere under an
+    already-visible top-level window, Qt has to recreate that window's
+    native handle to back it -- on X11 this is visible as a brief
+    unmap/remap (the window appears to minimize and resize). Paying that
+    one-time cost here, while the window is still hidden, keeps it
+    invisible to the user. Confirmed empirically: a standalone prewarmed
+    QWebEngineView (not parented into the window) or a bare winId() call
+    does NOT prevent the glitch -- it has to be a native-child widget
+    inside this window's own hierarchy.
+    """
+    from PySide6.QtWebEngineWidgets import QWebEngineView
+
+    probe = QWebEngineView(window)
+    probe.setHtml("<html></html>")
+    probe.resize(1, 1)
+    probe.show()
+    QApplication.processEvents()
+    probe.hide()
+    probe.deleteLater()
+
+
 def show_status(splash, message: str, delay: float = 0) -> None:
     """Update the splash screen status text, then optionally pause briefly.
 
@@ -156,6 +182,12 @@ def initialize_application(splash, app, config: Config):
 
     # Initialize main window
     window = GUI(controller)
+
+    # Absorb the first-QWebEngineView native-window-recreation glitch (see
+    # _prewarm_webengine docstring) while the window is still hidden, before
+    # Places/Influences can trigger it visibly on first open.
+    _prewarm_webengine(window)
+
     show_status(splash, "Almost ready…", delay=0.4)
     logger.info("Main window initialized")
 
