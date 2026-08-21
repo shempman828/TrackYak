@@ -892,7 +892,7 @@ class RoleView(QWidget):
                 QMessageBox.Yes | QMessageBox.No,
             )
 
-            if reply == QDialog.Yes:
+            if reply == QMessageBox.Yes:
                 self.controller.delete.delete_entity("Role", role_id)
                 self.load_roles()
                 self.role_updated.emit()
