@@ -62,8 +62,8 @@ class AudioStats:
                 "track_gain_distribution": distribution_stats(
                     self._column_values(session, Track.track_gain)
                 ),
-                "time_signature_distribution": self._categorical_distribution(
-                    session, Track.primary_time_signature
+                "time_signature_distribution": self._time_signature_distribution(
+                    session
                 ),
                 "file_size_distribution": distribution_stats(
                     [
@@ -93,16 +93,6 @@ class AudioStats:
         if extra_filters:
             query = query.filter(*extra_filters)
         return [v for (v,) in query.all()]
-
-    def _categorical_distribution(self, session, column):
-        rows = (
-            session.query(column, func.count(Track.track_id))
-            .filter(column.isnot(None))
-            .group_by(column)
-            .order_by(func.count(Track.track_id).desc())
-            .all()
-        )
-        return {label: count for label, count in rows}
 
     # ------------------------------------------------------------------ #
     #  BPM / Key -- confidence-toggle distributions                        #
@@ -142,6 +132,26 @@ class AudioStats:
         return {
             "all": _fetch(),
             "confident": _fetch([Track.key_confidence >= CONFIDENCE_THRESHOLD]),
+        }
+
+    def _time_signature_distribution(self, session):
+        """Categorical time-signature distribution, plus a
+        confidence-filtered variant (same shape as _key_distribution)."""
+
+        def _fetch(extra_filters=None):
+            query = session.query(
+                Track.primary_time_signature, func.count(Track.track_id)
+            ).filter(Track.primary_time_signature.isnot(None))
+            if extra_filters:
+                query = query.filter(*extra_filters)
+            rows = query.group_by(Track.primary_time_signature).all()
+            return {label: count for label, count in rows}
+
+        return {
+            "all": _fetch(),
+            "confident": _fetch(
+                [Track.time_signature_confidence >= CONFIDENCE_THRESHOLD]
+            ),
         }
 
     # ------------------------------------------------------------------ #
