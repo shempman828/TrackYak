@@ -8,12 +8,14 @@ from src.common.alias_management_dialog import AliasManagementDialog
 from src.core.asset_paths import ASSETS_DIR, icon
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.core.version import get_version
 from src.equalizer.equalizer_dialog import EqualizerDialog
 from src.file_management.file_manager_dialog import FileManager
 from src.importing.import_dialog import ImportDialog
 from src.library.duplicate_finder import DuplicateFinderDialog
 from src.library.missing_tracks import MissingTracks
+from src.lyrics.explicit_recalc_worker import ExplicitRecalcWorker
 from src.player.player_mini import MiniPlayerWindow
 from src.statistics.analysis_dialog import AudioAnalysisDialog
 from src.statistics.statistics_dialog import MusicStatsDialog
@@ -120,6 +122,13 @@ class MenuBar:
             "Manage Aliases…",
             slot=self.show_alias_management_dialog,
             tooltip="View and edit merge/split aliases and skipped genres",
+        )
+        self.add_action(
+            tools_menu,
+            "Recalculate Explicit Flags…",
+            slot=self.show_explicit_recalc,
+            tooltip="Scan every track with lyrics but no Explicit setting yet, "
+            "and flag it against assets/explicit_words.txt",
         )
 
         # View menu
@@ -359,6 +368,32 @@ class MenuBar:
         self.alias_management_dialog.show()
         self.alias_management_dialog.raise_()
         self.alias_management_dialog.activateWindow()
+
+    def show_explicit_recalc(self):
+        """Backfill is_explicit for every track that has lyrics but has
+        never had it determined (NULL) -- never overwrites a manual or
+        previously-computed value. See ExplicitRecalcWorker."""
+        if getattr(self, "_explicit_recalc_worker", None) is not None:
+            return
+        show_status_message(self, "Recalculating explicit flags…", duration=0)
+        self._explicit_recalc_worker = ExplicitRecalcWorker(self.controller)
+        self._explicit_recalc_worker.finished.connect(self._on_explicit_recalc_finished)
+        self._explicit_recalc_worker.error.connect(self._on_explicit_recalc_error)
+        self._explicit_recalc_worker.start()
+
+    def _on_explicit_recalc_finished(self, scanned: int, flagged: int):
+        show_status_message(
+            self,
+            f"Explicit flags recalculated: {scanned} track(s) scanned, "
+            f"{flagged} flagged explicit",
+        )
+        self._explicit_recalc_worker.wait()
+        self._explicit_recalc_worker = None
+
+    def _on_explicit_recalc_error(self, message: str):
+        show_status_message(self, f"Explicit flag recalculation failed: {message}")
+        self._explicit_recalc_worker.wait()
+        self._explicit_recalc_worker = None
 
     def show_duplicate_finder(self):
         """Open the Duplicate Track Finder dialog."""
