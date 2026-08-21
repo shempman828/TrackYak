@@ -190,14 +190,7 @@ class ArtistTypesWidget(QWidget):
     def _add_chip(self, artist_type_id, type_name):
         chip = QPushButton(f"{type_name}  ×")
         chip.setFlat(True)
-        chip.setStyleSheet(
-            "QPushButton {"
-            "  border: 1px solid palette(mid);"
-            "  border-radius: 10px;"
-            "  padding: 2px 8px;"
-            "}"
-            "QPushButton:hover { background: palette(alternate-base); }"
-        )
+        chip.setProperty("class", "typeChip")
         chip.setToolTip(f"Remove '{type_name}'")
         chip.clicked.connect(lambda _checked, tid=artist_type_id: self._remove(tid))
         self._chip_flow.addWidget(chip)

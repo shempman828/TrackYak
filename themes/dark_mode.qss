@@ -1320,49 +1320,6 @@ QPushButton[playerCtrlBtn="true"] {
     background: transparent;
 }
 
-/* ── CHIP / SEGMENTED TOGGLE BUTTONS (checkable QPushButtons) ───────────────── */
-QPushButton[chip="true"] {
-    border: 1px solid rgba(133, 153, 234, 0.5);
-    border-radius: 11px;
-    padding: 3px 12px;
-    background: transparent;
-    color: #b8c0f0;
-}
-
-QPushButton[chip="true"]:checked {
-    background: #8599ea;
-    color: #0b0c10;
-    border-color: #8599ea;
-}
-
-QPushButton[chip="true"]:hover:!checked {
-    background: rgba(133, 153, 234, 0.15);
-}
-
-QPushButton[segment="true"] {
-    border: 1px solid rgba(133, 153, 234, 0.5);
-    padding: 4px 12px;
-    background: transparent;
-    color: #b8c0f0;
-}
-
-QPushButton[segment="true"]:checked {
-    background: #8599ea;
-    color: #0b0c10;
-    font-weight: 600;
-}
-
-QPushButton[segment="left"] {
-    border-top-left-radius: 4px;
-    border-bottom-left-radius: 4px;
-}
-
-QPushButton[segment="right"] {
-    border-left: none;
-    border-top-right-radius: 4px;
-    border-bottom-right-radius: 4px;
-}
-
 /* ── "NOW PLAYING" TAB BAR (lyrics/credits) ──────────────────────────────────── */
 QPushButton[npTab="true"] {
     background: transparent;
@@ -1769,3 +1726,281 @@ ArtistDetailTab QPushButton#TocChip:hover {
     background-color: #23253a;
     color: #b8c0f0;
 }
+
+/* =============================================================================
+   MIGRATED INLINE STYLES
+   Rules moved here from widget.setStyleSheet() calls in Python so they
+   track the Appearance settings UI-scale slider (which only rescales the
+   app-level stylesheet, not per-widget inline ones). Each rule preserves
+   the exact appearance the Python code used to set directly.
+   ============================================================================= */
+
+#ArtistCreditChip {
+    border: 1px solid palette(mid);
+    border-radius: 6px;
+}
+
+#AlbumTitleField {
+    font-size: 18px;
+    font-weight: bold;
+}
+
+#AlbumDescriptionEdit {
+    padding: 2px 4px;
+}
+
+#ArtistPicLabel {
+    border: 1px solid #888;
+    border-radius: 4px;
+    background: #222;
+}
+
+#DateFieldCaption {
+    color: palette(mid);
+    font-size: 10px;
+}
+
+QPushButton[class="segToggleLeft"] {
+    border: 1px solid palette(mid);
+    border-top-left-radius: 4px;
+    border-bottom-left-radius: 4px;
+    border-top-right-radius: 0px;
+    border-bottom-right-radius: 0px;
+    padding: 4px 12px;
+}
+QPushButton[class="segToggleLeft"]:checked,
+QPushButton[class="segToggleRight"]:checked {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+    font-weight: 600;
+}
+QPushButton[class="segToggleRight"] {
+    border: 1px solid palette(mid);
+    border-left: none;
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
+    border-top-left-radius: 0px;
+    border-bottom-left-radius: 0px;
+    padding: 4px 12px;
+}
+
+QPushButton[class="typeChip"] {
+    border: 1px solid palette(mid);
+    border-radius: 10px;
+    padding: 2px 8px;
+}
+QPushButton[class="typeChip"]:hover {
+    background: palette(alternate-base);
+}
+
+#MergeCandidateWarning {
+    color: #b06a00;
+    margin-left: 20px;
+}
+
+#MergeCandidateButton {
+    margin-left: 20px;
+}
+
+QLabel#entityInfoBox {
+    border: 1px solid palette(mid);
+    border-radius: 3px;
+    padding: 4px 6px;
+    background: palette(base);
+    min-height: 36px;
+}
+
+QWidget#conflictCard {
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    padding: 6px;
+    margin-bottom: 6px;
+}
+
+#NavContainer {
+    border-right: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+QSplitter#DatesTimelineSplitter::handle {
+    background-color: #8599ea;
+    margin: 2px;
+}
+QSplitter#DatesTimelineSplitter::handle:vertical {
+    height: 3px;
+}
+QSplitter#DatesTimelineSplitter::handle:hover {
+    background-color: #EAD685;
+}
+
+QFrame.card {
+    border-radius: 8px;
+    padding: 10px;
+    border: 1px solid #9385ea;
+}
+QPushButton[class='primary'] {
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-weight: 600;
+}
+
+#ClusterPreviewLabel {
+    color: palette(mid);
+    font-size: 11px;
+}
+
+LegendPanel {
+    background-color: rgba(17, 18, 26, 205);
+    border: 1px solid rgba(133, 153, 234, 90);
+    border-radius: 8px;
+}
+LegendPanel QLabel {
+    color: #b8c0f0;
+    background: transparent;
+    font-size: 11px;
+}
+LegendPanel QScrollArea {
+    background: transparent;
+    border: none;
+}
+LegendPanel QScrollArea > QWidget > QWidget {
+    background: transparent;
+}
+LegendPanel QScrollBar:vertical {
+    background: transparent;
+    width: 6px;
+    margin: 0;
+}
+LegendPanel QScrollBar::handle:vertical {
+    background: rgba(133,153,234,0.35);
+    border-radius: 3px;
+    min-height: 24px;
+}
+LegendPanel QScrollBar::handle:vertical:hover {
+    background: rgba(133,153,234,0.6);
+}
+LegendPanel QScrollBar::add-line:vertical, LegendPanel QScrollBar::sub-line:vertical {
+    height: 0;
+}
+LegendPanel QPushButton {
+    color: #8599ea;
+    background: transparent;
+    border: none;
+    font-size: 11px;
+    padding: 0;
+}
+LegendPanel QPushButton:hover {
+    color: #b8c0f0;
+    text-decoration: underline;
+}
+
+#publisherInfobox {
+    background: palette(alternate-base);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+}
+
+QLabel#PublisherLogoLabel {
+    border: 1px solid palette(mid);
+    background: palette(base);
+}
+
+#StatPlaceholderLabel {
+    color: #7a82a8;
+    font-style: italic;
+    padding: 8px;
+}
+
+#StatValueLabel {
+    padding: 2px;
+}
+
+#SyncSectionLabel {
+    color: #555e7a;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    font-weight: bold;
+}
+
+#SyncPlaceholder {
+    color: #555e7a;
+    font-style: italic;
+    padding: 40px;
+}
+
+#SyncLogView {
+    background: #0b0c10;
+    border: 1px solid #1e1f2b;
+    border-radius: 6px;
+}
+
+#SyncBottomBar {
+    border-top: 1px solid #1e1f2b;
+    background: rgba(11,12,16,0.95);
+}
+
+QProgressBar#SyncProgressBar {
+    background: #1e1f2b;
+    border-radius: 3px;
+    border: none;
+}
+QProgressBar#SyncProgressBar::chunk {
+    background: #8599ea;
+    border-radius: 3px;
+}
+
+QPushButton#PrimaryButton {
+    background: #8599ea;
+    color: #0b0c10;
+    font-weight: bold;
+    border-radius: 6px;
+    padding: 7px 18px;
+}
+QPushButton#PrimaryButton:hover {
+    background: #9badf5;
+}
+QPushButton#PrimaryButton:disabled {
+    background: #2a2c3e;
+    color: #555e7a;
+}
+
+#SectionHeader {
+    margin-top: 10px;
+}
+
+QPushButton[class="roleChip"] {
+    border: 1px solid #888;
+    border-radius: 10px;
+    padding: 2px 8px;
+}
+QPushButton[class="roleChip"]:hover {
+    background-color: #444;
+}
+
+#ToAlbumButton {
+    font-size: 10px;
+    padding: 1px 6px;
+}
+
+QPushButton[class="filterChip"] {
+    border: 1px solid palette(mid);
+    border-radius: 11px;
+    padding: 3px 12px;
+    background: palette(base);
+}
+QPushButton[class="filterChip"]:checked,
+QPushButton[class="dirToggle"]:checked {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+    border-color: palette(highlight);
+}
+QPushButton[class="filterChip"]:hover:!checked {
+    background: palette(alternate-base);
+}
+
+QPushButton[class="dirToggle"] {
+    border: 1px solid palette(mid);
+    padding: 4px 10px;
+    background: palette(base);
+}
+QPushButton#dirLeft { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
+QPushButton#dirRight { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }

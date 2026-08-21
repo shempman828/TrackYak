@@ -98,15 +98,6 @@ class MergeDBDialog(QDialog):
         self.source_info = QLabel("No entity selected")
         self.source_info.setWordWrap(True)
         self.source_info.setObjectName("entityInfoBox")
-        self.source_info.setStyleSheet(
-            "QLabel#entityInfoBox {"
-            "  border: 1px solid palette(mid);"
-            "  border-radius: 3px;"
-            "  padding: 4px 6px;"
-            "  background: palette(base);"
-            "  min-height: 36px;"
-            "}"
-        )
         source_col.addWidget(self.source_info)
 
         # Source search with "Find Similar" button
@@ -142,15 +133,6 @@ class MergeDBDialog(QDialog):
         self.target_info = QLabel("No entity selected")
         self.target_info.setWordWrap(True)
         self.target_info.setObjectName("entityInfoBox")
-        self.target_info.setStyleSheet(
-            "QLabel#entityInfoBox {"
-            "  border: 1px solid palette(mid);"
-            "  border-radius: 3px;"
-            "  padding: 4px 6px;"
-            "  background: palette(base);"
-            "  min-height: 36px;"
-            "}"
-        )
         target_col.addWidget(self.target_info)
 
         # Target search with "Find Similar" button
@@ -598,14 +580,6 @@ class MergeDBDialog(QDialog):
                 # --- Card widget: gives each field a visible box ---
                 card = QWidget()
                 card.setObjectName("conflictCard")
-                card.setStyleSheet(
-                    "QWidget#conflictCard {"
-                    "  border: 1px solid palette(mid);"
-                    "  border-radius: 4px;"
-                    "  padding: 6px;"
-                    "  margin-bottom: 6px;"
-                    "}"
-                )
                 # Limit the card width so buttons don't stretch edge-to-edge
                 card.setMaximumWidth(560)
 

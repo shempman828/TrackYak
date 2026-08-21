@@ -225,7 +225,7 @@ class BasicTab(QWidget):
             (("Year", year_edit), ("Month", month_edit), ("Day", day_edit))
         ):
             caption_label = QLabel(caption)
-            caption_label.setStyleSheet("color: palette(mid); font-size: 10px;")
+            caption_label.setObjectName("DateFieldCaption")
             grid.addWidget(caption_label, 0, col, Qt.AlignHCenter)
             grid.addWidget(edit, 1, col)
 
@@ -267,9 +267,7 @@ class BasicTab(QWidget):
         self.pic_label = QLabel()
         self.pic_label.setMaximumSize(PIC_MAX_SIZE)
         self.pic_label.setAlignment(Qt.AlignCenter)
-        self.pic_label.setStyleSheet(
-            "border: 1px solid #888; border-radius: 4px; background: #222;"
-        )
+        self.pic_label.setObjectName("ArtistPicLabel")
         pic_layout.addWidget(self.pic_label)
 
         btn_row = QHBoxLayout()
@@ -530,6 +528,8 @@ class SegmentedToggle(QWidget):
 
         self._left_btn = QPushButton(left_text)
         self._right_btn = QPushButton(right_text)
+        self._left_btn.setProperty("class", "segToggleLeft")
+        self._right_btn.setProperty("class", "segToggleRight")
         for btn in (self._left_btn, self._right_btn):
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
@@ -545,45 +545,7 @@ class SegmentedToggle(QWidget):
         layout.addWidget(self._right_btn)
         layout.addStretch()
 
-        self._apply_style()
         self._right_btn.toggled.connect(self._on_right_toggled)
-
-    def _apply_style(self):
-        self._left_btn.setStyleSheet(
-            """
-            QPushButton {
-                border: 1px solid palette(mid);
-                border-top-left-radius: 4px;
-                border-bottom-left-radius: 4px;
-                border-top-right-radius: 0px;
-                border-bottom-right-radius: 0px;
-                padding: 4px 12px;
-            }
-            QPushButton:checked {
-                background: palette(highlight);
-                color: palette(highlighted-text);
-                font-weight: 600;
-            }
-            """
-        )
-        self._right_btn.setStyleSheet(
-            """
-            QPushButton {
-                border: 1px solid palette(mid);
-                border-left: none;
-                border-top-right-radius: 4px;
-                border-bottom-right-radius: 4px;
-                border-top-left-radius: 0px;
-                border-bottom-left-radius: 0px;
-                padding: 4px 12px;
-            }
-            QPushButton:checked {
-                background: palette(highlight);
-                color: palette(highlighted-text);
-                font-weight: 600;
-            }
-            """
-        )
 
     def _on_right_toggled(self, checked: bool):
         self.toggled.emit(checked)

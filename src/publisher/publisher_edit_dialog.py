@@ -204,10 +204,6 @@ class PublisherEditDialog(QDialog):
         infobox = QFrame()
         infobox.setObjectName("publisherInfobox")
         infobox.setFrameShape(QFrame.StyledPanel)
-        infobox.setStyleSheet(
-            "#publisherInfobox { background: palette(alternate-base); "
-            "border: 1px solid palette(mid); border-radius: 4px; }"
-        )
         infobox.setMaximumWidth(300)
         infobox_layout = QVBoxLayout(infobox)
         infobox_layout.setContentsMargins(12, 12, 12, 12)
@@ -221,9 +217,7 @@ class PublisherEditDialog(QDialog):
             self.logo_label = QLabel()
             self.logo_label.setFixedSize(LOGO_MAX_SIZE)
             self.logo_label.setAlignment(Qt.AlignCenter)
-            self.logo_label.setStyleSheet(
-                "border: 1px solid palette(mid); background: palette(base);"
-            )
+            self.logo_label.setObjectName("PublisherLogoLabel")
             logo_row = QHBoxLayout()
             logo_row.addStretch()
             logo_row.addWidget(self.logo_label)

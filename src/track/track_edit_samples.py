@@ -76,21 +76,6 @@ _MAX_SEARCH_RESULTS = 50
 class _AddSampleBar(QWidget):
     """Direction toggle + track name search (min 2 chars) + Add, for one new sample link."""
 
-    DIR_TOGGLE_STYLE = """
-        QPushButton {
-            border: 1px solid palette(mid);
-            padding: 4px 10px;
-            background: palette(base);
-        }
-        QPushButton:checked {
-            background: palette(highlight);
-            color: palette(highlighted-text);
-            border-color: palette(highlight);
-        }
-        QPushButton#dirLeft { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
-        QPushButton#dirRight { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
-    """
-
     def __init__(self, controller, on_add, track_name=None, parent=None):
         super().__init__(parent)
         self.controller = controller
@@ -113,7 +98,7 @@ class _AddSampleBar(QWidget):
         self.btn_used_by.setObjectName("dirRight")
         for b in (self.btn_uses, self.btn_used_by):
             b.setCheckable(True)
-            b.setStyleSheet(self.DIR_TOGGLE_STYLE)
+            b.setProperty("class", "dirToggle")
             b.setCursor(Qt.PointingHandCursor)
             self.dir_group.addButton(b)
         self.btn_uses.setChecked(True)

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.display.display_settings import apply_scaled_style
 
 
 class ClusterNamesDialog(QDialog):
@@ -51,8 +52,8 @@ class ClusterNamesDialog(QDialog):
             header.setSpacing(6)
             swatch = QLabel()
             swatch.setFixedSize(12, 12)
-            swatch.setStyleSheet(
-                f"background-color: {color.name()}; border-radius: 3px;"
+            apply_scaled_style(
+                swatch, f"background-color: {color.name()}; border-radius: 3px;"
             )
             header.addWidget(swatch)
             header.addWidget(QLabel(f"{count} artist{'s' if count != 1 else ''}"))
@@ -62,7 +63,7 @@ class ClusterNamesDialog(QDialog):
             if representative_artists:
                 preview = QLabel("Includes: " + ", ".join(representative_artists))
                 preview.setWordWrap(True)
-                preview.setStyleSheet("color: palette(mid); font-size: 11px;")
+                preview.setObjectName("ClusterPreviewLabel")
                 row_layout.addWidget(preview)
 
             edit = QLineEdit(name)

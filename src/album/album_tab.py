@@ -444,9 +444,7 @@ class AlbumTabBuilder:
     def _build_artist_credit_chip(self, artist_name, role_assoc, index, last_index):
         """Build one compact credit chip (arrows, name, actions) for the flow."""
         chip = QWidget()
-        chip.setStyleSheet(
-            "QWidget { border: 1px solid palette(mid); border-radius: 6px; }"
-        )
+        chip.setObjectName("ArtistCreditChip")
         chip_layout = QHBoxLayout(chip)
         chip_layout.setContentsMargins(4, 2, 4, 2)
         chip_layout.setSpacing(4)

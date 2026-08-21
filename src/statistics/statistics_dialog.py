@@ -74,7 +74,7 @@ def _placeholder_label(text: str) -> QLabel:
     phase of the statistics expansion, so the tab shell is stable now and
     later phases only add content rather than reshuffling layout."""
     label = QLabel(text)
-    label.setStyleSheet("QLabel { color: #7a82a8; font-style: italic; padding: 8px; }")
+    label.setObjectName("StatPlaceholderLabel")
     label.setWordWrap(True)
     return label
 
@@ -1940,7 +1940,7 @@ class MusicStatsDialog(QDialog):
     def create_stat_label(self, text):
         """Create a consistent stat label."""
         label = QLabel(text)
-        label.setStyleSheet("QLabel { padding: 2px; }")
+        label.setObjectName("StatValueLabel")
         return label
 
     def format_stat_value(self, value, is_numeric=True):

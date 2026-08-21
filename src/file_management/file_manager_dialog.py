@@ -71,12 +71,6 @@ class FileManager(QDialog):
 
         main_layout.addStretch()
 
-        # small style hooks (kept light)
-        self.setStyleSheet("""
-            QFrame.card { border-radius: 8px; padding: 10px; border: 1px solid #9385ea; }
-            QPushButton[class='primary'] { padding: 6px 12px; border-radius: 6px; font-weight: 600; }
-        """)
-
     def _build_card(self, widget) -> QFrame:
         """Wrap a widget in a subtle card frame for visual separation."""
         frame = QFrame()

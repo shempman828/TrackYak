@@ -27,6 +27,7 @@ from src.album.base_album_edit import AlbumEditor
 from src.album.base_album_widget import AlbumWidget
 from src.common.layout_utils import FlowLayoutContainer, clear_layout
 from src.core.logger_config import logger
+from src.display.display_settings import apply_scaled_style
 
 # ---------------------------------------------------------------------------
 # Main view
@@ -544,7 +545,7 @@ def _shrink_combo_to_content(combo: QComboBox) -> QComboBox:
     once the widget has been polished with it in place -- otherwise
     sizeHint() still reports the stale, QSS-only width.
     """
-    combo.setStyleSheet("min-width: 0px;")
+    apply_scaled_style(combo, "min-width: 0px;")
     combo.ensurePolished()
     return combo
 

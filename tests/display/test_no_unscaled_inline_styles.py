@@ -15,7 +15,7 @@ is a literal, never itself interpolated.
 import ast
 from pathlib import Path
 
-from src.display.display_settings import _SCALABLE_QSS_PATTERN
+from src.display.display_settings import scale_qss_pixel_values
 
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 
@@ -52,7 +52,11 @@ def _find_violations(path: Path) -> list[str]:
         if not node.args:
             continue
         text = _literal_text(node.args[0])
-        if _SCALABLE_QSS_PATTERN.search(text):
+        # A real violation is text that scale_qss_pixel_values would actually
+        # change -- i.e. it contains a scalable property with a live px
+        # value, not just the property name (e.g. "border: none;" mentions
+        # "border" but has nothing for the slider to affect).
+        if text and scale_qss_pixel_values(text, 1.0) != scale_qss_pixel_values(text, 2.0):
             violations.append(f"{path}:{node.lineno}")
     return violations
 

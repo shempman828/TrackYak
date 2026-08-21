@@ -128,23 +128,6 @@ class _FilterChips(QWidget):
     Always active voice and names the edited artist explicitly so the filter can't be misread.
     """
 
-    CHIP_STYLE = """
-        QPushButton {
-            border: 1px solid palette(mid);
-            border-radius: 11px;
-            padding: 3px 12px;
-            background: palette(base);
-        }
-        QPushButton:checked {
-            background: palette(highlight);
-            color: palette(highlighted-text);
-            border-color: palette(highlight);
-        }
-        QPushButton:hover:!checked {
-            background: palette(alternate-base);
-        }
-    """
-
     def __init__(self, on_changed, parent=None):
         super().__init__(parent)
         self._on_changed = on_changed
@@ -160,7 +143,7 @@ class _FilterChips(QWidget):
         for key in (None, DIR_INFLUENCED, DIR_INFLUENCER):
             btn = QPushButton()
             btn.setCheckable(True)
-            btn.setStyleSheet(self.CHIP_STYLE)
+            btn.setProperty("class", "filterChip")
             btn.setCursor(Qt.PointingHandCursor)
             self.group.addButton(btn)
             self._buttons[key] = btn
@@ -211,21 +194,6 @@ class _AddInfluenceBar(QWidget):
     duplicated toolbar.
     """
 
-    DIR_TOGGLE_STYLE = """
-        QPushButton {
-            border: 1px solid palette(mid);
-            padding: 4px 10px;
-            background: palette(base);
-        }
-        QPushButton:checked {
-            background: palette(highlight);
-            color: palette(highlighted-text);
-            border-color: palette(highlight);
-        }
-        QPushButton#dirLeft { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
-        QPushButton#dirRight { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
-    """
-
     def __init__(self, on_add, artist_name=None, parent=None):
         super().__init__(parent)
         self._on_add = on_add
@@ -248,7 +216,7 @@ class _AddInfluenceBar(QWidget):
         self.btn_influencer.setObjectName("dirRight")
         for b in (self.btn_influenced, self.btn_influencer):
             b.setCheckable(True)
-            b.setStyleSheet(self.DIR_TOGGLE_STYLE)
+            b.setProperty("class", "dirToggle")
             b.setCursor(Qt.PointingHandCursor)
             self.dir_group.addButton(b)
         self.btn_influenced.setChecked(True)

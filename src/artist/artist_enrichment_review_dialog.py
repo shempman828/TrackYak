@@ -226,13 +226,13 @@ class ArtistEnrichmentReviewDialog(QDialog):
                         "Consider merging instead of adding this alias."
                     )
                     warning.setWordWrap(True)
-                    warning.setStyleSheet("color: #b06a00; margin-left: 20px;")
+                    warning.setObjectName("MergeCandidateWarning")
                     box_layout.addWidget(warning)
 
                     merge_btn = QPushButton(
                         f"Review possible merge with '{match_artist.artist_name}'…"
                     )
-                    merge_btn.setStyleSheet("margin-left: 20px;")
+                    merge_btn.setObjectName("MergeCandidateButton")
                     merge_btn.clicked.connect(
                         lambda _checked=False, box=cb, a=match_artist, s=score: (
                             self._review_alias_merge(box, a, s)

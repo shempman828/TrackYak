@@ -39,11 +39,6 @@ class NavigationDock(QDockWidget):
         # Create all the UI components
         nav_container = QWidget()
         nav_container.setObjectName("NavContainer")
-        nav_container.setStyleSheet("""
-            #NavContainer {
-                border-right: 1px solid rgba(255, 255, 255, 0.10);
-            }
-        """)
         nav_layout = QVBoxLayout(nav_container)
         nav_layout.setContentsMargins(0, 0, 0, 0)
         nav_layout.setSpacing(0)

@@ -110,7 +110,7 @@ def _group_events_by_type(events: list) -> dict:
 
 def _build_event_row(event: dict) -> QFrame:
     frame = QFrame()
-    frame.setStyleSheet(f"""
+    apply_scaled_style(frame, f"""
         QFrame {{
             background-color: {_BG_CARD};
             border: 1px solid {_BORDER_SUBTLE};
@@ -177,7 +177,7 @@ class CalendarDayWidget(QFrame):
         # ── Cell styling ─────────────────────────────────────────────────────
         if not self.is_current_month:
             # Empty / filler cell — very subtle, not stark black
-            self.setStyleSheet(f"""
+            apply_scaled_style(self, f"""
                 CalendarDayWidget {{
                     background-color: {_BG_EMPTY};
                     border: 1px solid {_BORDER_SUBTLE};
@@ -186,7 +186,7 @@ class CalendarDayWidget(QFrame):
             """)
         elif self.events:
             # Day with events — gently highlighted with accent
-            self.setStyleSheet(f"""
+            apply_scaled_style(self, f"""
                 CalendarDayWidget {{
                     background-color: {_ACCENT_DIM};
                     border: 1px solid {_ACCENT_BORDER};
@@ -201,7 +201,7 @@ class CalendarDayWidget(QFrame):
             self.setToolTip("Click for full details")
         else:
             # Normal day — slightly elevated from base
-            self.setStyleSheet(f"""
+            apply_scaled_style(self, f"""
                 CalendarDayWidget {{
                     background-color: {_BG_CARD};
                     border: 1px solid {_BORDER_SUBTLE};
@@ -246,7 +246,7 @@ class CalendarDayWidget(QFrame):
                 chip.setMaximumWidth(120)
 
                 chip_color = _entity_color(group_events[0].get("entity", ""))
-                chip.setStyleSheet(f"""
+                apply_scaled_style(chip, f"""
                     QLabel {{
                         font-size: 8px;
                         color: {chip_color};
@@ -263,8 +263,8 @@ class CalendarDayWidget(QFrame):
 
             if len(sorted_types) > max_lines:
                 more = QLabel(f"+{len(sorted_types) - max_lines} more type(s)")
-                more.setStyleSheet(
-                    f"font-size: 8px; color: {_TEXT_DIM}; background: transparent;"
+                apply_scaled_style(
+                    more, f"font-size: 8px; color: {_TEXT_DIM}; background: transparent;"
                 )
                 layout.addWidget(more)
 
@@ -537,22 +537,22 @@ class CalendarWidget(QWidget):
         year_font = QFont("Cambria", 13)
         year_font.setBold(True)
         self._year_label.setFont(year_font)
-        self._year_label.setStyleSheet(
-            f"color: {_GOLD}; background: transparent; padding: 0 8px;"
+        apply_scaled_style(
+            self._year_label, f"color: {_GOLD}; background: transparent; padding: 0 8px;"
         )
         self._year_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
 
         self.summary_label = QLabel("")
         self.summary_label.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
-        self.summary_label.setStyleSheet(
-            f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;"
+        apply_scaled_style(
+            self.summary_label, f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;"
         )
 
         self.on_this_day_button = QPushButton("On This Day")
         self.on_this_day_button.setToolTip(
             "See what happened on today's date across every year in your library"
         )
-        self.on_this_day_button.setStyleSheet(f"""
+        apply_scaled_style(self.on_this_day_button, f"""
             QPushButton {{
                 background-color: {_ACCENT_DIM};
                 color: {_GOLD};
@@ -604,7 +604,7 @@ class CalendarWidget(QWidget):
             lbl.setAlignment(Qt.AlignCenter)
             is_weekend = col >= 5
             color = _PINK if is_weekend else _ACCENT
-            lbl.setStyleSheet(f"""
+            apply_scaled_style(lbl, f"""
                 QLabel {{
                     background-color: {_BG_SLIGHT};
                     color: {color};

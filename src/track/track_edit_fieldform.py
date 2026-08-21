@@ -265,7 +265,7 @@ class FieldFormTab(_BaseTab):
         font.setBold(True)
         font.setPointSize(font.pointSize() + 1)
         header.setFont(font)
-        header.setStyleSheet("margin-top: 10px;")
+        header.setObjectName("SectionHeader")
         return header
 
     def _make_row_field(self, field_name: str, cfg):

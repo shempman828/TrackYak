@@ -26,7 +26,7 @@ class LegendRow(QWidget):
 
         swatch = QLabel()
         swatch.setFixedSize(10, 10)
-        swatch.setStyleSheet(f"background-color: {color.name()}; border-radius: 3px;")
+        apply_scaled_style(swatch, f"background-color: {color.name()}; border-radius: 3px;")
         row.addWidget(swatch)
 
         label_text = (
@@ -67,21 +67,6 @@ class LegendPanel(QFrame):
         super().__init__(parent)
         self._on_interact = on_interact
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(
-            "LegendPanel { background-color: rgba(17, 18, 26, 205);"
-            " border: 1px solid rgba(133, 153, 234, 90); border-radius: 8px; }"
-            " QLabel { color: #b8c0f0; background: transparent; font-size: 11px; }"
-            " QScrollArea { background: transparent; border: none; }"
-            " QScrollArea > QWidget > QWidget { background: transparent; }"
-            " QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }"
-            " QScrollBar::handle:vertical { background: rgba(133,153,234,0.35);"
-            " border-radius: 3px; min-height: 24px; }"
-            " QScrollBar::handle:vertical:hover { background: rgba(133,153,234,0.6); }"
-            " QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
-            " QPushButton { color: #8599ea; background: transparent; border: none;"
-            " font-size: 11px; padding: 0; }"
-            " QPushButton:hover { color: #b8c0f0; text-decoration: underline; }"
-        )
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(10, 8, 10, 8)
         self._layout.setSpacing(4)

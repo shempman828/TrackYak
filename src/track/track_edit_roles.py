@@ -585,14 +585,7 @@ class RolesTab(_BaseTab):
         for role_id, role_name in self._sorted_roles(roles):
             chip = QPushButton(f"{role_name}  ×")
             chip.setFlat(True)
-            chip.setStyleSheet(
-                "QPushButton {"
-                "  border: 1px solid #888;"
-                "  border-radius: 10px;"
-                "  padding: 2px 8px;"
-                "}"
-                "QPushButton:hover { background-color: #444; }"
-            )
+            chip.setProperty("class", "roleChip")
             chip.setToolTip(f"Remove '{role_name}' from {artist_name}")
             chip.clicked.connect(
                 lambda _checked, aid=artist_id, rid=role_id: self._remove_role(aid, rid)
@@ -602,7 +595,7 @@ class RolesTab(_BaseTab):
             if self._on_convert_to_album is not None:
                 to_album_btn = QPushButton("→ Album")
                 to_album_btn.setFlat(True)
-                to_album_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
+                to_album_btn.setObjectName("ToAlbumButton")
                 to_album_btn.setToolTip(
                     f"Make '{role_name}' for {artist_name} a single album-level "
                     f"credit instead (removes it from every track)"

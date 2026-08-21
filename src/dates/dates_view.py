@@ -39,20 +39,9 @@ class TimelineView(QWidget):
 
         # Create splitter for top (calendar) and bottom (timeline)
         splitter = QSplitter()
+        splitter.setObjectName("DatesTimelineSplitter")
         splitter.setOrientation(Qt.Orientation.Vertical)
         splitter.setHandleWidth(3)
-        splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #8599ea;
-                margin: 2px;
-            }
-            QSplitter::handle:vertical {
-                height: 3px;
-            }
-            QSplitter::handle:hover {
-                background-color: #EAD685;
-            }
-        """)
 
         # Initialize calendar widget (will be populated when data is loaded)
         self.calendar_widget = CalendarWidget(

@@ -430,6 +430,15 @@ class GUI(QMainWindow, MenuBar):
         self._load_theme()
 
     def _load_theme(self):
+        display_settings = getattr(QApplication.instance(), "display_settings", None)
+        if display_settings is not None:
+            # DisplaySettings.apply_all() is the scale-aware theme loader --
+            # falling through to the raw QApplication.setStyleSheet() path
+            # below instead would silently drop the UI-scale slider's
+            # effect every time this runs (it used to, on every startup).
+            display_settings.apply_all()
+            return
+
         try:
             theme_file = app_config.get_theme_file()
             theme_path = app_config.get_theme_path(theme_file)

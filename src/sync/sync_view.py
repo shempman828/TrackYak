@@ -131,9 +131,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
 
         # Section label
         section_lbl = QLabel("DEVICES & PROFILES")
-        section_lbl.setStyleSheet(
-            "color:#555e7a; font-size:10px; letter-spacing:0.1em; font-weight:bold;"
-        )
+        section_lbl.setObjectName("SyncSectionLabel")
         layout.addWidget(section_lbl)
 
         # Scrollable card list
@@ -196,9 +194,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         # Placeholder shown when no profile is selected
         self.placeholder = QLabel("← Select a profile or create a new one")
         self.placeholder.setAlignment(Qt.AlignCenter)
-        self.placeholder.setStyleSheet(
-            "color:#555e7a; font-style:italic; padding:40px;"
-        )
+        self.placeholder.setObjectName("SyncPlaceholder")
         layout.addWidget(self.placeholder)
 
         # Tab widget (hidden until a profile is selected)
@@ -358,9 +354,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.sync_log = QTextEdit()
         self.sync_log.setReadOnly(True)
         self.sync_log.setFont(QFont("Courier", 9))
-        self.sync_log.setStyleSheet(
-            "background:#0b0c10; border:1px solid #1e1f2b; border-radius:6px;"
-        )
+        self.sync_log.setObjectName("SyncLogView")
         layout.addWidget(self.sync_log, 1)
 
         clear_btn = QPushButton("Clear Log")
@@ -375,23 +369,16 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
     def _build_bottom_bar(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("SyncBottomBar")
-        bar.setStyleSheet(
-            "#SyncBottomBar { border-top: 1px solid #1e1f2b; "
-            "background: rgba(11,12,16,0.95); }"
-        )
 
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(16, 10, 16, 10)
         layout.setSpacing(12)
 
         self.progress_bar = QProgressBar()
+        self.progress_bar.setObjectName("SyncProgressBar")
         self.progress_bar.setVisible(False)
         self.progress_bar.setFixedHeight(6)
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setStyleSheet(
-            "QProgressBar { background:#1e1f2b; border-radius:3px; border:none; }"
-            "QProgressBar::chunk { background:#8599ea; border-radius:3px; }"
-        )
         layout.addWidget(self.progress_bar, 1)
 
         self.cancel_sync_btn = QPushButton("Cancel")
@@ -403,14 +390,6 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.sync_btn.setObjectName("PrimaryButton")
         self.sync_btn.setEnabled(False)
         self.sync_btn.setMinimumWidth(120)
-        self.sync_btn.setStyleSheet(
-            "QPushButton#PrimaryButton {"
-            "  background: #8599ea; color: #0b0c10; font-weight:bold;"
-            "  border-radius:6px; padding: 7px 18px;"
-            "}"
-            "QPushButton#PrimaryButton:hover { background:#9badf5; }"
-            "QPushButton#PrimaryButton:disabled { background:#2a2c3e; color:#555e7a; }"
-        )
         self.sync_btn.clicked.connect(self._start_sync)
         layout.addWidget(self.sync_btn)
 

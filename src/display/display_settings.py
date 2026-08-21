@@ -25,25 +25,33 @@ _SCALABLE_QSS_PROPS = (
 )
 
 _SCALABLE_QSS_PATTERN = re.compile(
-    r"\b(" + "|".join(_SCALABLE_QSS_PROPS) + r")(\s*:\s*)(-?\d+(?:\.\d+)?)px\b"
+    r"\b(" + "|".join(_SCALABLE_QSS_PROPS) + r")(\s*:\s*)([^;}]+)"
 )
+_PX_VALUE_PATTERN = re.compile(r"(-?\d+(?:\.\d+)?)px\b")
 
 
 def scale_qss_pixel_values(qss: str, scale: float) -> str:
     """Scale px-valued sizing properties (font-size, padding, margins,
     widths/heights, border-radius, etc.) in a stylesheet by `scale`.
 
+    Scales every px value in a property, not just the first -- shorthand
+    like "padding: 2px 8px;" or "border-radius: 8px 8px 0 0;" needs each
+    value scaled independently.
+
     Always pass the theme's original, unscaled QSS text — scaling an
     already-scaled stylesheet would compound the factor on every call.
     """
 
-    def _replace(match: re.Match) -> str:
-        prop, sep, num = match.group(1), match.group(2), match.group(3)
-        scaled = float(num) * scale
+    def _replace_px(match: re.Match) -> str:
+        scaled = float(match.group(1)) * scale
         text = f"{scaled:.2f}".rstrip("0").rstrip(".")
-        return f"{prop}{sep}{text}px"
+        return f"{text}px"
 
-    return _SCALABLE_QSS_PATTERN.sub(_replace, qss)
+    def _replace_prop(match: re.Match) -> str:
+        prop, sep, value = match.group(1), match.group(2), match.group(3)
+        return f"{prop}{sep}{_PX_VALUE_PATTERN.sub(_replace_px, value)}"
+
+    return _SCALABLE_QSS_PATTERN.sub(_replace_prop, qss)
 
 
 class DisplaySettings(QObject):

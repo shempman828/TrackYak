@@ -25,6 +25,18 @@ def test_scales_width_height_and_border_radius():
     assert scale_qss_pixel_values(qss, 1.5) == expected
 
 
+def test_scales_every_value_in_multi_value_shorthand():
+    """Regression: padding/margin/border-radius shorthand can carry 2-4
+    space-separated px values (e.g. "padding: 2px 8px;") -- every value
+    must scale independently, not just the first.
+    """
+    assert scale_qss_pixel_values("padding: 2px 8px;", 2.0) == "padding: 4px 16px;"
+    assert (
+        scale_qss_pixel_values("border-radius: 8px 8px 0 0;", 1.5)
+        == "border-radius: 12px 12px 0 0;"
+    )
+
+
 def test_scales_only_the_width_in_border_shorthand():
     qss = "border-bottom: 2px solid rgba(133, 153, 234, 0.4);"
     expected = "border-bottom: 3px solid rgba(133, 153, 234, 0.4);"

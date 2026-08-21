@@ -365,7 +365,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
         title_widget = self.field_widgets.get("album_name")
         if title_widget:
-            title_widget.setStyleSheet("font-size: 18px; font-weight: bold;")
+            title_widget.setObjectName("AlbumTitleField")
             layout.addWidget(title_widget)
 
         subtitle_widget = self.field_widgets.get("album_subtitle")
@@ -417,7 +417,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
         self.desc_widget.setMinimumHeight(100)  # FIX: taller (was 60)
         self.desc_widget.setMaximumHeight(200)  # FIX: taller (was 120)
-        self.desc_widget.setStyleSheet("padding: 2px 4px;")
+        self.desc_widget.setObjectName("AlbumDescriptionEdit")
         self.desc_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout.addWidget(self.desc_widget)
 
