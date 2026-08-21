@@ -117,7 +117,10 @@ class NavigationDock(QDockWidget):
 
         # Add to main window
         self.gui.addDockWidget(Qt.LeftDockWidgetArea, self)
-        self.installEventFilter(self)
+        # Watch the main window's own resize, not this dock's -- a sibling
+        # dock claiming/releasing space resizes us too, which isn't the same
+        # signal as the user actually shrinking the window.
+        self.gui.installEventFilter(self)
 
     def size_navigation_to_content(self):
         """Size the navigation dock to fit its content."""
@@ -196,16 +199,22 @@ class NavigationDock(QDockWidget):
         logger.debug("Navigation expanded")
 
     def eventFilter(self, obj, event):
-        """Handle resize events for responsive navigation."""
-        if obj == self and event.type() == QEvent.Resize:
+        """Handle resize events for responsive navigation.
+
+        Bound to the main window's resize event (not this dock's own) so
+        that a sibling dock's visibility change can never be mistaken for
+        the user shrinking the window -- see _set_initial_navigation_size
+        for the matching 1366px "small screen" breakpoint.
+        """
+        if obj is not None and obj == getattr(self, "gui", None) and event.type() == QEvent.Resize:
             # Auto-collapse/expand based on available width
             if not self.nav_auto_collapse:
                 return False
 
             new_width = event.size().width()
-            if new_width < 150 and not self.nav_collapsed:
+            if new_width < 1366 and not self.nav_collapsed:
                 self.collapse_navigation()
-            elif new_width >= 200 and self.nav_collapsed:
+            elif new_width >= 1416 and self.nav_collapsed:
                 self.expand_navigation()
 
         return super().eventFilter(obj, event)
