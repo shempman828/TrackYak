@@ -116,6 +116,7 @@ class Track(Base):
     primary_time_signature = Column(String)  # e.g., 4/4, 3/4
     key_confidence = Column(Float)
     tempo_confidence = Column(Float)  # Confidence in BPM detection
+    time_signature_confidence = Column(Float)
 
     # Quality Data
     user_rating = Column(Float)
