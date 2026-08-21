@@ -402,7 +402,15 @@ class GUI(QMainWindow, MenuBar):
         """
         if not hasattr(self, "queue_dock"):
             return
+        nav_dock = getattr(self, "navigation_dock", None)
+        nav_width = nav_dock.width() if nav_dock is not None else None
         self.queue_dock.setVisible(visible)
+        if nav_dock is not None and nav_width:
+            # QMainWindow's dock layout otherwise reclaims the queue dock's
+            # space by shrinking sibling docks (the nav dock has the lowest
+            # width floor). Re-pinning the nav dock's width here forces the
+            # reflow to take/give that space from the central widget instead.
+            self.resizeDocks([nav_dock], [nav_width], Qt.Horizontal)
         if visible:
             self.queue_dock.raise_()
         if hasattr(self, "toggle_queue_action"):
