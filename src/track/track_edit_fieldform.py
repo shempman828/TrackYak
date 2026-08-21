@@ -182,6 +182,7 @@ class FieldFormTab(_BaseTab):
         "bit_rate": ["sample_rate", "channels", "bit_depth"],
         "bpm": ["tempo_confidence"],
         "key": ["mode", "key_confidence"],
+        "primary_time_signature": ["time_signature_confidence"],
         "track_gain": ["track_peak"],
         "date_added": ["last_listened_date", "play_count"],
     }
