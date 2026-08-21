@@ -202,6 +202,11 @@ VORBIS_TRACK_MAPPINGS = {
     "LIVENESS": {"field": "liveness", "type": float, "entity": "Track"},
     "KEYCONFIDENCE": {"field": "key_confidence", "type": float, "entity": "Track"},
     "TEMPOCONFIDENCE": {"field": "tempo_confidence", "type": float, "entity": "Track"},
+    "TIMESIGNATURECONFIDENCE": {
+        "field": "time_signature_confidence",
+        "type": float,
+        "entity": "Track",
+    },
     "DYNAMICRANGE": {"field": "dynamic_range", "type": float, "entity": "Track"},
     "STEREOWIDTH": {"field": "stereo_width", "type": float, "entity": "Track"},
     "MSENERGYRATIO": {"field": "ms_energy_ratio", "type": float, "entity": "Track"},
