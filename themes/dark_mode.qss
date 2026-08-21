@@ -107,7 +107,7 @@ NavigationDock QTreeWidget#NavTree {
 NavigationDock QTreeWidget#NavTree::item {
     background-color: transparent;
     color: #7a82a8;
-    font-size: 1.05em;
+    font-size: 11px;
     font-weight: bold;
     padding: 10px 16px 10px 14px;
     border-left: 3px solid transparent;
@@ -154,7 +154,7 @@ QHeaderView::section {
     border-right: 1px solid #1e1f2b;
     border-bottom: 2px solid rgba(133, 153, 234, 0.4);
     font-weight: bold;
-    font-size: 0.85em;
+    font-size: 9px;
     letter-spacing: 0.06em;
     min-height: 28px;
 }
@@ -542,7 +542,7 @@ QLabel {
 /* Section/title labels — use objectName or property in code if desired */
 QLabel[title="true"] {
     color: #EAD685;
-    font-size: 1.1em;
+    font-size: 11px;
     font-weight: bold;
     letter-spacing: 0.04em;
 }
@@ -777,7 +777,7 @@ QTabBar::tab {
     border-top-right-radius: 6px;
     border: 1px solid #1e1f2b;
     border-bottom: none;
-    font-size: 0.9em;
+    font-size: 9px;
     letter-spacing: 0.02em;
 }
 
@@ -806,7 +806,7 @@ QProgressBar {
     background-color: #11121a;
     text-align: center;
     color: #b8c0f0;
-    font-size: 0.8em;
+    font-size: 8px;
     height: 12px;
 }
 
@@ -896,7 +896,7 @@ QStatusBar {
     background-color: #0b0c10;
     color: #555e7a;
     border-top: 1px solid #1e1f2b;
-    font-size: 0.85em;
+    font-size: 9px;
 }
 
 QStatusBar::item {
@@ -920,7 +920,7 @@ QGroupBox::title {
     padding: 0 6px;
     background-color: #0b0c10;
     color: #8599ea;
-    font-size: 0.9em;
+    font-size: 9px;
     letter-spacing: 0.05em;
 }
 
@@ -952,7 +952,7 @@ QToolTip {
     border: 1px solid rgba(133, 153, 234, 0.4);
     border-radius: 6px;
     padding: 5px 8px;
-    font-size: 0.85em;
+    font-size: 9px;
     opacity: 230;
 }
 
@@ -1072,21 +1072,21 @@ QDockWidget#PlayerDock > QWidget {
 QLabel#PlayerTrackLabel {
     color: #b8c0f0;
     font-style: italic;
-    font-size: 1.3em;
+    font-size: 13px;
 }
 
 QLabel#PlayerArtistLabel {
     color: #8599ea;
-    font-size: 1.0em;
+    font-size: 10px;
 }
 
 QLabel#PlayerAlbumLabel {
     color: #EAD685;
-    font-size: 1.0em;
+    font-size: 10px;
 }
 
 QLabel#PlayerPositionLabel {
-    font-size: 1.4em;
+    font-size: 14px;
 }
 
 /* ── SPECIAL: Mini Player ─────────────────────────────────────────────────────── */
@@ -1625,7 +1625,7 @@ QFrame#albumChip[selected="true"] QLabel#albumChipSub {
 /* ── SPECIAL: Album grid item (AlbumWidget) ──────────────────────────────────── */
 AlbumWidget QLabel#AlbumTitleLabel {
     font-weight: bold;
-    font-size: 1.1em;
+    font-size: 11px;
 }
 
 AlbumWidget QLabel#AlbumArtistLabel {

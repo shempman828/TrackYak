@@ -42,7 +42,7 @@ NavigationDock QTreeWidget#NavTree {
 NavigationDock QTreeWidget#NavTree::item {
     background-color: #fafbff;
     color: #2b2c36;
-    font-size: 2em;
+    font-size: 20px;
     font-weight: bold;
     padding: 8px 12px 8px 8px;
 }
