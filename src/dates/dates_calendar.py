@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 
 from src.common.layout_utils import clear_layout
 from src.core.logger_config import logger
+from src.display.display_settings import apply_scaled_style
 
 # ── Palette constants (mirror dark_mode.qss) ─────────────────────────────────
 _BG_BASE = "#0b0c10"
@@ -130,13 +131,13 @@ def _build_event_row(event: dict) -> QFrame:
     row_layout.addWidget(name_label)
 
     type_label = QLabel(_type_label(event.get("type", "")))
-    type_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
+    apply_scaled_style(type_label, f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
     row_layout.addWidget(type_label)
 
     if event.get("description"):
         desc_label = QLabel(event["description"])
         desc_label.setWordWrap(True)
-        desc_label.setStyleSheet(f"color: {_TEXT}; font-size: 10px; background: transparent;")
+        apply_scaled_style(desc_label, f"color: {_TEXT}; font-size: 10px; background: transparent;")
         row_layout.addWidget(desc_label)
 
     return frame
@@ -294,7 +295,7 @@ class DateDetailDialog(QDialog):
         layout.addWidget(header)
 
         count_label = QLabel(f"{len(events)} event{'s' if len(events) != 1 else ''}")
-        count_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+        apply_scaled_style(count_label, f"color: {_TEXT_DIM}; font-size: 11px;")
         layout.addWidget(count_label)
 
         scroll = QScrollArea()
@@ -346,7 +347,7 @@ class OnThisDayDialog(QDialog):
         count_label = QLabel(
             f"{len(events)} event{'s' if len(events) != 1 else ''} across {years_count} year{'s' if years_count != 1 else ''}"
         )
-        count_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+        apply_scaled_style(count_label, f"color: {_TEXT_DIM}; font-size: 11px;")
         layout.addWidget(count_label)
 
         scroll = QScrollArea()
@@ -378,7 +379,7 @@ class OnThisDayDialog(QDialog):
                     container_layout.addWidget(_build_event_row(event))
         else:
             empty_label = QLabel("No events found for this day in any year.")
-            empty_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+            apply_scaled_style(empty_label, f"color: {_TEXT_DIM}; font-size: 11px;")
             container_layout.addWidget(empty_label)
 
         container_layout.addStretch()
@@ -583,7 +584,7 @@ class CalendarWidget(QWidget):
         filter_row.setSpacing(6)
 
         filter_label = QLabel("Filter:")
-        filter_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px;")
+        apply_scaled_style(filter_label, f"color: {_TEXT_DIM}; font-size: 10px;")
 
         self.type_filter_combo = QComboBox()
         self.type_filter_combo.addItem("All Event Types", None)

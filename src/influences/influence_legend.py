@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 
 from src.common.layout_utils import clear_layout
 from src.core.config_setup import app_config
+from src.display.display_settings import apply_scaled_style
 
 
 class LegendRow(QWidget):
@@ -88,7 +89,7 @@ class LegendPanel(QFrame):
         header = QHBoxLayout()
         header.setSpacing(6)
         self._title = QLabel("Clusters")
-        self._title.setStyleSheet("font-weight: 600; font-size: 11px;")
+        apply_scaled_style(self._title, "font-weight: 600; font-size: 11px;")
         self._title.setCursor(Qt.SizeAllCursor)
         self._title.installEventFilter(self)
         header.addWidget(self._title)

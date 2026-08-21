@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from src.common.layout_utils import clear_layout
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
+from src.display.display_settings import apply_scaled_style
 from src.equalizer.equalizer_utility import EqualizerUtility
 
 
@@ -200,7 +201,7 @@ class EqualizerDialog(QDialog):
 
             # Gain label (top)
             gain_label = QLabel(f"{band['gain']:+.1f} dB")
-            gain_label.setStyleSheet("font-size: 8px;")
+            apply_scaled_style(gain_label, "font-size: 8px;")
             gain_label.setAlignment(Qt.AlignCenter)
             gain_label.setFixedHeight(20)
             self.gain_labels.append(gain_label)
@@ -221,7 +222,7 @@ class EqualizerDialog(QDialog):
 
             # Frequency label (bottom)
             freq_label = QLabel(f"{band['freq']} Hz")
-            freq_label.setStyleSheet("font-size: 8px;")
+            apply_scaled_style(freq_label, "font-size: 8px;")
             freq_label.setAlignment(Qt.AlignCenter)
             freq_label.setFixedHeight(20)
             vbox.addWidget(freq_label)
@@ -230,7 +231,7 @@ class EqualizerDialog(QDialog):
             name_label = QLabel(band["label"])
             name_label.setAlignment(Qt.AlignCenter)
             name_label.setFixedHeight(15)
-            name_label.setStyleSheet("font-size: 9px;")
+            apply_scaled_style(name_label, "font-size: 9px;")
             vbox.addWidget(name_label)
 
             # Add this vertical layout to the horizontal container

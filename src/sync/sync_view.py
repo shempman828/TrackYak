@@ -28,6 +28,7 @@ from src.db.db_helpers import Session
 from src.common.style_utils import set_style_property
 from src.core.logger_config import logger
 from src.core.status_utility import StatusManager, show_status_message
+from src.display.display_settings import apply_scaled_style
 from src.sync.device_card import DeviceCard
 from src.sync.mtp_manager import MtpManager, mtp_available
 from src.sync.sync_execution_mixin import SyncExecutionMixin
@@ -227,7 +228,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.select_none_btn.clicked.connect(self._select_no_items)
 
         self.track_count_label = QLabel("")
-        self.track_count_label.setStyleSheet("color:#555e7a; font-size:11px;")
+        apply_scaled_style(self.track_count_label, "color:#555e7a; font-size:11px;")
 
         toolbar.addWidget(self.select_all_btn)
         toolbar.addWidget(self.select_none_btn)

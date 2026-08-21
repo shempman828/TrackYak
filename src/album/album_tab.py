@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 from src.album.album_flowlayout import FlowLayout
 from src.common.entity_completer_edit import build_entity_search_widget
 from src.core.logger_config import logger
+from src.display.display_settings import apply_scaled_style
 
 # Prefixes that mark a role as a variant of a base role, e.g. "Assistant
 # Producer" / "Additional Producer" are both variants of "Producer".
@@ -452,7 +453,7 @@ class AlbumTabBuilder:
 
         up_btn = QPushButton("▲")
         up_btn.setFixedSize(20, 22)
-        up_btn.setStyleSheet("font-size: 10px; padding: 0px;")
+        apply_scaled_style(up_btn, "font-size: 10px; padding: 0px;")
         up_btn.setEnabled(index > 0)
         up_btn.setToolTip(f"Move {artist_name} up")
         up_btn.clicked.connect(
@@ -462,7 +463,7 @@ class AlbumTabBuilder:
 
         down_btn = QPushButton("▼")
         down_btn.setFixedSize(20, 22)
-        down_btn.setStyleSheet("font-size: 10px; padding: 0px;")
+        apply_scaled_style(down_btn, "font-size: 10px; padding: 0px;")
         down_btn.setEnabled(index < last_index)
         down_btn.setToolTip(f"Move {artist_name} down")
         down_btn.clicked.connect(
@@ -471,12 +472,12 @@ class AlbumTabBuilder:
         chip_layout.addWidget(down_btn)
 
         name_label = QLabel(artist_name)
-        name_label.setStyleSheet("font-size: 11px;")  # ← smaller text
+        apply_scaled_style(name_label, "font-size: 11px;")  # ← smaller text
         chip_layout.addWidget(name_label)
 
         credit_btn = QPushButton("Credit as…")
         credit_btn.setFixedHeight(22)
-        credit_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
+        apply_scaled_style(credit_btn, "font-size: 10px; padding: 1px 6px;")
         credit_btn.setToolTip(
             f"Choose which name (canonical or alias) to credit "
             f"{role_assoc.artist.artist_name if role_assoc.artist else artist_name} as here"
@@ -488,7 +489,7 @@ class AlbumTabBuilder:
 
         to_track_btn = QPushButton("→ Track")
         to_track_btn.setFixedHeight(22)
-        to_track_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
+        apply_scaled_style(to_track_btn, "font-size: 10px; padding: 1px 6px;")
         to_track_btn.setToolTip(
             "Move this credit to every track on the album (removes it "
             "from the album-level credit list)"
@@ -500,7 +501,7 @@ class AlbumTabBuilder:
 
         remove_btn = QPushButton("Remove")
         remove_btn.setFixedHeight(22)  # ← compact button
-        remove_btn.setStyleSheet("font-size: 10px; padding: 1px 6px;")
+        apply_scaled_style(remove_btn, "font-size: 10px; padding: 1px 6px;")
         remove_btn.clicked.connect(
             lambda checked, ra=role_assoc: self.helper.remove_artist_credit(ra)
         )

@@ -1,10 +1,11 @@
 # display_settings.py
 import re
+import weakref
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 from src.core.asset_paths import resolve_theme_assets
 from src.core.logger_config import logger
@@ -108,6 +109,13 @@ class DisplaySettings(QObject):
         # re-applied whenever ui_scale changes. None if no theme is loaded.
         self._raw_qss: str | None = None
 
+        # widget -> unscaled inline stylesheet, for widgets styled via
+        # style_widget() instead of the theme QSS. Weak-keyed so a widget
+        # is dropped automatically once nothing else references it.
+        self._styled_widgets: "weakref.WeakKeyDictionary[QWidget, str]" = (
+            weakref.WeakKeyDictionary()
+        )
+
     # ---------------------------------------------------------
     # Theme handling
     # ---------------------------------------------------------
@@ -146,6 +154,7 @@ class DisplaySettings(QObject):
 
         self._apply_font()
         self._apply_stylesheet()
+        self._reapply_styled_widgets()
         self.display_changed.emit()
 
     def preview_ui_scale(self, scale: float):
@@ -159,6 +168,7 @@ class DisplaySettings(QObject):
         self.ui_scale = scale
         self._apply_font()
         self._apply_stylesheet()
+        self._reapply_styled_widgets()
         self.display_changed.emit()
 
     # ---------------------------------------------------------
@@ -224,6 +234,33 @@ class DisplaySettings(QObject):
         self.app.setStyleSheet(scale_qss_pixel_values(self._raw_qss, self.ui_scale))
 
     # ---------------------------------------------------------
+    # Per-widget inline styles
+    # ---------------------------------------------------------
+
+    def style_widget(self, widget: QWidget, qss: str):
+        """Scale-aware replacement for widget.setStyleSheet() on one-off
+        inline styles (e.g. a caption's "font-size: 10px;").
+
+        The widget is tracked via a weak reference and automatically
+        re-scaled and re-applied whenever ui_scale changes, so callers
+        don't need to reconnect to display_changed themselves. Nothing
+        to clean up when the widget is destroyed -- the weak reference
+        drops on its own.
+        """
+        self._styled_widgets[widget] = qss
+        widget.setStyleSheet(scale_qss_pixel_values(qss, self.ui_scale))
+
+    def _reapply_styled_widgets(self):
+        """Re-scale and re-apply every widget registered via style_widget()."""
+        for widget, qss in list(self._styled_widgets.items()):
+            try:
+                widget.setStyleSheet(scale_qss_pixel_values(qss, self.ui_scale))
+            except RuntimeError:
+                # Underlying C++ widget was destroyed without the Python
+                # wrapper being collected yet -- drop it and move on.
+                del self._styled_widgets[widget]
+
+    # ---------------------------------------------------------
     # Preview commit / revert
     # ---------------------------------------------------------
 
@@ -267,6 +304,7 @@ class DisplaySettings(QObject):
 
         self._apply_font()
         self._apply_stylesheet()
+        self._reapply_styled_widgets()
         self.display_changed.emit()
 
     @property
@@ -376,3 +414,21 @@ class DisplaySettings(QObject):
         if not self.theme_dir.exists():
             return []
         return sorted(f.stem for f in self.theme_dir.glob("*.qss"))
+
+
+def apply_scaled_style(widget: QWidget, qss: str) -> None:
+    """Scale-aware replacement for widget.setStyleSheet() on one-off inline
+    styles -- use this anywhere a widget gets a literal stylesheet string
+    with sizing properties (font-size, padding, etc.) so it stays in sync
+    with the UI scale slider.
+
+    Falls back to a plain, unscaled setStyleSheet() if no app-wide
+    DisplaySettings is attached (e.g. tests that build widgets without
+    going through run.py's bootstrap) -- there's nothing to track or
+    rescale against in that case.
+    """
+    display_settings = getattr(QApplication.instance(), "display_settings", None)
+    if display_settings is None:
+        widget.setStyleSheet(qss)
+        return
+    display_settings.style_widget(widget, qss)
