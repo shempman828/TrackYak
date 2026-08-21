@@ -7,6 +7,7 @@ from typing import Any
 
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout
 
+from src.core.censor import text_contains_explicit_words
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.db.db_mapping_tracks import TRACK_FIELDS
@@ -99,13 +100,28 @@ class LyricsTab(_BaseTab):
 
     def collect_changes(self) -> dict[str, Any]:
         changes = {}
-        if "lyrics" in self._dirty:
-            changes["lyrics"] = self._edit.toPlainText() or None
-        if self._explicit_widget is not None and "is_explicit" in self._dirty:
-            cfg = TRACK_FIELDS.get("is_explicit")
-            new_val = _coerce(_read_widget(self._explicit_widget), cfg)
-            if self.is_multi or self._has_changed("is_explicit", new_val):
-                changes["is_explicit"] = new_val
+        lyrics_dirty = "lyrics" in self._dirty
+        if lyrics_dirty:
+            final_lyrics = self._edit.toPlainText() or None
+            changes["lyrics"] = final_lyrics
+        else:
+            final_lyrics = getattr(self.track, "lyrics", None)
+
+        if self._explicit_widget is not None:
+            if "is_explicit" in self._dirty:
+                cfg = TRACK_FIELDS.get("is_explicit")
+                new_val = _coerce(_read_widget(self._explicit_widget), cfg)
+                if self.is_multi or self._has_changed("is_explicit", new_val):
+                    changes["is_explicit"] = new_val
+            elif (
+                not self.is_multi
+                and getattr(self.track, "is_explicit", None) is None
+                and final_lyrics
+            ):
+                # Auto-fill only ever touches a never-determined (NULL)
+                # value -- once is_explicit is anything else, manual or
+                # auto-calculated, later saves leave it alone.
+                changes["is_explicit"] = text_contains_explicit_words(final_lyrics)
         return changes
 
     def _search_lyrics(self):
