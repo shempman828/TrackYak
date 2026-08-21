@@ -12,6 +12,7 @@ import psutil
 from PySide6.QtCore import Signal
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.artist.artist_resolution import resolve_or_create_artist
 from src.common.cancellable_worker import CancellableWorker
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
@@ -226,30 +227,14 @@ class TrackImporter:
                 logger.debug(f"  {role}: {artist_names}")
 
     def _get_or_create_artist(self, artist_name: str):
-        """Get existing artist or create new one."""
+        """Get existing artist (by name or alias) or create new one."""
         try:
-            if not artist_name or artist_name.strip() == "":
-                return None
-
-            # Look for existing artist
-            existing_artist = self.controller.get.get_entity_object(
-                "Artist", artist_name=artist_name
+            return resolve_or_create_artist(
+                self.controller,
+                artist_name,
+                isgroup=0,  # Default to individual artist
+                commit=False,
             )
-            if existing_artist:
-                return existing_artist
-
-            # Create new artist
-            artist_data = {
-                "artist_name": artist_name,
-                "isgroup": 0,  # Default to individual artist
-            }
-
-            new_artist = self.controller.add.add_entity(
-                "Artist", commit=False, **artist_data
-            )
-            logger.debug(f"Created new artist: {artist_name}")
-            return new_artist
-
         except SQLAlchemyError as e:
             logger.error(f"Error creating artist {artist_name}: {e}")
             return None

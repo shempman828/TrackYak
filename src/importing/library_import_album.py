@@ -3,6 +3,7 @@ from typing import Any
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.release_type_utils import normalize_release_type
+from src.artist.artist_resolution import resolve_or_create_artist
 from src.core.logger_config import logger
 from src.importing.artist_field_extraction import (
     ALBUM_ARTIST_FIELDS,
@@ -274,20 +275,7 @@ class AlbumImporter:
 
         processed_names.add(normalized_name)
 
-        # Use normalized name for database lookup to ensure case-insensitive matching
-        artist = self.controller.get.get_entity_object(
-            "Artist",
-            artist_name=artist_name.strip(),  # Use the properly formatted name
+        artist = resolve_or_create_artist(
+            self.controller, artist_name, isgroup=is_group, commit=False
         )
-        if artist:
-            return artist.artist_id
-        else:
-            # Create artist if doesn't exist
-            create_kwargs = {"artist_name": artist_name.strip()}
-            if is_group is not None:
-                create_kwargs["isgroup"] = is_group
-
-            new_artist = self.controller.add.add_entity(
-                "Artist", commit=False, **create_kwargs
-            )
-            return new_artist.artist_id
+        return artist.artist_id if artist else None
