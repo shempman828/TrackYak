@@ -1,4 +1,5 @@
 # display_settings.py
+import re
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
@@ -7,6 +8,41 @@ from PySide6.QtWidgets import QApplication
 
 from src.core.asset_paths import resolve_theme_assets
 from src.core.logger_config import logger
+
+# QSS properties whose px values should track the UI scale slider.
+_SCALABLE_QSS_PROPS = (
+    "font-size",
+    "min-width", "max-width", "width",
+    "min-height", "max-height", "height",
+    "border-top-left-radius", "border-top-right-radius",
+    "border-bottom-left-radius", "border-bottom-right-radius", "border-radius",
+    "padding-top", "padding-right", "padding-bottom", "padding-left", "padding",
+    "margin-top", "margin-right", "margin-bottom", "margin-left", "margin",
+    "border-top", "border-bottom", "border-left", "border-right", "border",
+    "outline-offset", "outline",
+    "letter-spacing", "spacing",
+)
+
+_SCALABLE_QSS_PATTERN = re.compile(
+    r"\b(" + "|".join(_SCALABLE_QSS_PROPS) + r")(\s*:\s*)(-?\d+(?:\.\d+)?)px\b"
+)
+
+
+def scale_qss_pixel_values(qss: str, scale: float) -> str:
+    """Scale px-valued sizing properties (font-size, padding, margins,
+    widths/heights, border-radius, etc.) in a stylesheet by `scale`.
+
+    Always pass the theme's original, unscaled QSS text — scaling an
+    already-scaled stylesheet would compound the factor on every call.
+    """
+
+    def _replace(match: re.Match) -> str:
+        prop, sep, num = match.group(1), match.group(2), match.group(3)
+        scaled = float(num) * scale
+        text = f"{scaled:.2f}".rstrip("0").rstrip(".")
+        return f"{prop}{sep}{text}px"
+
+    return _SCALABLE_QSS_PATTERN.sub(_replace, qss)
 
 
 class DisplaySettings(QObject):
@@ -68,6 +104,10 @@ class DisplaySettings(QObject):
         # None means no preview is in progress.
         self._pre_preview: dict | None = None
 
+        # Unscaled QSS text of the currently loaded theme, re-scaled and
+        # re-applied whenever ui_scale changes. None if no theme is loaded.
+        self._raw_qss: str | None = None
+
     # ---------------------------------------------------------
     # Theme handling
     # ---------------------------------------------------------
@@ -81,7 +121,8 @@ class DisplaySettings(QObject):
 
         qss = qss_path.read_text(encoding="utf-8")
 
-        self.app.setStyleSheet(resolve_theme_assets(qss))
+        self._raw_qss = resolve_theme_assets(qss)
+        self._apply_stylesheet()
         self.theme_name = theme_name
 
         if self.config:
@@ -104,6 +145,7 @@ class DisplaySettings(QObject):
             self.config.save()
 
         self._apply_font()
+        self._apply_stylesheet()
         self.display_changed.emit()
 
     def preview_ui_scale(self, scale: float):
@@ -116,6 +158,7 @@ class DisplaySettings(QObject):
         self._snapshot_for_preview()
         self.ui_scale = scale
         self._apply_font()
+        self._apply_stylesheet()
         self.display_changed.emit()
 
     # ---------------------------------------------------------
@@ -171,6 +214,15 @@ class DisplaySettings(QObject):
         font.setPointSize(scaled_size)
         self.app.setFont(font)
 
+    def _apply_stylesheet(self):
+        """Re-scale the loaded theme's raw QSS by ui_scale and apply it.
+
+        No-op if no theme is loaded (self._raw_qss is None).
+        """
+        if self._raw_qss is None:
+            return
+        self.app.setStyleSheet(scale_qss_pixel_values(self._raw_qss, self.ui_scale))
+
     # ---------------------------------------------------------
     # Preview commit / revert
     # ---------------------------------------------------------
@@ -214,6 +266,7 @@ class DisplaySettings(QObject):
         self._pre_preview = None
 
         self._apply_font()
+        self._apply_stylesheet()
         self.display_changed.emit()
 
     @property
