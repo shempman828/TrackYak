@@ -393,6 +393,18 @@ TRACK_FIELDS = {
         placeholder="e.g., 4/4, 3/4",
         multiple=True,
     ),
+    "time_signature_confidence": FieldSpec(
+        type=float,
+        category="Properties",
+        section="Musical Properties",
+        friendly="Time Signature Confidence",
+        short="Time Sig. Conf.",
+        tooltip="The confidence level of the detected time signature. Normally set by audio "
+        "analysis (0.0-1.0) -- edit directly to confirm a manually-set time signature "
+        "(e.g. set to 1.0) so it isn't flagged for re-analysis.",
+        min=0.0,
+        max=1.0,
+    ),
     "track_gain": FieldSpec(
         type=float,
         category="Properties",
