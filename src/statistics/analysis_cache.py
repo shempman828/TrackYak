@@ -106,9 +106,15 @@ analysis_cache = AnalysisCache()
 # writes (audio_calculations.py) except acoustid_fingerprint/_duration, which
 # can be legitimately and permanently None (e.g. no native chromaprint library
 # available) — see AudioCalculations.calculate_fingerprint's docstring.
+# primary_time_signature is a second, deliberate exception: calculate_time_
+# signature() returns None whenever it isn't confident enough to guess (see
+# its docstring), so a real, completed analysis can leave this permanently
+# None. time_signature_confidence alone (always a real 0.0-1.0 float even
+# when the label is None) is the actual "was this track analysed" signal.
 REQUIRED_ANALYSIS_FIELDS = [
     "bpm",
     "tempo_confidence",
+    "time_signature_confidence",
     "key",
     "mode",
     "key_confidence",
