@@ -19,7 +19,7 @@ class InfluenceGraphRenderMixin:
     Expects the host class to provide: self._web, self._page_ready,
     self._pending_js, self.node_names, self.edges, self.node_mass,
     self.community_id, self.community_names, self.influence_scores,
-    self.get_node_size(), self.get_label_width(), self.get_label_font_size(),
+    self.get_node_size(), self.get_label_font_size(),
     self.get_community_color(), self.debug_graph_structure(), and to be a
     QWidget subclass.
     """
@@ -86,10 +86,10 @@ class InfluenceGraphRenderMixin:
                     "data": {
                         "id": str(node_id),
                         "label": name,
+                        "fullLabel": name,
                         "parent": cluster_id,
-                        "width": size,
-                        "height": size * 0.5,
-                        "labelWidth": self.get_label_width(size, name),
+                        "minWidth": size,
+                        "minHeight": size * 0.5,
                         "fontSize": self.get_label_font_size(size),
                         "color": color.name(),
                         # background-gradient-stop-colors takes its whole
@@ -156,8 +156,21 @@ class InfluenceGraphRenderMixin:
                 "style": {
                     "shape": "round-rectangle",
                     "corner-radius": 9,
-                    "width": "data(width)",
-                    "height": "data(height)",
+                    # 'label' auto-sizes the box to exactly contain its own
+                    # (word-wrapped, per text-wrap below) label. graph.js's
+                    # fitNodeLabel tries the full artist name first; if that
+                    # would grow the box past its influence-based minimum
+                    # (minWidth/minHeight data, see get_node_size), it swaps
+                    # in a shorter initials-style alias instead of letting
+                    # the box balloon -- so box size tracks influence, not
+                    # name length, for all but genuinely long names. The
+                    # full name is always available on hover (fullLabel
+                    # data). Floors at minWidth/minHeight either way, so
+                    # the box can grow to fit text but never shrinks below
+                    # what influence dictates.
+                    "width": "label",
+                    "height": "label",
+                    "padding": 10,
                     # Soft top-to-bottom gradient instead of a flat fill,
                     # closer to the original hand-painted glassy look than
                     # a plain solid rectangle.
@@ -174,8 +187,18 @@ class InfluenceGraphRenderMixin:
                     "font-weight": 600,
                     "text-valign": "center",
                     "text-halign": "center",
-                    "text-wrap": "ellipsis",
-                    "text-max-width": "data(labelWidth)",
+                    # 'wrap' breaks a label onto additional lines at
+                    # whitespace only (never mid-word) instead of eliding
+                    # it -- combined with width/height: 'label' above, the
+                    # box always grows to fit whatever this produces, so
+                    # text can never overflow its own box.
+                    "text-wrap": "wrap",
+                    # Wrap at the node's own influence-based target width,
+                    # not a flat constant -- a low-influence node's (short,
+                    # likely-aliased) label wraps into a narrow column
+                    # matching its small box; a high-influence node gets a
+                    # proportionally wider column, matching its bigger one.
+                    "text-max-width": "data(minWidth)",
                     # A faint light halo keeps the dark label legible
                     # across the full 50-color community palette, some of
                     # which sit darker/more saturated than others.
@@ -226,13 +249,10 @@ class InfluenceGraphRenderMixin:
             "quality": "default",
             "randomize": True,
             "animate": True,
-            # Labels can render wider than a node's own box (small/
-            # low-influence pills let their name overflow rather than
-            # ellipsize -- see get_label_width). Without this, fcose only
-            # keeps the boxes themselves from overlapping and two nearby
-            # nodes' overflowing labels can still visually collide; this
-            # makes the layout treat each node's true on-screen footprint
-            # (box + label) as its collision size.
+            # Node boxes auto-size to exactly contain their own label (see
+            # _build_stylesheet's width/height: 'label'), so this is a
+            # no-op in practice now, but keeps fcose's collision footprint
+            # correct if that ever changes.
             "nodeDimensionsIncludeLabels": True,
             # fcose computes the final layout instantly, then tweens nodes
             # from their random starting scatter into place over this
@@ -307,10 +327,10 @@ class InfluenceGraphRenderMixin:
                     "data": {
                         "id": str(artist_id),
                         "label": artist_name,
+                        "fullLabel": artist_name,
                         "parent": cluster_id,
-                        "width": size,
-                        "height": size * 0.5,
-                        "labelWidth": self.get_label_width(size, artist_name),
+                        "minWidth": size,
+                        "minHeight": size * 0.5,
                         "fontSize": self.get_label_font_size(size),
                         "color": color.name(),
                         "gradientColors": f"{color.lighter(130).name()} {color.name()}",
