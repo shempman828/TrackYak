@@ -379,6 +379,10 @@ class RoleView(QWidget):
         # Restore expansion state, or expand everything on first build
         restore_expanded_ids_or_expand_all(self.role_tree, expanded_ids, is_initial_load)
 
+        # Reapply any active search filter, since the tree was just rebuilt
+        # from scratch and the new items default to visible.
+        self._filter_roles(self.search_field.text())
+
         # Build status bar summary from the cached counts (no DB calls)
         total = len(all_roles)
         unassigned = track_only = album_only = mixed = 0
@@ -418,9 +422,6 @@ class RoleView(QWidget):
         self.role_tree.setDragEnabled(not self.flat_view)
         if self._all_roles:
             self._rebuild_tree()
-            # Reapply any active search filter, since the tree was just
-            # rebuilt from scratch.
-            self._filter_roles(self.search_field.text())
 
     def _on_roles_load_error(self, error_message: str):
         """Called on the main thread if the background worker hits an exception."""
@@ -632,6 +633,21 @@ class RoleView(QWidget):
     # Edit / rename / delete / drag-drop
     # -----------------------------------------------------------------------
 
+    def _patch_cached_role(self, role_id, **updates):
+        """Apply attribute updates to the cached Role matching `role_id`.
+
+        `self._all_roles` is populated by a background-thread session, so a
+        main-thread `update_entity()` call never syncs those objects on its
+        own (see codebase_stale_relationship_cache) -- callers that already
+        know a mutation is confined to a single row/no hierarchy or count
+        change patch the cache here and rebuild locally instead of paying
+        for a full re-query via `load_roles()`.
+        """
+        role = next((r for r in self._all_roles if r.role_id == role_id), None)
+        if role:
+            for key, value in updates.items():
+                setattr(role, key, value)
+
     def on_item_edited(self, item, column):
         """Handle role name updates."""
         role_id = item.data(0, Qt.UserRole)
@@ -660,8 +676,11 @@ class RoleView(QWidget):
             self.controller.update.update_entity("Role", role_id, role_name=new_name)
             self.role_updated.emit()
 
-            # Reload to update counts
-            self.load_roles()
+            # A rename doesn't change hierarchy or counts, so patch the
+            # cached role in place and rebuild locally instead of
+            # re-querying the whole role table on a background thread.
+            self._patch_cached_role(role_id, role_name=new_name)
+            self._rebuild_tree()
             self.status_bar.setText(f"Renamed to {new_name}")
 
         except ValueError as e:
@@ -753,8 +772,14 @@ class RoleView(QWidget):
         try:
             dialog = RoleEditDialog(self.controller, None, self)
             if dialog.exec_() == QDialog.Accepted:
-                self.load_roles()
                 self.role_updated.emit()
+                # The dialog already created the role and handed it back --
+                # add it to the cache and rebuild locally instead of
+                # re-querying the whole role table on a background thread.
+                new_role = dialog.result_role
+                if new_role:
+                    self._all_roles.append(new_role)
+                self._rebuild_tree()
 
         except RuntimeError as e:
             logger.error(f"Error creating role: {e!s}")
@@ -770,8 +795,25 @@ class RoleView(QWidget):
             )
             dialog = RoleEditDialog(self.controller, role, self)
             if dialog.exec_() == QDialog.Accepted:
-                self.load_roles()
                 self.role_updated.emit()
+                if role_id:
+                    # RoleEditDialog only ever touches name/description, never
+                    # hierarchy or counts -- a fresh single-row fetch is
+                    # enough to patch the cache, no need to re-query the
+                    # whole role table on a background thread.
+                    updated = self.controller.get.get_entity_object(
+                        "Role", role_id=role_id
+                    )
+                    self._patch_cached_role(
+                        role_id,
+                        role_name=updated.role_name,
+                        role_description=updated.role_description,
+                    )
+                else:
+                    new_role = dialog.result_role
+                    if new_role:
+                        self._all_roles.append(new_role)
+                self._rebuild_tree()
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error editing role: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to edit role")
@@ -894,8 +936,19 @@ class RoleView(QWidget):
 
             if reply == QMessageBox.Yes:
                 self.controller.delete.delete_entity("Role", role_id)
-                self.load_roles()
                 self.role_updated.emit()
+
+                # Deleting a role doesn't affect any other role's counts or
+                # hierarchy -- drop it from the cache and rebuild locally
+                # instead of re-querying the whole role table on a
+                # background thread.
+                self._all_roles = [
+                    r for r in self._all_roles if r.role_id != role_id
+                ]
+                self._album_counts.pop(role_id, None)
+                self._track_counts.pop(role_id, None)
+                self._rebuild_tree()
+
                 self.status_bar.setText(f"Deleted {role.role_name}")
 
         except (AttributeError, SQLAlchemyError, RuntimeError) as e:
