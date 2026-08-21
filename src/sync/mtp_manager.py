@@ -10,7 +10,7 @@ import tempfile
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from src.core.logger_config import logger
 
@@ -220,30 +220,41 @@ class MtpManager:
     # Remote file info
     # ---------------------------------------------------------------------------
 
-    def remote_file_size(self, device: MtpDevice, remote_uri: str) -> int:
+    def list_remote_dir(self, device: MtpDevice, remote_dir_uri: str) -> Dict[str, int]:
         """
-        Return the byte size of a remote file, or -1 if it doesn't exist
-        or can't be queried.  Uses `gio info` — avoids the FUSE path entirely.
+        Return {filename: size_bytes} for every file in remote_dir_uri, via
+        ONE `gio list -a standard::size` call — replaces a `gio info` round
+        trip per file with a single subprocess/USB round trip for the whole
+        directory. Returns {} if the directory doesn't exist, is empty, or
+        can't be listed (also the case for the aft backend, which has no
+        equivalent bulk-listing command — those transfers just skip the
+        diff pre-pass and always attempt the copy, same as before).
         """
         if device.backend != "gio":
-            return -1
+            return {}
         try:
             result = subprocess.run(
-                ["gio", "info", remote_uri],
+                ["gio", "list", "-a", "standard::size", remote_dir_uri],
                 capture_output=True,
                 text=True,
                 timeout=self._TIMEOUT,
             )
             if result.returncode != 0:
-                return -1
-            for line in result.stdout.splitlines():
-                m = re.match(r"\s*standard::size:\s*(\d+)", line)
-                if m:
-                    return int(m.group(1))
-            return -1
-        except (subprocess.SubprocessError, OSError, ValueError) as e:
-            logger.debug(f"gio info failed for {remote_uri}: {e}")
-            return -1
+                return {}
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.debug(f"gio list failed for {remote_dir_uri}: {e}")
+            return {}
+
+        listing: Dict[str, int] = {}
+        for line in result.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 2:
+                continue
+            try:
+                listing[parts[0]] = int(parts[1])
+            except ValueError:
+                continue
+        return listing
 
     # ---------------------------------------------------------------------------
     # File transfer
