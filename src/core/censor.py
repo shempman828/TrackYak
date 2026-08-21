@@ -61,6 +61,19 @@ def censoring_enabled() -> bool:
     return bool(getattr(display, "censor_explicit_words", False))
 
 
+def text_contains_explicit_words(text) -> bool:
+    """Return True if `text` contains any word/phrase from the explicit
+    word list. Unlike `censor_text`, this ignores the "Censor explicit
+    words" display setting -- it's used to *calculate* Track.is_explicit,
+    not to decide whether to mask displayed text."""
+    if not text:
+        return False
+    pattern = _get_pattern()
+    if pattern is None:
+        return False
+    return pattern.search(text) is not None
+
+
 def censor_text(text, force: bool = False):
     """Mask explicit words in `text` with asterisks (e.g. "shit" -> "s***").
 
