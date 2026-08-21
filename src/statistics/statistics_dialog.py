@@ -826,6 +826,13 @@ class MusicStatsDialog(QDialog):
         misc_layout = QHBoxLayout(misc_group)
         time_sig_box = QVBoxLayout()
         time_sig_box.addWidget(QLabel("Time Signature:"))
+        self.time_signature_confidence_checkbox = QCheckBox(
+            "Exclude confidence below 50%"
+        )
+        self.time_signature_confidence_checkbox.toggled.connect(
+            self.load_audio_profile_data
+        )
+        time_sig_box.addWidget(self.time_signature_confidence_checkbox)
         self.time_signature_chart = BarDistributionChart()
         time_sig_box.addWidget(self.time_signature_chart)
         file_size_box = QVBoxLayout()
@@ -1890,7 +1897,13 @@ class MusicStatsDialog(QDialog):
             self._track_metric_rows(quietest_loudest.get("loudest", []))
         )
 
-        self.time_signature_chart.set_data(stats.get("time_signature_distribution"))
+        time_sig_dist = stats.get("time_signature_distribution", {})
+        time_sig_key = (
+            "confident"
+            if self.time_signature_confidence_checkbox.isChecked()
+            else "all"
+        )
+        self.time_signature_chart.set_data(time_sig_dist.get(time_sig_key))
         self.file_size_chart.set_data(stats.get("file_size_distribution"))
 
         self.instrumental_chart.set_data(stats.get("instrumental_distribution"))
