@@ -37,14 +37,16 @@ class AddToDB(BaseDBHelper):
 
         new_entity = entity_class(**kwargs)
         self.session.add(new_entity)
-        mark_dirty_for_new_rows(self.session, model_name, [kwargs])
 
         if not commit:
+            mark_dirty_for_new_rows(self.session, model_name, [kwargs])
             self.session.flush()
             self.session.refresh(new_entity)
             return new_entity
 
         try:
+            with self.session.no_autoflush:
+                mark_dirty_for_new_rows(self.session, model_name, [kwargs])
             self._commit()
 
             # Safe refresh with error handling
@@ -145,7 +147,8 @@ class AddToDB(BaseDBHelper):
         logger.debug(f"Batch-adding {len(rows_to_add)} {model_name} row(s)")
         new_entities = [entity_class(**row) for row in rows_to_add]
         self.session.add_all(new_entities)
-        mark_dirty_for_new_rows(self.session, model_name, rows_to_add)
+        with self.session.no_autoflush:
+            mark_dirty_for_new_rows(self.session, model_name, rows_to_add)
 
         try:
             self._commit()
