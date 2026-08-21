@@ -4,8 +4,17 @@ against a scratch in-memory SQLite session -- never music_library.db.
 
 Covers the cases the Charts feature plan called out explicitly: exact
 match, punctuation-only title difference, featuring-artist noise, no match
-at all, and a title collision between two local tracks that only the
-artist-similarity half of the combined score can break.
+at all, and a title collision between two local tracks disambiguated by
+artist.
+
+The matcher scores are intentionally two-valued (see _EXACT_SCORE/
+_CONTAINS_SCORE in chart_matching.py): 1.0 for a hit found via the O(1)
+exact-title index (where title is a byte-exact normalized match and the
+artist only needs to satisfy _normalized_match's equal-or-contains check),
+or 0.75 for a hit found via the FTS5 shortlist fallback (where title and
+artist both only need to satisfy that same containment check). There is no
+SequenceMatcher-style partial credit -- a candidate either clears one of
+those two buckets or it doesn't match at all.
 """
 
 import pytest
@@ -103,15 +112,17 @@ def test_punctuation_only_difference_still_matches(session):
     chart = _add_chart(session)
     entry = _add_entry(session, chart, "Rock and Roll", "Led Zeppelin")
 
-    # normalize_title strips punctuation but "&" vs "and" differ as words --
-    # this is intentionally a near-miss case exercised via SequenceMatcher,
-    # not the exact-bucket path (see test below for exact-bucket punctuation).
+    # normalize_title strips punctuation but "&" vs "and" differ as words:
+    # "Rock & Roll" normalizes to "rock roll" while "Rock and Roll" normalizes
+    # to "rock and roll" -- neither is a substring of the other, so
+    # _normalized_match's containment check doesn't bridge them and this
+    # entry is left unmatched under the current matcher. This assertion
+    # only confirms the one entry was queued for scoring, not that it
+    # matched -- see test_exact_bucket_punctuation_variant_matches below
+    # for a punctuation variant that lands in the same normalized bucket
+    # and does match.
     stats = match_chart(session, chart)
     session.refresh(entry)
-    # "Rock & Roll" normalizes to "rock roll" while "Rock and Roll" normalizes
-    # to "rock and roll" -- different buckets, but close enough on
-    # SequenceMatcher + full artist match to clear the floor via the
-    # adjacent-bucket fallback.
     assert stats.total_unmatched == 1
 
 
@@ -139,7 +150,10 @@ def test_featuring_artist_noise_still_matches(session):
     assert stats.matched == 1
     session.refresh(entry)
     assert entry.is_matched
-    assert entry.match_score < 1.0  # artist half isn't a perfect match
+    # Exact-title-index path: _normalized_match's containment allowance
+    # ("j cole" in "j cole featuring someone") counts as a full match, so
+    # this scores the same 1.0 as a byte-exact artist match.
+    assert entry.match_score == 1.0
 
 
 def test_no_match_leaves_entry_unmatched(session):
@@ -158,8 +172,8 @@ def test_no_match_leaves_entry_unmatched(session):
 
 def test_title_collision_broken_by_artist_similarity(session):
     """Two different local tracks share a normalized title ('yesterday') --
-    only the artist-similarity half of the combined score should pick the
-    right one."""
+    the exact-title index holds both as candidates, and only the one whose
+    artist passes _normalized_match against the entry's artist gets picked."""
     role = _primary_role(session)
     _add_track(session, role, "Yesterday", "The Beatles")
     _add_track(session, role, "Yesterday", "Some Cover Band")
