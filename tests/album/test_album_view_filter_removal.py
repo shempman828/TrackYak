@@ -12,11 +12,29 @@ with no scrollbar left to scroll, nothing could ever trigger loading the
 remaining filtered albums again.
 """
 
+import pytest
 from PySide6.QtCore import Signal
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QWidget
 
 from src.album.album_view import AlbumView
+from src.core.config_setup import app_config
+
+
+@pytest.fixture(autouse=True)
+def isolated_app_config(monkeypatch):
+    """AlbumView reads/writes filter state through the real, process-wide
+    app_config singleton (backed by the machine-local config/config.ini):
+    _restore_filter_state() on construction, and a debounced timer that
+    calls app_config.save() after filter changes. Neutralize both directions
+    so these tests don't inherit a leftover min_tracks filter from a real
+    app run (making StubAlbums -- which have no tracks -- fail the filter
+    before the test's own filter setup even runs) and don't write test
+    state into the user's real config file.
+    """
+    monkeypatch.setattr(app_config, "get_album_view_filters", lambda: {})
+    monkeypatch.setattr(app_config, "set_album_view_filters", lambda state: None)
+    monkeypatch.setattr(app_config, "save", lambda: None)
 
 
 class StubAlbumWidget(QWidget):
