@@ -13,6 +13,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.charts.charts_view import ChartsView
+from src.common.match_confidence import confidence_color
 from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB
@@ -20,6 +21,7 @@ from src.db.db_tables.artist import Artist
 from src.db.db_tables.associations import TrackArtistRole
 from src.db.db_tables.base import Base
 from src.db.db_tables.chart import Chart, ChartEntry
+from src.db.db_tables.database import MusicDatabase
 from src.db.db_tables.role import Role
 from src.db.db_tables.track import Track
 
@@ -35,6 +37,14 @@ class StubController:
 def session():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
+    # chart_entries_fts (used by ChartSearchTab) is created by
+    # MusicDatabase's integrity-check startup path, not by create_all() --
+    # build it the same way the real app does rather than duplicating its
+    # DDL/trigger SQL here. Bypass __init__ so this never touches the
+    # shared music_library.db engine.
+    db = MusicDatabase.__new__(MusicDatabase)
+    db.engine = engine
+    db._ensure_chart_entries_fts()
     Session = sessionmaker(bind=engine)
     session = Session()
     yield session
@@ -165,7 +175,9 @@ def test_week_browser_tab_populates_from_seeded_entry(qapp, session, controller,
     assert view.week_tab.table.topLevelItemCount() == 1
     item = view.week_tab.table.topLevelItem(0)
     assert item.text(1) == "Last Christmas"
-    assert item.text(5) == "✓"  # matched checkmark
+    # Matched entries (match_score=1.0) are tinted via confidence_color
+    # instead of a dedicated checkmark column (see chart_entry_table.py).
+    assert item.foreground(1).color() == confidence_color(1.0)
 
 
 def test_search_tab_finds_seeded_entry(qapp, session, controller, tmp_path):
