@@ -212,6 +212,14 @@ class MergeDB(BaseDBHelper):
                 # duplicates left behind after source's associations were
                 # migrated onto the target.
                 self._dedupe_place_associations(target_id)
+            elif model_name == "Role":
+                # `roles.parent_id` is a self-referential FK, so the generic
+                # FK-scanning loop above skips it entirely (same reason as
+                # Place above). Without this, source's child roles would
+                # fall through to the ORM's default delete-time behavior of
+                # nulling their parent_id, silently detaching them from the
+                # hierarchy instead of being reparented onto the target.
+                self._reparent_role_children(source_id, target_id)
 
             self._preserve_alias_on_merge(
                 model_name, source_entity, target_entity, resolved_fields
@@ -367,6 +375,58 @@ class MergeDB(BaseDBHelper):
                 .where(
                     table.c.parent_id == source_id,
                     table.c.place_id != chain_child_id,
+                )
+                .values(parent_id=target_id)
+            )
+        else:
+            self._safe_execute(
+                update(table)
+                .where(table.c.parent_id == source_id)
+                .values(parent_id=target_id)
+            )
+
+    def _reparent_role_children(self, source_id, target_id):
+        """Reparent source's child roles onto the target instead of letting
+        them fall through to the ORM's default null-out-on-delete behavior.
+
+        Mirrors `_reparent_place_children`: if the target is itself a
+        descendant of the source (e.g. merging "Musician" into its own
+        child "Instrumentalist"), naively pointing every child of source at
+        target would create a cycle. That one branch is promoted onto
+        source's former parent instead; every other child of source
+        reparents onto target normally.
+        """
+        source_entity = self.session.get(Role, source_id)
+        grandparent_id = source_entity.parent_id if source_entity else None
+
+        chain_child_id = None
+        current = self.session.get(Role, target_id)
+        visited = set()
+        while current is not None and current.role_id not in visited:
+            visited.add(current.role_id)
+            if current.parent_id == source_id:
+                chain_child_id = current.role_id
+                break
+            current = current.parent
+
+        # Raw SQL, not ORM attribute assignment: `session.expire(source_entity)`
+        # further down reloads its `children` collection from the database to
+        # decide what to null out on delete. If these reparenting updates were
+        # only pending ORM changes rather than already committed to the DB,
+        # that reload would still see the old parent_id and cascade-null the
+        # rows we just repointed, clobbering this step.
+        table = Role.__table__
+        if chain_child_id is not None:
+            self._safe_execute(
+                update(table)
+                .where(table.c.role_id == chain_child_id)
+                .values(parent_id=grandparent_id)
+            )
+            self._safe_execute(
+                update(table)
+                .where(
+                    table.c.parent_id == source_id,
+                    table.c.role_id != chain_child_id,
                 )
                 .values(parent_id=target_id)
             )
