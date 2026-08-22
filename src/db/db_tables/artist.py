@@ -23,7 +23,10 @@ class Artist(Base):
     __tablename__ = "artists"
 
     artist_id = Column(Integer, primary_key=True)
-    artist_name = Column(String, unique=True)
+    # Not unique: two distinct real people can share an exact name (MB
+    # import disambiguates by MBID, not name -- see
+    # publisher_musicbrainz_import.py / album_musicbrainz_review_import.py).
+    artist_name = Column(String)
     isgroup = Column(Integer, CheckConstraint("isgroup IN (0, 1)"))
     begin_year = Column(Integer)
     gender = Column(String)
