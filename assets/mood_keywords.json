@@ -1,0 +1,121 @@
+{
+  "Happy": [
+    "sunshine", "laughing", "laughter", "joyful", "dancing", "celebrate",
+    "good times", "feeling good", "brighter days", "singing along",
+    "on top of the world", "smiling"
+  ],
+  "Sad": [
+    "crying", "tears", "teardrops", "lonely", "heartache", "broken heart",
+    "empty inside", "missing you", "falling apart", "so alone",
+    "can't stop crying"
+  ],
+  "Heartbreak": [
+    "broke my heart", "walked away", "said goodbye", "empty bed",
+    "used to be ours", "packed your bags", "over now",
+    "never coming back", "pieces of us"
+  ],
+  "Romantic": [
+    "kiss me", "forever yours", "my darling", "hold you close",
+    "fall in love", "i love you", "marry me", "soulmate", "by my side",
+    "sweet nothings"
+  ],
+  "Angry": [
+    "rage", "burn it down", "i hate you", "screaming", "fed up",
+    "fight me", "smash it", "blood boiling", "snapped", "tear it apart"
+  ],
+  "Rebellious": [
+    "break the rules", "burn the system", "riot", "revolution",
+    "middle finger", "my own way", "screw the rules", "outlaw",
+    "renegade", "no rules tonight"
+  ],
+  "Sleepy": [
+    "lullaby", "drift off", "close my eyes", "dream tonight",
+    "quiet night", "fading out", "half asleep", "midnight calm",
+    "drowsy", "gentle hum"
+  ],
+  "Chill": [
+    "take it easy", "slow down", "laid back", "easy breeze",
+    "no worries", "kick back", "mellow", "float away",
+    "hazy afternoon", "unwind"
+  ],
+  "Party": [
+    "shots", "dance floor", "turn it up", "all night long",
+    "party people", "club lights", "bottles popping", "dance till dawn",
+    "lets go crazy", "drop the beat"
+  ],
+  "Driving": [
+    "highway", "open road", "headlights", "rearview mirror",
+    "engine roaring", "cruising", "wheels turning", "gas pedal",
+    "radio on", "miles ahead"
+  ],
+  "Road Trip": [
+    "pack the car", "gas station", "map the route", "next town over",
+    "windows down", "road ahead", "city to city", "hit the road",
+    "wanderlust", "no destination"
+  ],
+  "Study": [
+    "quiet room", "turn the page", "deep focus", "concentrate",
+    "midnight oil", "exam night", "textbook", "sharpen my mind",
+    "still and steady", "tune it out"
+  ],
+  "Workout": [
+    "pump it up", "one more rep", "sweat it out", "push harder",
+    "iron and steel", "no pain no gain", "gym floor", "heart pounding",
+    "grind it out", "stronger every day"
+  ],
+  "Beach": [
+    "ocean waves", "salt air", "sandy feet", "summer sun",
+    "tide rolling in", "palm trees", "sunscreen", "beach bonfire",
+    "saltwater kiss", "summer nights"
+  ],
+  "Rainy Day": [
+    "raindrops falling", "grey skies", "thunder rolling", "puddles",
+    "umbrella", "storm clouds", "wet windows", "rain on the roof",
+    "stuck inside", "drizzle"
+  ],
+  "Late Night": [
+    "after midnight", "city lights", "can't sleep", "3am thoughts",
+    "neon glow", "night owl", "empty streets", "moonlit",
+    "wide awake", "quiet hours"
+  ],
+  "Nostalgic": [
+    "back then", "old photographs", "remember when", "those were the days",
+    "faded memories", "childhood home", "old mixtape", "simpler times",
+    "way back when", "time machine"
+  ],
+  "Hopeful": [
+    "better days ahead", "keep believing", "brighter tomorrow",
+    "rise again", "hold on", "light at the end", "new beginning",
+    "one more try", "faith in me", "sun will rise"
+  ],
+  "Triumphant": [
+    "we made it", "victory", "champion", "rising up", "unstoppable",
+    "top of the mountain", "won the fight", "standing tall", "glory",
+    "we did it"
+  ],
+  "Melancholy": [
+    "bittersweet", "quiet sorrow", "wistful", "fading light",
+    "hollow feeling", "grey afternoon", "wandering thoughts",
+    "soft sadness", "distant memory", "weight on my chest"
+  ],
+  "Confidence": [
+    "i'm the best", "own it", "watch me shine", "no apologies",
+    "my crown", "boss mode", "i run this", "born to win", "level up",
+    "unstoppable me"
+  ],
+  "Feel-Good": [
+    "good vibes only", "everything's alright", "life is good",
+    "smiling wide", "easy like sunday", "good mood", "feeling free",
+    "carefree", "dance in the kitchen", "sunshine state of mind"
+  ],
+  "Dark/Moody": [
+    "shadows", "darkness falls", "haunted", "cold and quiet",
+    "night terrors", "empty room", "closing in", "deep in the dark",
+    "black out"
+  ],
+  "Holiday": [
+    "mistletoe", "jingle bells", "silent night", "snowfall",
+    "sleigh bells", "wrapped presents", "christmas lights",
+    "new year's eve", "count down midnight", "holiday cheer"
+  ]
+}
