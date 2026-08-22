@@ -22,6 +22,8 @@ WORD_CLOUD_MIN_TRACKS = 5
 WORD_CLOUD_TOP_N = 150
 WEIGHTED_WORDS_MIN_TRACKS = 5
 WEIGHTED_WORDS_TOP_N = 25
+PHRASE_LENGTHS = (2, 3)
+PHRASE_MIN_TRACKS = 5
 
 # [Chorus], [Verse 1], [Bridge] etc. -- and any timestamp-shaped token
 # (defensive -- this schema's lyrics field has no real LRC timestamps, but
@@ -56,11 +58,20 @@ STOPWORDS = frozenset(
 )
 
 
-def _tokenize(lyrics):
+def _raw_tokens(lyrics):
+    """Every alphabetic token, lowercased, stopwords and all -- the shared
+    first step behind both _tokenize() (which then drops stopwords/short
+    tokens for single-word frequency counting) and phrase n-gram building
+    (which needs the stopwords still in place, since a real phrase like
+    "top of the world" has stopwords as *interior* words -- only a
+    candidate's edges get checked against STOPWORDS, in _phrase_candidates)."""
     cleaned = _BRACKET_RE.sub(" ", lyrics)
     cleaned = _TIMESTAMP_RE.sub(" ", cleaned)
-    words = _WORD_RE.findall(cleaned.lower())
-    return [w for w in words if w not in STOPWORDS and len(w) > 1]
+    return _WORD_RE.findall(cleaned.lower())
+
+
+def _tokenize(lyrics):
+    return [w for w in _raw_tokens(lyrics) if w not in STOPWORDS and len(w) > 1]
 
 
 class LyricsStats:
@@ -75,17 +86,30 @@ class LyricsStats:
                 .filter(Track.lyrics.isnot(None), Track.lyrics != "")
                 .all()
             )
+            full_word_cloud = self._word_cloud(rows)
             return {
-                "word_cloud": self._word_cloud(rows),
+                # Capped for the WordCloudWidget chip chart, which log-scales
+                # font size against the set's top word -- rendering the full
+                # ranked list there would both clutter the chart and skew
+                # that scaling. The mood-tagging dialog's word-review needs
+                # the uncapped tail instead (so "Refresh Suggestions" has
+                # somewhere new to go once the top 150 are all handled), so
+                # it gets the full list under "word_suggestions" -- both
+                # keys come from the same computation below, just sliced
+                # differently, so exposing both costs nothing extra.
+                "word_cloud": full_word_cloud[:WORD_CLOUD_TOP_N],
+                "word_suggestions": full_word_cloud,
+                "phrase_suggestions": self._phrase_candidates(rows),
                 "weighted_words": self._weighted_words(rows),
             }
         finally:
             session.close()
 
     def _word_cloud(self, rows):
-        """[(word, count), ...] sorted by corpus-wide token count, limited
-        to words appearing in at least WORD_CLOUD_MIN_TRACKS distinct
-        tracks."""
+        """[(word, count), ...] sorted by corpus-wide token count (most
+        frequent first), limited to words appearing in at least
+        WORD_CLOUD_MIN_TRACKS distinct tracks. Unsliced -- callers cap to
+        whatever size fits their use (see get_comprehensive_lyrics_stats)."""
         token_counts = Counter()
         doc_counts = Counter()
         for lyrics, _rating in rows:
@@ -99,8 +123,48 @@ class LyricsStats:
             word for word, n in doc_counts.items() if n >= WORD_CLOUD_MIN_TRACKS
         ]
         eligible.sort(key=lambda word: token_counts[word], reverse=True)
-        top = eligible[:WORD_CLOUD_TOP_N]
-        return [(word, token_counts[word]) for word in top]
+        return [(word, token_counts[word]) for word in eligible]
+
+    def _phrase_candidates(self, rows):
+        """[(phrase, count), ...] sorted by corpus-wide occurrence count,
+        for 2- and 3-word n-grams (PHRASE_LENGTHS) appearing in at least
+        PHRASE_MIN_TRACKS distinct tracks -- the same discovery bar as
+        _word_cloud, just for word groups instead of single words.
+
+        A candidate is dropped unless it starts *and* ends on a non-
+        stopword, content-bearing word -- interior stopwords are fine
+        (mood_keywords.json already has real phrases like "on top of the
+        world"), but a phrase edge-anchored on one is usually a fragment
+        rather than a phrase ("and i", "in the"), not a useful suggestion.
+        """
+        token_counts = Counter()
+        doc_counts = Counter()
+        for lyrics, _rating in rows:
+            words = _raw_tokens(lyrics)
+            if not words:
+                continue
+            phrases = []
+            for n in PHRASE_LENGTHS:
+                for i in range(len(words) - n + 1):
+                    gram = words[i : i + n]
+                    first, last = gram[0], gram[-1]
+                    if len(first) <= 1 or len(last) <= 1:
+                        continue
+                    if first in STOPWORDS or last in STOPWORDS:
+                        continue
+                    phrases.append(" ".join(gram))
+            if not phrases:
+                continue
+            # Mirrors _word_cloud's counting split exactly: token_counts
+            # takes every occurrence (a phrase repeated in one track's
+            # chorus counts each time), doc_counts takes the per-track set
+            # (so that repeat alone can't clear PHRASE_MIN_TRACKS on its own).
+            token_counts.update(phrases)
+            doc_counts.update(set(phrases))
+
+        eligible = [p for p, n in doc_counts.items() if n >= PHRASE_MIN_TRACKS]
+        eligible.sort(key=lambda p: token_counts[p], reverse=True)
+        return [(p, token_counts[p]) for p in eligible]
 
     def _weighted_words(self, rows):
         """Words whose document-frequency skews most toward above-median-
