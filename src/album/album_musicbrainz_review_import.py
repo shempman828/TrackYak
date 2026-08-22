@@ -160,18 +160,28 @@ def _resolve_artist(controller, credit) -> Any | None:
     artist = controller.get.resolve_entity_or_alias(
         "Artist", "artist_name", credit.artist_name
     )
-    if artist is not None:
+    if artist is not None and not artist.MBID:
+        if credit.artist_mbid:
+            controller.update.update_entity(
+                "Artist", artist.artist_id, MBID=credit.artist_mbid
+            )
+            artist.MBID = credit.artist_mbid
         return artist
+    # A name match whose row already carries a (necessarily different --
+    # the MBID lookup above would have caught an equal one) MBID is a
+    # distinct real-world artist, not this credit -- ignore it rather
+    # than merging two different people, and fall through below.
 
     if credit.canonical_name and credit.canonical_name != credit.artist_name:
         artist = controller.get.resolve_entity_or_alias(
             "Artist", "artist_name", credit.canonical_name
         )
-        if artist is not None:
-            if not artist.MBID and credit.artist_mbid:
+        if artist is not None and not artist.MBID:
+            if credit.artist_mbid:
                 controller.update.update_entity(
                     "Artist", artist.artist_id, MBID=credit.artist_mbid
                 )
+                artist.MBID = credit.artist_mbid
             controller.add.add_entity(
                 "ArtistAlias",
                 artist_id=artist.artist_id,
