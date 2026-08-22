@@ -6,7 +6,7 @@ side effect, so it must be imported after all model modules.
 
 Indexes deliberately omitted here because they'd be redundant with an
 existing PRIMARY KEY / UNIQUE constraint (SQLite auto-indexes both):
-  - Track.track_file_path, Artist.artist_name — already unique=True
+  - Track.track_file_path — already unique=True
   - TrackGenre(track_id, genre_id), ArtistTypeAssociation(artist_id, artist_type_id),
     MoodTrackAssociation(mood_id, track_id) — already composite primary keys
   - AlbumPublisher(album_id, publisher_id) — already a composite primary key
@@ -47,6 +47,11 @@ from src.db.db_tables.role import Role
 from src.db.db_tables.track import Samples, Track, TrackUsage
 
 # --- Artist ---
+Index(
+    "idx_artists_name", Artist.artist_name
+)  # No longer a byproduct of unique=True -- artist_name isn't unique
+# anymore (two real people can share a name; MB import disambiguates by
+# MBID), so name lookups need their own explicit index.
 Index("idx_artists_religion_id", Artist.religion_id)  # Grouped counts in religion_manager
 Index(
     "idx_artists_begin_month_day", Artist.begin_month, Artist.begin_day
