@@ -725,8 +725,16 @@ class AlbumsTab(_BaseTab):
         artist = self.controller.get.resolve_entity_or_alias(
             "Artist", "artist_name", artist_name
         )
-        if artist is not None:
+        if artist is not None and not artist.MBID:
+            if artist_mbid:
+                self.controller.update.update_entity(
+                    "Artist", artist.artist_id, MBID=artist_mbid
+                )
+                artist.MBID = artist_mbid
             return artist
+        # A name match whose row already carries a (necessarily different)
+        # MBID is a distinct real-world artist -- ignore it and create a
+        # new Artist instead of merging two different people.
         return self.controller.add.add_entity(
             "Artist", artist_name=artist_name, MBID=artist_mbid
         )
