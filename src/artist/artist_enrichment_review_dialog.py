@@ -133,6 +133,17 @@ class ArtistEnrichmentReviewDialog(QDialog):
                     if other.artist_id in candidate_ids_seen:
                         continue
                     candidate_ids_seen.add(other.artist_id)
+                    # `other` already carrying a different MBID than the
+                    # artist this dialog is enriching means MusicBrainz
+                    # itself confirms they're distinct people -- never
+                    # suggest merging the alias onto it, however close the
+                    # name match (see artist_fuzzy_match.py's same guard).
+                    if (
+                        self.artist.MBID
+                        and other.MBID
+                        and self.artist.MBID != other.MBID
+                    ):
+                        continue
                     ratio = artist_name_similarity(alias.name, other.artist_name)
                     if ratio >= ALIAS_MERGE_THRESHOLD and ratio > best_ratio:
                         best_artist, best_ratio = other, ratio
