@@ -1,7 +1,18 @@
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.db.db_tables import ArtistType, Chart, Place, PlaceAssociationType, Role
+from src.db.db_tables import ArtistType, Chart, Mood, Place, PlaceAssociationType, Role
 from src.core.logger_config import logger
+
+# Default mood taxonomy for automatic lyrics-based mood tagging (see
+# docs/specs/lyrics_mood_tagging.md). Keyword lists for each of these
+# moods live in assets/mood_keywords.json, keyed by these exact names.
+DEFAULT_MOOD_NAMES = (
+    "Happy", "Sad", "Heartbreak", "Romantic", "Angry", "Rebellious",
+    "Sleepy", "Chill", "Party", "Driving", "Road Trip", "Study",
+    "Workout", "Beach", "Rainy Day", "Late Night", "Nostalgic",
+    "Hopeful", "Triumphant", "Melancholy", "Confidence", "Feel-Good",
+    "Dark/Moody", "Holiday",
+)
 
 
 class Defaults:
@@ -53,6 +64,38 @@ class Defaults:
                 logger.info("Inserted default artist types.")
             else:
                 logger.debug("Artist types already exist, skipping defaults.")
+
+            # -----------------
+            # Moods (default taxonomy for automatic lyrics-based tagging)
+            #
+            # Checked by name, not by "table is empty" like the sections
+            # above: unlike Roles/ArtistTypes/etc, Mood is a table real
+            # libraries already populate with their own folksonomy before
+            # this feature ever existed, so a blanket count==0 gate would
+            # never fire again once a single user mood exists -- verified
+            # against a real library's DB copy, which already had 59
+            # user-created moods and would otherwise silently never receive
+            # this taxonomy (or the auto-tagger's keyword lists, which are
+            # keyed to these exact names). Inserting only the missing names
+            # is still idempotent and safe to run on every launch.
+            # -----------------
+            existing_mood_names = {
+                name for (name,) in session.query(Mood.mood_name).all()
+            }
+            missing_mood_names = [
+                name for name in DEFAULT_MOOD_NAMES if name not in existing_mood_names
+            ]
+            if missing_mood_names:
+                session.add_all(
+                    [Mood(mood_name=name) for name in missing_mood_names]
+                )
+                session.commit()
+                logger.info(
+                    f"Inserted {len(missing_mood_names)} default mood(s): "
+                    f"{', '.join(missing_mood_names)}"
+                )
+            else:
+                logger.debug("Default moods already exist, skipping mood defaults.")
 
             # -----------------
             # Place association types
