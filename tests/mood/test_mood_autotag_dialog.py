@@ -13,6 +13,11 @@ import json
 from src.mood.mood_autotag_dialog import (
     MoodAutoTagDialog,
     append_keyword_to_mood_file,
+    dismiss_word,
+    keyword_to_moods,
+    load_dismissed_words,
+    remove_keyword_from_mood_file,
+    undismiss_word,
 )
 
 
@@ -65,3 +70,76 @@ def test_assigned_words_includes_component_words_of_phrases(tmp_path, monkeypatc
     assigned = MoodAutoTagDialog._assigned_words()
 
     assert assigned == {"dance", "floor", "crying"}
+
+
+# Multi-mood assignment, editing, and dismiss/neutral --------------------------
+
+
+def test_keyword_can_be_assigned_to_multiple_moods(tmp_path):
+    path = _write_keywords(tmp_path, {"Heartbreak": []})
+
+    append_keyword_to_mood_file(path, "Heartbreak", "ex-girlfriend")
+    append_keyword_to_mood_file(path, "Sad", "ex-girlfriend")
+
+    reloaded = json.loads(path.read_text())
+    assert reloaded["Heartbreak"] == ["ex-girlfriend"]
+    assert reloaded["Sad"] == ["ex-girlfriend"]
+
+    moods = keyword_to_moods(reloaded)
+    assert moods["ex-girlfriend"] == ["Heartbreak", "Sad"]
+
+
+def test_keyword_to_moods_dedupes_and_preserves_order():
+    raw = {"Happy": ["sunshine"], "Feel-Good": ["sunshine"], "Sad": ["crying"]}
+
+    moods = keyword_to_moods(raw)
+
+    assert moods == {"sunshine": ["Happy", "Feel-Good"], "crying": ["Sad"]}
+
+
+def test_remove_keyword_from_mood_file_removes_one_association(tmp_path):
+    path = _write_keywords(
+        tmp_path, {"Heartbreak": ["ex-girlfriend"], "Sad": ["ex-girlfriend"]}
+    )
+
+    changed = remove_keyword_from_mood_file(path, "Heartbreak", "ex-girlfriend")
+
+    assert changed is True
+    reloaded = json.loads(path.read_text())
+    assert reloaded["Heartbreak"] == []
+    # The other mood's association survives -- removal is per-mood, not global.
+    assert reloaded["Sad"] == ["ex-girlfriend"]
+
+
+def test_remove_keyword_from_mood_file_is_a_noop_if_absent(tmp_path):
+    path = _write_keywords(tmp_path, {"Happy": ["sunshine"]})
+
+    changed = remove_keyword_from_mood_file(path, "Happy", "nonexistent")
+
+    assert changed is False
+    reloaded = json.loads(path.read_text())
+    assert reloaded["Happy"] == ["sunshine"]
+
+
+def test_dismiss_and_undismiss_word_round_trip(tmp_path):
+    path = tmp_path / "mood_dismissed_words.json"
+    path.write_text("[]")
+
+    changed = dismiss_word(path, "yeah")
+    assert changed is True
+    assert load_dismissed_words(path) == {"yeah"}
+
+    # Dismissing an already-dismissed word is a no-op.
+    assert dismiss_word(path, "yeah") is False
+
+    changed = undismiss_word(path, "yeah")
+    assert changed is True
+    assert load_dismissed_words(path) == set()
+
+    assert undismiss_word(path, "yeah") is False
+
+
+def test_load_dismissed_words_defaults_to_empty_on_missing_file(tmp_path):
+    path = tmp_path / "does_not_exist.json"
+
+    assert load_dismissed_words(path) == set()
