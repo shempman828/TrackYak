@@ -193,13 +193,23 @@ class GlobalSplitAliasTab(QWidget):
     def _resolve_target_ids(self, names: list[str]) -> list[int] | None:
         """Resolve each typed target name to an entity id, creating any
         that don't already exist (same find-or-create convention as
-        every other entity-picker field in the app). Returns None if any
-        name failed to resolve."""
+        every other entity-picker field in the app). Falls back to the
+        model's alias table first (e.g. "Pig Robbins" -> ArtistAlias ->
+        Hargus Robbins) so a target that's really just an alias resolves
+        to its canonical entity instead of creating a duplicate. Returns
+        None if any name failed to resolve."""
         known_entities = get_cached_entities(self.controller, self.model_name) or []
         ids = []
         for name in names:
             entity = find_or_create_by_name(
-                self.controller, self.model_name, self.name_field, name, known_entities
+                self.controller,
+                self.model_name,
+                self.name_field,
+                name,
+                known_entities,
+                extra_lookup=lambda name=name: self.controller.get.resolve_entity_or_alias(
+                    self.model_name, self.name_field, name
+                ),
             )
             if entity is None:
                 return None
