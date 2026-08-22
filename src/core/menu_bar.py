@@ -16,6 +16,7 @@ from src.importing.import_dialog import ImportDialog
 from src.library.duplicate_finder import DuplicateFinderDialog
 from src.library.missing_tracks import MissingTracks
 from src.lyrics.explicit_recalc_worker import ExplicitRecalcWorker
+from src.mood.mood_autotag_dialog import MoodAutoTagDialog
 from src.player.player_mini import MiniPlayerWindow
 from src.statistics.analysis_dialog import AudioAnalysisDialog
 from src.statistics.statistics_dialog import MusicStatsDialog
@@ -129,6 +130,13 @@ class MenuBar:
             slot=self.show_explicit_recalc,
             tooltip="Scan every track with lyrics but no Explicit setting yet, "
             "and flag it against assets/explicit_words.txt",
+        )
+        self.add_action(
+            tools_menu,
+            "Mood Tagging…",
+            slot=self.show_mood_autotag_dialog,
+            tooltip="Auto-tag tracks with moods and known places from their "
+            "lyrics, and review lyrics words not yet assigned to a mood",
         )
 
         # View menu
@@ -389,6 +397,13 @@ class MenuBar:
         )
         self._explicit_recalc_worker.wait()
         self._explicit_recalc_worker = None
+
+    def show_mood_autotag_dialog(self):
+        if not hasattr(self, "mood_autotag_dialog"):
+            self.mood_autotag_dialog = MoodAutoTagDialog(self.controller, self)
+        self.mood_autotag_dialog.show()
+        self.mood_autotag_dialog.raise_()
+        self.mood_autotag_dialog.activateWindow()
 
     def _on_explicit_recalc_error(self, message: str):
         show_status_message(self, f"Explicit flag recalculation failed: {message}")
