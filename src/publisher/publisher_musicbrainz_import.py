@@ -57,14 +57,17 @@ def resolve_or_create_publisher(controller, label: MBLabelInfo) -> Any | None:
     publisher = controller.get.resolve_entity_or_alias(
         "Publisher", "publisher_name", label.name
     )
-    if publisher is not None:
-        if not publisher.MBID:
-            controller.update.update_entity(
-                "Publisher", publisher.publisher_id, MBID=label.mbid
-            )
-            publisher.MBID = label.mbid
+    if publisher is not None and not publisher.MBID:
+        controller.update.update_entity(
+            "Publisher", publisher.publisher_id, MBID=label.mbid
+        )
+        publisher.MBID = label.mbid
         _fill_blank_scalars(controller, publisher, label)
         return publisher
+    # A name match whose row already carries a (necessarily different --
+    # the MBID lookup above would have caught an equal one) MBID is a
+    # distinct real-world entity, not this label -- ignore it and create
+    # a new Publisher instead of merging two different entities.
 
     return controller.add.add_entity(
         "Publisher",
@@ -123,13 +126,15 @@ def resolve_or_create_founder_artist(controller, founder: MBFounderRelation) -> 
     artist = controller.get.resolve_entity_or_alias(
         "Artist", "artist_name", founder.name
     )
-    if artist is not None:
-        if not artist.MBID:
-            controller.update.update_entity(
-                "Artist", artist.artist_id, MBID=founder.mbid
-            )
-            artist.MBID = founder.mbid
+    if artist is not None and not artist.MBID:
+        controller.update.update_entity(
+            "Artist", artist.artist_id, MBID=founder.mbid
+        )
+        artist.MBID = founder.mbid
         return artist
+    # A name match whose row already carries a (necessarily different)
+    # MBID is a distinct real-world artist, not this founder -- ignore
+    # it and create a new Artist instead of merging two different people.
 
     return controller.add.add_entity(
         "Artist", artist_name=founder.name, MBID=founder.mbid
