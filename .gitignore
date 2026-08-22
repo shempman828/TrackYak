@@ -22,3 +22,5 @@ scratch/
 .ruff_cache/
 .pytest_cache/
 docs/
+assets/mood_keywords.json
+assets/mood_dismissed_words.json
