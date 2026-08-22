@@ -118,6 +118,25 @@ class TestResolveOrCreatePublisher:
         assert publisher.publisher_id == canonical.publisher_id
         assert publisher.MBID == "11111111-1111-1111-1111-111111111111"
 
+    def test_name_match_with_conflicting_mbid_creates_new_publisher(self, controller):
+        conflicting = controller.add.add_entity(
+            "Publisher",
+            publisher_name="Atlantic Records",
+            MBID="99999999-9999-9999-9999-999999999999",
+        )
+
+        publisher = resolve_or_create_publisher(controller, _label())
+
+        assert publisher.publisher_id != conflicting.publisher_id
+        assert publisher.MBID == "11111111-1111-1111-1111-111111111111"
+        # The conflicting row must survive untouched -- not merged, not overwritten.
+        all_publishers = controller.get.get_all_entities("Publisher")
+        assert len(all_publishers) == 2
+        untouched = controller.get.get_entity_object(
+            "Publisher", publisher_id=conflicting.publisher_id
+        )
+        assert untouched.MBID == "99999999-9999-9999-9999-999999999999"
+
     def test_existing_publisher_fill_blank_only_never_overwrites(self, controller):
         existing = controller.add.add_entity(
             "Publisher",
@@ -157,6 +176,23 @@ class TestResolveOrCreateFounderArtist:
 
         assert artist.artist_id == canonical.artist_id
         assert artist.MBID == founder.mbid
+
+    def test_name_match_with_conflicting_mbid_creates_new_artist(self, controller):
+        conflicting = controller.add.add_entity(
+            "Artist", artist_name="Ahmet Ertegun", MBID="different-mbid"
+        )
+        founder = MBFounderRelation(
+            mbid="22222222-2222-2222-2222-222222222222", name="Ahmet Ertegun"
+        )
+
+        artist = resolve_or_create_founder_artist(controller, founder)
+
+        assert artist.artist_id != conflicting.artist_id
+        assert artist.MBID == founder.mbid
+        untouched = controller.get.get_entity_object(
+            "Artist", artist_id=conflicting.artist_id
+        )
+        assert untouched.MBID == "different-mbid"
 
 
 class TestApplyPublisherFounders:
