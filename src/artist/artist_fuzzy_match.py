@@ -171,6 +171,16 @@ class ArtistFuzzyMatchWorker(CancellableWorker):
                     pair_key = tuple(sorted((a.artist_id, b.artist_id)))
                     if pair_key not in seen_pairs:
                         seen_pairs.add(pair_key)
+                        # Two rows can legitimately share a name now that
+                        # artist_name isn't DB-unique (MB import creates a
+                        # second same-named Artist rather than merge two
+                        # different real people, see
+                        # publisher_musicbrainz_import.py). A pair each
+                        # already carrying a different MBID is confirmed
+                        # distinct by MusicBrainz itself -- never suggest
+                        # merging it, no matter how similar the names look.
+                        if a.MBID and b.MBID and a.MBID != b.MBID:
+                            continue
                         ratio = artist_name_similarity(a.artist_name, b.artist_name)
                         if ratio >= self._threshold:
                             matches.append((a, b, round(ratio * 100)))
