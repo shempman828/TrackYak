@@ -11,6 +11,7 @@ from src.core.censor import text_contains_explicit_words
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.db.db_mapping_tracks import TRACK_FIELDS
+from src.lyrics.mood_autotag import auto_tag_track, build_autotag_context
 from src.track.track_edit_basetab import _BaseTab
 from src.track.track_edit_fieldform import (
     _coerce,
@@ -122,7 +123,24 @@ class LyricsTab(_BaseTab):
                 # value -- once is_explicit is anything else, manual or
                 # auto-calculated, later saves leave it alone.
                 changes["is_explicit"] = text_contains_explicit_words(final_lyrics)
+
+        if lyrics_dirty and not self.is_multi and final_lyrics:
+            self._run_mood_autotag(final_lyrics)
+
         return changes
+
+    def _run_mood_autotag(self, lyrics: str) -> None:
+        """Score `lyrics` and write any newly-matching mood/place
+        associations for this track, additive-only. Never raises -- a
+        matching failure must not block saving the rest of the dialog."""
+        try:
+            context = build_autotag_context(self.controller)
+            auto_tag_track(self.controller, self.track.track_id, lyrics, context)
+        except Exception as e:  # ruff: ignore[blind-except]
+            # Intentional broad boundary catch: a mood-matching or DB-write
+            # failure here must not prevent the rest of the dialog's Save
+            # (or a lyrics-search result) from completing.
+            logger.error(f"Mood auto-tag failed for track {self.track.track_id}: {e}")
 
     def _search_lyrics(self):
         self._search_btn.setEnabled(False)
@@ -134,6 +152,8 @@ class LyricsTab(_BaseTab):
         self._edit.setPlainText(formatted)
         self._search_btn.setEnabled(True)
         show_status_message(self, "Lyrics found.")
+        if not self.is_multi and formatted:
+            self._run_mood_autotag(formatted)
 
     def _on_lyrics_not_found(self) -> None:
         self._search_btn.setEnabled(True)
