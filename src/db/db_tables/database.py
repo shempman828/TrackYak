@@ -2,6 +2,8 @@
 MusicDatabase: engine/session setup plus schema and integrity verification.
 """
 
+import re
+
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
@@ -124,6 +126,9 @@ class MusicDatabase:
                 if table_name in existing_tables:
                     self._rename_column_if_needed(table_name, "is_fixed", "first_pass")
 
+            if "artists" in existing_tables:
+                self._drop_artist_name_unique_constraint_if_needed()
+
             # ── Step 2: Column check ─────────────────────────────────────────
             # For every ORM model, compare the columns defined in Python against
             # the columns that actually exist in the database file. Simple
@@ -188,7 +193,6 @@ class MusicDatabase:
     # in metadata") so this can't accidentally drop an index this code doesn't
     # know about.
     _RETIRED_INDEXES = {
-        "idx_artists_name",  # duplicate of the artist_name unique constraint
         "idx_tracks_path",  # duplicate of the track_file_path unique constraint
         "idx_tracks_disc_id",  # exact duplicate of idx_track_disc_id
         "idx_artist_begin_end",  # no query filters/sorts on begin_year/end_year
@@ -346,6 +350,90 @@ class MusicDatabase:
             logger.error(
                 f"Failed to rename column {table_name}.{old_name} to {new_name}: {e}"
             )
+
+    def _drop_artist_name_unique_constraint_if_needed(self) -> None:
+        """Artist.artist_name used to be unique=True, enforced as an inline
+        UNIQUE table constraint SQLite can't ALTER away. That forced every
+        MusicBrainz-import resolver (see publisher_musicbrainz_import.py /
+        album_musicbrainz_review_import.py / track_edit_album.py) to reuse
+        -- and silently merge -- any local Artist that happened to share an
+        exact name with an incoming credit, even when that local Artist
+        already carried a *different* MBID and was therefore a distinct
+        real person. Those resolvers now need to create a second,
+        same-named Artist in that case, which the live constraint would
+        reject outright.
+
+        Rebuilds the table via SQLite's documented "Making Other Kinds Of
+        Table Schema Changes" procedure (CREATE modified-copy, INSERT
+        SELECT, DROP original, RENAME), preserving the live table's exact
+        column set verbatim -- including any column the current ORM model
+        no longer declares -- except for the one removed constraint. No-op
+        if the constraint is already gone (already migrated, or a fresh DB
+        created after this fix).
+        """
+        raw_conn = self.engine.raw_connection()
+        try:
+            cursor = raw_conn.cursor()
+            cursor.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='artists'"
+            )
+            row = cursor.fetchone()
+            if row is None or row[0] is None:
+                return
+            create_sql = row[0]
+            if not re.search(r"UNIQUE\s*\(\s*artist_name\s*\)", create_sql):
+                return
+
+            cursor.execute("PRAGMA table_info(artists)")
+            columns = [info[1] for info in cursor.fetchall()]
+            col_list = ", ".join(f'"{c}"' for c in columns)
+
+            new_sql = re.sub(
+                r"UNIQUE\s*\(\s*artist_name\s*\)\s*,\s*", "", create_sql, count=1
+            )
+            new_sql = new_sql.replace(
+                "CREATE TABLE artists (", "CREATE TABLE artists_new (", 1
+            )
+            if "artists_new" not in new_sql:
+                raise SQLAlchemyError(
+                    "Could not safely rewrite the artists table's CREATE "
+                    "statement for the artist_name migration -- aborting "
+                    "rather than risk a malformed rebuild."
+                )
+
+            cursor.execute("PRAGMA foreign_keys=OFF")
+            try:
+                cursor.execute("BEGIN")
+                cursor.execute(new_sql)
+                cursor.execute(
+                    f"INSERT INTO artists_new ({col_list}) "
+                    f"SELECT {col_list} FROM artists"
+                )
+                cursor.execute("DROP TABLE artists")
+                cursor.execute("ALTER TABLE artists_new RENAME TO artists")
+                cursor.execute("PRAGMA foreign_key_check")
+                violations = cursor.fetchall()
+                if violations:
+                    raise SQLAlchemyError(
+                        f"Foreign key check failed after artist_name "
+                        f"migration, rolling back: {violations}"
+                    )
+                raw_conn.commit()
+                logger.info(
+                    "Migrated artists table: dropped the UNIQUE(artist_name) "
+                    "constraint so MB import can create a second same-named "
+                    "Artist instead of merging two different real people."
+                )
+            except Exception:
+                raw_conn.rollback()
+                raise
+            finally:
+                cursor.execute("PRAGMA foreign_keys=ON")
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to drop artist_name unique constraint: {e}")
+            raise
+        finally:
+            raw_conn.close()
 
     def _backfill_album_gain_peak(self) -> None:
         """One-time catch-up for albums analyzed before album_gain/album_peak
