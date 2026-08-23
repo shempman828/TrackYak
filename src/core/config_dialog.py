@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDockWidget,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -57,7 +58,11 @@ class ConfigDialog(QDialog):
         self._scale_debounce_timer = QTimer(self)
         self._scale_debounce_timer.setSingleShot(True)
         self._scale_debounce_timer.setInterval(50)
-        self._scale_debounce_timer.timeout.connect(self._apply_pending_scale)
+        self._scale_debounce_timer.timeout.connect(self._preview_pending_scale)
+        # The scale-slider preview above only restyles what's actually on
+        # screen (see _visible_restyle_roots); commit the real, full-app
+        # change exactly once when the dialog closes, however it closes.
+        self.finished.connect(self._commit_scale_if_pending)
 
         self._setup_ui()
         self._load_current_settings()
@@ -514,9 +519,47 @@ class ConfigDialog(QDialog):
             self._pending_scale_value = value
             self._scale_debounce_timer.start()
 
-    def _apply_pending_scale(self):
+    def _visible_restyle_roots(self) -> list[QWidget]:
+        """Widgets to live-restyle during a scale-slider drag: this dialog,
+        plus whatever the user can actually see behind it (the active
+        QStackedWidget page, docks, menu bar, status bar) -- not every
+        widget in the app, most of which (every other tab's grid included)
+        isn't on screen at all while this modal dialog is up.
+        """
+        roots: list[QWidget] = [self]
+        main_window = self.parent()
+        if main_window is None:
+            return roots
+
+        stacked = getattr(main_window, "stacked_widget", None)
+        if stacked is not None:
+            current = stacked.currentWidget()
+            if current is not None:
+                roots.append(current)
+
+        if hasattr(main_window, "menuBar"):
+            menu_bar = main_window.menuBar()
+            if menu_bar is not None:
+                roots.append(menu_bar)
+        if hasattr(main_window, "statusBar"):
+            status_bar = main_window.statusBar()
+            if status_bar is not None:
+                roots.append(status_bar)
+        if hasattr(main_window, "findChildren"):
+            roots.extend(main_window.findChildren(QDockWidget))
+
+        return roots
+
+    def _preview_pending_scale(self):
+        if self._pending_scale_value is not None and self.display_settings is not None:
+            self.display_settings.preview_ui_scale_in(
+                self._pending_scale_value / 100.0, self._visible_restyle_roots()
+            )
+
+    def _commit_scale_if_pending(self, *_args):
         if self._pending_scale_value is not None and self.display_settings is not None:
             self.display_settings.set_ui_scale(self._pending_scale_value / 100.0)
+        self._pending_scale_value = None
 
     # ------------------------------------------------------------------
     # Audio tab helpers
