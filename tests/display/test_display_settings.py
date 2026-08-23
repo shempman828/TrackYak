@@ -7,6 +7,8 @@ these tests also guard against a caller compounding the factor by scaling
 an already-scaled stylesheet.
 """
 
+from PySide6.QtWidgets import QLabel
+
 from src.display.display_settings import DisplaySettings, scale_qss_pixel_values
 
 
@@ -82,3 +84,32 @@ def test_ui_scale_change_reapplies_from_original_not_from_already_scaled(tmp_pat
 
     settings.set_ui_scale(1.0)
     assert "font-size: 10px;" in qapp.styleSheet()
+
+
+def test_preview_ui_scale_in_only_restyles_given_roots(tmp_path, qapp):
+    """Regression: the scale-slider debounce handler used to call
+    set_ui_scale(), which restyles via QApplication.setStyleSheet() -- an
+    O(total live widget count) call that re-polishes every widget in the
+    app, including ones sitting hidden behind another tab. For a widget
+    tree that grows with the library (e.g. the album grid), that made
+    every settled slider position freeze the app for as long as it took to
+    re-polish widgets nobody could even see.
+
+    preview_ui_scale_in() must restyle only the given roots -- proving it
+    doesn't touch (and doesn't pay for) anything outside that scope.
+    """
+    (tmp_path / "test_theme.qss").write_text("QLabel { font-size: 10px; }")
+    settings = DisplaySettings(app=qapp, config=None)
+    settings.theme_dir = tmp_path
+    settings.set_theme("test_theme")
+
+    in_scope = QLabel()
+    out_of_scope = QLabel()
+
+    settings.preview_ui_scale_in(1.5, [in_scope])
+
+    assert "font-size: 15px;" in in_scope.styleSheet()
+    assert out_of_scope.styleSheet() == ""
+    # The app-wide stylesheet itself must be untouched by a scoped preview --
+    # only set_ui_scale() commits that.
+    assert "15px" not in qapp.styleSheet()
