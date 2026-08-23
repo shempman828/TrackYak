@@ -165,6 +165,32 @@ class DisplaySettings(QObject):
         self._reapply_styled_widgets()
         self.display_changed.emit()
 
+    def preview_ui_scale_in(self, scale: float, roots: list[QWidget]):
+        """Live-preview a scale change against only the given widget
+        subtrees, instead of the whole app.
+
+        `set_ui_scale()`/`preview_ui_scale()` call `QApplication.setStyleSheet()`,
+        which re-polishes every live widget under the app -- including ones
+        sitting hidden behind another tab. For a widget tree that grows
+        with the library (e.g. the album grid, which never destroys
+        off-screen cards), that re-polish is O(total widget count) and can
+        take tens of seconds even though nothing outside `roots` is even
+        visible. Setting the same scaled stylesheet directly on just the
+        on-screen roots cascades to their descendants and looks identical,
+        for a fraction of the cost.
+
+        Does not persist and does not touch widgets outside `roots` --
+        call set_ui_scale() once to commit for real (this also corrects
+        every widget this preview skipped).
+        """
+        self.ui_scale = scale
+        self._apply_font()
+        if self._raw_qss is not None:
+            scaled_qss = scale_qss_pixel_values(self._raw_qss, scale)
+            for root in roots:
+                root.setStyleSheet(scaled_qss)
+        self._reapply_styled_widgets()
+
     def preview_ui_scale(self, scale: float):
         """Apply a scale change live without persisting it.
 
