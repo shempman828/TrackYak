@@ -1,5 +1,3 @@
-import subprocess
-from collections import defaultdict
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
@@ -24,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.config_setup import Config
+from src.core.font_family_worker import FontFamilyWorker
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.display.display_settings import DisplaySettings
@@ -34,6 +33,10 @@ class ConfigDialog(QDialog):
     display/theme/explicit-content), Audio (incl. device/normalization), and
     Logging. Everything except a handful of live-preview Appearance controls
     is applied on Apply/OK."""
+
+    # Set by the first FontFamilyWorker to finish; later dialog opens reuse
+    # it instead of re-running fc-list (see _create_appearance_tab).
+    _canonical_font_families_cache: set | None = None
 
     def __init__(
         self,
@@ -63,6 +66,7 @@ class ConfigDialog(QDialog):
         # screen (see _visible_restyle_roots); commit the real, full-app
         # change exactly once when the dialog closes, however it closes.
         self.finished.connect(self._commit_scale_if_pending)
+        self.finished.connect(self._cleanup_font_worker)
 
         self._setup_ui()
         self._load_current_settings()
@@ -241,8 +245,23 @@ class ConfigDialog(QDialog):
         )
 
         self.font_combo = QComboBox()
-        self._canonical_font_families = self._compute_canonical_font_families()
-        self._populate_font_combo()
+        if ConfigDialog._canonical_font_families_cache is not None:
+            self._canonical_font_families = ConfigDialog._canonical_font_families_cache
+            self._populate_font_combo()
+        else:
+            # fc-list clustering (see FontFamilyWorker) is slow enough to be
+            # noticeable on the very first Settings open of a session — show
+            # a placeholder and fill in for real once the background
+            # computation lands, instead of blocking dialog construction.
+            self._canonical_font_families = set()
+            self.font_combo.addItem("Loading fonts…")
+            self.font_combo.setEnabled(False)
+            self.font_script_combo.setEnabled(False)
+            self._font_family_worker = FontFamilyWorker(parent=self)
+            self._font_family_worker.computed.connect(
+                self._on_font_families_computed
+            )
+            self._font_family_worker.start()
         if self.display_settings is not None:
             self.font_combo.currentTextChanged.connect(
                 self.display_settings.set_font_family
@@ -405,76 +424,35 @@ class ConfigDialog(QDialog):
     # is available — see _create_appearance_tab)
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _compute_canonical_font_families() -> set:
-        """Return the subset of QFontDatabase.families() that are real
-        typefaces rather than fontconfig's named-instance aliases for a
-        single weight/width of a variable font (e.g. "Noto Sans Thin" is
-        the same physical font file as "Noto Sans", just pinned to one
-        weight — fontconfig registers both as separate "family" names).
+    def _on_font_families_computed(self, families: set):
+        """FontFamilyWorker.computed slot — replaces the "Loading fonts…"
+        placeholder with the real, alias-deduplicated list."""
+        ConfigDialog._canonical_font_families_cache = families
+        self._canonical_font_families = families
+        self.font_combo.setEnabled(True)
+        self.font_script_combo.setEnabled(True)
+        self._populate_font_combo()
 
-        Ground truth for "same file" comes from `fc-list`, which prints
-        every family name a given font file is registered under on one
-        line. Family names that co-occur on any line are unioned into a
-        cluster (transitively, so e.g. "Noto Sans Canadian Aboriginal" and
-        all its abbreviated weight aliases like "Noto Sans CanAborig XLt"
-        land in one cluster even though the names don't share a textual
-        prefix). Within each cluster only the name with the most styles()
-        of its own is kept — that's the family Qt considers to have the
-        full weight/width range, i.e. the non-aliased one. Genuinely
-        distinct typefaces that just happen to share a name fragment
-        (e.g. "Arial" / "Arial Black" are separate font files) never end
-        up in the same cluster, so they're both kept.
+        # The placeholder item meant _load_current_settings()'s findText()
+        # couldn't have found the configured font — resolve it now.
+        font_family = (
+            self.display_settings.font_family
+            if self.display_settings is not None
+            else self.config.get_font_family()
+        )
+        index = self.font_combo.findText(font_family)
+        if index >= 0:
+            self.font_combo.setCurrentIndex(index)
 
-        Falls back to the unfiltered family list if `fc-list` isn't on
-        PATH (non-Linux, or fontconfig missing) — no worse than before.
-        """
-        all_families = set(QFontDatabase.families())
-        try:
-            result = subprocess.run(
-                ["fc-list", ":", "family"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=True,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return all_families
-
-        parent = {}
-
-        def find(name):
-            while parent[name] != name:
-                parent[name] = parent[parent[name]]
-                name = parent[name]
-            return name
-
-        for line in result.stdout.splitlines():
-            group = [name.strip() for name in line.split(",") if name.strip()]
-            for name in group:
-                parent.setdefault(name, name)
-            for name in group[1:]:
-                root_a, root_b = find(group[0]), find(name)
-                if root_a != root_b:
-                    parent[root_a] = root_b
-
-        clusters = defaultdict(list)
-        for name in parent:
-            clusters[find(name)].append(name)
-
-        style_count = {}
-
-        def styles_len(name):
-            if name not in style_count:
-                style_count[name] = len(QFontDatabase.styles(name))
-            return style_count[name]
-
-        canonical = {
-            max(members, key=lambda n: (styles_len(n), -len(n)))
-            for members in clusters.values()
-        }
-        canonical |= all_families - set(parent.keys())
-        return canonical & all_families
+    def _cleanup_font_worker(self):
+        """Ensure FontFamilyWorker is never left running when the dialog
+        closes -- QThread must be joined before its Python wrapper can be
+        garbage-collected, or Qt aborts with "Destroyed while thread is
+        still running"."""
+        worker = getattr(self, "_font_family_worker", None)
+        if worker is not None and worker.isRunning():
+            worker.request_cancel()
+            worker.wait()
 
     def _populate_font_combo(self):
         """(Re)fill font_combo from the current Script filter, preserving

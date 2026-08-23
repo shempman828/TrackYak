@@ -9,7 +9,7 @@ import subprocess
 
 from PySide6.QtGui import QFontDatabase
 
-from src.core.config_dialog import ConfigDialog
+from src.core.font_family_worker import FontFamilyWorker
 
 
 def test_compute_canonical_font_families_collapses_named_instance_aliases(
@@ -64,7 +64,7 @@ def test_compute_canonical_font_families_collapses_named_instance_aliases(
         ),
     )
 
-    canonical = ConfigDialog._compute_canonical_font_families()
+    canonical = FontFamilyWorker()._compute_canonical_font_families()
 
     assert canonical == {
         "Test Sans",
@@ -87,6 +87,6 @@ def test_compute_canonical_font_families_falls_back_when_fc_list_missing(
 
     monkeypatch.setattr(subprocess, "run", raise_missing)
 
-    canonical = ConfigDialog._compute_canonical_font_families()
+    canonical = FontFamilyWorker()._compute_canonical_font_families()
 
     assert canonical == set(fake_families)
