@@ -393,7 +393,7 @@ class SplitDB(BaseDBHelper):
                 return False
 
             existing_track_genres = {
-                (tg.track_id, tg.genre_id) for g in new_genres for tg in g.tracks
+                (tg.track_id, g.genre_id) for g in new_genres for tg in g.tracks
             }
 
             for track_genre in original_genre.tracks:
