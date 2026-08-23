@@ -18,6 +18,7 @@ from src.db.db_tables.base import Base
 from src.db.db_tables.genre import Genre, GenreSplitAlias
 from src.db.db_tables.publisher import Publisher, PublisherSplitAlias
 from src.db.db_tables.role import Role, RoleSplitAlias
+from src.db.db_tables.track import Track
 
 # (model_name, model_class, name_field, split_method_name, split_alias_class, fk_field)
 _CASES = [
@@ -116,6 +117,34 @@ def test_resplitting_role_replaces_old_rule(session):
     names = {r.role.role_name for r in rows}
     assert names == {"String Instrument", "Bowed Instrument"}
     assert len(rows) == 2
+
+
+def test_split_genre_reusing_existing_genre_with_tracks(session):
+    # Regression test: splitting a genre into a target that already exists
+    # and already has tracks used to crash with
+    # AttributeError: 'Track' object has no attribute 'genre_id'
+    # because Genre.tracks yields Track rows, not TrackGenre association
+    # rows, but split_genre() was treating them as the latter.
+    techno = Genre(genre_name="Techno")
+    house = Genre(genre_name="House")
+    existing_track = Track(track_name="Existing House Track")
+    house.tracks.append(existing_track)
+    session.add_all([techno, house, existing_track])
+    session.commit()
+
+    original = Genre(genre_name="Techno & House")
+    split_track = Track(track_name="Mixed Track")
+    original.tracks.append(split_track)
+    session.add_all([original, split_track])
+    session.commit()
+
+    splitter = SplitDB(session)
+    result = splitter.split_genre(original.genre_id, ["Techno", "House"])
+    assert result is True
+
+    session.refresh(house)
+    house_track_names = {t.track_name for t in house.tracks}
+    assert house_track_names == {"Existing House Track", "Mixed Track"}
 
 
 def test_deleting_split_alias_member_role_cascades(session):
