@@ -28,7 +28,19 @@ except ImportError:
 
 RTKIT_BUS_NAME = "org.freedesktop.RealtimeKit1"
 RTKIT_OBJECT_PATH = "/org/freedesktop/RealtimeKit1"
-REALTIME_PROMOTION_PRIORITY = 10
+# RTKit enforces its own ceiling (MaxRealtimePriority, read from the
+# RealtimeKit1 D-Bus property) regardless of what we ask for -- confirmed on
+# this system to be 20, matching PipeWire's own real-time thread priority.
+# Requesting 10 left us below several kernel SCHED_FIFO threads that run at
+# priority 50 (the DRM display driver's per-CRTC vblank workers, card1-crtc0..5,
+# plus a couple of IRQ threads) -- any of those preempting our audio thread
+# during display activity (e.g. compositing while browsing) was enough to
+# starve the callback and produce a real paOutputUnderflow, logged via
+# player_callback.py's `status` handling. 20 doesn't out-prioritize those
+# SCHED_FIFO-50 threads either (RTKit won't grant more), but it does put us
+# ahead of all ordinary SCHED_OTHER contention, which is the most RTKit will
+# ever hand out to an unprivileged desktop app here.
+REALTIME_PROMOTION_PRIORITY = 20
 REALTIME_PROMOTION_POLL_TIMEOUT = 0.5  # seconds to wait for the callback to fire
 
 
