@@ -320,11 +320,6 @@ class ConfigDialog(QDialog):
             self._load_audio_devices()
             layout.addRow("Output Device:", self.device_combo)
 
-        # Sample rate
-        self.sample_rate_combo = QComboBox()
-        self.sample_rate_combo.addItems(["44100 Hz", "48000 Hz", "96000 Hz"])
-        layout.addRow("Sample Rate:", self.sample_rate_combo)
-
         # Buffer size
         self.buffer_combo = QComboBox()
         self.buffer_combo.addItems(["256", "512", "1024", "2048"])
@@ -697,10 +692,6 @@ class ConfigDialog(QDialog):
             self.censor_words_check.setChecked(censor_words)
 
             # Audio settings
-            sample_rate = self.config.get_sample_rate()
-            rate_map = {44100: 0, 48000: 1, 96000: 2}
-            self.sample_rate_combo.setCurrentIndex(rate_map.get(sample_rate, 0))
-
             buffer_size = self.config.get_buffer_size()
             buffer_map = {256: 0, 512: 1, 1024: 2, 2048: 3}
             self.buffer_combo.setCurrentIndex(buffer_map.get(buffer_size, 2))
@@ -798,10 +789,6 @@ class ConfigDialog(QDialog):
                 )
 
             # Audio settings
-            sample_rate_text = self.sample_rate_combo.currentText()
-            sample_rate = int(sample_rate_text.split()[0])
-            self.config.set_sample_rate(sample_rate)
-
             buffer_size = int(self.buffer_combo.currentText())
             self.config.set_buffer_size(buffer_size)
 

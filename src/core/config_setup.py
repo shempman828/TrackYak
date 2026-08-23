@@ -308,7 +308,6 @@ class Config:
         # Audio section
         self.config["audio"] = {
             "output_device": "default",
-            "sample_rate": "44100",
             "buffer_size": "1024",
             "exclusive_mode": "false",
         }
@@ -488,7 +487,6 @@ _CONFIG_FIELDS = [
     _primitive("fade_duration", "playback", "fade_duration", "float", 0.0),
     _primitive("crossfade", "playback", "crossfade", "bool", False),
     _primitive("output_device", "audio", "output_device", "str", "default"),
-    _primitive("sample_rate", "audio", "sample_rate", "int", 44100),
     _primitive("buffer_size", "audio", "buffer_size", "int", 1024),
     _primitive("exclusive_mode", "audio", "exclusive_mode", "bool", False),
     ConfigField(
