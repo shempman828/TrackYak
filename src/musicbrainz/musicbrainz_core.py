@@ -18,12 +18,26 @@ by musicbrainzngs, enabled by default).
 from __future__ import annotations
 
 import re
+import socket
 from dataclasses import dataclass, field
 from typing import Any
 
 import musicbrainzngs
 
 from src.core.logger_config import logger
+
+# musicbrainzngs has no native request-timeout option -- it opens every
+# request via a plain urllib opener with no timeout passed (confirmed by
+# reading musicbrainzngs.musicbrainz._safe_read's opener.open() calls), so a
+# connection that hangs (server accepts the TCP connection but never
+# responds, or the connection silently dies with no FIN/RST reaching the
+# client) blocks forever with no exception raised. Caught live: an awards
+# backfill run hung all night on a single stuck request, using ~0 CPU the
+# entire time -- confirmed via `ss -tnp` showing an ESTABLISHED connection
+# with an empty send/recv queue. socket.setdefaulttimeout() is the standard
+# workaround for this exact gap; it applies globally to every socket opened
+# without its own explicit timeout, which covers musicbrainzngs's requests.
+_REQUEST_TIMEOUT_SECONDS = 30
 
 _APP_NAME = "TrackYak"
 _APP_VERSION = "0.4"
@@ -95,11 +109,13 @@ class MusicBrainzLookupError(Exception):
 
 
 def configure() -> None:
-    """Set the required MusicBrainz User-Agent. Safe to call more than once."""
+    """Set the required MusicBrainz User-Agent and a global socket timeout
+    (see _REQUEST_TIMEOUT_SECONDS). Safe to call more than once."""
     global _configured
     if _configured:
         return
     musicbrainzngs.set_useragent(_APP_NAME, _APP_VERSION, _CONTACT)
+    socket.setdefaulttimeout(_REQUEST_TIMEOUT_SECONDS)
     _configured = True
 
 
