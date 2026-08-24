@@ -18,6 +18,10 @@ from PySide6.QtWidgets import (
 from sqlalchemy import select
 
 from src.charts.chart_entry_table import ChartEntryTable
+from src.charts.chart_manual_match_actions import (
+    handle_clear_match_requested,
+    handle_manual_match_requested,
+)
 from src.db.db_tables.chart import ChartEntry
 
 _MATCH_FILTERS = ["All", "Matched Only", "Unmatched Only"]
@@ -79,6 +83,8 @@ class ChartWeekBrowserTab(QWidget):
         layout.addLayout(controls)
 
         self.table = ChartEntryTable()
+        self.table.manual_match_requested.connect(self._on_manual_match_requested)
+        self.table.clear_match_requested.connect(self._on_clear_match_requested)
         layout.addWidget(self.table)
 
     def set_charts(self, charts: list) -> None:
@@ -182,3 +188,13 @@ class ChartWeekBrowserTab(QWidget):
     def refresh(self):
         """Re-run the current query (e.g. after a Fetch Updates/Match Now)."""
         self._reload_entries()
+
+    # -----------------------------------------------------------------------
+    # Manual match / clear match (ChartEntryTable context menu)
+    # -----------------------------------------------------------------------
+
+    def _on_manual_match_requested(self, chart_entry_id: int) -> None:
+        handle_manual_match_requested(self, self.controller, chart_entry_id, self.refresh)
+
+    def _on_clear_match_requested(self, chart_entry_id: int) -> None:
+        handle_clear_match_requested(self, self.controller, chart_entry_id, self.refresh)

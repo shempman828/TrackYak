@@ -25,6 +25,10 @@ from PySide6.QtWidgets import (
 from sqlalchemy import bindparam, select, text
 
 from src.charts.chart_entry_table import ChartEntryTable
+from src.charts.chart_manual_match_actions import (
+    handle_clear_match_requested,
+    handle_manual_match_requested,
+)
 from src.charts.fts_query import build_and_query
 from src.db.db_tables.chart import ChartEntry
 
@@ -66,6 +70,8 @@ class ChartSearchTab(QWidget):
         layout.addWidget(self.result_label)
 
         self.table = ChartEntryTable()
+        self.table.manual_match_requested.connect(self._on_manual_match_requested)
+        self.table.clear_match_requested.connect(self._on_clear_match_requested)
         layout.addWidget(self.table)
 
         self._debounce_timer = QTimer(self)
@@ -146,3 +152,13 @@ class ChartSearchTab(QWidget):
 
     def refresh(self):
         self._run_search()
+
+    # -----------------------------------------------------------------------
+    # Manual match / clear match (ChartEntryTable context menu)
+    # -----------------------------------------------------------------------
+
+    def _on_manual_match_requested(self, chart_entry_id: int) -> None:
+        handle_manual_match_requested(self, self.controller, chart_entry_id, self.refresh)
+
+    def _on_clear_match_requested(self, chart_entry_id: int) -> None:
+        handle_clear_match_requested(self, self.controller, chart_entry_id, self.refresh)
