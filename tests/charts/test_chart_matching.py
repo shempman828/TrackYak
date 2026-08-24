@@ -209,3 +209,53 @@ def test_rerun_only_rescopes_unmatched_entries(session):
     second = match_chart(session, chart)
     assert second.total_unmatched == 1  # only the still-unmatched entry rescored
     assert second.matched == 1
+
+
+def test_unchanged_library_skips_rescoring_previously_failed_entry(session):
+    """A permanently-unmatchable entry (nothing in the library for it) is
+    rescored on the first run, but a second run with no library changes at
+    all should skip it rather than paying the same FTS5/containment cost
+    again for a provably-identical outcome."""
+    role = _primary_role(session)
+    _add_track(session, role, "Some Song", "Some Artist")
+    chart = _add_chart(session)
+    entry = _add_entry(session, chart, "A Completely Different Title", "A Different Artist")
+
+    first = match_chart(session, chart)
+    assert first.matched == 0
+    session.refresh(entry)
+    first_attempt = entry.last_match_attempt_at
+    assert first_attempt is not None
+
+    second = match_chart(session, chart)
+    assert second.matched == 0
+    session.refresh(entry)
+    # Untouched -- proves the entry was skipped, not merely re-scored to the
+    # same (failed) outcome.
+    assert entry.last_match_attempt_at == first_attempt
+
+
+def test_library_rename_triggers_rescore_of_previously_failed_entry(session):
+    """A rename that doesn't add/remove any row (so row count alone can't
+    signal a change) must still invalidate the skip -- otherwise an entry
+    that becomes matchable via a library-side rename would be stuck
+    unmatched forever."""
+    role = _primary_role(session)
+    track = _add_track(session, role, "Some Song", "Prince")
+    chart = _add_chart(session)
+    entry = _add_entry(session, chart, "Purple Rain", "Prince")
+
+    first = match_chart(session, chart)
+    assert first.matched == 0
+    session.refresh(entry)
+    assert entry.last_match_attempt_at is not None
+
+    # Rename the (only) library track to what the chart entry is looking
+    # for -- same row, same count, just a changed title.
+    track.track_name = "Purple Rain"
+    session.commit()
+
+    second = match_chart(session, chart)
+    assert second.matched == 1
+    session.refresh(entry)
+    assert entry.is_matched
