@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.awards.award_series_import import import_awards_for_entity
 from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 from src.musicbrainz.musicbrainz_artist import suggest_artist_names
@@ -599,6 +600,14 @@ class AlbumsTab(_BaseTab):
             QMessageBox.warning(self, "Error", f"Failed to set album:\n{e}")
             return
 
+        if "MBID" in update_kwargs:
+            import_awards_for_entity(
+                self.controller.get.session,
+                "Track",
+                self.track.track_id,
+                update_kwargs["MBID"],
+            )
+
         self._refresh_tracks()
         self.load(self.tracks)
 
@@ -695,7 +704,15 @@ class AlbumsTab(_BaseTab):
                 release_month=enrichment.get("release_month"),
                 release_day=enrichment.get("release_day"),
                 MBID=enrichment.get("MBID"),
+                release_group_MBID=enrichment.get("release_group_mbid"),
             )
+            if enrichment.get("release_group_mbid"):
+                import_awards_for_entity(
+                    self.controller.get.session,
+                    "Album",
+                    new_album.album_id,
+                    enrichment["release_group_mbid"],
+                )
             for credit in artist_credits:
                 artist = self._resolve_or_create_artist(
                     credit.get("mbid"), credit.get("name")
@@ -731,13 +748,21 @@ class AlbumsTab(_BaseTab):
                     "Artist", artist.artist_id, MBID=artist_mbid
                 )
                 artist.MBID = artist_mbid
+                import_awards_for_entity(
+                    self.controller.get.session, "Artist", artist.artist_id, artist_mbid
+                )
             return artist
         # A name match whose row already carries a (necessarily different)
         # MBID is a distinct real-world artist -- ignore it and create a
         # new Artist instead of merging two different people.
-        return self.controller.add.add_entity(
+        new_artist = self.controller.add.add_entity(
             "Artist", artist_name=artist_name, MBID=artist_mbid
         )
+        if artist_mbid:
+            import_awards_for_entity(
+                self.controller.get.session, "Artist", new_artist.artist_id, artist_mbid
+            )
+        return new_artist
 
     # ── Virtual appearance search / add / remove ──────────────────────────
 
