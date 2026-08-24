@@ -36,6 +36,13 @@ class Chart(Base):
     last_downloaded_at = Column(DateTime)  # last successful CSV fetch
     last_synced_week = Column(Date)  # most recent chart_week imported; drives update diffing
     last_matched_at = Column(DateTime)  # last time the matching pass ran
+    # Fingerprint of the library's titles/artists as of the last matching
+    # pass (see chart_matching._rebuild_scratch_index). Lets a re-run skip
+    # rescoring entries that were already attempted and failed, but only
+    # while the library is provably unchanged -- any track/album rename,
+    # addition, or removal changes this and forces those entries to be
+    # retried, so a rename can never be silently missed.
+    last_library_fingerprint = Column(String)
 
     entries = relationship(
         "ChartEntry",
@@ -69,6 +76,11 @@ class ChartEntry(Base):
     entity_type = Column(String, CheckConstraint("entity_type IN ('Track', 'Album')"))
     entity_id = Column(Integer)
     match_score = Column(Float)  # SequenceMatcher-derived confidence at match time
+    # Set whenever this entry is scored (matched or not), regardless of
+    # outcome. Combined with Chart.last_library_fingerprint, lets a re-run
+    # tell "never attempted" (new chart week) apart from "attempted, no
+    # match, library unchanged since" (safe to skip).
+    last_match_attempt_at = Column(DateTime)
 
     chart = relationship("Chart", back_populates="entries")
 
