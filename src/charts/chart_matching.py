@@ -50,8 +50,23 @@ Album.album_artist_names are Python properties that walk artist_roles/
 album_roles -> artist/credited_alias/role, which would otherwise trigger
 several extra queries per track/album (N+1) while building the shortlist
 index.
+
+A chart entry that's unmatched because the library genuinely has nothing
+for it (not uncommon -- charts include plenty of tracks/albums a given
+library doesn't own) would otherwise get rescored on every single run
+forever, since entity_id stays NULL either way. To avoid that, each run
+also fingerprints the library scan it already has to do (see
+_rebuild_scratch_index) and compares it to Chart.last_library_fingerprint:
+an unmatched entry that was already attempted (ChartEntry.
+last_match_attempt_at is set) is skipped on a re-run only while that
+fingerprint hasn't changed. Any library edit that could plausibly flip an
+outcome -- a rename, a new track/album, a removal -- changes the
+fingerprint and forces every still-unmatched entry to be retried, so this
+can never silently miss a match that a rename made possible; it only skips
+the case where re-scoring is provably pointless.
 """
 
+import hashlib
 import re
 from collections import defaultdict
 from dataclasses import dataclass
@@ -116,12 +131,18 @@ class MatchStats:
     matched: int
 
 
-def _rebuild_scratch_index(session, entity_type: str) -> dict:
+def _rebuild_scratch_index(session, entity_type: str) -> tuple:
     """(Re)builds the scratch FTS5 table over the library's current
     titles/artist names for `entity_type`, used as this run's fallback
     candidate shortlist source. Also returns an exact-title index --
     normalized title -> [(entity_id, normalized artist_names), ...] -- for
-    the O(1) fast path in _find_match.
+    the O(1) fast path in _find_match, and a fingerprint of every row's
+    (entity_id, normalized title, normalized artist_names) -- see
+    match_chart for how that's used to skip rescoring entries that were
+    already attempted against an unchanged library. Order-independent (XOR
+    of per-row hashes) since row order here has no meaning, and folds in the
+    row count so two rows whose hashes happen to XOR-cancel can't fake "no
+    rows changed".
     """
     session.execute(text(f"DROP TABLE IF EXISTS {_SCRATCH_TABLE}"))
     session.execute(
@@ -178,10 +199,16 @@ def _rebuild_scratch_index(session, entity_type: str) -> dict:
         )
 
     exact_index = defaultdict(list)
+    fingerprint_acc = 0
     for row in rows:
-        exact_index[normalize_title(row["title"])].append(
-            (row["entity_id"], normalize_title(row["artist_names"]))
-        )
+        norm_title = normalize_title(row["title"])
+        norm_artist = normalize_title(row["artist_names"])
+        exact_index[norm_title].append((row["entity_id"], norm_artist))
+        row_hash = hashlib.md5(
+            f"{row['entity_id']}|{norm_title}|{norm_artist}".encode()
+        ).digest()
+        fingerprint_acc ^= int.from_bytes(row_hash, "big")
+    fingerprint = f"{len(rows)}:{fingerprint_acc:032x}"
 
     # Commit here rather than leaving this open until match_chart's final
     # commit: the DROP/CREATE/INSERT above open a real write transaction,
@@ -190,7 +217,7 @@ def _rebuild_scratch_index(session, entity_type: str) -> dict:
     # every other writer in the app (e.g. the batch-analysis coordinator)
     # until they hit busy_timeout and fail with "database is locked".
     session.commit()
-    return exact_index
+    return exact_index, fingerprint
 
 
 def _find_match(cursor, exact_index: dict, entry: ChartEntry) -> Optional[tuple]:
@@ -235,11 +262,18 @@ def match_chart(
     is_cancelled: Optional[Callable[[], bool]] = None,
 ) -> MatchStats:
     """Match every currently-unmatched ChartEntry belonging to `chart`
-    against the local library. Only scores entries where entity_id IS
-    NULL, so re-running after a "Fetch Updates" only costs the newly-added
-    weeks, not the whole chart -- and re-running after the library grows
-    re-attempts everything still unmatched, without re-scoring entries that
-    already matched.
+    against the local library. Only considers entries where entity_id IS
+    NULL, so already-matched entries are never rescored.
+
+    Within that unmatched set, an entry that was already attempted (has
+    last_match_attempt_at set) is skipped *unless* the library's title/
+    artist fingerprint has changed since chart.last_library_fingerprint was
+    last recorded -- i.e. re-running after a "Fetch Updates" with no library
+    changes only costs the newly-added weeks (never attempted), while a
+    library edit (rename, add, remove -- anything touching a Track/Album
+    title or artist credit) invalidates every still-unmatched entry for a
+    full rescan, so a rename that turns a former non-match into a match is
+    never silently missed. See _rebuild_scratch_index for the fingerprint.
 
     `stage_callback(message)` fires once per phase ("Building title
     index...", "Matching entries...") so a caller can show what's actually
@@ -255,7 +289,7 @@ def match_chart(
     """
     if stage_callback:
         stage_callback("Building title index...")
-    exact_index = _rebuild_scratch_index(session, chart.matched_entity_type)
+    exact_index, fingerprint = _rebuild_scratch_index(session, chart.matched_entity_type)
     cursor = session.connection().connection.dbapi_connection.cursor()
 
     unmatched = session.scalars(
@@ -265,18 +299,30 @@ def match_chart(
         )
     ).all()
 
+    library_unchanged = (
+        chart.last_library_fingerprint is not None
+        and chart.last_library_fingerprint == fingerprint
+    )
+    to_score = [
+        entry
+        for entry in unmatched
+        if not library_unchanged or entry.last_match_attempt_at is None
+    ]
+
     if stage_callback:
         stage_callback("Matching entries...")
 
+    now = datetime.now()
     matched = 0
-    for scored, entry in enumerate(unmatched, start=1):
+    for scored, entry in enumerate(to_score, start=1):
         if scored % 500 == 0:
             if progress_callback:
-                progress_callback(scored, len(unmatched), matched)
+                progress_callback(scored, len(to_score), matched)
             if is_cancelled and is_cancelled():
                 break
 
         result = _find_match(cursor, exact_index, entry)
+        entry.last_match_attempt_at = now
         if result is not None:
             entry.entity_type = chart.matched_entity_type
             entry.entity_id, entry.match_score = result
@@ -285,10 +331,11 @@ def match_chart(
     cursor.close()
 
     if progress_callback:
-        progress_callback(len(unmatched), len(unmatched), matched)
+        progress_callback(len(to_score), len(to_score), matched)
 
     session.execute(text(f"DROP TABLE IF EXISTS {_SCRATCH_TABLE}"))
-    chart.last_matched_at = datetime.now()
+    chart.last_library_fingerprint = fingerprint
+    chart.last_matched_at = now
     session.commit()
 
     return MatchStats(total_unmatched=len(unmatched), matched=matched)
