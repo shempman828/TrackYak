@@ -14,6 +14,7 @@ from src.album.album_musicbrainz_known_entities import (
 )
 from src.album.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
 from src.album.release_type_utils import normalize_release_type
+from src.awards.award_series_import import import_awards_for_entity
 from src.common.nullable_numeric_field import (
     nullable_field_value,
     set_nullable_field_value,
@@ -225,10 +226,13 @@ class AlbumMusicBrainzMixin:
 
         if detail.mbid and not self.album.MBID:
             try:
+                update_kwargs = {"MBID": detail.mbid}
+                if detail.release_group_mbid:
+                    update_kwargs["release_group_MBID"] = detail.release_group_mbid
                 self.controller.update.update_entity(
                     "Album",
                     self.album.album_id,
-                    MBID=detail.mbid,
+                    **update_kwargs,
                 )
                 # Keep the open editor's widget in sync with the DB write above --
                 # otherwise the widget still reads blank, and the next Save (which
@@ -237,6 +241,13 @@ class AlbumMusicBrainzMixin:
                 widget = self.field_widgets.get("MBID")
                 if isinstance(widget, QLineEdit):
                     widget.setText(detail.mbid)
+                if detail.release_group_mbid:
+                    import_awards_for_entity(
+                        self.controller.get.session,
+                        "Album",
+                        self.album.album_id,
+                        detail.release_group_mbid,
+                    )
             except SQLAlchemyError as e:
                 logger.warning(f"Could not save MusicBrainz release ID: {e}")
 

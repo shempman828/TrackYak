@@ -20,6 +20,7 @@ from typing import Any
 from PySide6.QtCore import Signal
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.awards.award_series_import import import_awards_for_entity
 from src.common.cancellable_worker import CancellableWorker
 from src.common.entity_completer_edit import find_or_create_by_name
 from src.core.logger_config import logger
@@ -166,6 +167,9 @@ def _resolve_artist(controller, credit) -> Any | None:
                 "Artist", artist.artist_id, MBID=credit.artist_mbid
             )
             artist.MBID = credit.artist_mbid
+            import_awards_for_entity(
+                controller.get.session, "Artist", artist.artist_id, credit.artist_mbid
+            )
         return artist
     # A name match whose row already carries a (necessarily different --
     # the MBID lookup above would have caught an equal one) MBID is a
@@ -182,6 +186,12 @@ def _resolve_artist(controller, credit) -> Any | None:
                     "Artist", artist.artist_id, MBID=credit.artist_mbid
                 )
                 artist.MBID = credit.artist_mbid
+                import_awards_for_entity(
+                    controller.get.session,
+                    "Artist",
+                    artist.artist_id,
+                    credit.artist_mbid,
+                )
             controller.add.add_entity(
                 "ArtistAlias",
                 artist_id=artist.artist_id,
@@ -190,9 +200,14 @@ def _resolve_artist(controller, credit) -> Any | None:
             )
             return artist
 
-    return controller.add.add_entity(
+    new_artist = controller.add.add_entity(
         "Artist", artist_name=credit.artist_name, MBID=credit.artist_mbid
     )
+    if credit.artist_mbid:
+        import_awards_for_entity(
+            controller.get.session, "Artist", new_artist.artist_id, credit.artist_mbid
+        )
+    return new_artist
 
 
 def _resolve_roles_for_credit(controller, role_name: str, known_roles: list[Any]) -> list[Any]:
