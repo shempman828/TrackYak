@@ -35,7 +35,7 @@ from src.db.db_tables.associations import (
     TrackArtistRole,
     TrackGenre,
 )
-from src.db.db_tables.award import AwardAssociation
+from src.db.db_tables.award import Award, AwardAssociation
 from src.db.db_tables.chart import ChartEntry
 from src.db.db_tables.disc import Disc
 from src.db.db_tables.genre import Genre
@@ -150,6 +150,11 @@ Index(
     PlaceAssociation.entity_type,
     PlaceAssociation.entity_id,
 )  # Covers both entity_type-only sweeps and the common entity_type+entity_id lookup
+
+# --- Awards ---
+Index(
+    "idx_awards_mb_series_id", Award.mb_series_id, Award.award_year
+)  # Awards-sync find-or-create key
 
 # --- Award associations ---
 Index("idx_award_associations", AwardAssociation.award_id, AwardAssociation.entity_id)

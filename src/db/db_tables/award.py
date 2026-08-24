@@ -18,6 +18,11 @@ class Award(Base):
     award_description = Column(Text)
     wikipedia_link = Column(String)
     parent_id = Column(Integer, ForeignKey("awards.award_id", ondelete="SET NULL"))
+    # MusicBrainz series MBID this award category was imported from -- the
+    # find-or-create key for awards sync, and a provenance marker that keeps
+    # resync from ever touching a manually-curated award with the same
+    # category+year (those have no mb_series_id).
+    mb_series_id = Column(String)
 
     parent = relationship("Award", remote_side=[award_id], backref="children")
     associations = relationship(
@@ -67,6 +72,10 @@ class AwardAssociation(Base):
         nullable=False,
     )
     association_type = Column(String)
+    # MBID of the MusicBrainz recording/release-group/artist this
+    # association was derived from -- provenance only, awards sync
+    # de-duplicates on (award_id, entity_type, entity_id), not this column.
+    mb_target_mbid = Column(String)
 
     award = relationship("Award", back_populates="associations")
 

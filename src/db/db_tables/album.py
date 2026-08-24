@@ -18,6 +18,7 @@ class Album(Base):
     album_language = Column(String)
     album_subtitle = Column(String)
     MBID = Column(String)
+    release_group_MBID = Column(String)
     release_type = Column(String)
     release_country = Column(String)
     album_description = Column(String)
