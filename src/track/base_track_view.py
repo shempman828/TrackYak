@@ -78,7 +78,7 @@ class BaseTrackView(QDialog):
             "album_name": "Album",
             "track_number": "#",
             "duration": "Duration",
-            "year": "Year",
+            "release_year": "Year",
             "bit_rate": "Bit Rate",
         }
         self.column_keys = list(self.columns.keys())
@@ -155,7 +155,7 @@ class BaseTrackView(QDialog):
             "album_name": "Album",
             "track_number": "#",
             "duration": "Duration",
-            "year": "Year",
+            "release_year": "Year",
             "bit_rate": "Bit Rate",
         }
 
