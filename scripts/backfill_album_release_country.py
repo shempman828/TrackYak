@@ -17,6 +17,7 @@ Run once, manually, from the repo root:
     python scripts/backfill_album_release_country.py
 """
 
+import os
 import shutil
 from datetime import datetime
 
@@ -54,7 +55,8 @@ class _MinimalController:
 
 def _backup(db_path: str) -> str:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = f"{db_path}.{timestamp}.bak"
+    os.makedirs("backups", exist_ok=True)
+    backup_path = f"backups/{os.path.basename(db_path)}.{timestamp}.bak"
     shutil.copy2(db_path, backup_path)
     return backup_path
 

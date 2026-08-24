@@ -24,6 +24,7 @@ db_path defaults to music_library.db; pass a scratch copy's path to dry-run
 first.
 """
 
+import os
 import shutil
 import sys
 from datetime import datetime
@@ -86,7 +87,8 @@ class _MinimalController:
 
 def _backup(db_path: str) -> str:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = f"{db_path}.{timestamp}.bak"
+    os.makedirs("backups", exist_ok=True)
+    backup_path = f"backups/{os.path.basename(db_path)}.{timestamp}.bak"
     shutil.copy2(db_path, backup_path)
     return backup_path
 
