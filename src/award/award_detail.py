@@ -2,6 +2,7 @@ from typing import Any
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -43,6 +44,7 @@ class AwardDetailTab(QWidget):
         self.layout = QVBoxLayout(content)
 
         self._create_basic_info_section()
+        self._populate_parent_combo()
         self._create_relationships_section()
         self._create_description_section()
         self._create_actions_section()
@@ -80,6 +82,12 @@ class AwardDetailTab(QWidget):
         self.category_edit.setPlaceholderText("e.g., Best Album, Lifetime Achievement")
         self.category_edit.textChanged.connect(self._enable_save)
         layout.addWidget(self.category_edit, 2, 1)
+
+        # Parent Award
+        layout.addWidget(QLabel("Parent Award:"), 3, 0)
+        self.parent_combo = QComboBox()
+        self.parent_combo.currentIndexChanged.connect(self._enable_save)
+        layout.addWidget(self.parent_combo, 3, 1)
 
         basic_group.setLayout(layout)
         self.layout.addWidget(basic_group)
@@ -268,10 +276,6 @@ class AwardDetailTab(QWidget):
         self.description_edit.setMinimumHeight(120)
         layout.addWidget(self.description_edit)
 
-        self.wikipedia_search_btn = QPushButton("Search Wikipedia for Description")
-        self.wikipedia_search_btn.clicked.connect(self._search_wikipedia)
-        layout.addWidget(self.wikipedia_search_btn)
-
         desc_group.setLayout(layout)
         self.layout.addWidget(desc_group)
 
@@ -294,24 +298,28 @@ class AwardDetailTab(QWidget):
 
     def _populate_parent_combo(self) -> None:
         """Populate parent award combo box, excluding current award."""
-        self.parent_combo.addItem("None", None)
+        self.parent_combo.blockSignals(True)
         try:
-            awards = self.controller.get.get_all_entities("Award")
-            for award in awards:
-                if award.award_id != self.award.award_id:  # Exclude self
-                    display_text = award.award_name
-                    if award.award_year:
-                        display_text = f"[{award.award_year}] {display_text}"
-                    self.parent_combo.addItem(display_text, award.award_id)
+            self.parent_combo.addItem("None", None)
+            try:
+                awards = self.controller.get.get_all_entities("Award")
+                for award in awards:
+                    if award.award_id != self.award.award_id:  # Exclude self
+                        display_text = award.award_name
+                        if award.award_year:
+                            display_text = f"[{award.award_year}] {display_text}"
+                        self.parent_combo.addItem(display_text, award.award_id)
 
-            # Set current parent
-            if self.award.parent_id:
-                for i in range(self.parent_combo.count()):
-                    if self.parent_combo.itemData(i) == self.award.parent_id:
-                        self.parent_combo.setCurrentIndex(i)
-                        break
-        except SQLAlchemyError as e:
-            logger.error(f"Error populating parent awards: {e}")
+                # Set current parent
+                if self.award.parent_id:
+                    for i in range(self.parent_combo.count()):
+                        if self.parent_combo.itemData(i) == self.award.parent_id:
+                            self.parent_combo.setCurrentIndex(i)
+                            break
+            except SQLAlchemyError as e:
+                logger.error(f"Error populating parent awards: {e}")
+        finally:
+            self.parent_combo.blockSignals(False)
 
     def _enable_save(self) -> None:
         """Enable the save button when changes are detected."""
