@@ -61,6 +61,25 @@ def test_append_keyword_is_a_noop_if_already_present(tmp_path):
     assert reloaded["Happy"] == ["sunshine"]
 
 
+def test_append_keyword_creates_file_when_missing(tmp_path):
+    path = tmp_path / "does_not_exist.json"
+
+    changed = append_keyword_to_mood_file(path, "Happy", "sunshine")
+
+    assert changed is True
+    assert path.exists()
+    assert json.loads(path.read_text()) == {"Happy": ["sunshine"]}
+
+
+def test_remove_keyword_is_a_noop_when_file_missing(tmp_path):
+    path = tmp_path / "does_not_exist.json"
+
+    changed = remove_keyword_from_mood_file(path, "Happy", "sunshine")
+
+    assert changed is False
+    assert not path.exists()
+
+
 def test_assigned_words_includes_component_words_of_phrases(tmp_path, monkeypatch):
     path = _write_keywords(
         tmp_path, {"Party": ["dance floor"], "Sad": ["crying"]}

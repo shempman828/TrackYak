@@ -38,9 +38,17 @@ def _isolated_keywords(tmp_path, monkeypatch):
     monkeypatch.setattr(mood_scoring, "_KEYWORDS_PATH", keywords_path)
     mood_scoring._cache["mtime"] = None
     mood_scoring._cache["keyword_patterns"] = None
+
+    # Isolate from the real assets/mood_opposites.json (see the matching
+    # comment in tests/lyrics/test_mood_scoring.py).
+    monkeypatch.setattr(mood_scoring, "_OPPOSITES_PATH", tmp_path / "no_opposites.json")
+    mood_scoring._opposites_cache["mtime"] = None
+    mood_scoring._opposites_cache["pairs"] = None
     yield
     mood_scoring._cache["mtime"] = None
     mood_scoring._cache["keyword_patterns"] = None
+    mood_scoring._opposites_cache["mtime"] = None
+    mood_scoring._opposites_cache["pairs"] = None
 
 
 class StubController:
@@ -173,6 +181,27 @@ def test_skips_tracks_with_null_or_empty_lyrics(session, controller):
     worker.run()
 
     assert results == [(0, 0, 0)]
+
+
+def test_creates_missing_mood_row_for_keyword_listed_mood(session, controller):
+    # "Sad" is deliberately absent from the DB, unlike the autouse
+    # _seed_moods fixture's usual Happy+Sad -- simulates mood_keywords.json
+    # naming a mood with no matching `Mood` row yet (hand-edited keyword
+    # file, taxonomy drift from db_defaults.py's seed list, etc).
+    session.query(Mood).filter_by(mood_name="Sad").delete()
+    session.commit()
+    track = _make_track(session, lyrics="crying tears lonely crying tears lonely")
+
+    MoodAutoTagWorker(controller).run()
+
+    sad = session.query(Mood).filter_by(mood_name="Sad").one_or_none()
+    assert sad is not None
+    assoc = (
+        session.query(MoodTrackAssociation)
+        .filter_by(mood_id=sad.mood_id, track_id=track.track_id)
+        .one_or_none()
+    )
+    assert assoc is not None
 
 
 def test_run_releases_db_session_without_error(session, controller, monkeypatch):

@@ -46,9 +46,17 @@ def _isolated_keywords(tmp_path, monkeypatch):
     monkeypatch.setattr(mood_scoring, "_KEYWORDS_PATH", keywords_path)
     mood_scoring._cache["mtime"] = None
     mood_scoring._cache["keyword_patterns"] = None
+
+    # Isolate from the real assets/mood_opposites.json (see the matching
+    # comment in tests/lyrics/test_mood_scoring.py).
+    monkeypatch.setattr(mood_scoring, "_OPPOSITES_PATH", tmp_path / "no_opposites.json")
+    mood_scoring._opposites_cache["mtime"] = None
+    mood_scoring._opposites_cache["pairs"] = None
     yield
     mood_scoring._cache["mtime"] = None
     mood_scoring._cache["keyword_patterns"] = None
+    mood_scoring._opposites_cache["mtime"] = None
+    mood_scoring._opposites_cache["pairs"] = None
 
 
 class StubController:
