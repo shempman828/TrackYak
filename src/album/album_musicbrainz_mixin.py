@@ -107,12 +107,15 @@ class AlbumMusicBrainzMixin:
         if artist_names in (None, "Unknown Artist"):
             artist_names = None
 
+        # Read only the live widget, never self.album -- self.album isn't
+        # updated until Save, so falling back to it would resurrect the
+        # very value the user just cleared from the field (#hint bug: a
+        # stale 2015 remaster year kept being used as the hint even after
+        # being cleared in favor of looking up the real 1961 release).
         year_widget = self.field_widgets.get("release_year")
         expected_year = (
             nullable_field_value(year_widget) if isinstance(year_widget, QLineEdit) else None
         )
-        if expected_year is None:
-            expected_year = getattr(self.album, "release_year", None)
 
         dialog = MusicBrainzMatchDialog(
             entity_label=f"album '{album_name}'",

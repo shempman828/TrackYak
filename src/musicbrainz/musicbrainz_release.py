@@ -650,13 +650,18 @@ def _backfill_release_details(r: dict[str, Any]) -> None:
 
 _YEAR_HINT_TOLERANCE = 20
 # How many years a candidate's date may differ from expected_year (below)
-# and still be considered plausible. Wide enough to keep alternate
-# pressings/reissues of the *same* record in the running -- a
-# canonical-release search is expected to compare several pressings spread
-# across a handful of years -- but narrow enough to drop a same-titled,
+# and still be ranked as if it were "on-hint". Wide enough to keep alternate
+# pressings/reissues of the *same* record grouped with the expected era --
+# a canonical-release search is expected to compare several pressings spread
+# across a handful of years -- but narrow enough to rank a same-titled,
 # unrelated release-group decades off from the album's known era (e.g. a
 # 1944 recording vs. an unrelated 2008 album that happened to score
-# similarly on the free-text title match, #366).
+# similarly on the free-text title match, #366) behind it instead of ahead
+# of it. This is a ranking preference, not a filter: a wrong or stale
+# expected_year must never make the correct release invisible, so
+# out-of-window candidates are sorted later, never dropped from the pool
+# (#hint bug: a stale remaster year hard-filtered out the true original
+# release entirely).
 
 
 def search_canonical_releases(
@@ -671,12 +676,11 @@ def search_canonical_releases(
     ready to pass straight to fetch_release_detail().
 
     `expected_year`, if given (the album's already-known release year),
-    is used as a plausibility hint, not a strict filter: candidates whose
-    date lands within `_YEAR_HINT_TOLERANCE` years of it are preferred,
-    but if the hint would eliminate every candidate (e.g. MB genuinely has
-    nothing near that year, or dates are missing across the board) the
-    unfiltered pool is used instead -- a wrong hint should never turn "some
-    results" into "no results"."""
+    is used as a ranking preference, never a filter: candidates whose date
+    lands within `_YEAR_HINT_TOLERANCE` years of it sort ahead of ones that
+    don't, but nothing is ever dropped from the pool over it -- a wrong or
+    stale hint should never make the correct release invisible, only rank
+    it later among equally-official candidates."""
     configure()
     fields: dict[str, Any] = {}
     if artist_name:
@@ -711,15 +715,6 @@ def search_canonical_releases(
     for r in candidates_pool:
         _backfill_release_details(r)
 
-    if expected_year is not None:
-        def _within_year_hint(r: dict[str, Any]) -> bool:
-            year = _parse_partial_date(r.get("date"), "d").get("d_year")
-            return year is None or abs(year - expected_year) <= _YEAR_HINT_TOLERANCE
-
-        hinted_pool = [r for r in candidates_pool if _within_year_hint(r)]
-        if hinted_pool:
-            candidates_pool = hinted_pool
-
     def _rank_key(r: dict[str, Any]):
         status_rank = 0 if (r.get("status") or "").lower() == "official" else 1
         year_month_day = _parse_partial_date(r.get("date"), "d")
@@ -728,6 +723,16 @@ def search_canonical_releases(
             year_month_day.get("d_month", 99),
             year_month_day.get("d_day", 99),
         )
+        # Preference only, not elimination -- see _YEAR_HINT_TOLERANCE. A
+        # missing expected_year or a missing candidate date both count as
+        # "on-hint" (rank 0) since there's nothing to disagree with.
+        if expected_year is None:
+            hint_rank = 0
+        else:
+            year = year_month_day.get("d_year")
+            hint_rank = (
+                0 if year is None or abs(year - expected_year) <= _YEAR_HINT_TOLERANCE else 1
+            )
         country = r.get("country") or ""
         country_rank = (
             _COUNTRY_PREFERENCE.index(country)
@@ -735,7 +740,7 @@ def search_canonical_releases(
             else len(_COUNTRY_PREFERENCE)
         )
         media_count = len(r.get("medium-list", []) or [])
-        return (status_rank, date_key, country_rank, media_count)
+        return (status_rank, hint_rank, date_key, country_rank, media_count)
 
     candidates_pool.sort(key=_rank_key)
 

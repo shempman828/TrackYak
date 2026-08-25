@@ -128,8 +128,11 @@ class TestSearchCanonicalReleases:
 
 
 class TestSearchCanonicalReleasesYearHint:
-    """Covers #366: an album's already-known release year should steer a
-    same-titled search away from an unrelated, decades-off release."""
+    """Covers #366 (steer a same-titled search away from an unrelated,
+    decades-off release) and the later hint bug: a wrong or stale
+    expected_year must never make the correct release invisible, only rank
+    it behind on-hint candidates -- so this is a ranking preference, not a
+    filter."""
 
     _WRONG_ERA_ID = "00000000-0000-0000-0000-00000000wrng"
 
@@ -148,7 +151,7 @@ class TestSearchCanonicalReleasesYearHint:
             ]
         }
 
-    def test_hint_drops_candidate_decades_off_from_known_year(self):
+    def test_hint_ranks_matching_year_ahead_of_decades_off_candidate(self):
         with patch.object(mc, "configure"), patch.object(
             mc, "_resolve_artist_mbid", return_value=None
         ), patch.object(
@@ -160,9 +163,9 @@ class TestSearchCanonicalReleasesYearHint:
 
         get_by_id.assert_not_called()  # both already have date + medium-list
         ids = [c.id for c in candidates]
-        assert ids == [_VINYL_ID], (
-            f"expected the 2008 release to be dropped as implausible for a 1944 "
-            f"album, got: {ids}"
+        assert ids == [_VINYL_ID, self._WRONG_ERA_ID], (
+            f"expected the 1944 release ranked first and the 2008 release "
+            f"ranked behind it, but both still present, got: {ids}"
         )
 
     def test_no_hint_keeps_both_candidates(self):
@@ -175,9 +178,10 @@ class TestSearchCanonicalReleasesYearHint:
 
         assert {c.id for c in candidates} == {_VINYL_ID, self._WRONG_ERA_ID}
 
-    def test_hint_falls_back_to_unfiltered_pool_if_nothing_matches(self):
-        # Both candidates are decades off from the hinted year -- a wrong or
-        # stale hint must never turn "some results" into "no results".
+    def test_wrong_hint_never_drops_the_correct_release_from_the_pool(self):
+        # A stale/wrong hint (e.g. an unsaved remaster year) must never turn
+        # "some results" into "fewer results" -- the true release stays in
+        # the pool even when every candidate is decades off from the hint.
         with patch.object(mc, "configure"), patch.object(
             mc, "_resolve_artist_mbid", return_value=None
         ), patch.object(
