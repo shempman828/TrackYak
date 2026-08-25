@@ -75,3 +75,39 @@ def test_bounded_search_edit_enter_picks_highlighted_suggestion(qapp):
     QTest.keyClick(widget, Qt.Key_Return)
 
     assert captured == {"text": "Rock", "matched_id": 1}
+
+
+def test_entity_completer_edit_reset_clears_matched_id_before_signal(qapp):
+    """reset()'s self.clear() is setText(""), which -- like the completion-
+    pick path above -- emits textChanged synchronously. A textChanged
+    listener (e.g. a dialog gating its OK button on matched_id()) must see
+    matched_id() already cleared to None from inside that signal, not the
+    stale id from before reset() was called."""
+    widget = EntityCompleterEdit()
+    widget.set_index({"Rock": 1, "Rockabilly": 2, "Pop": 3})
+    widget._completer.activated.emit("Rock")
+    assert widget.matched_id() == 1
+
+    seen_during_signal = []
+    widget.textChanged.connect(lambda _text: seen_during_signal.append(widget.matched_id()))
+
+    widget.reset()
+
+    assert seen_during_signal == [None]
+    assert widget.matched_id() is None
+
+
+def test_bounded_search_edit_reset_clears_matched_id_before_signal(qapp):
+    widget = BoundedSearchEdit(_StubController(), "Genre", "genre_name", "genre_id")
+    QTest.keyClicks(widget, "Roc")
+    _highlight_first_suggestion(widget)
+    widget._on_completion_picked("Rock")
+    assert widget.matched_id() == 1
+
+    seen_during_signal = []
+    widget.textChanged.connect(lambda _text: seen_during_signal.append(widget.matched_id()))
+
+    widget.reset()
+
+    assert seen_during_signal == [None]
+    assert widget.matched_id() is None

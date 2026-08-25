@@ -172,8 +172,12 @@ class EntityCompleterEdit(QLineEdit):
         text = self.text()
         idx = text.rfind(_MULTI_ENTITY_DELIMITER)
         prefix = text[: idx + 1] if idx != -1 else ""
-        self.setText(prefix + candidate)
+        # Set _matched_id before setText(): setText() emits textChanged
+        # synchronously, and listeners (e.g. a dialog's OK-button-enable
+        # check) read matched_id() from inside that signal -- so it must
+        # already reflect the pick by the time setText() fires it.
         self._matched_id = self._display_to_id.get(candidate)
+        self.setText(prefix + candidate)
         if self._completer is not None:
             self._completer.popup().hide()
 
@@ -201,8 +205,12 @@ class EntityCompleterEdit(QLineEdit):
         return split_entity_names(self.text())
 
     def reset(self) -> None:
-        self.clear()
+        # See _on_completion_picked: clear() is setText(""), which emits
+        # textChanged synchronously, so state must be reset before calling
+        # it or a textChanged listener reading matched_id() mid-call sees
+        # the stale pre-reset id.
         self._matched_id = None
+        self.clear()
 
 
 def find_or_create_by_name(
@@ -418,8 +426,10 @@ class BoundedSearchEdit(QLineEdit):
         text = self.text()
         idx = text.rfind(_MULTI_ENTITY_DELIMITER)
         prefix = text[: idx + 1] if idx != -1 else ""
-        self.setText(prefix + candidate)
+        # See EntityCompleterEdit._on_completion_picked: matched_id must be
+        # set before setText() so textChanged listeners see it.
         self._matched_id = self._display_to_id.get(candidate)
+        self.setText(prefix + candidate)
         self._completer.popup().hide()
 
     def matched_id(self):
@@ -442,8 +452,11 @@ class BoundedSearchEdit(QLineEdit):
         pass
 
     def reset(self) -> None:
-        self.clear()
+        # See EntityCompleterEdit.reset(): state must be reset before
+        # clear() (== setText("")), since that emits textChanged
+        # synchronously.
         self._matched_id = None
         self._last_matches = []
         self._display_to_id = {}
         self._model.setStringList([])
+        self.clear()

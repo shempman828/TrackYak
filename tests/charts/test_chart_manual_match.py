@@ -166,11 +166,18 @@ def test_manual_match_dialog_ok_disabled_until_candidate_picked(qapp, session, c
 
     assert not dialog._ok_button.isEnabled()
 
-    dialog._search.setText("Runaround Sue (Remastered)")  # typed, not picked
-    assert not dialog._ok_button.isEnabled()
+    dialog._search.setText("Runaround Sue")  # typed, not picked -- and not the
+    assert not dialog._ok_button.isEnabled()  # full candidate text, so the pick below actually changes the field
 
-    dialog._search._on_completion_picked("Runaround Sue (Remastered)")
-    dialog._update_ok_enabled(dialog._search.text())
+    # Simulate picking the suggestion from the completer popup (click or
+    # Enter-on-highlighted) via the real activated signal rather than calling
+    # _on_completion_picked directly -- setText() inside it fires textChanged
+    # synchronously, which is what the OK button listens to, so the pick must
+    # go through that same signal chain to catch ordering bugs between
+    # setText() and matched_id being recorded. (The field's text must
+    # actually change here -- QLineEdit.setText() is a no-op, and emits no
+    # textChanged, when the new text equals the old.)
+    dialog._search._completer.activated.emit("Runaround Sue (Remastered)")
     assert dialog._ok_button.isEnabled()
     assert dialog.matched_entity_id() == track.track_id
     assert dialog.matched_entity_type() == "Track"
