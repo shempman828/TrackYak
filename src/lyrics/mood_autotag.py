@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
-from src.lyrics.mood_scoring import score_moods
+from src.lyrics.mood_scoring import known_mood_names, score_moods
 from src.lyrics.place_matching import detect_known_places
 from src.place.place_association_types import (
     fetch_association_types,
@@ -44,6 +44,28 @@ def build_autotag_context(controller) -> AutotagContext:
     doesn't re-query Mood/Place/PlaceAssociationType per track."""
     moods = controller.get.get_all_entities("Mood") or []
     mood_id_by_name = {m.mood_name: m.mood_id for m in moods}
+
+    # assets/mood_keywords.json is the live source of truth for what the
+    # tagger can match (see mood_scoring.known_mood_names) -- a name can
+    # end up there without a matching `Mood` DB row (hand-edited keyword
+    # file, taxonomy drift from db_defaults.py's seed list, etc). Without
+    # this, auto_tag_track() below silently drops that mood's matches
+    # forever since it only writes rows for names already in
+    # mood_id_by_name. Create the missing rows here so both auto-tag call
+    # sites self-heal without needing an app restart.
+    missing_mood_names = known_mood_names() - mood_id_by_name.keys()
+    if missing_mood_names:
+        try:
+            created = controller.add.add_entities(
+                "Mood", [{"mood_name": name} for name in missing_mood_names]
+            )
+            mood_id_by_name.update({m.mood_name: m.mood_id for m in created})
+            logger.info(
+                f"Created {len(created)} Mood row(s) missing for keyword-listed "
+                f"moods: {', '.join(m.mood_name for m in created)}"
+            )
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to create missing Mood row(s): {e}")
 
     places = controller.get.get_all_entities("Place") or []
     place_id_by_name = {p.place_name: p.place_id for p in places}
