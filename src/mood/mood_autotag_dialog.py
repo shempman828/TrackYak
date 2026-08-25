@@ -64,10 +64,15 @@ WORD_SUGGESTION_LIMIT = 50
 
 def append_keyword_to_mood_file(keywords_path: Path, mood_name: str, word: str) -> bool:
     """Append `word` to `mood_name`'s keyword list in the JSON file at
-    `keywords_path`, creating the mood's entry if needed. No-op (returns
-    False) if the word is already present. Pulled out of the dialog class
-    so this file-write behavior is testable without a live QDialog."""
-    raw = json.loads(keywords_path.read_text(encoding="utf-8"))
+    `keywords_path`, creating the mood's entry if needed -- and creating
+    the file itself, starting from an empty mapping, if it doesn't exist
+    yet. No-op (returns False) if the word is already present. Pulled out
+    of the dialog class so this file-write behavior is testable without a
+    live QDialog."""
+    try:
+        raw = json.loads(keywords_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raw = {}
     keywords = raw.setdefault(mood_name, [])
     if word in keywords:
         return False
@@ -80,8 +85,12 @@ def append_keyword_to_mood_file(keywords_path: Path, mood_name: str, word: str) 
 
 def remove_keyword_from_mood_file(keywords_path: Path, mood_name: str, word: str) -> bool:
     """Remove `word` from `mood_name`'s keyword list. No-op (returns False)
-    if the mood or the word within it doesn't exist."""
-    raw = json.loads(keywords_path.read_text(encoding="utf-8"))
+    if the mood or the word within it doesn't exist -- including when the
+    file itself doesn't exist yet, which is just an empty-keywords case."""
+    try:
+        raw = json.loads(keywords_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raw = {}
     keywords = raw.get(mood_name)
     if not keywords or word not in keywords:
         return False
