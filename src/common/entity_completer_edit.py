@@ -32,6 +32,31 @@ def _rank_by_query(text: str, keys) -> list[str]:
 _MULTI_ENTITY_DELIMITER = ";"
 
 
+def _apply_highlighted_completion(completer, on_pick: Callable[[str], None]) -> bool:
+    """If `completer`'s popup is open with a suggestion highlighted, apply it
+    via `on_pick` and report success -- used to resolve Enter against the
+    highlighted suggestion *before* QLineEdit's native Return handling fires
+    returnPressed(), instead of after. Without this, Return goes straight to
+    QLineEdit's own handling (since the completer here is wired manually via
+    setWidget() rather than QLineEdit.setCompleter(), Qt does no
+    Return-vs-completer coordination on its own), so returnPressed() -- and
+    whatever add-this-entity slot it's connected to -- fires with the
+    partially-typed text still in the field; the completer's activated()
+    signal, which would swap in the highlighted suggestion, only arrives
+    afterward. That is what let a highlighted suggestion get bypassed in
+    favor of adding the raw partial text as a new entity."""
+    if completer is None:
+        return False
+    popup = completer.popup()
+    if popup is None or not popup.isVisible():
+        return False
+    index = popup.currentIndex()
+    if not index.isValid():
+        return False
+    on_pick(index.data())
+    return True
+
+
 def split_entity_names(text: str) -> list[str]:
     """Split a completer field's text on `_MULTI_ENTITY_DELIMITER` into the
     individual entity names it names, trimming whitespace around each --
@@ -85,6 +110,13 @@ class EntityCompleterEdit(QLineEdit):
         return super().event(e)
 
     def keyPressEvent(self, e) -> None:
+        if e.key() in (
+            Qt.Key_Return,
+            Qt.Key_Enter,
+        ) and _apply_highlighted_completion(self._completer, self._on_completion_picked):
+            e.accept()
+            self.returnPressed.emit()
+            return
         # QLineEdit emits returnPressed() for Enter/Return but deliberately
         # leaves the event ignore()'d afterward (by Qt design, so a dialog's
         # default button still fires from a plain line edit) -- that ignored
@@ -344,6 +376,18 @@ class BoundedSearchEdit(QLineEdit):
         self._completer.activated.connect(self._on_completion_picked)
 
         self.textEdited.connect(self._on_text_edited)
+
+    def keyPressEvent(self, e) -> None:
+        # See EntityCompleterEdit.keyPressEvent for why this has to run
+        # before super()'s native Return handling rather than after.
+        if e.key() in (
+            Qt.Key_Return,
+            Qt.Key_Enter,
+        ) and _apply_highlighted_completion(self._completer, self._on_completion_picked):
+            e.accept()
+            self.returnPressed.emit()
+            return
+        super().keyPressEvent(e)
 
     def _on_text_edited(self, text: str) -> None:
         self._matched_id = None
