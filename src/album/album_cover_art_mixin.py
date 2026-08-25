@@ -3,7 +3,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
@@ -193,98 +193,3 @@ class AlbumCoverArtMixin:
 
         if cover_type == "front":
             self.cover_label.setText("No Cover\nImage")
-
-    # =========================================================================
-    # Wikipedia search
-    # =========================================================================
-
-    def _search_wikipedia(self):
-        try:
-            from src.wikipedia_seach import download_wikipedia_image, search_wikipedia
-        except ImportError as e:
-            QMessageBox.critical(
-                self, "Import Error", f"Wikipedia module not found: {e}"
-            )
-            return
-
-        query = self.album.album_name or ""
-        title, summary, _full, link, images = search_wikipedia(query, self)
-
-        if not title:
-            return
-
-        try:
-            from src.album_wikipedia import AlbumWikipediaImportDialog
-        except ImportError as e:
-            QMessageBox.critical(self, "Import Error", f"Import dialog not found: {e}")
-            return
-
-        dlg = AlbumWikipediaImportDialog(title, summary, link, images, parent=self)
-        if dlg.exec() != QDialog.Accepted:
-            return
-
-        selected = dlg.get_selected_imports()
-
-        if selected.get("description"):
-            self._set_desc_widget(selected["description"])
-
-        if selected.get("link"):
-            w = self.field_widgets.get("album_wikipedia_link")
-            if w is not None and hasattr(w, "setText"):
-                w.setText(selected["link"])
-            # Update the album object so _rebuild_link_buttons picks up the new URL
-            self.album.album_wikipedia_link = selected["link"]
-            self._rebuild_link_buttons()
-
-        role_to_cover = {
-            "Front Cover": "front",
-            "Rear Cover": "rear",
-            "Liner Art": "liner",
-        }
-        for img_info in selected.get("images", []):
-            url = img_info["url"]
-            role = img_info["role"]
-            cover_type = role_to_cover.get(role)
-            if not cover_type:
-                continue
-            self._save_wikipedia_image(url, cover_type, download_wikipedia_image)
-
-    def _set_desc_widget(self, text: str):
-        if self.desc_widget is None:
-            return
-        if hasattr(self.desc_widget, "setPlainText"):
-            self.desc_widget.setPlainText(text)
-        elif hasattr(self.desc_widget, "setText"):
-            self.desc_widget.setText(text)
-
-    def _save_wikipedia_image(self, url: str, cover_type: str, download_fn):
-        """Download url and save it as the given cover type."""
-        image_bytes = download_fn(url)
-        if not image_bytes:
-            QMessageBox.warning(
-                self,
-                "Download Failed",
-                f"Could not download image for {cover_type} cover:\n{url}",
-            )
-            return
-
-        failed = self._embed_cover_to_tracks(cover_type, image_bytes)
-        self._warn_if_embed_failures(cover_type, failed)
-
-        cache = get_artwork_cache()
-        if cache:
-            cache.store(self.album, cover_type, image_bytes)
-
-        display = getattr(self, f"{cover_type}_cover_display", None)
-        path_label = getattr(self, f"{cover_type}_path_label", None)
-        if display:
-            self._load_image_to_label(image_bytes, display, 250)
-        if path_label:
-            dims = cache.get_dimensions(self.album, cover_type) if cache else None
-            info_parts = ["Embedded in track file(s)"]
-            if dims:
-                info_parts.append(f"{dims[0]} × {dims[1]} px")
-            path_label.setText("  |  ".join(info_parts))
-
-        if cover_type == "front":
-            self._load_album_cover()
