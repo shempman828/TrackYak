@@ -495,7 +495,11 @@ Double-click any queued track to jump to it immediately.
 - **Mood Tagging…** — the automatic side of the Moods view: scans lyrics
   against a keyword list to tag tracks with moods (and known places), and
   surfaces common lyrics words that aren't mapped to a mood yet so you can
-  assign or dismiss them.
+  assign or dismiss them. For a handful of tonally-opposed mood pairs (e.g.
+  Happy/Sad, Sleepy/Energetic — see `assets/mood_opposites.json`, which you
+  can edit to add more), only the more strongly-matching mood of the pair
+  gets tagged when both would otherwise clear the threshold; a near-even
+  match still tags both rather than guessing.
 
 ## View Menu
 
