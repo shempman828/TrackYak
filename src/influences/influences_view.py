@@ -103,7 +103,7 @@ class InfluencesView(QWidget):
     def show_add_influence_dialog(self):
         """Show dialog to add new influence relationship"""
         try:
-            from influences_dialog import AddInfluenceDialog
+            from src.influences.influences_dialog import AddInfluenceDialog
 
             # Get current artists for the dialog
             artists = self.controller.get.get_all_entities("Artist")
