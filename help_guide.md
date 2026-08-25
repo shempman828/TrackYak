@@ -318,9 +318,11 @@ parent award are optional, for slotting it into an existing hierarchy.
 
 **Crediting someone**: from an award's detail tab, use Award Relationships
 to assign artists, albums, tracks, publishers, or places to it as Recipient,
-Nominee, Presenter, Judge, Host, or Sponsor/Organizer. There's also a
-"Search Wikipedia for Description" helper if you want a quick blurb without
-writing one yourself.
+Nominee, Presenter, Judge, Host, or Sponsor/Organizer.
+
+**Editing**: the detail tab also lets you change Name, Year, Category,
+Description, and Parent Award directly, and re-slot an award under a
+different parent without redoing it from scratch.
 
 Deleting an award promotes any child awards/categories up a level rather
 than deleting them along with it.
