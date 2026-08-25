@@ -1,9 +1,14 @@
 """
 chart_manual_match_dialog.py
 
-Small modal picker for manually matching one ChartEntry to a Track or
-Album, opened via ChartEntryTable's right-click context menu (see
-chart_week_browser_tab.py / chart_search_tab.py for the wiring). Reuses
+Small modal picker for manually matching a chart entry (or a group of them,
+see chart_manual_match_actions.handle_bulk_manual_match_requested) to a
+Track or Album. Opened via ChartEntryTable's and ChartRecommendationTable's
+right-click context menus (see chart_week_browser_tab.py / chart_search_tab.py
+/ chart_recommendations_tab.py for the wiring). Takes raw title/performer/
+entity_type fields directly rather than a ChartEntry object, since a
+ChartRecommendationTable row (docs/specs/chart_recommendations_manual_match.md)
+has no single backing ChartEntry to point at -- it aggregates many. Reuses
 build_entity_search_widget (src/common/entity_completer_edit.py) -- the
 same search-and-pick completer already used for genre/mood/artist-influence
 tagging -- rather than a bespoke picker: Track/Album tables are exactly the
@@ -14,7 +19,6 @@ already handles.
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLabel, QVBoxLayout
 
 from src.common.entity_completer_edit import build_entity_search_widget
-from src.db.db_tables.chart import ChartEntry
 
 _ENTITY_FIELDS = {
     "Track": ("track_name", "track_id"),
@@ -29,9 +33,9 @@ class ChartManualMatchDialog(QDialog):
     not just typed -- an unresolved title string is never an acceptable
     match target."""
 
-    def __init__(self, controller, chart_entry: ChartEntry, parent=None):
+    def __init__(self, controller, entity_type: str, raw_title: str, raw_performer: str, parent=None):
         super().__init__(parent)
-        self._entity_type = chart_entry.chart.matched_entity_type
+        self._entity_type = entity_type
         name_field, id_field = _ENTITY_FIELDS[self._entity_type]
 
         self.setWindowTitle(f"Match to {self._entity_type}")
@@ -39,8 +43,8 @@ class ChartManualMatchDialog(QDialog):
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
-        form.addRow("Chart Title:", QLabel(chart_entry.raw_title))
-        form.addRow("Chart Artist:", QLabel(chart_entry.raw_performer))
+        form.addRow("Chart Title:", QLabel(raw_title))
+        form.addRow("Chart Artist:", QLabel(raw_performer))
         layout.addLayout(form)
 
         self._search = build_entity_search_widget(

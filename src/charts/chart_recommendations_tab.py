@@ -7,6 +7,12 @@ that would connect two runs of chart positions you already own in the same
 week, see chart_recommendations.get_missing_gap_fills). Queries run
 synchronously off controller.get.session, same precedent as
 ChartWeekBrowserTab/ChartSearchTab -- no worker thread.
+
+Manual matching (docs/specs/chart_recommendations_manual_match.md): both
+sub-tables' bulk_match_requested signal wires to the shared
+handle_bulk_manual_match_requested handler, then self.refresh() -- same
+"table stays controller-free, host tab does the DB call" split as
+ChartWeekBrowserTab/ChartSearchTab.
 """
 
 from typing import Optional
@@ -22,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.charts.chart_manual_match_actions import handle_bulk_manual_match_requested
 from src.charts.chart_recommendation_table import ChartRecommendationTable
 from src.charts.chart_recommendations import get_missing_gap_fills, get_missing_popular
 from src.core.logger_config import logger
@@ -69,7 +76,13 @@ class ChartRecommendationsTab(QWidget):
         self.sub_tabs.currentChanged.connect(self._on_sub_tab_changed)
         layout.addWidget(self.sub_tabs)
 
+        self.popular_table.bulk_match_requested.connect(self._on_bulk_match_requested)
+        self.gap_table.bulk_match_requested.connect(self._on_bulk_match_requested)
+
         self._on_sub_tab_changed(self.sub_tabs.currentIndex())
+
+    def _on_bulk_match_requested(self, item):
+        handle_bulk_manual_match_requested(self, self.controller, item, self.refresh)
 
     def _on_sub_tab_changed(self, index: int):
         is_gap_tab = index == _GAP_TAB_INDEX

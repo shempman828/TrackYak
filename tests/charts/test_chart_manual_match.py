@@ -162,7 +162,7 @@ def test_context_menu_on_matched_row_enables_clear(qapp, session):
 def test_manual_match_dialog_ok_disabled_until_candidate_picked(qapp, session, controller):
     # AC5
     chart, entry, track, _other = _seed_track_chart(session)
-    dialog = ChartManualMatchDialog(controller, entry)
+    dialog = ChartManualMatchDialog(controller, "Track", entry.raw_title, entry.raw_performer)
 
     assert not dialog._ok_button.isEnabled()
 
@@ -182,7 +182,7 @@ def test_accepting_dialog_sets_match_in_db(qapp, session, controller, monkeypatc
 
     monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Accepted)
 
-    def _fake_init(self, controller_, chart_entry, parent=None):
+    def _fake_init(self, controller_, entity_type, raw_title, raw_performer, parent=None):
         QDialog.__init__(self, parent)
         self._entity_type = "Track"
         self._picked_id = track.track_id
