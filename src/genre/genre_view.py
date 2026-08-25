@@ -5,6 +5,7 @@ from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -30,6 +31,7 @@ from src.common.hierarchy_tree_style import (
     insert_as_new_child,
     insert_as_new_parent,
     is_hierarchy_descendant,
+    render_hierarchy_as_text,
     restore_expanded_ids_or_expand_all,
 )
 from src.core.logger_config import logger
@@ -101,6 +103,23 @@ class GenreLoaderWorker(CancellableWorker):
 
         self._release_db_session()
         self.finished.emit(genres, direct_counts, recursive_totals)
+
+
+class _ReverseStr:
+    """Wraps a string so `sorted()` orders it in reverse -- used to sort the
+    Genre column descending while still tie-breaking a numeric column
+    ascending (plain `reverse=True` would flip both)."""
+
+    __slots__ = ("value",)
+
+    def __init__(self, value: str):
+        self.value = value
+
+    def __lt__(self, other):
+        return other.value < self.value
+
+    def __eq__(self, other):
+        return self.value == other.value
 
 
 class _GenreTreeItem(QTreeWidgetItem):
@@ -567,45 +586,109 @@ class GenreView(QWidget):
     def show_context_menu(self, pos):
         """Display context menu for genre operations."""
         item = self.tree.itemAt(pos)
-        if not item:
-            return
-
         menu = QMenu()
-        selected_items = self.tree.selectedItems()
 
-        if len(selected_items) == 1:
-            # Single selection - store the current genre ID
-            self.current_genre_id = item.data(0, Qt.UserRole)
-            menu.addAction("View Tracks", lambda: self.view_tracks_for_selected_genre())
-            menu.addAction("Edit", lambda: self.edit_genre(self.current_genre_id))
-            menu.addAction("Merge", lambda: self.merge_genre(self.current_genre_id))
-            menu.addAction("Split", lambda: self._split_genre())
+        if item:
+            selected_items = self.tree.selectedItems()
+
+            if len(selected_items) == 1:
+                # Single selection - store the current genre ID
+                self.current_genre_id = item.data(0, Qt.UserRole)
+                menu.addAction("View Tracks", lambda: self.view_tracks_for_selected_genre())
+                menu.addAction("Edit", lambda: self.edit_genre(self.current_genre_id))
+                menu.addAction("Merge", lambda: self.merge_genre(self.current_genre_id))
+                menu.addAction("Split", lambda: self._split_genre())
+                menu.addSeparator()
+                menu.addAction(
+                    "Set Parent...", lambda: self.set_parent_for_selected_genres()
+                )
+                menu.addAction(
+                    "New Parent Genre",
+                    lambda: self.create_new_parent(self.current_genre_id),
+                )
+                menu.addAction(
+                    "New Child Genre", lambda: self.create_new_child(self.current_genre_id)
+                )
+            else:
+                # Multiple selection
+                self.current_genre_id = None
+                menu.addAction(
+                    f"View Tracks ({len(selected_items)} genres)",
+                    lambda: self.view_tracks_for_selected_genres(selected_items),
+                )
+                menu.addAction(
+                    "Set Parent...", lambda: self.set_parent_for_selected_genres()
+                )
+
+            # Always show delete option (works for single or multiple)
+            menu.addAction("Delete", lambda: self.delete_selected_genres())
             menu.addSeparator()
-            menu.addAction(
-                "Set Parent...", lambda: self.set_parent_for_selected_genres()
-            )
-            menu.addAction(
-                "New Parent Genre",
-                lambda: self.create_new_parent(self.current_genre_id),
-            )
-            menu.addAction(
-                "New Child Genre", lambda: self.create_new_child(self.current_genre_id)
-            )
-        else:
-            # Multiple selection
-            self.current_genre_id = None
-            menu.addAction(
-                f"View Tracks ({len(selected_items)} genres)",
-                lambda: self.view_tracks_for_selected_genres(selected_items),
-            )
-            menu.addAction(
-                "Set Parent...", lambda: self.set_parent_for_selected_genres()
-            )
 
-        # Always show delete option (works for single or multiple)
-        menu.addAction("Delete", lambda: self.delete_selected_genres())
+        # Applies to the whole hierarchy, not the clicked item -- shown even
+        # when right-clicking empty tree space (item is None).
+        menu.addAction("Export Hierarchy...", self.export_hierarchy)
 
         menu.exec_(self.tree.viewport().mapToGlobal(pos))
+
+    def export_hierarchy(self):
+        """Export the full genre hierarchy as a box-drawing tree to a
+        .txt or .md file, regardless of the current Flat View toggle or
+        any active search filter. Sibling order follows the tree's
+        currently active sort column/direction."""
+        if not self._all_genres:
+            show_status_message(self, "No genres available to export.")
+            return
+
+        header = self.tree.header()
+        sort_column = header.sortIndicatorSection()
+        sort_order = header.sortIndicatorOrder()
+        direct_counts = self._direct_counts
+        recursive_counts = self._recursive_counts
+
+        def sort_key(genre):
+            name_key = genre.genre_name.lower()
+            if sort_column == 1:
+                count = recursive_counts.get(
+                    genre.genre_id, direct_counts.get(genre.genre_id, 0)
+                )
+                primary = -count if sort_order == Qt.DescendingOrder else count
+                return (primary, name_key)
+            return (
+                name_key if sort_order == Qt.AscendingOrder else _ReverseStr(name_key),
+            )
+
+        content = render_hierarchy_as_text(
+            self._all_genres,
+            id_attr="genre_id",
+            name_attr="genre_name",
+            parent_attr="parent_id",
+            sort_key=sort_key,
+        )
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Genre Hierarchy",
+            "genre_hierarchy.txt",
+            "Text Files (*.txt);;Markdown Files (*.md)",
+        )
+        if not file_path:
+            return
+
+        if file_path.lower().endswith(".md"):
+            content = f"```\n{content}\n```"
+
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            show_status_message(
+                self, f"Exported {len(self._all_genres)} genre(s) to {file_path}"
+            )
+            logger.info(f"Exported {len(self._all_genres)} genre(s) to {file_path}")
+        except OSError as e:
+            logger.error(f"Error exporting genre hierarchy: {e}")
+            QMessageBox.critical(
+                self, "Error", f"Failed to export genre hierarchy:\n{e!s}"
+            )
 
     def view_tracks_for_selected_genre(self):
         """Open tracks view window for selected genre."""

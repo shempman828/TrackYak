@@ -6,6 +6,8 @@ depth level. Centralizing it here keeps the views visually consistent and
 avoids re-implementing the same color table and tree setup in each one.
 """
 
+from collections import defaultdict
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QTreeWidget
@@ -171,6 +173,61 @@ def insert_as_new_child(controller, entity_type: str, id_attr: str, entity, new_
     controller.update.update_entity(
         entity_type, getattr(new_entity, id_attr), parent_id=getattr(entity, id_attr)
     )
+
+
+def render_hierarchy_as_text(
+    entities,
+    *,
+    id_attr: str,
+    name_attr: str,
+    parent_attr: str = "parent_id",
+    sort_key=None,
+) -> str:
+    """Render a flat list of hierarchical entities as a box-drawing tree,
+    e.g.:
+
+        Other
+        ├── Singer & Songwriter
+        └── Soundtrack
+            ├── Film Score
+            └── Musical
+
+    Generic over attribute names so it works for Genre, Role, Mood, or any
+    other self-referencing hierarchy (`id_attr`/`name_attr`/`parent_attr`
+    name the primary-key, display-name, and parent-reference attributes on
+    the given objects). `sort_key`, if given, orders siblings within each
+    parent group (ascending) via `sorted(siblings, key=sort_key)`; omit it
+    to preserve `entities`' given order.
+    """
+    children_map: dict = defaultdict(list)
+    for entity in entities:
+        children_map[getattr(entity, parent_attr)].append(entity)
+
+    def _siblings(parent_id):
+        kids = children_map.get(parent_id, [])
+        return sorted(kids, key=sort_key) if sort_key else kids
+
+    lines = []
+
+    def _walk(entity, prefix, is_last, is_root):
+        name = getattr(entity, name_attr)
+        if is_root:
+            lines.append(name)
+            child_prefix = ""
+        else:
+            connector = "└── " if is_last else "├── "
+            lines.append(prefix + connector + name)
+            child_prefix = prefix + ("    " if is_last else "│   ")
+
+        kids = _siblings(getattr(entity, id_attr))
+        for i, kid in enumerate(kids):
+            _walk(kid, child_prefix, i == len(kids) - 1, is_root=False)
+
+    roots = _siblings(None)
+    for root in roots:
+        _walk(root, "", True, is_root=True)
+
+    return "\n".join(lines)
 
 
 def is_hierarchy_descendant(

@@ -202,6 +202,14 @@ Deleting a genre promotes its children to top-level rather than deleting them
 too, and offers to add the name to your Excluded Genres list so future
 auto-tagging skips it.
 
+**Exporting**: right-click anywhere in the tree (an item or empty space) and
+choose Export Hierarchy... to save the whole tree as a plain-text or
+Markdown file, laid out with box-drawing connectors (`├──`, `└──`) like the
+Unix `tree` command. The export always covers every genre — Flat View and
+any active search filter only change what's on screen, not what gets
+exported — ordered however the tree is currently sorted (by name or by track
+count).
+
 ## Places
 
 Where in the world your music comes from — venues, cities, countries — shown
