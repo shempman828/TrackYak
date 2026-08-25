@@ -401,6 +401,17 @@ class RolesTab(_BaseTab):
         # across a scroll -- ScrollPerPixel scrolls smoothly instead.
         self._table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self._table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        # ScrollPerPixel alone isn't enough: Qt still derives the vertical
+        # scrollbar's wheel-notch step (singleStep) from the table's row
+        # heights, so with these variable/wrapped rows a single notch could
+        # still jump ~90px+ -- as tall as the tallest row on screen -- which
+        # still feels like "scrolling by row." Pin it to a small fixed
+        # pixel step instead so every notch moves the same modest amount
+        # regardless of row height. Set once here rather than after each
+        # reload: it isn't touched by setRowCount/resizeRowsToContents, and
+        # this table is reused in place across reloads (see
+        # AlbumEditor._refresh_track_credits_tab), not recreated.
+        self._table.verticalScrollBar().setSingleStep(24)
         self._table.setToolTip(
             "Each artist gets one row; their roles are shown as chips with "
             "individual remove (×) buttons."

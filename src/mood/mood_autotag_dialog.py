@@ -253,6 +253,13 @@ class MoodAutoTagDialog(QDialog):
             lambda *_args: self._word_table.resizeRowsToContents()
         )
         self._word_table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        # ScrollPerPixel alone still lets Qt derive the scrollbar's wheel-
+        # notch step (singleStep) from row height, and these rows vary a lot
+        # (mood chips wrap to multiple lines) -- so a notch could still jump
+        # as far as the tallest visible row, which still feels like
+        # "scrolling by row." Pin it to a small fixed pixel step instead.
+        # Same fix as track_edit_roles.py's _RolesTable.
+        self._word_table.verticalScrollBar().setSingleStep(24)
         layout.addWidget(self._word_table)
 
         button_box = QDialogButtonBox(QDialogButtonBox.Close)

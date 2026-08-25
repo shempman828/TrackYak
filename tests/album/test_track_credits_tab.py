@@ -8,11 +8,17 @@ Covers:
   - RolesTab's optional on_convert_to_album hook: the "-> Album" button
     that only appears when the hook is supplied.
   - TrackCreditsTab: the album-editor tab wiring RolesTab to album.tracks.
+  - AlbumEditor._refresh_track_credits_tab: reloading the tab's RolesTab in
+    place on refresh, instead of destroying/rebuilding the tab (see
+    test_refresh_track_credits_tab_* below for the scroll-reset regression).
 """
 
-from PySide6.QtWidgets import QPushButton, QWidget
+from types import SimpleNamespace
+
+from PySide6.QtWidgets import QPushButton, QTabWidget, QWidget
 
 from src.album.album_editing_relationship_helpers import RelationshipHelpers
+from src.album.base_album_edit import AlbumEditor
 from src.album.base_album_edit_tabs import TrackCreditsTab
 from src.track.track_edit_roles import RolesTab
 
@@ -223,6 +229,33 @@ def test_roles_cell_convert_button_invokes_hook_with_artist_and_role(qapp):
         tab.cleanup()
 
 
+def test_roles_table_wheel_step_is_fixed_not_row_height_derived(qapp):
+    """Regression: ScrollPerPixel mode alone still lets Qt derive the
+    scrollbar's wheel-notch step (singleStep) from row height, and this
+    table's rows vary a lot (chips wrap to multiple lines) -- so a single
+    wheel notch could still jump as far as the tallest visible row, which
+    still reads as "scrolling by row" rather than smoothly. singleStep
+    must be pinned to a small fixed value independent of row height."""
+    controller = _StubController()
+    tab = RolesTab([_StubTrack(1)], controller)
+    try:
+        table = tab._table
+        table.insertRow(0)
+        table.setRowHeight(0, 36)
+        table.insertRow(1)
+        table.setRowHeight(1, 90)  # a row with several wrapped chip lines
+        table.insertRow(2)
+        table.setRowHeight(2, 36)
+
+        step = table.verticalScrollBar().singleStep()
+        assert step < 40, (
+            f"wheel step ({step}px) scales with the 90px tall row -- "
+            "still feels like scrolling by row, not by pixel"
+        )
+    finally:
+        tab.cleanup()
+
+
 # ---------------------------------------------------------------------------
 # TrackCreditsTab
 # ---------------------------------------------------------------------------
@@ -272,3 +305,70 @@ def test_track_credits_tab_forwards_conversion_to_editor_helper(qapp, monkeypatc
     finally:
         for w in built.findChildren(RolesTab):
             w.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# AlbumEditor._refresh_track_credits_tab (scroll-reset regression)
+# ---------------------------------------------------------------------------
+
+
+def test_refresh_track_credits_tab_reuses_existing_roles_widget_in_place(
+    qapp, monkeypatch
+):
+    """Refreshing Track Credits (e.g. after an edit made anywhere in the
+    album editor -- Publishers & Places, Album credit, Awards, etc. all
+    route through refresh_view()) must reload the existing RolesTab in
+    place rather than destroying/rebuilding the tab.
+
+    Rebuilding raced RolesTab's async (QThread-based) load against the
+    generic tab-rebuild's scroll capture/restore: the restore fired via
+    QTimer.singleShot(0, ...) before the new RolesTab's load finished, so
+    it always found an empty table and clamped the restore to 0, silently
+    resetting the user's scroll position on every refresh.
+    """
+    load_calls = []
+    monkeypatch.setattr(
+        "src.album.base_album_edit_tabs.TrackRolesTab.load",
+        lambda self, tracks: load_calls.append(tracks),
+    )
+
+    tracks = [_StubTrack(1), _StubTrack(2)]
+    editor = _StubEditor(_StubAlbum(tracks=tracks), _StubController())
+    tab = TrackCreditsTab(editor)
+    built = tab.build()  # build() itself calls load() once -- not under test.
+    load_calls.clear()
+
+    tabs = QTabWidget()
+    tabs.addTab(built, "Track Credits")
+    fake_editor = SimpleNamespace(tabs=tabs, album=editor.album)
+
+    try:
+        result = AlbumEditor._refresh_track_credits_tab(fake_editor, 0)
+
+        assert result is True
+        # The same tab widget is still there -- not removed/replaced.
+        assert tabs.widget(0) is built
+        assert load_calls == [tracks]
+    finally:
+        for w in built.findChildren(RolesTab):
+            w.cleanup()
+        tabs.deleteLater()
+
+
+def test_refresh_track_credits_tab_falls_back_when_no_roles_widget(qapp):
+    """When the tab was last built with no tracks (placeholder label, no
+    RolesTab child), there's nothing to reuse -- the caller should fall
+    back to a full rebuild instead of silently doing nothing."""
+    editor = _StubEditor(_StubAlbum(tracks=[]), _StubController())
+    tab = TrackCreditsTab(editor)
+    built = tab.build()
+
+    tabs = QTabWidget()
+    tabs.addTab(built, "Track Credits")
+    fake_editor = SimpleNamespace(tabs=tabs, album=editor.album)
+
+    try:
+        result = AlbumEditor._refresh_track_credits_tab(fake_editor, 0)
+        assert result is False
+    finally:
+        tabs.deleteLater()

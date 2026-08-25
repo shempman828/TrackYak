@@ -10,6 +10,8 @@ what AC14 actually specifies.
 
 import json
 
+from PySide6.QtWidgets import QAbstractItemView
+
 from src.mood.mood_autotag_dialog import (
     MoodAutoTagDialog,
     append_keyword_to_mood_file,
@@ -143,3 +145,52 @@ def test_load_dismissed_words_defaults_to_empty_on_missing_file(tmp_path):
     path = tmp_path / "does_not_exist.json"
 
     assert load_dismissed_words(path) == set()
+
+
+# ---------------------------------------------------------------------------
+# _WordTable scroll feel (mirrors track_edit_roles.py's _RolesTable, which
+# had the same "still scrolls by row despite ScrollPerPixel" bug -- see
+# tests/album/test_track_credits_tab.py::
+# test_roles_table_wheel_step_is_fixed_not_row_height_derived)
+# ---------------------------------------------------------------------------
+
+
+class _StubGet:
+    def get_all_entities(self, model_name, **kwargs):
+        return []
+
+
+class _StubController:
+    def __init__(self):
+        self.get = _StubGet()
+
+
+def test_word_table_wheel_step_is_fixed_not_row_height_derived(qapp, monkeypatch):
+    """Regression: ScrollPerPixel mode alone still lets Qt derive the
+    scrollbar's wheel-notch step (singleStep) from row height, and this
+    table's rows vary a lot (mood chips wrap to multiple lines) -- so a
+    single wheel notch could still jump as far as the tallest visible row,
+    which still reads as "scrolling by row" rather than smoothly."""
+    # _load_word_suggestions spins up a real LyricsStatsWorker against
+    # controller.statistics.lyrics, which this stub controller doesn't
+    # have -- irrelevant to what this test checks, so short-circuit it.
+    monkeypatch.setattr(
+        MoodAutoTagDialog, "_load_word_suggestions", lambda self: None
+    )
+
+    dlg = MoodAutoTagDialog(_StubController())
+    try:
+        table = dlg._word_table
+        table.insertRow(0)
+        table.setRowHeight(0, 36)
+        table.insertRow(1)
+        table.setRowHeight(1, 90)  # a row with several wrapped mood chips
+
+        assert table.verticalScrollMode() == QAbstractItemView.ScrollPerPixel
+        step = table.verticalScrollBar().singleStep()
+        assert step < 40, (
+            f"wheel step ({step}px) scales with the 90px tall row -- "
+            "still feels like scrolling by row, not by pixel"
+        )
+    finally:
+        dlg.deleteLater()

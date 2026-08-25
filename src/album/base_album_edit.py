@@ -52,6 +52,7 @@ from src.core.config_setup import Config
 from src.core.logger_config import logger
 from src.db.db_mapping_albums import ALBUM_FIELDS
 from src.metadata.metadata_writer import MetadataWriter
+from src.track.track_edit_roles import RolesTab
 
 # Fallback suggestions used if the controller can't supply distinct values
 # already present in the database.
@@ -762,11 +763,39 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
         QTimer.singleShot(0, _apply)
 
+    def _refresh_track_credits_tab(self, idx: int) -> bool:
+        """Reload the Track Credits tab's RolesTab in place rather than
+        tearing down and reconstructing the whole tab (as the generic
+        rebuild path below does).
+
+        RolesTab.load() runs its row fetch on a background QThread and
+        already preserves scroll position correctly around that (see
+        RolesTab._on_roles_loaded). Replacing the tab widget wholesale on
+        every refresh_view() call raced that: the generic capture/restore
+        below fires via QTimer.singleShot(0, ...) before the async load on
+        the brand-new RolesTab instance finishes, so it always found an
+        empty (0-row, 0-max-scroll) table and clamped the restore to 0 --
+        which RolesTab's own restore then just reconfirmed. Reusing the
+        existing instance sidesteps that race entirely.
+
+        Returns False (caller should fall back to a full rebuild) if
+        there's no existing RolesTab to reuse -- e.g. the tab was last
+        built with no tracks and is showing its placeholder label instead.
+        """
+        tab_widget = self.tabs.widget(idx)
+        roles_widget = tab_widget.findChild(RolesTab) if tab_widget else None
+        if roles_widget is None:
+            return False
+        roles_widget.load(self.album.tracks or [])
+        return True
+
     def _rebuild_current_tab(self):
         """Replace the currently visible tab with a freshly built version."""
         try:
             idx = self.tabs.currentIndex()
             tab_title = self.tabs.tabText(idx)
+            if tab_title == "Track Credits" and self._refresh_track_credits_tab(idx):
+                return
             builder = self._get_tab_rebuild_map().get(tab_title)
             if builder:
                 old_tab = self.tabs.widget(idx)
@@ -788,6 +817,10 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 return
             for idx in range(self.tabs.count()):
                 if self.tabs.tabText(idx) == title:
+                    if title == "Track Credits" and self._refresh_track_credits_tab(
+                        idx
+                    ):
+                        return
                     was_current = self.tabs.currentIndex() == idx
                     old_tab = self.tabs.widget(idx)
                     scroll_positions = self._capture_scroll_positions(old_tab)

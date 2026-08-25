@@ -2,6 +2,7 @@ from typing import Dict, List
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -35,6 +36,15 @@ class OrganizationPreviewDialog(QDialog):
         # Operations list - set larger item height for multi-line display
         self.ops_list = QListWidget()
         self.ops_list.setUniformItemSizes(False)  # Allow variable heights
+        # Item heights vary a lot (see _calculate_item_size) and the default
+        # ScrollPerItem mode jumps a full item -- as tall as 150px+ for a
+        # long path -- per wheel notch. ScrollPerPixel fixes the per-item
+        # snap, but Qt still derives the scrollbar's singleStep from item
+        # height, so pin it to a small fixed step too (same fix as
+        # track_edit_roles.py's _RolesTable / mood_autotag_dialog.py's
+        # _WordTable) so every notch moves the same modest amount.
+        self.ops_list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.ops_list.verticalScrollBar().setSingleStep(24)
         self._populate_operations_list()
         layout.addWidget(self.ops_list)
 
