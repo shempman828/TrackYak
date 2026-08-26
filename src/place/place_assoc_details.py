@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -11,6 +12,10 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
+
+# Groups with more associations than this start collapsed, since an
+# expanded group this size is what makes the dialog unwieldy to scan.
+GROUP_AUTO_EXPAND_THRESHOLD = 10
 
 
 class AssociationDetailsDialog(QDialog):
@@ -44,6 +49,17 @@ class AssociationDetailsDialog(QDialog):
 
         layout.addLayout(header_layout)
 
+        # Filter box
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Filter:"))
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText(
+            "Type to filter by name, type, association, or path..."
+        )
+        self.filter_edit.textChanged.connect(self.filter_associations)
+        filter_layout.addWidget(self.filter_edit)
+        layout.addLayout(filter_layout)
+
         # Associations tree
         associations_label = QLabel("<b>Associated Entities:</b>")
         layout.addWidget(associations_label)
@@ -75,8 +91,6 @@ class AssociationDetailsDialog(QDialog):
 
     def adjust_size(self):
         """Auto-adjust the dialog size to fit contents."""
-        self.associations_tree.expandAll()  # Expand all groups initially
-
         # Calculate ideal size
         self.adjustSize()
 
@@ -95,6 +109,34 @@ class AssociationDetailsDialog(QDialog):
         if self.parent():
             parent_center = self.parent().geometry().center()
             self.move(parent_center - self.rect().center())
+
+    def filter_associations(self, text):
+        """Show only groups/rows matching the filter text; restore defaults when empty."""
+        text = text.strip().lower()
+
+        for i in range(self.associations_tree.topLevelItemCount()):
+            type_item = self.associations_tree.topLevelItem(i)
+            child_count = type_item.childCount()
+
+            if not text:
+                type_item.setHidden(False)
+                type_item.setExpanded(child_count <= GROUP_AUTO_EXPAND_THRESHOLD)
+                for c in range(child_count):
+                    type_item.child(c).setHidden(False)
+                continue
+
+            any_visible = False
+            for c in range(child_count):
+                child_item = type_item.child(c)
+                haystack = " ".join(
+                    child_item.text(col) for col in range(child_item.columnCount())
+                ).lower()
+                matches = text in haystack
+                child_item.setHidden(not matches)
+                any_visible = any_visible or matches
+
+            type_item.setHidden(not any_visible)
+            type_item.setExpanded(any_visible)
 
     def toggle_recursive_mode(self):
         """Toggle between direct and recursive association views."""
@@ -135,7 +177,6 @@ class AssociationDetailsDialog(QDialog):
             # Create tree structure grouped by entity type
             for entity_type, type_associations in sorted(associations_by_type.items()):
                 type_item = QTreeWidgetItem([f"{entity_type.title()}s", "", "", ""])
-                type_item.setExpanded(True)
 
                 # Set bold font for group headers
                 font = type_item.font(0)
@@ -148,6 +189,9 @@ class AssociationDetailsDialog(QDialog):
                 )
 
                 self.associations_tree.addTopLevelItem(type_item)
+                type_item.setExpanded(
+                    len(type_associations) <= GROUP_AUTO_EXPAND_THRESHOLD
+                )
 
                 for assoc in type_associations:
                     entity = self.get_entity_details(assoc.entity_type, assoc.entity_id)
@@ -200,6 +244,9 @@ class AssociationDetailsDialog(QDialog):
             # Auto-resize columns to content
             for i in range(self.associations_tree.columnCount()):
                 self.associations_tree.resizeColumnToContents(i)
+
+            if self.filter_edit.text():
+                self.filter_associations(self.filter_edit.text())
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.exception("Error loading associations")
