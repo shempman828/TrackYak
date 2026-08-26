@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.base_split_dialog import SplitDBDialog
@@ -48,11 +48,15 @@ class GenreLoaderWorker(CancellableWorker):
     recursive (own + all descendants) track counts in two queries total,
     then emits the results back to the main thread.
 
-    Recursive counts are computed with one grouped TrackGenre query plus a
-    memoized bottom-up Python sum over the parent/child structure -- the
-    same approach as PublisherTreeWidget.calculate_recursive_album_counts --
-    instead of Genre.all_track_count's per-object Python recursion, which
-    has no batching and an O(n^2)/N+1-query risk on a tree of any size.
+    Recursive counts are computed with one ungrouped TrackGenre query plus a
+    memoized bottom-up Python union of per-genre track-id sets over the
+    parent/child structure -- the same approach as
+    PublisherTreeWidget.calculate_recursive_album_counts -- instead of
+    Genre.all_track_count's per-object Python recursion, which has no
+    batching and an O(n^2)/N+1-query risk on a tree of any size. Sets (not
+    a plain integer sum) are required because a track tagged with both a
+    genre and one of its descendants must only count once toward that
+    genre's recursive total.
     """
 
     # Payload: (genres, direct_counts_by_genre_id, recursive_counts_by_genre_id)
@@ -70,30 +74,38 @@ class GenreLoaderWorker(CancellableWorker):
         try:
             genres = self.controller.get.get_all_entities("Genre") or []
 
-            direct_counts = dict(
-                self.controller.get.session.execute(
-                    select(TrackGenre.genre_id, func.count()).group_by(
-                        TrackGenre.genre_id
-                    )
-                ).all()
-            )
+            direct_track_ids = defaultdict(set)
+            for genre_id, track_id in self.controller.get.session.execute(
+                select(TrackGenre.genre_id, TrackGenre.track_id)
+            ).all():
+                direct_track_ids[genre_id].add(track_id)
+
+            direct_counts = {
+                genre_id: len(track_ids)
+                for genre_id, track_ids in direct_track_ids.items()
+            }
 
             children_map = defaultdict(list)
             for genre in genres:
                 children_map[genre.parent_id].append(genre.genre_id)
 
-            recursive_totals: dict = {}
+            recursive_track_ids: dict = {}
 
-            def total_for(genre_id):
-                if genre_id not in recursive_totals:
-                    total = direct_counts.get(genre_id, 0)
+            def track_ids_for(genre_id):
+                if genre_id not in recursive_track_ids:
+                    ids = set(direct_track_ids.get(genre_id, ()))
                     for child_id in children_map.get(genre_id, []):
-                        total += total_for(child_id)
-                    recursive_totals[genre_id] = total
-                return recursive_totals[genre_id]
+                        ids |= track_ids_for(child_id)
+                    recursive_track_ids[genre_id] = ids
+                return recursive_track_ids[genre_id]
 
             for genre in genres:
-                total_for(genre.genre_id)
+                track_ids_for(genre.genre_id)
+
+            recursive_totals = {
+                genre_id: len(track_ids)
+                for genre_id, track_ids in recursive_track_ids.items()
+            }
 
         except Exception as e:  # ruff: ignore[blind-except]
             logger.exception("Genre count scan failed")

@@ -117,6 +117,40 @@ def test_worker_computes_direct_and_recursive_counts(session, controller):
 
 
 # ---------------------------------------------------------------------------
+# Regression: a track tagged with both a genre and one of its descendants
+# must only count once toward the ancestor's recursive total -- summing
+# direct_counts + child totals as plain integers double-counts it.
+# ---------------------------------------------------------------------------
+
+
+def test_recursive_count_dedupes_track_tagged_at_multiple_levels(session, controller):
+    rock = _make_genre(session, "Rock")
+    punk = _make_genre(session, "Punk", parent=rock)
+
+    track = Track(track_name="Overlap track")
+    session.add(track)
+    session.flush()
+    # Tagged with both Rock (parent) and Punk (child) -- one physical track.
+    session.add(TrackGenre(track_id=track.track_id, genre_id=rock.genre_id))
+    session.add(TrackGenre(track_id=track.track_id, genre_id=punk.genre_id))
+    session.commit()
+
+    worker = GenreLoaderWorker(controller)
+    result = {}
+    worker.finished.connect(
+        lambda genres, direct, recursive: result.update(direct=direct, recursive=recursive)
+    )
+    worker.run()
+
+    assert result["direct"].get(rock.genre_id, 0) == 1
+    assert result["direct"].get(punk.genre_id, 0) == 1
+    # Naive summation would give 2 (1 own + 1 from Punk); the correct
+    # recursive count is 1 unique track.
+    assert result["recursive"][rock.genre_id] == 1
+    assert result["recursive"][punk.genre_id] == 1
+
+
+# ---------------------------------------------------------------------------
 # AC2 -- worker releases its DB session and emits `error` on failure
 # ---------------------------------------------------------------------------
 

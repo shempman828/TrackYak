@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from PySide6.QtCore import QMimeData, Qt
@@ -179,40 +179,44 @@ class PublisherTreeWidget(QTreeWidget):
     def calculate_recursive_album_counts(self, publishers):
         """Calculate total albums per publisher, including all child publishers.
 
-        Uses a single grouped query for direct album counts (like
+        Uses a single ungrouped query for direct album ids (like
         genre_view.py does for genres) instead of one AlbumPublisher query
-        per publisher, then sums child totals into parents bottom-up in
-        Python instead of re-querying each descendant subtree once per
-        ancestor. This turned ~12,000 sequential queries (and a 2+ minute
-        UI freeze) with ~2,187 publishers into a single query.
+        per publisher, then unions child album-id sets into parents
+        bottom-up in Python instead of re-querying each descendant subtree
+        once per ancestor. This turned ~12,000 sequential queries (and a
+        2+ minute UI freeze) with ~2,187 publishers into a single query.
+        Sets (not a plain integer sum) are required because an album
+        published under both a publisher and one of its descendants must
+        only count once toward that publisher's recursive total.
         """
         try:
-            direct_counts = dict(
-                self.controller.get.session.execute(
-                    select(AlbumPublisher.publisher_id, func.count()).group_by(
-                        AlbumPublisher.publisher_id
-                    )
-                ).all()
-            )
+            direct_album_ids = defaultdict(set)
+            for publisher_id, album_id in self.controller.get.session.execute(
+                select(AlbumPublisher.publisher_id, AlbumPublisher.album_id)
+            ).all():
+                direct_album_ids[publisher_id].add(album_id)
 
             children_map = defaultdict(list)
             for publisher in publishers:
                 children_map[publisher.parent_id].append(publisher.publisher_id)
 
-            totals = {}
+            recursive_album_ids: dict = {}
 
-            def total_for(publisher_id):
-                if publisher_id not in totals:
-                    total = direct_counts.get(publisher_id, 0)
+            def album_ids_for(publisher_id):
+                if publisher_id not in recursive_album_ids:
+                    ids = set(direct_album_ids.get(publisher_id, ()))
                     for child_id in children_map.get(publisher_id, []):
-                        total += total_for(child_id)
-                    totals[publisher_id] = total
-                return totals[publisher_id]
+                        ids |= album_ids_for(child_id)
+                    recursive_album_ids[publisher_id] = ids
+                return recursive_album_ids[publisher_id]
 
             for publisher in publishers:
-                total_for(publisher.publisher_id)
+                album_ids_for(publisher.publisher_id)
 
-            return totals
+            return {
+                publisher_id: len(album_ids)
+                for publisher_id, album_ids in recursive_album_ids.items()
+            }
 
         except SQLAlchemyError as e:
             logger.error(f"Error calculating album counts: {str(e)}")
