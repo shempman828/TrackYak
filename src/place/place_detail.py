@@ -83,16 +83,12 @@ class PlaceDetailView(QDialog):
         # Action buttons
         button_layout = QHBoxLayout()
 
-        view_on_map_button = QPushButton("View on Map")
-        view_on_map_button.clicked.connect(self.view_on_map)
-
         edit_place_button = QPushButton("Edit Place")
         edit_place_button.clicked.connect(self.edit_place)
 
         close_button = QPushButton("Close")
         close_button.clicked.connect(self.accept)
 
-        button_layout.addWidget(view_on_map_button)
         button_layout.addWidget(edit_place_button)
         button_layout.addStretch()
         button_layout.addWidget(close_button)
