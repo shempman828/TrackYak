@@ -60,6 +60,33 @@ class ArtworkExtractor:
             logger.warning(f"Error extracting artwork: {e}")
             return None
 
+    def _iter_id3_frames(self, data, version_major, end_pos):
+        """Yield (frame_id, frame_start, frame_size) for each ID3v2 frame
+        header from byte offset 10 (right after the ID3 tag header) up to
+        end_pos. Stops as soon as a frame with size 0 is hit or fewer than
+        10 bytes remain, mirroring where a real ID3v2 tag ends.
+        """
+        pos = 10
+        while pos < end_pos - 10:
+            if version_major == 2:  # ID3v2.2
+                frame_id = data[pos : pos + 3].decode("ascii", errors="ignore")
+                frame_size = struct.unpack(">I", b"\x00" + data[pos + 3 : pos + 6])[0]
+                frame_start = pos + 6
+            else:  # ID3v2.3/2.4
+                frame_id = data[pos : pos + 4].decode("ascii", errors="ignore")
+                frame_size = (
+                    syncsafe_to_int(data[pos + 4 : pos + 8])
+                    if version_major == 4
+                    else struct.unpack(">I", data[pos + 4 : pos + 8])[0]
+                )
+                frame_start = pos + 10
+
+            if frame_size == 0:
+                break
+
+            yield frame_id, frame_start, frame_size
+            pos = frame_start + frame_size
+
     def _extract_mp3_artwork(self, data):
         """Extract artwork from MP3 files (ID3v2 APIC frames)."""
         try:
@@ -68,34 +95,15 @@ class ArtworkExtractor:
 
             version_major = data[3]
             size = syncsafe_to_int(data[6:10])
-            pos = 10
-            end_pos = min(pos + size, len(data))
+            end_pos = min(10 + size, len(data))
 
-            while pos < end_pos - 10:
-                if version_major == 2:  # ID3v2.2
-                    frame_id = data[pos : pos + 3].decode("ascii", errors="ignore")
-                    frame_size = struct.unpack(">I", b"\x00" + data[pos + 3 : pos + 6])[
-                        0
-                    ]
-                    frame_start = pos + 6
-                else:  # ID3v2.3/2.4
-                    frame_id = data[pos : pos + 4].decode("ascii", errors="ignore")
-                    frame_size = (
-                        syncsafe_to_int(data[pos + 4 : pos + 8])
-                        if version_major == 4
-                        else struct.unpack(">I", data[pos + 4 : pos + 8])[0]
-                    )
-                    frame_start = pos + 10
-
-                if frame_size == 0:
-                    break
-
+            for frame_id, frame_start, frame_size in self._iter_id3_frames(
+                data, version_major, end_pos
+            ):
                 if frame_id in ["APIC", "PIC"]:
                     return self._parse_id3_apic_frame(
                         data[frame_start : frame_start + frame_size], version_major
                     )
-
-                pos = frame_start + frame_size
 
         except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting MP3 artwork: {e}")
@@ -111,28 +119,11 @@ class ArtworkExtractor:
 
             version_major = data[3]
             size = syncsafe_to_int(data[6:10])
-            pos = 10
-            end_pos = min(pos + size, len(data))
+            end_pos = min(10 + size, len(data))
 
-            while pos < end_pos - 10:
-                if version_major == 2:  # ID3v2.2
-                    frame_id = data[pos : pos + 3].decode("ascii", errors="ignore")
-                    frame_size = struct.unpack(">I", b"\x00" + data[pos + 3 : pos + 6])[
-                        0
-                    ]
-                    frame_start = pos + 6
-                else:  # ID3v2.3/2.4
-                    frame_id = data[pos : pos + 4].decode("ascii", errors="ignore")
-                    frame_size = (
-                        syncsafe_to_int(data[pos + 4 : pos + 8])
-                        if version_major == 4
-                        else struct.unpack(">I", data[pos + 4 : pos + 8])[0]
-                    )
-                    frame_start = pos + 10
-
-                if frame_size == 0:
-                    break
-
+            for frame_id, frame_start, frame_size in self._iter_id3_frames(
+                data, version_major, end_pos
+            ):
                 if frame_id in ["APIC", "PIC"]:
                     parsed_picture = self._parse_id3_apic_frame(
                         data[frame_start : frame_start + frame_size], version_major
@@ -146,8 +137,6 @@ class ArtworkExtractor:
                             )
                         else:
                             pictures[picture_type] = parsed_picture
-
-                pos = frame_start + frame_size
 
         except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting MP3 artwork: {e}")
