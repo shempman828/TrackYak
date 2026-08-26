@@ -12,6 +12,7 @@ import json
 
 from PySide6.QtWidgets import QAbstractItemView
 
+from src.mood import mood_autotag_dialog
 from src.mood.mood_autotag_dialog import (
     MoodAutoTagDialog,
     append_keyword_to_mood_file,
@@ -211,5 +212,29 @@ def test_word_table_wheel_step_is_fixed_not_row_height_derived(qapp, monkeypatch
             f"wheel step ({step}px) scales with the 90px tall row -- "
             "still feels like scrolling by row, not by pixel"
         )
+    finally:
+        dlg.deleteLater()
+
+
+def test_tag_progress_shows_percent_running_counts_and_eta(qapp, monkeypatch):
+    monkeypatch.setattr(
+        MoodAutoTagDialog, "_load_word_suggestions", lambda self: None
+    )
+
+    dlg = MoodAutoTagDialog(_StubController())
+    try:
+        dlg._tag_scan_start_time = 1000.0
+        # 10s elapsed at 5 tracks/s -> 50 more tracks at 5/s = 10s remaining.
+        monkeypatch.setattr(mood_autotag_dialog.time, "monotonic", lambda: 1010.0)
+
+        dlg._on_tag_progress(50, 100, 3, 2)
+
+        fmt = dlg._tag_progress_bar.format()
+        assert "%p%" in fmt
+        assert "50/100 tracks" in fmt
+        assert "3 mood / 2 place tags added" in fmt
+        assert "ETA: 10s" in fmt
+        assert dlg._tag_progress_bar.value() == 50
+        assert dlg._tag_progress_bar.maximum() == 100
     finally:
         dlg.deleteLater()

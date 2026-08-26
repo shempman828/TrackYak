@@ -22,12 +22,12 @@ PROGRESS_INTERVAL = 25
 class MoodAutoTagWorker(CancellableWorker):
     """
     Signals:
-        progress(done, total)
+        progress(done, total, mood_tags_added, place_tags_added)
         finished(scanned, mood_tags_added, place_tags_added)
         error(message)
     """
 
-    progress = Signal(int, int)
+    progress = Signal(int, int, int, int)
     finished = Signal(int, int, int)
     error = Signal(str)
 
@@ -60,9 +60,9 @@ class MoodAutoTagWorker(CancellableWorker):
 
                 scanned += 1
                 if scanned % PROGRESS_INTERVAL == 0:
-                    self.progress.emit(scanned, total)
+                    self.progress.emit(scanned, total, mood_tags_added, place_tags_added)
 
-            self.progress.emit(scanned, total)
+            self.progress.emit(scanned, total, mood_tags_added, place_tags_added)
             self.finished.emit(scanned, mood_tags_added, place_tags_added)
         except Exception as e:
             logger.error(f"MoodAutoTagWorker failed: {e}", exc_info=True)

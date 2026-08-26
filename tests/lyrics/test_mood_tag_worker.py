@@ -21,6 +21,7 @@ from src.db.db_tables.place import Place, PlaceAssociation
 from src.db.db_tables.place_association_type import PlaceAssociationType
 from src.db.db_tables.track import Track
 from src.lyrics import mood_scoring
+from src.lyrics import mood_tag_worker
 from src.lyrics.mood_tag_worker import MoodAutoTagWorker
 
 
@@ -114,6 +115,39 @@ def test_finished_signal_reports_scanned_and_mood_tags_added(session, controller
     worker.run()
 
     assert results == [(2, 1, 0)]
+
+
+def test_progress_signal_reports_running_counts_not_final_totals(
+    session, controller, song_about_type, monkeypatch
+):
+    # Force an emit after every track (default PROGRESS_INTERVAL is 25)
+    # so the mid-scan payloads are observable.
+    monkeypatch.setattr(mood_tag_worker, "PROGRESS_INTERVAL", 1)
+
+    paris = Place(place_name="Paris")
+    session.add(paris)
+    session.commit()
+
+    _make_track(session, lyrics="happy happy happy sunshine joyful")
+    _make_track(session, lyrics="I left my heart in Paris one cold night")
+    _make_track(session, lyrics="a perfectly unrelated clean lyric line")
+
+    worker = MoodAutoTagWorker(controller)
+    updates = []
+    worker.progress.connect(
+        lambda scanned, total, moods, places: updates.append((scanned, total, moods, places))
+    )
+    worker.run()
+
+    # Running counts climb as each track is scanned -- the mood tag lands
+    # on track 1, the place tag on track 2 -- not just a single emit with
+    # the final totals.
+    assert updates == [
+        (1, 3, 1, 0),
+        (2, 3, 1, 1),
+        (3, 3, 1, 1),
+        (3, 3, 1, 1),  # unconditional post-loop emit
+    ]
 
 
 # AC9 -------------------------------------------------------------------------

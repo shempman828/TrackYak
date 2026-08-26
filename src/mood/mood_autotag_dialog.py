@@ -25,6 +25,7 @@ raise/activate pattern -- this class itself is a plain QDialog.
 """
 
 import json
+import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -175,6 +176,7 @@ class MoodAutoTagDialog(QDialog):
         super().__init__(parent)
         self.controller = controller
         self._tag_worker = None
+        self._tag_scan_start_time = None
         self._lyrics_stats_worker = None
         self._word_cloud_cache = []
         self._known_moods = []
@@ -290,6 +292,8 @@ class MoodAutoTagDialog(QDialog):
         self._tag_cancel_btn.setVisible(True)
         self._tag_progress_bar.setVisible(True)
         self._tag_progress_bar.setRange(0, 0)  # indeterminate until first progress signal
+        self._tag_progress_bar.setFormat("Scanning library…")
+        self._tag_scan_start_time = time.monotonic()
         show_status_message(self, "Tagging library from lyrics…", duration=0)
         self._tag_worker = MoodAutoTagWorker(self.controller)
         self._tag_worker.progress.connect(self._on_tag_progress)
@@ -302,9 +306,37 @@ class MoodAutoTagDialog(QDialog):
             self._tag_worker.request_cancel()
             self._tag_cancel_btn.setEnabled(False)
 
-    def _on_tag_progress(self, scanned, total):
+    def _on_tag_progress(self, scanned, total, mood_tags_added, place_tags_added):
         self._tag_progress_bar.setRange(0, max(total, 1))
         self._tag_progress_bar.setValue(scanned)
+
+        counts = f"{mood_tags_added:,} mood / {place_tags_added:,} place tags added"
+        eta = self._estimate_remaining(scanned, total)
+        if eta:
+            self._tag_progress_bar.setFormat(f"%p%  ({scanned:,}/{total:,} tracks, {counts}, ETA: {eta})")
+        else:
+            self._tag_progress_bar.setFormat(f"%p%  ({scanned:,}/{total:,} tracks, {counts})")
+
+    def _estimate_remaining(self, current: int, total: int) -> str | None:
+        """Human-readable ETA string for the current tag-library scan, or
+        None if there isn't enough data yet. Same elapsed/rate estimate as
+        DuplicateFinderDialog._estimate_remaining."""
+        if not self._tag_scan_start_time or current <= 0 or current >= total:
+            return None
+
+        elapsed = time.monotonic() - self._tag_scan_start_time
+        if elapsed < 1.0:
+            return None
+
+        rate = current / elapsed
+        if rate <= 0:
+            return None
+
+        remaining_seconds = int((total - current) / rate)
+        if remaining_seconds < 60:
+            return f"{remaining_seconds}s"
+        minutes, seconds = divmod(remaining_seconds, 60)
+        return f"{minutes}m {seconds:02d}s"
 
     def _on_tag_finished(self, scanned, mood_tags_added, place_tags_added):
         self._tag_status_label.setText(
