@@ -44,18 +44,26 @@ from src.role.role_merge import RoleMergeDialog
 
 class RoleLoaderWorker(QObject):
     """
-    Runs on a background thread.
-    Fetches all roles and association counts in just 3 queries total,
-    then emits the results back to the main thread.
+    Runs on a background thread. Fetches all roles plus their direct and
+    recursive (own + all descendants) association counts in 3 queries
+    total, then emits the results back to the main thread.
+
+    Recursive counts are computed with a memoized bottom-up Python union of
+    per-role association-id sets over the parent/child structure, mirroring
+    GenreLoaderWorker.track_ids_for. Sets (not a plain integer sum) are
+    required because the same album/track credit can be recorded against
+    both a role and one of its descendants, and must only count once
+    toward that role's recursive total.
     """
 
     # Emitted when loading succeeds.
-    # Payload: (all_roles, album_counts_by_role_id, track_counts_by_role_id)
+    # Payload: (all_roles, album_counts_by_role_id, track_counts_by_role_id,
+    #           recursive_counts_by_role_id)
     # Uses `object` rather than `list`/`dict` because PySide6's queued
     # cross-thread delivery can fail to copy-convert plain dict/list
     # signal args, logging "_pythonToCppCopy" errors (or worse, dropping
     # the payload). `object` passes the Python object through untouched.
-    finished = Signal(object, object, object)
+    finished = Signal(object, object, object, object)
 
     # Emitted if something goes wrong.
     error = Signal(str)
@@ -80,17 +88,67 @@ class RoleLoaderWorker(QObject):
                 self.controller.get.get_all_entities("TrackArtistRole") or []
             )
 
-            # Build count lookup dicts  {role_id: count}
-            # This replaces the previous per-role loop that made 1000+ queries.
+            # Direct (own-role-only) counts, kept separate for the detail
+            # tooltip's album/track breakdown.
             album_counts: dict[int, int] = defaultdict(int)
+            direct_album_ids = defaultdict(set)
             for link in all_album_links:
                 album_counts[link.role_id] += 1
+                direct_album_ids[link.role_id].add(link.association_id)
 
             track_counts: dict[int, int] = defaultdict(int)
+            direct_track_ids = defaultdict(set)
             for link in all_track_links:
                 track_counts[link.role_id] += 1
+                # role_id is part of the key (not just track_id/artist_id):
+                # the same artist can legitimately hold two different roles
+                # on the same track (e.g. Guitar and Producer), and those
+                # are two distinct credits that must both still count.
+                direct_track_ids[link.role_id].add(
+                    (link.track_id, link.artist_id, link.role_id)
+                )
 
-            self.finished.emit(all_roles, dict(album_counts), dict(track_counts))
+            # Recursive (own + descendants) counts, unioned as sets per
+            # dimension. AlbumRoleAssociation has a real per-row surrogate
+            # key (association_id) so a credit can never collide across
+            # roles; TrackArtistRole's key above is similarly row-unique.
+            # The set union itself is a no-op given that (each row lives
+            # under exactly one role_id, so no id is ever reachable from
+            # two branches) -- kept for structural parity with
+            # GenreLoaderWorker.track_ids_for, where a genuine track_id can
+            # be reachable from multiple branches and must dedupe.
+            children_map = defaultdict(list)
+            for role in all_roles:
+                children_map[role.parent_id].append(role.role_id)
+
+            recursive_album_ids: dict = {}
+            recursive_track_ids: dict = {}
+
+            def album_ids_for(role_id):
+                if role_id not in recursive_album_ids:
+                    ids = set(direct_album_ids.get(role_id, ()))
+                    for child_id in children_map.get(role_id, []):
+                        ids |= album_ids_for(child_id)
+                    recursive_album_ids[role_id] = ids
+                return recursive_album_ids[role_id]
+
+            def track_ids_for(role_id):
+                if role_id not in recursive_track_ids:
+                    ids = set(direct_track_ids.get(role_id, ()))
+                    for child_id in children_map.get(role_id, []):
+                        ids |= track_ids_for(child_id)
+                    recursive_track_ids[role_id] = ids
+                return recursive_track_ids[role_id]
+
+            recursive_counts: dict[int, int] = {}
+            for role in all_roles:
+                recursive_counts[role.role_id] = len(
+                    album_ids_for(role.role_id)
+                ) + len(track_ids_for(role.role_id))
+
+            self.finished.emit(
+                all_roles, dict(album_counts), dict(track_counts), recursive_counts
+            )
 
         except Exception as e:
             # Intentional broad boundary catch: this runs on a QThread and must
@@ -119,6 +177,7 @@ class RoleView(QWidget):
         # without hitting the database again.
         self._album_counts: dict[int, int] = {}
         self._track_counts: dict[int, int] = {}
+        self._recursive_counts: dict[int, int] = {}
         self._all_roles: list = []
 
         # "name" (alphabetical) or "count" (total assignments, descending)
@@ -299,7 +358,13 @@ class RoleView(QWidget):
         if is_loading:
             self.status_bar.setText("Loading…")
 
-    def _on_roles_loaded(self, all_roles: list, album_counts: dict, track_counts: dict):
+    def _on_roles_loaded(
+        self,
+        all_roles: list,
+        album_counts: dict,
+        track_counts: dict,
+        recursive_counts: dict,
+    ):
         """
         Called on the MAIN thread once the background worker finishes.
         Safe to update UI here.
@@ -309,6 +374,7 @@ class RoleView(QWidget):
             # (avoids re-querying the DB)
             self._album_counts = album_counts
             self._track_counts = track_counts
+            self._recursive_counts = recursive_counts
             self._all_roles = all_roles
 
             self._rebuild_tree()
@@ -334,6 +400,7 @@ class RoleView(QWidget):
         all_roles = self._all_roles
         album_counts = self._album_counts
         track_counts = self._track_counts
+        recursive_counts = self._recursive_counts
 
         # Remember which roles were expanded so the rebuild doesn't collapse
         # everything the user had opened.
@@ -363,7 +430,12 @@ class RoleView(QWidget):
         # Build the tree — uses pre-fetched counts, zero extra queries
         if self.flat_view:
             root_count = self._build_role_flat(
-                all_roles, role_map, self.role_tree, album_counts, track_counts
+                all_roles,
+                role_map,
+                self.role_tree,
+                album_counts,
+                track_counts,
+                recursive_counts,
             )
         else:
             root_count = self._build_role_tree(
@@ -374,6 +446,7 @@ class RoleView(QWidget):
                 self.role_tree,
                 album_counts,
                 track_counts,
+                recursive_counts,
             )
 
         # Restore expansion state, or expand everything on first build
@@ -446,6 +519,7 @@ class RoleView(QWidget):
         tree_widget,
         album_counts: dict,
         track_counts: dict,
+        recursive_counts: dict,
     ):
         """
         Recursively build the tree structure using pre-fetched count dicts.
@@ -455,7 +529,7 @@ class RoleView(QWidget):
         roles = children_map.get(parent_id, [])
 
         def _total(role):
-            return album_counts.get(role.role_id, 0) + track_counts.get(role.role_id, 0)
+            return recursive_counts.get(role.role_id, 0)
 
         if self.sort_mode == "count":
             sorted_roles = sorted(roles, key=_total, reverse=True)
@@ -463,7 +537,9 @@ class RoleView(QWidget):
             sorted_roles = sorted(roles, key=lambda r: r.role_name.lower())
 
         for role in sorted_roles:
-            item = self._make_role_item(role, depth, role_map, album_counts, track_counts)
+            item = self._make_role_item(
+                role, depth, role_map, album_counts, track_counts, recursive_counts
+            )
 
             if parent_item:
                 parent_item.addChild(item)
@@ -479,19 +555,36 @@ class RoleView(QWidget):
                 tree_widget,
                 album_counts,
                 track_counts,
+                recursive_counts,
             )
 
         return len(roles)
 
-    def _make_role_item(self, role, depth, role_map, album_counts, track_counts):
+    @staticmethod
+    def _format_role_count(own_count: int, recursive_count: int) -> str:
+        """Build the compact count text for a role's display label, mirroring
+        GenreView._format_track_count / PlaylistView._format_track_count."""
+        if recursive_count != own_count:
+            # Has sub-roles contributing additional assignments, e.g. "12 · 42"
+            return f"{own_count} · {recursive_count}"
+        # Counts match — just the one number, e.g. "5"
+        return str(own_count)
+
+    def _make_role_item(
+        self, role, depth, role_map, album_counts, track_counts, recursive_counts
+    ):
         """Build a single role's tree item, shared by the tree and flat builders."""
-        # Look up counts from the pre-fetched dicts (O(1), no DB call)
+        # Look up counts from the pre-fetched dicts (O(1), no DB call).
+        # Album and track assignments are collapsed into one flat count per
+        # the genre/playlist convention -- the breakdown is kept in the
+        # tooltip only.
         album_count = album_counts.get(role.role_id, 0)
         track_count = track_counts.get(role.role_id, 0)
-        total_count = album_count + track_count
+        own_count = album_count + track_count
+        recursive_count = recursive_counts.get(role.role_id, own_count)
 
-        # Display text mirrors the genre tree's "Name (count)" style
-        display_text = f"{role.role_name} ({total_count})"
+        count_text = self._format_role_count(own_count, recursive_count)
+        display_text = f"{role.role_name} ({count_text})"
 
         item = QTreeWidgetItem([display_text])
         item.setData(0, Qt.UserRole, role.role_id)
@@ -504,8 +597,8 @@ class RoleView(QWidget):
 
         item.setIcon(0, icon_for_depth(depth))
 
-        # Gray out unassigned roles
-        if total_count == 0:
+        # Gray out roles with no assignments anywhere in their subtree
+        if recursive_count == 0:
             item.setForeground(0, QBrush(QColor(128, 128, 128)))
 
         # Tooltip with detailed information (album/track breakdown kept here)
@@ -515,6 +608,8 @@ class RoleView(QWidget):
 
         tooltip += f"\nTrack assignments: {track_count}"
         tooltip += f"\nAlbum assignments: {album_count}"
+        if recursive_count != own_count:
+            tooltip += f"\nTotal including sub-roles: {recursive_count}"
 
         if role.parent_id:
             parent_role = role_map.get(role.parent_id)
@@ -524,19 +619,29 @@ class RoleView(QWidget):
         item.setToolTip(0, tooltip)
         return item
 
-    def _build_role_flat(self, all_roles, role_map, tree_widget, album_counts, track_counts):
+    def _build_role_flat(
+        self,
+        all_roles,
+        role_map,
+        tree_widget,
+        album_counts,
+        track_counts,
+        recursive_counts,
+    ):
         """Populate the tree as a single alphabetical list with no nesting."""
         if self.sort_mode == "count":
             sorted_roles = sorted(
                 all_roles,
-                key=lambda r: album_counts.get(r.role_id, 0) + track_counts.get(r.role_id, 0),
+                key=lambda r: recursive_counts.get(r.role_id, 0),
                 reverse=True,
             )
         else:
             sorted_roles = sorted(all_roles, key=lambda r: r.role_name.lower())
 
         for role in sorted_roles:
-            item = self._make_role_item(role, 0, role_map, album_counts, track_counts)
+            item = self._make_role_item(
+                role, 0, role_map, album_counts, track_counts, recursive_counts
+            )
             tree_widget.addTopLevelItem(item)
 
         return len(all_roles)
@@ -947,6 +1052,7 @@ class RoleView(QWidget):
                 ]
                 self._album_counts.pop(role_id, None)
                 self._track_counts.pop(role_id, None)
+                self._recursive_counts.pop(role_id, None)
                 self._rebuild_tree()
 
                 self.status_bar.setText(f"Deleted {role.role_name}")

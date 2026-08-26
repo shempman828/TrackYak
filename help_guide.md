@@ -269,6 +269,10 @@ bar at the bottom gives you a running total of how many roles are mixed
 track/album use, track-only, album-only, or not assigned to anything yet —
 useful for spotting roles nobody's using.
 
+Each role shows how many album and track credits it carries directly, plus a
+second number for credits pulled in from its sub-roles if it has any — same
+as the Genres and Moods trees.
+
 Rename by clicking directly into a row, or open the full Edit dialog for a
 description too. Merge and Split work like they do everywhere else in the
 app; New Parent Role / New Child Role let you build out sub-categories (e.g.
