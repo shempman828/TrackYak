@@ -280,17 +280,6 @@ class PlacesAwardsTab(QWidget):
                     user_data=award.award_id,
                 )
 
-    def _reload_and_refresh(self):
-        try:
-            refreshed = self.controller.get.get_entity_object(
-                "Artist", artist_id=self.artist.artist_id
-            )
-            if refreshed:
-                self.artist = refreshed
-        except SQLAlchemyError as e:
-            logger.warning(f"Could not reload artist: {e}")
-        self.load(self.artist)
-
     def _add_place(self):
         name = self.new_place_edit.text().strip()
         if not name:
