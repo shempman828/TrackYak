@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.delete_confirmation import confirm_delete_with_file_option
 from src.core.censor import censor_text
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -213,14 +214,10 @@ class BaseTrackView(QDialog):
         self.context_menu.addMenu(self.add_to_mood_menu)
         self.context_menu.addSeparator()
 
-        # Delete actions
-        self.delete_from_db_action = QAction("🗑 Delete from DB", self)
-        self.delete_from_db_action.triggered.connect(self._delete_selected_from_db)
-        self.context_menu.addAction(self.delete_from_db_action)
-
-        self.delete_file_action = QAction("🗑 Delete File (+ Remove from DB)", self)
-        self.delete_file_action.triggered.connect(self._delete_selected_file_and_db)
-        self.context_menu.addAction(self.delete_file_action)
+        # Delete action
+        self.delete_tracks_action = QAction("🗑 Delete Tracks...", self)
+        self.delete_tracks_action.triggered.connect(self._delete_selected_tracks)
+        self.context_menu.addAction(self.delete_tracks_action)
 
     def show_context_menu(self, position):
         """Show context menu at the given position."""
@@ -835,8 +832,8 @@ class BaseTrackView(QDialog):
             logger.debug(f"Error getting value for {db_field}: {e}")
             return ""
 
-    def _delete_selected_from_db(self):
-        """Remove selected tracks from the database only. The audio file is left on disk."""
+    def _delete_selected_tracks(self):
+        """Delete selected tracks: DB-only, or DB + audio file(s) from disk."""
         tracks = self.get_selected_tracks()
         if not tracks:
             return
@@ -848,27 +845,28 @@ class BaseTrackView(QDialog):
         if count > 3:
             names += f" … and {count - 3} more"
 
-        reply = QMessageBox.question(
-            self,
-            "Delete from DB",
-            f"Remove {count} track(s) from the database?\n\n{names}\n\n"
-            "The audio file(s) will NOT be deleted from disk.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+        choice = confirm_delete_with_file_option(
+            self, "Delete Tracks", f"Delete {count} track(s)?\n\n{names}"
         )
-        if reply != QMessageBox.Yes:
+        if choice is None:
             return
+        delete_files = choice == "db_and_file"
 
         deleted_ids = []
         for track in tracks:
             try:
+                if delete_files:
+                    file_path = getattr(track, "track_file_path", None)
+                    if file_path:
+                        self.controller.delete.delete_file(file_path=file_path)
+
                 ok = self.controller.delete.delete_entity(
                     "Track", track_id=track.track_id
                 )
                 if ok:
                     deleted_ids.append(track.track_id)
             except SQLAlchemyError as e:
-                logger.error(f"Error deleting track {track.track_id} from DB: {e}")
+                logger.error(f"Error deleting track {track.track_id}: {e}")
 
         # Remove deleted tracks from our internal list and refresh display
         self._all_tracks = [
@@ -879,65 +877,5 @@ class BaseTrackView(QDialog):
         for tid in deleted_ids:
             self.track_deleted.emit(tid)
 
-        logger.info(f"Deleted {len(deleted_ids)}/{count} track(s) from DB")
-
-    def _delete_selected_file_and_db(self):
-        """Delete selected tracks' audio files from disk AND remove them from the database."""
-        import os
-
-        tracks = self.get_selected_tracks()
-        if not tracks:
-            return
-
-        count = len(tracks)
-        names = ", ".join(
-            getattr(t, "track_name", f"ID {t.track_id}") for t in tracks[:3]
-        )
-        if count > 3:
-            names += f" … and {count - 3} more"
-
-        reply = QMessageBox.question(
-            self,
-            "Delete File",
-            f"Permanently delete {count} audio file(s) from disk AND remove from database?\n\n"
-            f"{names}\n\n"
-            "⚠️  This CANNOT be undone. The files will be gone forever.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply != QMessageBox.Yes:
-            return
-
-        deleted_ids = []
-        for track in tracks:
-            file_path = getattr(track, "track_file_path", None)
-            try:
-                # Delete file from disk first
-                if file_path and os.path.exists(file_path):
-                    os.remove(file_path)
-                    logger.info(f"Deleted file: {file_path}")
-                elif file_path:
-                    logger.warning(
-                        f"File not found on disk (removing DB record anyway): {file_path}"
-                    )
-
-                # Remove from DB
-                ok = self.controller.delete.delete_entity(
-                    "Track", track_id=track.track_id
-                )
-                if ok:
-                    deleted_ids.append(track.track_id)
-
-            except (OSError, SQLAlchemyError) as e:
-                logger.error(f"Error deleting file/track {track.track_id}: {e}")
-
-        # Remove deleted tracks from our internal list and refresh display
-        self._all_tracks = [
-            t for t in self._all_tracks if t.track_id not in deleted_ids
-        ]
-        self.load_data(self._all_tracks)
-
-        for tid in deleted_ids:
-            self.track_deleted.emit(tid)
-
-        logger.info(f"Deleted {len(deleted_ids)}/{count} file(s) and DB record(s)")
+        what = "file(s) and DB record(s)" if delete_files else "track(s) from DB"
+        logger.info(f"Deleted {len(deleted_ids)}/{count} {what}")

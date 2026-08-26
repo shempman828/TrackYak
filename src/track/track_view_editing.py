@@ -7,6 +7,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu, QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.delete_confirmation import confirm_delete_with_file_option
 from src.core.logger_config import logger
 from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
 
@@ -56,26 +57,13 @@ class TrackViewEditingMixin:
             names += f" … and {count - 3} more"
 
         # --- Ask: DB only, delete file too, or cancel ---
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Delete Tracks")
-        msg.setText(f"Delete {count} track(s)?\n\n{names}")
-        msg.setInformativeText(
-            "Remove from Library deletes the DB entry only.\n"
-            "Delete File(s) Too also removes the audio file(s) from disk."
+        choice = confirm_delete_with_file_option(
+            self, "Delete Tracks", f"Delete {count} track(s)?\n\n{names}"
         )
-        msg.setIcon(QMessageBox.Warning)
-
-        btn_db_only = msg.addButton("Remove from Library", QMessageBox.AcceptRole)
-        btn_and_file = msg.addButton("Delete File(s) Too", QMessageBox.DestructiveRole)
-        msg.addButton("Cancel", QMessageBox.RejectRole)
-        msg.setDefaultButton(btn_db_only)
-        msg.exec_()
-
-        clicked = msg.clickedButton()
-        if clicked is None or clicked.text() == "Cancel":
+        if choice is None:
             return
 
-        delete_files = clicked is btn_and_file
+        delete_files = choice == "db_and_file"
 
         # Collect file paths BEFORE the DB delete — ORM objects may become stale after.
         file_paths = []
