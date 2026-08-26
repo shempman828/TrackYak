@@ -24,9 +24,8 @@ from src.common.hierarchy_tree_style import (
     collect_expanded_ids,
     configure_hierarchy_tree,
     filter_tree_widget,
+    handle_insert_as_new_relative,
     icon_for_depth,
-    insert_as_new_child,
-    insert_as_new_parent,
     is_hierarchy_descendant,
     restore_expanded_ids_or_expand_all,
 )
@@ -982,16 +981,19 @@ class RoleView(QWidget):
             return
 
         new_role = dialog.result_role
-        try:
-            insert_as_new_parent(self.controller, "Role", "role_id", role, new_role)
-            self.load_roles()
-            self.role_updated.emit()
-            self.status_bar.setText(
-                f"Created '{new_role.role_name}' as parent of '{role.role_name}'"
-            )
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error creating new parent role: {e!s}")
-            QMessageBox.critical(self, "Error", "Failed to create new parent role")
+        handle_insert_as_new_relative(
+            self.controller,
+            self,
+            entity_type="Role",
+            id_attr="role_id",
+            name_attr="role_name",
+            is_parent=True,
+            entity=role,
+            new_entity=new_role,
+            reload_fn=self.load_roles,
+            emit_fn=lambda ne: self.role_updated.emit(),
+            status_fn=self.status_bar.setText,
+        )
 
     def create_new_child_role(self, role_id):
         """Create a new role and set it as a child of the given role."""
@@ -1005,16 +1007,19 @@ class RoleView(QWidget):
             return
 
         new_role = dialog.result_role
-        try:
-            insert_as_new_child(self.controller, "Role", "role_id", role, new_role)
-            self.load_roles()
-            self.role_updated.emit()
-            self.status_bar.setText(
-                f"Created '{new_role.role_name}' as child of '{role.role_name}'"
-            )
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error creating new child role: {e!s}")
-            QMessageBox.critical(self, "Error", "Failed to create new child role")
+        handle_insert_as_new_relative(
+            self.controller,
+            self,
+            entity_type="Role",
+            id_attr="role_id",
+            name_attr="role_name",
+            is_parent=False,
+            entity=role,
+            new_entity=new_role,
+            reload_fn=self.load_roles,
+            emit_fn=lambda ne: self.role_updated.emit(),
+            status_fn=self.status_bar.setText,
+        )
 
     def delete_role(self, role_id):
         """Delete selected role after confirmation."""

@@ -27,9 +27,8 @@ from src.common.hierarchy_tree_style import (
     collect_expanded_ids,
     configure_hierarchy_tree,
     filter_tree_widget,
+    handle_insert_as_new_relative,
     icon_for_depth,
-    insert_as_new_child,
-    insert_as_new_parent,
     is_hierarchy_descendant,
     render_hierarchy_as_text,
     restore_expanded_ids_or_expand_all,
@@ -824,16 +823,19 @@ class GenreView(QWidget):
             return
 
         new_genre = dialog.result_genre
-        try:
-            insert_as_new_parent(self.controller, "Genre", "genre_id", genre, new_genre)
-            self.load_genres()
-            self.genre_updated.emit()
-            self.status_bar.setText(
-                f"Created '{new_genre.genre_name}' as parent of '{genre.genre_name}'"
-            )
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error creating new parent genre: {e!s}")
-            QMessageBox.critical(self, "Error", "Failed to create new parent genre")
+        handle_insert_as_new_relative(
+            self.controller,
+            self,
+            entity_type="Genre",
+            id_attr="genre_id",
+            name_attr="genre_name",
+            is_parent=True,
+            entity=genre,
+            new_entity=new_genre,
+            reload_fn=self.load_genres,
+            emit_fn=lambda ne: self.genre_updated.emit(),
+            status_fn=self.status_bar.setText,
+        )
 
     def create_new_child(self, genre_id):
         """Create a new genre and set it as a child of the given genre."""
@@ -847,16 +849,19 @@ class GenreView(QWidget):
             return
 
         new_genre = dialog.result_genre
-        try:
-            insert_as_new_child(self.controller, "Genre", "genre_id", genre, new_genre)
-            self.load_genres()
-            self.genre_updated.emit()
-            self.status_bar.setText(
-                f"Created '{new_genre.genre_name}' as child of '{genre.genre_name}'"
-            )
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error creating new child genre: {e!s}")
-            QMessageBox.critical(self, "Error", "Failed to create new child genre")
+        handle_insert_as_new_relative(
+            self.controller,
+            self,
+            entity_type="Genre",
+            id_attr="genre_id",
+            name_attr="genre_name",
+            is_parent=False,
+            entity=genre,
+            new_entity=new_genre,
+            reload_fn=self.load_genres,
+            emit_fn=lambda ne: self.genre_updated.emit(),
+            status_fn=self.status_bar.setText,
+        )
 
     def _build_delete_confirmation_box(self, message):
         """Build (but don't show) the Yes/No delete confirmation box, with an

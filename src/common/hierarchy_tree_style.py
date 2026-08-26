@@ -10,7 +10,8 @@ from collections import defaultdict
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap
-from PySide6.QtWidgets import QTreeWidget
+from PySide6.QtWidgets import QMessageBox, QTreeWidget
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 
@@ -173,6 +174,56 @@ def insert_as_new_child(controller, entity_type: str, id_attr: str, entity, new_
     controller.update.update_entity(
         entity_type, getattr(new_entity, id_attr), parent_id=getattr(entity, id_attr)
     )
+
+
+def handle_insert_as_new_relative(
+    controller,
+    parent_widget,
+    *,
+    entity_type: str,
+    id_attr: str,
+    name_attr: str,
+    is_parent: bool,
+    entity,
+    new_entity,
+    reload_fn,
+    emit_fn=None,
+    status_fn=None,
+    exception_types: tuple = (SQLAlchemyError, RuntimeError),
+    include_error_detail: bool = False,
+) -> None:
+    """Splice `new_entity` in via `insert_as_new_parent`/`insert_as_new_child`,
+    then reload, notify, and report status -- the tail shared by every
+    "create new parent/child" handler in this app (mood/genre/role tree views).
+
+    Fetching `entity` and creating `new_entity` stay caller-specific -- those
+    steps differ too much across entity types to share -- this only unifies
+    the insert + reload + notify + error-handling that follows.
+
+    `emit_fn(new_entity)` and `status_fn(message)`, if given, run only after a
+    successful insert + reload, so callers can emit their own Qt signal and
+    report status however they normally do (a toast vs. a status bar label).
+    """
+    relation = "parent" if is_parent else "child"
+    label = entity_type.lower()
+    try:
+        if is_parent:
+            insert_as_new_parent(controller, entity_type, id_attr, entity, new_entity)
+        else:
+            insert_as_new_child(controller, entity_type, id_attr, entity, new_entity)
+        reload_fn()
+        if emit_fn:
+            emit_fn(new_entity)
+        if status_fn:
+            new_name = getattr(new_entity, name_attr)
+            name = getattr(entity, name_attr)
+            status_fn(f"Created '{new_name}' as {relation} of '{name}'")
+    except exception_types as e:
+        logger.error(f"Error creating new {relation} {label}: {e!s}")
+        detail = f": {e!s}" if include_error_detail else ""
+        QMessageBox.critical(
+            parent_widget, "Error", f"Failed to create new {relation} {label}{detail}"
+        )
 
 
 def render_hierarchy_as_text(

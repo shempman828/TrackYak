@@ -22,9 +22,8 @@ from src.common.hierarchy_tree_style import (
     configure_hierarchy_tree,
     create_colored_icon,
     filter_tree_widget,
+    handle_insert_as_new_relative,
     icon_for_depth,
-    insert_as_new_child,
-    insert_as_new_parent,
     is_hierarchy_descendant,
     restore_expanded_ids_or_expand_all,
 )
@@ -626,19 +625,28 @@ class MoodView(QWidget):
             new_mood = self.controller.add.add_entity("Mood", **mood_data)
             if not new_mood:
                 raise ValueError("Failed to create new mood")
-
-            insert_as_new_parent(self.controller, "Mood", "mood_id", mood, new_mood)
-            self.mood_created.emit(new_mood)
-            self.load_moods()
-            show_status_message(
-                self,
-                f"Created '{new_mood.mood_name}' as parent of '{mood.mood_name}'",
-            )
         except (SQLAlchemyError, ValueError) as e:
             logger.error(f"Error creating new parent mood: {e}")
             QMessageBox.critical(
                 self, "Error", f"Failed to create new parent mood: {str(e)}"
             )
+            return
+
+        handle_insert_as_new_relative(
+            self.controller,
+            self,
+            entity_type="Mood",
+            id_attr="mood_id",
+            name_attr="mood_name",
+            is_parent=True,
+            entity=mood,
+            new_entity=new_mood,
+            reload_fn=self.load_moods,
+            emit_fn=self.mood_created.emit,
+            status_fn=lambda msg: show_status_message(self, msg),
+            exception_types=(SQLAlchemyError, ValueError),
+            include_error_detail=True,
+        )
 
     def create_new_child_mood(self):
         """Create a new mood and set it as a child of the current mood."""
@@ -661,19 +669,28 @@ class MoodView(QWidget):
             new_mood = self.controller.add.add_entity("Mood", **mood_data)
             if not new_mood:
                 raise ValueError("Failed to create new mood")
-
-            insert_as_new_child(self.controller, "Mood", "mood_id", mood, new_mood)
-            self.mood_created.emit(new_mood)
-            self.load_moods()
-            show_status_message(
-                self,
-                f"Created '{new_mood.mood_name}' as child of '{mood.mood_name}'",
-            )
         except (SQLAlchemyError, ValueError) as e:
             logger.error(f"Error creating new child mood: {e}")
             QMessageBox.critical(
                 self, "Error", f"Failed to create new child mood: {str(e)}"
             )
+            return
+
+        handle_insert_as_new_relative(
+            self.controller,
+            self,
+            entity_type="Mood",
+            id_attr="mood_id",
+            name_attr="mood_name",
+            is_parent=False,
+            entity=mood,
+            new_entity=new_mood,
+            reload_fn=self.load_moods,
+            emit_fn=self.mood_created.emit,
+            status_fn=lambda msg: show_status_message(self, msg),
+            exception_types=(SQLAlchemyError, ValueError),
+            include_error_detail=True,
+        )
 
     def delete_selected_mood(self):
         """Delete the currently selected mood"""
