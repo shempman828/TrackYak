@@ -6,7 +6,6 @@ from typing import Any, List
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
-    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -18,9 +17,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
+from src.common.fuzzy_match_dialog import BaseFuzzyMatchDialog
 from src.core.logger_config import logger
 
 _PUNCT_RE = re.compile(r"[^\w\s]")
@@ -201,84 +200,17 @@ class ArtistFuzzyMatchWorker(CancellableWorker):
         return matches
 
 
-# ---------------------------------------------------------------------------
-# Background merge worker
-# ---------------------------------------------------------------------------
-
-
-class _ArtistMergeWorker(CancellableWorker):
-    """Runs the checked merges off the UI thread so a large batch doesn't
-    freeze the dialog (or starve other threads, e.g. audio playback) and
-    reports progress as each pair completes."""
-
-    progress = Signal(int, int)  # current, total
-    finished = Signal(int, int)  # success_count, total
-
-    def __init__(self, controller, jobs: list, parent=None):
-        super().__init__(parent)
-        self.controller = controller
-        # jobs: list of (old_artist, new_artist)
-        self.jobs = jobs
-
-    def run(self) -> None:
-        total = len(self.jobs)
-        success_count = 0
-
-        try:
-            for idx, (old_artist, new_artist) in enumerate(self.jobs):
-                try:
-                    logger.info(
-                        f"Merging {old_artist.artist_name} (ID: {old_artist.artist_id}) "
-                        f"into {new_artist.artist_name} (ID: {new_artist.artist_id})"
-                    )
-                    merged = self.controller.merge.merge_entities(
-                        "Artist",
-                        old_artist.artist_id,
-                        new_artist.artist_id,
-                    )
-                    if not merged:
-                        logger.error(
-                            f"Failed to merge {old_artist.artist_name} → "
-                            f"{new_artist.artist_name}: merge_entities returned False"
-                        )
-                        self.progress.emit(idx + 1, total)
-                        continue
-
-                    logger.info(
-                        f"adding alias for {old_artist.artist_name} to {new_artist.artist_name}"
-                    )
-                    self.controller.add.add_entity(
-                        "ArtistAlias",
-                        artist_id=new_artist.artist_id,
-                        alias_name=old_artist.artist_name,
-                    )
-                    success_count += 1
-                except SQLAlchemyError as e:
-                    logger.error(
-                        f"Failed to merge {old_artist.artist_name} → {new_artist.artist_name}: {e}"
-                    )
-
-                self.progress.emit(idx + 1, total)
-        finally:
-            self._release_db_session()
-
-        self.finished.emit(success_count, total)
-
-
 # Fuzzy Match Dialog
 # -------------------------
-class FuzzyMatchDialog(QDialog):
+class FuzzyMatchDialog(BaseFuzzyMatchDialog):
     """Dialog to display fuzzy matches and allow merging."""
 
+    _ENTITY_TYPE = "Artist"
+    _ID_ATTR = "artist_id"
+    _NAME_ATTR = "artist_name"
+
     def __init__(self, matches: List[tuple], controller: Any, parent=None):
-        super().__init__(parent)
-        self.controller = controller
-        self.matches = sorted(
-            matches, key=lambda x: x[2], reverse=True
-        )  # x[2] is the score
-        self.setWindowTitle("Merge Artists")
-        self.setMinimumSize(600, 400)
-        self.init_ui()
+        super().__init__(matches, controller, "Merge Artists", parent)
 
     def init_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -297,7 +229,6 @@ class FuzzyMatchDialog(QDialog):
         self.match_layout.setSpacing(10)
 
         # Add each match pair with controls
-        self.match_widgets = []
         for artist_a, artist_b, score in self.matches:
             frame = QFrame()
             frame.setFrameShape(QFrame.StyledPanel)
@@ -315,11 +246,11 @@ class FuzzyMatchDialog(QDialog):
             radio_a = QRadioButton(
                 f"{artist_a.artist_name} ({artist_a.role_count} roles)"
             )
-            radio_a.artist = artist_a
+            radio_a.entity = artist_a
             radio_b = QRadioButton(
                 f"{artist_b.artist_name} ({artist_b.role_count} roles)"
             )
-            radio_b.artist = artist_b
+            radio_b.entity = artist_b
             radio_a.setChecked(True)  # Default to first artist
 
             hbox.addWidget(radio_a)
@@ -354,74 +285,19 @@ class FuzzyMatchDialog(QDialog):
         self._status_label.hide()
         layout.addWidget(self._status_label)
 
-        self._worker: _ArtistMergeWorker | None = None
+    def _notify_no_jobs(self) -> None:
+        QMessageBox.warning(
+            self,
+            "No Merges",
+            "No pairs were merged (none checked or errors occurred)",
+        )
 
-    def _perform_merge(self) -> None:
-        """Kick off a background merge of the checked pairs with the
-        user-selected canonical artist, showing progress as it runs."""
-        jobs = []
-        for chk_merge, radio_a, radio_b in self.match_widgets:
-            if not chk_merge.isChecked():
-                continue  # Skip unchecked pairs
-
-            # Determine which artist to keep
-            if radio_a.isChecked():
-                old_artist = radio_b.artist
-                new_artist = radio_a.artist
-            else:
-                old_artist = radio_a.artist
-                new_artist = radio_b.artist
-
-            jobs.append((old_artist, new_artist))
-
-        if not jobs:
-            QMessageBox.warning(
-                self,
-                "No Merges",
-                "No pairs were merged (none checked or errors occurred)",
-            )
-            return
-
-        self.btn_merge.setEnabled(False)
-        self.btn_cancel.setEnabled(False)
-        self._progress.setRange(0, len(jobs))
-        self._progress.setValue(0)
-        self._progress.show()
-        self._status_label.setText(f"Merging 0/{len(jobs)}…")
-        self._status_label.show()
-
-        self._worker = _ArtistMergeWorker(self.controller, jobs, parent=self)
-        self._worker.progress.connect(self._on_merge_progress)
-        self._worker.finished.connect(self._on_merge_finished)
-        self._worker.start()
-
-    def _on_merge_progress(self, current: int, total: int) -> None:
-        self._progress.setValue(current)
-        self._status_label.setText(f"Merging {current}/{total}…")
-
-    def _on_merge_finished(self, success_count: int, total: int) -> None:
-        self._progress.hide()
-        self._status_label.hide()
-        self.btn_merge.setEnabled(True)
-        self.btn_cancel.setEnabled(True)
-
-        if success_count > 0:
-            QMessageBox.information(
-                self,
-                "Merge Complete",
-                f"Successfully merged {success_count}/{total} pairs",
-            )
-            self.accept()
-        else:
-            QMessageBox.warning(
-                self,
-                "No Merges",
-                "No pairs were merged (none checked or errors occurred)",
-            )
-
-    def reject(self) -> None:
-        # Cancel button is disabled while a merge is running, but guard
-        # against Escape/close-button closing the dialog mid-merge anyway.
-        if self._worker is not None and self._worker.isRunning():
-            return
-        super().reject()
+    def _on_pair_merged(self, old_artist, new_artist) -> None:
+        logger.info(
+            f"adding alias for {old_artist.artist_name} to {new_artist.artist_name}"
+        )
+        self.controller.add.add_entity(
+            "ArtistAlias",
+            artist_id=new_artist.artist_id,
+            alias_name=old_artist.artist_name,
+        )
