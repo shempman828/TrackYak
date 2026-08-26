@@ -8,22 +8,19 @@ Colors are theme-aware (matches the app's dark/light/colorful/accessibility
 QSS palettes) using the same lookup pattern as InfluenceGraphView.
 """
 
-import configparser
-from typing import Dict, Optional
-
 from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
+from PySide6.QtWidgets import QSizePolicy, QToolTip
 
-from src.core.config_setup import app_config
 from src.core.logger_config import logger
+from src.statistics.charts.theme_palette import ThemedChartWidget
 
 RATING_MIN = 0.5
 RATING_MAX = 10.0
 RATING_STEP = 0.5
 
 
-class RatingDistributionChart(QWidget):
+class RatingDistributionChart(ThemedChartWidget):
     """Vertical bar chart: one bar per 0.5-point rating bucket."""
 
     # (surface, bar, bar_peak, text, text_muted, gridline)
@@ -71,12 +68,12 @@ class RatingDistributionChart(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._distribution: Dict[float, int] = {}
+        self._distribution: dict[float, int] = {}
         self._ratings = [
             round(RATING_MIN + i * RATING_STEP, 1)
             for i in range(int((RATING_MAX - RATING_MIN) / RATING_STEP) + 1)
         ]
-        self._hovered_index: Optional[int] = None
+        self._hovered_index: int | None = None
         self._bar_rects: list = []
 
         self.setMouseTracking(True)
@@ -89,11 +86,7 @@ class RatingDistributionChart(QWidget):
     # ------------------------------------------------------------------ #
 
     def _apply_theme_palette(self):
-        theme_name = None
-        try:
-            theme_name = app_config.get_display_theme()
-        except configparser.Error as e:
-            logger.warning(f"Failed to get display theme, using default: {e}")
+        super()._apply_theme_palette()
         (
             self._color_surface,
             self._color_bar,
@@ -101,19 +94,21 @@ class RatingDistributionChart(QWidget):
             self._color_text,
             self._color_muted,
             self._color_grid,
-        ) = self._THEME_PALETTE.get(theme_name, self._THEME_PALETTE["dark_mode"])
+        ) = self._palette
 
     # ------------------------------------------------------------------ #
     #  Public API                                                         #
     # ------------------------------------------------------------------ #
 
-    def set_data(self, distribution: Dict[float, int]):
+    def set_data(self, distribution: dict[float, int]):
         """Set rating -> track_count. Re-reads the active theme too, in case
         it changed since the chart was created."""
         self._apply_theme_palette()
         self._distribution = distribution or {}
         self._hovered_index = None
-        logger.debug(f"Rating distribution chart updated with {len(self._distribution)} buckets")
+        logger.debug(
+            f"Rating distribution chart updated with {len(self._distribution)} buckets"
+        )
         self.update()
 
     # ------------------------------------------------------------------ #
@@ -156,7 +151,7 @@ class RatingDistributionChart(QWidget):
             painter.drawLine(int(plot_left), int(y), int(plot_right), int(y))
 
             painter.setPen(self._color_muted)
-            label = str(int(round(max_count * frac)))
+            label = str(round(max_count * frac))
             label_rect = QRect(0, int(y) - 8, self.MARGIN_LEFT - 6, 16)
             painter.drawText(label_rect, Qt.AlignRight | Qt.AlignVCenter, label)
 
@@ -216,7 +211,9 @@ class RatingDistributionChart(QWidget):
 
         # Baseline
         painter.setPen(QPen(self._color_grid, 1))
-        painter.drawLine(int(plot_left), int(plot_bottom), int(plot_right), int(plot_bottom))
+        painter.drawLine(
+            int(plot_left), int(plot_bottom), int(plot_right), int(plot_bottom)
+        )
 
         painter.end()
 
@@ -224,10 +221,14 @@ class RatingDistributionChart(QWidget):
     #  Hover / tooltip                                                    #
     # ------------------------------------------------------------------ #
 
-    def _index_at(self, pos: QPoint) -> Optional[int]:
+    def _index_at(self, pos: QPoint) -> int | None:
         for i, rect in enumerate(self._bar_rects):
-            hit = QRectF(rect.x() - 2, self.MARGIN_TOP, rect.width() + 4,
-                         self.height() - self.MARGIN_TOP)
+            hit = QRectF(
+                rect.x() - 2,
+                self.MARGIN_TOP,
+                rect.width() + 4,
+                self.height() - self.MARGIN_TOP,
+            )
             if hit.contains(pos):
                 return i
         return None

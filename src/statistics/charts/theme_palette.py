@@ -10,10 +10,47 @@ _THEME_PALETTE dict keyed by the app's four display themes.
 
 import configparser
 
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QWidget
 
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
+
+# Shared by every plain categorical/continuous bar chart (surface, bar,
+# bar_border, text, muted_text) -- BarDistributionChart and HistogramChart
+# both use this exact palette as-is; a widget with different visual needs
+# (a peak-highlight color, a gridline, a chip fill) defines its own
+# _THEME_PALETTE instead of reusing this one.
+STANDARD_BAR_PALETTE = {
+    "dark_mode": (
+        QColor("#11121a"),
+        QColor("#8599EA"),
+        QColor(133, 153, 234, 140),
+        QColor("#b8c0f0"),
+        QColor("#7a82a8"),
+    ),
+    "light_mode": (
+        QColor("#ffffff"),
+        QColor("#5566c0"),
+        QColor(85, 102, 192, 140),
+        QColor("#2b2c36"),
+        QColor("#6b6f80"),
+    ),
+    "colorful_mode": (
+        QColor("#ffffff"),
+        QColor("#ea8599"),
+        QColor(234, 133, 153, 140),
+        QColor("#1c1c21"),
+        QColor("#777777"),
+    ),
+    "accessibility_mode": (
+        QColor("#ffffff"),
+        QColor("#a8580c"),
+        QColor(168, 88, 12, 140),
+        QColor("#1c1c21"),
+        QColor("#4a4a4a"),
+    ),
+}
 
 
 class ThemedChartWidget(QWidget):
