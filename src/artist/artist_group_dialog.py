@@ -19,6 +19,29 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.core.logger_config import logger
 
 
+def _populate_individual_artist_combo(combo: QComboBox, controller: Any) -> None:
+    """Populate `combo` with all individual (non-group) artists, sorted
+    alphabetically, behind a leading "-- Select Artist --" placeholder item.
+    """
+    try:
+        combo.clear()
+
+        # Get all artists that are not groups - handle both isgroup=0 and isgroup=None
+        artists = controller.get.get_all_entities("Artist")
+        individual_artists = [a for a in artists if not getattr(a, "isgroup", 0)]
+
+        # Sort alphabetically
+        sorted_artists = sorted(individual_artists, key=lambda a: a.artist_name.lower())
+
+        combo.addItem("-- Select Artist --", None)
+        for artist in sorted_artists:
+            combo.addItem(artist.artist_name, artist.artist_id)
+
+    except SQLAlchemyError as e:
+        logger.error(f"Error loading artists: {e}")
+        combo.addItem("Error loading artists", None)
+
+
 class AddMemberDialog(QDialog):
     """Dialog for adding a member to a group"""
 
@@ -72,29 +95,7 @@ class AddMemberDialog(QDialog):
 
     def _load_artists(self):
         """Load all individual artists (non-groups)"""
-        try:
-            self.artist_combo.clear()
-
-            # Get all artists that are not groups - handle both isgroup=0 and isgroup=None
-            artists = self.controller.get.get_all_entities("Artist")
-            individual_artists = [
-                a
-                for a in artists
-                if not getattr(a, "isgroup", 0)  # Handle None, 0, False
-            ]
-
-            # Sort alphabetically
-            sorted_artists = sorted(
-                individual_artists, key=lambda a: a.artist_name.lower()
-            )
-
-            self.artist_combo.addItem("-- Select Artist --", None)
-            for artist in sorted_artists:
-                self.artist_combo.addItem(artist.artist_name, artist.artist_id)
-
-        except SQLAlchemyError as e:
-            logger.error(f"Error loading artists: {e}")
-            self.artist_combo.addItem("Error loading artists", None)
+        _populate_individual_artist_combo(self.artist_combo, self.controller)
 
     def _toggle_current(self, checked):
         """Toggle end year based on current status"""
@@ -188,25 +189,7 @@ class AddGroupDialog(QDialog):
 
     def _load_artists(self):
         """Load all individual artists (non-groups)"""
-        try:
-            self.artist_combo.clear()
-
-            # Get all artists that are not currently groups
-            artists = self.controller.get.get_all_entities("Artist")
-            individual_artists = [a for a in artists if not getattr(a, "isgroup", 0)]
-
-            # Sort alphabetically
-            sorted_artists = sorted(
-                individual_artists, key=lambda a: a.artist_name.lower()
-            )
-
-            self.artist_combo.addItem("-- Select Artist --", None)
-            for artist in sorted_artists:
-                self.artist_combo.addItem(artist.artist_name, artist.artist_id)
-
-        except SQLAlchemyError as e:
-            logger.error(f"Error loading artists: {e}")
-            self.artist_combo.addItem("Error loading artists", None)
+        _populate_individual_artist_combo(self.artist_combo, self.controller)
 
     def _create_group(self):
         """Create the new group or convert existing artist"""

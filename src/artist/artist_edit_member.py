@@ -149,17 +149,27 @@ class _EditMembershipDialog(QDialog):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# _GroupMembersPanel  (used when isgroup=True)
+# _MembershipPanelBase  (shared by the two GroupMembership panels below)
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class _GroupMembersPanel(QWidget):
+class _MembershipPanelBase(QWidget):
     """
-    Shows the members *of* this group artist, with an add/remove form.
-    Only instantiated (and data-loaded) when the artist is a group.
+    Shared table/reload/edit/remove scaffold for the two GroupMembership
+    panels below. Subclasses provide the panel-specific labels as class
+    attributes, and override `_memberships`/`_other_artist`/`_add` -- the
+    parts where "this side" vs "the other side" of a GroupMembership
+    genuinely differ (which artist is the group, which is the member).
     """
 
-    _HEADERS = ["Member", "Role", "Start Year", "End Year", "Current"]
+    _HEADERS: list[str] = []
+    _GROUPBOX_TITLE = ""
+    _NAME_PLACEHOLDER = ""
+    _ROLE_PLACEHOLDER = ""
+    _ADD_BUTTON_TEXT = ""
+    _EDIT_BUTTON_TEXT = "Edit Selected"
+    _REMOVE_BUTTON_TEXT = "Remove Selected"
+    _REMOVE_ERROR_TEXT = "Could not remove"
 
     def __init__(self, controller, artist, parent=None):
         super().__init__(parent)
@@ -172,24 +182,24 @@ class _GroupMembersPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        grp = QGroupBox("Members of this Group")
+        grp = QGroupBox(self._GROUPBOX_TITLE)
         grp_layout = QVBoxLayout(grp)
 
         self.table = _make_table(self._HEADERS)
         self.table.cellDoubleClicked.connect(lambda row, _col: self._edit(row))
         grp_layout.addWidget(self.table)
 
-        # ── Add-member form ──────────────────────────────────────────────────
+        # ── Add-row form ──────────────────────────────────────────────────────
         add_row = QHBoxLayout()
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Member artist name...")
+        self.name_edit.setPlaceholderText(self._NAME_PLACEHOLDER)
         self._name_completer = _attach_name_completer(self.name_edit)
         self.role_edit = QLineEdit()
-        self.role_edit.setPlaceholderText("Role (e.g. Guitarist)")
+        self.role_edit.setPlaceholderText(self._ROLE_PLACEHOLDER)
         self.start_edit = OptionalIntEdit("Start yr")
         self.end_edit = OptionalIntEdit("End yr")
         self.current_check = QCheckBox("Current")
-        add_btn = QPushButton("Add Member")
+        add_btn = QPushButton(self._ADD_BUTTON_TEXT)
         add_btn.clicked.connect(self._add)
 
         add_row.addWidget(self.name_edit, 2)
@@ -203,13 +213,13 @@ class _GroupMembersPanel(QWidget):
         grp_layout.addLayout(add_row)
 
         btn_row = QHBoxLayout()
-        edit_btn = QPushButton("Edit Selected Member")
+        edit_btn = QPushButton(self._EDIT_BUTTON_TEXT)
         edit_btn.clicked.connect(
             lambda: _edit_selected_row(self, self.table, self._edit)
         )
         btn_row.addWidget(edit_btn)
 
-        rm_btn = QPushButton("Remove Selected Member")
+        rm_btn = QPushButton(self._REMOVE_BUTTON_TEXT)
         rm_btn.clicked.connect(
             lambda: _remove_selected_row(self, self.table, self._remove)
         )
@@ -223,16 +233,25 @@ class _GroupMembersPanel(QWidget):
         names = _fetch_artist_names(self.controller)
         self._name_completer.setModel(QStringListModel(names, self))
 
+    def _memberships(self, artist):
+        """Return the GroupMembership rows this panel displays."""
+        raise NotImplementedError
+
+    def _other_artist(self, membership):
+        """Return the "other side" artist for a membership row."""
+        raise NotImplementedError
+
     def load(self, artist):
         self.artist = artist
         self.table.setRowCount(0)
-        for m in getattr(artist, "group_memberships", []):
-            if m.member is None:
+        for m in self._memberships(artist):
+            other = self._other_artist(m)
+            if other is None:
                 continue
             _append_row(
                 self.table,
                 [
-                    m.member.artist_name,
+                    other.artist_name,
                     m.role or "",
                     m.active_start_year or "",
                     m.active_end_year or "",
@@ -253,30 +272,9 @@ class _GroupMembersPanel(QWidget):
         self.load(self.artist)
 
     def _add(self):
-        name = self.name_edit.text().strip()
-        if not name:
-            show_status_message(self, "Please enter a member artist name.")
-            return
-        try:
-            member = _find_or_create_artist(self.controller, name)
-        except SQLAlchemyError as e:
-            QMessageBox.critical(self, "Error", f"Could not find/create artist:\n{e}")
-            return
-        try:
-            self.controller.add.add_entity(
-                "GroupMembership",
-                group_id=self.artist.artist_id,
-                member_id=member.artist_id,
-                role=self.role_edit.text().strip() or None,
-                active_start_year=self.start_edit.get_value_or_none(),
-                active_end_year=self.end_edit.get_value_or_none(),
-                is_current=1 if self.current_check.isChecked() else 0,
-            )
-        except SQLAlchemyError as e:
-            QMessageBox.critical(self, "Error", f"Could not add member:\n{e}")
-            return
-        self._reload()
-        self._refresh_completer()
+        raise NotImplementedError
+
+    def _clear_add_form(self):
         self.name_edit.clear()
         self.role_edit.clear()
         self.start_edit.clear()
@@ -321,9 +319,63 @@ class _GroupMembersPanel(QWidget):
                 "GroupMembership", group_id=group_id, member_id=member_id
             )
         except SQLAlchemyError as e:
-            QMessageBox.critical(self, "Error", f"Could not remove member:\n{e}")
+            QMessageBox.critical(self, "Error", f"{self._REMOVE_ERROR_TEXT}:\n{e}")
             return
         self._reload()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# _GroupMembersPanel  (used when isgroup=True)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class _GroupMembersPanel(_MembershipPanelBase):
+    """
+    Shows the members *of* this group artist, with an add/remove form.
+    Only instantiated (and data-loaded) when the artist is a group.
+    """
+
+    _HEADERS = ["Member", "Role", "Start Year", "End Year", "Current"]
+    _GROUPBOX_TITLE = "Members of this Group"
+    _NAME_PLACEHOLDER = "Member artist name..."
+    _ROLE_PLACEHOLDER = "Role (e.g. Guitarist)"
+    _ADD_BUTTON_TEXT = "Add Member"
+    _EDIT_BUTTON_TEXT = "Edit Selected Member"
+    _REMOVE_BUTTON_TEXT = "Remove Selected Member"
+    _REMOVE_ERROR_TEXT = "Could not remove member"
+
+    def _memberships(self, artist):
+        return getattr(artist, "group_memberships", [])
+
+    def _other_artist(self, membership):
+        return membership.member
+
+    def _add(self):
+        name = self.name_edit.text().strip()
+        if not name:
+            show_status_message(self, "Please enter a member artist name.")
+            return
+        try:
+            member = _find_or_create_artist(self.controller, name)
+        except SQLAlchemyError as e:
+            QMessageBox.critical(self, "Error", f"Could not find/create artist:\n{e}")
+            return
+        try:
+            self.controller.add.add_entity(
+                "GroupMembership",
+                group_id=self.artist.artist_id,
+                member_id=member.artist_id,
+                role=self.role_edit.text().strip() or None,
+                active_start_year=self.start_edit.get_value_or_none(),
+                active_end_year=self.end_edit.get_value_or_none(),
+                is_current=1 if self.current_check.isChecked() else 0,
+            )
+        except SQLAlchemyError as e:
+            QMessageBox.critical(self, "Error", f"Could not add member:\n{e}")
+            return
+        self._reload()
+        self._refresh_completer()
+        self._clear_add_form()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -331,107 +383,29 @@ class _GroupMembersPanel(QWidget):
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class _AffiliationsPanel(QWidget):
+class _AffiliationsPanel(_MembershipPanelBase):
     """
     Shows the groups *this* individual artist belongs to, with an add/remove form.
     Only instantiated (and data-loaded) when the artist is not a group.
     """
 
     _HEADERS = ["Group", "Role", "Start Year", "End Year", "Current"]
+    _GROUPBOX_TITLE = "Groups This Artist Belongs To"
+    _NAME_PLACEHOLDER = "Group / band name..."
+    _ROLE_PLACEHOLDER = "Role (e.g. Vocalist)"
+    _ADD_BUTTON_TEXT = "Add to Group"
+    _EDIT_BUTTON_TEXT = "Edit Selected"
+    _REMOVE_BUTTON_TEXT = "Remove Selected"
+    _REMOVE_ERROR_TEXT = "Could not remove from group"
 
-    def __init__(self, controller, artist, parent=None):
-        super().__init__(parent)
-        self.controller = controller
-        self.artist = artist
-        self._build_ui()
-        self._refresh_completer()
+    def _memberships(self, artist):
+        return getattr(artist, "member_memberships", [])
 
-    def _build_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        grp = QGroupBox("Groups This Artist Belongs To")
-        grp_layout = QVBoxLayout(grp)
-
-        self.table = _make_table(self._HEADERS)
-        self.table.cellDoubleClicked.connect(lambda row, _col: self._edit(row))
-        grp_layout.addWidget(self.table)
-
-        # ── Add-affiliation form ─────────────────────────────────────────────
-        add_row = QHBoxLayout()
-        self.group_edit = QLineEdit()
-        self.group_edit.setPlaceholderText("Group / band name...")
-        self._name_completer = _attach_name_completer(self.group_edit)
-        self.role_edit = QLineEdit()
-        self.role_edit.setPlaceholderText("Role (e.g. Vocalist)")
-        self.start_edit = OptionalIntEdit("Start yr")
-        self.end_edit = OptionalIntEdit("End yr")
-        self.current_check = QCheckBox("Current")
-        add_btn = QPushButton("Add to Group")
-        add_btn.clicked.connect(self._add)
-
-        add_row.addWidget(self.group_edit, 2)
-        add_row.addWidget(self.role_edit, 2)
-        add_row.addWidget(QLabel("Start"))
-        add_row.addWidget(self.start_edit)
-        add_row.addWidget(QLabel("End"))
-        add_row.addWidget(self.end_edit)
-        add_row.addWidget(self.current_check)
-        add_row.addWidget(add_btn)
-        grp_layout.addLayout(add_row)
-
-        btn_row = QHBoxLayout()
-        edit_btn = QPushButton("Edit Selected")
-        edit_btn.clicked.connect(
-            lambda: _edit_selected_row(self, self.table, self._edit)
-        )
-        btn_row.addWidget(edit_btn)
-
-        rm_btn = QPushButton("Remove Selected")
-        rm_btn.clicked.connect(
-            lambda: _remove_selected_row(self, self.table, self._remove)
-        )
-        btn_row.addWidget(rm_btn)
-        btn_row.addStretch()
-        grp_layout.addLayout(btn_row)
-
-        layout.addWidget(grp)
-
-    def _refresh_completer(self):
-        names = _fetch_artist_names(self.controller)
-        self._name_completer.setModel(QStringListModel(names, self))
-
-    def load(self, artist):
-        self.artist = artist
-        self.table.setRowCount(0)
-        for m in getattr(artist, "member_memberships", []):
-            if m.group is None:
-                continue
-            _append_row(
-                self.table,
-                [
-                    m.group.artist_name,
-                    m.role or "",
-                    m.active_start_year or "",
-                    m.active_end_year or "",
-                    "Yes" if m.is_current else "No",
-                ],
-                user_data=(m.group_id, m.member_id),
-            )
-
-    def _reload(self):
-        try:
-            refreshed = self.controller.get.get_entity_object(
-                "Artist", artist_id=self.artist.artist_id
-            )
-            if refreshed:
-                self.artist = refreshed
-        except SQLAlchemyError as e:
-            logger.warning(f"Could not reload artist: {e}")
-        self.load(self.artist)
+    def _other_artist(self, membership):
+        return membership.group
 
     def _add(self):
-        name = self.group_edit.text().strip()
+        name = self.name_edit.text().strip()
         if not name:
             show_status_message(self, "Please enter a group name.")
             return
@@ -455,53 +429,7 @@ class _AffiliationsPanel(QWidget):
             return
         self._reload()
         self._refresh_completer()
-        self.group_edit.clear()
-        self.role_edit.clear()
-        self.start_edit.clear()
-        self.end_edit.clear()
-        self.current_check.setChecked(False)
-
-    def _edit(self, row):
-        data = self.table.item(row, 0).data(Qt.UserRole)
-        if data is None:
-            return
-        group_id, member_id = data
-        role = self.table.item(row, 1).text()
-        start_year = self.table.item(row, 2).text() or None
-        end_year = self.table.item(row, 3).text() or None
-        is_current = self.table.item(row, 4).text() == "Yes"
-
-        dialog = _EditMembershipDialog(role, start_year, end_year, is_current, self)
-        if dialog.exec() != QDialog.Accepted:
-            return
-        try:
-            self.controller.delete.delete_entity(
-                "GroupMembership", group_id=group_id, member_id=member_id
-            )
-            self.controller.add.add_entity(
-                "GroupMembership",
-                group_id=group_id,
-                member_id=member_id,
-                **dialog.values(),
-            )
-        except SQLAlchemyError as e:
-            QMessageBox.critical(self, "Error", f"Could not update membership:\n{e}")
-            return
-        self._reload()
-
-    def _remove(self, row):
-        data = self.table.item(row, 0).data(Qt.UserRole)
-        if data is None:
-            return
-        group_id, member_id = data
-        try:
-            self.controller.delete.delete_entity(
-                "GroupMembership", group_id=group_id, member_id=member_id
-            )
-        except SQLAlchemyError as e:
-            QMessageBox.critical(self, "Error", f"Could not remove from group:\n{e}")
-            return
-        self._reload()
+        self._clear_add_form()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
