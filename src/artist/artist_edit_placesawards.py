@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # Tab: Places & Awards
 # ══════════════════════════════════════════════════════════════════════════════
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QStringListModel
 from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -73,8 +73,8 @@ def _parent_place_name(place):
     return ""
 
 
-def _build_place_completer(controller):
-    """Build a QCompleter over existing places, disambiguated by type/region."""
+def _build_place_completer_model(controller):
+    """Build a QStandardItemModel over existing places, disambiguated by type/region."""
     model = QStandardItemModel()
     try:
         places = controller.get.get_all_entities("Place") or []
@@ -92,9 +92,13 @@ def _build_place_completer(controller):
         item.setData(place.place_id, Qt.UserRole)
         item.setData(place.place_name, Qt.UserRole + 1)
         model.appendRow(item)
+    return model
 
+
+def _build_place_completer(controller):
+    """Build a QCompleter over existing places, disambiguated by type/region."""
     completer = QCompleter()
-    completer.setModel(model)
+    completer.setModel(_build_place_completer_model(controller))
     completer.setCaseSensitivity(Qt.CaseInsensitive)
     completer.setFilterMode(Qt.MatchContains)
     completer.setCompletionMode(QCompleter.PopupCompletion)
@@ -328,6 +332,7 @@ class PlacesAwardsTab(QWidget):
             return
 
         self._reload_and_refresh()
+        self._refresh_place_completers()
         self.new_place_edit.clear()
         self.new_place_assoc_edit.clear()
         self._selected_place_id = None
@@ -350,6 +355,8 @@ class PlacesAwardsTab(QWidget):
                 QMessageBox.critical(self, "Error", f"Could not unlink place:\n{e}")
                 return
         self._reload_and_refresh()
+        # Removing a PlaceAssociation doesn't delete the Place or association
+        # type themselves, so the completers' data is unaffected here.
 
     def _add_award(self):
         name = self.new_award_edit.text().strip()
@@ -424,12 +431,18 @@ class PlacesAwardsTab(QWidget):
         except SQLAlchemyError as e:
             logger.warning(f"Could not reload artist: {e}")
         self.load(self.artist)
-        self._place_completer = _build_place_completer(self.controller)
-        self.new_place_edit.setCompleter(self._place_completer)
-        self._place_completer.activated[str].connect(self._on_place_completion_selected)
-        self._assoc_type_completer = QCompleter(
-            [t.type_name for t in fetch_association_types(self.controller)]
-        )
-        self._assoc_type_completer.setCaseSensitivity(Qt.CaseInsensitive)
-        self._assoc_type_completer.setFilterMode(Qt.MatchContains)
-        self.new_place_assoc_edit.setCompleter(self._assoc_type_completer)
+
+    def _refresh_place_completers(self):
+        """Refresh the place/association-type autocomplete data in place.
+
+        Only place add/remove can introduce a new place or association type,
+        so this is only called from those paths, not from award add/remove.
+        Reuses the existing completer objects (swapping their models) instead
+        of recreating QCompleters, so no signal reconnection is needed.
+        """
+        self._place_completer.setModel(_build_place_completer_model(self.controller))
+        assoc_model = self._assoc_type_completer.model()
+        if isinstance(assoc_model, QStringListModel):
+            assoc_model.setStringList(
+                [t.type_name for t in fetch_association_types(self.controller)]
+            )
