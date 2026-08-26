@@ -279,10 +279,12 @@ splitting a generic "Guitar" into "Electric Guitar" and "Acoustic Guitar").
 A tag system for how a track feels — organized as a hierarchy, same as
 Genres and Roles, and searchable the same way.
 
-Each mood shows its track count right in the tree. Click into an existing
-mood's Edit dialog and you get an "Associated Tracks" tab for browsing (and
-removing tracks from) that mood directly, with a Recursive toggle to also
-pull in tracks tagged with any of its child moods. New Mood, New Parent/Child
+Each mood shows how many tracks carry it directly, plus a second number for
+tracks pulled in from its sub-moods if it has any — same as the Genres tree.
+Click into an existing mood's Edit dialog and you get an "Associated Tracks"
+tab for browsing (and removing tracks from) that mood directly, with a
+Recursive toggle to also pull in tracks tagged with any of its child moods.
+New Mood, New Parent/Child
 Mood, Merge, and Delete round out the rest — see the [Genres](#genres)
 section above for how those work, since the pattern is identical.
 

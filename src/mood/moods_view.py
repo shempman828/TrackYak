@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMenu,
@@ -99,6 +100,16 @@ class MoodView(QWidget):
         # Moods tree
         self.mood_tree = QTreeWidget()
         configure_hierarchy_tree(self.mood_tree)
+
+        # Second column keeps track counts out of the name text, mirroring
+        # PlaylistView/GenreView, so the tree reads as "name ... count"
+        # instead of a single run-on string.
+        self.mood_tree.setColumnCount(2)
+        header = self.mood_tree.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+
         self.mood_tree.itemSelectionChanged.connect(self.on_mood_selected)
         self.mood_tree.customContextMenuRequested.connect(self.show_context_menu)
 
@@ -208,8 +219,8 @@ class MoodView(QWidget):
         expanded_ids = collect_expanded_ids(self.mood_tree)
         self.mood_tree.clear()
 
-        # Get track counts for all moods
-        mood_track_counts = self.get_track_counts_for_all_moods()
+        # Get own and recursive track counts for all moods
+        own_counts, recursive_counts = self.get_track_counts_for_all_moods()
 
         # If no moods exist, show a helpful message
         if not self.moods_data:
@@ -238,9 +249,9 @@ class MoodView(QWidget):
 
         if self.flat_view:
             for mood in sorted(self.moods_data, key=lambda m: m.mood_name.lower()):
-                item = self._make_mood_item(mood, mood_track_counts)
+                item = self._make_mood_item(mood, own_counts, recursive_counts)
                 self.mood_tree.addTopLevelItem(item)
-                self._set_mood_item_style(item, 0, mood_track_counts)
+                self._set_mood_item_style(item, 0, own_counts, recursive_counts)
         else:
             # Create a dictionary for quick lookup
             mood_dict = {mood.mood_id: mood for mood in self.moods_data}
@@ -262,19 +273,23 @@ class MoodView(QWidget):
                     key=lambda m: m.mood_name.lower(),
                 )
                 for child in children:
-                    child_item = self._make_mood_item(child, mood_track_counts, parent_item)
+                    child_item = self._make_mood_item(
+                        child, own_counts, recursive_counts, parent_item
+                    )
 
                     # Set color based on depth
-                    self._set_mood_item_style(child_item, depth, mood_track_counts)
+                    self._set_mood_item_style(child_item, depth, own_counts, recursive_counts)
 
                     add_children(child_item, child, depth + 1)
 
             # Add root moods to tree
             for mood in root_moods:
-                item = self._make_mood_item(mood, mood_track_counts, self.mood_tree)
+                item = self._make_mood_item(
+                    mood, own_counts, recursive_counts, self.mood_tree
+                )
 
                 # Set color for root items (depth 0)
-                self._set_mood_item_style(item, 0, mood_track_counts)
+                self._set_mood_item_style(item, 0, own_counts, recursive_counts)
 
                 add_children(item, mood, 1)
 
@@ -295,30 +310,61 @@ class MoodView(QWidget):
         # from scratch.
         self.filter_moods()
 
-    def _make_mood_item(self, mood, mood_track_counts, parent=None):
-        """Build a single mood's tree item, shared by the tree and flat builders."""
-        track_count = mood_track_counts.get(mood.mood_id, 0)
-        display_name = (
-            f"{mood.mood_name} ({track_count})" if track_count > 0 else mood.mood_name
-        )
+    @staticmethod
+    def _format_track_count(own_count: int, recursive_count: int) -> str:
+        """Build the compact track-count text for the Tracks column, mirroring
+        GenreLoaderWorker's format (src/genre/genre_view.py) and
+        PlaylistView._format_track_count."""
+        if recursive_count != own_count:
+            # Has sub-moods contributing additional tracks, e.g. "12 · 42"
+            return f"{own_count} · {recursive_count}"
+        # Counts match -- just the one number, e.g. "5"
+        return str(own_count)
 
-        item = QTreeWidgetItem(parent, [display_name]) if parent else QTreeWidgetItem(
-            [display_name]
+    @staticmethod
+    def _style_count_cell(item: QTreeWidgetItem) -> None:
+        """Right-align and de-emphasize the Tracks column so it reads as a
+        secondary detail rather than competing with the mood name."""
+        item.setTextAlignment(1, Qt.AlignRight | Qt.AlignVCenter)
+        font = item.font(1)
+        font.setItalic(True)
+        item.setFont(1, font)
+        if "·" in item.text(1):
+            item.setToolTip(1, "Own tracks · total including sub-moods")
+
+    def _make_mood_item(self, mood, own_counts, recursive_counts, parent=None):
+        """Build a single mood's tree item, shared by the tree and flat builders."""
+        own_count = own_counts.get(mood.mood_id, 0)
+        recursive_count = recursive_counts.get(mood.mood_id, own_count)
+        count_text = self._format_track_count(own_count, recursive_count)
+
+        item = (
+            QTreeWidgetItem(parent, [mood.mood_name, count_text])
+            if parent
+            else QTreeWidgetItem([mood.mood_name, count_text])
         )
         item.setData(0, Qt.UserRole, mood.mood_id)
         item.setData(0, Qt.UserRole + 1, mood)  # Store full mood object
+        self._style_count_cell(item)
         return item
 
     def get_track_counts_for_all_moods(self):
-        """Get track counts for all moods in the database"""
+        """Get own and recursive track counts for all moods.
+
+        Mirrors GenreLoaderWorker (src/genre/genre_view.py): one bulk
+        association query, then a memoized bottom-up union of per-mood
+        track-ID sets over the parent/child hierarchy, so a track tagged
+        with both a mood and one of its descendants counts once toward the
+        ancestor's recursive total instead of being double-counted by a
+        naive integer sum.
+        """
         try:
             # Get all mood track associations
             all_associations = self.controller.get.get_all_entities(
                 "MoodTrackAssociation"
             )
 
-            # Count tracks per mood
-            mood_track_counts = {}
+            direct_track_ids = {}
             for association in all_associations:
                 mood_id = None
                 if hasattr(association, "mood_id"):
@@ -327,51 +373,70 @@ class MoodView(QWidget):
                     mood_id = association.mood.mood_id
 
                 if mood_id:
-                    mood_track_counts[mood_id] = mood_track_counts.get(mood_id, 0) + 1
+                    direct_track_ids.setdefault(mood_id, set()).add(
+                        association.track_id
+                    )
 
-            return mood_track_counts
+            own_counts = {
+                mood_id: len(track_ids)
+                for mood_id, track_ids in direct_track_ids.items()
+            }
+
+            children_map = {}
+            for mood in self.moods_data:
+                children_map.setdefault(mood.parent_id, []).append(mood.mood_id)
+
+            recursive_track_ids: dict = {}
+
+            def track_ids_for(mood_id):
+                if mood_id not in recursive_track_ids:
+                    ids = set(direct_track_ids.get(mood_id, ()))
+                    for child_id in children_map.get(mood_id, []):
+                        ids |= track_ids_for(child_id)
+                    recursive_track_ids[mood_id] = ids
+                return recursive_track_ids[mood_id]
+
+            for mood in self.moods_data:
+                track_ids_for(mood.mood_id)
+
+            recursive_counts = {
+                mood_id: len(track_ids)
+                for mood_id, track_ids in recursive_track_ids.items()
+            }
+
+            return own_counts, recursive_counts
         except SQLAlchemyError as e:
             logger.error(f"Error getting track counts: {e}")
-            return {}
+            return {}, {}
 
-    def _set_mood_item_style(self, item, depth, track_counts):
-        """Set color and styling for mood tree items based on depth"""
-        # Get the original mood name from stored data
+    def _set_mood_item_style(self, item, depth, own_counts, recursive_counts):
+        """Set icon and tooltip for mood tree items based on depth"""
         mood_obj = item.data(0, Qt.UserRole + 1)
         if not mood_obj:
             return
 
-        # Remove any existing count and keep only the base name
-        original_name = mood_obj.mood_name
-
-        # Get track count for this mood
-        track_count = track_counts.get(mood_obj.mood_id, 0)
-
-        # Build display name with count
-        display_name = (
-            f"{original_name} ({track_count})" if track_count > 0 else original_name
-        )
-
-        item.setText(0, display_name)
         item.setIcon(0, icon_for_depth(depth))
 
-        # Add tooltip with mood information including track count
-        if mood_obj:
-            tooltip = f"ID: {mood_obj.mood_id}"
-            if hasattr(mood_obj, "description") and mood_obj.description:
-                tooltip += f"\nDescription: {mood_obj.description}"
-            if hasattr(mood_obj, "parent_id") and mood_obj.parent_id:
-                parent_mood = next(
-                    (m for m in self.moods_data if m.mood_id == mood_obj.parent_id),
-                    None,
-                )
-                if parent_mood:
-                    tooltip += f"\nParent: {parent_mood.mood_name}"
+        own_count = own_counts.get(mood_obj.mood_id, 0)
+        recursive_count = recursive_counts.get(mood_obj.mood_id, own_count)
 
-            # Add track count to tooltip
-            tooltip += f"\nAssociated tracks: {track_count}"
+        # Add tooltip with mood information including track counts
+        tooltip = f"ID: {mood_obj.mood_id}"
+        if hasattr(mood_obj, "description") and mood_obj.description:
+            tooltip += f"\nDescription: {mood_obj.description}"
+        if hasattr(mood_obj, "parent_id") and mood_obj.parent_id:
+            parent_mood = next(
+                (m for m in self.moods_data if m.mood_id == mood_obj.parent_id),
+                None,
+            )
+            if parent_mood:
+                tooltip += f"\nParent: {parent_mood.mood_name}"
 
-            item.setToolTip(0, tooltip)
+        tooltip += f"\nOwn tracks: {own_count}"
+        if recursive_count != own_count:
+            tooltip += f"\nIncluding sub-moods: {recursive_count}"
+
+        item.setToolTip(0, tooltip)
 
     def get_child_mood_ids(self, parent_mood_id):
         """Get all child mood IDs recursively for a given parent mood"""
@@ -504,7 +569,7 @@ class MoodView(QWidget):
             QMessageBox.critical(self, "Error", "Failed to load tracks for moods")
             return
 
-        names = ", ".join(it.text(0).rsplit(" (", 1)[0] for it in items)
+        names = ", ".join(it.text(0) for it in items)
         tracks_window = BaseTrackView(
             controller=self.controller,
             tracks=tracks,
