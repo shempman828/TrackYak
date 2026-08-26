@@ -86,10 +86,10 @@ class ArtistDedupMixin:
         if not selected_ids:
             return
 
-        deleted = 0
-        for artist_id in selected_ids:
-            if self.controller.delete.delete_entity("Artist", entity_id=artist_id):
-                deleted += 1
+        if self.controller.delete.delete_entity("Artist", entity_ids=selected_ids):
+            deleted = len(selected_ids)
+        else:
+            deleted = 0
 
         show_status_message(
             self, f"Deleted {deleted} of {len(selected_ids)} selected artist(s)."

@@ -230,13 +230,12 @@ class AlbumContextMenuMixin:
             if confirm_dialog.exec_() != QDialog.Accepted:
                 return
 
-            deleted = 0
-            for album in empty_albums:
-                try:
-                    self.controller.delete.delete_entity("Album", album.album_id)
-                    deleted += 1
-                except SQLAlchemyError as e:
-                    logger.warning(f"Failed to delete album {album.album_name}: {e}")
+            album_ids = [a.album_id for a in empty_albums]
+            if self.controller.delete.delete_entity("Album", entity_ids=album_ids):
+                deleted = len(album_ids)
+            else:
+                deleted = 0
+                logger.warning("Failed to delete empty albums (batch delete failed)")
 
             show_status_message(self, f"Deleted {deleted} empty album(s).")
             self.load_albums()
