@@ -9,15 +9,10 @@ from collections import defaultdict
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QDialog,
-    QHBoxLayout,
     QHeaderView,
-    QInputDialog,
     QMessageBox,
-    QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
-    QVBoxLayout,
 )
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -28,37 +23,48 @@ from src.common.hierarchy_tree_style import (
     is_hierarchy_descendant,
     restore_expanded_ids_or_expand_all,
 )
+from src.common.lookup_manager_dialog import (
+    COUNT_COL,
+    DESC_COL,
+    NAME_COL,
+    BaseLookupManagerDialog,
+)
 from src.core.logger_config import logger
 from src.db.db_tables import Artist
 
-_NAME_COL = 0
-_DESC_COL = 1
-_COUNT_COL = 2
 
-
-class ReligionManagerDialog(QDialog):
+class ReligionManagerDialog(BaseLookupManagerDialog):
     """Tree of every Religion in the library, nested by parent/child, with
     inline rename/description editing, drag-and-drop reparenting, add, and
     delete."""
 
+    _ENTITY_TYPE = "Religion"
+    _ID_ATTR = "religion_id"
+    _NAME_ATTR = "religion_name"
+    _DESC_ATTR = "description"
+    _ENTITY_LABEL = "religion"
+    _NAME_EMPTY_LABEL = "Religion name"
+    _ADD_BUTTON_TEXT = "Add Religion"
+    _ADD_DIALOG_TITLE = "Add Religion"
+    _ADD_DIALOG_PROMPT = "Name:"
+    _DELETE_SELECT_FIRST_MSG = "Select one or more religions first."
+    _DELETE_DIALOG_TITLE = "Delete Religion(s)"
+    _DELETE_INTRO = (
+        "Delete the following religion(s)? Any artists carrying them will simply "
+        "lose that affiliation, and any child religions will lose their parent."
+    )
+
     def __init__(self, controller, parent=None):
-        super().__init__(parent)
-        self.controller = controller
-        self.setWindowTitle("Manage Religions")
-        self.resize(640, 480)
-        self._build_ui()
-        self._load()
+        super().__init__(controller, "Manage Religions", (640, 480), parent)
 
-    def _build_ui(self):
-        layout = QVBoxLayout(self)
-
+    def _build_content_widget(self):
         self._tree = QTreeWidget()
         self._tree.setColumnCount(3)
         self._tree.setHeaderLabels(["Name", "Description", "# Artists"])
         header = self._tree.header()
-        header.setSectionResizeMode(_NAME_COL, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(_DESC_COL, QHeaderView.Stretch)
-        header.setSectionResizeMode(_COUNT_COL, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(NAME_COL, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(DESC_COL, QHeaderView.Stretch)
+        header.setSectionResizeMode(COUNT_COL, QHeaderView.ResizeToContents)
         self._tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._tree.setAlternatingRowColors(True)
         self._tree.setAnimated(True)
@@ -70,38 +76,16 @@ class ReligionManagerDialog(QDialog):
         # Wrapper to keep `self` context inside the drop event, same trick
         # used by the Role/Genre/Mood hierarchy trees.
         self._tree.dropEvent = lambda event: self._on_drop_event(event)
-        layout.addWidget(self._tree)
-
-        btn_row = QHBoxLayout()
-        add_btn = QPushButton("Add Religion")
-        add_btn.clicked.connect(self._add_religion)
-        btn_row.addWidget(add_btn)
-
-        delete_btn = QPushButton("Delete Selected")
-        delete_btn.clicked.connect(self._delete_selected)
-        btn_row.addWidget(delete_btn)
-
-        btn_row.addStretch()
-
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.accept)
-        btn_row.addWidget(close_btn)
-
-        layout.addLayout(btn_row)
+        return self._tree
 
     # ── Loading ───────────────────────────────────────────────────────────
 
     def _fetch_counts(self) -> dict:
-        try:
-            rows = self.controller.get.session.execute(
-                select(Artist.religion_id, func.count())
-                .where(Artist.religion_id.isnot(None))
-                .group_by(Artist.religion_id)
-            ).all()
-            return dict(rows)
-        except SQLAlchemyError as e:
-            logger.warning(f"Failed to fetch religion usage counts: {e}")
-            return {}
+        return self._safe_fetch_counts(
+            select(Artist.religion_id, func.count())
+            .where(Artist.religion_id.isnot(None))
+            .group_by(Artist.religion_id)
+        )
 
     def _load(self):
         expanded_ids = collect_expanded_ids(self._tree)
@@ -139,50 +123,32 @@ class ReligionManagerDialog(QDialog):
 
     def _make_item(self, religion, depth, counts) -> QTreeWidgetItem:
         item = QTreeWidgetItem()
-        item.setText(_NAME_COL, religion.religion_name)
-        item.setText(_DESC_COL, religion.description or "")
-        item.setText(_COUNT_COL, str(counts.get(religion.religion_id, 0)))
-        item.setData(_NAME_COL, Qt.UserRole, religion.religion_id)
-        item.setIcon(_NAME_COL, icon_for_depth(depth))
+        item.setText(NAME_COL, religion.religion_name)
+        item.setText(DESC_COL, religion.description or "")
+        item.setText(COUNT_COL, str(counts.get(religion.religion_id, 0)))
+        item.setData(NAME_COL, Qt.UserRole, religion.religion_id)
+        item.setIcon(NAME_COL, icon_for_depth(depth))
         item.setFlags(item.flags() | Qt.ItemIsEditable)
         return item
+
+    def _selected_entries(self):
+        return [
+            (item.data(NAME_COL, Qt.UserRole), item.text(NAME_COL), item.text(COUNT_COL))
+            for item in self._tree.selectedItems()
+        ]
 
     # ── Editing ───────────────────────────────────────────────────────────
 
     def _on_item_changed(self, item: QTreeWidgetItem, column: int):
-        religion_id = item.data(_NAME_COL, Qt.UserRole)
+        religion_id = item.data(NAME_COL, Qt.UserRole)
         if religion_id is None:
             return
 
-        if column == _NAME_COL:
-            new_name = item.text(_NAME_COL).strip()
-            if not new_name:
-                QMessageBox.warning(self, "Invalid Name", "Religion name cannot be empty.")
-                self._load()
-                return
-
-            existing = self.controller.get.get_entity_object(
-                "Religion", religion_name=new_name
-            )
-            if existing and existing.religion_id != religion_id:
-                QMessageBox.warning(
-                    self,
-                    "Duplicate Name",
-                    f"A religion named '{new_name}' already exists.",
-                )
-                self._load()
-                return
-
-            self.controller.update.update_entity(
-                "Religion", religion_id, religion_name=new_name
-            )
-
-        elif column == _DESC_COL:
-            self.controller.update.update_entity(
-                "Religion", religion_id, description=item.text(_DESC_COL).strip() or None
-            )
-
-        elif column == _COUNT_COL:
+        if column == NAME_COL:
+            self._validate_and_rename(religion_id, item.text(NAME_COL))
+        elif column == DESC_COL:
+            self._save_description(religion_id, item.text(DESC_COL))
+        elif column == COUNT_COL:
             # Not a user-editable field; discard any accidental edit.
             self._load()
 
@@ -195,12 +161,12 @@ class ReligionManagerDialog(QDialog):
             return
 
         target_item = self._tree.itemAt(event.pos())
-        new_parent_id = target_item.data(_NAME_COL, Qt.UserRole) if target_item else None
+        new_parent_id = target_item.data(NAME_COL, Qt.UserRole) if target_item else None
 
         try:
             moved_any = False
             for item in selected_items:
-                religion_id = item.data(_NAME_COL, Qt.UserRole)
+                religion_id = item.data(NAME_COL, Qt.UserRole)
                 if religion_id is None or religion_id == new_parent_id:
                     continue
 
@@ -210,7 +176,7 @@ class ReligionManagerDialog(QDialog):
                     QMessageBox.warning(
                         self,
                         "Invalid Move",
-                        f"Moving '{item.text(_NAME_COL)}' there would create a "
+                        f"Moving '{item.text(NAME_COL)}' there would create a "
                         "circular reference in the hierarchy.",
                     )
                     continue
@@ -228,49 +194,3 @@ class ReligionManagerDialog(QDialog):
         except SQLAlchemyError as e:
             logger.error(f"Error moving religion: {e!s}")
             event.ignore()
-
-    def _add_religion(self):
-        name, ok = QInputDialog.getText(self, "Add Religion", "Name:")
-        name = name.strip()
-        if not ok or not name:
-            return
-
-        existing = self.controller.get.get_entity_object("Religion", religion_name=name)
-        if existing:
-            QMessageBox.warning(
-                self, "Duplicate Name", f"A religion named '{name}' already exists."
-            )
-            return
-
-        self.controller.add.add_entity("Religion", religion_name=name)
-        self._load()
-
-    def _delete_selected(self):
-        items = self._tree.selectedItems()
-        if not items:
-            QMessageBox.information(
-                self, "Delete Religion", "Select one or more religions first."
-            )
-            return
-
-        entries = [
-            (item.data(_NAME_COL, Qt.UserRole), item.text(_NAME_COL), item.text(_COUNT_COL))
-            for item in items
-        ]
-
-        lines = [f"• {name} ({count} artist(s))" for _id, name, count in entries]
-        reply = QMessageBox.question(
-            self,
-            "Delete Religion(s)",
-            "Delete the following religion(s)? Any artists carrying them will simply "
-            "lose that affiliation, and any child religions will lose their parent.\n\n"
-            + "\n".join(lines),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply != QMessageBox.Yes:
-            return
-
-        for religion_id, _name, _count in entries:
-            self.controller.delete.delete_entity("Religion", religion_id=religion_id)
-        self._load()
