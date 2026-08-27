@@ -294,6 +294,9 @@ section above for how those work, since the pattern is identical.
 
 Most moods actually get applied automatically — see
 [Mood Tagging](#tools-menu) in the Tools menu, which scans lyrics for you.
+The same scan also runs per-track any time lyrics are searched or saved for
+one — from the track edit dialog's Lyrics tab or the [Player Dock](#player-dock)'s
+right-click menu — with a status message naming whichever mood(s) matched.
 
 ## Influences
 
@@ -432,7 +435,9 @@ a seek bar you can drag to jump around in the current track, volume, a
 star rating for whatever's playing, and a repeat toggle that cycles through
 off, repeat-one, and repeat-all. Right-click it for quick access to editing
 the current track/album/artist, searching for lyrics, or adding the track to
-a playlist or mood without leaving whatever view you're in.
+a playlist or mood without leaving whatever view you're in. A found lyrics
+search is saved automatically and scanned for [moods](#moods) on the spot,
+with the status bar naming whatever matched.
 
 *Quick reference: `Space` play/pause · `Ctrl+.` stop · `Ctrl+→`/`Ctrl+←`
 next/previous · `Ctrl+↑`/`Ctrl+↓` volume · `Shift+→`/`Shift+←` seek ·

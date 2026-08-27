@@ -7,6 +7,7 @@ from src.album.base_album_edit import AlbumEditor
 from src.artist.artist_edit import ArtistEditor
 from src.core.logger_config import logger
 from src.core.status_utility import StatusManager, show_status_message
+from src.lyrics.mood_autotag import auto_tag_lyrics_safe
 from src.track.track_edit import TrackEditDialog
 
 
@@ -474,7 +475,14 @@ class PlayerContextMenuMixin:
                 track.track_id,
                 lyrics=lyrics_text,
             )
-            StatusManager.show_message("Lyrics found and saved.", 4000)
+            message = "Lyrics found and saved."
+            if lyrics_text:
+                moods_added, _places_added = auto_tag_lyrics_safe(
+                    self.controller, track.track_id, lyrics_text
+                )
+                if moods_added:
+                    message += f" Tagged mood(s): {', '.join(moods_added)}."
+            StatusManager.show_message(message, 4000)
             if self.current_track is track:
                 self._reload_now_playing()
         except (SQLAlchemyError, AttributeError, TypeError) as e:

@@ -161,3 +161,17 @@ def auto_tag_track(controller, track_id, lyrics, context: AutotagContext):
                 context.existing_place_pairs.discard(pair)
 
     return moods_added, places_added
+
+
+def auto_tag_lyrics_safe(controller, track_id, lyrics) -> tuple[list, list]:
+    """Convenience wrapper around build_autotag_context()+auto_tag_track()
+    for one-off (non-batch) call sites -- lyrics search/save on the player
+    dock and the track edit dialog's Lyrics tab. Never raises: a
+    mood-matching or DB-write failure here must not block the lyrics save
+    or search result it's attached to. Returns ([], []) on failure."""
+    try:
+        context = build_autotag_context(controller)
+        return auto_tag_track(controller, track_id, lyrics, context)
+    except Exception as e:  # ruff: ignore[blind-except]
+        logger.error(f"Mood auto-tag failed for track {track_id}: {e}")
+        return [], []
