@@ -128,6 +128,10 @@ class ArtworkTab:
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(16)
 
+        # Every pick/clear button, so the editor can disable them all while a
+        # background embed is in flight (see AlbumCoverArtMixin._start_cover_embed).
+        self.editor._cover_buttons = []
+
         for cover_type, label in (
             ("front", "Front Cover"),
             ("rear", "Rear Cover"),
@@ -156,6 +160,7 @@ class ArtworkTab:
             )
             btn_row.addWidget(pick_btn)
             btn_row.addWidget(clear_btn)
+            self.editor._cover_buttons += [pick_btn, clear_btn]
             g_layout.addLayout(btn_row)
 
             path_label = QLabel()

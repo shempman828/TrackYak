@@ -107,6 +107,12 @@ class ArtworkCache:
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._extractor = ArtworkExtractor()
+        # Set == background warmers may run; cleared == a foreground writer
+        # (the album editor embedding freshly-picked art into every track)
+        # has asked them to back off so the two threads aren't contending on
+        # this cache's single connection/lock. Starts runnable.
+        self._warmers_runnable = threading.Event()
+        self._warmers_runnable.set()
         self._init_schema()
 
     def _init_schema(self):
@@ -242,6 +248,27 @@ class ArtworkCache:
             height,
             thumb_bytes,
         )
+
+    def pause_warmers(self) -> None:
+        """Ask background cache-warming workers (ArtCacheWorker) to stop
+        starting new albums until resume_warmers() is called. Used by the
+        album editor while it embeds new art into every track, so a
+        full-library Art-filter warm pass isn't queued ahead of the
+        editor's own writes on this cache's single connection."""
+        self._warmers_runnable.clear()
+
+    def resume_warmers(self) -> None:
+        """Undo pause_warmers(). Safe to call when not paused."""
+        self._warmers_runnable.set()
+
+    def warmers_wait_if_paused(self, stop, poll: float = 0.2) -> None:
+        """Called by background warmers between albums: while paused, blocks
+        in `poll`-second slices, re-checking the caller's `stop()` predicate
+        each slice so a cancel still takes effect promptly. Returns at once
+        when runnable."""
+        while not self._warmers_runnable.wait(poll):
+            if stop():
+                return
 
     def invalidate(self, album_id: int, role: str | None = None) -> None:
         with self._lock:

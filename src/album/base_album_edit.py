@@ -147,6 +147,11 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         self.init_ui()
         self.setup_connections()
 
+        # Stop any in-flight background cover embed on every exit path
+        # (OK / Cancel / window close) so its signals never reach a
+        # torn-down dialog. See AlbumCoverArtMixin._cleanup_cover_embed.
+        self.finished.connect(lambda _result: self._cleanup_cover_embed())
+
         self._fit_to_screen()
 
     # =========================================================================
@@ -581,6 +586,11 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.save_changes)
         button_box.rejected.connect(self.close)
+
+        # Disabled while a background cover embed is running so the dialog
+        # can't be dismissed mid-rewrite, leaving some tracks embedded and
+        # others not (see AlbumCoverArtMixin._set_cover_controls_enabled).
+        self._dialog_button_box = button_box
 
         layout.addWidget(button_box)
 

@@ -1,10 +1,10 @@
-import sqlite3
 from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
+from src.album.album_art_worker import CoverEmbedWorker
 from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 from src.metadata.metadata_artwork import ArtworkExtractor
@@ -113,54 +113,121 @@ class AlbumCoverArtMixin:
 
         try:
             image_bytes = Path(path).read_bytes()
+        except OSError as e:
+            logger.error(f"Error reading {cover_type} cover file {path}: {e}")
+            QMessageBox.critical(self, "Error", f"Could not read image file:\n{e}")
+            return
 
-            failed = self._embed_cover_to_tracks(cover_type, image_bytes)
-            self._warn_if_embed_failures(cover_type, failed)
+        self._start_cover_embed(cover_type, image_bytes)
 
-            cache = get_artwork_cache()
-            if cache:
-                cache.store(self.album, cover_type, image_bytes)
+    # =========================================================================
+    # Cover art — background embed
+    # =========================================================================
 
-            # Update the Artwork tab preview
-            display = getattr(self, f"{cover_type}_cover_display", None)
-            path_label = getattr(self, f"{cover_type}_path_label", None)
+    def _start_cover_embed(self, cover_type: str, image_bytes):
+        """Embed `image_bytes` (or strip, when None) into every track and
+        warm the cache on a background thread, so the editor stays
+        responsive while mutagen rewrites a dozen FLAC files. The Artwork
+        tab / header preview is refreshed in _on_cover_embed_done."""
+        worker = getattr(self, "_cover_embed_worker", None)
+        if worker is not None and worker.isRunning():
+            return  # an embed/clear is already in flight; controls are disabled
+
+        cache = get_artwork_cache()
+        tracks = list(getattr(self.album, "tracks", None) or [])
+
+        self._set_cover_controls_enabled(False)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self._cover_cursor_pushed = True
+        path_label = getattr(self, f"{cover_type}_path_label", None)
+        if path_label:
+            verb = "Removing" if image_bytes is None else "Embedding"
+            path_label.setText(f"{verb} artwork in track file(s)…")
+
+        worker = CoverEmbedWorker(
+            self.album, tracks, cache, self._metadata_writer, cover_type, image_bytes
+        )
+        worker.completed.connect(
+            lambda failed, dims, ct=cover_type, ib=image_bytes: (
+                self._on_cover_embed_done(ct, ib, failed, dims)
+            )
+        )
+        worker.error.connect(
+            lambda msg, ct=cover_type: self._on_cover_embed_error(ct, msg)
+        )
+        worker.finished.connect(worker.deleteLater)
+        self._cover_embed_worker = worker
+        worker.start()
+
+    def _finish_cover_embed(self):
+        if getattr(self, "_cover_cursor_pushed", False):
+            QApplication.restoreOverrideCursor()
+            self._cover_cursor_pushed = False
+        self._set_cover_controls_enabled(True)
+        self._cover_embed_worker = None
+
+    def _on_cover_embed_done(self, cover_type, image_bytes, failed, dims):
+        self._finish_cover_embed()
+        self._warn_if_embed_failures(cover_type, failed)
+
+        display = getattr(self, f"{cover_type}_cover_display", None)
+        path_label = getattr(self, f"{cover_type}_path_label", None)
+
+        if image_bytes is None:
             if display:
-                self._load_image_to_label(image_bytes, display, 250)
+                display.clear()
+                display.setText(f"No {cover_type.title()} Cover")
             if path_label:
-                dims = cache.get_dimensions(self.album, cover_type) if cache else None
-                info_parts = ["Embedded in track file(s)"]
-                if dims:
-                    info_parts.append(f"{dims[0]} × {dims[1]} px")
-                path_label.setText("  |  ".join(info_parts))
-
-            # IMPORTANT: always refresh the header thumbnail when front cover changes
+                path_label.setText("")
             if cover_type == "front":
-                self._load_album_cover()
+                self.cover_label.setText("No Cover\nImage")
+            return
 
-        except (OSError, sqlite3.Error) as e:
-            logger.error(f"Error saving {cover_type} cover: {e}")
-            QMessageBox.critical(self, "Error", f"Could not save cover art:\n{e}")
+        if display:
+            self._load_image_to_label(image_bytes, display, 250)
+        if path_label:
+            info_parts = ["Embedded in track file(s)"]
+            if dims:
+                info_parts.append(f"{dims[0]} × {dims[1]} px")
+            path_label.setText("  |  ".join(info_parts))
 
-    def _embed_cover_to_tracks(self, cover_type: str, image_bytes):
-        """Embed (image_bytes given) or strip (image_bytes=None) the given
-        cover role into every FLAC/MP3 track of this album. Returns the
-        list of track file paths that failed, so callers can surface one
-        warning."""
-        failed = []
-        for track in getattr(self.album, "tracks", None) or []:
-            file_path = getattr(track, "track_file_path", None)
-            if not file_path or Path(file_path).suffix.lower() not in self._EMBEDDABLE_EXTENSIONS:
-                continue
-            try:
-                success = self._metadata_writer.write_artwork_to_file(
-                    file_path, cover_type, image_bytes
-                )
-            except ValueError as e:
-                logger.error(f"Error embedding {cover_type} cover into {file_path}: {e}")
-                success = False
-            if not success:
-                failed.append(file_path)
-        return failed
+        # IMPORTANT: always refresh the header thumbnail when front cover changes
+        if cover_type == "front":
+            self._load_album_cover()
+
+    def _on_cover_embed_error(self, cover_type, message):
+        self._finish_cover_embed()
+        logger.error(f"Error saving {cover_type} cover: {message}")
+        QMessageBox.critical(
+            self, "Error", f"Could not save cover art:\n{message}"
+        )
+        # Reset the transient "Embedding…" label back to the real state.
+        self._load_artwork_previews()
+
+    def _set_cover_controls_enabled(self, enabled: bool):
+        for btn in getattr(self, "_cover_buttons", ()):
+            btn.setEnabled(enabled)
+        # Also gate Save/Cancel so the dialog can't be dismissed mid-embed.
+        button_box = getattr(self, "_dialog_button_box", None)
+        if button_box is not None:
+            button_box.setEnabled(enabled)
+
+    def _cleanup_cover_embed(self):
+        """Stop an in-flight embed before the editor is destroyed so the
+        worker's signals never land on a dead dialog."""
+        worker = getattr(self, "_cover_embed_worker", None)
+        if worker is None:
+            return
+        try:
+            if worker.isRunning():
+                worker.request_cancel()
+                worker.wait(5000)
+        except RuntimeError:
+            pass
+        if getattr(self, "_cover_cursor_pushed", False):
+            QApplication.restoreOverrideCursor()
+            self._cover_cursor_pushed = False
+        self._cover_embed_worker = None
 
     def _warn_if_embed_failures(self, cover_type: str, failed_paths):
         if not failed_paths:
@@ -176,20 +243,4 @@ class AlbumCoverArtMixin:
         )
 
     def _clear_cover(self, cover_type: str):
-        failed = self._embed_cover_to_tracks(cover_type, None)
-        self._warn_if_embed_failures(cover_type, failed)
-
-        cache = get_artwork_cache()
-        if cache:
-            cache.store(self.album, cover_type, None)
-
-        display = getattr(self, f"{cover_type}_cover_display", None)
-        path_label = getattr(self, f"{cover_type}_path_label", None)
-        if display:
-            display.clear()
-            display.setText(f"No {cover_type.title()} Cover")
-        if path_label:
-            path_label.setText("")
-
-        if cover_type == "front":
-            self.cover_label.setText("No Cover\nImage")
+        self._start_cover_embed(cover_type, None)
