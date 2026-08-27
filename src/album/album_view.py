@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import selectinload
 
 from src.album.album_context_menu import AlbumContextMenuMixin
 from src.album.album_filtering import AlbumFilteringMixin
@@ -27,7 +28,20 @@ from src.album.base_album_edit import AlbumEditor
 from src.album.base_album_widget import AlbumWidget
 from src.common.layout_utils import FlowLayoutContainer, clear_layout
 from src.core.logger_config import logger
+from src.db.db_tables import Album, AlbumRoleAssociation
 from src.display.display_settings import apply_scaled_style
+
+# Relationships the search predicate (album_filtering._album_matches_filters)
+# and every non-default sort key (album_sorting._sort_key) walk for each of
+# self.all_albums. Loaded lazily, a single search or sort over a large library
+# fires 1 + 2N SELECTs per album on the UI thread -- seconds of frozen UI.
+# selectin-loading them up front keeps it to three extra queries total. Keep
+# this list in sync with what those two modules touch.
+_ALBUM_LIST_LOAD_OPTIONS = (
+    selectinload(Album.album_roles).selectinload(AlbumRoleAssociation.artist),
+    selectinload(Album.album_roles).selectinload(AlbumRoleAssociation.role),
+    selectinload(Album.tracks),
+)
 
 # ---------------------------------------------------------------------------
 # Main view
@@ -271,7 +285,12 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
     def load_albums(self):
         """Load all albums from the controller and refresh the grid."""
         try:
-            self.all_albums = self.controller.get.get_all_entities("Album") or []
+            self.all_albums = (
+                self.controller.get.get_all_entities(
+                    "Album", load_options=_ALBUM_LIST_LOAD_OPTIONS
+                )
+                or []
+            )
             self._restore_sort_combo()
             self._apply_filters()
         except (SQLAlchemyError, sqlite3.Error, AttributeError) as e:

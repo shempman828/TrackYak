@@ -69,7 +69,7 @@ def test_add_album_widget_shows_widget_immediately(qapp, monkeypatch):
     monkeypatch.setattr("src.album.album_view.AlbumWidget", StubAlbumWidget)
 
     class StubGetController:
-        def get_all_entities(self, entity_type):
+        def get_all_entities(self, entity_type, load_options=None):
             return []
 
     class StubController:

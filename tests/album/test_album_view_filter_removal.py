@@ -63,10 +63,10 @@ class StubGetController:
     def __init__(self, albums_by_id):
         self._albums_by_id = albums_by_id
 
-    def get_all_entities(self, entity_type):
+    def get_all_entities(self, entity_type, load_options=None):
         return list(self._albums_by_id.values())
 
-    def get_entity_object(self, entity_type, album_id):
+    def get_entity_object(self, entity_type, album_id, load_options=None):
         return self._albums_by_id[album_id]
 
 
