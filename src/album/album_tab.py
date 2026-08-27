@@ -35,6 +35,7 @@ from src.album.album_flowlayout import FlowLayout
 from src.common.entity_completer_edit import build_entity_search_widget
 from src.core.logger_config import logger
 from src.display.display_settings import apply_scaled_style
+from src.track.track_edit_places import PlacesTab as TrackPlacesTab
 
 # Prefixes that mark a role as a variant of a base role, e.g. "Assistant
 # Producer" / "Additional Producer" are both variants of "Producer".
@@ -103,6 +104,7 @@ class AlbumTabBuilder:
 
         layout.addWidget(self._build_publishers_section())
         layout.addWidget(self._build_places_section())
+        layout.addWidget(self._build_track_places_section())
         layout.addStretch()
         return tab
 
@@ -281,6 +283,40 @@ class AlbumTabBuilder:
         add_btn.clicked.connect(self.helper.add_place)
         layout.addWidget(add_btn)
 
+        return group
+
+    def _build_track_places_section(self):
+        """Places common to every track on the album.
+
+        Reuses the track editor's PlacesTab with the full set of the
+        album's tracks, the same way base_album_edit_tabs.GenresTab reuses
+        the track GenresTab: adding or removing a place here writes it to
+        every track, so PlacesTab's existing multi-track intersection and
+        write-to-all-tracks behavior double as the album-level view and the
+        trickle-down edit mechanism.
+
+        Independent of the album-level "Place Associations" section above --
+        those are PlaceAssociation rows with entity_type="Album", these are
+        entity_type="Track".
+        """
+        group = QGroupBox("Track Places (common to all tracks)")
+        layout = QVBoxLayout(group)
+
+        tracks = self.album.tracks or []
+        if not tracks:
+            layout.addWidget(QLabel("This album has no tracks yet."))
+            return group
+
+        info = QLabel(
+            "Places common to every track on this album. Adding or removing "
+            "a place here applies it to all of the album's tracks."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        places_widget = TrackPlacesTab(tracks, self.controller, parent=group)
+        places_widget.load(tracks)
+        layout.addWidget(places_widget)
         return group
 
     def _build_awards_list(self):

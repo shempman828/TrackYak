@@ -215,10 +215,10 @@ class PlacesTab(_BaseTab):
                 # mid-execution on that same completer corrupts its internals and
                 # crashes the process. See artist_edit_types.py
                 # _flush_new_chip_paint() for the same hazard.
-                search = self._search
                 place_name, place_id = place.place_name, place.place_id
                 QTimer.singleShot(
-                    0, lambda n=place_name, i=place_id: search.add_to_index(n, i)
+                    0,
+                    lambda n=place_name, i=place_id: self._search.add_to_index(n, i),
                 )
                 register_cached_entity("Place", place)
 
@@ -232,14 +232,25 @@ class PlacesTab(_BaseTab):
         if not place_item:
             return
         place_id = place_item.data(Qt.UserRole)
-        track_ids = [track.track_id for track in self.tracks]
-        try:
-            self.controller.delete.delete_entity(
+        # delete_entity() binds a keyword `entity_id=` to its single-item
+        # path (session.get on the primary key, association_id) -- a list
+        # there raises, and a scalar track id would silently target the
+        # wrong row. Resolve the matching association_ids across every track
+        # and batch-delete by primary key instead.
+        assoc_ids = []
+        for track in self.tracks:
+            for assoc in self.controller.get.get_entity_links(
                 "PlaceAssociation",
-                entity_id=track_ids,
+                entity_id=track.track_id,
                 entity_type="Track",
-                place_id=place_id,
-            )
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to remove place from tracks: {e}")
+            ):
+                if assoc.place_id == place_id:
+                    assoc_ids.append(assoc.association_id)
+        if assoc_ids:
+            try:
+                self.controller.delete.delete_entity(
+                    "PlaceAssociation", entity_ids=assoc_ids
+                )
+            except SQLAlchemyError as e:
+                logger.error(f"Failed to remove place from tracks: {e}")
         self.load(self.tracks)

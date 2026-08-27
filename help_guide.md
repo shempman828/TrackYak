@@ -122,6 +122,13 @@ Credits, Album Credit, Publishers & Places, Awards, and Advanced. You don't
 need to touch most of these day-to-day — Overview and Tracks cover the common
 cases.
 
+The Genres and Track Credits tabs show what's common to *every* track on the
+album, and editing them there applies the change to all of the album's
+tracks. The Publishers & Places tab works the same way for places: below the
+album-level place associations, a **Track Places** section lists the places
+shared by every track, and adding or removing one there writes it to all of
+them.
+
 **Other things you can do**: right-click a cover (or empty grid space) for
 New Album, Add to Queue, Merge into another album, Delete, Delete Empty
 Albums, and Find Duplicate Albums.
