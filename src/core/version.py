@@ -2,7 +2,7 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 
-BASE_VERSION = "0.4"
+BASE_VERSION = "0.5"
 
 _REPO_DIR = Path(__file__).resolve().parent
 

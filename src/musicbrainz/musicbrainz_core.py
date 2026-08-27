@@ -40,7 +40,7 @@ from src.core.logger_config import logger
 _REQUEST_TIMEOUT_SECONDS = 30
 
 _APP_NAME = "TrackYak"
-_APP_VERSION = "0.4"
+_APP_VERSION = "0.5"
 _CONTACT = "https://github.com/babyyakstudios/trackyak"
 
 _configured = False

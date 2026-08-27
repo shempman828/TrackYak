@@ -212,7 +212,7 @@ def main() -> None:
         # Initialize Qt application FIRST for splash screen
         app = QApplication(sys.argv)
         app.setApplicationName("TrackYak")
-        app.setApplicationVersion("0.4")
+        app.setApplicationVersion("0.5")
 
         config = Config()
 
