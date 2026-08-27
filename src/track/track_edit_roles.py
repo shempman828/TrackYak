@@ -701,7 +701,11 @@ class RolesTab(_BaseTab):
         for artist in artists:
             credited_alias_id = None
             if not self.is_multi:
-                credited_alias_id = self._prompt_credited_alias(artist)
+                accepted, credited_alias_id = self._prompt_credited_alias(artist)
+                if not accepted:
+                    # User dismissed the "Credit as…" dialog -- skip this
+                    # artist rather than adding under the canonical name.
+                    continue
             for role in roles:
                 self._batch_add_track_artist_role(
                     artist.artist_id, role.role_id, credited_alias_id=credited_alias_id
@@ -738,7 +742,9 @@ class RolesTab(_BaseTab):
                 "Artist", artist_id=artist_id
             )
             if artist:
-                credited_alias_id = self._prompt_credited_alias(artist)
+                accepted, credited_alias_id = self._prompt_credited_alias(artist)
+                if not accepted:
+                    return
 
         for role in roles:
             self._batch_add_track_artist_role(
@@ -749,20 +755,23 @@ class RolesTab(_BaseTab):
 
     def _prompt_credited_alias(self, artist, current_alias_id=None):
         """Show the alias picker for `artist` if they have any aliases on
-        file; return the chosen alias_id, or `current_alias_id` unchanged
-        if they have none or the user cancels."""
+        file. Returns ``(accepted, alias_id)``: ``accepted`` is False only
+        when the user dismissed the dialog (Cancel/Esc), and the caller must
+        then abort rather than fall back to the canonical name. When the
+        artist has no aliases the dialog is skipped and
+        ``(True, current_alias_id)`` is returned."""
         aliases = self.controller.get.get_all_entities(
             "ArtistAlias", artist_id=artist.artist_id
         )
         if not aliases:
-            return current_alias_id
+            return True, current_alias_id
 
         dialog = CreditedAsDialog(
             artist, aliases, current_alias_id=current_alias_id, parent=self
         )
         if dialog.exec() == QDialog.Accepted:
-            return dialog.selected_alias_id()
-        return current_alias_id
+            return True, dialog.selected_alias_id()
+        return False, current_alias_id
 
     def _change_credited_alias(self, artist_id, roles: dict, current_alias_id):
         """Change the credited name for every role this artist currently
@@ -771,10 +780,10 @@ class RolesTab(_BaseTab):
         if not artist:
             return
 
-        new_alias_id = self._prompt_credited_alias(
+        accepted, new_alias_id = self._prompt_credited_alias(
             artist, current_alias_id=current_alias_id
         )
-        if new_alias_id == current_alias_id:
+        if not accepted or new_alias_id == current_alias_id:
             return
 
         for role_id in roles:

@@ -171,7 +171,12 @@ class RelationshipHelpers:
                 return
 
             for artist in artists:
-                credited_alias_id = self._prompt_credited_alias(artist)
+                accepted, credited_alias_id = self._prompt_credited_alias(artist)
+                if not accepted:
+                    # User dismissed the "Credit as…" dialog -- abort this
+                    # artist's credits entirely rather than silently falling
+                    # back to the canonical name.
+                    continue
 
                 for role in roles:
                     # New credits go to the end of their role group rather than
@@ -361,31 +366,35 @@ class RelationshipHelpers:
 
     def _prompt_credited_alias(self, artist, current_alias_id=None):
         """Show the alias picker for `artist` if they have any aliases on
-        file; return the chosen alias_id, or None for the canonical name.
-        Skipped entirely (returns None) when the artist has no aliases, and
-        also on cancel, so the artist's canonical name is always the safe
-        default."""
+        file. Returns ``(accepted, alias_id)``: ``accepted`` is False only
+        when the user dismissed the dialog (Cancel/Esc), and the caller must
+        then abort rather than fall back to the canonical name. When the
+        artist has no aliases the dialog is skipped and
+        ``(True, current_alias_id)`` is returned. On accept, ``alias_id`` is
+        the chosen alias_id, or None for the canonical name."""
         aliases = self.controller.get.get_all_entities(
             "ArtistAlias", artist_id=artist.artist_id
         )
         if not aliases:
-            return None
+            return True, current_alias_id
 
         dialog = CreditedAsDialog(
             artist, aliases, current_alias_id=current_alias_id, parent=None
         )
         if dialog.exec() == QDialog.Accepted:
-            return dialog.selected_alias_id()
-        return current_alias_id
+            return True, dialog.selected_alias_id()
+        return False, current_alias_id
 
     def change_credited_alias(self, role_assoc):
         """Change which name (canonical or alias) an existing credit shows."""
         if not role_assoc.artist:
             return
         try:
-            credited_alias_id = self._prompt_credited_alias(
+            accepted, credited_alias_id = self._prompt_credited_alias(
                 role_assoc.artist, current_alias_id=role_assoc.credited_alias_id
             )
+            if not accepted:
+                return
             self.controller.update.update_entity(
                 "AlbumRoleAssociation",
                 role_assoc.association_id,
