@@ -229,6 +229,35 @@ def test_roles_cell_convert_button_invokes_hook_with_artist_and_role(qapp):
         tab.cleanup()
 
 
+def test_roles_cell_height_hint_tracks_real_width_not_min_width(qapp):
+    """Regression: the chip cell is a plain QWidget whose sizeHint() came
+    from layout.totalSizeHint(), which evaluates the FlowLayout's
+    heightForWidth() at its *minimum* (one-chip-wide) width -- stacking
+    every chip onto its own line. QTableView sized the row from that hint,
+    so an artist whose chips wrap to two lines got a row tall enough for
+    ~8. The cell must report its height at its actual width instead, so
+    resizeRowsToContents() converges to the real wrapped height.
+    """
+    controller = _StubController()
+    tab = RolesTab([_StubTrack(1)], controller)
+    try:
+        roles = {i: f"Role {i}" for i in range(8)}
+        cell = tab._build_roles_cell(10, "Some Artist", roles)
+        layout = cell.layout()
+
+        stacked = layout.heightForWidth(layout.sizeHint().width())  # min width
+        cell.resize(560, 10)
+        wrapped = layout.heightForWidth(560)
+
+        assert wrapped < stacked, "test setup: 560px should wrap fewer lines"
+        # The cell's hint (what the table uses for row height) follows the
+        # real width, not the one-chip-wide minimum.
+        assert cell.sizeHint().height() == wrapped
+        assert cell.sizeHint().height() < stacked
+    finally:
+        tab.cleanup()
+
+
 def test_roles_table_wheel_step_is_fixed_not_row_height_derived(qapp):
     """Regression: ScrollPerPixel mode alone still lets Qt derive the
     scrollbar's wheel-notch step (singleStep) from row height, and this

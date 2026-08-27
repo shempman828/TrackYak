@@ -269,6 +269,39 @@ class _FlowLayout(QLayout):
         return y + line_height - rect.y() + bottom
 
 
+class _ChipCell(QWidget):
+    """QWidget host for a role-chip `_FlowLayout`, set as a table cell widget.
+
+    Plain `QWidget.sizeHint()` delegates to `layout().totalSizeHint()`, which
+    evaluates `heightForWidth()` at the layout's *minimum* width -- one chip
+    wide -- so every chip wraps onto its own line and the cell reports a
+    height many times taller than it needs (space for ~8 lines when only two
+    are used). `QTableView` sizes the row from that hint, and since the cell's
+    real (stretched-column) width never feeds back into `sizeHint()`,
+    `resizeRowsToContents()` can never bring it back down. Report the hint at
+    the cell's actual width instead.
+    """
+
+    def _hint(self) -> QSize:
+        lay = self.layout()
+        width = self.width()
+        if lay is not None and lay.hasHeightForWidth() and width > 0:
+            return QSize(width, lay.heightForWidth(width))
+        return super().sizeHint()
+
+    def sizeHint(self) -> QSize:
+        return self._hint()
+
+    def minimumSizeHint(self) -> QSize:
+        return self._hint()
+
+    def resizeEvent(self, event):
+        # A stretched column changing width changes how many chip lines fit,
+        # hence this cell's preferred height -- let Qt know the hint is stale.
+        super().resizeEvent(event)
+        self.updateGeometry()
+
+
 class _RolesTable(QTableWidget):
     """QTableWidget that keeps row heights matched to wrapped chip content.
 
@@ -503,6 +536,12 @@ class RolesTab(_BaseTab):
         # geometry changes above, so defer the restore to the next event
         # loop pass -- otherwise setValue clamps to the stale (pre-rebuild)
         # range and silently resets to the top.
+        # Chip cells only know their real (stretched-column) width once Qt has
+        # laid the table out, and their height depends on it (see _ChipCell) --
+        # re-fit every row on the next pass so rows that wrap don't stay sized
+        # for the pre-layout, one-chip-wide hint.
+        QTimer.singleShot(0, self._table.resizeRowsToContents)
+
         QTimer.singleShot(
             0, lambda: self._table.verticalScrollBar().setValue(saved_scroll)
         )
@@ -590,7 +629,7 @@ class RolesTab(_BaseTab):
         self._table.resizeRowToContents(row)
 
     def _build_roles_cell(self, artist_id, artist_name, roles: dict) -> QWidget:
-        cell = QWidget()
+        cell = _ChipCell()
         row_layout = _FlowLayout(cell, margin=4, h_spacing=6, v_spacing=4)
 
         for role_id, role_name in self._sorted_roles(roles):
