@@ -159,3 +159,50 @@ def test_missing_opposites_file_is_a_noop(tmp_path, monkeypatch):
     result = mood_scoring.score_moods(lyrics)
     assert "Happy" in result
     assert "Sad" in result
+
+
+# score_moods_detailed() -----------------------------------------------------
+# (docs/specs/mood_representative_tracks.md -- AC1, AC2)
+
+_DETAILED_FIXTURES = [
+    "happy happy happy all day long, nothing but happy vibes here",
+    "the sunshine feels joyful this morning as I walk outside",
+    "sunshine and joyful feelings, but also crying and tears and lonely nights",
+    "I am so happy today walking down the street feeling fine",  # below threshold
+    "",
+    "   ",
+]
+
+
+@pytest.mark.parametrize("lyrics", _DETAILED_FIXTURES)
+def test_detailed_keys_match_score_moods(lyrics):
+    # AC2 regression guard: the wrapper must stay exactly the key list.
+    assert list(mood_scoring.score_moods_detailed(lyrics)) == mood_scoring.score_moods(
+        lyrics
+    )
+
+
+def test_detailed_values_expose_positive_density_and_hit_counts():
+    # AC1: every matched mood carries a MoodMatch with density > 0 and the
+    # hit counts that cleared the threshold.
+    detail = mood_scoring.score_moods_detailed(
+        "the sunshine feels joyful this morning as I walk outside"
+    )
+    assert set(detail) == {"Happy"}
+    match = detail["Happy"]
+    assert match.density > 0
+    assert match.distinct_hits == 2  # "sunshine", "joyful"
+    assert match.raw_hits == 2
+
+
+def test_detailed_multi_label_and_opposite_suppression(_isolated_opposites):
+    # AC1: opposite-pair resolution applies to the detailed result too --
+    # the suppressed mood is absent from the dict, not just zeroed.
+    lyrics = (
+        "crying tears lonely crying tears lonely crying tears lonely "
+        "crying tears lonely crying tears lonely happy sunshine"
+    )
+    detail = mood_scoring.score_moods_detailed(lyrics)
+    assert "Sad" in detail
+    assert "Happy" not in detail
+    assert detail["Sad"].density > 0

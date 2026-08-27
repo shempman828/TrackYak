@@ -5,6 +5,14 @@ score_moods(lyrics) -> list[str]: scores a track's lyrics against every
 mood's keyword list in assets/mood_keywords.json and returns the names of
 moods that clear the tagging threshold.
 
+score_moods_detailed(lyrics) -> dict[str, MoodMatch]: same scoring, same
+threshold and opposite-pair resolution, but keeps the per-mood match
+detail (density, distinct/raw hit counts) instead of discarding it.
+score_moods() is a thin wrapper over it. The density is what the mood-
+tagging write path persists on each MoodTrackAssociation row, powering the
+"most representative tracks per mood" statistic
+(docs/specs/mood_representative_tracks.md).
+
 Mirrors src/core/censor.py's cached, mtime-reloaded pattern approach (one
 compiled `\\b(word1|word2|...)\\b` regex per keyword list, no restart
 needed to pick up an edited word list) but scores rather than binary-
@@ -16,6 +24,7 @@ built for the Lyrics tab's word cloud (src/statistics/stats/lyrics.py) so
 
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from src.core.asset_paths import asset
@@ -37,6 +46,18 @@ _OPPOSITES_PATH = Path(asset("mood_opposites.json"))
 
 _cache = {"mtime": None, "keyword_patterns": None}
 _opposites_cache = {"mtime": None, "pairs": None}
+
+
+@dataclass(frozen=True)
+class MoodMatch:
+    """Per-mood match detail for one track's lyrics. `density` (raw_hits /
+    total_lyric_tokens) is the cross-mood-comparable signal -- the opposite-
+    pair tiebreak ranks on it, and it's what gets persisted on the
+    MoodTrackAssociation row for the representativeness stat."""
+
+    density: float
+    distinct_hits: int
+    raw_hits: int
 
 
 def _compile_keyword_pattern(keyword: str) -> re.Pattern:
@@ -104,22 +125,24 @@ def known_mood_names() -> set[str]:
     return set(patterns.keys()) if patterns else set()
 
 
-def score_moods(lyrics) -> list[str]:
-    """Return every mood name whose keyword list clears the tagging
-    threshold against `lyrics`. Empty/whitespace-only lyrics score no
-    moods."""
+def score_moods_detailed(lyrics) -> dict[str, MoodMatch]:
+    """Return {mood_name: MoodMatch} for every mood whose keyword list
+    clears the tagging threshold against `lyrics`, after opposite-pair
+    resolution. Empty/whitespace-only lyrics score no moods. Insertion
+    order matches assets/mood_keywords.json's key order, so
+    `list(score_moods_detailed(x))` is exactly `score_moods(x)`."""
     if not lyrics or not lyrics.strip():
-        return []
+        return {}
 
     patterns = _get_keyword_patterns()
     if not patterns:
-        return []
+        return {}
 
     total_tokens = len(_tokenize(lyrics))
     if total_tokens == 0:
-        return []
+        return {}
 
-    matched = {}
+    matched: dict[str, MoodMatch] = {}
     for mood_name, keyword_patterns in patterns.items():
         distinct_hits = 0
         raw_hits = 0
@@ -133,7 +156,7 @@ def score_moods(lyrics) -> list[str]:
         if (distinct_hits >= MIN_DISTINCT_KEYWORDS or raw_hits >= MIN_RAW_HITS) and (
             density >= MIN_DENSITY
         ):
-            matched[mood_name] = density
+            matched[mood_name] = MoodMatch(density, distinct_hits, raw_hits)
 
     # A few incidental/ironic keyword hits for a mood's tonal opposite
     # (e.g. a handful of "happy" words in an overwhelmingly sad lyric)
@@ -145,9 +168,16 @@ def score_moods(lyrics) -> list[str]:
     # so both are left tagged rather than guessing.
     for mood_a, mood_b in _get_opposite_pairs():
         if mood_a in matched and mood_b in matched:
-            if matched[mood_a] > matched[mood_b]:
+            if matched[mood_a].density > matched[mood_b].density:
                 del matched[mood_b]
-            elif matched[mood_b] > matched[mood_a]:
+            elif matched[mood_b].density > matched[mood_a].density:
                 del matched[mood_a]
 
-    return list(matched.keys())
+    return matched
+
+
+def score_moods(lyrics) -> list[str]:
+    """Return every mood name whose keyword list clears the tagging
+    threshold against `lyrics`. Empty/whitespace-only lyrics score no
+    moods. Thin wrapper over score_moods_detailed()."""
+    return list(score_moods_detailed(lyrics))

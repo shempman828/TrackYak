@@ -20,9 +20,9 @@ part of the app by what you're trying to do, not just what's on screen.
 [Queue Dock](#queue-dock)
 
 **Menu Bar**
-[File Menu](#file-menu) · [Audio Menu](#audio-menu) ·
-[Tools Menu](#tools-menu) · [View Menu](#view-menu) ·
-[Help Menu](#help-menu)
+[File Menu](#file-menu) · [Library Statistics](#library-statistics) ·
+[Audio Menu](#audio-menu) · [Tools Menu](#tools-menu) ·
+[View Menu](#view-menu) · [Help Menu](#help-menu)
 
 ---
 
@@ -474,7 +474,8 @@ Double-click any queued track to jump to it immediately.
   match what you've cleaned up in TrackYak.
 - **View Library Statistics** — a dashboard of your whole collection at a
   glance: health, top artists/albums/genres, audio characteristics, and more,
-  split across tabs.
+  split across tabs. See [Library Statistics](#library-statistics) below for
+  what each tab holds.
 - **Find Duplicate Tracks** — run this after a big import if you suspect
   you've picked up copies of things you already had. It can match by
   metadata or by actual audio fingerprint if you want to catch re-encodes
@@ -486,7 +487,26 @@ Double-click any queued track to jump to it immediately.
   all in one dialog.
 - **Exit** (`Ctrl+Q`) — closes the app.
 
-## Audio Menu
+## Library Statistics
+
+Opened from **File → View Library Statistics**. A read-only snapshot taken
+when the dialog opens (each tab has a **Recompute** button to refresh it
+without reopening). Tabs: Overview, Library Health, Artists, Albums,
+Genres & Moods, Places & Credits, Audio Profile, and Lyrics.
+
+**Genres & Moods** collects the mood-related leaderboards:
+
+- **Top Moods by Plays** and **Most / Least Played Mood** — mood totals by
+  play count.
+- **Highest / Lowest Rated Mood** — outlier-controlled average track
+  rating per mood.
+- **Most Representative Tracks per Mood** — pick a mood from the dropdown
+  to see the 5 tracks whose lyrics match that mood's keyword list most
+  strongly. "Strength" is the match density (keyword hits ÷ total lyric
+  words) recorded when [Mood Tagging](#tools-menu) first tagged the
+  track, shown as a percentage. Only moods the automatic tagger has
+  actually matched on at least one track appear in the dropdown;
+  hand-added mood tags with no keyword match don't rank.
 
 - **Equalizer Settings** — adjust playback tone with a 12-band graphic EQ.
   Save your own presets or reset to flat at any point.

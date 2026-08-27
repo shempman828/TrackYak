@@ -3,7 +3,8 @@ stats/genres_moods.py
 
 GenreMoodStats: power-of-10 rating leaderboards for genres, most niche
 genre (deepest nested chain with tracks), top/bottom 5 genres by track
-count, outlier-controlled mood ratings, and most/least played mood.
+count, outlier-controlled mood ratings, most/least played mood, and the
+5 most representative tracks per auto-tagged mood (by lyrics-match score).
 """
 
 from sqlalchemy import func
@@ -15,6 +16,12 @@ from src.statistics.stats.helpers import (
     outlier_controlled_average,
     threshold_leaderboard,
 )
+from src.statistics.stats.lyrics import _tokenize
+
+# A track needs at least this many lyric tokens to be eligible for a mood's
+# "most representative" list. Without it, a short, near-all-keyword lyric
+# ("happy happy happy") posts a runaway density and buries full songs.
+REPRESENTATIVE_MIN_TOKENS = 20
 
 
 class GenreMoodStats:
@@ -30,6 +37,9 @@ class GenreMoodStats:
                 "genres_by_track_count": self._genres_by_track_count(session),
                 "mood_ratings_outlier_controlled": self._mood_ratings(session),
                 "mood_play_counts": self._mood_play_counts(session),
+                "representative_tracks_per_mood": (
+                    self._representative_tracks_per_mood(session)
+                ),
             }
         finally:
             session.close()
@@ -151,3 +161,45 @@ class GenreMoodStats:
             "most_played": [(name, plays) for name, plays in rows[:limit]],
             "least_played": [(name, plays) for name, plays in rows[-limit:][::-1]],
         }
+
+    # ------------------------------------------------------------------ #
+    #  Most representative tracks per (auto-tagged) mood                  #
+    # ------------------------------------------------------------------ #
+
+    def _representative_tracks_per_mood(self, session, limit=5):
+        """{mood_name: [(track_name, primary_artist_names, score), ...]} --
+        the `limit` tracks whose lyrics match each mood's keyword list most
+        strongly, ranked by the persisted MoodTrackAssociation.score
+        (lyrics-match density written at auto-tag time).
+
+        Only rows with score > 0 count, so moods that were never auto-
+        matched on any track (manual-only moods, or moods whose keyword
+        list nothing hits) simply don't appear. Tracks with fewer than
+        REPRESENTATIVE_MIN_TOKENS lyric tokens are skipped, and a mood
+        left with nothing after that filter is dropped from the result.
+        Ties broken by track_name for run-to-run stable ordering.
+        """
+        rows = (
+            session.query(Mood.mood_name, MoodTrackAssociation.score, Track)
+            .select_from(MoodTrackAssociation)
+            .join(Mood, Mood.mood_id == MoodTrackAssociation.mood_id)
+            .join(Track, Track.track_id == MoodTrackAssociation.track_id)
+            .filter(MoodTrackAssociation.score.isnot(None))
+            .filter(MoodTrackAssociation.score > 0)
+            .order_by(
+                Mood.mood_name,
+                MoodTrackAssociation.score.desc(),
+                Track.track_name.asc(),
+            )
+            .all()
+        )
+
+        result: dict[str, list] = {}
+        for mood_name, score, track in rows:
+            bucket = result.setdefault(mood_name, [])
+            if len(bucket) >= limit:
+                continue
+            if len(_tokenize(track.lyrics or "")) < REPRESENTATIVE_MIN_TOKENS:
+                continue
+            bucket.append((track.track_name, track.primary_artist_names, score))
+        return {mood_name: rows for mood_name, rows in result.items() if rows}

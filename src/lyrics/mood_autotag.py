@@ -14,6 +14,13 @@ match. Mood writes lean on MoodTrackAssociation's composite primary key
 for free dedup (add_entities_with_fallback); PlaceAssociation has a
 surrogate primary key, so it does NOT get that for free -- this module
 does its own existence check before inserting.
+
+Each newly-written MoodTrackAssociation row also carries a `score` (the
+mood's lyrics-match density from score_moods_detailed), consumed by the
+"most representative tracks per mood" statistic. It rides along in the row
+dict and doesn't affect composite-PK dedup -- a row that already exists
+keeps whatever score it was created with (additive-only: this path never
+rewrites an existing association).
 """
 
 from dataclasses import dataclass, field
@@ -21,7 +28,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
-from src.lyrics.mood_scoring import known_mood_names, score_moods
+from src.lyrics.mood_scoring import known_mood_names, score_moods_detailed
 from src.lyrics.place_matching import detect_known_places
 from src.place.place_association_types import (
     fetch_association_types,
@@ -105,11 +112,15 @@ def auto_tag_track(controller, track_id, lyrics, context: AutotagContext):
     if not lyrics or not lyrics.strip():
         return [], []
 
-    moods_matched = score_moods(lyrics)
+    moods_matched = score_moods_detailed(lyrics)
     mood_name_by_id = {v: k for k, v in context.mood_id_by_name.items()}
     mood_rows = [
-        {"mood_id": context.mood_id_by_name[name], "track_id": track_id}
-        for name in moods_matched
+        {
+            "mood_id": context.mood_id_by_name[name],
+            "track_id": track_id,
+            "score": match.density,
+        }
+        for name, match in moods_matched.items()
         if name in context.mood_id_by_name
     ]
     moods_added = []

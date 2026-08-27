@@ -2,7 +2,7 @@
 Mood ORM models: Mood and its track association table.
 """
 
-from sqlalchemy import Column, ForeignKey, Integer, String
+from sqlalchemy import Column, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import backref, relationship
 
 from src.db.db_tables.base import Base
@@ -46,6 +46,19 @@ class MoodTrackAssociation(Base):
     track_id = Column(
         Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), primary_key=True
     )
+
+    # Lyrics-match strength for THIS (mood, track) pair: the mood's keyword
+    # `density` (raw hits / total lyric tokens) as computed by
+    # mood_scoring.score_moods_detailed() at auto-tag time. Powers the
+    # "most representative tracks per mood" statistic
+    # (docs/specs/mood_representative_tracks.md).
+    #   NULL  -> never scored (manual tag predating this column, or a
+    #            split-created row); healed by the startup backfill.
+    #   0.0   -> scored, this mood's keywords don't match the track's lyrics.
+    #   > 0   -> match density; higher = more representative of the mood.
+    # Written only when the row is first created -- editing lyrics later
+    # does not refresh an existing row's score (additive-only mood system).
+    score = Column(Float)
 
     mood = relationship(
         "Mood", backref=backref("mood_tracks", cascade="all, delete-orphan")

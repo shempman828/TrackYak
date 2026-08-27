@@ -238,6 +238,68 @@ def test_creates_missing_mood_row_for_keyword_listed_mood(session, controller):
     assert assoc is not None
 
 
+# docs/specs/mood_representative_tracks.md -----------------------------------
+
+
+# AC3 ----------------------------------------------------------------------
+def test_worker_writes_match_density_as_score(session, controller):
+    lyrics = "happy happy happy sunshine joyful morning vibes"
+    track = _make_track(session, lyrics=lyrics)
+    MoodAutoTagWorker(controller).run()
+
+    happy = session.query(Mood).filter_by(mood_name="Happy").one()
+    assoc = (
+        session.query(MoodTrackAssociation)
+        .filter_by(mood_id=happy.mood_id, track_id=track.track_id)
+        .one()
+    )
+    expected = mood_scoring.score_moods_detailed(lyrics)["Happy"].density
+    assert assoc.score == pytest.approx(expected)
+    assert assoc.score > 0
+
+
+# AC4 ----------------------------------------------------------------------
+def test_worker_leaves_existing_row_score_untouched(session, controller):
+    track = _make_track(session, lyrics="happy happy happy sunshine joyful")
+    happy = session.query(Mood).filter_by(mood_name="Happy").one()
+    session.add(
+        MoodTrackAssociation(
+            mood_id=happy.mood_id, track_id=track.track_id, score=0.999
+        )
+    )
+    session.commit()
+
+    MoodAutoTagWorker(controller).run()
+
+    assoc = (
+        session.query(MoodTrackAssociation)
+        .filter_by(mood_id=happy.mood_id, track_id=track.track_id)
+        .one()
+    )
+    assert assoc.score == 0.999
+
+
+# AC5 ----------------------------------------------------------------------
+def test_write_path_never_scores_a_row_it_did_not_create(session, controller):
+    # Manual tag (no score); worker also matches it -> no duplicate, and the
+    # NULL score is left for the startup backfill, not the write path.
+    track = _make_track(session, lyrics="happy happy happy sunshine joyful")
+    happy = session.query(Mood).filter_by(mood_name="Happy").one()
+    session.add(
+        MoodTrackAssociation(mood_id=happy.mood_id, track_id=track.track_id)
+    )
+    session.commit()
+
+    MoodAutoTagWorker(controller).run()
+
+    assoc = (
+        session.query(MoodTrackAssociation)
+        .filter_by(mood_id=happy.mood_id, track_id=track.track_id)
+        .one()
+    )
+    assert assoc.score is None
+
+
 def test_run_releases_db_session_without_error(session, controller, monkeypatch):
     calls = []
     monkeypatch.setattr("src.db.db_engine.Session.remove", lambda: calls.append(True))

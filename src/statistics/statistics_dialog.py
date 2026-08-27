@@ -607,6 +607,23 @@ class MusicStatsDialog(QDialog):
         mood_plays_layout.addWidget(self.least_played_moods_list)
         layout.addWidget(mood_plays_group)
 
+        representative_group = QGroupBox("Most Representative Tracks per Mood")
+        representative_layout = QVBoxLayout(representative_group)
+        representative_layout.addWidget(
+            QLabel(
+                "The 5 tracks whose lyrics match each auto-tagged mood's "
+                "keyword list most strongly (by match density)."
+            )
+        )
+        self.representative_mood_combo = QComboBox()
+        self.representative_mood_combo.currentTextChanged.connect(
+            self._update_representative_tracks_leaderboard
+        )
+        representative_layout.addWidget(self.representative_mood_combo)
+        self.representative_tracks_list = LeaderboardListWidget(value_suffix="%")
+        representative_layout.addWidget(self.representative_tracks_list)
+        layout.addWidget(representative_group)
+
         layout.addStretch()
         widget.setWidget(content)
         widget.setWidgetResizable(True)
@@ -1522,6 +1539,30 @@ class MusicStatsDialog(QDialog):
             [
                 (name, plays, None)
                 for name, plays in mood_plays.get("least_played", [])
+            ]
+        )
+
+        # Most representative tracks per mood -- populate the selector from
+        # whatever moods have scored tracks, then show the first one. Block
+        # the combo's signal during repopulation so the explicit update
+        # call below is the only one that fires (and fires exactly once).
+        representative = stats.get("representative_tracks_per_mood", {})
+        self.representative_mood_combo.blockSignals(True)
+        self.representative_mood_combo.clear()
+        self.representative_mood_combo.addItems(sorted(representative.keys()))
+        self.representative_mood_combo.setEnabled(bool(representative))
+        self.representative_mood_combo.blockSignals(False)
+        self._update_representative_tracks_leaderboard()
+
+    def _update_representative_tracks_leaderboard(self, *_args):
+        if self.genre_mood_stats is None:
+            return
+        representative = self.genre_mood_stats.get("representative_tracks_per_mood", {})
+        mood_name = self.representative_mood_combo.currentText()
+        self.representative_tracks_list.set_data(
+            [
+                (track_name, round(score * 100, 2), artist)
+                for track_name, artist, score in representative.get(mood_name, [])
             ]
         )
 
