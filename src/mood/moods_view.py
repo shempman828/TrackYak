@@ -768,22 +768,26 @@ class MoodView(QWidget):
                 # Get all child mood IDs
                 all_mood_ids = [mood_id] + self.get_child_mood_ids(mood_id)
 
-                # Get associations for all these moods
+                # Get associations for all these moods, de-duplicating
+                # tracks tagged at both a parent mood and one of its children.
                 all_tracks = []
+                seen_track_ids = set()
                 for mid in all_mood_ids:
                     associations = self.controller.get.get_all_entities(
                         "MoodTrackAssociation", mood_id=mid
                     )
                     for association in associations:
                         if hasattr(association, "track"):
-                            all_tracks.append(association.track)
+                            track = association.track
                         else:
                             # Fallback: get track by ID
                             track = self.controller.get.get_entity_by_id(
                                 "Track", association.track_id
                             )
-                            if track and track not in all_tracks:
-                                all_tracks.append(track)
+                        if track is None or track.track_id in seen_track_ids:
+                            continue
+                        seen_track_ids.add(track.track_id)
+                        all_tracks.append(track)
 
                 return all_tracks
             else:

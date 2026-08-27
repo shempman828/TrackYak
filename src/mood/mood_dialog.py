@@ -180,19 +180,22 @@ class MoodDialog(QDialog):
                         self.mood_id
                     )
                     tracks = []
+                    seen_track_ids = set()
                     for mood_id in all_mood_ids:
                         associations = self.controller.get.get_all_entities(
                             "MoodTrackAssociation", mood_id=mood_id
                         )
                         for association in associations:
                             if hasattr(association, "track"):
-                                tracks.append(association.track)
+                                track = association.track
                             else:
                                 track = self.controller.get.get_entity_by_id(
                                     "Track", association.track_id
                                 )
-                                if track and track not in tracks:
-                                    tracks.append(track)
+                            if track is None or track.track_id in seen_track_ids:
+                                continue
+                            seen_track_ids.add(track.track_id)
+                            tracks.append(track)
             else:
                 # Just get tracks for this specific mood
                 associations = self.controller.get.get_all_entities(
