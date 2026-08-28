@@ -367,6 +367,14 @@ what's worth filling in.
 already got some) pulls it in; Match Now then runs the matching pass against
 your library. Both run in the background so you can keep working.
 
+Matching is deliberately strict: a chart entry is only auto-linked when the
+title and the primary artist both line up as whole words (edition noise like
+"(2011 Remaster)" or a trailing "Featuring ..." is allowed, but "King" won't
+grab "Kingston" and "R.E.M." won't grab "Jeremy Soule"), and a track whose
+known release year is *after* the week it charted is never matched (unless
+its title is flagged as a remaster/reissue). Anything it isn't sure about is
+left unmatched for you to link by hand.
+
 **Browsing what charted**: the Week Browser tab lets you flip through a
 specific chart, year, month, and week; the Search tab does a full-text search
 across every chart at once if you're looking for something specific.

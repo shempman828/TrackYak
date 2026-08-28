@@ -15,10 +15,26 @@ deterministic containment rule rather than a fuzzy similarity score.
 
 Matching is intentionally strict and boolean-ish: title and artist both
 have to line up (after normalizing case/punctuation and stripping a
-leading "the"/"a"/"an") for either the chart entry or the candidate to be a
-normalized substring of the other -- e.g. "Dark Side of the Moon" matches
-"The Dark Side of the Moon", but two different songs that just happen to
-share a few words don't. See src/charts/fts_query.py for the query-
+leading "the"/"a"/"an"). The line-up test is word-aware, not a raw
+substring: the two token lists must be equal, or the shorter must be a
+contiguous prefix/suffix of the longer -- and for a title, the leftover
+tail has to look like edition noise (a "(2011 Remaster)", "(Album
+Version)", "Featuring ..." etc.). So "Dark Side of the Moon" still matches
+"The Dark Side of the Moon" and "On the Border" still matches "On the
+Border (2001 Remaster)", but "King" no longer grabs "Kingston", "Stand"
+no longer grabs "Standing Stones", and "Focus" no longer grabs "Focus on
+Sanity". Artist comparison also splits on collab separators
+("&"/"feat."/"featuring"/"with"/"x"/...) so a shared credit is enough and
+"R.E.M." can't match "Jeremy Soule" on a "rem" substring.
+
+A third axis, applied only when the data is present: a candidate whose
+known release year is *after* the chart week's year is rejected outright
+(a song can't chart before it exists), unless the candidate title carries
+a remaster/reissue/anniversary/"(YYYY)" marker -- in which case its
+album's release_year is a reissue date, not the recording's, so the year
+check is skipped. When several candidates survive title+artist, the one
+whose year is nearest to (but not after) the chart year wins.
+See src/charts/fts_query.py for the query-
 building helper shared with the search tab's MATCH query: an AND of every
 (stopword-filtered) word in the chart title. This is a *shortlist* query,
 not the match decision itself -- the containment check above is -- so
@@ -68,10 +84,11 @@ the case where re-scoring is provably pointless.
 
 import hashlib
 import re
+import unicodedata
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Callable, Optional
+from datetime import datetime, timezone
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
@@ -85,9 +102,108 @@ from src.db.db_tables.track import Track
 _SCRATCH_TABLE = "chart_match_scratch_fts"
 _SHORTLIST_LIMIT = 20
 
+# ASCII hyphen, the Unicode hyphen/dash range (U+2010-2015), the minus
+# sign, and the slash -- all treated as word separators, not letters, so
+# "Go-Go" / "Go Go" and "Run-D.M.C." (however its hyphen is encoded)
+# normalize alike.
+_HYPHENISH_RE = re.compile(r"[‐-―−/-]")
 _PUNCT_RE = re.compile(r"[^\w\s]")
 _WS_RE = re.compile(r"\s+")
 _LEADING_ARTICLE_RE = re.compile(r"^(the|a|an)\s+")
+# A bare "and" connector -- dropped so "Blood, Sweat & Tears" (the "&" is
+# stripped as punctuation) and "Blood Sweat And Tears" collapse to the
+# same string, likewise "Tom Petty & The Heartbreakers" / "... And The
+# ...". Applied after punctuation stripping, so it only ever sees the
+# literal word.
+_CONNECTOR_RE = re.compile(r"\band\b")
+
+# A four-digit year token, e.g. the "2011" in "... (2011 Remaster)".
+_YEAR_TOKEN_RE = re.compile(r"^(19|20)\d{2}$")
+
+# Splits an artist credit into individual contributors. Runs on the raw
+# string so "&", "+", "/", "," and the "feat."/"featuring"/"ft"/"with"/
+# "x"/"vs" words all break a credit into its parts -- a shared part is
+# enough for two credits to line up. "and" is deliberately NOT a separator
+# here (normalize_title drops it as a connector instead): splitting on it
+# fuses band names like "Blood Sweat And Tears" inconsistently with their
+# "&" spelling.
+_ARTIST_SPLIT_RE = re.compile(
+    r"\s*(?:&|\+|/|,|\bfeaturing\b|\bfeat\b\.?|\bft\b\.?|\bwith\b|\bx\b|\bvs\b\.?)\s*",
+    re.IGNORECASE,
+)
+
+# Tokens that make a title's leftover tail read as edition noise rather
+# than a different song -- lets "On the Border" match "On the Border
+# (2001 Remaster)" and "Get Up" match "Get Up (Featuring Chamillionaire)"
+# while still rejecting "Focus" -> "Focus on Sanity".
+_TITLE_TAIL_MARKERS = frozenset({
+    "remaster",
+    "remastered",
+    "remasters",
+    "remix",
+    "remixed",
+    "mix",
+    "edit",
+    "edited",
+    "version",
+    "reissue",
+    "deluxe",
+    "expanded",
+    "anniversary",
+    "edition",
+    "mono",
+    "stereo",
+    "live",
+    "acoustic",
+    "unplugged",
+    "demo",
+    "session",
+    "sessions",
+    "instrumental",
+    "single",
+    "radio",
+    "album",
+    "bonus",
+    "rerecorded",
+    "rerecording",
+    "taylors",
+    "mixes",
+    "extended",
+    "original",
+    "digital",
+    "explicit",
+    "clean",
+    "featuring",
+    "feat",
+    "ft",
+    "with",
+})
+
+# The subset of the above that specifically signals a *reissue* -- i.e. a
+# case where the candidate album's release_year is a later reissue date,
+# not the year the recording actually came out, so the "not after the
+# chart year" check must not fire.
+_REISSUE_MARKERS = frozenset({
+    "remaster",
+    "remastered",
+    "remasters",
+    "reissue",
+    "deluxe",
+    "expanded",
+    "anniversary",
+    "edition",
+    "mono",
+    "stereo",
+    "rerecorded",
+    "rerecording",
+    "taylors",
+    "version",
+    "mix",
+    "mixes",
+    "remix",
+    "remixed",
+    "edit",
+})
 
 # The only two outcomes a match can have: normalized titles came out
 # exactly equal, or one merely contains the other. Chosen to land in
@@ -97,32 +213,114 @@ _EXACT_SCORE = 1.0
 _CONTAINS_SCORE = 0.75
 
 _SHORTLIST_SQL = (
-    f"SELECT title, artist_names, entity_id FROM {_SCRATCH_TABLE} "
+    f"SELECT title, artist_names, entity_id, year FROM {_SCRATCH_TABLE} "
     f"WHERE {_SCRATCH_TABLE} MATCH ? ORDER BY rank LIMIT ?"
 )
 
 
-def normalize_title(s: Optional[str]) -> str:
-    """Lowercase, strip punctuation, collapse whitespace, and drop a
-    leading "the"/"a"/"an" -- the only slop this matcher allows, so e.g.
-    "Dark Side of the Moon" and "The Dark Side of the Moon" normalize to
-    the same string."""
+def normalize_title(s: str | None) -> str:
+    """Lowercase, fold diacritics, split on hyphen/slash, strip punctuation,
+    drop a bare "and" connector, collapse whitespace, and drop a leading
+    "the"/"a"/"an". The slop this matcher allows: "Dark Side of the Moon"
+    and "The Dark Side of the Moon", "Beyonce" and "Beyoncé", "Wake Me Up
+    Before You Go-Go" and "... Go Go", "Blood, Sweat & Tears" and "Blood
+    Sweat And Tears" all normalize to the same string."""
     if not s:
         return ""
     s = s.lower().strip()
+    # Fold accents: "é" -> "e", "ö" -> "o" -- chart CSVs and library tags
+    # disagree on these constantly (Beyonce/Beyoncé, Motley/Mötley).
+    s = "".join(
+        ch for ch in unicodedata.normalize("NFKD", s) if not unicodedata.combining(ch)
+    )
+    s = _HYPHENISH_RE.sub(" ", s)  # "go-go" -> "go go", not "gogo"
     s = _PUNCT_RE.sub("", s)
-    s = _WS_RE.sub(" ", s)
+    s = _CONNECTOR_RE.sub(" ", s)
+    s = _WS_RE.sub(" ", s).strip()
     s = _LEADING_ARTICLE_RE.sub("", s)
     return s
 
 
-def _normalized_match(a: str, b: str) -> bool:
-    """True if normalized a/b are equal or one contains the other. Empty
-    strings never match -- otherwise this would be trivially true against
-    every candidate."""
+def _seq_prefix_or_suffix(short: list, long_: list) -> list | None:
+    """If `short` is a contiguous prefix or suffix of `long_`, return the
+    leftover tokens (the part of `long_` that `short` didn't cover);
+    otherwise return None. `short` must be non-empty and no longer than
+    `long_`. An exact-length equal match returns [] (falsy but not None)."""
+    if not short or len(short) > len(long_):
+        return None
+    if short == long_[: len(short)]:
+        return long_[len(short) :]
+    if short == long_[len(long_) - len(short) :]:
+        return long_[: len(long_) - len(short)]
+    return None
+
+
+def _titles_match(a: str, b: str) -> bool:
+    """True if normalized titles `a`/`b` line up: equal token lists, or the
+    shorter is a contiguous prefix/suffix of the longer *and* the leftover
+    tail reads as edition noise (a "(2011 Remaster)", "(Album Version)",
+    "Featuring ..." and the like). Empty strings never match."""
     if not a or not b:
         return False
-    return a == b or a in b or b in a
+    at, bt = a.split(), b.split()
+    if at == bt:
+        return True
+    short, long_ = (at, bt) if len(at) <= len(bt) else (bt, at)
+    leftover = _seq_prefix_or_suffix(short, long_)
+    if not leftover:
+        return bool(leftover == [])
+    edge = leftover[0] if long_[: len(short)] == short else leftover[-1]
+    return edge in _TITLE_TAIL_MARKERS or bool(_YEAR_TOKEN_RE.match(edge))
+
+
+def _artist_segments(raw: str | None) -> list:
+    """Split a raw artist credit on collab separators into its normalized
+    contributors, in order, deduped, e.g. "Ciara Featuring Chamillionaire"
+    -> ["ciara", "chamillionaire"]. One-character fragments are dropped so
+    a stray initial can't become a shared "segment"."""
+    if not raw:
+        return []
+    seen = []
+    for part in _ARTIST_SPLIT_RE.split(raw.strip()):
+        seg = normalize_title(part)
+        if len(seg) >= 2 and seg not in seen:
+            seen.append(seg)
+    return seen
+
+
+def _artists_match(a_raw: str | None, b_raw: str | None) -> bool:
+    """True if two raw artist credits line up: identical once normalized,
+    or they share a contributor *and* that contributor leads at least one
+    of the two credits (so "Drake & Future" lines up with "Drake" and a
+    "X Featuring Y" credit lines up with a "Y Featuring X" one, but two
+    different acts that both end in "& The Vandellas" don't), or -- for
+    multi-word names only -- one is a contiguous prefix/suffix of the
+    other. A single-token name that isn't a shared lead never matches, so
+    "Ye" can't grab "Faye Webster" and "R.E.M." can't grab "Jeremy
+    Soule"."""
+    a, b = normalize_title(a_raw), normalize_title(b_raw)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    a_segs, b_segs = _artist_segments(a_raw), _artist_segments(b_raw)
+    shared = set(a_segs) & set(b_segs)
+    if shared and (
+        (a_segs and a_segs[0] in shared) or (b_segs and b_segs[0] in shared)
+    ):
+        return True
+    at, bt = a.split(), b.split()
+    short, long_ = (at, bt) if len(at) <= len(bt) else (bt, at)
+    return len(short) >= 2 and _seq_prefix_or_suffix(short, long_) is not None
+
+
+def _has_reissue_marker(raw_title: str | None) -> bool:
+    """True if the title carries a token that marks it as a reissue/
+    remaster (so a candidate album's release_year is a later reissue date,
+    not the recording's year, and the "not after the chart year" check
+    should be skipped)."""
+    tokens = normalize_title(raw_title).split()
+    return any(tok in _REISSUE_MARKERS or _YEAR_TOKEN_RE.match(tok) for tok in tokens)
 
 
 @dataclass
@@ -135,20 +333,20 @@ def _rebuild_scratch_index(session, entity_type: str) -> tuple:
     """(Re)builds the scratch FTS5 table over the library's current
     titles/artist names for `entity_type`, used as this run's fallback
     candidate shortlist source. Also returns an exact-title index --
-    normalized title -> [(entity_id, normalized artist_names), ...] -- for
-    the O(1) fast path in _find_match, and a fingerprint of every row's
-    (entity_id, normalized title, normalized artist_names) -- see
-    match_chart for how that's used to skip rescoring entries that were
-    already attempted against an unchanged library. Order-independent (XOR
-    of per-row hashes) since row order here has no meaning, and folds in the
-    row count so two rows whose hashes happen to XOR-cancel can't fake "no
-    rows changed".
+    normalized title -> [(entity_id, raw artist_names, year), ...] -- for
+    the O(1) fast path in _find_match, and a
+    fingerprint of every row's (entity_id, normalized title, normalized
+    artist_names, year) -- see match_chart for how that's used to skip
+    rescoring entries that were already attempted against an unchanged
+    library. Order-independent (XOR of per-row hashes) since row order here
+    has no meaning, and folds in the row count so two rows whose hashes
+    happen to XOR-cancel can't fake "no rows changed".
     """
     session.execute(text(f"DROP TABLE IF EXISTS {_SCRATCH_TABLE}"))
     session.execute(
         text(
             f"CREATE VIRTUAL TABLE {_SCRATCH_TABLE} USING fts5("
-            "title, artist_names, entity_id UNINDEXED)"
+            "title, artist_names, entity_id UNINDEXED, year UNINDEXED)"
         )
     )
 
@@ -159,6 +357,7 @@ def _rebuild_scratch_index(session, entity_type: str) -> tuple:
                 selectinload(role_chain).selectinload(TrackArtistRole.artist),
                 selectinload(role_chain).selectinload(TrackArtistRole.credited_alias),
                 selectinload(role_chain).selectinload(TrackArtistRole.role),
+                selectinload(Track.album),
             )
         ).all()
         rows = [
@@ -166,6 +365,8 @@ def _rebuild_scratch_index(session, entity_type: str) -> tuple:
                 "title": track.track_name,
                 "artist_names": track.primary_artist_names,
                 "entity_id": track.track_id,
+                "year": track.recorded_year
+                or (track.album.release_year if track.album else None),
             }
             for track in tracks
         ]
@@ -174,7 +375,9 @@ def _rebuild_scratch_index(session, entity_type: str) -> tuple:
         albums = session.scalars(
             select(Album).options(
                 selectinload(role_chain).selectinload(AlbumRoleAssociation.artist),
-                selectinload(role_chain).selectinload(AlbumRoleAssociation.credited_alias),
+                selectinload(role_chain).selectinload(
+                    AlbumRoleAssociation.credited_alias
+                ),
                 selectinload(role_chain).selectinload(AlbumRoleAssociation.role),
             )
         ).all()
@@ -183,6 +386,7 @@ def _rebuild_scratch_index(session, entity_type: str) -> tuple:
                 "title": album.album_name,
                 "artist_names": album.album_artist_names,
                 "entity_id": album.album_id,
+                "year": album.release_year,
             }
             for album in albums
         ]
@@ -192,8 +396,8 @@ def _rebuild_scratch_index(session, entity_type: str) -> tuple:
     if rows:
         session.execute(
             text(
-                f"INSERT INTO {_SCRATCH_TABLE} (title, artist_names, entity_id) "
-                "VALUES (:title, :artist_names, :entity_id)"
+                f"INSERT INTO {_SCRATCH_TABLE} (title, artist_names, entity_id, year) "
+                "VALUES (:title, :artist_names, :entity_id, :year)"
             ),
             rows,
         )
@@ -203,9 +407,14 @@ def _rebuild_scratch_index(session, entity_type: str) -> tuple:
     for row in rows:
         norm_title = normalize_title(row["title"])
         norm_artist = normalize_title(row["artist_names"])
-        exact_index[norm_title].append((row["entity_id"], norm_artist))
+        # Store the *raw* credit, not norm_artist: _artists_match needs the
+        # "&"/"feat." separators intact to split a credit into its
+        # contributors, and normalize_title has already stripped them.
+        exact_index[norm_title].append(
+            (row["entity_id"], row["artist_names"], row["year"])
+        )
         row_hash = hashlib.md5(
-            f"{row['entity_id']}|{norm_title}|{norm_artist}".encode()
+            f"{row['entity_id']}|{norm_title}|{norm_artist}|{row['year']}".encode()
         ).digest()
         fingerprint_acc ^= int.from_bytes(row_hash, "big")
     fingerprint = f"{len(rows)}:{fingerprint_acc:032x}"
@@ -220,7 +429,39 @@ def _rebuild_scratch_index(session, entity_type: str) -> tuple:
     return exact_index, fingerprint
 
 
-def _find_match(cursor, exact_index: dict, entry: ChartEntry) -> Optional[tuple]:
+# A release tagged one year *after* the first chart week is still a valid
+# match: a single that debuts late in the year commonly peaks -- and has
+# its album/"release year" recorded -- the following year (e.g. Kesha's
+# "TiK ToK" first charts in 2009, album "Animal" is 2010). More slop than
+# that and it's a different recording.
+_YEAR_SLACK = 1
+
+
+def _year_ok(cand_year: int | None, chart_year: int | None, is_reissue: bool) -> bool:
+    """A candidate can't have come out materially *after* the week it
+    supposedly charted. Skipped when either year is unknown, or when the
+    candidate is a flagged reissue/remaster (its album's release_year is
+    then a later reissue date, not the recording's)."""
+    if cand_year is None or chart_year is None or is_reissue:
+        return True
+    return cand_year <= chart_year + _YEAR_SLACK
+
+
+def _pick_by_year(candidates: list, chart_year: int | None) -> int | None:
+    """From (entity_id, year) candidates that already passed title/artist/
+    year checks, return the best entity_id: the one whose year sits closest
+    to `chart_year`, else (nothing dated, or no chart year) just the
+    first."""
+    if not candidates:
+        return None
+    if chart_year is not None:
+        dated = [(eid, y) for eid, y in candidates if y is not None]
+        if dated:
+            return min(dated, key=lambda pair: abs(pair[1] - chart_year))[0]
+    return candidates[0][0]
+
+
+def _find_match(cursor, exact_index: dict, entry: ChartEntry) -> tuple | None:
     """Return (entity_id, score) for the best match, or None. Checks the
     O(1) exact-title index first; only falls back to an FTS5 shortlist
     query (via the raw cursor) if that finds nothing, since a match found
@@ -232,24 +473,43 @@ def _find_match(cursor, exact_index: dict, entry: ChartEntry) -> Optional[tuple]
     if not entry_title or not entry_artist:
         return None
 
-    for entity_id, cand_artist in exact_index.get(entry_title, ()):
-        if _normalized_match(entry_artist, cand_artist):
-            return (entity_id, _EXACT_SCORE)
+    chart_year = entry.chart_week.year if entry.chart_week else None
+
+    # Exact normalized title + artist is trusted regardless of year: a
+    # track you only own via a later hits compilation carries that
+    # compilation's release_year, so a "not after the chart year" reject
+    # here would drop correct matches wholesale. Year is only a
+    # tie-breaker (_pick_by_year) when several tracks share the title.
+    exact_candidates = [
+        (entity_id, cand_year)
+        for entity_id, cand_artist_raw, cand_year in exact_index.get(entry_title, ())
+        if _artists_match(entry.raw_performer, cand_artist_raw)
+    ]
+    best = _pick_by_year(exact_candidates, chart_year)
+    if best is not None:
+        return (best, _EXACT_SCORE)
 
     match_query = build_and_query(entry.raw_title)
     if not match_query:
         return None
 
     cursor.execute(_SHORTLIST_SQL, (match_query, _SHORTLIST_LIMIT))
-    for cand_title, cand_artist_names, entity_id in cursor.fetchall():
-        cand_title = normalize_title(cand_title)
+    contains_candidates = []
+    for cand_title_raw, cand_artist_names, entity_id, cand_year in cursor.fetchall():
+        cand_title = normalize_title(cand_title_raw)
         if cand_title == entry_title:
             continue  # already ruled out by the exact-index check above
-        if not _normalized_match(entry_title, cand_title):
+        if not _titles_match(entry_title, cand_title):
             continue
-        if not _normalized_match(entry_artist, normalize_title(cand_artist_names)):
+        if not _artists_match(entry.raw_performer, cand_artist_names):
             continue
-        return (entity_id, _CONTAINS_SCORE)
+        if not _year_ok(cand_year, chart_year, _has_reissue_marker(cand_title_raw)):
+            continue
+        contains_candidates.append((entity_id, cand_year))
+
+    best = _pick_by_year(contains_candidates, chart_year)
+    if best is not None:
+        return (best, _CONTAINS_SCORE)
 
     return None
 
@@ -257,9 +517,9 @@ def _find_match(cursor, exact_index: dict, entry: ChartEntry) -> Optional[tuple]
 def match_chart(
     session,
     chart: Chart,
-    progress_callback: Optional[Callable[[int, int, int], None]] = None,
-    stage_callback: Optional[Callable[[str], None]] = None,
-    is_cancelled: Optional[Callable[[], bool]] = None,
+    progress_callback: Callable[[int, int, int], None] | None = None,
+    stage_callback: Callable[[str], None] | None = None,
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> MatchStats:
     """Match every currently-unmatched ChartEntry belonging to `chart`
     against the local library. Only considers entries where entity_id IS
@@ -289,7 +549,9 @@ def match_chart(
     """
     if stage_callback:
         stage_callback("Building title index...")
-    exact_index, fingerprint = _rebuild_scratch_index(session, chart.matched_entity_type)
+    exact_index, fingerprint = _rebuild_scratch_index(
+        session, chart.matched_entity_type
+    )
     cursor = session.connection().connection.dbapi_connection.cursor()
 
     unmatched = session.scalars(
@@ -312,7 +574,7 @@ def match_chart(
     if stage_callback:
         stage_callback("Matching entries...")
 
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     matched = 0
     for scored, entry in enumerate(to_score, start=1):
         if scored % 500 == 0:

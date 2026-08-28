@@ -9,19 +9,21 @@ artist.
 
 The matcher scores are intentionally two-valued (see _EXACT_SCORE/
 _CONTAINS_SCORE in chart_matching.py): 1.0 for a hit found via the O(1)
-exact-title index (where title is a byte-exact normalized match and the
-artist only needs to satisfy _normalized_match's equal-or-contains check),
-or 0.75 for a hit found via the FTS5 shortlist fallback (where title and
-artist both only need to satisfy that same containment check). There is no
-SequenceMatcher-style partial credit -- a candidate either clears one of
-those two buckets or it doesn't match at all.
+exact-title index (title is a byte-exact normalized match), or 0.75 for a
+hit found via the FTS5 shortlist fallback (title lines up word-for-word
+bar an edition-noise tail). Both paths require the artist to line up under
+_artists_match (shared lead contributor, or a whole-name prefix/suffix),
+and the 0.75 path also rejects a candidate whose release year is after
+the chart week. There is no SequenceMatcher-style partial credit -- a
+candidate either clears one of those two buckets or it doesn't match.
 """
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.charts.chart_matching import match_chart, normalize_title
+from src.db.db_tables.album import Album
 from src.db.db_tables.artist import Artist
 from src.db.db_tables.associations import TrackArtistRole
 from src.db.db_tables.base import Base
@@ -47,9 +49,14 @@ def _primary_role(session):
     return role
 
 
-def _add_track(session, role, title, artist_name):
+def _add_track(session, role, title, artist_name, release_year=None):
     artist = Artist(artist_name=artist_name)
-    track = Track(track_name=title)
+    album = None
+    if release_year is not None:
+        album = Album(album_name=title, release_year=release_year)
+        session.add(album)
+        session.commit()
+    track = Track(track_name=title, album_id=album.album_id if album else None)
     session.add_all([artist, track])
     session.commit()
     session.add(TrackArtistRole(track_id=track.track_id, artist_id=artist.artist_id, role_id=role.role_id))
@@ -89,6 +96,19 @@ def test_normalize_title_strips_punctuation_and_case():
     assert normalize_title("Last Christmas!") == "last christmas"
     assert normalize_title("Rock & Roll (Remastered)") == "rock roll remastered"
     assert normalize_title(None) == ""
+
+
+def test_normalize_title_folds_accents_hyphens_and_and():
+    assert normalize_title("Beyoncé") == "beyonce"
+    assert normalize_title("Wake Me Up Before You Go-Go") == "wake me up before you go go"
+    # "&" drops as punctuation, the word "and" drops as a connector, so the
+    # two spellings of a band name land on the same string.
+    assert normalize_title("Blood, Sweat & Tears") == normalize_title(
+        "Blood Sweat And Tears"
+    )
+    assert normalize_title("Tom Petty & The Heartbreakers") == normalize_title(
+        "Tom Petty And The Heartbreakers"
+    )
 
 
 def test_exact_match(session):
@@ -150,9 +170,9 @@ def test_featuring_artist_noise_still_matches(session):
     assert stats.matched == 1
     session.refresh(entry)
     assert entry.is_matched
-    # Exact-title-index path: _normalized_match's containment allowance
-    # ("j cole" in "j cole featuring someone") counts as a full match, so
-    # this scores the same 1.0 as a byte-exact artist match.
+    # Exact-title-index path: _artists_match treats "J. Cole" and "J. Cole
+    # Featuring Someone" as the same lead contributor, so this scores the
+    # same 1.0 as a byte-exact artist match.
     assert entry.match_score == 1.0
 
 
@@ -259,3 +279,210 @@ def test_library_rename_triggers_rescore_of_previously_failed_entry(session):
     assert second.matched == 1
     session.refresh(entry)
     assert entry.is_matched
+
+
+# ---------------------------------------------------------------------------
+# Stricter matching (word-aware containment + year gate). Regression cases
+# for entries that the old raw-substring rule grabbed too haphazardly:
+# "King" -> "Kingston", "Stand" -> "Standing Stones" ("rem" in "jeremy"),
+# "Focus" -> "Focus on Sanity", plus a candidate released after the chart.
+# ---------------------------------------------------------------------------
+
+
+def test_title_substring_bleed_is_rejected(session):
+    role = _primary_role(session)
+    _add_track(session, role, "Kingston", "Faye Webster")
+    chart = _add_chart(session)
+    entry = _add_entry(session, chart, "King", "Kings Of Leon")
+
+    match_chart(session, chart)
+
+    session.refresh(entry)
+    assert not entry.is_matched  # "king" is not a token prefix of "kingston"
+
+
+def test_title_prefix_without_edition_marker_is_rejected(session):
+    role = _primary_role(session)
+    _add_track(session, role, "Focus on Sanity", "H.E.R.")
+    chart = _add_chart(session)
+    entry = _add_entry(session, chart, "Focus", "H.E.R.")
+
+    match_chart(session, chart)
+
+    session.refresh(entry)
+    # "focus" is a token prefix of "focus on sanity", but the leftover tail
+    # ("on sanity") isn't edition noise, so this stays unmatched.
+    assert not entry.is_matched
+
+
+def test_artist_substring_bleed_is_rejected(session):
+    role = _primary_role(session)
+    _add_track(session, role, "Standing Stones", "Jeremy Soule")
+    chart = _add_chart(session)
+    entry = _add_entry(session, chart, "Standing Stones", "R.E.M.")
+
+    match_chart(session, chart)
+
+    session.refresh(entry)
+    # Title is exact, but "rem" is no longer allowed to match "jeremy soule"
+    # on a bare substring.
+    assert not entry.is_matched
+
+
+def test_edition_suffix_still_matches_via_contains(session):
+    role = _primary_role(session)
+    _add_track(session, role, "On the Border (2001 Remaster)", "Al Stewart")
+    chart = _add_chart(session)
+    entry = _add_entry(session, chart, "On The Border", "Al Stewart")
+
+    stats = match_chart(session, chart)
+
+    assert stats.matched == 1
+    session.refresh(entry)
+    assert entry.match_score == pytest.approx(0.75)
+
+
+def test_featuring_suffix_title_still_matches(session):
+    role = _primary_role(session)
+    _add_track(session, role, "Get Up (Featuring Chamillionaire)", "Ciara")
+    chart = _add_chart(session)
+    entry = _add_entry(session, chart, "Get Up", "Ciara Featuring Chamillionaire")
+
+    stats = match_chart(session, chart)
+
+    assert stats.matched == 1
+    session.refresh(entry)
+    assert entry.is_matched
+
+
+def test_later_year_candidate_rejected_on_the_contains_path(session):
+    """The "not after the chart year" rule guards the fuzzy contains path
+    (the exact-title path trusts a title+artist hit regardless of year,
+    since a hits-compilation carries a much later release_year)."""
+    role = _primary_role(session)
+    # "extended jam" is edition-ish enough to clear the title check but is
+    # not a reissue marker, so the year check still applies.
+    _add_track(
+        session, role, "Purple Rain (Extended Jam)", "Prince", release_year=2005
+    )
+    chart = _add_chart(session)
+    entry = _add_entry(session, chart, "Purple Rain", "Prince", chart_week="1984-09-15")
+
+    match_chart(session, chart)
+
+    session.refresh(entry)
+    assert not entry.is_matched  # 2005 recording can't be a 1984 chart entry
+
+
+def test_exact_title_and_artist_trusted_despite_later_year(session):
+    """A track owned only via a later compilation still matches on an exact
+    title+artist hit -- year is not a veto on the exact path."""
+    role = _primary_role(session)
+    _add_track(session, role, "Comin' Home Baby", "Mel Tormé", release_year=2016)
+    chart = _add_chart(session)
+    entry = _add_entry(
+        session, chart, "Comin' Home Baby", "Mel Torme", chart_week="1962-12-01"
+    )
+
+    stats = match_chart(session, chart)
+
+    assert stats.matched == 1
+    session.refresh(entry)
+    assert entry.is_matched
+
+
+def test_reissue_marked_candidate_survives_the_year_gate(session):
+    role = _primary_role(session)
+    _add_track(
+        session, role, "Year of the Cat (2001 Remaster)", "Al Stewart", release_year=2001
+    )
+    chart = _add_chart(session)
+    entry = _add_entry(
+        session, chart, "Year Of The Cat", "Al Stewart", chart_week="1977-03-12"
+    )
+
+    stats = match_chart(session, chart)
+
+    assert stats.matched == 1  # reissue marker skips the "not after chart year" check
+    session.refresh(entry)
+    assert entry.is_matched
+
+
+def test_year_tiebreak_prefers_candidate_not_after_chart_year(session):
+    role = _primary_role(session)
+    original = _add_track(session, role, "Magic", "The Cars", release_year=1984)
+    _add_track(session, role, "Magic", "The Cars", release_year=2016)
+    chart = _add_chart(session)
+    entry = _add_entry(session, chart, "Magic", "The Cars", chart_week="1984-09-15")
+
+    stats = match_chart(session, chart)
+
+    assert stats.matched == 1
+    session.refresh(entry)
+    assert entry.entity_id == original.track_id
+
+
+def test_one_year_late_release_still_matches_on_contains_path(session):
+    """A single that first charts in Q4 commonly has its album/"release
+    year" recorded as the following year -- one year of slop is allowed on
+    the contains path."""
+    role = _primary_role(session)
+    _add_track(session, role, "TiK ToK (Live)", "Kesha", release_year=2010)
+    chart = _add_chart(session)
+    entry = _add_entry(session, chart, "TiK ToK", "Kesha", chart_week="2009-11-14")
+
+    stats = match_chart(session, chart)
+
+    assert stats.matched == 1
+    session.refresh(entry)
+    assert entry.is_matched
+
+
+def test_two_years_late_release_is_rejected_on_contains_path(session):
+    role = _primary_role(session)
+    _add_track(session, role, "TiK ToK (Live)", "Kesha", release_year=2012)
+    chart = _add_chart(session)
+    entry = _add_entry(session, chart, "TiK ToK", "Kesha", chart_week="2009-11-14")
+
+    match_chart(session, chart)
+
+    session.refresh(entry)
+    assert not entry.is_matched
+
+
+@pytest.mark.parametrize(
+    "library_credit, chart_credit",
+    [
+        ("Icona Pop & Charli XCX", "Icona Pop Featuring Charli XCX"),
+        ("Tom Petty & The Heartbreakers", "Tom Petty And The Heartbreakers"),
+        ("Beyoncé", "Beyonce"),
+        ("Jay-Z & Alicia Keys", "Alicia Keys & Jay-Z"),
+        ("Blood, Sweat & Tears", "Blood Sweat And Tears"),
+        ("Crosby, Stills, Nash & Young", "Crosby, Stills, Nash And Young"),
+    ],
+)
+def test_artist_credit_variants_line_up(session, library_credit, chart_credit):
+    role = _primary_role(session)
+    _add_track(session, role, "Some Song", library_credit)
+    chart = _add_chart(session)
+    entry = _add_entry(session, chart, "Some Song", chart_credit)
+
+    stats = match_chart(session, chart)
+
+    assert stats.matched == 1
+    session.refresh(entry)
+    assert entry.is_matched
+
+
+def test_shared_backing_band_is_not_enough(session):
+    """Two different lead acts that merely share a "& The Crew" tail must
+    not collapse into each other just because the backing band matches."""
+    role = _primary_role(session)
+    _add_track(session, role, "Reeling", "Beta & The Crew")
+    chart = _add_chart(session)
+    entry = _add_entry(session, chart, "Reeling", "Alpha & The Crew")
+
+    match_chart(session, chart)
+
+    session.refresh(entry)
+    assert not entry.is_matched
