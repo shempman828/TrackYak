@@ -7,6 +7,7 @@ the JS bridge, and theming for InfluenceGraphView.
 
 import configparser
 import json
+from typing import ClassVar
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -26,7 +27,7 @@ class InfluenceGraphRenderMixin:
 
     # Canvas background per app theme, so the graph doesn't stay a
     # hardcoded dark rectangle inside a light/colorful/accessibility theme.
-    _THEME_BACKGROUND = {
+    _THEME_BACKGROUND: ClassVar[dict[str, str]] = {
         "dark_mode": "#0b0c10",
         "light_mode": "#f5f6fa",
         "colorful_mode": "#ffffff",
@@ -209,11 +210,7 @@ class InfluenceGraphRenderMixin:
             },
             {
                 "selector": "node[parent].hovered",
-                "style": {
-                    "border-width": 2.5,
-                    "border-opacity": 1,
-                    "border-color": "#ffffff",
-                },
+                "style": {"border-width": 2.5, "border-opacity": 1, "border-color": "#ffffff"},
             },
             {
                 "selector": "edge",
@@ -247,21 +244,19 @@ class InfluenceGraphRenderMixin:
         return {
             "name": "fcose",
             "quality": "default",
+            # randomize seeds fcose's force solve from a random scatter; it
+            # stays on because the spectral/(0,0) fallback gives noticeably
+            # worse first-load layouts, not for any visual effect.
             "randomize": True,
-            "animate": True,
+            # Snap straight to the computed layout. fcose solves the final
+            # node positions instantly; there is no ongoing computation to
+            # visualize, so there is no animation.
+            "animate": False,
             # Node boxes auto-size to exactly contain their own label (see
             # _build_stylesheet's width/height: 'label'), so this is a
             # no-op in practice now, but keeps fcose's collision footprint
             # correct if that ever changes.
             "nodeDimensionsIncludeLabels": True,
-            # fcose computes the final layout instantly, then tweens nodes
-            # from their random starting scatter into place over this
-            # duration -- stretched well past the library default (1000ms)
-            # so the resolve is actually enjoyable to watch, the way the
-            # old per-tick simulation was, without the computation itself
-            # being slow.
-            "animationDuration": 2200,
-            "animationEasing": "ease-out",
             "fit": True,
             "padding": 40,
             "nodeRepulsion": 9000,
@@ -310,9 +305,7 @@ class InfluenceGraphRenderMixin:
             # If this artist is already in the graph, just update the label
             if artist_id in self.node_names:
                 self.node_names[artist_id] = artist_name
-                self._run_js(
-                    f"setLabel({json.dumps(str(artist_id))}, {json.dumps(artist_name)})"
-                )
+                self._run_js(f"setLabel({json.dumps(str(artist_id))}, {json.dumps(artist_name)})")
                 return
 
             self.node_names[artist_id] = artist_name
