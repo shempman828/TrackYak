@@ -286,8 +286,8 @@ class ChartsView(QWidget):
         show_status_message(
             self,
             f"Charts playlists updated: {stats.playlists_created} created, "
-            f"{stats.playlists_updated} updated, {stats.tracks_added} track(s) "
-            f"added, {stats.tracks_removed} removed",
+            f"{stats.playlists_updated} updated, {stats.playlists_removed} deleted, "
+            f"{stats.tracks_added} track(s) added, {stats.tracks_removed} removed",
         )
         # See _on_import_finished: finished fires before the thread has fully
         # unwound, so wait() here before reassigning self._playlist_worker.

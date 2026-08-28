@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 from src.charts.chart_playlist_builder import ChartPlaylistBuilder
 from src.db.db_helpers.add import AddToDB
+from src.db.db_helpers.delete import DeleteDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB
 from src.db.db_tables.album import Album
@@ -27,6 +28,7 @@ class StubController:
         self.get = GetFromDB(session)
         self.add = AddToDB(session)
         self.update = UpdateDB(session)
+        self.delete = DeleteDB(session)
 
 
 @pytest.fixture
@@ -533,3 +535,154 @@ def test_album_entry_year_gate_uses_album_release_year(session, controller):
 
     root = _playlist_by_marker(session, "__chart_playlist__:root:billboard-200")
     assert _track_ids_of(session, root.playlist_id) == set()
+
+
+# ---------------------------------------------------------------------------
+# Match-cleared cleanup: a track added to a year playlist by a match must be
+# removed from that year (and its decade / chart root) on the next run once
+# the match is cleared -- including when clearing it drops the year to zero
+# matched tracks, the case _build_chart_tree's build loop never revisits.
+# ---------------------------------------------------------------------------
+
+
+def _clear_match(session, entry):
+    entry.entity_type = None
+    entry.entity_id = None
+    entry.match_score = None
+    session.commit()
+
+
+def test_cleared_match_removed_from_year_that_still_has_other_tracks(
+    session, controller
+):
+    chart = _make_hot100(session)
+    keep = _make_track(session, "Keeper", 1964)
+    drop = _make_track(session, "Dropped", 1964)
+    keep_entry = _entry(chart, datetime.date(1964, 3, 7), 1, keep.track_id, "Track")
+    drop_entry = _entry(chart, datetime.date(1964, 3, 7), 2, drop.track_id, "Track")
+    session.add_all([keep_entry, drop_entry])
+    session.commit()
+
+    builder = ChartPlaylistBuilder(controller)
+    builder.generate_or_update()
+
+    y64 = _playlist_by_marker(session, "__chart_playlist__:year:hot-100:1964")
+    assert _track_ids_of(session, y64.playlist_id) == {keep.track_id, drop.track_id}
+
+    _clear_match(session, drop_entry)
+    builder.generate_or_update()
+
+    d60 = _playlist_by_marker(session, "__chart_playlist__:decade:hot-100:1960")
+    root = _playlist_by_marker(session, "__chart_playlist__:root:hot-100")
+    assert _track_ids_of(session, y64.playlist_id) == {keep.track_id}
+    assert _track_ids_of(session, d60.playlist_id) == {keep.track_id}
+    assert _track_ids_of(session, root.playlist_id) == {keep.track_id}
+
+
+def test_cleared_match_empties_and_deletes_year_that_drops_to_zero(
+    session, controller
+):
+    chart = _make_hot100(session)
+    t64 = _make_track(session, "Only 64 Hit", 1964)
+    t67 = _make_track(session, "A 67 Hit", 1967)
+    e64 = _entry(chart, datetime.date(1964, 3, 7), 1, t64.track_id, "Track")
+    session.add_all(
+        [e64, _entry(chart, datetime.date(1967, 5, 6), 1, t67.track_id, "Track")]
+    )
+    session.commit()
+
+    builder = ChartPlaylistBuilder(controller)
+    builder.generate_or_update()
+
+    y64_id = _playlist_by_marker(
+        session, "__chart_playlist__:year:hot-100:1964"
+    ).playlist_id
+
+    _clear_match(session, e64)
+    stats = builder.generate_or_update()
+
+    # The 1964 node is gone entirely, and its track row with it.
+    assert (
+        session.query(Playlist)
+        .filter(Playlist.playlist_description == "__chart_playlist__:year:hot-100:1964")
+        .count()
+        == 0
+    )
+    assert _track_ids_of(session, y64_id) == set()
+    assert stats.playlists_removed == 1
+
+    # The still-live siblings are untouched; the decade / root no longer
+    # carry the cleared track.
+    d60 = _playlist_by_marker(session, "__chart_playlist__:decade:hot-100:1960")
+    root = _playlist_by_marker(session, "__chart_playlist__:root:hot-100")
+    y67 = _playlist_by_marker(session, "__chart_playlist__:year:hot-100:1967")
+    assert _track_ids_of(session, y67.playlist_id) == {t67.track_id}
+    assert _track_ids_of(session, d60.playlist_id) == {t67.track_id}
+    assert _track_ids_of(session, root.playlist_id) == {t67.track_id}
+
+
+def test_whole_decade_dropping_to_zero_is_emptied_and_deleted(session, controller):
+    chart = _make_hot100(session)
+    t64 = _make_track(session, "60s Hit", 1964)
+    t71 = _make_track(session, "70s Hit", 1971)
+    e64 = _entry(chart, datetime.date(1964, 3, 7), 1, t64.track_id, "Track")
+    session.add_all(
+        [e64, _entry(chart, datetime.date(1971, 5, 6), 1, t71.track_id, "Track")]
+    )
+    session.commit()
+
+    builder = ChartPlaylistBuilder(controller)
+    builder.generate_or_update()
+
+    _clear_match(session, e64)
+    builder.generate_or_update()
+
+    for marker in (
+        "__chart_playlist__:year:hot-100:1964",
+        "__chart_playlist__:decade:hot-100:1960",
+    ):
+        assert (
+            session.query(Playlist)
+            .filter(Playlist.playlist_description == marker)
+            .count()
+            == 0
+        )
+    root = _playlist_by_marker(session, "__chart_playlist__:root:hot-100")
+    assert _track_ids_of(session, root.playlist_id) == {t71.track_id}
+
+
+def test_stale_year_with_user_playlist_child_is_emptied_but_kept(session, controller):
+    chart = _make_hot100(session)
+    t64 = _make_track(session, "Only 64 Hit", 1964)
+    t67 = _make_track(session, "A 67 Hit", 1967)
+    e64 = _entry(chart, datetime.date(1964, 3, 7), 1, t64.track_id, "Track")
+    session.add_all(
+        [e64, _entry(chart, datetime.date(1967, 5, 6), 1, t67.track_id, "Track")]
+    )
+    session.commit()
+
+    builder = ChartPlaylistBuilder(controller)
+    builder.generate_or_update()
+
+    y64 = _playlist_by_marker(session, "__chart_playlist__:year:hot-100:1964")
+    mine = Playlist(playlist_name="My 64 Mix", parent_id=y64.playlist_id)
+    session.add(mine)
+    session.commit()
+    my_track = _make_track(session, "My pick")
+    session.add(
+        PlaylistTracks(
+            playlist_id=mine.playlist_id, track_id=my_track.track_id, position=1
+        )
+    )
+    session.commit()
+    mine_id = mine.playlist_id
+
+    _clear_match(session, e64)
+    builder.generate_or_update()
+
+    # The generated 1964 node stays (it still has a child), but its own
+    # chart tracks are stripped; the user's nested playlist is untouched.
+    kept = _playlist_by_marker(session, "__chart_playlist__:year:hot-100:1964")
+    assert _track_ids_of(session, kept.playlist_id) == set()
+    assert session.get(Playlist, mine_id) is not None
+    assert _track_ids_of(session, mine_id) == {my_track.track_id}

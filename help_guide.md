@@ -398,6 +398,13 @@ so a catalog re-entry or a greatest-hits match (a 60s song that charts again
 today) won't land in this decade's playlist; tracks with no known year are
 left out of the year/decade playlists entirely.
 
+Re-running it keeps the playlists in step with your matches in both
+directions: clearing or changing a match removes that track from the year,
+decade, and chart-root playlists on the next run, and a year or decade
+playlist that ends up with no matched tracks at all is emptied and then
+deleted (unless you've nested your own playlist under it, which keeps that
+branch).
+
 ## Sync
 
 Push curated playlists and moods out to an Android device or a plain folder

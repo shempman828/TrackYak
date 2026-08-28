@@ -56,13 +56,15 @@ class ChartPlaylistStats:
     def __init__(self):
         self.playlists_created = 0
         self.playlists_updated = 0
+        self.playlists_removed = 0
         self.tracks_added = 0
         self.tracks_removed = 0
 
     def __repr__(self):
         return (
             f"ChartPlaylistStats(created={self.playlists_created}, "
-            f"updated={self.playlists_updated}, tracks_added={self.tracks_added}, "
+            f"updated={self.playlists_updated}, removed={self.playlists_removed}, "
+            f"tracks_added={self.tracks_added}, "
             f"tracks_removed={self.tracks_removed})"
         )
 
@@ -88,12 +90,14 @@ class ChartPlaylistBuilder:
         total_years = sum(len(yt) for _, yt in chart_year_tracks)
         done = 0
 
+        live_markers: set[str] = set()
         for chart, year_tracks in chart_year_tracks:
-            self._build_chart_tree(chart, year_tracks, stats)
+            live_markers |= self._build_chart_tree(chart, year_tracks, stats)
             done += len(year_tracks)
             if progress_callback:
                 progress_callback(done, total_years)
 
+        self._prune_stale_playlists(live_markers, stats)
         return stats
 
     # ------------------------------------------------------------------
@@ -182,7 +186,25 @@ class ChartPlaylistBuilder:
 
     def _build_chart_tree(
         self, chart, year_tracks: dict[int, set[int]], stats: ChartPlaylistStats
-    ) -> None:
+    ) -> set[str]:
+        """Build/update this chart's tree and return the set of markers that
+        should still carry current content after this run -- the chart root
+        (always), plus a decade/year marker for every decade/year that has
+        at least one matched track. _prune_stale_playlists() uses this to
+        find generated playlists whose year/decade no longer matches
+        anything and strip their now-stranded tracks."""
+        decade_tracks: dict[int, set[int]] = defaultdict(set)
+        for year, track_ids in year_tracks.items():
+            decade_tracks[year - (year % 10)].update(track_ids)
+
+        live_markers = {_root_marker(chart.chart_key)}
+        live_markers.update(
+            _decade_marker(chart.chart_key, decade) for decade in decade_tracks
+        )
+        live_markers.update(
+            _year_marker(chart.chart_key, year) for year in year_tracks
+        )
+
         root = self._find_or_create(
             marker=_root_marker(chart.chart_key),
             name=chart.chart_name,
@@ -191,11 +213,7 @@ class ChartPlaylistBuilder:
         )
         if root is None:
             logger.error(f"Could not create/find root playlist for chart {chart.chart_key}")
-            return
-
-        decade_tracks: dict[int, set[int]] = defaultdict(set)
-        for year, track_ids in year_tracks.items():
-            decade_tracks[year - (year % 10)].update(track_ids)
+            return live_markers
 
         decade_playlist_ids: dict[int, int] = {}
         for decade in sorted(decade_tracks):
@@ -231,6 +249,61 @@ class ChartPlaylistBuilder:
         for track_ids in decade_tracks.values():
             root_tracks.update(track_ids)
         self._sync(root.playlist_id, root_tracks, stats)
+
+        return live_markers
+
+    # ------------------------------------------------------------------
+    # Stale-node pruning
+    # ------------------------------------------------------------------
+
+    def _prune_stale_playlists(
+        self, live_markers: set[str], stats: ChartPlaylistStats
+    ) -> None:
+        """Strip stranded tracks from -- and delete when childless -- any
+        previously generated chart playlist whose year/decade no longer
+        resolves to a single matched track this run (e.g. its only matched
+        entries have since been un-matched, or gated out by the release-year
+        proximity rule). _build_chart_tree only ever visits years/decades
+        that have tracks, so without this pass those old PlaylistTracks rows
+        would stay behind forever.
+
+        A generated node is deleted only when nothing else hangs off it: a
+        user playlist manually nested under a chart node counts as a child
+        and keeps that branch (emptied of chart tracks, but present)."""
+        generated = self.controller.get.get_all_entities(
+            "Playlist", playlist_description__startswith=_MARKER_PREFIX
+        )
+        stale = [p for p in generated if p.playlist_description not in live_markers]
+        if not stale:
+            return
+
+        # 1. Empty every stale node -- this is what actually removes a track
+        #    from, say, the 1964 playlist once its match is cleared.
+        stale_ids = []
+        for playlist in stale:
+            playlist_id = playlist.playlist_id
+            stale_ids.append((playlist_id, playlist.playlist_description))
+            self._sync(playlist_id, set(), stats)
+
+        # 2. Delete the emptied nodes, leaves first (year -> decade -> root)
+        #    so a stale decade/root becomes childless once its generated
+        #    children are gone.
+        depth = {"year": 0, "decade": 1, "root": 2}
+
+        def _kind(marker: str) -> str:
+            parts = marker.split(":")
+            return parts[1] if len(parts) > 1 else ""
+
+        for playlist_id, marker in sorted(
+            stale_ids, key=lambda pair: depth.get(_kind(pair[1]), 9)
+        ):
+            has_child = self.controller.get.get_entity_object(
+                "Playlist", parent_id__eq=playlist_id
+            )
+            if has_child is not None:
+                continue
+            if self.controller.delete.delete_entity("Playlist", entity_id=playlist_id):
+                stats.playlists_removed += 1
 
     # ------------------------------------------------------------------
     # Find-or-create / sync helpers
