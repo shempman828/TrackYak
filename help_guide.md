@@ -392,7 +392,11 @@ every week that same song appeared as unmatched, not just the row you
 clicked.
 
 Once you're happy with your matches, Generate/Update Charts Playlists builds
-playlists straight from the chart data.
+playlists straight from the chart data. A matched track is only filed under a
+given chart year when its own release/recorded year is within two years of it,
+so a catalog re-entry or a greatest-hits match (a 60s song that charts again
+today) won't land in this decade's playlist; tracks with no known year are
+left out of the year/decade playlists entirely.
 
 ## Sync
 

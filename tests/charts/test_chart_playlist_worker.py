@@ -52,7 +52,7 @@ def _seed_one_matched_entry(session):
         matched_entity_type="Track",
         last_synced_week=datetime.date(2023, 12, 30),
     )
-    track = Track(track_name="Song")
+    track = Track(track_name="Song", recorded_year=1965)
     session.add_all([chart, track])
     session.commit()
     session.add(

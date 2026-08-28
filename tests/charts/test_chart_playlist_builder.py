@@ -70,8 +70,8 @@ def _make_bb200(session) -> Chart:
     return chart
 
 
-def _make_track(session, name) -> Track:
-    track = Track(track_name=name)
+def _make_track(session, name, year=None) -> Track:
+    track = Track(track_name=name, recorded_year=year)
     session.add(track)
     session.commit()
     return track
@@ -112,8 +112,8 @@ def _track_ids_of(session, playlist_id):
 
 def test_creates_root_decade_year_tree_with_correct_contents(session, controller):
     chart = _make_hot100(session)
-    t65 = _make_track(session, "1965 Song")
-    t66 = _make_track(session, "1966 Song")
+    t65 = _make_track(session, "1965 Song", 1965)
+    t66 = _make_track(session, "1966 Song", 1966)
     session.add_all(
         [
             _entry(chart, datetime.date(1965, 6, 1), 1, t65.track_id, "Track"),
@@ -148,7 +148,7 @@ def test_creates_root_decade_year_tree_with_correct_contents(session, controller
 
 def test_multi_week_track_deduped_within_year(session, controller):
     chart = _make_hot100(session)
-    track = _make_track(session, "Recurring Hit")
+    track = _make_track(session, "Recurring Hit", 1965)
     session.add_all(
         [
             _entry(chart, datetime.date(1965, 1, 2), 1, track.track_id, "Track"),
@@ -171,9 +171,9 @@ def test_multi_week_track_deduped_within_year(session, controller):
 
 def test_decade_and_root_materialize_union_of_children(session, controller):
     chart = _make_hot100(session)
-    t65 = _make_track(session, "A")
-    t66 = _make_track(session, "B")
-    t71 = _make_track(session, "C")
+    t65 = _make_track(session, "A", 1965)
+    t66 = _make_track(session, "B", 1966)
+    t71 = _make_track(session, "C", 1971)
     session.add_all(
         [
             _entry(chart, datetime.date(1965, 6, 1), 1, t65.track_id, "Track"),
@@ -205,7 +205,7 @@ def test_decade_and_root_materialize_union_of_children(session, controller):
 
 def test_album_matched_entry_expands_to_its_tracks(session, controller):
     chart = _make_bb200(session)
-    album = Album(album_name="Greatest Hits")
+    album = Album(album_name="Greatest Hits", release_year=1967)
     session.add(album)
     session.commit()
 
@@ -259,8 +259,8 @@ def test_unmatched_entries_are_skipped(session, controller):
 
 def test_stale_track_match_does_not_poison_the_whole_sync(session, controller):
     chart = _make_hot100(session)
-    live_track = _make_track(session, "Still Here")
-    deleted_track = _make_track(session, "Will Be Deleted")
+    live_track = _make_track(session, "Still Here", 1965)
+    deleted_track = _make_track(session, "Will Be Deleted", 1965)
     deleted_track_id = deleted_track.track_id
     session.add_all(
         [
@@ -289,7 +289,7 @@ def test_stale_track_match_does_not_poison_the_whole_sync(session, controller):
 
 def test_rerun_with_no_new_data_is_idempotent(session, controller):
     chart = _make_hot100(session)
-    track = _make_track(session, "Song")
+    track = _make_track(session, "Song", 1965)
     session.add(_entry(chart, datetime.date(1965, 6, 1), 1, track.track_id, "Track"))
     session.commit()
 
@@ -340,8 +340,8 @@ def test_every_chart_row_processed_even_with_no_entries(session, controller):
 
 def test_incremental_rerun_only_affects_changed_year(session, controller):
     chart = _make_hot100(session)
-    t65 = _make_track(session, "1965 Song")
-    t71 = _make_track(session, "1971 Song")
+    t65 = _make_track(session, "1965 Song", 1965)
+    t71 = _make_track(session, "1971 Song", 1971)
     session.add_all(
         [
             _entry(chart, datetime.date(1965, 6, 1), 1, t65.track_id, "Track"),
@@ -357,7 +357,7 @@ def test_incremental_rerun_only_affects_changed_year(session, controller):
     y71_tracks_before = _track_ids_of(session, y71_before.playlist_id)
 
     # Simulate a later Match Now run finding a second match for 1965.
-    t65b = _make_track(session, "1965 Song B")
+    t65b = _make_track(session, "1965 Song B", 1965)
     session.add(_entry(chart, datetime.date(1965, 6, 8), 2, t65b.track_id, "Track"))
     session.commit()
 
@@ -377,7 +377,7 @@ def test_incremental_rerun_only_affects_changed_year(session, controller):
 
 def test_user_playlist_under_generated_root_is_untouched(session, controller):
     chart = _make_hot100(session)
-    track = _make_track(session, "Song")
+    track = _make_track(session, "Song", 1965)
     session.add(_entry(chart, datetime.date(1965, 6, 1), 1, track.track_id, "Track"))
     session.commit()
 
@@ -419,7 +419,7 @@ def test_renamed_generated_playlist_is_found_by_marker_not_duplicated(
     session, controller
 ):
     chart = _make_hot100(session)
-    track = _make_track(session, "Song")
+    track = _make_track(session, "Song", 1965)
     session.add(_entry(chart, datetime.date(1965, 6, 1), 1, track.track_id, "Track"))
     session.commit()
 
@@ -437,3 +437,99 @@ def test_renamed_generated_playlist_is_found_by_marker_not_duplicated(
     )
     assert len(matches) == 1
     assert matches[0].playlist_name == "My Renamed Hot 100"
+
+
+# ---------------------------------------------------------------------------
+# Year-proximity gate: a matched track only belongs in a chart *year*
+# playlist when its own release/recorded year is within _YEAR_TOLERANCE of
+# that year. Catalog re-entries and hits-comps ("Let It Be" charting again
+# in 2010) link to a recent chart week but are decades-old recordings.
+# ---------------------------------------------------------------------------
+
+
+def test_track_charting_decades_after_release_is_excluded(session, controller):
+    chart = _make_hot100(session)
+    reissue_reentry = _make_track(session, "Let It Be", 1970)
+    contemporary = _make_track(session, "Airplanes", 2010)
+    session.add_all(
+        [
+            _entry(chart, datetime.date(2010, 10, 2), 1, reissue_reentry.track_id, "Track"),
+            _entry(chart, datetime.date(2010, 10, 2), 2, contemporary.track_id, "Track"),
+        ]
+    )
+    session.commit()
+
+    ChartPlaylistBuilder(controller).generate_or_update()
+
+    root = _playlist_by_marker(session, "__chart_playlist__:root:hot-100")
+    assert _track_ids_of(session, root.playlist_id) == {contemporary.track_id}
+
+    # The 1970s decade / any 1970 year node must not have been created for
+    # this chart at all -- the only entry was in a 2010 week.
+    assert (
+        session.query(Playlist)
+        .filter(
+            Playlist.playlist_description == "__chart_playlist__:decade:hot-100:1970"
+        )
+        .count()
+        == 0
+    )
+    y2010 = _playlist_by_marker(session, "__chart_playlist__:year:hot-100:2010")
+    assert _track_ids_of(session, y2010.playlist_id) == {contemporary.track_id}
+
+
+def test_year_gate_boundary_is_inclusive_at_two(session, controller):
+    chart = _make_hot100(session)
+    two_off = _make_track(session, "Late Peak", 1969)  # |1969 - 1971| == 2
+    three_off = _make_track(session, "Too Old", 1968)  # |1968 - 1971| == 3
+    session.add_all(
+        [
+            _entry(chart, datetime.date(1971, 6, 1), 1, two_off.track_id, "Track"),
+            _entry(chart, datetime.date(1971, 6, 1), 2, three_off.track_id, "Track"),
+        ]
+    )
+    session.commit()
+
+    ChartPlaylistBuilder(controller).generate_or_update()
+
+    y71 = _playlist_by_marker(session, "__chart_playlist__:year:hot-100:1971")
+    assert _track_ids_of(session, y71.playlist_id) == {two_off.track_id}
+
+
+def test_track_with_no_known_year_is_excluded(session, controller):
+    chart = _make_hot100(session)
+    undated = _make_track(session, "No Metadata")  # no recorded_year, no album
+    session.add(_entry(chart, datetime.date(1965, 6, 1), 1, undated.track_id, "Track"))
+    session.commit()
+
+    ChartPlaylistBuilder(controller).generate_or_update()
+
+    root = _playlist_by_marker(session, "__chart_playlist__:root:hot-100")
+    assert _track_ids_of(session, root.playlist_id) == set()
+    assert (
+        session.query(Playlist)
+        .filter(
+            Playlist.playlist_description == "__chart_playlist__:year:hot-100:1965"
+        )
+        .count()
+        == 0
+    )
+
+
+def test_album_entry_year_gate_uses_album_release_year(session, controller):
+    chart = _make_bb200(session)
+    old_album = Album(album_name="Abbey Road", release_year=1969)
+    session.add(old_album)
+    session.commit()
+    t1 = Track(track_name="Come Together", album_id=old_album.album_id)
+    session.add(t1)
+    session.commit()
+
+    # Album re-charts on a 2019 anniversary reissue week.
+    session.add(_entry(chart, datetime.date(2019, 10, 5), 1, old_album.album_id, "Album"))
+    session.commit()
+
+    ChartPlaylistBuilder(controller).generate_or_update()
+
+    root = _playlist_by_marker(session, "__chart_playlist__:root:billboard-200")
+    assert _track_ids_of(session, root.playlist_id) == set()
