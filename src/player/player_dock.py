@@ -1,3 +1,4 @@
+from contextlib import suppress
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
@@ -13,10 +14,10 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.rating_widget import RatingStarsWidget
 from src.core.asset_paths import icon
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
-from src.common.rating_widget import RatingStarsWidget
 from src.core.status_utility import StatusManager
 from src.player.player_context_menu import PlayerContextMenuMixin
 from src.player.track_display_formatter import format_track_display
@@ -87,9 +88,7 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
         self.track_info_label = self.track_info_widget.title_label
 
         # Playback buttons
-        self.previous_button = self._create_button(
-            "previous_button.svg", "Previous Track"
-        )
+        self.previous_button = self._create_button("previous_button.svg", "Previous Track")
         self.play_button = self._create_button("play_button.svg", "Play")
         self.pause_button = self._create_button("pause_button.svg", "Pause")
         self.stop_button = self._create_button("stop_button.svg", "Stop")
@@ -230,23 +229,16 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
         self.vol_down_shortcut = _shortcut("Ctrl+Down", player.decrease_volume)
         self.seek_forward_shortcut = _shortcut("Shift+Right", player.seek_forward)
         self.seek_backward_shortcut = _shortcut("Shift+Left", player.seek_backward)
-        self.rating_up_shortcut = _shortcut(
-            "Ctrl+Shift+Up", lambda: self._adjust_rating(0.5)
-        )
-        self.rating_down_shortcut = _shortcut(
-            "Ctrl+Shift+Down", lambda: self._adjust_rating(-0.5)
-        )
+        self.rating_up_shortcut = _shortcut("Ctrl+Shift+Up", lambda: self._adjust_rating(0.5))
+        self.rating_down_shortcut = _shortcut("Ctrl+Shift+Down", lambda: self._adjust_rating(-0.5))
+        self.lyrics_search_shortcut = _shortcut("Ctrl+Shift+L", self._context_search_lyrics)
 
         # ── System media keys (application-wide) ─────────────────────────────
         self.media_play_shortcut = _shortcut(
             Qt.Key_MediaPlay, player.toggle_play_pause, app_wide=True
         )
-        self.media_stop_shortcut = _shortcut(
-            Qt.Key_MediaStop, player.stop, app_wide=True
-        )
-        self.media_next_shortcut = _shortcut(
-            Qt.Key_MediaNext, player.play_next, app_wide=True
-        )
+        self.media_stop_shortcut = _shortcut(Qt.Key_MediaStop, player.stop, app_wide=True)
+        self.media_next_shortcut = _shortcut(Qt.Key_MediaNext, player.play_next, app_wide=True)
         self.media_prev_shortcut = _shortcut(
             Qt.Key_MediaPrevious, player.play_previous, app_wide=True
         )
@@ -256,9 +248,7 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
         self.media_vol_down_shortcut = _shortcut(
             Qt.Key_VolumeDown, player.decrease_volume, app_wide=True
         )
-        self.media_mute_shortcut = _shortcut(
-            Qt.Key_VolumeMute, self._toggle_mute, app_wide=True
-        )
+        self.media_mute_shortcut = _shortcut(Qt.Key_VolumeMute, self._toggle_mute, app_wide=True)
 
     def _toggle_mute(self):
         """Toggle mute: set volume to 0 or restore previous level."""
@@ -290,7 +280,10 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
         return dock
 
     def _update_track_display(self, file_path: Path):
-        """Update UI elements based on track state with robust formatting for classical/non-classical tracks."""
+        """Update UI elements based on track state.
+
+        Uses robust formatting for classical and non-classical tracks.
+        """
         # Reset position display immediately on every track change
         self.position_slider.blockSignals(True)
         self.position_slider.setValue(0)
@@ -307,9 +300,7 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
                     self.current_track = track
                     self.rating_container.show()
                     self.rating_stars.set_current_file(file_path)
-                    self.rating_stars.set_rating(
-                        getattr(track, "user_rating", 0.0) or 0.0
-                    )
+                    self.rating_stars.set_rating(getattr(track, "user_rating", 0.0) or 0.0)
 
                     # Update the rich track info widget (title + artist + album)
                     self.track_info_widget.update_track(track)
@@ -402,10 +393,8 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
                 self.rating_debounce_timer.stop()
 
             # Connect the timeout signal if not already connected
-            try:
+            with suppress(RuntimeError):  # Was not connected
                 self.rating_debounce_timer.timeout.disconnect()
-            except RuntimeError:
-                pass  # Was not connected
 
             self.rating_debounce_timer.timeout.connect(self._commit_rating_to_db)
             self.rating_debounce_timer.start(500)  # 500ms debounce
@@ -414,10 +403,7 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
 
     def _commit_rating_to_db(self):
         """Commit rating after debounce."""
-        if not (
-            hasattr(self, "pending_rating_update")
-            and hasattr(self, "pending_track_file")
-        ):
+        if not (hasattr(self, "pending_rating_update") and hasattr(self, "pending_track_file")):
             logger.warning("No pending rating to commit")
             return
 
@@ -437,9 +423,8 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
                 self.controller.update.update_entity(
                     "Track", track.track_id, user_rating=self.pending_rating_update
                 )
-                logger.info(
-                    f"Updated rating for '{getattr(track, 'track_name', 'Unknown')}' to {self.pending_rating_update}"
-                )
+                track_name = getattr(track, "track_name", "Unknown")
+                logger.info(f"Updated rating for '{track_name}' to {self.pending_rating_update}")
             else:
                 logger.warning("Track not found or has no track_id")
                 StatusManager.show_message(
@@ -459,15 +444,11 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
             self.play_button.clicked.connect(self.controller.mediaplayer.play)
             self.pause_button.clicked.connect(self.controller.mediaplayer.pause)
             self.stop_button.clicked.connect(self.controller.mediaplayer.stop)
-            self.previous_button.clicked.connect(
-                self.controller.mediaplayer.play_previous
-            )
+            self.previous_button.clicked.connect(self.controller.mediaplayer.play_previous)
             self.next_button.clicked.connect(self.controller.mediaplayer.play_next)
 
             # Connect volume and seek
-            self.volume_slider.valueChanged.connect(
-                self.controller.mediaplayer.set_volume
-            )
+            self.volume_slider.valueChanged.connect(self.controller.mediaplayer.set_volume)
             self.volume_slider.valueChanged.connect(self._update_volume_tooltip)
             self.position_slider.sliderPressed.connect(self._on_seek_pressed)
             self.position_slider.sliderReleased.connect(self._on_seek_released)
@@ -527,20 +508,18 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
         """Show the current volume percentage in the slider's tooltip."""
         self.volume_slider.setToolTip(f"Volume: {value}%")
 
-    def update_position(self, position: int = None):
+    def update_position(self, position: int | None = None):
         """Update position slider and label."""
+        mediaplayer = self.controller.mediaplayer
         if position is None:
-            position = self.controller.mediaplayer.position
+            position = mediaplayer.position
 
-        if (
-            self.controller.mediaplayer.duration > 0
-            and not self.position_slider.isSliderDown()
-        ):
+        if mediaplayer.duration > 0 and not self.position_slider.isSliderDown():
             self.position_slider.blockSignals(True)
             self.position_slider.setValue(position)
             self.position_slider.blockSignals(False)
         self.position_label.setText(
-            f"{self.format_time(position)} / {self.format_time(self.controller.mediaplayer.duration)}"
+            f"{self.format_time(position)} / {self.format_time(mediaplayer.duration)}"
         )
 
     def update_duration(self, duration: int):

@@ -469,12 +469,14 @@ off, repeat-one, and repeat-all. Right-click it for quick access to editing
 the current track/album/artist, searching for lyrics, or adding the track to
 a playlist or mood without leaving whatever view you're in. A found lyrics
 search is saved automatically and scanned for [moods](#moods) on the spot,
-with the status bar naming whatever matched.
+with the status bar naming whatever matched. `Ctrl+Shift+L` kicks off the
+same lyrics search from the keyboard.
 
 *Quick reference: `Space` play/pause · `Ctrl+.` stop · `Ctrl+→`/`Ctrl+←`
 next/previous · `Ctrl+↑`/`Ctrl+↓` volume · `Shift+→`/`Shift+←` seek ·
-`Ctrl+Shift+↑`/`Ctrl+Shift+↓` rate up/down half a star. Media keys on your
-keyboard work even when the app isn't focused.*
+`Ctrl+Shift+↑`/`Ctrl+Shift+↓` rate up/down half a star · `Ctrl+Shift+L`
+search lyrics for the current track. Media keys on your keyboard work even
+when the app isn't focused.*
 
 ## Queue Dock
 
