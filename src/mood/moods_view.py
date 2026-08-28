@@ -49,7 +49,7 @@ class MoodView(QWidget):
         self.current_mood_id = None
         self.moods_data = []
         self.flat_view = False
-        self.setWindowTitle("Moods|Folksonomy")
+        self.setWindowTitle('Moods|Folksonomy')
         self.setGeometry(100, 100, 1000, 700)
         self.init_ui()
         self.load_moods()
@@ -62,28 +62,28 @@ class MoodView(QWidget):
         # Header with title and controls
         header_layout = QHBoxLayout()
 
-        title = QLabel("Moods|Folksonomy")
-        title.setFont(QFont("Arial", 16, QFont.Bold))
+        title = QLabel('Moods|Folksonomy')
+        title.setFont(QFont('Arial', 16, QFont.Bold))
         header_layout.addWidget(title)
 
         header_layout.addStretch()
 
         # Expand/Collapse all buttons
-        self.btn_expand_all = QPushButton("Expand All")
-        self.btn_expand_all.setToolTip("Expand all items in the tree")
+        self.btn_expand_all = QPushButton('Expand All')
+        self.btn_expand_all.setToolTip('Expand all items in the tree')
         self.btn_expand_all.clicked.connect(lambda: self.mood_tree.expandAll())
         header_layout.addWidget(self.btn_expand_all)
 
-        self.btn_collapse_all = QPushButton("Collapse All")
-        self.btn_collapse_all.setToolTip("Collapse all items in the tree")
+        self.btn_collapse_all = QPushButton('Collapse All')
+        self.btn_collapse_all.setToolTip('Collapse all items in the tree')
         self.btn_collapse_all.clicked.connect(lambda: self.mood_tree.collapseAll())
         header_layout.addWidget(self.btn_collapse_all)
 
-        self.flat_view_button = QPushButton("Flat View")
+        self.flat_view_button = QPushButton('Flat View')
         self.flat_view_button.setCheckable(True)
         self.flat_view_button.setChecked(False)
         self.flat_view_button.setToolTip(
-            "Toggle between the hierarchical tree and a flat alphabetical list"
+            'Toggle between the hierarchical tree and a flat alphabetical list'
         )
         self.flat_view_button.clicked.connect(self.toggle_flat_view)
         header_layout.addWidget(self.flat_view_button)
@@ -92,7 +92,7 @@ class MoodView(QWidget):
 
         # Search box
         self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText("Search moods...")
+        self.search_box.setPlaceholderText('Search moods...')
         self.search_box.textChanged.connect(self.filter_moods)
         main_layout.addWidget(self.search_box)
 
@@ -118,13 +118,13 @@ class MoodView(QWidget):
         main_layout.addWidget(self.mood_tree)
 
         # Statistics
-        stats_group = QGroupBox("Statistics")
+        stats_group = QGroupBox('Statistics')
         stats_layout = QHBoxLayout()
 
-        self.stats_label = QLabel("Total moods: 0")
+        self.stats_label = QLabel('Total moods: 0')
         stats_layout.addWidget(self.stats_label)
 
-        self.tracks_count_label = QLabel("Tracks with moods: 0")
+        self.tracks_count_label = QLabel('Tracks with moods: 0')
         stats_layout.addWidget(self.tracks_count_label)
 
         stats_layout.addStretch()
@@ -136,12 +136,12 @@ class MoodView(QWidget):
     def load_moods(self):
         """Load moods from database and build hierarchy"""
         try:
-            self.moods_data = self.controller.get.get_all_entities("Mood")
+            self.moods_data = self.controller.get.get_all_entities('Mood')
             self.build_mood_tree()
             self.update_statistics()
         except (SQLAlchemyError, AttributeError) as e:
-            logger.error(f"Error loading moods: {e}")
-            QMessageBox.warning(self, "Error", f"Failed to load moods: {str(e)}")
+            logger.error(f'Error loading moods: {e}')
+            QMessageBox.warning(self, 'Error', f'Failed to load moods: {e!s}')
 
     def handle_drop_event(self, event):
         """Handle drop event to update parent relationship in database"""
@@ -162,42 +162,30 @@ class MoodView(QWidget):
             target_item = self.mood_tree.itemAt(drop_pos)
 
             # Determine new parent based on drop position
-            if target_item:
-                # Dropped on an item (becomes child)
-                new_parent_id = target_item.data(0, Qt.UserRole)
-            else:
-                # Dropped in empty space (becomes root)
-                new_parent_id = None
+            new_parent_id = target_item.data(0, Qt.UserRole) if target_item else None
 
             # Prevent circular reference
             if new_parent_id and (
                 dragged_mood_id == new_parent_id
                 or is_hierarchy_descendant(
-                    dragged_mood_id,
-                    new_parent_id,
-                    self.moods_data,
-                    id_attr="mood_id",
+                    dragged_mood_id, new_parent_id, self.moods_data, id_attr='mood_id'
                 )
             ):
                 show_status_message(
-                    self, "Cannot make a mood a child of itself or its descendants."
+                    self, 'Cannot make a mood a child of itself or its descendants.'
                 )
                 event.ignore()
                 return
 
             # Get current parent from database
-            current_mood = next(
-                (m for m in self.moods_data if m.mood_id == dragged_mood_id), None
-            )
+            current_mood = next((m for m in self.moods_data if m.mood_id == dragged_mood_id), None)
             if current_mood and current_mood.parent_id == new_parent_id:
                 event.ignore()  # No change needed
                 return
 
             # Update the database
-            self.controller.update.update_entity(
-                "Mood", dragged_mood_id, parent_id=new_parent_id
-            )
-            self.mood_updated.emit(dragged_mood_id, {"parent_id": new_parent_id})
+            self.controller.update.update_entity('Mood', dragged_mood_id, parent_id=new_parent_id)
+            self.mood_updated.emit(dragged_mood_id, {'parent_id': new_parent_id})
 
             # Allow the default drop to handle visual update
             super(QTreeWidget, self.mood_tree).dropEvent(event)
@@ -206,7 +194,7 @@ class MoodView(QWidget):
             self.load_moods()
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error handling drop event: {e}")
+            logger.error(f'Error handling drop event: {e}')
             event.ignore()
             # Revert UI on error
             self.load_moods()
@@ -223,23 +211,19 @@ class MoodView(QWidget):
 
         # If no moods exist, show a helpful message
         if not self.moods_data:
-            item = QTreeWidgetItem(self.mood_tree, ["No moods found"])
+            item = QTreeWidgetItem(self.mood_tree, ['No moods found'])
             item.setData(0, Qt.UserRole, None)
 
             # Add instructional sub-items
-            tip1 = QTreeWidgetItem(item, ["Right-click to create your first mood"])
+            tip1 = QTreeWidgetItem(item, ['Right-click to create your first mood'])
             tip1.setData(0, Qt.UserRole, None)
-            tip1.setIcon(
-                0, create_colored_icon(QColor(100, 149, 237))
-            )  # Cornflower blue
+            tip1.setIcon(0, create_colored_icon(QColor(100, 149, 237)))  # Cornflower blue
 
-            tip2 = QTreeWidgetItem(item, ["Moods can be organized in a hierarchy"])
+            tip2 = QTreeWidgetItem(item, ['Moods can be organized in a hierarchy'])
             tip2.setData(0, Qt.UserRole, None)
-            tip2.setIcon(
-                0, create_colored_icon(QColor(60, 179, 113))
-            )  # Medium sea green
+            tip2.setIcon(0, create_colored_icon(QColor(60, 179, 113)))  # Medium sea green
 
-            tip3 = QTreeWidgetItem(item, ["Drag and drop to reorder moods"])
+            tip3 = QTreeWidgetItem(item, ['Drag and drop to reorder moods'])
             tip3.setData(0, Qt.UserRole, None)
             tip3.setIcon(0, create_colored_icon(QColor(255, 165, 0)))  # Orange
 
@@ -283,9 +267,7 @@ class MoodView(QWidget):
 
             # Add root moods to tree
             for mood in root_moods:
-                item = self._make_mood_item(
-                    mood, own_counts, recursive_counts, self.mood_tree
-                )
+                item = self._make_mood_item(mood, own_counts, recursive_counts, self.mood_tree)
 
                 # Set color for root items (depth 0)
                 self._set_mood_item_style(item, 0, own_counts, recursive_counts)
@@ -298,7 +280,7 @@ class MoodView(QWidget):
     def toggle_flat_view(self):
         """Toggle between the nested hierarchy and a flat alphabetical list."""
         self.flat_view = self.flat_view_button.isChecked()
-        self.flat_view_button.setText("Tree View" if self.flat_view else "Flat View")
+        self.flat_view_button.setText('Tree View' if self.flat_view else 'Flat View')
         self.btn_expand_all.setEnabled(not self.flat_view)
         self.btn_collapse_all.setEnabled(not self.flat_view)
         # Drag-and-drop reparenting doesn't make sense against a flat,
@@ -316,7 +298,7 @@ class MoodView(QWidget):
         PlaylistView._format_track_count."""
         if recursive_count != own_count:
             # Has sub-moods contributing additional tracks, e.g. "12 · 42"
-            return f"{own_count} · {recursive_count}"
+            return f'{own_count} · {recursive_count}'
         # Counts match -- just the one number, e.g. "5"
         return str(own_count)
 
@@ -328,8 +310,8 @@ class MoodView(QWidget):
         font = item.font(1)
         font.setItalic(True)
         item.setFont(1, font)
-        if "·" in item.text(1):
-            item.setToolTip(1, "Own tracks · total including sub-moods")
+        if '·' in item.text(1):
+            item.setToolTip(1, 'Own tracks · total including sub-moods')
 
     def _make_mood_item(self, mood, own_counts, recursive_counts, parent=None):
         """Build a single mood's tree item, shared by the tree and flat builders."""
@@ -359,26 +341,21 @@ class MoodView(QWidget):
         """
         try:
             # Get all mood track associations
-            all_associations = self.controller.get.get_all_entities(
-                "MoodTrackAssociation"
-            )
+            all_associations = self.controller.get.get_all_entities('MoodTrackAssociation')
 
             direct_track_ids = {}
             for association in all_associations:
                 mood_id = None
-                if hasattr(association, "mood_id"):
+                if hasattr(association, 'mood_id'):
                     mood_id = association.mood_id
-                elif hasattr(association, "mood") and association.mood:
+                elif hasattr(association, 'mood') and association.mood:
                     mood_id = association.mood.mood_id
 
                 if mood_id:
-                    direct_track_ids.setdefault(mood_id, set()).add(
-                        association.track_id
-                    )
+                    direct_track_ids.setdefault(mood_id, set()).add(association.track_id)
 
             own_counts = {
-                mood_id: len(track_ids)
-                for mood_id, track_ids in direct_track_ids.items()
+                mood_id: len(track_ids) for mood_id, track_ids in direct_track_ids.items()
             }
 
             children_map = {}
@@ -399,13 +376,12 @@ class MoodView(QWidget):
                 track_ids_for(mood.mood_id)
 
             recursive_counts = {
-                mood_id: len(track_ids)
-                for mood_id, track_ids in recursive_track_ids.items()
+                mood_id: len(track_ids) for mood_id, track_ids in recursive_track_ids.items()
             }
 
             return own_counts, recursive_counts
         except SQLAlchemyError as e:
-            logger.error(f"Error getting track counts: {e}")
+            logger.error(f'Error getting track counts: {e}')
             return {}, {}
 
     def _set_mood_item_style(self, item, depth, own_counts, recursive_counts):
@@ -420,20 +396,19 @@ class MoodView(QWidget):
         recursive_count = recursive_counts.get(mood_obj.mood_id, own_count)
 
         # Add tooltip with mood information including track counts
-        tooltip = f"ID: {mood_obj.mood_id}"
-        if hasattr(mood_obj, "description") and mood_obj.description:
-            tooltip += f"\nDescription: {mood_obj.description}"
-        if hasattr(mood_obj, "parent_id") and mood_obj.parent_id:
+        tooltip = f'ID: {mood_obj.mood_id}'
+        if hasattr(mood_obj, 'description') and mood_obj.description:
+            tooltip += f'\nDescription: {mood_obj.description}'
+        if hasattr(mood_obj, 'parent_id') and mood_obj.parent_id:
             parent_mood = next(
-                (m for m in self.moods_data if m.mood_id == mood_obj.parent_id),
-                None,
+                (m for m in self.moods_data if m.mood_id == mood_obj.parent_id), None
             )
             if parent_mood:
-                tooltip += f"\nParent: {parent_mood.mood_name}"
+                tooltip += f'\nParent: {parent_mood.mood_name}'
 
-        tooltip += f"\nOwn tracks: {own_count}"
+        tooltip += f'\nOwn tracks: {own_count}'
         if recursive_count != own_count:
-            tooltip += f"\nIncluding sub-moods: {recursive_count}"
+            tooltip += f'\nIncluding sub-moods: {recursive_count}'
 
         item.setToolTip(0, tooltip)
 
@@ -468,7 +443,7 @@ class MoodView(QWidget):
         menu = QMenu(self)
 
         # Always show "New Mood" option
-        new_action = QAction("New Mood", self)
+        new_action = QAction('New Mood', self)
         new_action.triggered.connect(self.show_new_mood_dialog)
         menu.addAction(new_action)
 
@@ -477,15 +452,11 @@ class MoodView(QWidget):
         selected_items = self.mood_tree.selectedItems()
         if item and item not in selected_items:
             selected_items = [item]
-        real_selected = [
-            it for it in selected_items if it.data(0, Qt.UserRole) is not None
-        ]
+        real_selected = [it for it in selected_items if it.data(0, Qt.UserRole) is not None]
 
         if len(real_selected) > 1:
             menu.addSeparator()
-            view_tracks_action = QAction(
-                f"View Tracks ({len(real_selected)} moods)", self
-            )
+            view_tracks_action = QAction(f'View Tracks ({len(real_selected)} moods)', self)
             view_tracks_action.triggered.connect(
                 lambda: self.view_tracks_for_selected_moods(real_selected)
             )
@@ -495,29 +466,27 @@ class MoodView(QWidget):
             menu.addSeparator()
 
             # Item-specific actions
-            view_tracks_action = QAction("View Tracks", self)
-            view_tracks_action.triggered.connect(
-                lambda: self.view_tracks_for_selected_mood()
-            )
+            view_tracks_action = QAction('View Tracks', self)
+            view_tracks_action.triggered.connect(lambda: self.view_tracks_for_selected_mood())
             menu.addAction(view_tracks_action)
 
-            edit_action = QAction("Edit Mood", self)
+            edit_action = QAction('Edit Mood', self)
             edit_action.triggered.connect(lambda: self.edit_selected_mood())
             menu.addAction(edit_action)
 
             menu.addSeparator()
 
-            new_parent_action = QAction("New Parent Mood", self)
+            new_parent_action = QAction('New Parent Mood', self)
             new_parent_action.triggered.connect(lambda: self.create_new_parent_mood())
             menu.addAction(new_parent_action)
 
-            new_child_action = QAction("New Child Mood", self)
+            new_child_action = QAction('New Child Mood', self)
             new_child_action.triggered.connect(lambda: self.create_new_child_mood())
             menu.addAction(new_child_action)
 
             menu.addSeparator()
 
-            delete_action = QAction("Delete Mood", self)
+            delete_action = QAction('Delete Mood', self)
             delete_action.triggered.connect(self.delete_selected_mood)
             menu.addAction(delete_action)
 
@@ -529,22 +498,20 @@ class MoodView(QWidget):
         if dialog.exec_() == QDialog.Accepted:
             mood_data = dialog.get_mood_data()
             try:
-                new_mood = self.controller.add.add_entity("Mood", **mood_data)
+                new_mood = self.controller.add.add_entity('Mood', **mood_data)
                 self.mood_created.emit(new_mood)
                 self.load_moods()  # Reload to reflect changes
             except SQLAlchemyError as e:
-                logger.error(f"Error creating mood: {e}")
-                QMessageBox.critical(self, "Error", f"Failed to create mood: {str(e)}")
+                logger.error(f'Error creating mood: {e}')
+                QMessageBox.critical(self, 'Error', f'Failed to create mood: {e!s}')
 
     def view_tracks_for_selected_mood(self):
         """Open tracks view window for selected mood."""
         if not self.current_mood_id:
-            show_status_message(self, "Please select a mood first.")
+            show_status_message(self, 'Please select a mood first.')
             return
 
-        mood = next(
-            (m for m in self.moods_data if m.mood_id == self.current_mood_id), None
-        )
+        mood = next((m for m in self.moods_data if m.mood_id == self.current_mood_id), None)
         if mood:
             tracks_window = MoodTracksWindow(self.controller, mood, self)
             tracks_window.show()
@@ -555,24 +522,24 @@ class MoodView(QWidget):
 
         try:
             associations = self.controller.get.get_all_entities(
-                "MoodTrackAssociation", mood_id__in=mood_ids
+                'MoodTrackAssociation', mood_id__in=mood_ids
             )
             track_ids = list({a.track_id for a in associations})
             tracks = (
-                self.controller.get.get_all_entities("Track", track_id__in=track_ids)
+                self.controller.get.get_all_entities('Track', track_id__in=track_ids)
                 if track_ids
                 else []
             )
         except SQLAlchemyError as e:
-            logger.error(f"Error loading tracks for selected moods: {e}")
-            QMessageBox.critical(self, "Error", "Failed to load tracks for moods")
+            logger.error(f'Error loading tracks for selected moods: {e}')
+            QMessageBox.critical(self, 'Error', 'Failed to load tracks for moods')
             return
 
-        names = ", ".join(it.text(0) for it in items)
+        names = ', '.join(it.text(0) for it in items)
         tracks_window = BaseTrackView(
             controller=self.controller,
             tracks=tracks,
-            title=f"Tracks in {len(mood_ids)} moods: {names}",
+            title=f'Tracks in {len(mood_ids)} moods: {names}',
         )
         tracks_window.exec_()
 
@@ -581,9 +548,7 @@ class MoodView(QWidget):
         if not self.current_mood_id:
             return
 
-        mood = next(
-            (m for m in self.moods_data if m.mood_id == self.current_mood_id), None
-        )
+        mood = next((m for m in self.moods_data if m.mood_id == self.current_mood_id), None)
         if not mood:
             return
 
@@ -591,14 +556,12 @@ class MoodView(QWidget):
         if dialog.exec_() == QDialog.Accepted:
             mood_data = dialog.get_mood_data()
             try:
-                self.controller.update.update_entity(
-                    "Mood", self.current_mood_id, **mood_data
-                )
+                self.controller.update.update_entity('Mood', self.current_mood_id, **mood_data)
                 self.mood_updated.emit(self.current_mood_id, mood_data)
                 self.load_moods()  # Reload to reflect changes
             except SQLAlchemyError as e:
-                logger.error(f"Error updating mood: {e}")
-                QMessageBox.critical(self, "Error", f"Failed to update mood: {str(e)}")
+                logger.error(f'Error updating mood: {e}')
+                QMessageBox.critical(self, 'Error', f'Failed to update mood: {e!s}')
 
     def create_new_parent_mood(self):
         """Create a new mood and insert it as the parent of the current mood.
@@ -609,11 +572,9 @@ class MoodView(QWidget):
         if not self.current_mood_id:
             return
 
-        mood = next(
-            (m for m in self.moods_data if m.mood_id == self.current_mood_id), None
-        )
+        mood = next((m for m in self.moods_data if m.mood_id == self.current_mood_id), None)
         if not mood:
-            show_status_message(self, "The selected mood no longer exists.")
+            show_status_message(self, 'The selected mood no longer exists.')
             return
 
         dialog = MoodDialog(controller=self.controller, parent=self)
@@ -622,22 +583,20 @@ class MoodView(QWidget):
 
         mood_data = dialog.get_mood_data()
         try:
-            new_mood = self.controller.add.add_entity("Mood", **mood_data)
+            new_mood = self.controller.add.add_entity('Mood', **mood_data)
             if not new_mood:
-                raise ValueError("Failed to create new mood")
+                raise ValueError('Failed to create new mood')
         except (SQLAlchemyError, ValueError) as e:
-            logger.error(f"Error creating new parent mood: {e}")
-            QMessageBox.critical(
-                self, "Error", f"Failed to create new parent mood: {str(e)}"
-            )
+            logger.error(f'Error creating new parent mood: {e}')
+            QMessageBox.critical(self, 'Error', f'Failed to create new parent mood: {e!s}')
             return
 
         handle_insert_as_new_relative(
             self.controller,
             self,
-            entity_type="Mood",
-            id_attr="mood_id",
-            name_attr="mood_name",
+            entity_type='Mood',
+            id_attr='mood_id',
+            name_attr='mood_name',
             is_parent=True,
             entity=mood,
             new_entity=new_mood,
@@ -653,11 +612,9 @@ class MoodView(QWidget):
         if not self.current_mood_id:
             return
 
-        mood = next(
-            (m for m in self.moods_data if m.mood_id == self.current_mood_id), None
-        )
+        mood = next((m for m in self.moods_data if m.mood_id == self.current_mood_id), None)
         if not mood:
-            show_status_message(self, "The selected mood no longer exists.")
+            show_status_message(self, 'The selected mood no longer exists.')
             return
 
         dialog = MoodDialog(controller=self.controller, parent=self)
@@ -666,22 +623,20 @@ class MoodView(QWidget):
 
         mood_data = dialog.get_mood_data()
         try:
-            new_mood = self.controller.add.add_entity("Mood", **mood_data)
+            new_mood = self.controller.add.add_entity('Mood', **mood_data)
             if not new_mood:
-                raise ValueError("Failed to create new mood")
+                raise ValueError('Failed to create new mood')
         except (SQLAlchemyError, ValueError) as e:
-            logger.error(f"Error creating new child mood: {e}")
-            QMessageBox.critical(
-                self, "Error", f"Failed to create new child mood: {str(e)}"
-            )
+            logger.error(f'Error creating new child mood: {e}')
+            QMessageBox.critical(self, 'Error', f'Failed to create new child mood: {e!s}')
             return
 
         handle_insert_as_new_relative(
             self.controller,
             self,
-            entity_type="Mood",
-            id_attr="mood_id",
-            name_attr="mood_name",
+            entity_type='Mood',
+            id_attr='mood_id',
+            name_attr='mood_name',
             is_parent=False,
             entity=mood,
             new_entity=new_mood,
@@ -699,20 +654,20 @@ class MoodView(QWidget):
 
         reply = QMessageBox.question(
             self,
-            "Confirm Delete",
-            "Are you sure you want to delete this mood and all its associations?",
+            'Confirm Delete',
+            'Are you sure you want to delete this mood and all its associations?',
             QMessageBox.Yes | QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
             try:
-                self.controller.delete.delete_entity("Mood", self.current_mood_id)
+                self.controller.delete.delete_entity('Mood', self.current_mood_id)
                 self.mood_deleted.emit(self.current_mood_id)
                 self.load_moods()  # Reload the list
-                show_status_message(self, "Mood deleted successfully.")
+                show_status_message(self, 'Mood deleted successfully.')
             except SQLAlchemyError as e:
-                logger.error(f"Error deleting mood: {e}")
-                QMessageBox.critical(self, "Error", f"Failed to delete mood: {str(e)}")
+                logger.error(f'Error deleting mood: {e}')
+                QMessageBox.critical(self, 'Error', f'Failed to delete mood: {e!s}')
 
     def filter_moods(self):
         """Filter moods based on search text"""
@@ -725,29 +680,25 @@ class MoodView(QWidget):
         # Calculate total unique tracks with mood associations
         try:
             # Get all mood track associations
-            all_associations = self.controller.get.get_all_entities(
-                "MoodTrackAssociation"
-            )
+            all_associations = self.controller.get.get_all_entities('MoodTrackAssociation')
 
             # Count unique tracks
             unique_track_ids = set()
             for association in all_associations:
-                if hasattr(association, "track_id"):
+                if hasattr(association, 'track_id'):
                     unique_track_ids.add(association.track_id)
-                elif hasattr(association, "track") and association.track:
+                elif hasattr(association, 'track') and association.track:
                     unique_track_ids.add(association.track.track_id)
 
             total_unique_tracks = len(unique_track_ids)
 
-            self.stats_label.setText(f"Total moods: {total_moods}")
-            self.tracks_count_label.setText(
-                f"Tracks with mood associations: {total_unique_tracks}"
-            )
+            self.stats_label.setText(f'Total moods: {total_moods}')
+            self.tracks_count_label.setText(f'Tracks with mood associations: {total_unique_tracks}')
 
         except SQLAlchemyError as e:
-            logger.error(f"Error calculating statistics: {e}")
-            self.stats_label.setText(f"Total moods: {total_moods}")
-            self.tracks_count_label.setText("Tracks with moods: Unknown")
+            logger.error(f'Error calculating statistics: {e}')
+            self.stats_label.setText(f'Total moods: {total_moods}')
+            self.tracks_count_label.setText('Tracks with moods: Unknown')
 
     def refresh_data(self):
         """Refresh all data from database"""
@@ -759,14 +710,14 @@ class MoodView(QWidget):
         if include_children is None:
             include_children = (
                 self.btn_recursive_mode.isChecked()
-                if hasattr(self, "btn_recursive_mode")
+                if hasattr(self, 'btn_recursive_mode')
                 else False
             )
 
         try:
             if include_children:
                 # Get all child mood IDs
-                all_mood_ids = [mood_id] + self.get_child_mood_ids(mood_id)
+                all_mood_ids = [mood_id, *self.get_child_mood_ids(mood_id)]
 
                 # Get associations for all these moods, de-duplicating
                 # tracks tagged at both a parent mood and one of its children.
@@ -774,15 +725,15 @@ class MoodView(QWidget):
                 seen_track_ids = set()
                 for mid in all_mood_ids:
                     associations = self.controller.get.get_all_entities(
-                        "MoodTrackAssociation", mood_id=mid
+                        'MoodTrackAssociation', mood_id=mid
                     )
                     for association in associations:
-                        if hasattr(association, "track"):
+                        if hasattr(association, 'track'):
                             track = association.track
                         else:
                             # Fallback: get track by ID
                             track = self.controller.get.get_entity_by_id(
-                                "Track", association.track_id
+                                'Track', association.track_id
                             )
                         if track is None or track.track_id in seen_track_ids:
                             continue
@@ -790,24 +741,21 @@ class MoodView(QWidget):
                         all_tracks.append(track)
 
                 return all_tracks
-            else:
-                # Just get tracks for this specific mood
-                associations = self.controller.get.get_all_entities(
-                    "MoodTrackAssociation", mood_id=mood_id
-                )
-                tracks = []
-                for association in associations:
-                    if hasattr(association, "track"):
-                        tracks.append(association.track)
-                    else:
-                        # Fallback: get track by ID
-                        track = self.controller.get.get_entity_by_id(
-                            "Track", association.track_id
-                        )
-                        if track:
-                            tracks.append(track)
-                return tracks
+            # Just get tracks for this specific mood
+            associations = self.controller.get.get_all_entities(
+                'MoodTrackAssociation', mood_id=mood_id
+            )
+            tracks = []
+            for association in associations:
+                if hasattr(association, 'track'):
+                    tracks.append(association.track)
+                else:
+                    # Fallback: get track by ID
+                    track = self.controller.get.get_entity_by_id('Track', association.track_id)
+                    if track:
+                        tracks.append(track)
+            return tracks
 
         except SQLAlchemyError as e:
-            logger.error(f"Error getting tracks for mood: {e}")
+            logger.error(f'Error getting tracks for mood: {e}')
             return []

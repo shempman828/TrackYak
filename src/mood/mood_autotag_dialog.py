@@ -25,8 +25,8 @@ raise/activate pattern -- this class itself is a plain QDialog.
 """
 
 import json
-import time
 from pathlib import Path
+import time
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -58,8 +58,8 @@ from src.lyrics.mood_tag_worker import MoodAutoTagWorker
 from src.mood.mood_dialog import MoodDialog
 from src.statistics.lyrics_stats_worker import LyricsStatsWorker
 
-_KEYWORDS_PATH = Path(asset("mood_keywords.json"))
-_DISMISSED_PATH = Path(asset("mood_dismissed_words.json"))
+_KEYWORDS_PATH = Path(asset('mood_keywords.json'))
+_DISMISSED_PATH = Path(asset('mood_dismissed_words.json'))
 WORD_SUGGESTION_LIMIT = 50
 
 
@@ -71,16 +71,14 @@ def append_keyword_to_mood_file(keywords_path: Path, mood_name: str, word: str) 
     of the dialog class so this file-write behavior is testable without a
     live QDialog."""
     try:
-        raw = json.loads(keywords_path.read_text(encoding="utf-8"))
+        raw = json.loads(keywords_path.read_text(encoding='utf-8'))
     except FileNotFoundError:
         raw = {}
     keywords = raw.setdefault(mood_name, [])
     if word in keywords:
         return False
     keywords.append(word)
-    keywords_path.write_text(
-        json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    keywords_path.write_text(json.dumps(raw, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
     return True
 
 
@@ -89,16 +87,14 @@ def remove_keyword_from_mood_file(keywords_path: Path, mood_name: str, word: str
     if the mood or the word within it doesn't exist -- including when the
     file itself doesn't exist yet, which is just an empty-keywords case."""
     try:
-        raw = json.loads(keywords_path.read_text(encoding="utf-8"))
+        raw = json.loads(keywords_path.read_text(encoding='utf-8'))
     except FileNotFoundError:
         raw = {}
     keywords = raw.get(mood_name)
     if not keywords or word not in keywords:
         return False
     keywords.remove(word)
-    keywords_path.write_text(
-        json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    keywords_path.write_text(json.dumps(raw, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
     return True
 
 
@@ -122,16 +118,16 @@ def load_dismissed_words(path: Path) -> set:
     """Words marked "neutral" -- excluded from suggestions unless
     explicitly shown. Missing/corrupt file reads as no dismissed words."""
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError) as e:
-        logger.warning(f"Failed to read dismissed word list: {e}")
+        logger.warning(f'Failed to read dismissed word list: {e}')
         return set()
     return set(raw)
 
 
 def _write_dismissed_words(path: Path, words: set) -> None:
     path.write_text(
-        json.dumps(sorted(words), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        json.dumps(sorted(words), indent=2, ensure_ascii=False) + '\n', encoding='utf-8'
     )
 
 
@@ -181,7 +177,7 @@ class MoodAutoTagDialog(QDialog):
         self._word_cloud_cache = []
         self._known_moods = []
         self._mood_index = {}
-        self.setWindowTitle("Mood Tagging")
+        self.setWindowTitle('Mood Tagging')
         self.setMinimumWidth(760)
         self.setMinimumHeight(560)
         self._build_ui()
@@ -191,23 +187,23 @@ class MoodAutoTagDialog(QDialog):
 
         layout.addWidget(
             QLabel(
-                "Automatically tag tracks with moods and known places by "
-                "scoring their lyrics against assets/mood_keywords.json. "
-                "Tagging tracks (below) only ever adds associations -- "
-                "existing track tags (manual or auto) are never changed or "
-                "removed."
+                'Automatically tag tracks with moods and known places by '
+                'scoring their lyrics against assets/mood_keywords.json. '
+                'Tagging tracks (below) only ever adds associations -- '
+                'existing track tags (manual or auto) are never changed or '
+                'removed.'
             )
         )
 
         tag_row = QHBoxLayout()
-        self._tag_now_btn = QPushButton("Tag Library Now")
+        self._tag_now_btn = QPushButton('Tag Library Now')
         self._tag_now_btn.clicked.connect(self._tag_library_now)
         tag_row.addWidget(self._tag_now_btn)
-        self._tag_cancel_btn = QPushButton("Cancel")
+        self._tag_cancel_btn = QPushButton('Cancel')
         self._tag_cancel_btn.clicked.connect(self._cancel_tagging)
         self._tag_cancel_btn.setVisible(False)
         tag_row.addWidget(self._tag_cancel_btn)
-        self._tag_status_label = QLabel("")
+        self._tag_status_label = QLabel('')
         tag_row.addWidget(self._tag_status_label)
         tag_row.addStretch()
         layout.addLayout(tag_row)
@@ -218,33 +214,33 @@ class MoodAutoTagDialog(QDialog):
 
         layout.addWidget(
             QLabel(
-                "Review lyrics words and phrases and their mood keyword "
-                "assignments. An entry can belong to more than one mood -- "
-                "add or remove moods with the chips below -- or dismiss "
-                "one as neutral to stop it being suggested."
+                'Review lyrics words and phrases and their mood keyword '
+                'assignments. An entry can belong to more than one mood -- '
+                'add or remove moods with the chips below -- or dismiss '
+                'one as neutral to stop it being suggested.'
             )
         )
 
         filter_row = QHBoxLayout()
         self._filter_combo = QComboBox()
-        self._filter_combo.addItems(["Unassigned words", "Assigned words"])
+        self._filter_combo.addItems(['Unassigned words', 'Assigned words'])
         self._filter_combo.currentIndexChanged.connect(self._on_filter_changed)
         filter_row.addWidget(self._filter_combo)
 
         self._search_filter = QLineEdit()
-        self._search_filter.setPlaceholderText("Filter…")
+        self._search_filter.setPlaceholderText('Filter…')
         self._search_filter.textChanged.connect(lambda _text: self._refresh_table())
         filter_row.addWidget(self._search_filter)
 
-        self._show_dismissed_chk = QCheckBox("Show dismissed")
+        self._show_dismissed_chk = QCheckBox('Show dismissed')
         self._show_dismissed_chk.toggled.connect(lambda _checked: self._refresh_table())
         filter_row.addWidget(self._show_dismissed_chk)
 
-        self._refresh_btn = QPushButton("Refresh Suggestions")
+        self._refresh_btn = QPushButton('Refresh Suggestions')
         self._refresh_btn.clicked.connect(self._load_word_suggestions)
         filter_row.addWidget(self._refresh_btn)
 
-        self._new_mood_btn = QPushButton("+ New Mood")
+        self._new_mood_btn = QPushButton('+ New Mood')
         self._new_mood_btn.clicked.connect(self._create_new_mood)
         filter_row.addWidget(self._new_mood_btn)
 
@@ -252,14 +248,10 @@ class MoodAutoTagDialog(QDialog):
         layout.addLayout(filter_row)
 
         self._word_table = _WordTable(0, 3)
-        self._word_table.setHorizontalHeaderLabels(["Word", "Moods", ""])
-        self._word_table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeToContents
-        )
+        self._word_table.setHorizontalHeaderLabels(['Word', 'Moods', ''])
+        self._word_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._word_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self._word_table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeToContents
-        )
+        self._word_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self._word_table.horizontalHeader().sectionResized.connect(
             lambda *_args: self._word_table.resizeRowsToContents()
         )
@@ -292,9 +284,9 @@ class MoodAutoTagDialog(QDialog):
         self._tag_cancel_btn.setVisible(True)
         self._tag_progress_bar.setVisible(True)
         self._tag_progress_bar.setRange(0, 0)  # indeterminate until first progress signal
-        self._tag_progress_bar.setFormat("Scanning library…")
+        self._tag_progress_bar.setFormat('Scanning library…')
         self._tag_scan_start_time = time.monotonic()
-        show_status_message(self, "Tagging library from lyrics…", duration=0)
+        show_status_message(self, 'Tagging library from lyrics…', duration=0)
         self._tag_worker = MoodAutoTagWorker(self.controller)
         self._tag_worker.progress.connect(self._on_tag_progress)
         self._tag_worker.finished.connect(self._on_tag_finished)
@@ -310,12 +302,14 @@ class MoodAutoTagDialog(QDialog):
         self._tag_progress_bar.setRange(0, max(total, 1))
         self._tag_progress_bar.setValue(scanned)
 
-        counts = f"{mood_tags_added:,} mood / {place_tags_added:,} place tags added"
+        counts = f'{mood_tags_added:,} mood / {place_tags_added:,} place tags added'
         eta = self._estimate_remaining(scanned, total)
         if eta:
-            self._tag_progress_bar.setFormat(f"%p%  ({scanned:,}/{total:,} tracks, {counts}, ETA: {eta})")
+            self._tag_progress_bar.setFormat(
+                f'%p%  ({scanned:,}/{total:,} tracks, {counts}, ETA: {eta})'
+            )
         else:
-            self._tag_progress_bar.setFormat(f"%p%  ({scanned:,}/{total:,} tracks, {counts})")
+            self._tag_progress_bar.setFormat(f'%p%  ({scanned:,}/{total:,} tracks, {counts})')
 
     def _estimate_remaining(self, current: int, total: int) -> str | None:
         """Human-readable ETA string for the current tag-library scan, or
@@ -334,23 +328,23 @@ class MoodAutoTagDialog(QDialog):
 
         remaining_seconds = int((total - current) / rate)
         if remaining_seconds < 60:
-            return f"{remaining_seconds}s"
+            return f'{remaining_seconds}s'
         minutes, seconds = divmod(remaining_seconds, 60)
-        return f"{minutes}m {seconds:02d}s"
+        return f'{minutes}m {seconds:02d}s'
 
     def _on_tag_finished(self, scanned, mood_tags_added, place_tags_added):
         self._tag_status_label.setText(
-            f"{scanned} track(s) scanned, {mood_tags_added} mood tag(s) added, "
-            f"{place_tags_added} place tag(s) added"
+            f'{scanned} track(s) scanned, {mood_tags_added} mood tag(s) added, '
+            f'{place_tags_added} place tag(s) added'
         )
-        show_status_message(self, "Mood tagging complete.")
+        show_status_message(self, 'Mood tagging complete.')
         self._tag_worker.wait()
         self._tag_worker = None
         self._reset_tag_controls()
 
     def _on_tag_error(self, message):
-        logger.error(f"Mood auto-tag worker failed: {message}")
-        show_status_message(self, f"Mood tagging failed: {message}")
+        logger.error(f'Mood auto-tag worker failed: {message}')
+        show_status_message(self, f'Mood tagging failed: {message}')
         self._tag_worker = None
         self._reset_tag_controls()
 
@@ -380,8 +374,8 @@ class MoodAutoTagDialog(QDialog):
         # below doesn't care how many words a candidate string has, so a
         # common phrase ("broke my heart") is just as suggestible as a
         # single word and competes for a slot on its own merits.
-        combined = list(stats.get("word_suggestions", [])) + list(
-            stats.get("phrase_suggestions", [])
+        combined = list(stats.get('word_suggestions', [])) + list(
+            stats.get('phrase_suggestions', [])
         )
         combined.sort(key=lambda item: item[1], reverse=True)
         self._word_cloud_cache = combined
@@ -389,7 +383,7 @@ class MoodAutoTagDialog(QDialog):
 
     def _on_word_stats_error(self, message):
         self._sync_refresh_btn_enabled()
-        logger.error(f"Failed to load lyrics word stats: {message}")
+        logger.error(f'Failed to load lyrics word stats: {message}')
 
     def _sync_refresh_btn_enabled(self):
         self._refresh_btn.setEnabled(self._filter_combo.currentIndex() != self.FILTER_ASSIGNED)
@@ -402,9 +396,9 @@ class MoodAutoTagDialog(QDialog):
         that's already part of some keyword phrase out of the raw
         word-cloud suggestion list."""
         try:
-            raw = json.loads(_KEYWORDS_PATH.read_text(encoding="utf-8"))
+            raw = json.loads(_KEYWORDS_PATH.read_text(encoding='utf-8'))
         except (OSError, ValueError) as e:
-            logger.warning(f"Failed to read mood keyword list: {e}")
+            logger.warning(f'Failed to read mood keyword list: {e}')
             return set()
 
         words = set()
@@ -415,18 +409,14 @@ class MoodAutoTagDialog(QDialog):
 
     def _fetch_moods(self):
         try:
-            return self.controller.get.get_all_entities("Mood") or []
+            return self.controller.get.get_all_entities('Mood') or []
         except SQLAlchemyError as e:
-            logger.error(f"Failed to load moods: {e}")
+            logger.error(f'Failed to load moods: {e}')
             return []
 
     def _refresh_known_moods(self):
-        self._known_moods = sorted(
-            self._fetch_moods(), key=lambda m: (m.mood_name or "").lower()
-        )
-        self._mood_index = {
-            m.mood_name: m.mood_id for m in self._known_moods if m.mood_name
-        }
+        self._known_moods = sorted(self._fetch_moods(), key=lambda m: (m.mood_name or '').lower())
+        self._mood_index = {m.mood_name: m.mood_id for m in self._known_moods if m.mood_name}
 
     # ------------------------------------------------------------------
     # Word review -- table population
@@ -441,9 +431,9 @@ class MoodAutoTagDialog(QDialog):
 
     def _refresh_table(self):
         try:
-            raw = json.loads(_KEYWORDS_PATH.read_text(encoding="utf-8"))
+            raw = json.loads(_KEYWORDS_PATH.read_text(encoding='utf-8'))
         except (OSError, ValueError) as e:
-            logger.warning(f"Failed to read mood keyword list: {e}")
+            logger.warning(f'Failed to read mood keyword list: {e}')
             raw = {}
         kw_moods = keyword_to_moods(raw)
         dismissed = load_dismissed_words(_DISMISSED_PATH)
@@ -468,7 +458,7 @@ class MoodAutoTagDialog(QDialog):
                 # so phrases get their own exact-match exclusion instead --
                 # a *different* new phrase sharing a word with an existing
                 # one (e.g. "dance again") is still a legitimate suggestion.
-                if " " in word:
+                if ' ' in word:
                     if word.lower() in existing_keywords:
                         continue
                 elif word in assigned:
@@ -488,7 +478,7 @@ class MoodAutoTagDialog(QDialog):
         table = self._word_table
         table.setRowCount(len(rows))
         for row, (word, moods, is_dismissed, count) in enumerate(rows):
-            label = word if count is None else f"{word}  ({count})"
+            label = word if count is None else f'{word}  ({count})'
             word_item = QTableWidgetItem(label)
             if is_dismissed:
                 font = word_item.font()
@@ -518,7 +508,7 @@ class MoodAutoTagDialog(QDialog):
         row_layout = QHBoxLayout(cell)
         row_layout.setContentsMargins(6, 4, 6, 4)
 
-        action_btn = QPushButton("Undismiss" if is_dismissed else "Dismiss")
+        action_btn = QPushButton('Undismiss' if is_dismissed else 'Dismiss')
         action_btn.setFlat(True)
         if is_dismissed:
             action_btn.clicked.connect(lambda _checked, w=word: self._undismiss_word(w))
@@ -532,16 +522,16 @@ class MoodAutoTagDialog(QDialog):
         flow = FlowLayout(cell, margin=4, h_spacing=6, v_spacing=4)
 
         for mood_name in moods:
-            chip = QPushButton(f"{mood_name}  ×")
+            chip = QPushButton(f'{mood_name}  x')
             chip.setFlat(True)
-            chip.setProperty("class", "moodChip")
+            chip.setProperty('class', 'moodChip')
             chip.setToolTip(f"Remove '{mood_name}' from '{word}'")
             chip.clicked.connect(
                 lambda _checked, w=word, m=mood_name: self._remove_mood_from_word(w, m)
             )
             flow.addWidget(chip)
 
-        add_edit = EntityCompleterEdit("+ mood…")
+        add_edit = EntityCompleterEdit('+ mood…')
         add_edit.setMaximumWidth(140)
         add_edit.set_index(self._mood_index)
         add_edit.returnPressed.connect(
@@ -567,17 +557,15 @@ class MoodAutoTagDialog(QDialog):
         try:
             for name in names:
                 if single_matched_id is not None:
-                    mood = self.controller.get.get_entity_object(
-                        "Mood", mood_id=single_matched_id
-                    )
+                    mood = self.controller.get.get_entity_object('Mood', mood_id=single_matched_id)
                 else:
                     mood = find_or_create_by_name(
-                        self.controller, "Mood", "mood_name", name, self._known_moods
+                        self.controller, 'Mood', 'mood_name', name, self._known_moods
                     )
                 if mood:
                     moods.append(mood)
         except SQLAlchemyError as e:
-            logger.error(f"Failed to find/create Mood: {e}")
+            logger.error(f'Failed to find/create Mood: {e}')
             return
         if not moods:
             return
@@ -587,13 +575,11 @@ class MoodAutoTagDialog(QDialog):
                 append_keyword_to_mood_file(_KEYWORDS_PATH, mood.mood_name, word)
             undismiss_word(_DISMISSED_PATH, word)
         except (OSError, ValueError) as e:
-            logger.error(f"Failed to update mood keyword list: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save keyword list: {e}")
+            logger.error(f'Failed to update mood keyword list: {e}')
+            QMessageBox.critical(self, 'Error', f'Failed to save keyword list: {e}')
             return
 
-        show_status_message(
-            self, f"Assigned '{word}' to {', '.join(m.mood_name for m in moods)}."
-        )
+        show_status_message(self, f"Assigned '{word}' to {', '.join(m.mood_name for m in moods)}.")
         self._refresh_known_moods()
         self._refresh_table()
 
@@ -601,8 +587,8 @@ class MoodAutoTagDialog(QDialog):
         try:
             remove_keyword_from_mood_file(_KEYWORDS_PATH, mood_name, word)
         except (OSError, ValueError) as e:
-            logger.error(f"Failed to update mood keyword list: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save keyword list: {e}")
+            logger.error(f'Failed to update mood keyword list: {e}')
+            QMessageBox.critical(self, 'Error', f'Failed to save keyword list: {e}')
             return
         self._refresh_table()
 
@@ -610,7 +596,7 @@ class MoodAutoTagDialog(QDialog):
         try:
             dismiss_word(_DISMISSED_PATH, word)
         except (OSError, ValueError) as e:
-            logger.error(f"Failed to update dismissed word list: {e}")
+            logger.error(f'Failed to update dismissed word list: {e}')
             return
         self._refresh_table()
 
@@ -618,7 +604,7 @@ class MoodAutoTagDialog(QDialog):
         try:
             undismiss_word(_DISMISSED_PATH, word)
         except (OSError, ValueError) as e:
-            logger.error(f"Failed to update dismissed word list: {e}")
+            logger.error(f'Failed to update dismissed word list: {e}')
             return
         self._refresh_table()
 
@@ -627,10 +613,10 @@ class MoodAutoTagDialog(QDialog):
         if dialog.exec_() == QDialog.Accepted:
             mood_data = dialog.get_mood_data()
             try:
-                self.controller.add.add_entity("Mood", **mood_data)
+                self.controller.add.add_entity('Mood', **mood_data)
             except SQLAlchemyError as e:
-                logger.error(f"Error creating mood: {e}")
-                QMessageBox.critical(self, "Error", f"Failed to create mood: {e}")
+                logger.error(f'Error creating mood: {e}')
+                QMessageBox.critical(self, 'Error', f'Failed to create mood: {e}')
                 return
             self._refresh_known_moods()
             self._refresh_table()

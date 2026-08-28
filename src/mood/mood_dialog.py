@@ -13,8 +13,8 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.track.base_track_view import BaseTrackView  # Import the BaseTrackView
 from src.core.logger_config import logger
+from src.track.base_track_view import BaseTrackView  # Import the BaseTrackView
 
 
 class MoodDialog(QDialog):
@@ -31,7 +31,7 @@ class MoodDialog(QDialog):
         # NEW: Track for context menu enhancement
         self.enhanced_context_menu = None
 
-        self.setWindowTitle("Edit Mood" if self.is_editing else "Create New Mood")
+        self.setWindowTitle('Edit Mood' if self.is_editing else 'Create New Mood')
         self.setModal(True)
         self.setMinimumWidth(800)
         self.setMinimumHeight(600)
@@ -52,23 +52,23 @@ class MoodDialog(QDialog):
             details_layout = QVBoxLayout(details_tab)
 
             # Mood information form
-            form_group = QGroupBox("Mood Information")
+            form_group = QGroupBox('Mood Information')
             form_layout = QFormLayout()
 
             self.mood_name_edit = QLineEdit()
-            self.mood_name_edit.setPlaceholderText("Enter mood name")
-            form_layout.addRow("Name:", self.mood_name_edit)
+            self.mood_name_edit.setPlaceholderText('Enter mood name')
+            form_layout.addRow('Name:', self.mood_name_edit)
 
             self.mood_description_edit = QTextEdit()
             self.mood_description_edit.setMaximumHeight(100)
-            self.mood_description_edit.setPlaceholderText("Enter mood description")
-            form_layout.addRow("Description:", self.mood_description_edit)
+            self.mood_description_edit.setPlaceholderText('Enter mood description')
+            form_layout.addRow('Description:', self.mood_description_edit)
 
             form_group.setLayout(form_layout)
             details_layout.addWidget(form_group)
 
             details_layout.addStretch()
-            tabs.addTab(details_tab, "Details")
+            tabs.addTab(details_tab, 'Details')
 
             # Associated tracks tab with BaseTrackView
             tracks_tab = QWidget()
@@ -78,7 +78,7 @@ class MoodDialog(QDialog):
             controls_layout = QHBoxLayout()
 
             # Add recursive toggle button
-            self.btn_recursive_mode = QPushButton("Recursive: Off")
+            self.btn_recursive_mode = QPushButton('Recursive: Off')
             self.btn_recursive_mode.setCheckable(True)
             self.btn_recursive_mode.setChecked(False)
             self.btn_recursive_mode.clicked.connect(self.toggle_recursive_mode)
@@ -88,7 +88,7 @@ class MoodDialog(QDialog):
             tracks_layout.addLayout(controls_layout)
 
             # Associated tracks view using BaseTrackView
-            associated_group = QGroupBox("Associated Tracks")
+            associated_group = QGroupBox('Associated Tracks')
             associated_layout = QVBoxLayout()
 
             # Create a container widget for the track view
@@ -100,7 +100,7 @@ class MoodDialog(QDialog):
             self.track_view = BaseTrackView(
                 controller=self.controller,
                 tracks=[],  # Will be populated in load_associated_tracks
-                title="Mood Tracks",
+                title='Mood Tracks',
                 enable_drag=False,
                 enable_drop=False,
             )
@@ -117,7 +117,7 @@ class MoodDialog(QDialog):
             associated_group.setLayout(associated_layout)
             tracks_layout.addWidget(associated_group)
 
-            tabs.addTab(tracks_tab, "Associated Tracks")
+            tabs.addTab(tracks_tab, 'Associated Tracks')
 
             layout.addWidget(tabs)
 
@@ -125,17 +125,17 @@ class MoodDialog(QDialog):
             self.load_associated_tracks()
         else:
             # Mood information form
-            form_group = QGroupBox("Mood Information")
+            form_group = QGroupBox('Mood Information')
             form_layout = QFormLayout()
 
             self.mood_name_edit = QLineEdit()
-            self.mood_name_edit.setPlaceholderText("Enter mood name")
-            form_layout.addRow("Name:", self.mood_name_edit)
+            self.mood_name_edit.setPlaceholderText('Enter mood name')
+            form_layout.addRow('Name:', self.mood_name_edit)
 
             self.mood_description_edit = QTextEdit()
             self.mood_description_edit.setMaximumHeight(100)
-            self.mood_description_edit.setPlaceholderText("Enter mood description")
-            form_layout.addRow("Description:", self.mood_description_edit)
+            self.mood_description_edit.setPlaceholderText('Enter mood description')
+            form_layout.addRow('Description:', self.mood_description_edit)
 
             form_group.setLayout(form_layout)
             layout.addWidget(form_group)
@@ -152,9 +152,9 @@ class MoodDialog(QDialog):
         """Toggle between recursive and exclusive track display"""
         self.recursive_mode = self.btn_recursive_mode.isChecked()
         if self.recursive_mode:
-            self.btn_recursive_mode.setText("Recursive: On")
+            self.btn_recursive_mode.setText('Recursive: On')
         else:
-            self.btn_recursive_mode.setText("Recursive: Off")
+            self.btn_recursive_mode.setText('Recursive: Off')
 
         # Reload tracks with new mode
         if self.is_editing:
@@ -162,7 +162,7 @@ class MoodDialog(QDialog):
 
     def load_associated_tracks(self):
         """Load tracks associated with current mood"""
-        if not self.is_editing or not hasattr(self, "track_view"):
+        if not self.is_editing or not hasattr(self, 'track_view'):
             return
 
         try:
@@ -170,27 +170,23 @@ class MoodDialog(QDialog):
             if self.recursive_mode:
                 # Use the parent MoodView's method to get recursive tracks
                 parent_view = self.parent()
-                if hasattr(parent_view, "get_tracks_for_mood"):
-                    tracks = parent_view.get_tracks_for_mood(
-                        self.mood_id, include_children=True
-                    )
+                if hasattr(parent_view, 'get_tracks_for_mood'):
+                    tracks = parent_view.get_tracks_for_mood(self.mood_id, include_children=True)
                 else:
                     # Fallback: get all child mood IDs and their tracks
-                    all_mood_ids = [self.mood_id] + self.get_child_mood_ids(
-                        self.mood_id
-                    )
+                    all_mood_ids = [self.mood_id, *self.get_child_mood_ids(self.mood_id)]
                     tracks = []
                     seen_track_ids = set()
                     for mood_id in all_mood_ids:
                         associations = self.controller.get.get_all_entities(
-                            "MoodTrackAssociation", mood_id=mood_id
+                            'MoodTrackAssociation', mood_id=mood_id
                         )
                         for association in associations:
-                            if hasattr(association, "track"):
+                            if hasattr(association, 'track'):
                                 track = association.track
                             else:
                                 track = self.controller.get.get_entity_by_id(
-                                    "Track", association.track_id
+                                    'Track', association.track_id
                                 )
                             if track is None or track.track_id in seen_track_ids:
                                 continue
@@ -199,16 +195,14 @@ class MoodDialog(QDialog):
             else:
                 # Just get tracks for this specific mood
                 associations = self.controller.get.get_all_entities(
-                    "MoodTrackAssociation", mood_id=self.mood_id
+                    'MoodTrackAssociation', mood_id=self.mood_id
                 )
                 tracks = []
                 for association in associations:
-                    if hasattr(association, "track"):
+                    if hasattr(association, 'track'):
                         tracks.append(association.track)
                     else:
-                        track = self.controller.get.get_entity_by_id(
-                            "Track", association.track_id
-                        )
+                        track = self.controller.get.get_entity_by_id('Track', association.track_id)
                         if track:
                             tracks.append(track)
 
@@ -216,19 +210,19 @@ class MoodDialog(QDialog):
             self.track_view.load_data(tracks)
 
             # Update the info label in track view
-            self.track_view.info_label.setText(f"Showing {len(tracks)} tracks")
+            self.track_view.info_label.setText(f'Showing {len(tracks)} tracks')
 
             # NEW: Enhance the context menu with remove option
             self.enhance_track_view_context_menu()
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error loading associated tracks: {e}")
-        self.track_view.info_label.setText("Error loading tracks")
+            logger.error(f'Error loading associated tracks: {e}')
+        self.track_view.info_label.setText('Error loading tracks')
 
     def get_child_mood_ids(self, parent_mood_id):
         """Get all child mood IDs recursively for a given parent mood"""
         try:
-            all_moods = self.controller.get.get_all_entities("Mood")
+            all_moods = self.controller.get.get_all_entities('Mood')
             child_ids = []
 
             def collect_children(mood_id):
@@ -240,7 +234,7 @@ class MoodDialog(QDialog):
             collect_children(parent_mood_id)
             return child_ids
         except SQLAlchemyError as e:
-            logger.error(f"Error getting child mood IDs: {e}")
+            logger.error(f'Error getting child mood IDs: {e}')
             return []
 
     def load_mood_data(self):
@@ -248,35 +242,33 @@ class MoodDialog(QDialog):
         if not self.mood_data:
             return
 
-        self.mood_name_edit.setText(self.mood_data.mood_name or "")
-        self.mood_description_edit.setText(self.mood_data.mood_description or "")
+        self.mood_name_edit.setText(self.mood_data.mood_name or '')
+        self.mood_description_edit.setText(self.mood_data.mood_description or '')
 
     def get_mood_data(self):
         """Return the mood data from the form"""
         return {
-            "mood_name": self.mood_name_edit.text().strip(),
-            "mood_description": self.mood_description_edit.toPlainText().strip(),
+            'mood_name': self.mood_name_edit.text().strip(),
+            'mood_description': self.mood_description_edit.toPlainText().strip(),
         }
 
     def enhance_track_view_context_menu(self):
         """Add remove from mood option to the track view's context menu."""
-        if not hasattr(self, "track_view") or not self.is_editing:
+        if not hasattr(self, 'track_view') or not self.is_editing:
             return
 
         # Get the existing context menu from track view
-        if hasattr(self.track_view, "context_menu"):
+        if hasattr(self.track_view, 'context_menu'):
             # Add separator and remove action directly to the existing menu
 
             # Check if remove action already exists
-            existing_actions = [
-                action.text() for action in self.track_view.context_menu.actions()
-            ]
-            if "Remove from This Mood" not in existing_actions:
+            existing_actions = [action.text() for action in self.track_view.context_menu.actions()]
+            if 'Remove from This Mood' not in existing_actions:
                 # Add separator and remove action
                 self.track_view.context_menu.addSeparator()
 
                 self.remove_from_mood_action = self.track_view.context_menu.addAction(
-                    "Remove from This Mood"
+                    'Remove from This Mood'
                 )
                 self.remove_from_mood_action.triggered.connect(
                     self.remove_selected_tracks_from_mood
@@ -291,20 +283,17 @@ class MoodDialog(QDialog):
                 original_setup_context_menu()
 
                 # Add our custom action to the menu
-                if hasattr(self.track_view, "context_menu"):
+                if hasattr(self.track_view, 'context_menu'):
                     # Check if remove action already exists
                     existing_texts = [
-                        action.text()
-                        for action in self.track_view.context_menu.actions()
+                        action.text() for action in self.track_view.context_menu.actions()
                     ]
-                    if "Remove from This Mood" not in existing_texts:
+                    if 'Remove from This Mood' not in existing_texts:
                         self.track_view.context_menu.addSeparator()
                         remove_action = self.track_view.context_menu.addAction(
-                            "Remove from This Mood"
+                            'Remove from This Mood'
                         )
-                        remove_action.triggered.connect(
-                            self.remove_selected_tracks_from_mood
-                        )
+                        remove_action.triggered.connect(self.remove_selected_tracks_from_mood)
 
             # Replace the setup method
             self.track_view.setup_context_menu = enhanced_setup_context_menu
@@ -336,9 +325,9 @@ class MoodDialog(QDialog):
 
         reply = QMessageBox.question(
             self,
-            "Remove Tracks",
-            f"Remove {len(selected_tracks)} track(s) from this mood?\n\n"
-            "Note: In recursive mode, tracks will only be removed from this specific mood, not child moods.",
+            'Remove Tracks',
+            f'Remove {len(selected_tracks)} track(s) from this mood?\n\n'
+            'Note: In recursive mode, tracks will only be removed from this specific mood.',
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -353,9 +342,7 @@ class MoodDialog(QDialog):
             for track in selected_tracks:
                 # Get the MoodTrackAssociation for this mood and track
                 associations = self.controller.get.get_entity_links(
-                    "MoodTrackAssociation",
-                    mood_id=self.mood_id,
-                    track_id=track.track_id,
+                    'MoodTrackAssociation', mood_id=self.mood_id, track_id=track.track_id
                 )
 
                 if associations:
@@ -363,17 +350,15 @@ class MoodDialog(QDialog):
                     association = associations[0]
 
                     # Try different possible ID attribute names
-                    association_id = getattr(association, "id", None)
+                    association_id = getattr(association, 'id', None)
                     if association_id is None:
-                        association_id = getattr(association, "association_id", None)
+                        association_id = getattr(association, 'association_id', None)
 
                     # If we still don't have an ID, try to get the mood_track_association directly
                     if association_id is None:
                         # The association might be a tuple or have different structure
                         # Try to delete using mood_id and track_id directly
-                        if hasattr(
-                            self.controller.delete, "delete_mood_track_association"
-                        ):
+                        if hasattr(self.controller.delete, 'delete_mood_track_association'):
                             if self.controller.delete.delete_mood_track_association(
                                 mood_id=self.mood_id, track_id=track.track_id
                             ):
@@ -381,9 +366,9 @@ class MoodDialog(QDialog):
                             else:
                                 failed_tracks.append(track.track_name)
                         else:
-                            # Fallback: try direct deletion using the generic method with composite key
+                            # Fallback: try direct deletion with composite key
                             result = self.controller.delete.delete_entity(
-                                "MoodTrackAssociation",
+                                'MoodTrackAssociation',
                                 mood_id=self.mood_id,
                                 track_id=track.track_id,
                             )
@@ -394,7 +379,7 @@ class MoodDialog(QDialog):
                     else:
                         # Delete using the association ID
                         if self.controller.delete.delete_entity(
-                            "MoodTrackAssociation", association_id=association_id
+                            'MoodTrackAssociation', association_id=association_id
                         ):
                             success_count += 1
                         else:
@@ -408,21 +393,17 @@ class MoodDialog(QDialog):
             elif success_count > 0:
                 QMessageBox.warning(
                     self,
-                    "Partial Success",
-                    f"Removed {success_count} of {len(selected_tracks)} track(s).\n"
-                    f"Failed to remove: {', '.join(failed_tracks[:5])}"
-                    f"{'...' if len(failed_tracks) > 5 else ''}",
+                    'Partial Success',
+                    f'Removed {success_count} of {len(selected_tracks)} track(s).\n'
+                    f'Failed to remove: {", ".join(failed_tracks[:5])}'
+                    f'{"..." if len(failed_tracks) > 5 else ""}',
                 )
             else:
-                QMessageBox.warning(
-                    self, "Failed", "Could not remove any tracks from the mood."
-                )
+                QMessageBox.warning(self, 'Failed', 'Could not remove any tracks from the mood.')
 
             # Refresh the track list
             self.load_associated_tracks()
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error removing tracks from mood: {e}")
-            QMessageBox.critical(
-                self, "Error", f"An error occurred while removing tracks:\n{str(e)}"
-            )
+            logger.error(f'Error removing tracks from mood: {e}')
+            QMessageBox.critical(self, 'Error', f'An error occurred while removing tracks:\n{e!s}')
