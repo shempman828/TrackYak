@@ -252,9 +252,7 @@ class MusicStatsDialog(QDialog):
         top_layout = QVBoxLayout(top_group)
 
         self.most_played_artist_label = self.create_stat_label("Most Played Artist:")
-        self.highest_rated_artist_label = self.create_stat_label(
-            "Highest Rated Artist:"
-        )
+        self.highest_rated_artist_label = self.create_stat_label("Highest Rated Artist:")
         self.highest_rated_album_label = self.create_stat_label("Highest Rated Album:")
         self.most_played_genre_label = self.create_stat_label("Most Played Genre:")
         self.highest_rated_genre_label = self.create_stat_label("Highest Rated Genre:")
@@ -445,11 +443,7 @@ class MusicStatsDialog(QDialog):
         self.longest_lived_tile = StatTileWidget("Longest Lived")
         self.shortest_lived_tile = StatTileWidget("Shortest Lived")
         self.youngest_artist_tile = StatTileWidget("Youngest")
-        for tile in [
-            self.longest_lived_tile,
-            self.shortest_lived_tile,
-            self.youngest_artist_tile,
-        ]:
+        for tile in [self.longest_lived_tile, self.shortest_lived_tile, self.youngest_artist_tile]:
             lifespan_layout.addWidget(tile)
         layout.addWidget(lifespan_group)
 
@@ -485,9 +479,7 @@ class MusicStatsDialog(QDialog):
         controlled_group = QGroupBox("Highest Rated Albums, Controlled by Track Count")
         controlled_layout = QVBoxLayout(controlled_group)
         self.album_rating_tier = ThresholdTierWidget(thresholds=(3, 5, 10))
-        self.album_rating_tier.tier_changed.connect(
-            self._update_album_rating_leaderboard
-        )
+        self.album_rating_tier.tier_changed.connect(self._update_album_rating_leaderboard)
         controlled_layout.addWidget(self.album_rating_tier)
         self.album_rating_list = LeaderboardListWidget()
         controlled_layout.addWidget(self.album_rating_list)
@@ -572,9 +564,7 @@ class MusicStatsDialog(QDialog):
         tiered_genres_group = QGroupBox("Highest / Lowest Rated Genres (power-of-10)")
         tiered_genres_layout = QVBoxLayout(tiered_genres_group)
         self.genre_rating_tier = ThresholdTierWidget()
-        self.genre_rating_tier.tier_changed.connect(
-            self._update_rated_genres_leaderboard
-        )
+        self.genre_rating_tier.tier_changed.connect(self._update_rated_genres_leaderboard)
         tiered_genres_layout.addWidget(self.genre_rating_tier)
         tiered_genres_lists_layout = QHBoxLayout()
         tiered_highest_box = QVBoxLayout()
@@ -653,8 +643,8 @@ class MusicStatsDialog(QDialog):
         content = QWidget()
         layout = QVBoxLayout(content)
 
-        places_credits_recompute_bar, self.places_credits_recompute_button = (
-            _recompute_bar(self._recompute_places_credits_stats)
+        places_credits_recompute_bar, self.places_credits_recompute_button = _recompute_bar(
+            self._recompute_places_credits_stats
         )
         layout.addLayout(places_credits_recompute_bar)
 
@@ -677,9 +667,7 @@ class MusicStatsDialog(QDialog):
         places_layout.addLayout(places_lists_layout)
         layout.addWidget(places_group)
 
-        countries_group = QGroupBox(
-            "Highest / Lowest Rated Countries (recursive rollup)"
-        )
+        countries_group = QGroupBox("Highest / Lowest Rated Countries (recursive rollup)")
         countries_layout = QHBoxLayout(countries_group)
         self.country_highest_list = LeaderboardListWidget()
         self.country_lowest_list = LeaderboardListWidget()
@@ -696,9 +684,7 @@ class MusicStatsDialog(QDialog):
         publishers_group = QGroupBox("Highest / Lowest Rated Publishers (by album count)")
         publishers_layout = QVBoxLayout(publishers_group)
         self.publisher_rating_tier = ThresholdTierWidget(thresholds=(5, 20, 100))
-        self.publisher_rating_tier.tier_changed.connect(
-            self._update_publisher_rating_leaderboard
-        )
+        self.publisher_rating_tier.tier_changed.connect(self._update_publisher_rating_leaderboard)
         publishers_layout.addWidget(self.publisher_rating_tier)
         publisher_lists_layout = QHBoxLayout()
         publisher_highest_box = QVBoxLayout()
@@ -720,9 +706,7 @@ class MusicStatsDialog(QDialog):
         self.prolific_composer_list = LeaderboardListWidget(value_suffix=" tracks")
         composers_layout.addWidget(self.prolific_composer_list)
         self.composer_rating_tier = ThresholdTierWidget()
-        self.composer_rating_tier.tier_changed.connect(
-            self._update_composer_rating_leaderboard
-        )
+        self.composer_rating_tier.tier_changed.connect(self._update_composer_rating_leaderboard)
         composers_layout.addWidget(self.composer_rating_tier)
         composer_lists_layout = QHBoxLayout()
         composer_highest_box = QVBoxLayout()
@@ -862,12 +846,8 @@ class MusicStatsDialog(QDialog):
         misc_layout = QHBoxLayout(misc_group)
         time_sig_box = QVBoxLayout()
         time_sig_box.addWidget(QLabel("Time Signature:"))
-        self.time_signature_confidence_checkbox = QCheckBox(
-            "Exclude confidence below 50%"
-        )
-        self.time_signature_confidence_checkbox.toggled.connect(
-            self.load_audio_profile_data
-        )
+        self.time_signature_confidence_checkbox = QCheckBox("Exclude confidence below 50%")
+        self.time_signature_confidence_checkbox.toggled.connect(self.load_audio_profile_data)
         time_sig_box.addWidget(self.time_signature_confidence_checkbox)
         self.time_signature_chart = BarDistributionChart()
         time_sig_box.addWidget(self.time_signature_chart)
@@ -935,17 +915,13 @@ class MusicStatsDialog(QDialog):
         )
         layout.addLayout(lyrics_recompute_bar)
 
-        cloud_group = QGroupBox(
-            "Word Cloud (words appearing in 5+ distinct tracks)"
-        )
+        cloud_group = QGroupBox("Word Cloud (words appearing in 5+ distinct tracks)")
         cloud_layout = QVBoxLayout(cloud_group)
         self.lyrics_word_cloud = WordCloudWidget()
         cloud_layout.addWidget(self.lyrics_word_cloud)
         layout.addWidget(cloud_group)
 
-        weighted_group = QGroupBox(
-            "Words Skewed Toward Higher / Lower Rated Tracks"
-        )
+        weighted_group = QGroupBox("Words Skewed Toward Higher / Lower Rated Tracks")
         weighted_layout = QHBoxLayout(weighted_group)
         high_box = QVBoxLayout()
         high_box.addWidget(QLabel("Higher-Rated Tracks:"))
@@ -1007,9 +983,7 @@ class MusicStatsDialog(QDialog):
         most_eclectic = stats.get("most_eclectic")
         if most_eclectic:
             name, bridges = stats.get("most_eclectic")
-            self.most_eclectic_tile.set_data(
-                name, f"spans {bridges} communities"
-            )
+            self.most_eclectic_tile.set_data(name, f"spans {bridges} communities")
         else:
             self.most_eclectic_tile.set_data("N/A")
         self.headlines_recompute_button.setEnabled(True)
@@ -1129,10 +1103,7 @@ class MusicStatsDialog(QDialog):
         """Lazy-load the Places & Credits tab's content. Runs once per
         dialog session -- the heaviest of the per-tab workers (recursive
         country/artist-by-country rollups plus a per-role leaderboard loop)."""
-        if (
-            self.places_credits_worker is not None
-            and self.places_credits_worker.isRunning()
-        ):
+        if self.places_credits_worker is not None and self.places_credits_worker.isRunning():
             return
 
         self.places_credits_worker = PlacesCreditsStatsWorker(
@@ -1196,6 +1167,7 @@ class MusicStatsDialog(QDialog):
             self.load_artists_data()
             self.load_albums_data()
             self.load_genres_moods_data()
+            self.load_audio_quality_labels()
         except (KeyError, TypeError, ValueError, RuntimeError) as e:
             logger.error(f"Error updating statistics UI: {e}")
 
@@ -1236,18 +1208,14 @@ class MusicStatsDialog(QDialog):
 
         # Averages
         avg_tracks_per_artist = (
-            stats["total_tracks"] / stats["total_artists"]
-            if stats["total_artists"] > 0
-            else 0
+            stats["total_tracks"] / stats["total_artists"] if stats["total_artists"] > 0 else 0
         )
         self.avg_tracks_artist_label.setText(
             f"Tracks per Artist: {self.format_stat_value(avg_tracks_per_artist)}"
         )
 
         avg_tracks_per_genre = (
-            stats["total_tracks"] / stats["total_genres"]
-            if stats["total_genres"] > 0
-            else 0
+            stats["total_tracks"] / stats["total_genres"] if stats["total_genres"] > 0 else 0
         )
         self.avg_tracks_genre_label.setText(
             f"Tracks per Genre: {self.format_stat_value(avg_tracks_per_genre)}"
@@ -1324,9 +1292,7 @@ class MusicStatsDialog(QDialog):
 
         birthdate = stats.get("most_common_birthdate")
         if birthdate:
-            self.common_birthdate_tile.set_data(
-                birthdate["label"], f"{birthdate['count']} artists"
-            )
+            self.common_birthdate_tile.set_data(birthdate["label"], f"{birthdate['count']} artists")
         else:
             self.common_birthdate_tile.set_data("N/A")
 
@@ -1379,9 +1345,7 @@ class MusicStatsDialog(QDialog):
     def load_ratings_data(self):
         """Load ratings distribution data (already fetched in self.stats)."""
         ratings_data = self.stats.get("ratings_distribution", {})
-        distribution = {
-            float(k): v for k, v in ratings_data.get("distribution", {}).items()
-        }
+        distribution = {float(k): v for k, v in ratings_data.get("distribution", {}).items()}
 
         total_rated = ratings_data.get("total_rated", sum(distribution.values()))
         total_unrated = ratings_data.get("total_unrated", 0)
@@ -1413,9 +1377,9 @@ class MusicStatsDialog(QDialog):
                 self.format_labels[0].setText("No file format data available")
                 return
 
-            sorted_formats = sorted(
-                format_stats.items(), key=lambda x: x[1], reverse=True
-            )[: len(self.format_labels)]
+            sorted_formats = sorted(format_stats.items(), key=lambda x: x[1], reverse=True)[
+                : len(self.format_labels)
+            ]
 
             total_tracks = self.stats["total_tracks"]
             for i, (format_name, count) in enumerate(sorted_formats):
@@ -1432,15 +1396,11 @@ class MusicStatsDialog(QDialog):
         """Load artists tab data."""
         leaderboards = self.stats.get("leaderboards", {})
         top_artists = leaderboards.get("top_artists", [])
-        self.top_artists_list.set_data(
-            [(name, plays, None) for name, plays in top_artists]
-        )
+        self.top_artists_list.set_data([(name, plays, None) for name, plays in top_artists])
 
         deathdate = self.stats.get("most_common_deathdate")
         if deathdate:
-            self.common_deathdate_tile.set_data(
-                deathdate["label"], f"{deathdate['count']} artists"
-            )
+            self.common_deathdate_tile.set_data(deathdate["label"], f"{deathdate['count']} artists")
         else:
             self.common_deathdate_tile.set_data("N/A")
 
@@ -1448,9 +1408,7 @@ class MusicStatsDialog(QDialog):
         """Load albums tab data."""
         leaderboards = self.stats.get("leaderboards", {})
         top_albums = leaderboards.get("highest_rated_albums", [])
-        self.top_albums_list.set_data(
-            [(name, rating, None) for name, rating in top_albums]
-        )
+        self.top_albums_list.set_data([(name, rating, None) for name, rating in top_albums])
 
         release_date = self.stats.get("most_common_album_release_date")
         if release_date:
@@ -1470,14 +1428,10 @@ class MusicStatsDialog(QDialog):
         leaderboards = self.stats.get("leaderboards", {})
 
         top_genres = leaderboards.get("top_genres", [])
-        self.top_genres_list.set_data(
-            [(name, plays, None) for name, plays in top_genres]
-        )
+        self.top_genres_list.set_data([(name, plays, None) for name, plays in top_genres])
 
         top_moods = leaderboards.get("top_moods", [])
-        self.top_moods_list.set_data(
-            [(name, plays, None) for name, plays in top_moods]
-        )
+        self.top_moods_list.set_data([(name, plays, None) for name, plays in top_moods])
 
         highest_rated_genres = leaderboards.get("highest_rated_genres", [])
         self.highest_rated_genres_list.set_data(
@@ -1487,6 +1441,44 @@ class MusicStatsDialog(QDialog):
         lowest_rated_genres = leaderboards.get("lowest_rated_genres", [])
         self.lowest_rated_genres_list.set_data(
             [(name, rating, None) for name, rating in lowest_rated_genres]
+        )
+
+    def load_audio_quality_labels(self):
+        """Populate the Audio Profile tab's "Audio Quality" scalar rows
+        (bit rate / bit depth / file size / total length). These four labels
+        sit on the Audio Profile tab but are fed by the main stats worker's
+        comprehensive payload (self.stats), not the lazy AudioStatsWorker
+        that drives that tab's charts -- so they're refreshed from here, with
+        the rest of the on_stats_loaded() loaders, not load_audio_profile_data()."""
+        audio_stats = self.stats.get("audio_quality_stats", {})
+
+        avg_bit_rate = audio_stats.get("average_bit_rate")
+        self.avg_bit_rate_label.setText(
+            "Average Bit Rate: "
+            + (f"{self.format_stat_value(avg_bit_rate, False)} kbps" if avg_bit_rate else "N/A")
+        )
+
+        avg_bit_depth = audio_stats.get("average_bit_depth")
+        self.avg_bit_depth_label.setText(
+            "Average Bit Depth: "
+            + (f"{self.format_stat_value(avg_bit_depth, False)} bits" if avg_bit_depth else "N/A")
+        )
+
+        avg_file_size = audio_stats.get("average_file_size")
+        self.avg_file_size_label.setText(
+            "Average File Size: "
+            + (
+                self.format_stat_value(self.format_file_size(avg_file_size), False)
+                if avg_file_size
+                else "N/A"
+            )
+        )
+
+        avg_duration = audio_stats.get("average_duration") or 0
+        total_length = avg_duration * self.stats.get("total_tracks", 0)
+        self.total_track_length_label.setText(
+            "Total Track Length: "
+            + self.format_stat_value(self.format_duration(total_length), False)
         )
 
     def _rating_rows_with_n(self, rows):
@@ -1509,9 +1501,7 @@ class MusicStatsDialog(QDialog):
             for t in set(highest_dict) | set(lowest_dict)
             if highest_dict.get(t) or lowest_dict.get(t)
         ]
-        self.genre_rating_tier.set_thresholds_available(
-            non_empty or list(highest_dict.keys())
-        )
+        self.genre_rating_tier.set_thresholds_available(non_empty or list(highest_dict.keys()))
         self._update_rated_genres_leaderboard()
 
         niche = stats.get("most_niche_genre")
@@ -1541,10 +1531,7 @@ class MusicStatsDialog(QDialog):
             [(name, plays, None) for name, plays in mood_plays.get("most_played", [])]
         )
         self.least_played_moods_list.set_data(
-            [
-                (name, plays, None)
-                for name, plays in mood_plays.get("least_played", [])
-            ]
+            [(name, plays, None) for name, plays in mood_plays.get("least_played", [])]
         )
 
         # Most representative tracks per mood -- populate the selector from
@@ -1592,19 +1579,14 @@ class MusicStatsDialog(QDialog):
 
         leaderboard = stats.get("rating_by_track_count", {})
         non_empty = [t for t, rows in leaderboard.items() if rows]
-        self.album_rating_tier.set_thresholds_available(
-            non_empty or list(leaderboard.keys())
-        )
+        self.album_rating_tier.set_thresholds_available(non_empty or list(leaderboard.keys()))
         self._update_album_rating_leaderboard()
 
         self.release_country_chart.set_data(stats.get("release_country_distribution"))
 
         highest_by_country = stats.get("highest_rated_album_by_country", {})
         country_rows = sorted(
-            [
-                (country, rating, album)
-                for country, (album, rating) in highest_by_country.items()
-            ],
+            [(country, rating, album) for country, (album, rating) in highest_by_country.items()],
             key=lambda r: r[1],
             reverse=True,
         )[:10]
@@ -1614,16 +1596,10 @@ class MusicStatsDialog(QDialog):
 
         top_bottom_selling = stats.get("top_bottom_selling_albums", {})
         self.top_selling_list.set_data(
-            [
-                (name, sales, artist)
-                for name, artist, sales in top_bottom_selling.get("top", [])
-            ]
+            [(name, sales, artist) for name, artist, sales in top_bottom_selling.get("top", [])]
         )
         self.bottom_selling_list.set_data(
-            [
-                (name, sales, artist)
-                for name, artist, sales in top_bottom_selling.get("bottom", [])
-            ]
+            [(name, sales, artist) for name, artist, sales in top_bottom_selling.get("bottom", [])]
         )
 
         diverse_albums = stats.get("most_diverse_albums_by_genre", [])
@@ -1639,9 +1615,7 @@ class MusicStatsDialog(QDialog):
             return
         leaderboard = self.album_stats.get("rating_by_track_count", {})
         threshold = self.album_rating_tier.current_threshold()
-        self.album_rating_list.set_data(
-            self._rating_rows_with_n(leaderboard.get(threshold, []))
-        )
+        self.album_rating_list.set_data(self._rating_rows_with_n(leaderboard.get(threshold, [])))
 
     def load_artist_stats_data(self):
         """Load the Artists tab's Phase-3 content (already fetched in
@@ -1666,18 +1640,13 @@ class MusicStatsDialog(QDialog):
 
         best_by_type = stats.get("highest_rated_artist_per_type", {})
         type_rows = sorted(
-            [
-                (type_name, rating, artist)
-                for type_name, (artist, rating) in best_by_type.items()
-            ],
+            [(type_name, rating, artist) for type_name, (artist, rating) in best_by_type.items()],
             key=lambda r: r[1],
             reverse=True,
         )
         self.artist_type_best_list.set_data(type_rows)
 
-        self.artist_religion_chart.set_data(
-            stats.get("artist_religion_distribution")
-        )
+        self.artist_religion_chart.set_data(stats.get("artist_religion_distribution"))
         self.artist_religion_rating_list.set_data(
             self._rating_rows_with_n(stats.get("religion_rating_comparison", []))
         )
@@ -1706,9 +1675,7 @@ class MusicStatsDialog(QDialog):
 
         youngest = lifespan.get("youngest")
         if youngest:
-            self.youngest_artist_tile.set_data(
-                youngest["name"], f"born {youngest['begin_year']}"
-            )
+            self.youngest_artist_tile.set_data(youngest["name"], f"born {youngest['begin_year']}")
         else:
             self.youngest_artist_tile.set_data("N/A")
 
@@ -1739,16 +1706,10 @@ class MusicStatsDialog(QDialog):
             for t in set(highest_dict) | set(lowest_dict)
             if highest_dict.get(t) or lowest_dict.get(t)
         ]
-        self.gender_tier.set_thresholds_available(
-            non_empty or list(highest_dict.keys())
-        )
+        self.gender_tier.set_thresholds_available(non_empty or list(highest_dict.keys()))
         threshold = self.gender_tier.current_threshold()
-        self.gender_highest_list.set_data(
-            self._rating_rows_with_n(highest_dict.get(threshold, []))
-        )
-        self.gender_lowest_list.set_data(
-            self._rating_rows_with_n(lowest_dict.get(threshold, []))
-        )
+        self.gender_highest_list.set_data(self._rating_rows_with_n(highest_dict.get(threshold, [])))
+        self.gender_lowest_list.set_data(self._rating_rows_with_n(lowest_dict.get(threshold, [])))
 
     def _rows_with_note(self, rows, note):
         """Like _rating_rows_with_n, but for leaderboards whose count isn't
@@ -1770,25 +1731,16 @@ class MusicStatsDialog(QDialog):
             for t in set(highest_dict) | set(lowest_dict)
             if highest_dict.get(t) or lowest_dict.get(t)
         ]
-        self.place_rating_tier.set_thresholds_available(
-            non_empty or list(highest_dict.keys())
-        )
+        self.place_rating_tier.set_thresholds_available(non_empty or list(highest_dict.keys()))
         self._update_place_rating_leaderboard()
 
         countries = stats.get("rated_countries", {})
-        self.country_highest_list.set_data(
-            self._rating_rows_with_n(countries.get("highest", []))
-        )
-        self.country_lowest_list.set_data(
-            self._rating_rows_with_n(countries.get("lowest", []))
-        )
+        self.country_highest_list.set_data(self._rating_rows_with_n(countries.get("highest", [])))
+        self.country_lowest_list.set_data(self._rating_rows_with_n(countries.get("lowest", [])))
 
         highest_by_country = stats.get("highest_rated_artist_by_country", {})
         country_rows = sorted(
-            [
-                (country, rating, artist)
-                for country, (artist, rating) in highest_by_country.items()
-            ],
+            [(country, rating, artist) for country, (artist, rating) in highest_by_country.items()],
             key=lambda r: r[1],
             reverse=True,
         )[:10]
@@ -1829,10 +1781,7 @@ class MusicStatsDialog(QDialog):
             [(name, count, None) for name, count in role_counts.get("most_credits", [])]
         )
         self.most_distinct_roles_list.set_data(
-            [
-                (name, count, None)
-                for name, count in role_counts.get("most_distinct_roles", [])
-            ]
+            [(name, count, None) for name, count in role_counts.get("most_distinct_roles", [])]
         )
 
         self.role_rating_list.set_data(
@@ -1864,14 +1813,10 @@ class MusicStatsDialog(QDialog):
         leaderboard = self.places_credits_stats.get("rated_publishers_leaderboard", {})
         threshold = self.publisher_rating_tier.current_threshold()
         self.publisher_highest_list.set_data(
-            self._rows_with_note(
-                leaderboard.get("highest", {}).get(threshold, []), "albums"
-            )
+            self._rows_with_note(leaderboard.get("highest", {}).get(threshold, []), "albums")
         )
         self.publisher_lowest_list.set_data(
-            self._rows_with_note(
-                leaderboard.get("lowest", {}).get(threshold, []), "albums"
-            )
+            self._rows_with_note(leaderboard.get("lowest", {}).get(threshold, []), "albums")
         )
 
     def _update_composer_rating_leaderboard(self, *_args):
@@ -1903,9 +1848,7 @@ class MusicStatsDialog(QDialog):
             for t in set(highest_dict) | set(lowest_dict)
             if highest_dict.get(t) or lowest_dict.get(t)
         ]
-        self.role_rating_tier.set_thresholds_available(
-            non_empty or list(highest_dict.keys())
-        )
+        self.role_rating_tier.set_thresholds_available(non_empty or list(highest_dict.keys()))
         threshold = self.role_rating_tier.current_threshold()
         self.role_rated_highest_list.set_data(
             self._rating_rows_with_n(highest_dict.get(threshold, []))
@@ -1932,19 +1875,11 @@ class MusicStatsDialog(QDialog):
         self.track_gain_chart.set_data(stats.get("track_gain_distribution"))
 
         quietest_loudest = stats.get("quietest_loudest", {})
-        self.quietest_list.set_data(
-            self._track_metric_rows(quietest_loudest.get("quietest", []))
-        )
-        self.loudest_list.set_data(
-            self._track_metric_rows(quietest_loudest.get("loudest", []))
-        )
+        self.quietest_list.set_data(self._track_metric_rows(quietest_loudest.get("quietest", [])))
+        self.loudest_list.set_data(self._track_metric_rows(quietest_loudest.get("loudest", [])))
 
         time_sig_dist = stats.get("time_signature_distribution", {})
-        time_sig_key = (
-            "confident"
-            if self.time_signature_confidence_checkbox.isChecked()
-            else "all"
-        )
+        time_sig_key = "confident" if self.time_signature_confidence_checkbox.isChecked() else "all"
         self.time_signature_chart.set_data(time_sig_dist.get(time_sig_key))
         self.file_size_chart.set_data(stats.get("file_size_distribution"))
 
@@ -1966,9 +1901,7 @@ class MusicStatsDialog(QDialog):
 
         top_bottom = stats.get("dsp_top_bottom", {}).get(label, {})
         self.dsp_top_list.set_data(self._track_metric_rows(top_bottom.get("top", [])))
-        self.dsp_bottom_list.set_data(
-            self._track_metric_rows(top_bottom.get("bottom", []))
-        )
+        self.dsp_bottom_list.set_data(self._track_metric_rows(top_bottom.get("bottom", [])))
 
     def _track_metric_rows(self, rows):
         """Remap track_metric_top_bottom's (track_name, artist, value) rows
@@ -2053,62 +1986,23 @@ class MusicStatsDialog(QDialog):
         won't hear about it.
         """
         for worker, slots in (
-            (
-                self.worker,
-                [
-                    (self.on_stats_loaded,),
-                    (self.on_stats_error,),
-                ],
-            ),
+            (self.worker, [(self.on_stats_loaded,), (self.on_stats_error,)]),
             (
                 self.influence_worker,
-                [
-                    (self.on_influence_stats_loaded,),
-                    (self.on_influence_stats_error,),
-                ],
+                [(self.on_influence_stats_loaded,), (self.on_influence_stats_error,)],
             ),
-            (
-                self.audio_worker,
-                [
-                    (self.on_audio_stats_loaded,),
-                    (self.on_audio_stats_error,),
-                ],
-            ),
+            (self.audio_worker, [(self.on_audio_stats_loaded,), (self.on_audio_stats_error,)]),
             (
                 self.genre_mood_worker,
-                [
-                    (self.on_genre_mood_stats_loaded,),
-                    (self.on_genre_mood_stats_error,),
-                ],
+                [(self.on_genre_mood_stats_loaded,), (self.on_genre_mood_stats_error,)],
             ),
-            (
-                self.album_worker,
-                [
-                    (self.on_album_stats_loaded,),
-                    (self.on_album_stats_error,),
-                ],
-            ),
-            (
-                self.artist_worker,
-                [
-                    (self.on_artist_stats_loaded,),
-                    (self.on_artist_stats_error,),
-                ],
-            ),
+            (self.album_worker, [(self.on_album_stats_loaded,), (self.on_album_stats_error,)]),
+            (self.artist_worker, [(self.on_artist_stats_loaded,), (self.on_artist_stats_error,)]),
             (
                 self.places_credits_worker,
-                [
-                    (self.on_places_credits_stats_loaded,),
-                    (self.on_places_credits_stats_error,),
-                ],
+                [(self.on_places_credits_stats_loaded,), (self.on_places_credits_stats_error,)],
             ),
-            (
-                self.lyrics_worker,
-                [
-                    (self.on_lyrics_stats_loaded,),
-                    (self.on_lyrics_stats_error,),
-                ],
-            ),
+            (self.lyrics_worker, [(self.on_lyrics_stats_loaded,), (self.on_lyrics_stats_error,)]),
         ):
             if worker is not None and worker.isRunning():
                 with contextlib.suppress(TypeError, RuntimeError):
