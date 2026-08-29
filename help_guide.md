@@ -52,7 +52,12 @@ context on the right so same-named entries are easy to tell apart:
 - **Places** show their type and country, e.g. `City · United Kingdom`.
 - **Tracks** show their primary artist and album, e.g.
   `Radiohead · OK Computer`.
+- **Albums** show their album artist and release year, e.g.
+  `Michael Jackson · 1982`.
 - **Publishers** show their parent label and founding year.
+
+The chart "Match to Track/Album" dialog uses the same contextual
+suggestions.
 
 Picking a suggestion drops only the name into the field — the context is
 just there to help you choose.

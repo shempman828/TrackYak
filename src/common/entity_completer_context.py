@@ -9,8 +9,8 @@ completion value, so a caller's name-based resolution
 
 Builders are best-effort: a missing relationship or null field yields an
 empty context, never an exception. Callers must cap their candidate list
-before calling these -- the artist/place/track builders each touch a lazy
-relationship per row.
+before calling these -- the artist/place/track/album builders each touch a
+lazy relationship per row.
 """
 
 from __future__ import annotations
@@ -112,6 +112,28 @@ def _track_context(track) -> str:
     if artist and album:
         return f"{artist}{_SEP}{album}"
     return artist or album or ""
+
+
+# ── Album ─────────────────────────────────────────────────────────────────
+
+
+def album_context_map(albums) -> dict:
+    return {
+        a.album_id: _album_context(a) for a in albums if getattr(a, "album_id", None) is not None
+    }
+
+
+def _album_context(album) -> str:
+    names = [
+        _clean(getattr(a, "artist_name", None))
+        for a in (getattr(album, "album_artists", None) or [])
+    ]
+    artist = ", ".join(n for n in names if n)
+    year = getattr(album, "release_year", None)
+    year_str = str(year) if year else ""
+    if artist and year_str:
+        return f"{artist}{_SEP}{year_str}"
+    return artist or year_str or ""
 
 
 # ── Publisher ─────────────────────────────────────────────────────────────

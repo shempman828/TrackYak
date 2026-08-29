@@ -13,14 +13,19 @@ build_entity_search_widget (src/common/entity_completer_edit.py) -- the
 same search-and-pick completer already used for genre/mood/artist-influence
 tagging -- rather than a bespoke picker: Track/Album tables are exactly the
 "too large to preload" case that widget's BoundedSearchEdit fallback
-already handles.
+already handles. Suggestions carry the shared dimmed secondary context
+(artist/album for a Track, artist/year for an Album) via the
+entity_completer_context builders, so same-named candidates are
+distinguishable in the popup.
 """
 
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLabel, QVBoxLayout
 
+from src.common.entity_completer_context import album_context_map, track_context_map
 from src.common.entity_completer_edit import build_entity_search_widget
 
 _ENTITY_FIELDS = {"Track": ("track_name", "track_id"), "Album": ("album_name", "album_id")}
+_CONTEXT_BUILDERS = {"Track": track_context_map, "Album": album_context_map}
 
 
 class ChartManualMatchDialog(QDialog):
@@ -52,6 +57,7 @@ class ChartManualMatchDialog(QDialog):
             name_field,
             id_field,
             f"Search {self._entity_type.lower()}s…",
+            context_builder=_CONTEXT_BUILDERS[self._entity_type],
         )
         layout.addWidget(self._search)
 

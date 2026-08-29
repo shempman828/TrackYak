@@ -7,6 +7,7 @@ exception).
 """
 
 from src.common.entity_completer_context import (
+    album_context_map,
     artist_context_map,
     place_context_map,
     publisher_context_map,
@@ -45,6 +46,13 @@ class _Track:
         self.track_id = track_id
         self.primary_artists = list(primary_artists)
         self.album_name = album_name
+
+
+class _Album:
+    def __init__(self, album_id, album_artists=(), release_year=None):
+        self.album_id = album_id
+        self.album_artists = list(album_artists)
+        self.release_year = release_year
 
 
 class _Publisher:
@@ -125,6 +133,25 @@ def test_track_context_degrades():
     )
     out = track_context_map([only_artist, only_album, nothing, multi])
     assert out == {2: "Aphex Twin", 3: "Untitled", 4: "", 5: "Jay-Z, Kanye West · WTT"}
+
+
+# ── album_context_map ────────────────────────────────────────────────────
+
+
+def test_album_context_artist_and_year():
+    a = _Album(1, album_artists=[_ArtistName("Radiohead")], release_year=1997)
+    assert album_context_map([a]) == {1: "Radiohead · 1997"}
+
+
+def test_album_context_degrades():
+    only_artist = _Album(2, album_artists=[_ArtistName("Aphex Twin")])
+    only_year = _Album(3, release_year=2001)
+    nothing = _Album(4)
+    multi = _Album(
+        5, album_artists=[_ArtistName("Jay-Z"), _ArtistName("Kanye West")], release_year=2011
+    )
+    out = album_context_map([only_artist, only_year, nothing, multi])
+    assert out == {2: "Aphex Twin", 3: "2001", 4: "", 5: "Jay-Z, Kanye West · 2011"}
 
 
 # ── publisher_context_map ────────────────────────────────────────────────

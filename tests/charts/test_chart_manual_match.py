@@ -30,7 +30,7 @@ from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB
 from src.db.db_tables.album import Album
 from src.db.db_tables.artist import Artist
-from src.db.db_tables.associations import TrackArtistRole
+from src.db.db_tables.associations import AlbumRoleAssociation, TrackArtistRole
 from src.db.db_tables.base import Base
 from src.db.db_tables.chart import Chart, ChartEntry
 from src.db.db_tables.role import Role
@@ -111,8 +111,16 @@ def _seed_track_chart(session):
 
 
 def _seed_album_chart(session):
-    album = Album(album_name="Thriller")
-    session.add(album)
+    role = Role(role_name="Album Artist")
+    artist = Artist(artist_name="Michael Jackson")
+    album = Album(album_name="Thriller", release_year=1982)
+    session.add_all([role, artist, album])
+    session.commit()
+    session.add(
+        AlbumRoleAssociation(
+            album_id=album.album_id, artist_id=artist.artist_id, role_id=role.role_id
+        )
+    )
     session.commit()
 
     chart = Chart(
@@ -205,6 +213,24 @@ def test_manual_match_dialog_ok_enables_when_picked_text_equals_typed_text(
     dialog._search._completer.activated.emit("Thriller")  # pick -> setText no-ops
     assert dialog._ok_button.isEnabled()
     assert dialog.matched_entity_id() == album.album_id
+
+
+def test_manual_match_dialog_track_suggestions_carry_context(qapp, session, controller):
+    # The completer popup must show the shared dimmed secondary context
+    # (primary artist / album) so same-named tracks are distinguishable --
+    # the chart dialog was the one site build_entity_search_widget's
+    # context channel wasn't wired into.
+    _chart, _entry, track, _other = _seed_track_chart(session)
+    dialog = ChartManualMatchDialog(controller, "Track", "Runaround Sue", "Dion")
+
+    assert dialog._search._display_to_context.get(track.track_name) == "Dion"
+
+
+def test_manual_match_dialog_album_suggestions_carry_context(qapp, session, controller):
+    _chart, album = _seed_album_chart(session)
+    dialog = ChartManualMatchDialog(controller, "Album", "Thriller", "Michael Jackson")
+
+    assert dialog._search._display_to_context.get(album.album_name) == "Michael Jackson · 1982"
 
 
 def test_accepting_dialog_sets_match_in_db(qapp, session, controller, monkeypatch):
