@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.disc.disc_view import DiscManagementView
+from src.album.disc_tab.view import DiscTabView
 from src.track.track_edit_genres import GenresTab as TrackGenresTab
 from src.track.track_edit_roles import RolesTab as TrackRolesTab
 
@@ -97,7 +97,7 @@ class TracksTab:
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(0, 0, 0, 0)
-        disc_view = DiscManagementView(
+        disc_view = DiscTabView(
             self.editor.album, self.editor.controller, parent=tab
         )
         # Track add/remove/reassignment here isn't routed through

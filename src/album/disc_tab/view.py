@@ -13,14 +13,14 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.album.disc_tab.disc_edit import DiscEditDialog
+from src.album.disc_tab.disc_sorting import TrackSortingDisplay
 from src.common.style_utils import set_style_property
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
-from src.disc.disc_edit import DiscEditDialog
-from src.disc.disc_sorting import TrackSortingDisplay
 
 
-class DiscManagementView(QWidget):
+class DiscTabView(QWidget):
     """
     Main widget for managing disc structure of an album.
     Displays tracks in their natural hierarchy and allows disc creation/editing.

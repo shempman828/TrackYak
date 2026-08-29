@@ -22,7 +22,7 @@ class TrackSortingDisplay(QTreeWidget):
     """
 
     # Emitted when a track edit dialog is saved and closed.
-    # The parent DiscManagementView connects to this to trigger a full reload.
+    # The parent DiscTabView connects to this to trigger a full reload.
     track_edited = Signal()
 
     # Emitted after tracks are deleted so the parent view can reload.
@@ -192,7 +192,7 @@ class TrackSortingDisplay(QTreeWidget):
         track_ids: a list of int track IDs (single-track edit passes a 1-item list).
         """
         # Resolve controller — it may have been passed in directly, or we can
-        # walk up the parent chain to find the DiscManagementView that holds it.
+        # walk up the parent chain to find the DiscTabView that holds it.
         controller = self.controller
         if controller is None:
             parent = self.parent()

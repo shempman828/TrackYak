@@ -8,7 +8,7 @@ track membership changes aren't routed through RelationshipHelpers the way
 credit/place/award changes are.
 
 Covers:
-  - DiscManagementView.refresh_view() (src/disc/disc_view.py) now emits a
+  - DiscTabView.refresh_view() (src/album/disc_tab/view.py) now emits a
     tracks_changed signal after every local reload, regardless of what
     triggered it (track edit/delete, disc add/remove/renumber).
   - TracksTab.build() (src/album/base_album_edit_tabs.py) wires that signal
@@ -18,7 +18,7 @@ Covers:
 """
 
 from src.album.base_album_edit_tabs import TracksTab
-from src.disc.disc_view import DiscManagementView
+from src.album.disc_tab.view import DiscTabView
 
 # ---------------------------------------------------------------------------
 # Stubs
@@ -32,7 +32,7 @@ class _StubAlbum:
 
 
 class _StubGet:
-    """DiscManagementView.load_data() asks for Track/AlbumVirtualTrack/Disc
+    """DiscTabView.load_data() asks for Track/AlbumVirtualTrack/Disc
     rows scoped to the album; an empty library is enough to exercise the
     refresh/signal wiring without a real DB."""
 
@@ -56,14 +56,14 @@ class _StubEditor:
 
 
 # ---------------------------------------------------------------------------
-# DiscManagementView.tracks_changed
+# DiscTabView.tracks_changed
 # ---------------------------------------------------------------------------
 
 
 def test_refresh_view_emits_tracks_changed(qapp):
     album = _StubAlbum()
     controller = _StubController()
-    view = DiscManagementView(album, controller)
+    view = DiscTabView(album, controller)
 
     emitted = []
     view.tracks_changed.connect(lambda: emitted.append(True))
@@ -84,7 +84,7 @@ def test_tracks_tab_forwards_track_changes_to_editor_refresh(qapp):
 
     built = tab.build()
     try:
-        disc_view = built.findChild(DiscManagementView)
+        disc_view = built.findChild(DiscTabView)
         assert disc_view is not None
 
         disc_view.refresh_view()

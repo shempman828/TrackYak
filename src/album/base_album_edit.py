@@ -94,7 +94,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     Tabs
     ────
     Details          – core metadata (language, type, catalog #, live/compilation flags, sales, MBID, Wikipedia link)
-    Tracks           – DiscManagementView for disc / track structure
+    Tracks           – DiscTabView for disc / track structure
     Artwork          – front cover, rear cover, liner art with pickers
     Aliases          – add / remove / type album aliases
     Genres           – genres common to all album tracks; edits trickle down to every track
@@ -671,7 +671,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     # in sync unconditionally, the same way Publishers & Places already was.
     # Genres and Track Credits also both snapshot self.album.tracks at
     # build time, so a track added/removed on the Tracks tab (see
-    # DiscManagementView.tracks_changed) makes them stale the same way.
+    # DiscTabView.tracks_changed) makes them stale the same way.
     _ALWAYS_REFRESHED_TABS: ClassVar[tuple[str, ...]] = (
         "Publishers && Places",
         "Album credit",
