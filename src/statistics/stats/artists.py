@@ -12,13 +12,7 @@ than plain artist-table queries.
 
 from sqlalchemy import func, or_
 
-from src.db.db_tables import (
-    Artist,
-    ArtistType,
-    ArtistTypeAssociation,
-    Religion,
-    Track,
-)
+from src.db.db_tables import Artist, ArtistType, ArtistTypeAssociation, Religion, Track
 from src.statistics.stats.helpers import (
     RATING_MAX,
     RATING_MIN,
@@ -26,14 +20,27 @@ from src.statistics.stats.helpers import (
     threshold_leaderboard,
 )
 
-# Standard Pew-style generation boundaries (inclusive), keyed by begin_year.
-# Artists whose begin_year falls outside every range are excluded from the
-# generation-ratings breakdown rather than bucketed into a catch-all.
+# Named generation boundaries (inclusive begin_year..end_year). Contiguous
+# and non-overlapping, spanning the pre-recording era through the next
+# demographer-named cohort so the breakdown stays correct as an artist born
+# in any year gets rated. Buckets that don't clear RATING_BUCKET_MIN_N are
+# dropped by _generation_ratings, so listing a cohort with no data yet is
+# harmless. Boundaries: Strauss-Howe for the 19th-century cohorts, Pew for
+# Silent through Gen Z, McCrindle for Alpha/Beta. Artists whose begin_year
+# falls outside every range are excluded rather than bucketed into a
+# catch-all.
 GENERATIONS = (
+    ("Progressive Generation", 1843, 1859),
+    ("Missionary Generation", 1860, 1882),
+    ("Lost Generation", 1883, 1900),
+    ("Greatest Generation", 1901, 1927),
+    ("Silent Generation", 1928, 1945),
     ("Boomer", 1946, 1964),
     ("Gen X", 1965, 1980),
     ("Millennial", 1981, 1996),
     ("Gen Z", 1997, 2012),
+    ("Gen Alpha", 2013, 2024),
+    ("Gen Beta", 2025, 2039),
 )
 
 # Minimum rated tracks for a bucket (generation/type/religion/gender) to be
@@ -63,15 +70,9 @@ class ArtistStats:
                 "generation_ratings": self._generation_ratings(session),
                 "artist_type_distribution": self._artist_type_distribution(session),
                 "artist_type_rating": self._artist_type_rating(session),
-                "highest_rated_artist_per_type": self._highest_rated_artist_per_type(
-                    session
-                ),
-                "artist_religion_distribution": self._artist_religion_distribution(
-                    session
-                ),
-                "religion_rating_comparison": self._religion_rating_comparison(
-                    session
-                ),
+                "highest_rated_artist_per_type": self._highest_rated_artist_per_type(session),
+                "artist_religion_distribution": self._artist_religion_distribution(session),
+                "religion_rating_comparison": self._religion_rating_comparison(session),
                 "gender_rating_comparison": self._gender_rating_comparison(session),
                 "rated_artists_by_gender": self._rated_artists_by_gender(session),
                 "lifespan_stats": self._lifespan_stats(session),
@@ -123,7 +124,7 @@ class ArtistStats:
             .order_by(func.count(ArtistTypeAssociation.artist_id).desc())
             .all()
         )
-        return {name: count for name, count in rows}
+        return dict(rows)
 
     def _artist_type_rating(self, session):
         dedup = distinct_artist_track_subquery(session)
@@ -151,10 +152,7 @@ class ArtistStats:
         )
         ratings = [(name, round(avg, 2), n) for name, avg, n in rows]
         ratings.sort(key=lambda r: r[1], reverse=True)
-        return {
-            "highest": ratings[:5],
-            "lowest": ratings[-5:][::-1] if ratings else [],
-        }
+        return {"highest": ratings[:5], "lowest": ratings[-5:][::-1] if ratings else []}
 
     def _highest_rated_artist_per_type(self, session, min_rated_tracks=3):
         dedup = distinct_artist_track_subquery(session)
@@ -179,7 +177,12 @@ class ArtistStats:
                 Track.user_rating >= RATING_MIN,
                 Track.user_rating <= RATING_MAX,
             )
-            .group_by(ArtistType.artist_type_id, ArtistType.type_name, Artist.artist_id, Artist.artist_name)
+            .group_by(
+                ArtistType.artist_type_id,
+                ArtistType.type_name,
+                Artist.artist_id,
+                Artist.artist_name,
+            )
             .having(func.count(Track.track_id) >= min_rated_tracks)
             .all()
         )
@@ -203,7 +206,7 @@ class ArtistStats:
             .order_by(func.count(Artist.artist_id).desc())
             .all()
         )
-        return {name: count for name, count in rows}
+        return dict(rows)
 
     def _religion_rating_comparison(self, session):
         dedup = distinct_artist_track_subquery(session)
@@ -310,9 +313,7 @@ class ArtistStats:
     def _lifespan_stats(self, session):
         oldest_living = (
             session.query(Artist.artist_name, Artist.begin_year)
-            .filter(
-                PERSON_FILTER, Artist.end_year.is_(None), Artist.begin_year.isnot(None)
-            )
+            .filter(PERSON_FILTER, Artist.end_year.is_(None), Artist.begin_year.isnot(None))
             .order_by(Artist.begin_year.asc())
             .first()
         )
@@ -331,17 +332,13 @@ class ArtistStats:
             lifespan_expr >= 0,
         )
         longest_lived = (
-            session.query(
-                Artist.artist_name, Artist.begin_year, Artist.end_year, lifespan_expr
-            )
+            session.query(Artist.artist_name, Artist.begin_year, Artist.end_year, lifespan_expr)
             .filter(*lifespan_filter)
             .order_by(lifespan_expr.desc())
             .first()
         )
         shortest_lived = (
-            session.query(
-                Artist.artist_name, Artist.begin_year, Artist.end_year, lifespan_expr
-            )
+            session.query(Artist.artist_name, Artist.begin_year, Artist.end_year, lifespan_expr)
             .filter(*lifespan_filter)
             .order_by(lifespan_expr.asc())
             .first()
@@ -353,9 +350,7 @@ class ArtistStats:
                 if oldest_living
                 else None
             ),
-            "youngest": (
-                {"name": youngest[0], "begin_year": youngest[1]} if youngest else None
-            ),
+            "youngest": ({"name": youngest[0], "begin_year": youngest[1]} if youngest else None),
             "longest_lived": (
                 {
                     "name": longest_lived[0],
