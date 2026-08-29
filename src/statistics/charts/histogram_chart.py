@@ -6,17 +6,18 @@ HistogramChart: continuous-value histogram (BPM, track gain, file size, the
 src.statistics.stats.helpers.DistributionStats bucket list.
 """
 
-from typing import Optional
-
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QFont, QPainter
 from PySide6.QtWidgets import QSizePolicy
 
 from src.statistics.charts.theme_palette import STANDARD_BAR_PALETTE, ThemedChartWidget
 
-BAR_AREA_HEIGHT = 90
-AXIS_LABEL_HEIGHT = 16
-STATS_LABEL_HEIGHT = 18
+# Minimum drawable bar-area height; bars are painted relative to whatever
+# vertical space the widget is actually given (>= this).
+BAR_AREA_HEIGHT = 170
+AXIS_LABEL_HEIGHT = 18
+STATS_LABEL_HEIGHT = 20
+TOP_PAD = 6
 
 
 class HistogramChart(ThemedChartWidget):
@@ -31,11 +32,11 @@ class HistogramChart(ThemedChartWidget):
         self._distribution = None
         self._unit = unit
         self._value_format = value_format
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setMinimumHeight(BAR_AREA_HEIGHT + AXIS_LABEL_HEIGHT + STATS_LABEL_HEIGHT)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.setMinimumHeight(BAR_AREA_HEIGHT + AXIS_LABEL_HEIGHT + STATS_LABEL_HEIGHT + TOP_PAD)
         self._apply_theme_palette()
 
-    def set_data(self, distribution: Optional[object]):
+    def set_data(self, distribution: object | None):
         """`distribution` is a DistributionStats or None (no qualifying data)."""
         self._apply_theme_palette()
         self._distribution = distribution
@@ -60,9 +61,8 @@ class HistogramChart(ThemedChartWidget):
             return
 
         w = self.width()
-        top_pad = 6
-        bars_top = top_pad
-        bars_bottom = top_pad + BAR_AREA_HEIGHT
+        bar_area_h = max(self.height() - AXIS_LABEL_HEIGHT - STATS_LABEL_HEIGHT - TOP_PAD * 2, 40)
+        bars_bottom = TOP_PAD + bar_area_h
         max_count = max(count for _s, _e, count in dist.buckets) or 1
         n_buckets = len(dist.buckets)
         bar_gap = 1
@@ -72,7 +72,7 @@ class HistogramChart(ThemedChartWidget):
         painter.setBrush(bar_color)
         for i, (_start, _end, count) in enumerate(dist.buckets):
             x = 4 + i * (bar_w + bar_gap)
-            bar_h = (count / max_count) * (BAR_AREA_HEIGHT - 4)
+            bar_h = (count / max_count) * (bar_area_h - 4)
             rect = QRectF(x, bars_bottom - bar_h, bar_w, bar_h)
             painter.drawRect(rect)
 
@@ -80,25 +80,19 @@ class HistogramChart(ThemedChartWidget):
         painter.setFont(QFont("Cambria", 8))
         axis_rect_left = QRectF(4, bars_bottom + 2, w / 2 - 4, AXIS_LABEL_HEIGHT)
         axis_rect_right = QRectF(w / 2, bars_bottom + 2, w / 2 - 4, AXIS_LABEL_HEIGHT)
-        painter.drawText(
-            axis_rect_left, Qt.AlignLeft | Qt.AlignVCenter, self._fmt(dist.minimum)
-        )
-        painter.drawText(
-            axis_rect_right, Qt.AlignRight | Qt.AlignVCenter, self._fmt(dist.maximum)
-        )
+        painter.drawText(axis_rect_left, Qt.AlignLeft | Qt.AlignVCenter, self._fmt(dist.minimum))
+        painter.drawText(axis_rect_right, Qt.AlignRight | Qt.AlignVCenter, self._fmt(dist.maximum))
 
         painter.setPen(text_color)
-        stats_rect = QRectF(
-            4, bars_bottom + AXIS_LABEL_HEIGHT, w - 8, STATS_LABEL_HEIGHT
-        )
+        stats_rect = QRectF(4, bars_bottom + AXIS_LABEL_HEIGHT, w - 8, STATS_LABEL_HEIGHT)
         painter.drawText(
             stats_rect,
             Qt.AlignLeft | Qt.AlignVCenter,
             f"n={dist.n}  •  mean={self._fmt(dist.mean)}  •  "
-            f"median={self._fmt(dist.median)}  •  σ={self._fmt(dist.stdev)}",
+            f"median={self._fmt(dist.median)}  •  σ={self._fmt(dist.stdev)}",  # noqa: RUF001
         )
 
         painter.end()
 
     def sizeHint(self):
-        return QSize(320, BAR_AREA_HEIGHT + AXIS_LABEL_HEIGHT + STATS_LABEL_HEIGHT)
+        return QSize(360, BAR_AREA_HEIGHT + AXIS_LABEL_HEIGHT + STATS_LABEL_HEIGHT + TOP_PAD)
