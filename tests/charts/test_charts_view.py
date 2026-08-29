@@ -62,8 +62,7 @@ def no_real_csvs_on_disk(monkeypatch, tmp_path):
     this test, so chart_csv_exists() never touches the real assets/charts
     directory in the repo."""
     monkeypatch.setattr(
-        "src.charts.chart_download.chart_data_path",
-        lambda name: str(tmp_path / name),
+        "src.charts.chart_download.chart_data_path", lambda name: str(tmp_path / name)
     )
 
 
@@ -191,3 +190,24 @@ def test_search_tab_finds_seeded_entry(qapp, session, controller, tmp_path):
 
     assert view.search_tab.table.topLevelItemCount() == 1
     assert view.search_tab.table.topLevelItem(0).text(1) == "Last Christmas"
+
+
+def test_revisit_refresh_preserves_selected_chart_in_all_tabs(qapp, session, controller, tmp_path):
+    # Regression: main_window's revisit dispatch re-calls ChartsView.load_charts()
+    # every time the user navigates back, which re-runs each tab's set_charts().
+    # A specific-chart selection in the Chart: combo must survive that.
+    (tmp_path / "hot-100-current.csv").write_text("stub")
+    (tmp_path / "billboard-200-current.csv").write_text("stub")
+    _seed_charts_fully_synced(session)
+
+    view = ChartsView(controller)
+
+    view.week_tab.chart_combo.setCurrentText("Billboard 200")
+    view.search_tab.chart_combo.setCurrentText("Billboard 200")
+    view.recommendations_tab.chart_combo.setCurrentText("Billboard 200")
+
+    view.load_charts()  # simulate leaving and re-entering the Charts view
+
+    assert view.week_tab.chart_combo.currentText() == "Billboard 200"
+    assert view.search_tab.chart_combo.currentText() == "Billboard 200"
+    assert view.recommendations_tab.chart_combo.currentText() == "Billboard 200"

@@ -27,7 +27,6 @@ handle_bulk_manual_match_requested handler, then self.refresh() -- same
 ChartWeekBrowserTab/ChartSearchTab.
 """
 
-
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -119,12 +118,18 @@ class ChartRecommendationsTab(QWidget):
         self._reload()
 
     def set_charts(self, charts: list) -> None:
+        # main_window's revisit-refresh re-calls this every time the user
+        # navigates back to ChartsView; preserve the current chart selection
+        # by display text so the combo doesn't snap back to "All Charts".
         self._charts = [(c.chart_key, c.chart_id, c.chart_name) for c in charts]
+        prev = self.chart_combo.currentText()
         self.chart_combo.blockSignals(True)
         self.chart_combo.clear()
         self.chart_combo.addItem("All Charts")
         for _, _, name in self._charts:
             self.chart_combo.addItem(name)
+        restored = self.chart_combo.findText(prev)
+        self.chart_combo.setCurrentIndex(restored if restored >= 0 else 0)
         self.chart_combo.blockSignals(False)
         self._reload()
 

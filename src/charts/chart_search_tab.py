@@ -11,17 +11,9 @@ call-out of this as the one place search must be bounded rather than
 unlimited.
 """
 
-from typing import Optional
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
 from sqlalchemy import bindparam, select, text
 
 from src.charts.chart_entry_table import ChartEntryTable
@@ -80,19 +72,25 @@ class ChartSearchTab(QWidget):
         self._debounce_timer.timeout.connect(self._run_search)
 
     def set_charts(self, charts: list) -> None:
+        # main_window's revisit-refresh re-calls this every time the user
+        # navigates back to ChartsView; preserve the current chart selection
+        # by display text so the combo doesn't snap back to "Both".
         self._charts = [(c.chart_key, c.chart_id, c.chart_name) for c in charts]
+        prev = self.chart_combo.currentText()
         self.chart_combo.blockSignals(True)
         self.chart_combo.clear()
         self.chart_combo.addItem("Both")
         for _, _, name in self._charts:
             self.chart_combo.addItem(name)
+        restored = self.chart_combo.findText(prev)
+        self.chart_combo.setCurrentIndex(restored if restored >= 0 else 0)
         self.chart_combo.blockSignals(False)
         self._run_search()
 
     def _on_search_changed(self, _text: str):
         self._debounce_timer.start()
 
-    def _selected_chart_ids(self) -> Optional[list]:
+    def _selected_chart_ids(self) -> list | None:
         idx = self.chart_combo.currentIndex()
         if idx <= 0:  # "Both"
             return None
@@ -144,9 +142,7 @@ class ChartSearchTab(QWidget):
         self.table.populate(results)
 
         if truncated:
-            self.result_label.setText(
-                f"Showing first {_RESULT_LIMIT} matches — refine your search"
-            )
+            self.result_label.setText(f"Showing first {_RESULT_LIMIT} matches — refine your search")
         else:
             self.result_label.setText(f"{len(results)} match(es)")
 

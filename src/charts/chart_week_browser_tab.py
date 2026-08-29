@@ -6,15 +6,8 @@ result set (~100-200 rows), so the query runs synchronously off
 controller.get -- no worker needed, unlike the bulk import/matching passes.
 """
 
-from typing import Optional
 
-from PySide6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from sqlalchemy import select
 
 from src.charts.chart_entry_table import ChartEntryTable
@@ -90,21 +83,27 @@ class ChartWeekBrowserTab(QWidget):
     def set_charts(self, charts: list) -> None:
         """charts: list of Chart ORM rows with last_synced_week set (i.e.
         actually imported) -- called by ChartsView once data is available."""
+        # main_window's revisit-refresh re-calls this every time the user
+        # navigates back to ChartsView; preserve the current chart selection
+        # by display text so the combo doesn't snap back to the first chart.
         self._charts = [(c.chart_key, c.chart_id, c.chart_name) for c in charts]
+        prev = self.chart_combo.currentText()
         self.chart_combo.blockSignals(True)
         self.chart_combo.clear()
         for _, _, name in self._charts:
             self.chart_combo.addItem(name)
+        restored = self.chart_combo.findText(prev)
+        self.chart_combo.setCurrentIndex(restored if restored >= 0 else 0)
         self.chart_combo.blockSignals(False)
         self._on_chart_changed()
 
-    def _current_chart_id(self) -> Optional[int]:
+    def _current_chart_id(self) -> int | None:
         idx = self.chart_combo.currentIndex()
         if idx < 0 or idx >= len(self._charts):
             return None
         return self._charts[idx][1]
 
-    def _query_weeks(self, chart_id: Optional[int]) -> list:
+    def _query_weeks(self, chart_id: int | None) -> list:
         """Distinct ChartEntry.chart_week dates for chart_id, constrained to
         the currently selected match filter so the year/month/week combos
         only ever offer weeks that actually have matching results."""
@@ -157,8 +156,7 @@ class ChartWeekBrowserTab(QWidget):
         weeks = []
         if year is not None and month is not None:
             weeks = sorted(
-                (w for w in self._weeks if w.year == year and w.month == month),
-                reverse=True,
+                (w for w in self._weeks if w.year == year and w.month == month), reverse=True
             )
         self.week_combo.blockSignals(True)
         self.week_combo.clear()
