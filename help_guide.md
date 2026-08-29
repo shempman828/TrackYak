@@ -360,16 +360,17 @@ what, organized under a hierarchy of awards and categories (a specific
 Grammy category nested under "Grammy Awards," for instance).
 
 **Browsing**: search plus Year and Category filters narrow the tree; click
-an award to open its details on the right.
+an award to open its details on the right. Selecting another award replaces
+that panel — only one award's details are shown at a time.
 
 **Adding an award**: New Award needs just a name — category, year, and a
 parent award are optional, for slotting it into an existing hierarchy.
 
-**Crediting someone**: from an award's detail tab, use Award Relationships
+**Crediting someone**: from an award's detail panel, use Award Relationships
 to assign artists, albums, tracks, publishers, or places to it as Recipient,
 Nominee, Presenter, Judge, Host, or Sponsor/Organizer.
 
-**Editing**: the detail tab also lets you change Name, Year, Category,
+**Editing**: the detail panel also lets you change Name, Year, Category,
 Description, and Parent Award directly, and re-slot an award under a
 different parent without redoing it from scratch.
 

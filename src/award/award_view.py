@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -30,14 +29,14 @@ from src.core.status_utility import show_status_message
 
 
 class AwardView(QWidget):
-    """Main view showing award list and detail tabs"""
+    """Main view showing award list and a single detail panel"""
 
     award_updated = Signal()
 
     def __init__(self, controller: Any):
         super().__init__()
         self.controller = controller
-        self.all_awards: List[Any] = []  # Safe default in case load_awards() fails
+        self.all_awards: list[Any] = []  # Safe default in case load_awards() fails
         self._is_deleting = False  # Guard flag to block selection signal during delete
         self.flat_view = False
         self.init_ui()
@@ -45,7 +44,7 @@ class AwardView(QWidget):
         self.load_awards()
 
     def init_ui(self) -> None:
-        """Initialize UI layout with a split view including search and detail tabs."""
+        """Build the layout: search/list on the left, one detail panel on the right."""
         main_layout = QHBoxLayout(self)
 
         # Left panel with search box and award list
@@ -57,9 +56,7 @@ class AwardView(QWidget):
         search_layout = QVBoxLayout(search_group)
 
         self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText(
-            "Search awards by name, category, or year..."
-        )
+        self.search_box.setPlaceholderText("Search awards by name, category, or year...")
         self.search_box.textChanged.connect(self._filter_awards)
         search_layout.addWidget(self.search_box)
 
@@ -91,9 +88,7 @@ class AwardView(QWidget):
         self.flat_view_button = QPushButton("Flat View")
         self.flat_view_button.setCheckable(True)
         self.flat_view_button.setChecked(False)
-        self.flat_view_button.setToolTip(
-            "Toggle between the hierarchical tree and a flat list"
-        )
+        self.flat_view_button.setToolTip("Toggle between the hierarchical tree and a flat list")
         self.flat_view_button.clicked.connect(self.toggle_flat_view)
         list_header_layout.addWidget(self.flat_view_button)
         list_layout.addLayout(list_header_layout)
@@ -121,11 +116,18 @@ class AwardView(QWidget):
 
         main_layout.addLayout(left_panel)
 
-        # Detail tabs panel
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setTabsClosable(True)
-        self.tab_widget.tabCloseRequested.connect(self._close_tab)
-        main_layout.addWidget(self.tab_widget)
+        # Detail panel — shows one award at a time, like the other entity views
+        self.detail_container = QWidget()
+        self.detail_layout = QVBoxLayout(self.detail_container)
+        self.detail_layout.setContentsMargins(0, 0, 0, 0)
+
+        self._placeholder = QLabel("Select an award to view details")
+        self._placeholder.setAlignment(Qt.AlignCenter)
+        self._placeholder.setProperty("textRole", "note")
+        self.detail_layout.addWidget(self._placeholder)
+
+        self._current_detail = None  # the AwardDetailTab currently shown, if any
+        main_layout.addWidget(self.detail_container, stretch=1)
 
     def _show_context_menu(self, position):
         """Show context menu for award tree."""
@@ -149,19 +151,12 @@ class AwardView(QWidget):
         # Show the menu at the cursor position
         menu.exec_(self.award_tree.mapToGlobal(position))
 
-    @staticmethod
-    def _format_tab_name(award_name: str) -> str:
-        """Truncate an award name to fit a tab label."""
-        return f"{award_name[:15]}..." if len(award_name) > 15 else award_name
-
     def load_awards(self) -> None:
         """Load awards from database and update filters."""
         try:
             awards = self.controller.get.get_all_entities("Award")
             # Sort awards by year (descending) then by name
-            awards = sorted(
-                awards, key=lambda a: (-(a.award_year or 0), a.award_name.lower())
-            )
+            awards = sorted(awards, key=lambda a: (-(a.award_year or 0), a.award_name.lower()))
 
             self.all_awards = awards
             self._update_filters(awards)
@@ -172,7 +167,7 @@ class AwardView(QWidget):
             logger.error(f"Error loading awards: {e}")
             QMessageBox.critical(self, "Error", "Failed to load awards")
 
-    def _update_filters(self, awards: List[Any]) -> None:
+    def _update_filters(self, awards: list[Any]) -> None:
         """Update year and category filter dropdowns."""
         # Store current selections
         current_year = self.year_filter.currentText()
@@ -187,18 +182,14 @@ class AwardView(QWidget):
             # Update years
             self.year_filter.clear()
             self.year_filter.addItem("All Years")
-            years = sorted(
-                set(a.award_year for a in awards if a.award_year), reverse=True
-            )
+            years = sorted({a.award_year for a in awards if a.award_year}, reverse=True)
             for year in years:
                 self.year_filter.addItem(str(year))
 
             # Update categories
             self.category_filter.clear()
             self.category_filter.addItem("All Categories")
-            categories = sorted(
-                set(a.award_category for a in awards if a.award_category)
-            )
+            categories = sorted({a.award_category for a in awards if a.award_category})
             for category in categories:
                 self.category_filter.addItem(category)
 
@@ -208,8 +199,7 @@ class AwardView(QWidget):
             ]:
                 self.year_filter.setCurrentText(current_year)
             if current_category in [
-                self.category_filter.itemText(i)
-                for i in range(self.category_filter.count())
+                self.category_filter.itemText(i) for i in range(self.category_filter.count())
             ]:
                 self.category_filter.setCurrentText(current_category)
 
@@ -238,7 +228,7 @@ class AwardView(QWidget):
             display_text = f"{display_text} - {award.award_category}"
         return display_text
 
-    def _populate_award_list(self, awards: List[Any]) -> None:
+    def _populate_award_list(self, awards: list[Any]) -> None:
         """Populate the award tree widget with award data in hierarchical structure."""
         self.award_tree.clear()
 
@@ -300,9 +290,7 @@ class AwardView(QWidget):
 
         # Apply year filter
         if year_filter != "All Years":
-            filtered = [
-                a for a in filtered if a.award_year and str(a.award_year) == year_filter
-            ]
+            filtered = [a for a in filtered if a.award_year and str(a.award_year) == year_filter]
 
         # Apply category filter
         if category_filter != "All Categories":
@@ -311,13 +299,13 @@ class AwardView(QWidget):
         self._populate_award_list(filtered)
 
     def _on_award_selected(self) -> None:
-        """Handle award selection and load detail tab."""
+        """Swap the detail panel to show the selected award — one at a time, no tabs."""
         # Don't react to selection changes triggered by delete/reload
         if self._is_deleting:
             return
 
         selected_items = self.award_tree.selectedItems()
-        # Only open a detail tab when exactly one item is selected
+        # Only show a detail panel when exactly one item is selected
         if len(selected_items) != 1:
             return
 
@@ -329,37 +317,31 @@ class AwardView(QWidget):
                 logger.warning(f"No award found with ID: {award_id}")
                 return
 
-            # Check if tab already exists
-            for i in range(self.tab_widget.count()):
-                tab = self.tab_widget.widget(i)
-                if hasattr(tab, "award") and tab.award.award_id == award_id:
-                    self.tab_widget.setCurrentIndex(i)
-                    return
-
-            # Create new detail tab
-            detail_tab = AwardDetailTab(award, self.controller)
-            # Connect the save_requested signal to close the tab
-            detail_tab.save_requested.connect(
-                lambda: self._close_detail_tab(detail_tab)
-            )
-            self.tab_widget.addTab(detail_tab, self._format_tab_name(award.award_name))
-            self.tab_widget.setCurrentWidget(detail_tab)
-
-            logger.info(f"Opened detail tab for {award.award_name}")
+            self._show_detail(award)
+            logger.info(f"Opened detail panel for {award.award_name}")
 
         except (SQLAlchemyError, AttributeError) as e:
             logger.error(f"Error loading award details: {e}")
             QMessageBox.critical(self, "Error", "Failed to load award details")
 
-    def _close_detail_tab(self, tab: "AwardDetailTab") -> None:
-        """Close a specific detail tab."""
-        index = self.tab_widget.indexOf(tab)
-        if index != -1:
-            self.tab_widget.removeTab(index)
+    def _show_detail(self, award: Any) -> None:
+        """Replace whatever is in the detail panel with a fresh panel for `award`."""
+        self._clear_detail()
+        self._placeholder.hide()
+        detail = AwardDetailTab(award, self.controller)
+        # _delete_award emits save_requested after deleting; clear the panel then.
+        detail.save_requested.connect(self._clear_detail)
+        self.detail_layout.addWidget(detail)
+        self._current_detail = detail
 
-    def _close_tab(self, index: int) -> None:
-        """Close a detail tab."""
-        self.tab_widget.removeTab(index)
+    def _clear_detail(self) -> None:
+        """Tear down the current detail panel and restore the placeholder."""
+        if self._current_detail is not None:
+            self.detail_layout.removeWidget(self._current_detail)
+            self._current_detail.setParent(None)
+            self._current_detail.deleteLater()
+            self._current_detail = None
+        self._placeholder.show()
 
     def _create_new_award(self) -> None:
         """Create a new award with a proper multi-field dialog."""
@@ -389,9 +371,7 @@ class AwardView(QWidget):
 
         # Populate with existing awards
         for award in self.all_awards:
-            parent_combo.addItem(
-                f"{award.award_name} (ID: {award.award_id})", award.award_id
-            )
+            parent_combo.addItem(f"{award.award_name} (ID: {award.award_id})", award.award_id)
 
         layout.addRow("Parent Award:", parent_combo)
 
@@ -438,25 +418,18 @@ class AwardView(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to create new award: {e}")
 
     def refresh_award_list(self) -> None:
-        """Refresh the award list and update any open detail tabs."""
+        """Refresh the award list and reload the open detail panel, if any."""
         self.load_awards()
 
-        # Update tab names for open detail tabs
-        for i in range(self.tab_widget.count()):
-            tab = self.tab_widget.widget(i)
-            if hasattr(tab, "award"):
-                # Reload the award data in the tab
-                try:
-                    updated_award = self.controller.get.get_entity_object(
-                        "Award", award_id=tab.award.award_id
-                    )
-                    if updated_award:
-                        tab.award = updated_award
-                        self.tab_widget.setTabText(
-                            i, self._format_tab_name(updated_award.award_name)
-                        )
-                except (SQLAlchemyError, RuntimeError) as e:
-                    logger.error(f"Error refreshing tab {i}: {e}")
+        if self._current_detail is not None and hasattr(self._current_detail, "award"):
+            try:
+                updated_award = self.controller.get.get_entity_object(
+                    "Award", award_id=self._current_detail.award.award_id
+                )
+                if updated_award:
+                    self._current_detail.award = updated_award
+            except (SQLAlchemyError, RuntimeError) as e:
+                logger.error(f"Error refreshing award detail panel: {e}")
 
     def _award_tree_drop_event(self, event):
         """Handle drop events to set parent-child relationships."""
@@ -467,13 +440,10 @@ class AwardView(QWidget):
                 event.ignore()
                 return
 
+            # No drop target => empty space => make it a root award; otherwise
+            # the target becomes the parent.
             drop_target = self.award_tree.itemAt(event.pos())
-            if not drop_target:
-                # Dropping on empty space - make it a root award
-                new_parent_id = None
-            else:
-                # Dropping on another award - make it the parent
-                new_parent_id = drop_target.data(0, Qt.UserRole)
+            new_parent_id = drop_target.data(0, Qt.UserRole) if drop_target else None
 
             dragged_award_id = dragged_item.data(0, Qt.UserRole)
 
@@ -493,9 +463,7 @@ class AwardView(QWidget):
                 return
 
             # Update the parent_id in the database
-            self.controller.update.update_entity(
-                "Award", dragged_award_id, parent_id=new_parent_id
-            )
+            self.controller.update.update_entity("Award", dragged_award_id, parent_id=new_parent_id)
 
             # Accept the drop event
             event.accept()
@@ -503,9 +471,7 @@ class AwardView(QWidget):
             # Reload the awards to reflect the new hierarchy
             self.load_awards()
 
-            logger.info(
-                f"Updated parent for award {dragged_award_id} to {new_parent_id}"
-            )
+            logger.info(f"Updated parent for award {dragged_award_id} to {new_parent_id}")
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error handling drop event: {e}")
@@ -527,13 +493,11 @@ class AwardView(QWidget):
         # Only the explicitly selected awards are deleted. Any child awards are
         # not deleted -- the DB sets their parent_id to NULL, so they become
         # top-level awards instead of being wiped out along with the parent.
-        all_ids_to_delete: List[int] = list(selected_ids)
+        all_ids_to_delete: list[int] = list(selected_ids)
 
         # Build confirmation message
         has_children = any(
-            a.parent_id in selected_ids
-            for a in self.all_awards
-            if a.award_id not in selected_ids
+            a.parent_id in selected_ids for a in self.all_awards if a.award_id not in selected_ids
         )
 
         if len(awards_to_delete) == 1:
@@ -559,11 +523,7 @@ class AwardView(QWidget):
             title = "Delete Multiple Awards"
 
         reply = QMessageBox.question(
-            self,
-            title,
-            message,
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            self, title, message, QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
 
         if reply != QMessageBox.Yes:
@@ -573,11 +533,13 @@ class AwardView(QWidget):
             # Set guard flag so _on_award_selected ignores signals during reload
             self._is_deleting = True
 
-            # Close any open tabs for awards being deleted
-            for i in range(self.tab_widget.count() - 1, -1, -1):
-                tab = self.tab_widget.widget(i)
-                if hasattr(tab, "award") and tab.award.award_id in all_ids_to_delete:
-                    self.tab_widget.removeTab(i)
+            # Clear the detail panel if it's showing an award being deleted
+            if (
+                self._current_detail is not None
+                and hasattr(self._current_detail, "award")
+                and self._current_detail.award.award_id in all_ids_to_delete
+            ):
+                self._clear_detail()
 
             # Delete each award (delete associations first to avoid FK errors)
             deleted_names = []
@@ -592,14 +554,10 @@ class AwardView(QWidget):
                             "AwardAssociation", assoc.association_id
                         )
                 except SQLAlchemyError as e:
-                    logger.warning(
-                        f"Could not remove associations for award {award_id}: {e}"
-                    )
+                    logger.warning(f"Could not remove associations for award {award_id}: {e}")
 
                 self.controller.delete.delete_entity("Award", award_id)
-                award_obj = next(
-                    (a for a in self.all_awards if a.award_id == award_id), None
-                )
+                award_obj = next((a for a in self.all_awards if a.award_id == award_id), None)
                 if award_obj:
                     deleted_names.append(award_obj.award_name)
 
