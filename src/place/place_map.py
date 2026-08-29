@@ -547,9 +547,17 @@ class MapView(QWidget):
             }}
         }};
         var map = L.map('map', {{ worldCopyJump: true }}).setView([{center_lat}, {center_lon}], {zoom});
-        L.tileLayer('https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
-            attribution: '© OpenStreetMap, © CARTO',
-            maxZoom: 18
+        // Esri "Dark Gray Canvas" -- keyless dark raster basemap (label-free
+        // base + transparent reference overlay). Native tiles stop at z16.
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
+            attribution: 'Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors',
+            maxZoom: 18,
+            maxNativeZoom: 16
+        }}).addTo(map);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
+            maxZoom: 18,
+            maxNativeZoom: 16,
+            zIndex: 2
         }}).addTo(map);
         var markerClusterGroup = L.markerClusterGroup({{
             maxClusterRadius: {cluster_radius},
