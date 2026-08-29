@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QEvent, QStringListModel, Qt
+from PySide6.QtCore import QEvent, QStringListModel, Qt, Signal
 from PySide6.QtWidgets import QCompleter, QLineEdit
 
 
@@ -62,11 +62,7 @@ def split_entity_names(text: str) -> list[str]:
     individual entity names it names, trimming whitespace around each --
     "Bass;Lead Vocals" and "Bass; Lead Vocals" parse identically -- and
     dropping empty segments (e.g. a trailing "Bass;")."""
-    return [
-        part.strip()
-        for part in text.split(_MULTI_ENTITY_DELIMITER)
-        if part.strip()
-    ]
+    return [part.strip() for part in text.split(_MULTI_ENTITY_DELIMITER) if part.strip()]
 
 
 def _current_segment(text: str) -> str:
@@ -86,6 +82,13 @@ class EntityCompleterEdit(QLineEdit):
     clears the lock -- typing a new name always means "maybe create new."
     """
 
+    # Emitted whenever a suggestion is chosen from the completer popup, even
+    # when the picked text equals what was already typed -- in that case
+    # QLineEdit.setText() is a no-op and fires no textChanged, so a listener
+    # relying on textChanged alone (e.g. a dialog enabling OK once
+    # matched_id() is set) would never see the pick.
+    picked = Signal()
+
     def __init__(self, placeholder_text: str = "", parent=None):
         super().__init__(parent)
         if placeholder_text:
@@ -101,19 +104,15 @@ class EntityCompleterEdit(QLineEdit):
         # button (e.g. Save) doesn't *also* fire from the same keypress --
         # this field's returnPressed is meant to add an item, not submit
         # whatever dialog happens to host it.
-        if e.type() == QEvent.ShortcutOverride and e.key() in (
-            Qt.Key_Return,
-            Qt.Key_Enter,
-        ):
+        if e.type() == QEvent.ShortcutOverride and e.key() in (Qt.Key_Return, Qt.Key_Enter):
             e.accept()
             return True
         return super().event(e)
 
     def keyPressEvent(self, e) -> None:
-        if e.key() in (
-            Qt.Key_Return,
-            Qt.Key_Enter,
-        ) and _apply_highlighted_completion(self._completer, self._on_completion_picked):
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter) and _apply_highlighted_completion(
+            self._completer, self._on_completion_picked
+        ):
             e.accept()
             self.returnPressed.emit()
             return
@@ -180,6 +179,7 @@ class EntityCompleterEdit(QLineEdit):
         self.setText(prefix + candidate)
         if self._completer is not None:
             self._completer.popup().hide()
+        self.picked.emit()
 
     def _on_manual_edit(self, _text: str) -> None:
         self._matched_id = None
@@ -251,9 +251,7 @@ _PRELOAD_ROW_CAP = 2000
 _entity_cache: dict[str, list | None] = {}
 
 
-def get_cached_entities(
-    controller, model_name: str, *, force_refresh: bool = False
-) -> list | None:
+def get_cached_entities(controller, model_name: str, *, force_refresh: bool = False) -> list | None:
     """
     Full row list for `model_name`, cached at module scope. Returns None
     -- instead of a potentially huge list -- once the table exceeds
@@ -329,9 +327,7 @@ def build_entity_search_widget(
         widget = EntityCompleterEdit(placeholder_text, parent)
         widget.set_index(index)
         return widget
-    return BoundedSearchEdit(
-        controller, model_name, name_field, id_field, placeholder_text, parent
-    )
+    return BoundedSearchEdit(controller, model_name, name_field, id_field, placeholder_text, parent)
 
 
 class BoundedSearchEdit(QLineEdit):
@@ -347,6 +343,10 @@ class BoundedSearchEdit(QLineEdit):
     does (textChanged/returnPressed come from QLineEdit itself), so callers
     can treat either interchangeably.
     """
+
+    # See EntityCompleterEdit.picked -- same contract, so a caller wired to
+    # either widget can rely on it.
+    picked = Signal()
 
     _MAX_RESULTS = 50
     _MIN_CHARS = 2
@@ -388,10 +388,9 @@ class BoundedSearchEdit(QLineEdit):
     def keyPressEvent(self, e) -> None:
         # See EntityCompleterEdit.keyPressEvent for why this has to run
         # before super()'s native Return handling rather than after.
-        if e.key() in (
-            Qt.Key_Return,
-            Qt.Key_Enter,
-        ) and _apply_highlighted_completion(self._completer, self._on_completion_picked):
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter) and _apply_highlighted_completion(
+            self._completer, self._on_completion_picked
+        ):
             e.accept()
             self.returnPressed.emit()
             return
@@ -431,6 +430,7 @@ class BoundedSearchEdit(QLineEdit):
         self._matched_id = self._display_to_id.get(candidate)
         self.setText(prefix + candidate)
         self._completer.popup().hide()
+        self.picked.emit()
 
     def matched_id(self):
         return self._matched_id

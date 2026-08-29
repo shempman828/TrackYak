@@ -20,10 +20,7 @@ from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLabel, QV
 
 from src.common.entity_completer_edit import build_entity_search_widget
 
-_ENTITY_FIELDS = {
-    "Track": ("track_name", "track_id"),
-    "Album": ("album_name", "album_id"),
-}
+_ENTITY_FIELDS = {"Track": ("track_name", "track_id"), "Album": ("album_name", "album_id")}
 
 
 class ChartManualMatchDialog(QDialog):
@@ -33,7 +30,9 @@ class ChartManualMatchDialog(QDialog):
     not just typed -- an unresolved title string is never an acceptable
     match target."""
 
-    def __init__(self, controller, entity_type: str, raw_title: str, raw_performer: str, parent=None):
+    def __init__(
+        self, controller, entity_type: str, raw_title: str, raw_performer: str, parent=None
+    ):
         super().__init__(parent)
         self._entity_type = entity_type
         name_field, id_field = _ENTITY_FIELDS[self._entity_type]
@@ -62,9 +61,14 @@ class ChartManualMatchDialog(QDialog):
         self._ok_button = buttons.button(QDialogButtonBox.Ok)
         self._ok_button.setEnabled(False)
         self._search.textChanged.connect(self._update_ok_enabled)
+        # textChanged alone misses a pick whose text equals what was already
+        # typed (setText() no-ops, emits nothing) -- e.g. typing "Cloud Nine"
+        # in full, then picking the one "Cloud Nine" suggestion. picked fires
+        # on every pick regardless.
+        self._search.picked.connect(self._update_ok_enabled)
         layout.addWidget(buttons)
 
-    def _update_ok_enabled(self, _text: str) -> None:
+    def _update_ok_enabled(self, *_args) -> None:
         self._ok_button.setEnabled(self._search.matched_id() is not None)
 
     def matched_entity_id(self):

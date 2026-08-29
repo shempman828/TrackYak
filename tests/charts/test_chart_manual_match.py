@@ -12,8 +12,8 @@ acceptance criteria.
 
 import datetime
 
-import pytest
 from PySide6.QtWidgets import QDialog, QMessageBox
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -128,7 +128,7 @@ def _seed_album_chart(session):
 
 def test_context_menu_on_unmatched_row_offers_match_but_not_clear(qapp, session):
     # AC1
-    chart, entry, track, _other = _seed_track_chart(session)
+    _chart, entry, _track, _other = _seed_track_chart(session)
     table = ChartEntryTable()
     table.populate([entry])
 
@@ -142,7 +142,7 @@ def test_context_menu_on_unmatched_row_offers_match_but_not_clear(qapp, session)
 
 def test_context_menu_on_matched_row_enables_clear(qapp, session):
     # AC2
-    chart, entry, track, _other = _seed_track_chart(session)
+    _chart, entry, track, _other = _seed_track_chart(session)
     entry.entity_type = "Track"
     entry.entity_id = track.track_id
     entry.match_score = 0.75
@@ -161,13 +161,15 @@ def test_context_menu_on_matched_row_enables_clear(qapp, session):
 
 def test_manual_match_dialog_ok_disabled_until_candidate_picked(qapp, session, controller):
     # AC5
-    chart, entry, track, _other = _seed_track_chart(session)
+    _chart, entry, track, _other = _seed_track_chart(session)
     dialog = ChartManualMatchDialog(controller, "Track", entry.raw_title, entry.raw_performer)
 
     assert not dialog._ok_button.isEnabled()
 
     dialog._search.setText("Runaround Sue")  # typed, not picked -- and not the
-    assert not dialog._ok_button.isEnabled()  # full candidate text, so the pick below actually changes the field
+    assert (
+        not dialog._ok_button.isEnabled()
+    )  # full candidate text, so the pick below actually changes the field
 
     # Simulate picking the suggestion from the completer popup (click or
     # Enter-on-highlighted) via the real activated signal rather than calling
@@ -183,9 +185,31 @@ def test_manual_match_dialog_ok_disabled_until_candidate_picked(qapp, session, c
     assert dialog.matched_entity_type() == "Track"
 
 
+def test_manual_match_dialog_ok_enables_when_picked_text_equals_typed_text(
+    qapp, session, controller
+):
+    # Regression: typing an album's full name exactly, then picking the sole
+    # matching suggestion, left OK greyed -- _on_completion_picked's
+    # setText(picked) is a no-op when it equals the field's current text, so
+    # textChanged never fired and the OK-enable check never re-ran. The
+    # widget's picked signal fires regardless. ("Cloud Nine" / George
+    # Harrison in the field report.)
+    _chart, album = _seed_album_chart(session)
+    dialog = ChartManualMatchDialog(controller, "Album", "Thriller", "Michael Jackson")
+
+    assert not dialog._ok_button.isEnabled()
+
+    dialog._search.setText("Thriller")  # the full, exact candidate text
+    assert not dialog._ok_button.isEnabled()  # typed, not yet picked
+
+    dialog._search._completer.activated.emit("Thriller")  # pick -> setText no-ops
+    assert dialog._ok_button.isEnabled()
+    assert dialog.matched_entity_id() == album.album_id
+
+
 def test_accepting_dialog_sets_match_in_db(qapp, session, controller, monkeypatch):
     # AC3
-    chart, entry, track, _other = _seed_track_chart(session)
+    _chart, entry, track, _other = _seed_track_chart(session)
 
     monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Accepted)
 
@@ -196,7 +220,9 @@ def test_accepting_dialog_sets_match_in_db(qapp, session, controller, monkeypatc
 
     monkeypatch.setattr(ChartManualMatchDialog, "__init__", _fake_init)
     monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_id", lambda self: self._picked_id)
-    monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_type", lambda self: self._entity_type)
+    monkeypatch.setattr(
+        ChartManualMatchDialog, "matched_entity_type", lambda self: self._entity_type
+    )
 
     done = []
     handle_manual_match_requested(None, controller, entry.chart_entry_id, lambda: done.append(True))
@@ -211,7 +237,7 @@ def test_accepting_dialog_sets_match_in_db(qapp, session, controller, monkeypatc
 
 def test_cancelling_dialog_leaves_entry_unchanged(qapp, session, controller, monkeypatch):
     # AC4
-    chart, entry, track, _other = _seed_track_chart(session)
+    _chart, entry, _track, _other = _seed_track_chart(session)
 
     monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Rejected)
 
@@ -228,14 +254,16 @@ def test_cancelling_dialog_leaves_entry_unchanged(qapp, session, controller, mon
 
 def test_rematching_overwrites_previous_match(qapp, session, controller, monkeypatch):
     # AC6
-    chart, entry, track, other_track = _seed_track_chart(session)
+    _chart, entry, track, other_track = _seed_track_chart(session)
     entry.entity_type = "Track"
     entry.entity_id = track.track_id
     entry.match_score = 0.75
     session.commit()
 
     monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Accepted)
-    monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_id", lambda self: other_track.track_id)
+    monkeypatch.setattr(
+        ChartManualMatchDialog, "matched_entity_id", lambda self: other_track.track_id
+    )
     monkeypatch.setattr(ChartManualMatchDialog, "matched_entity_type", lambda self: "Track")
 
     handle_manual_match_requested(None, controller, entry.chart_entry_id, lambda: None)
@@ -248,7 +276,7 @@ def test_rematching_overwrites_previous_match(qapp, session, controller, monkeyp
 
 def test_clear_match_confirmed_resets_entry(qapp, session, controller, monkeypatch):
     # AC7
-    chart, entry, track, _other = _seed_track_chart(session)
+    _chart, entry, track, _other = _seed_track_chart(session)
     entry.entity_type = "Track"
     entry.entity_id = track.track_id
     entry.match_score = 1.0
@@ -271,7 +299,7 @@ def test_clear_match_confirmed_resets_entry(qapp, session, controller, monkeypat
 
 def test_clear_match_declined_leaves_entry_unchanged(qapp, session, controller, monkeypatch):
     # AC8
-    chart, entry, track, _other = _seed_track_chart(session)
+    _chart, entry, track, _other = _seed_track_chart(session)
     entry.entity_type = "Track"
     entry.entity_id = track.track_id
     entry.match_score = 1.0
@@ -291,7 +319,7 @@ def test_clear_match_declined_leaves_entry_unchanged(qapp, session, controller, 
 
 def test_auto_matcher_never_touches_a_manual_match(qapp, session):
     # AC9
-    chart, entry, track, other_track = _seed_track_chart(session)
+    chart, entry, _track, other_track = _seed_track_chart(session)
     entry.entity_type = "Track"
     entry.entity_id = other_track.track_id  # deliberately "wrong" vs. auto's pick
     entry.match_score = 1.0
@@ -338,7 +366,7 @@ def test_cleared_match_is_eligible_for_rematch_without_library_change(qapp, sess
 def test_search_and_week_tabs_share_identical_context_menu_behavior(qapp, session, controller):
     # AC11 -- both tabs use the same ChartEntryTable, so this documents that
     # the context-menu construction is table-level, not tab-specific.
-    chart, entry, track, _other = _seed_track_chart(session)
+    _chart, entry, _track, _other = _seed_track_chart(session)
     table_a = ChartEntryTable()
     table_a.populate([entry])
     table_b = ChartEntryTable()
@@ -350,7 +378,7 @@ def test_search_and_week_tabs_share_identical_context_menu_behavior(qapp, sessio
 
 
 def test_album_chart_menu_labels_match_to_album(qapp, session):
-    chart, album = _seed_album_chart(session)
+    chart, _album = _seed_album_chart(session)
     entry = ChartEntry(
         chart_id=chart.chart_id,
         chart_week=datetime.date(2023, 12, 30),
