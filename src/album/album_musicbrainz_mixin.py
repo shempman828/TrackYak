@@ -1,30 +1,14 @@
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QDialog,
-    QLineEdit,
-    QMessageBox,
-    QSpinBox,
-)
+from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QLineEdit, QMessageBox, QSpinBox
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.album.album_musicbrainz_known_entities import (
-    known_place_mbids,
-    known_publisher_mbids,
-)
+from src.album.album_musicbrainz_known_entities import known_place_mbids, known_publisher_mbids
 from src.album.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
 from src.album.release_type_utils import normalize_release_type
-from src.awards.award_series_import import import_awards_for_entity
-from src.common.nullable_numeric_field import (
-    nullable_field_value,
-    set_nullable_field_value,
-)
+from src.awards.award_series_import import fetch_award_series_relations, import_awards_for_entity
+from src.common.nullable_numeric_field import nullable_field_value, set_nullable_field_value
 from src.core.logger_config import logger
 from src.musicbrainz.musicbrainz_core import MusicBrainzLookupError
-from src.musicbrainz.musicbrainz_match_dialog import (
-    MusicBrainzImportDialog,
-    MusicBrainzMatchDialog,
-)
+from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzImportDialog, MusicBrainzMatchDialog
 from src.musicbrainz.musicbrainz_release import (
     fetch_release_detail,
     fetch_release_group_aliases,
@@ -150,6 +134,13 @@ class AlbumMusicBrainzMixin:
     def _fetch_release_and_review(
         self, release_mbid: str, album_name: str, *, notify_if_no_changes: bool = False
     ):
+        # Awards enrichment rides along only on a fresh match -- the apply
+        # step below is gated on `not self.album.MBID` -- so skip its extra
+        # network call entirely on a re-import, where the MBID is already
+        # set. Captured here rather than read from self.album on the worker
+        # thread; nothing writes MBID between now and _apply_release_detail().
+        fetch_awards = not getattr(self.album, "MBID", None)
+
         def _fetch_all(progress):
             detail = fetch_release_detail(
                 release_mbid,
@@ -162,10 +153,15 @@ class AlbumMusicBrainzMixin:
                 try:
                     aliases = fetch_release_group_aliases(detail.release_group_mbid)
                 except MusicBrainzLookupError as e:
-                    logger.warning(
-                        f"Could not fetch album aliases for {album_name}: {e}"
-                    )
-            return detail, aliases
+                    logger.warning(f"Could not fetch album aliases for {album_name}: {e}")
+            # Fetch the award series-rels here, on the worker thread:
+            # musicbrainzngs retries a stuck request up to 8x at 30s each,
+            # so doing this inline on the UI thread in _apply_release_detail()
+            # froze the app for minutes with no progress or cancel.
+            award_relations = None
+            if fetch_awards and detail.release_group_mbid:
+                award_relations = fetch_award_series_relations("Album", detail.release_group_mbid)
+            return detail, aliases, award_relations
 
         dialog = MusicBrainzImportDialog(
             entity_label=f"release '{album_name}'",
@@ -179,10 +175,14 @@ class AlbumMusicBrainzMixin:
         result = dialog.result_candidate()
         if result is None:
             return
-        detail, aliases = result
-        self._apply_release_detail(detail, aliases, notify_if_no_changes=notify_if_no_changes)
+        detail, aliases, award_relations = result
+        self._apply_release_detail(
+            detail, aliases, award_relations, notify_if_no_changes=notify_if_no_changes
+        )
 
-    def _apply_release_detail(self, detail, aliases, *, notify_if_no_changes: bool = False):
+    def _apply_release_detail(
+        self, detail, aliases, award_relations, *, notify_if_no_changes: bool = False
+    ):
         # Build the review dialog first -- construction is pure computation
         # (track matching, deciding what's worth showing), no DB writes --
         # so has_content is known before anything commits. Cancelling here
@@ -209,9 +209,7 @@ class AlbumMusicBrainzMixin:
         if detail.status:
             scalar_enrichment["status"] = detail.status
         if detail.release_type:
-            scalar_enrichment["release_type"] = normalize_release_type(
-                detail.release_type
-            )
+            scalar_enrichment["release_type"] = normalize_release_type(detail.release_type)
         if detail.language:
             scalar_enrichment["album_language"] = detail.language
         if detail.catalog_number:
@@ -232,11 +230,7 @@ class AlbumMusicBrainzMixin:
                 update_kwargs = {"MBID": detail.mbid}
                 if detail.release_group_mbid:
                     update_kwargs["release_group_MBID"] = detail.release_group_mbid
-                self.controller.update.update_entity(
-                    "Album",
-                    self.album.album_id,
-                    **update_kwargs,
-                )
+                self.controller.update.update_entity("Album", self.album.album_id, **update_kwargs)
                 # Keep the open editor's widget in sync with the DB write above --
                 # otherwise the widget still reads blank, and the next Save (which
                 # diffs widget text against self.album) would send MBID=None and
@@ -250,6 +244,7 @@ class AlbumMusicBrainzMixin:
                         "Album",
                         self.album.album_id,
                         detail.release_group_mbid,
+                        relations=award_relations,
                     )
             except SQLAlchemyError as e:
                 logger.warning(f"Could not save MusicBrainz release ID: {e}")
@@ -257,9 +252,7 @@ class AlbumMusicBrainzMixin:
         if detail.discogs_master_url and not self.album.discogs_master_url:
             try:
                 self.controller.update.update_entity(
-                    "Album",
-                    self.album.album_id,
-                    discogs_master_url=detail.discogs_master_url,
+                    "Album", self.album.album_id, discogs_master_url=detail.discogs_master_url
                 )
             except SQLAlchemyError as e:
                 logger.warning(f"Could not save Discogs master link: {e}")

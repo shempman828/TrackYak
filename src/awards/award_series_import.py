@@ -40,10 +40,9 @@ this direction -- every relation considered already belongs to a real local
 entity by construction.
 """
 
-import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Callable, Optional
+import re
 
 import musicbrainzngs
 from sqlalchemy import select
@@ -107,7 +106,7 @@ def _is_award_series(series: dict) -> bool:
     return any(keyword in name for keyword in _AWARD_NAME_KEYWORDS)
 
 
-def _parse_number_attribute(relation: dict) -> Optional[tuple]:
+def _parse_number_attribute(relation: dict) -> tuple | None:
     """Returns (year, is_winner) parsed from the relation's "number"
     attribute (e.g. "2023" or "2023 winner"), or None if the relation
     carries no such attribute or it's in an unrecognized format -- awards
@@ -136,12 +135,10 @@ def _parse_series_name(name: str) -> tuple:
     return name.strip(), None
 
 
-def _find_or_create_award(session, series: dict, year: Optional[int]) -> tuple:
+def _find_or_create_award(session, series: dict, year: int | None) -> tuple:
     """Returns (award, created)."""
     award = session.scalar(
-        select(Award).where(
-            Award.mb_series_id == series["id"], Award.award_year == year
-        )
+        select(Award).where(Award.mb_series_id == series["id"], Award.award_year == year)
     )
     if award is not None:
         return award, False
@@ -159,12 +156,7 @@ def _find_or_create_award(session, series: dict, year: Optional[int]) -> tuple:
 
 
 def _find_or_create_association(
-    session,
-    award: Award,
-    entity_type: str,
-    entity_id: int,
-    target_mbid: str,
-    is_winner: bool,
+    session, award: Award, entity_type: str, entity_id: int, target_mbid: str, is_winner: bool
 ) -> bool:
     """Returns True if a new AwardAssociation was created. Updates
     association_type in place if MusicBrainz's winner/nominee status for
@@ -208,9 +200,7 @@ def _candidate_entities(session, first_pass_only: bool = False):
     here would silently skip every track.
     """
     for track_id, mbid in session.execute(
-        select(Track.track_id, Track.MBID).where(
-            Track.MBID.isnot(None), Track.MBID != ""
-        )
+        select(Track.track_id, Track.MBID).where(Track.MBID.isnot(None), Track.MBID != "")
     ):
         yield "Track", track_id, mbid
 
@@ -231,8 +221,40 @@ def _candidate_entities(session, first_pass_only: bool = False):
         yield "Artist", artist_id, mbid
 
 
+# Sentinel for import_awards_for_entity's `relations` kwarg: distinguishes
+# "not supplied, fetch it inline" from an explicit None ("the caller's own
+# fetch failed").
+_UNSET = object()
+
+
+def fetch_award_series_relations(entity_type: str, mbid: str) -> list | None:
+    """Network-only half of import_awards_for_entity: fetch the raw
+    series-relation-list for one already-MB-matched entity.
+
+    Returns the relation list (possibly empty) on success, or None if the
+    lookup failed (network, rate-limit, malformed response) -- same
+    best-effort contract as import_awards_for_entity, just split out so a Qt
+    caller can run this on a worker thread and hand the result to
+    import_awards_for_entity(relations=...) instead of blocking the UI
+    thread on it. musicbrainzngs retries a stuck request up to 8x at a 30s
+    socket timeout each, so on the UI thread this can freeze the app for
+    minutes with no progress or cancel.
+    """
+    configure()
+    lookup_fn_name, response_key = _MB_LOOKUP[entity_type]
+    try:
+        result = getattr(musicbrainzngs, lookup_fn_name)(mbid, includes=["series-rels"])
+    except Exception as e:
+        # Deliberate broad boundary catch: musicbrainzngs has no single
+        # exception hierarchy covering every failure mode (network,
+        # rate-limit, malformed-response).
+        logger.warning(f"Awards import: lookup failed for {entity_type} {mbid}: {e}")
+        return None
+    return (result.get(response_key) or {}).get("series-relation-list") or []
+
+
 def import_awards_for_entity(
-    session, entity_type: str, entity_id: int, mbid: str, commit: bool = True
+    session, entity_type: str, entity_id: int, mbid: str, commit: bool = True, *, relations=_UNSET
 ) -> EntityAwardResult:
     """Look up award series for one already-MB-matched entity and write
     straight into Award/AwardAssociation for every relation that passes
@@ -247,21 +269,21 @@ def import_awards_for_entity(
     couldn't complete. `commit=False` lets a caller that's already inside a
     larger transaction (e.g. the backfill script's own per-entity loop)
     control commit timing itself.
+
+    `relations` lets a caller that already fetched the entity's
+    series-relation-list -- e.g. on a Qt worker thread, to keep the UI
+    responsive -- hand it straight in; the default sentinel means fetch it
+    inline here via fetch_award_series_relations(). Passing relations=None
+    explicitly means the caller's own fetch failed, and is treated the same
+    as an inline lookup failure.
     """
-    configure()
-    lookup_fn_name, response_key = _MB_LOOKUP[entity_type]
-    try:
-        result = getattr(musicbrainzngs, lookup_fn_name)(mbid, includes=["series-rels"])
-    except Exception as e:  # ruff: ignore[blind-except]
-        # Deliberate broad boundary catch: musicbrainzngs has no single
-        # exception hierarchy covering every failure mode (network,
-        # rate-limit, malformed-response).
-        logger.warning(f"Awards import: lookup failed for {entity_type} {mbid}: {e}")
+    if relations is _UNSET:
+        relations = fetch_award_series_relations(entity_type, mbid)
+    if relations is None:
         return EntityAwardResult(0, 0, True)
 
     awards_created = 0
     associations_created = 0
-    relations = (result.get(response_key) or {}).get("series-relation-list") or []
     for relation in relations:
         series = relation.get("series") or {}
         if not _is_award_series(series):
@@ -288,8 +310,8 @@ def import_awards_for_entity(
 
 def sync_awards(
     session,
-    progress_callback: Optional[Callable[[int, int], None]] = None,
-    is_cancelled: Optional[Callable[[], bool]] = None,
+    progress_callback: Callable[[int, int], None] | None = None,
+    is_cancelled: Callable[[], bool] | None = None,
     first_pass_only: bool = False,
 ) -> AwardSyncStats:
     """Batch entry point: walk every MB-matched Track/Album/Artist row,

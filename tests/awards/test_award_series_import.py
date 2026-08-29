@@ -11,7 +11,11 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.awards.award_series_import import sync_awards
+from src.awards.award_series_import import (
+    fetch_award_series_relations,
+    import_awards_for_entity,
+    sync_awards,
+)
 from src.db.db_tables.album import Album
 from src.db.db_tables.artist import Artist
 from src.db.db_tables.award import Award, AwardAssociation
@@ -51,10 +55,7 @@ def _add_artist(session, mbid, name="Test Artist"):
 
 
 def _relation(series_id, series_type, series_name, number_value=None):
-    rel = {
-        "type": "part of",
-        "series": {"id": series_id, "type": series_type, "name": series_name},
-    }
+    rel = {"type": "part of", "series": {"id": series_id, "type": series_type, "name": series_name}}
     if number_value is not None:
         rel["attributes"] = [{"attribute": "number", "value": number_value}]
     return rel
@@ -83,7 +84,9 @@ def test_genuine_award_series_creates_award_and_winner_association(session):
     _add_track(session, "rec-mbid-1")
     relations = [
         _relation(
-            "series-1", "Recording award", "Grammy Award: Record of the Year nominees",
+            "series-1",
+            "Recording award",
+            "Grammy Award: Record of the Year nominees",
             "2023 winner",
         )
     ]
@@ -109,8 +112,7 @@ def test_nominee_without_winner_suffix_is_recorded_as_nominee(session):
     _add_track(session, "rec-mbid-1")
     relations = [
         _relation(
-            "series-1", "Recording award", "Grammy Award: Record of the Year nominees",
-            "2020",
+            "series-1", "Recording award", "Grammy Award: Record of the Year nominees", "2020"
         )
     ]
     with _mock_lookups(recording=relations, release_group=[], artist=[]):
@@ -129,9 +131,7 @@ def test_nominee_without_winner_suffix_is_recorded_as_nominee(session):
         ("Work award", "Grammy Award: Best Rock Song nominees"),
     ],
 )
-def test_non_award_or_work_typed_relations_produce_nothing(
-    session, series_type, series_name
-):
+def test_non_award_or_work_typed_relations_produce_nothing(session, series_type, series_name):
     """Live-observed noise on a real MB-matched recording: a chart, a
     streaming-milestone club, and a playlist series all share the "series"
     taxonomy with genuine awards. Work-typed series can't actually appear
@@ -149,9 +149,7 @@ def test_non_award_or_work_typed_relations_produce_nothing(
 
 def test_relation_with_no_number_attribute_is_skipped(session):
     _add_track(session, "rec-mbid-1")
-    relations = [
-        _relation("series-1", "Recording award", "Grammy Award: Record of the Year")
-    ]
+    relations = [_relation("series-1", "Recording award", "Grammy Award: Record of the Year")]
     with _mock_lookups(recording=relations, release_group=[], artist=[]):
         stats = sync_awards(session)
 
@@ -163,7 +161,9 @@ def test_album_release_group_mbid_used_for_release_group_series(session):
     _add_album(session, "rg-mbid-1")
     relations = [
         _relation(
-            "series-2", "Release group award", "Grammy Award: Best Rap Album nominees",
+            "series-2",
+            "Release group award",
+            "Grammy Award: Best Rap Album nominees",
             "2001 winner",
         )
     ]
@@ -179,10 +179,7 @@ def test_album_release_group_mbid_used_for_release_group_series(session):
 def test_artist_typed_award_matches_via_artist_mbid(session):
     _add_artist(session, "artist-mbid-1")
     relations = [
-        _relation(
-            "series-3", "Artist award", "Grammy Award: Best New Artist nominees",
-            "2015",
-        )
+        _relation("series-3", "Artist award", "Grammy Award: Best New Artist nominees", "2015")
     ]
     with _mock_lookups(recording=[], release_group=[], artist=relations):
         stats = sync_awards(session)
@@ -196,7 +193,9 @@ def test_resync_is_idempotent(session):
     _add_track(session, "rec-mbid-1")
     relations = [
         _relation(
-            "series-1", "Recording award", "Grammy Award: Record of the Year nominees",
+            "series-1",
+            "Recording award",
+            "Grammy Award: Record of the Year nominees",
             "2023 winner",
         )
     ]
@@ -226,7 +225,9 @@ def test_manually_created_award_untouched_by_sync(session):
     _add_track(session, "rec-mbid-1")
     relations = [
         _relation(
-            "series-1", "Recording award", "Grammy Award: Record of the Year nominees",
+            "series-1",
+            "Recording award",
+            "Grammy Award: Record of the Year nominees",
             "2023 winner",
         )
     ]
@@ -246,7 +247,9 @@ def test_lookup_failure_on_one_entity_does_not_lose_prior_progress(session):
     _add_track(session, "rec-mbid-2", name="Second Track")
     relations = [
         _relation(
-            "series-1", "Recording award", "Grammy Award: Record of the Year nominees",
+            "series-1",
+            "Recording award",
+            "Grammy Award: Record of the Year nominees",
             "2023 winner",
         )
     ]
@@ -262,12 +265,86 @@ def test_lookup_failure_on_one_entity_does_not_lose_prior_progress(session):
         get_release_group_by_id=lambda mbid, includes=None: {
             "release-group": {"series-relation-list": []}
         },
-        get_artist_by_id=lambda mbid, includes=None: {
-            "artist": {"series-relation-list": []}
-        },
+        get_artist_by_id=lambda mbid, includes=None: {"artist": {"series-relation-list": []}},
     ):
         stats = sync_awards(session)
 
     assert stats.lookup_failures == 1
     assert stats.associations_created == 1
     assert session.query(AwardAssociation).count() == 1
+
+
+# ---------------------------------------------------------------------------
+# fetch/write split -- lets a Qt caller run the network half on a worker
+# thread and pass the relations straight to import_awards_for_entity(), so
+# a stuck musicbrainzngs request (up to 8 retries at a 30s socket timeout)
+# never blocks the UI thread. See album_musicbrainz_mixin._fetch_all.
+# ---------------------------------------------------------------------------
+
+
+def _explode(*_args, **_kwargs):
+    raise AssertionError("musicbrainzngs must not be called")
+
+
+def test_import_with_prefetched_relations_skips_network(session):
+    album = _add_album(session, "rg-mbid-1")
+    relations = [
+        _relation(
+            "series-9",
+            "Release group award",
+            "Grammy Award: Album of the Year nominees",
+            "2004 winner",
+        )
+    ]
+    with patch.multiple(
+        "src.awards.award_series_import.musicbrainzngs",
+        get_recording_by_id=_explode,
+        get_release_group_by_id=_explode,
+        get_artist_by_id=_explode,
+    ):
+        result = import_awards_for_entity(
+            session, "Album", album.album_id, "rg-mbid-1", relations=relations
+        )
+
+    assert result.lookup_failed is False
+    assert result.awards_created == 1
+    assert result.associations_created == 1
+    assoc = session.query(AwardAssociation).one()
+    assert assoc.entity_type == "Album"
+    assert assoc.association_type == "winner"
+    assert assoc.mb_target_mbid == "rg-mbid-1"
+
+
+def test_import_with_relations_none_reports_failure_without_network(session):
+    album = _add_album(session, "rg-mbid-1")
+    with patch.multiple(
+        "src.awards.award_series_import.musicbrainzngs",
+        get_recording_by_id=_explode,
+        get_release_group_by_id=_explode,
+        get_artist_by_id=_explode,
+    ):
+        result = import_awards_for_entity(
+            session, "Album", album.album_id, "rg-mbid-1", relations=None
+        )
+
+    assert result.lookup_failed is True
+    assert result.awards_created == 0
+    assert result.associations_created == 0
+    assert session.query(AwardAssociation).count() == 0
+
+
+def test_fetch_award_series_relations_returns_list_on_success():
+    relations = [_relation("series-1", "Release group award", "Grammy Award", "2000")]
+    with _mock_lookups(recording=[], release_group=relations, artist=[]):
+        fetched = fetch_award_series_relations("Album", "rg-mbid-1")
+    assert fetched == relations
+
+
+def test_fetch_award_series_relations_returns_none_on_lookup_failure():
+    def boom(mbid, includes=None):
+        raise RuntimeError("simulated network failure")
+
+    with patch.multiple(
+        "src.awards.award_series_import.musicbrainzngs", get_release_group_by_id=boom
+    ):
+        assert fetch_award_series_relations("Album", "rg-mbid-1") is None
