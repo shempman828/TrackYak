@@ -32,7 +32,7 @@ from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 from src.musicbrainz.musicbrainz_artist import suggest_artist_names
 from src.musicbrainz.musicbrainz_core import MusicBrainzLookupError
-from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzMatchDialog
+from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzImportDialog, MusicBrainzMatchDialog
 from src.musicbrainz.musicbrainz_recording import search_canonical_album_for_recording
 from src.track.track_edit_basetab import _BaseTab
 
@@ -119,17 +119,13 @@ class AlbumsTab(_BaseTab):
         btn_row.addWidget(self._change_album_btn)
 
         self._wiki_open_btn = QPushButton("🌐 Wikipedia")
-        self._wiki_open_btn.setToolTip(
-            "Open the album's Wikipedia page in your browser"
-        )
+        self._wiki_open_btn.setToolTip("Open the album's Wikipedia page in your browser")
         self._wiki_open_btn.clicked.connect(self._open_wiki_link)
         self._wiki_open_btn.setVisible(False)
         btn_row.addWidget(self._wiki_open_btn)
 
         self._mb_open_btn = QPushButton("🎵 MusicBrainz")
-        self._mb_open_btn.setToolTip(
-            "Open the album's MusicBrainz page in your browser"
-        )
+        self._mb_open_btn.setToolTip("Open the album's MusicBrainz page in your browser")
         self._mb_open_btn.clicked.connect(self._open_mb_link)
         self._mb_open_btn.setVisible(False)
         btn_row.addWidget(self._mb_open_btn)
@@ -173,34 +169,16 @@ class AlbumsTab(_BaseTab):
         layout.addWidget(set_group)
 
         # ── Virtual appearances group ─────────────────────────────────────
-        virtual_group = QGroupBox(
-            "Virtual Appearances (track borrowed by other albums)"
-        )
+        virtual_group = QGroupBox("Virtual Appearances (track borrowed by other albums)")
         virtual_layout = QVBoxLayout(virtual_group)
 
         self._virtual_table = QTableWidget(0, 5)
-        self._virtual_table.setHorizontalHeaderLabels([
-            "Album",
-            "Track #",
-            "Disc #",
-            "Side",
-            "",
-        ])
-        self._virtual_table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.Stretch
-        )
-        self._virtual_table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeToContents
-        )
-        self._virtual_table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeToContents
-        )
-        self._virtual_table.horizontalHeader().setSectionResizeMode(
-            3, QHeaderView.ResizeToContents
-        )
-        self._virtual_table.horizontalHeader().setSectionResizeMode(
-            4, QHeaderView.ResizeToContents
-        )
+        self._virtual_table.setHorizontalHeaderLabels(["Album", "Track #", "Disc #", "Side", ""])
+        self._virtual_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self._virtual_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self._virtual_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self._virtual_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self._virtual_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self._virtual_table.verticalHeader().setVisible(False)
         # Sized by row count (see _update_virtual_table_height) rather than
         # expanding to fill the tab — this section is empty for most tracks.
@@ -246,9 +224,7 @@ class AlbumsTab(_BaseTab):
     def _on_change_album_toggled(self, checked: bool) -> None:
         self._set_group.setVisible(checked)
         self._virtual_group.setVisible(checked)
-        self._change_album_btn.setText(
-            "Hide Album Search" if checked else "Change Album"
-        )
+        self._change_album_btn.setText("Hide Album Search" if checked else "Change Album")
 
     # ── Loading ───────────────────────────────────────────────────────────
 
@@ -263,9 +239,7 @@ class AlbumsTab(_BaseTab):
                 self._set_primary_display(album)
                 self._remove_primary_btn.setEnabled(bool(album))
             else:
-                self._primary_label.setText(
-                    f"(multiple albums across {len(self.tracks)} tracks)"
-                )
+                self._primary_label.setText(f"(multiple albums across {len(self.tracks)} tracks)")
                 self._primary_artist_label.setText("")
                 self._primary_year_label.setText("")
                 self._art_label.clear()
@@ -275,9 +249,7 @@ class AlbumsTab(_BaseTab):
                 self._mb_open_btn.setVisible(False)
                 self._remove_primary_btn.setEnabled(True)
             self._open_primary_btn.setEnabled(False)
-            self._set_primary_btn.setEnabled(
-                len(self._album_search.text().strip()) >= 2
-            )
+            self._set_primary_btn.setEnabled(len(self._album_search.text().strip()) >= 2)
             self._virt_add_btn.setEnabled(False)
             self._virtual_table.setRowCount(0)
             self._update_virtual_table_height()
@@ -346,12 +318,7 @@ class AlbumsTab(_BaseTab):
         if pixmap and not pixmap.isNull():
             self._art_label.setText("")
             self._art_label.setPixmap(
-                pixmap.scaled(
-                    _ART_SIZE,
-                    _ART_SIZE,
-                    Qt.KeepAspectRatio,
-                    Qt.SmoothTransformation,
-                )
+                pixmap.scaled(_ART_SIZE, _ART_SIZE, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
         else:
             self._art_label.setPixmap(QPixmap())
@@ -369,9 +336,7 @@ class AlbumsTab(_BaseTab):
         height = header_height + visible_rows * row_height + frame
         self._virtual_table.setFixedHeight(height)
 
-    def _add_virtual_row(
-        self, virtual_id, album_name, album_id, track_num, disc_num, side
-    ):
+    def _add_virtual_row(self, virtual_id, album_name, album_id, track_num, disc_num, side):
         row = self._virtual_table.rowCount()
         self._virtual_table.insertRow(row)
 
@@ -381,12 +346,8 @@ class AlbumsTab(_BaseTab):
         alb_item.setFlags(alb_item.flags() & ~Qt.ItemIsEditable)
         self._virtual_table.setItem(row, 0, alb_item)
 
-        self._virtual_table.setItem(
-            row, 1, QTableWidgetItem(str(track_num) if track_num else "")
-        )
-        self._virtual_table.setItem(
-            row, 2, QTableWidgetItem(str(disc_num) if disc_num else "")
-        )
+        self._virtual_table.setItem(row, 1, QTableWidgetItem(str(track_num) if track_num else ""))
+        self._virtual_table.setItem(row, 2, QTableWidgetItem(str(disc_num) if disc_num else ""))
         self._virtual_table.setItem(row, 3, QTableWidgetItem(side or ""))
 
         btn_widget = QWidget()
@@ -432,15 +393,11 @@ class AlbumsTab(_BaseTab):
         album_name = self._album_search.text().strip()
         if not album_name:
             return
-        combo_data = (
-            self._album_combo.currentData() if self._album_combo.isVisible() else None
-        )
+        combo_data = self._album_combo.currentData() if self._album_combo.isVisible() else None
         if combo_data and combo_data != "new":
             album = self.controller.get.get_entity_object("Album", album_id=combo_data)
         else:
-            existing = self.controller.get.get_entity_object(
-                "Album", album_name=album_name
-            )
+            existing = self.controller.get.get_entity_object("Album", album_name=album_name)
             if existing:
                 album = existing if not isinstance(existing, list) else existing[0]
             else:
@@ -463,9 +420,7 @@ class AlbumsTab(_BaseTab):
             if not self.controller.update.update_entities(
                 "Track", track_ids, album_id=album.album_id
             ):
-                QMessageBox.warning(
-                    self, "Error", "Failed to set album for the selected tracks."
-                )
+                QMessageBox.warning(self, "Error", "Failed to set album for the selected tracks.")
         else:
             try:
                 self.controller.update.update_entity(
@@ -494,27 +449,20 @@ class AlbumsTab(_BaseTab):
                 "The track will remain in the library but will have no album."
             )
         confirm = QMessageBox.question(
-            self,
-            "Remove Album Relationship",
-            question,
-            QMessageBox.Yes | QMessageBox.No,
+            self, "Remove Album Relationship", question, QMessageBox.Yes | QMessageBox.No
         )
         if confirm != QMessageBox.Yes:
             return
 
         if self.is_multi:
             track_ids = [track.track_id for track in self.tracks]
-            if not self.controller.update.update_entities(
-                "Track", track_ids, album_id=None
-            ):
+            if not self.controller.update.update_entities("Track", track_ids, album_id=None):
                 QMessageBox.warning(
                     self, "Error", "Failed to remove album for the selected tracks."
                 )
         else:
             try:
-                self.controller.update.update_entity(
-                    "Track", self.track.track_id, album_id=None
-                )
+                self.controller.update.update_entity("Track", self.track.track_id, album_id=None)
             except SQLAlchemyError as e:
                 logger.error(f"Failed to remove primary album: {e}")
                 QMessageBox.warning(self, "Error", f"Failed to remove album:\n{e}")
@@ -532,9 +480,7 @@ class AlbumsTab(_BaseTab):
         updated_tracks = []
         for track in self.tracks:
             session.expire(track, ["album"])
-            updated = self.controller.get.get_entity_object(
-                "Track", track_id=track.track_id
-            )
+            updated = self.controller.get.get_entity_object("Track", track_id=track.track_id)
             updated_tracks.append(updated if updated else track)
         self.tracks = updated_tracks
 
@@ -575,7 +521,15 @@ class AlbumsTab(_BaseTab):
         if picked is None:
             return
 
-        album = self._resolve_or_create_album_from_mb(picked.enrichment)
+        # Best-effort awards enrichment for every entity this match creates
+        # or links (the new album, its artists, the track) is deferred into
+        # this list and run on a worker thread at the end -- see
+        # _import_award_data. Doing it inline froze the editor for minutes
+        # when MusicBrainz was slow (musicbrainzngs retries a stuck request
+        # 8x at a 30s socket timeout each).
+        award_jobs: list[tuple[str, int, str]] = []
+
+        album = self._resolve_or_create_album_from_mb(picked.enrichment, award_jobs)
         if album is None:
             return
 
@@ -592,24 +546,42 @@ class AlbumsTab(_BaseTab):
             update_kwargs["MBID"] = recording_mbid
 
         try:
-            self.controller.update.update_entity(
-                "Track", self.track.track_id, **update_kwargs
-            )
+            self.controller.update.update_entity("Track", self.track.track_id, **update_kwargs)
         except SQLAlchemyError as e:
             logger.error(f"Failed to set canonical album: {e}")
             QMessageBox.warning(self, "Error", f"Failed to set album:\n{e}")
             return
 
         if "MBID" in update_kwargs:
-            import_awards_for_entity(
-                self.controller.get.session,
-                "Track",
-                self.track.track_id,
-                update_kwargs["MBID"],
-            )
+            award_jobs.append(("Track", self.track.track_id, update_kwargs["MBID"]))
+
+        self._import_award_data(award_jobs)
 
         self._refresh_tracks()
         self.load(self.tracks)
+
+    def _import_award_data(self, award_jobs: list[tuple[str, int, str]]) -> None:
+        """Run best-effort awards enrichment for a canonical-album match's
+        entities on a worker thread.
+
+        Each job is a MusicBrainz lookup, and musicbrainzngs retries a stuck
+        request up to 8x at a 30s socket timeout -- inline on the UI thread
+        that froze the track editor for minutes with no feedback. Off the UI
+        thread, MusicBrainzImportDialog gives it a spinner and a working
+        Cancel (which detaches the worker to finish on its own). The writes
+        run against the worker thread's own scoped session, same as every
+        other MusicBrainzWorker call in this codebase.
+        """
+        if not award_jobs:
+            return
+
+        def _run():
+            session = self.controller.get.session
+            for entity_type, entity_id, mbid in award_jobs:
+                import_awards_for_entity(session, entity_type, entity_id, mbid)
+            return len(award_jobs)
+
+        MusicBrainzImportDialog(entity_label="award data", fetch_call=_run, parent=self).exec()
 
     def _offer_artist_name_suggestions(self, artist_name: str | None) -> None:
         """Called when a canonical-album search finds zero matches at all --
@@ -630,14 +602,19 @@ class AlbumsTab(_BaseTab):
             self,
             "No Matches Found",
             f"No MusicBrainz releases were found for artist '{artist_name}'.\n\n"
-            "Similar artists on MusicBrainz:\n"
-            + "\n".join(f"• {s}" for s in suggestions),
+            "Similar artists on MusicBrainz:\n" + "\n".join(f"• {s}" for s in suggestions),
         )
 
-    def _resolve_or_create_album_from_mb(self, enrichment: dict):
+    def _resolve_or_create_album_from_mb(
+        self, enrichment: dict, award_jobs: list[tuple[str, int, str]]
+    ):
         """MBID match, then name/alias match confirmed by artist overlap,
         else create a new album -- same tiered idea as
-        AlbumMusicBrainzReviewDialog._resolve_artist, adapted for Album."""
+        AlbumMusicBrainzReviewDialog._resolve_artist, adapted for Album.
+
+        Any (entity_type, entity_id, mbid) that needs awards enrichment is
+        appended to `award_jobs` rather than looked up inline -- see
+        _import_award_data."""
         mbid = enrichment.get("MBID")
         if mbid:
             album = self.controller.get.get_entity_object("Album", MBID=mbid)
@@ -659,14 +636,13 @@ class AlbumsTab(_BaseTab):
                 if existing_ids & credit_ids:
                     return candidate_album
 
-        return self._create_album_from_mb(enrichment)
+        return self._create_album_from_mb(enrichment, award_jobs)
 
-    def _create_album_from_mb(self, enrichment: dict):
+    def _create_album_from_mb(self, enrichment: dict, award_jobs: list[tuple[str, int, str]]):
         album_name = enrichment.get("album_name") or "Unknown Album"
         artist_credits = enrichment.get("artist_credits") or []
         artist_names = (
-            ", ".join(c["name"] for c in artist_credits if c.get("name"))
-            or "Unknown Artist"
+            ", ".join(c["name"] for c in artist_credits if c.get("name")) or "Unknown Artist"
         )
 
         date_bits = [
@@ -707,15 +683,10 @@ class AlbumsTab(_BaseTab):
                 release_group_MBID=enrichment.get("release_group_mbid"),
             )
             if enrichment.get("release_group_mbid"):
-                import_awards_for_entity(
-                    self.controller.get.session,
-                    "Album",
-                    new_album.album_id,
-                    enrichment["release_group_mbid"],
-                )
+                award_jobs.append(("Album", new_album.album_id, enrichment["release_group_mbid"]))
             for credit in artist_credits:
                 artist = self._resolve_or_create_artist(
-                    credit.get("mbid"), credit.get("name")
+                    credit.get("mbid"), credit.get("name"), award_jobs
                 )
                 if artist is None:
                     continue
@@ -732,25 +703,21 @@ class AlbumsTab(_BaseTab):
 
         return new_album
 
-    def _resolve_or_create_artist(self, artist_mbid, artist_name):
+    def _resolve_or_create_artist(
+        self, artist_mbid, artist_name, award_jobs: list[tuple[str, int, str]]
+    ):
         if not artist_name:
             return None
         if artist_mbid:
             artist = self.controller.get.get_entity_object("Artist", MBID=artist_mbid)
             if artist is not None:
                 return artist
-        artist = self.controller.get.resolve_entity_or_alias(
-            "Artist", "artist_name", artist_name
-        )
+        artist = self.controller.get.resolve_entity_or_alias("Artist", "artist_name", artist_name)
         if artist is not None and not artist.MBID:
             if artist_mbid:
-                self.controller.update.update_entity(
-                    "Artist", artist.artist_id, MBID=artist_mbid
-                )
+                self.controller.update.update_entity("Artist", artist.artist_id, MBID=artist_mbid)
                 artist.MBID = artist_mbid
-                import_awards_for_entity(
-                    self.controller.get.session, "Artist", artist.artist_id, artist_mbid
-                )
+                award_jobs.append(("Artist", artist.artist_id, artist_mbid))
             return artist
         # A name match whose row already carries a (necessarily different)
         # MBID is a distinct real-world artist -- ignore it and create a
@@ -759,9 +726,7 @@ class AlbumsTab(_BaseTab):
             "Artist", artist_name=artist_name, MBID=artist_mbid
         )
         if artist_mbid:
-            import_awards_for_entity(
-                self.controller.get.session, "Artist", new_artist.artist_id, artist_mbid
-            )
+            award_jobs.append(("Artist", new_artist.artist_id, artist_mbid))
         return new_artist
 
     # ── Virtual appearance search / add / remove ──────────────────────────
@@ -793,15 +758,11 @@ class AlbumsTab(_BaseTab):
         album_name = self._virt_search.text().strip()
         if not album_name:
             return
-        combo_data = (
-            self._virt_combo.currentData() if self._virt_combo.isVisible() else None
-        )
+        combo_data = self._virt_combo.currentData() if self._virt_combo.isVisible() else None
         if combo_data and combo_data != "new":
             album = self.controller.get.get_entity_object("Album", album_id=combo_data)
         else:
-            existing = self.controller.get.get_entity_object(
-                "Album", album_name=album_name
-            )
+            existing = self.controller.get.get_entity_object("Album", album_name=album_name)
             if existing:
                 album = existing if not isinstance(existing, list) else existing[0]
             else:
@@ -821,9 +782,7 @@ class AlbumsTab(_BaseTab):
             )
         except SQLAlchemyError as e:
             logger.error(f"Failed to add virtual appearance: {e}")
-            QMessageBox.warning(
-                self, "Error", f"Failed to add virtual appearance:\n{e}"
-            )
+            QMessageBox.warning(self, "Error", f"Failed to add virtual appearance:\n{e}")
             return
         self._virt_search.clear()
         self._virt_combo.setVisible(False)
@@ -833,26 +792,20 @@ class AlbumsTab(_BaseTab):
         # expire it before re-fetching (see _refresh_tracks for the same
         # pattern with the album relationship).
         self.controller.get.session.expire(self.track, ["virtual_appearances"])
-        updated = self.controller.get.get_entity_object(
-            "Track", track_id=self.track.track_id
-        )
+        updated = self.controller.get.get_entity_object("Track", track_id=self.track.track_id)
         if updated:
             self.tracks = [updated]
         self.load(self.tracks)
 
     def _remove_virtual(self, virtual_id: int):
         try:
-            self.controller.delete.delete_entity(
-                "AlbumVirtualTrack", virtual_id=virtual_id
-            )
+            self.controller.delete.delete_entity("AlbumVirtualTrack", virtual_id=virtual_id)
         except SQLAlchemyError as e:
             logger.error(f"Failed to remove virtual appearance: {e}")
             QMessageBox.warning(self, "Error", f"Failed to remove:\n{e}")
             return
         self.controller.get.session.expire(self.track, ["virtual_appearances"])
-        updated = self.controller.get.get_entity_object(
-            "Track", track_id=self.track.track_id
-        )
+        updated = self.controller.get.get_entity_object("Track", track_id=self.track.track_id)
         if updated:
             self.tracks = [updated]
         self.load(self.tracks)
