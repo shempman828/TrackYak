@@ -1,3 +1,4 @@
+import contextlib
 from typing import Any
 
 from PySide6.QtCore import Signal
@@ -29,6 +30,7 @@ from src.statistics.charts.leaderboard_list import LeaderboardListWidget
 from src.statistics.charts.stat_tile import StatTileWidget
 from src.statistics.charts.threshold_tier_widget import ThresholdTierWidget
 from src.statistics.charts.word_cloud_widget import WordCloudWidget
+from src.statistics.charts.year_time_series_chart import YearTimeSeriesChart
 from src.statistics.genre_mood_stats_worker import GenreMoodStatsWorker
 from src.statistics.influence_stats_worker import InfluenceStatsWorker
 from src.statistics.lyrics_stats_worker import LyricsStatsWorker
@@ -40,6 +42,21 @@ from src.statistics.stats.audio import DSP_COLUMNS
 # rich-text renderer doesn't resolve QSS for inline HTML color attributes,
 # so this can't be sourced from themes/dark_mode.qss like widget styling can.
 _HIGHLIGHT_COLOR = "#EA8599"
+
+
+def _hl(text: object) -> str:
+    """Wrap `text` in the stats-dialog highlight span (bold, accent colour)."""
+    return f"<span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{text}</span>"
+
+
+def _lifespan_detail(d: dict) -> str:
+    """`N years (begin-end)` tile text; the range uses an intentional en dash."""
+    return f"{d['years']} years ({d['begin_year']}–{d['end_year']})"  # noqa: RUF001
+
+
+def _match_detail(d: dict) -> str:
+    """`P% matched (m/total)` secondary text for a chart-year tile."""
+    return f"{d['completeness']}% matched ({d['matched']}/{d['total']})"
 
 
 class StatisticsWorker(CancellableWorker):
@@ -302,7 +319,7 @@ class MusicStatsDialog(QDialog):
         layout.addWidget(completeness_group)
 
         # Ratings distribution
-        ratings_group = QGroupBox("Ratings Distribution (0.5 – 10)")
+        ratings_group = QGroupBox("Ratings Distribution (0.5 – 10)")  # noqa: RUF001
         ratings_layout = QVBoxLayout(ratings_group)
 
         self.ratings_summary_label = self.create_stat_label("")
@@ -481,7 +498,7 @@ class MusicStatsDialog(QDialog):
         self.common_release_date_tile = StatTileWidget("Most Common Release Date")
         release_layout.addWidget(self.common_release_date_tile)
         release_layout.addWidget(QLabel("Release Year Distribution:"))
-        self.release_year_chart = BarDistributionChart(sort_by="label")
+        self.release_year_chart = YearTimeSeriesChart()
         release_layout.addWidget(self.release_year_chart)
         release_layout.addWidget(QLabel("Release Country Distribution:"))
         self.release_country_chart = BarDistributionChart()
@@ -542,7 +559,9 @@ class MusicStatsDialog(QDialog):
         moods_layout.addWidget(self.top_moods_list)
         layout.addWidget(moods_group)
 
-        rated_genres_group = QGroupBox("Highest / Lowest Rated Genres (quick view, min 5 rated tracks)")
+        rated_genres_group = QGroupBox(
+            "Highest / Lowest Rated Genres (quick view, min 5 rated tracks)"
+        )
         rated_genres_layout = QHBoxLayout(rated_genres_group)
         self.highest_rated_genres_list = LeaderboardListWidget()
         self.lowest_rated_genres_list = LeaderboardListWidget()
@@ -1204,14 +1223,10 @@ class MusicStatsDialog(QDialog):
         )
 
         play_time = self.format_duration(stats["total_play_time"])
-        self.total_play_time_label.setText(
-            f"Total Play Time: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{play_time}</span>"
-        )
+        self.total_play_time_label.setText(f"Total Play Time: {_hl(play_time)}")
 
         file_size = self.format_file_size(stats["total_file_size"])
-        self.total_file_size_label.setText(
-            f"Total File Size: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{file_size}</span>"
-        )
+        self.total_file_size_label.setText(f"Total File Size: {_hl(file_size)}")
 
         # Overall completeness summary label
         overall = stats.get("overall_metadata_completeness", 0)
@@ -1260,18 +1275,14 @@ class MusicStatsDialog(QDialog):
         top_artists = leaderboards.get("top_artists", [])
         if top_artists:
             name, _ = top_artists[0]
-            self.most_played_artist_label.setText(
-                f"Most Played Artist: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{name}</span>"
-            )
+            self.most_played_artist_label.setText(f"Most Played Artist: {_hl(name)}")
         else:
             self.most_played_artist_label.setText("Most Played Artist: N/A")
 
         top_genres = leaderboards.get("top_genres", [])
         if top_genres:
             name, _ = top_genres[0]
-            self.most_played_genre_label.setText(
-                f"Most Played Genre: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{name}</span>"
-            )
+            self.most_played_genre_label.setText(f"Most Played Genre: {_hl(name)}")
         else:
             self.most_played_genre_label.setText("Most Played Genre: N/A")
 
@@ -1279,7 +1290,7 @@ class MusicStatsDialog(QDialog):
         if highest_rated_artists:
             name, avg_rating = highest_rated_artists[0]
             self.highest_rated_artist_label.setText(
-                f"Highest Rated Artist: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{name} ({avg_rating:.1f})</span>"
+                f"Highest Rated Artist: {_hl(f'{name} ({avg_rating:.1f})')}"
             )
         else:
             self.highest_rated_artist_label.setText("Highest Rated Artist: N/A")
@@ -1288,7 +1299,7 @@ class MusicStatsDialog(QDialog):
         if highest_rated_albums:
             name, avg_rating = highest_rated_albums[0]
             self.highest_rated_album_label.setText(
-                f"Highest Rated Album: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{name} ({avg_rating:.1f})</span>"
+                f"Highest Rated Album: {_hl(f'{name} ({avg_rating:.1f})')}"
             )
         else:
             self.highest_rated_album_label.setText("Highest Rated Album: N/A")
@@ -1297,7 +1308,7 @@ class MusicStatsDialog(QDialog):
         if highest_rated_genres:
             name, avg_rating = highest_rated_genres[0]
             self.highest_rated_genre_label.setText(
-                f"Highest Rated Genre: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{name} ({avg_rating:.1f})</span>"
+                f"Highest Rated Genre: {_hl(f'{name} ({avg_rating:.1f})')}"
             )
         else:
             self.highest_rated_genre_label.setText("Highest Rated Genre: N/A")
@@ -1306,7 +1317,7 @@ class MusicStatsDialog(QDialog):
         if lowest_rated_genres:
             name, avg_rating = lowest_rated_genres[0]
             self.lowest_rated_genre_label.setText(
-                f"Lowest Rated Genre: <span style='color: {_HIGHLIGHT_COLOR}; font-weight: bold;'>{name} ({avg_rating:.1f})</span>"
+                f"Lowest Rated Genre: {_hl(f'{name} ({avg_rating:.1f})')}"
             )
         else:
             self.lowest_rated_genre_label.setText("Lowest Rated Genre: N/A")
@@ -1355,19 +1366,13 @@ class MusicStatsDialog(QDialog):
 
         track_year = chart_years.get("Track")
         if track_year:
-            self.chart_year_track_tile.set_data(
-                track_year["year"],
-                f"{track_year['completeness']}% matched ({track_year['matched']}/{track_year['total']})",
-            )
+            self.chart_year_track_tile.set_data(track_year["year"], _match_detail(track_year))
         else:
             self.chart_year_track_tile.set_data("N/A")
 
         album_year = chart_years.get("Album")
         if album_year:
-            self.chart_year_album_tile.set_data(
-                album_year["year"],
-                f"{album_year['completeness']}% matched ({album_year['matched']}/{album_year['total']})",
-            )
+            self.chart_year_album_tile.set_data(album_year["year"], _match_detail(album_year))
         else:
             self.chart_year_album_tile.set_data("N/A")
 
@@ -1709,18 +1714,14 @@ class MusicStatsDialog(QDialog):
 
         longest_lived = lifespan.get("longest_lived")
         if longest_lived:
-            self.longest_lived_tile.set_data(
-                longest_lived["name"],
-                f"{longest_lived['years']} years ({longest_lived['begin_year']}–{longest_lived['end_year']})",
-            )
+            self.longest_lived_tile.set_data(longest_lived["name"], _lifespan_detail(longest_lived))
         else:
             self.longest_lived_tile.set_data("N/A")
 
         shortest_lived = lifespan.get("shortest_lived")
         if shortest_lived:
             self.shortest_lived_tile.set_data(
-                shortest_lived["name"],
-                f"{shortest_lived['years']} years ({shortest_lived['begin_year']}–{shortest_lived['end_year']})",
+                shortest_lived["name"], _lifespan_detail(shortest_lived)
             )
         else:
             self.shortest_lived_tile.set_data("N/A")
@@ -2019,22 +2020,21 @@ class MusicStatsDialog(QDialog):
 
         if seconds < MINUTE:
             return f"{seconds}s"
-        elif seconds < HOUR:
+        if seconds < HOUR:
             m = seconds // MINUTE
             s = seconds % MINUTE
             return f"{m}m {s}s"
-        elif seconds < DAY:
+        if seconds < DAY:
             h = seconds // HOUR
             m = (seconds % HOUR) // MINUTE
             return f"{h}h {m}m"
-        elif seconds < YEAR:
+        if seconds < YEAR:
             d = seconds // DAY
             h = (seconds % DAY) // HOUR
             return f"{d}d {h}h"
-        else:
-            y = seconds // YEAR
-            d = (seconds % YEAR) // DAY
-            return f"{y}y {d}d"
+        y = seconds // YEAR
+        d = (seconds % YEAR) // DAY
+        return f"{y}y {d}d"
 
     def format_file_size(self, bytes_size):
         """Convert bytes to a human-readable string."""
@@ -2111,12 +2111,8 @@ class MusicStatsDialog(QDialog):
             ),
         ):
             if worker is not None and worker.isRunning():
-                try:
+                with contextlib.suppress(TypeError, RuntimeError):
                     worker.finished.disconnect(slots[0][0])
-                except (TypeError, RuntimeError):
-                    pass
-                try:
+                with contextlib.suppress(TypeError, RuntimeError):
                     worker.error.disconnect(slots[1][0])
-                except (TypeError, RuntimeError):
-                    pass
         super().closeEvent(event)
