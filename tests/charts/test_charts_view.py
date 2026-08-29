@@ -186,6 +186,51 @@ def test_playlists_btn_label_is_contextual(qapp, session, controller, tmp_path):
     assert view.playlists_btn.text() == "Update Charts Playlists"
 
 
+class _StubWorker:
+    def wait(self):
+        pass
+
+
+class _StubStats:
+    playlists_created = playlists_updated = playlists_removed = 0
+    tracks_added = tracks_removed = 0
+
+
+def test_playlist_finished_clears_generating_header(qapp, session, controller, tmp_path):
+    """Regression: the 'Generating charts playlists...' header text must be
+    reset when generation completes -- _on_playlist_finished() used to leave
+    it stuck (only the import/match pipelines reset via load_charts())."""
+    (tmp_path / "hot-100-current.csv").write_text("stub")
+    (tmp_path / "billboard-200-current.csv").write_text("stub")
+    _seed_charts_fully_synced(session)
+
+    view = ChartsView(controller)
+    view.status_label.setText("Generating charts playlists...")
+    view._playlist_worker = _StubWorker()
+
+    view._on_playlist_finished(_StubStats())
+
+    assert "Generating" not in view.status_label.text()
+    assert "2023-12-31" in view.status_label.text()
+
+
+def test_worker_error_clears_generating_header(qapp, session, controller, tmp_path, monkeypatch):
+    """Regression: a failed operation must also reset the in-progress header
+    text instead of leaving 'Generating charts playlists...' on screen."""
+    (tmp_path / "hot-100-current.csv").write_text("stub")
+    (tmp_path / "billboard-200-current.csv").write_text("stub")
+    _seed_charts_fully_synced(session)
+
+    monkeypatch.setattr("src.charts.charts_view.QMessageBox.warning", lambda *a, **k: None)
+
+    view = ChartsView(controller)
+    view.status_label.setText("Generating charts playlists...")
+
+    view._on_worker_error("boom")
+
+    assert "Generating" not in view.status_label.text()
+
+
 def test_week_browser_tab_populates_from_seeded_entry(qapp, session, controller, tmp_path):
     (tmp_path / "hot-100-current.csv").write_text("stub")
     (tmp_path / "billboard-200-current.csv").write_text("stub")

@@ -306,8 +306,10 @@ class ChartsView(QWidget):
         self.fetch_btn.setEnabled(True)
         self.match_btn.setEnabled(True)
         self.playlists_btn.setEnabled(True)
-        # A first run just created the tree -> flip the label to "Update".
-        self._refresh_playlists_btn_label()
+        # Clear the "Generating charts playlists..." header text and (via the
+        # same call) flip the button label to "Update" now the tree exists --
+        # same end-of-pipeline reset the import/match handlers do.
+        self.load_charts()
 
     # -----------------------------------------------------------------------
     # Shared error handling
@@ -320,4 +322,7 @@ class ChartsView(QWidget):
         self.fetch_btn.setEnabled(True)
         self.match_btn.setEnabled(True)
         self.playlists_btn.setEnabled(True)
+        # Reset any in-progress header text (e.g. "Generating charts
+        # playlists...") so a failed run doesn't leave it stuck.
+        self.load_charts()
         QMessageBox.warning(self, "Charts", f"Operation failed: {message}")
