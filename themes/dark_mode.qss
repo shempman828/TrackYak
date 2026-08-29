@@ -1405,6 +1405,16 @@ QLabel[npRole="nextLyric"] {
     font-style: italic;
 }
 
+QLabel[npRole="nextLyric2"] {
+    color: rgba(133, 153, 234, 0.24);
+    font-style: italic;
+}
+
+QLabel[npRole="nextLyric3"] {
+    color: rgba(133, 153, 234, 0.14);
+    font-style: italic;
+}
+
 QLabel[npRole="plainLyrics"] {
     color: rgba(200, 208, 244, 0.75);
     line-height: 1.7em;

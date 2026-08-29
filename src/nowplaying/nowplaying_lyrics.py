@@ -22,7 +22,7 @@ class NowPlayingLyricsMixin:
     self._lyrics_lines, self._active_idx, self._last_position_ms,
     self._sync_offset_ms, self._saved_offset_tenths, self._offset_save_timer,
     self._countdown_timer, self._next_lyric_ms, self._karaoke_lbl,
-    self._next_lyric_lbl, self._karaoke_block, self._plain_area,
+    self._next_lyric_lbls, self._karaoke_block, self._plain_area,
     self._plain_lbl, self._no_lyrics_lbl, self._countdown_lbl,
     self._offset_row, self._offset_lbl, self._offset_slider,
     self._toggle_mode_btn, self._sync_toggle_btn, self._set_active(),
@@ -41,7 +41,7 @@ class NowPlayingLyricsMixin:
             # Show full plain text from the synced lines
             text = "\n".join(t for _, t in self._lyrics_lines)
             self._karaoke_lbl.setVisible(False)
-            self._next_lyric_lbl.setVisible(False)
+            self._hide_next_lyric_lbls()
             self._karaoke_block.setVisible(False)
             self._countdown_lbl.setVisible(False)
             self._countdown_timer.stop()
@@ -94,7 +94,7 @@ class NowPlayingLyricsMixin:
         self._countdown_timer.stop()
         self._karaoke_lbl.setVisible(False)
         self._karaoke_lbl.clear_line()
-        self._next_lyric_lbl.setVisible(False)
+        self._hide_next_lyric_lbls()
         self._karaoke_block.setVisible(False)
         self._plain_area.setVisible(False)
         self._plain_lbl.setText("")
@@ -108,7 +108,7 @@ class NowPlayingLyricsMixin:
         self._plain_area.setVisible(False)
         self._no_lyrics_lbl.setVisible(False)
         self._countdown_lbl.setVisible(False)
-        self._next_lyric_lbl.setVisible(False)
+        self._hide_next_lyric_lbls()
         self._karaoke_block.setVisible(True)
         self._karaoke_lbl.setVisible(True)
         # Restore saved slider value (already set in __init__, keep it)
@@ -122,6 +122,7 @@ class NowPlayingLyricsMixin:
     def _set_lyrics_mode_plain(self, text: str):
         self._karaoke_lbl.setVisible(False)
         self._karaoke_lbl.clear_line()
+        self._hide_next_lyric_lbls()
         self._karaoke_block.setVisible(False)
         self._no_lyrics_lbl.setVisible(False)
         self._countdown_lbl.setVisible(False)
@@ -181,19 +182,30 @@ class NowPlayingLyricsMixin:
             self._update_next_lyric_lbl(new_idx)
 
     def _update_next_lyric_lbl(self, current_idx: int):
-        """Show the next non-empty lyric line below the current karaoke line."""
-        next_text = ""
+        """Fill the upcoming-lyric preview stack below the current karaoke line.
+
+        Populates up to ``len(self._next_lyric_lbls)`` rows with the next
+        non-empty lyric lines; any rows left over are cleared and hidden.
+        """
+        upcoming: list[str] = []
         for i in range(current_idx + 1, len(self._lyrics_lines)):
             t = self._lyrics_lines[i][1].strip()
             if t:
-                next_text = t
-                break
-        if next_text:
-            self._next_lyric_lbl.setText(next_text)
-            self._next_lyric_lbl.setVisible(True)
-        else:
-            self._next_lyric_lbl.setText("")
-            self._next_lyric_lbl.setVisible(False)
+                upcoming.append(t)
+                if len(upcoming) == len(self._next_lyric_lbls):
+                    break
+        for lbl, text in zip(self._next_lyric_lbls, upcoming, strict=False):
+            lbl.setText(text)
+            lbl.setVisible(True)
+        for lbl in self._next_lyric_lbls[len(upcoming) :]:
+            lbl.setText("")
+            lbl.setVisible(False)
+
+    def _hide_next_lyric_lbls(self):
+        """Clear and hide every row of the upcoming-lyric preview stack."""
+        for lbl in self._next_lyric_lbls:
+            lbl.setText("")
+            lbl.setVisible(False)
 
     def _on_toggle_sync_slider(self):
         """Show/hide the sync offset slider row."""
@@ -231,9 +243,7 @@ class NowPlayingLyricsMixin:
         if self._next_lyric_ms < 0:
             self._countdown_timer.stop()
             return
-        remaining_ms = self._next_lyric_ms - (
-            self._last_position_ms + self._sync_offset_ms
-        )
+        remaining_ms = self._next_lyric_ms - (self._last_position_ms + self._sync_offset_ms)
         if remaining_ms <= 0:
             self._stop_countdown()
             return
@@ -249,7 +259,7 @@ class NowPlayingLyricsMixin:
         """Slider moved — update offset immediately, debounce the config save."""
         self._sync_offset_ms = value * 100
         secs = self._sync_offset_ms / 1000
-        sign = "+" if secs >= 0 else "−"
+        sign = "+" if secs >= 0 else "−"  # noqa: RUF001 (U+2212 minus glyph)
         self._offset_lbl.setText(f"Sync  {sign}{abs(secs):.1f}s")
         self._last_position_ms = -1
         # Restart debounce timer

@@ -1,11 +1,8 @@
-"""
-NowPlayingView module — Cinematic redesign.
-"""
+"""NowPlayingView module — Cinematic redesign."""
 
+from pathlib import Path
 import time
 import traceback
-from pathlib import Path
-from typing import List, Optional, Tuple
 
 from PySide6.QtCore import QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QPixmap, QShortcut
@@ -29,7 +26,7 @@ from src.core.censor import censor_text
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
 from src.nowplaying.nowplaying_art import _ArtCard
-from src.nowplaying.nowplaying_art_slideshow import NowPlayingArtMixin, _COVER_DWELL_MS
+from src.nowplaying.nowplaying_art_slideshow import _COVER_DWELL_MS, NowPlayingArtMixin
 from src.nowplaying.nowplaying_backdrop import _BlurredBackdrop
 from src.nowplaying.nowplaying_chip import _Chip, _ScrollingChipRow
 from src.nowplaying.nowplaying_credits import _CreditsPanel
@@ -76,13 +73,13 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self.controller = controller
         self.track = track
         self.default_art_path = asset("default_album.svg")
-        self._current_pixmap: Optional[QPixmap] = None
-        self._fade_anim: Optional[QPropertyAnimation] = None
-        self._art_transition_anim: Optional[QPropertyAnimation] = None
+        self._current_pixmap: QPixmap | None = None
+        self._fade_anim: QPropertyAnimation | None = None
+        self._art_transition_anim: QPropertyAnimation | None = None
 
         self._is_synced = False
         self._show_all_lyrics = False  # Toggle: karaoke vs full plain view
-        self._lyrics_lines: List[Tuple[int, str]] = []
+        self._lyrics_lines: list[tuple[int, str]] = []
         self._active_idx = -1
         self._last_position_ms = -1
 
@@ -106,7 +103,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._cinema_mode = False
 
         # Art slideshow state
-        self._art_images: List[Tuple[QPixmap, bool, Optional[str]]] = []
+        self._art_images: list[tuple[QPixmap, bool, str | None]] = []
         self._art_has_front: bool = False
         self._art_slide_idx: int = 0
         self._art_slide_timer = QTimer(self)
@@ -115,16 +112,14 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
         # Background art-cache warming (avoids blocking the UI thread on a
         # cold cache / audio-file decode - see _load_art_from_track)
-        self._art_worker: Optional[ArtCacheWorker] = None
+        self._art_worker: ArtCacheWorker | None = None
         self._art_generation = 0
 
         self._initUI()
         self._setup_cinema_shortcut()
 
         try:
-            self.controller.mediaplayer.position_changed.connect(
-                self._on_position_changed
-            )
+            self.controller.mediaplayer.position_changed.connect(self._on_position_changed)
         except (AttributeError, RuntimeError) as exc:
             logger.warning(f"NowPlayingView: could not connect position_changed: {exc}")
 
@@ -157,9 +152,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
                 # Remember whether the queue was actually open so exiting
                 # cinema mode doesn't force it open regardless of prior state.
                 queue_dock = getattr(main_win, "queue_dock", None)
-                self._pre_cinema_queue_visible = (
-                    queue_dock.isVisible() if queue_dock else False
-                )
+                self._pre_cinema_queue_visible = queue_dock.isVisible() if queue_dock else False
                 for attr in ("player_dock", "navigation_dock", "queue_dock"):
                     dock = getattr(main_win, attr, None)
                     if dock:
@@ -174,9 +167,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
                     if dock:
                         dock.setVisible(True)
                 if hasattr(main_win, "set_queue_visible"):
-                    main_win.set_queue_visible(
-                        getattr(self, "_pre_cinema_queue_visible", False)
-                    )
+                    main_win.set_queue_visible(getattr(self, "_pre_cinema_queue_visible", False))
         except RuntimeError as exc:
             logger.warning(f"toggle_cinema_mode: {exc}")
 
@@ -235,9 +226,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         right_layout.addWidget(self._title_lbl)
 
         # Artist — scrolling marquee so long names pan rather than truncate
-        self._artist_marquee = MarqueeLabel(
-            "—", self._ARTIST_FONT, "rgba(180,190,240,0.70)"
-        )
+        self._artist_marquee = MarqueeLabel("—", self._ARTIST_FONT, "rgba(180,190,240,0.70)")
         # Match the title/album labels' natural line height instead of a
         # hardcoded value, so vertical spacing between the three lines is even.
         self._artist_marquee.setFixedHeight(QFontMetrics(self._ARTIST_FONT).height())
@@ -323,13 +312,18 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._karaoke_lbl = _KaraokeLine()
         self._karaoke_lbl.setVisible(False)
 
-        # Next lyric line — shown dimmer below the current karaoke line
-        self._next_lyric_lbl = QLabel("")
-        self._next_lyric_lbl.setFont(QFont("Cambria", 14, QFont.Normal))
-        self._next_lyric_lbl.setProperty("npRole", "nextLyric")
-        self._next_lyric_lbl.setAlignment(Qt.AlignCenter)
-        self._next_lyric_lbl.setWordWrap(True)
-        self._next_lyric_lbl.setVisible(False)
+        # Upcoming lyric lines — a short preview stack shown below the current
+        # karaoke line, each row fainter than the one above it (see the
+        # npRole="nextLyric" / "nextLyric2" / "nextLyric3" rules in the QSS).
+        self._next_lyric_lbls: list[QLabel] = []
+        for role in ("nextLyric", "nextLyric2", "nextLyric3"):
+            lbl = QLabel("")
+            lbl.setFont(QFont("Cambria", 14, QFont.Normal))
+            lbl.setProperty("npRole", role)
+            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setWordWrap(True)
+            lbl.setVisible(False)
+            self._next_lyric_lbls.append(lbl)
 
         self._plain_area = FadedScrollArea()
         self._plain_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -364,7 +358,8 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         kb.setContentsMargins(0, 0, 0, 0)
         kb.setSpacing(6)
         kb.addWidget(self._karaoke_lbl)
-        kb.addWidget(self._next_lyric_lbl)
+        for lbl in self._next_lyric_lbls:
+            kb.addWidget(lbl)
         kb.addStretch(1)
 
         lp.addWidget(self._karaoke_block, stretch=1)
@@ -379,7 +374,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         off_lay.setContentsMargins(0, 6, 0, 0)
         off_lay.setSpacing(8)
 
-        self._offset_lbl = QLabel("Sync  −0.5s")
+        self._offset_lbl = QLabel("Sync  −0.5s")  # noqa: RUF001 (U+2212 minus glyph)
         self._offset_lbl.setProperty("npRole", "offsetLabel")
         self._offset_lbl.setFixedWidth(80)
 
@@ -490,9 +485,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
             # track change -- this is the single entry point for those and
             # must never leave the UI half-updated, so it falls back to
             # clearUI() instead of propagating.
-            logger.error(
-                f"NowPlayingView.updateUI failed: {exc}\n{traceback.format_exc()}"
-            )
+            logger.error(f"NowPlayingView.updateUI failed: {exc}\n{traceback.format_exc()}")
             self.clearUI()
 
     def clearUI(self):
@@ -512,7 +505,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
     # ── chips ─────────────────────────────────────────────────────────────
 
     def _update_chips(self, track):
-        visible: List[_Chip] = []
+        visible: list[_Chip] = []
 
         def _maybe(chip: _Chip, val):
             """Add chip if val is a non-empty string."""
@@ -532,17 +525,13 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
                 # (float()/string parsing, attribute access) -- one broken
                 # field must not prevent the other chips from showing (see
                 # docstring).
-                logger.debug(
-                    f"_update_chips: skipping chip due to error: {exc}", exc_info=True
-                )
+                logger.debug(f"_update_chips: skipping chip due to error: {exc}", exc_info=True)
 
         # ── Basic metadata ─────────────────────────────────────────────────
         _safe(
             self._chip_bpm,
             lambda: (
-                f"{float(track.bpm):.0f} BPM"
-                if getattr(track, "bpm", None) is not None
-                else None
+                f"{float(track.bpm):.0f} BPM" if getattr(track, "bpm", None) is not None else None
             ),
         )
         _safe(

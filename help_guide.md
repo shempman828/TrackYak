@@ -108,9 +108,11 @@ quick-glance details (BPM, key, release year, play count, genres) that only
 show up if the track actually has that data.
 
 Below that, two tabs: **Lyrics** shows synced, karaoke-style lyrics if the
-track has them — the current line highlights as it plays. If the timing
-feels off, click the small ⏱ icon to reveal a sync-offset slider and nudge it
-until it lines up. **Credits** shows everyone credited on the track.
+track has them — the current line highlights as it plays, with the next three
+lines previewed beneath it, each fainter than the one above so you can see
+what's coming without losing the current line. If the timing feels off, click
+the small ⏱ icon to reveal a sync-offset slider and nudge it until it lines
+up. **Credits** shows everyone credited on the track.
 
 Press `Ctrl+Shift+F` to drop into **cinema mode**, which hides the menu bar
 and every dock so this view fills the whole window — press it again to bring
