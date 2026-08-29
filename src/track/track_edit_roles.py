@@ -23,10 +23,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_resolution import resolve_or_create_artist
 from src.common.credited_as_dialog import CreditedAsDialog
-from src.common.entity_completer_edit import (
-    build_entity_search_widget,
-    register_cached_entity,
-)
+from src.common.entity_completer_context import artist_context_map
+from src.common.entity_completer_edit import build_entity_search_widget, register_cached_entity
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.db.db_tables import Artist, ArtistAlias, Role, TrackArtistRole
@@ -73,9 +71,7 @@ def _fetch_role_rows(session, track_ids: list):
         )
         .outerjoin(Artist, TrackArtistRole.artist_id == Artist.artist_id)
         .outerjoin(Role, TrackArtistRole.role_id == Role.role_id)
-        .outerjoin(
-            ArtistAlias, TrackArtistRole.credited_alias_id == ArtistAlias.alias_id
-        )
+        .outerjoin(ArtistAlias, TrackArtistRole.credited_alias_id == ArtistAlias.alias_id)
         .where(TrackArtistRole.track_id.in_(track_ids))
     )
     return session.execute(stmt).all()
@@ -94,23 +90,10 @@ def _group_role_rows(rows, track_ids: list, is_multi: bool) -> dict:
 
     if is_multi:
         by_track: dict = {}
-        for (
-            track_id,
-            artist_id,
-            role_id,
-            _alias_id,
-            role_name,
-            artist_name,
-            alias_name,
-        ) in rows:
+        for track_id, artist_id, role_id, _alias_id, role_name, artist_name, alias_name in rows:
             credited_name = alias_name or artist_name or "?"
             role_name = role_name or "?"
-            by_track.setdefault(track_id, set()).add((
-                artist_id,
-                role_id,
-                credited_name,
-                role_name,
-            ))
+            by_track.setdefault(track_id, set()).add((artist_id, role_id, credited_name, role_name))
 
         all_sets = [by_track.get(tid, set()) for tid in track_ids]
         common = all_sets[0] if all_sets else set()
@@ -121,20 +104,11 @@ def _group_role_rows(rows, track_ids: list, is_multi: bool) -> dict:
             entry = grouped.setdefault((artist_id, credited_name), {"roles": {}})
             entry["roles"][role_id] = role_name
     else:
-        for (
-            track_id,
-            artist_id,
-            role_id,
-            alias_id,
-            role_name,
-            artist_name,
-            alias_name,
-        ) in rows:
+        for _track_id, artist_id, role_id, alias_id, role_name, artist_name, alias_name in rows:
             credited_name = alias_name or artist_name or "?"
             role_name = role_name or "?"
             entry = grouped.setdefault(
-                (artist_id, credited_name),
-                {"roles": {}, "credited_alias_id": alias_id},
+                (artist_id, credited_name), {"roles": {}, "credited_alias_id": alias_id}
             )
             entry["roles"][role_id] = role_name
 
@@ -160,7 +134,7 @@ class _RolesLoaderWorker(QObject):
             rows = _fetch_role_rows(self.controller.get.session, self._track_ids)
             grouped = _group_role_rows(rows, self._track_ids, self._is_multi)
             self.finished.emit(grouped)
-        except Exception as e:  # ruff: ignore[blind-except]
+        except Exception as e:
             # Intentional broad boundary catch: this runs on a background thread
             # and must not let an exception be lost silently.
             logger.exception("Failed to load track roles")
@@ -186,9 +160,7 @@ class _FlowLayout(QLayout):
     onto a single line.
     """
 
-    def __init__(
-        self, parent=None, margin: int = 0, h_spacing: int = 6, v_spacing: int = 4
-    ):
+    def __init__(self, parent=None, margin: int = 0, h_spacing: int = 6, v_spacing: int = 4):
         super().__init__(parent)
         self._h_spacing = h_spacing
         self._v_spacing = v_spacing
@@ -236,9 +208,7 @@ class _FlowLayout(QLayout):
         for item in self._items:
             size = size.expandedTo(item.minimumSize())
         margins = self.contentsMargins()
-        size += QSize(
-            margins.left() + margins.right(), margins.top() + margins.bottom()
-        )
+        size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
         return size
 
     def _do_layout(self, rect, test_only: bool) -> int:
@@ -349,8 +319,7 @@ class _RolesTable(QTableWidget):
 
     def sizeHint(self):
         return QSize(
-            super().sizeHint().width(),
-            min(self.content_height(), self._MAX_CONTENT_HEIGHT),
+            super().sizeHint().width(), min(self.content_height(), self._MAX_CONTENT_HEIGHT)
         )
 
 
@@ -389,16 +358,13 @@ class RolesTab(_BaseTab):
             "artist_id",
             "Search artists…",
             index_builder=_build_artist_index,
+            context_builder=artist_context_map,
         )
         self._artist_search.textChanged.connect(self._update_add_btn)
         search_row.addWidget(self._artist_search)
 
         self._role_edit = build_entity_search_widget(
-            self.controller,
-            "Role",
-            "role_name",
-            "role_id",
-            "Role (e.g. Performer, Composer…)",
+            self.controller, "Role", "role_name", "role_id", "Role (e.g. Performer, Composer…)"
         )
         self._role_edit.textChanged.connect(self._update_add_btn)
         search_row.addWidget(self._role_edit)
@@ -415,13 +381,9 @@ class RolesTab(_BaseTab):
         # the same artist without re-searching for them.
         self._table = _RolesTable(0, 3)
         self._table.setHorizontalHeaderLabels(["Artist", "Roles", ""])
-        self._table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeToContents
-        )
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeToContents
-        )
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self._table.horizontalHeader().sectionResized.connect(
             lambda *_args: self._table.resizeRowsToContents()
         )
@@ -447,7 +409,7 @@ class RolesTab(_BaseTab):
         self._table.verticalScrollBar().setSingleStep(24)
         self._table.setToolTip(
             "Each artist gets one row; their roles are shown as chips with "
-            "individual remove (×) buttons."
+            "individual remove (\u00d7) buttons."
         )
         layout.addWidget(self._table)
         # Preferred vertical policy lets the table grow, so without a
@@ -542,9 +504,7 @@ class RolesTab(_BaseTab):
         # for the pre-layout, one-chip-wide hint.
         QTimer.singleShot(0, self._table.resizeRowsToContents)
 
-        QTimer.singleShot(
-            0, lambda: self._table.verticalScrollBar().setValue(saved_scroll)
-        )
+        QTimer.singleShot(0, lambda: self._table.verticalScrollBar().setValue(saved_scroll))
 
     def _on_roles_load_error(self, message: str) -> None:
         logger.error(f"Error loading artist roles: {message}")
@@ -585,9 +545,7 @@ class RolesTab(_BaseTab):
 
         return sorted(roles.items(), key=sort_key)
 
-    def _add_artist_row(
-        self, artist_id, artist_name, roles: dict, credited_alias_id=None
-    ):
+    def _add_artist_row(self, artist_id, artist_name, roles: dict, credited_alias_id=None):
         row = self._table.rowCount()
         self._table.insertRow(row)
 
@@ -633,7 +591,7 @@ class RolesTab(_BaseTab):
         row_layout = _FlowLayout(cell, margin=4, h_spacing=6, v_spacing=4)
 
         for role_id, role_name in self._sorted_roles(roles):
-            chip = QPushButton(f"{role_name}  ×")
+            chip = QPushButton(f"{role_name}  \u00d7")
             chip.setFlat(True)
             chip.setProperty("class", "roleChip")
             chip.setToolTip(f"Remove '{role_name}' from {artist_name}")
@@ -651,17 +609,15 @@ class RolesTab(_BaseTab):
                     f"credit instead (removes it from every track)"
                 )
                 to_album_btn.clicked.connect(
-                    lambda _checked, aid=artist_id, rid=role_id: (
-                        self._on_convert_to_album(aid, rid)
-                    )
+                    lambda _checked, aid=artist_id, rid=role_id: self._on_convert_to_album(aid, rid)
                 )
                 row_layout.addWidget(to_album_btn)
 
         add_role_btn = QPushButton("+ Add role…")
         add_role_btn.setFlat(True)
         add_role_btn.clicked.connect(
-            lambda _checked, aid=artist_id, name=artist_name: (
-                self._prompt_add_role_for_artist(aid, name)
+            lambda _checked, aid=artist_id, name=artist_name: self._prompt_add_role_for_artist(
+                aid, name
             )
         )
         row_layout.addWidget(add_role_btn)
@@ -691,9 +647,7 @@ class RolesTab(_BaseTab):
         if matched_id is not None:
             return self.controller.get.get_entity_object("Role", role_id=matched_id)
 
-        existing_role = self.controller.get.get_entity_object(
-            "Role", role_name=role_name
-        )
+        existing_role = self.controller.get.get_entity_object("Role", role_name=role_name)
         role = (
             existing_role
             if not isinstance(existing_role, list)
@@ -722,17 +676,14 @@ class RolesTab(_BaseTab):
             self._artist_search.matched_id() if len(artist_names) == 1 else None
         )
         artists = [
-            self._resolve_artist(name, matched_id=single_artist_matched_id)
-            for name in artist_names
+            self._resolve_artist(name, matched_id=single_artist_matched_id) for name in artist_names
         ]
         if any(artist is None for artist in artists):
             QMessageBox.warning(self, "Error", "Could not resolve artist.")
             return
 
         single_role_matched_id = self._role_edit.matched_id() if len(role_names) == 1 else None
-        roles = [
-            self._resolve_role(name, matched_id=single_role_matched_id) for name in role_names
-        ]
+        roles = [self._resolve_role(name, matched_id=single_role_matched_id) for name in role_names]
         if any(role is None for role in roles):
             QMessageBox.warning(self, "Error", "Could not resolve role.")
             return
@@ -768,18 +719,14 @@ class RolesTab(_BaseTab):
             return
 
         single_matched_id = self._role_edit.matched_id() if len(role_names) == 1 else None
-        roles = [
-            self._resolve_role(name, matched_id=single_matched_id) for name in role_names
-        ]
+        roles = [self._resolve_role(name, matched_id=single_matched_id) for name in role_names]
         if any(role is None for role in roles):
             QMessageBox.warning(self, "Error", "Could not resolve role.")
             return
 
         credited_alias_id = None
         if not self.is_multi:
-            artist = self.controller.get.get_entity_object(
-                "Artist", artist_id=artist_id
-            )
+            artist = self.controller.get.get_entity_object("Artist", artist_id=artist_id)
             if artist:
                 accepted, credited_alias_id = self._prompt_credited_alias(artist)
                 if not accepted:
@@ -799,15 +746,11 @@ class RolesTab(_BaseTab):
         then abort rather than fall back to the canonical name. When the
         artist has no aliases the dialog is skipped and
         ``(True, current_alias_id)`` is returned."""
-        aliases = self.controller.get.get_all_entities(
-            "ArtistAlias", artist_id=artist.artist_id
-        )
+        aliases = self.controller.get.get_all_entities("ArtistAlias", artist_id=artist.artist_id)
         if not aliases:
             return True, current_alias_id
 
-        dialog = CreditedAsDialog(
-            artist, aliases, current_alias_id=current_alias_id, parent=self
-        )
+        dialog = CreditedAsDialog(artist, aliases, current_alias_id=current_alias_id, parent=self)
         if dialog.exec() == QDialog.Accepted:
             return True, dialog.selected_alias_id()
         return False, current_alias_id
@@ -828,11 +771,7 @@ class RolesTab(_BaseTab):
         for role_id in roles:
             self.controller.update.update_entity_by_filter(
                 "TrackArtistRole",
-                {
-                    "track_id": self.track.track_id,
-                    "artist_id": artist_id,
-                    "role_id": role_id,
-                },
+                {"track_id": self.track.track_id, "artist_id": artist_id, "role_id": role_id},
                 credited_alias_id=new_alias_id,
             )
         self.load(self.tracks)
@@ -880,10 +819,7 @@ class RolesTab(_BaseTab):
         track_ids = [track.track_id for track in self.tracks]
         try:
             self.controller.delete.delete_entity(
-                "TrackArtistRole",
-                track_id=track_ids,
-                artist_id=artist_id,
-                role_id=role_id,
+                "TrackArtistRole", track_id=track_ids, artist_id=artist_id, role_id=role_id
             )
         except SQLAlchemyError as e:
             logger.error(f"Failed to remove role from tracks: {e}")

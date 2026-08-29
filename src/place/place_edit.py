@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QPushButton,
 )
 
+from src.common.entity_completer_context import place_context_map
 from src.common.entity_completer_edit import EntityCompleterEdit
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -53,7 +54,7 @@ class PlaceEditDialog(QDialog):
         # with another place or no longer exist.
         places = self.controller.get.get_all_entities("Place")
         parent_index = {p.place_name: p.place_id for p in places if p.place_name}
-        self.parent_edit.set_index(parent_index)
+        self.parent_edit.set_index(parent_index, place_context_map(places))
         # EntityCompleterEdit claims Enter/Return for its own use (see its
         # docstring) instead of letting it reach the dialog's default
         # button -- reconnect it here so Enter still submits this form like
@@ -70,9 +71,7 @@ class PlaceEditDialog(QDialog):
                 self.lon_edit.setText(str(self.place.place_longitude))
             self.desc_edit.setText(self.place.place_description)
             self.mbid_edit.setText(self.place.MBID or "")
-            place = self.controller.get.get_entity_object(
-                "Place", place_id=self.place.parent_id
-            )
+            place = self.controller.get.get_entity_object("Place", place_id=self.place.parent_id)
             place_name = place.place_name if place else ""
             self.parent_edit.setText(place_name)
 
@@ -124,13 +123,9 @@ class PlaceEditDialog(QDialog):
                     self.lat_edit.setText(str(locations[0].latitude))
                     self.lon_edit.setText(str(locations[0].longitude))
             else:
-                show_status_message(
-                    self, "No coordinates found for the given place name."
-                )
+                show_status_message(self, "No coordinates found for the given place name.")
         except (GeocoderTimedOut, GeocoderServiceError) as e:
-            QMessageBox.critical(
-                self, "Search Error", f"Failed to fetch coordinates: {e!s}"
-            )
+            QMessageBox.critical(self, "Search Error", f"Failed to fetch coordinates: {e!s}")
 
     def get_place_data(self):
         """Return form data as dictionary."""
@@ -158,9 +153,7 @@ class PlaceEditDialog(QDialog):
         return {
             "place_name": self.name_edit.text().strip(),
             "place_type": self.type_edit.text().strip(),
-            "place_latitude": float(self.lat_edit.text())
-            if self.lat_edit.text().strip()
-            else None,
+            "place_latitude": float(self.lat_edit.text()) if self.lat_edit.text().strip() else None,
             "place_longitude": float(self.lon_edit.text())
             if self.lon_edit.text().strip()
             else None,
@@ -184,9 +177,7 @@ class PlaceEditDialog(QDialog):
                     float(lon_text)  # Validate longitude
             except ValueError:
                 QMessageBox.warning(
-                    self,
-                    "Invalid Coordinates",
-                    "Latitude and Longitude must be numbers.",
+                    self, "Invalid Coordinates", "Latitude and Longitude must be numbers."
                 )
                 return
 

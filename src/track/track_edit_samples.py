@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.entity_completer_context import track_context_map
+from src.common.entity_completer_edit import ContextItemDelegate
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.track.track_edit_basetab import _BaseTab
@@ -30,10 +32,11 @@ DIR_USED_BY = "used_by"  # other track -> this track (the other track samples th
 
 
 def _track_display(track):
-    """'Track Name' or 'Track Name  [Album]' when an album is known."""
-    name = getattr(track, "track_name", None) or str(track)
-    album = getattr(track, "album_name", None)
-    return f"{name}  [{album}]" if album else name
+    """Bare track name -- the value the picked suggestion feeds back into
+    the field. Album (and now primary artist) context rides the dimmed
+    secondary-text channel of the results dropdown instead of being baked
+    into this string (see track_context_map / ContextItemDelegate)."""
+    return getattr(track, "track_name", None) or str(track)
 
 
 def _build_track_index(tracks, exclude_id=None):
@@ -84,6 +87,7 @@ class _AddSampleBar(QWidget):
         self._exclude_id = None
         self._matched_id = None
         self._display_to_id: dict = {}
+        self._display_to_context: dict = {}
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 4, 0, 0)
@@ -124,6 +128,11 @@ class _AddSampleBar(QWidget):
         self.name_combo = QComboBox()
         self.name_combo.setVisible(False)
         self.name_combo.currentIndexChanged.connect(self._on_name_selected)
+        self.name_combo.view().setItemDelegate(
+            ContextItemDelegate(
+                lambda name: self._display_to_context.get(name, ""), self.name_combo.view()
+            )
+        )
         search_row.addWidget(self.name_combo)
 
         add_btn = QPushButton("Add")
@@ -161,24 +170,25 @@ class _AddSampleBar(QWidget):
         self.name_combo.blockSignals(True)
         self.name_combo.clear()
         if len(text) >= 2:
-            tracks = (
-                self.controller.get.get_all_entities("Track", track_name__contains=text)
-                or []
-            )
+            tracks = self.controller.get.get_all_entities("Track", track_name__contains=text) or []
             # Cap *before* building the display index: each entry touches
             # track.album_name, a lazy-loaded relationship, so a common
             # substring (e.g. "love") matching thousands of tracks would
             # otherwise trigger thousands of album lookups just to throw
             # all but 50 of them away.
             tracks = tracks[:_MAX_SEARCH_RESULTS]
-            self._display_to_id = _build_track_index(
-                tracks, exclude_id=self._exclude_id
-            )
+            self._display_to_id = _build_track_index(tracks, exclude_id=self._exclude_id)
+            context_by_id = track_context_map(tracks)
+            self._display_to_context = {
+                display: context_by_id.get(track_id, "")
+                for display, track_id in self._display_to_id.items()
+            }
             for display in sorted(self._display_to_id.keys()):
                 self.name_combo.addItem(display, self._display_to_id[display])
             self.name_combo.setVisible(self.name_combo.count() > 0)
         else:
             self._display_to_id = {}
+            self._display_to_context = {}
             self.name_combo.setVisible(False)
         self.name_combo.blockSignals(False)
 
@@ -193,13 +203,10 @@ class _AddSampleBar(QWidget):
     def _handle_add(self):
         if self._matched_id is None:
             show_status_message(
-                self,
-                "No track selected. Choose an existing track from the search results.",
+                self, "No track selected. Choose an existing track from the search results."
             )
             return
-        self._on_add(
-            direction=self.current_direction(), matched_track_id=self._matched_id
-        )
+        self._on_add(direction=self.current_direction(), matched_track_id=self._matched_id)
 
     def clear_inputs(self):
         self.name_search.clear()
@@ -221,9 +228,7 @@ class SamplesTab(_BaseTab):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        self.add_bar = _AddSampleBar(
-            controller=self.controller, on_add=self._handle_add
-        )
+        self.add_bar = _AddSampleBar(controller=self.controller, on_add=self._handle_add)
         layout.addWidget(self.add_bar)
 
         # Samples used list
@@ -289,14 +294,10 @@ class SamplesTab(_BaseTab):
         # would otherwise keep showing pre-edit state indefinitely. Expire
         # them so the reload actually reflects the DB write just made.
         try:
-            refreshed = self.controller.get.get_entity_object(
-                "Track", track_id=self.track.track_id
-            )
+            refreshed = self.controller.get.get_entity_object("Track", track_id=self.track.track_id)
             if refreshed:
                 self.tracks[0] = refreshed
-                self.controller.get.session.expire(
-                    refreshed, ["samples_used", "sampled_by_tracks"]
-                )
+                self.controller.get.session.expire(refreshed, ["samples_used", "sampled_by_tracks"])
         except SQLAlchemyError as e:
             logger.warning(f"Could not reload track: {e}")
         self.load(self.tracks)
@@ -304,9 +305,7 @@ class SamplesTab(_BaseTab):
     def _existing_sample_keys(self):
         """Set of (sampled_by_id, sampled_id) already present for this track."""
         keys = {(self.track.track_id, s.sampled_id) for s in self.track.samples_used}
-        keys |= {
-            (s.sampled_by_id, self.track.track_id) for s in self.track.sampled_by_tracks
-        }
+        keys |= {(s.sampled_by_id, self.track.track_id) for s in self.track.sampled_by_tracks}
         return keys
 
     def _handle_add(self, direction, matched_track_id):
@@ -315,20 +314,11 @@ class SamplesTab(_BaseTab):
             return
 
         if direction == DIR_USES:
-            kwargs = {
-                "sampled_by_id": self.track.track_id,
-                "sampled_id": matched_track_id,
-            }
+            kwargs = {"sampled_by_id": self.track.track_id, "sampled_id": matched_track_id}
         else:
-            kwargs = {
-                "sampled_by_id": matched_track_id,
-                "sampled_id": self.track.track_id,
-            }
+            kwargs = {"sampled_by_id": matched_track_id, "sampled_id": self.track.track_id}
 
-        if (
-            kwargs["sampled_by_id"],
-            kwargs["sampled_id"],
-        ) in self._existing_sample_keys():
+        if (kwargs["sampled_by_id"], kwargs["sampled_id"]) in self._existing_sample_keys():
             show_status_message(self, "That sample relationship already exists.")
             return
 

@@ -40,6 +40,23 @@ grid of results, and a right-click menu on any item for what you can do with
 it. Once you've got that pattern down, most of the app is discoverable by
 right-clicking things.
 
+### Autocomplete fields
+
+Fields that let you attach an existing entity — artist credits, influences,
+places, a publisher's parent or headquarters, a track's samples — show a
+drop-down of matches as you type. Each suggestion carries a dimmed line of
+context on the right so same-named entries are easy to tell apart:
+
+- **Artists** show their disambiguation (or active years, or just
+  "Group"/"Person").
+- **Places** show their type and country, e.g. `City · United Kingdom`.
+- **Tracks** show their primary artist and album, e.g.
+  `Radiohead · OK Computer`.
+- **Publishers** show their parent label and founding year.
+
+Picking a suggestion drops only the name into the field — the context is
+just there to help you choose.
+
 ---
 
 # Navigation Views

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.entity_completer_context import place_context_map
 from src.common.entity_completer_edit import (
     build_entity_search_widget,
     find_or_create_by_name,
@@ -51,7 +52,12 @@ class PlacesTab(_BaseTab):
 
         search_row = QHBoxLayout()
         self._search = build_entity_search_widget(
-            self.controller, "Place", "place_name", "place_id", "Search places…"
+            self.controller,
+            "Place",
+            "place_name",
+            "place_id",
+            "Search places…",
+            context_builder=place_context_map,
         )
         self._search.textChanged.connect(self._on_search_text_changed)
         self._search.returnPressed.connect(self._add)
@@ -72,9 +78,7 @@ class PlacesTab(_BaseTab):
         self._table.setHorizontalHeaderLabels(["Place", "Type", ""])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeToContents
-        )
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         layout.addWidget(self._table)
 
     def _on_search_text_changed(self, text: str):
@@ -94,9 +98,7 @@ class PlacesTab(_BaseTab):
         # near-static lookup table -- not per-track/library-scaling like
         # Place, so a full preload here stays cheap.
         self._known_types = fetch_association_types(self.controller)
-        type_model = QStringListModel(
-            [t.type_name for t in self._known_types], self._type_edit
-        )
+        type_model = QStringListModel([t.type_name for t in self._known_types], self._type_edit)
         type_completer = QCompleter(type_model, self._type_edit)
         type_completer.setCaseSensitivity(Qt.CaseInsensitive)
         type_completer.setFilterMode(Qt.MatchContains)
@@ -113,13 +115,9 @@ class PlacesTab(_BaseTab):
             )
             rows = []
             for a in assocs:
-                place = self.controller.get.get_entity_object(
-                    "Place", place_id=a.place_id
-                )
+                place = self.controller.get.get_entity_object("Place", place_id=a.place_id)
                 if place:
-                    assoc_type_name = (
-                        a.association_type.type_name if a.association_type else ""
-                    )
+                    assoc_type_name = a.association_type.type_name if a.association_type else ""
                     rows.append((place.place_id, place.place_name, assoc_type_name))
         for place_id, place_name, assoc_type in rows:
             self._add_row(place_id, place_name, assoc_type)
@@ -132,13 +130,9 @@ class PlacesTab(_BaseTab):
                 "PlaceAssociation", entity_id=t.track_id, entity_type="Track"
             )
             for a in assocs:
-                place = self.controller.get.get_entity_object(
-                    "Place", place_id=a.place_id
-                )
+                place = self.controller.get.get_entity_object("Place", place_id=a.place_id)
                 if place:
-                    assoc_type_name = (
-                        a.association_type.type_name if a.association_type else ""
-                    )
+                    assoc_type_name = a.association_type.type_name if a.association_type else ""
                     s.add((place.place_id, place.place_name, assoc_type_name))
             all_sets.append(s)
         common = all_sets[0]
@@ -175,9 +169,7 @@ class PlacesTab(_BaseTab):
                         "Place", place_id=single_matched_id
                     )
                 else:
-                    place = _find_or_create_place(
-                        self.controller, place_name, self._known_places()
-                    )
+                    place = _find_or_create_place(self.controller, place_name, self._known_places())
                 if place:
                     places.append(place)
         except SQLAlchemyError as e:
@@ -217,8 +209,7 @@ class PlacesTab(_BaseTab):
                 # _flush_new_chip_paint() for the same hazard.
                 place_name, place_id = place.place_name, place.place_id
                 QTimer.singleShot(
-                    0,
-                    lambda n=place_name, i=place_id: self._search.add_to_index(n, i),
+                    0, lambda n=place_name, i=place_id: self._search.add_to_index(n, i)
                 )
                 register_cached_entity("Place", place)
 
@@ -240,17 +231,13 @@ class PlacesTab(_BaseTab):
         assoc_ids = []
         for track in self.tracks:
             for assoc in self.controller.get.get_entity_links(
-                "PlaceAssociation",
-                entity_id=track.track_id,
-                entity_type="Track",
+                "PlaceAssociation", entity_id=track.track_id, entity_type="Track"
             ):
                 if assoc.place_id == place_id:
                     assoc_ids.append(assoc.association_id)
         if assoc_ids:
             try:
-                self.controller.delete.delete_entity(
-                    "PlaceAssociation", entity_ids=assoc_ids
-                )
+                self.controller.delete.delete_entity("PlaceAssociation", entity_ids=assoc_ids)
             except SQLAlchemyError as e:
                 logger.error(f"Failed to remove place from tracks: {e}")
         self.load(self.tracks)

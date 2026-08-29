@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.album.album_flowlayout import FlowLayout
+from src.common.entity_completer_context import artist_context_map
 from src.common.entity_completer_edit import build_entity_search_widget
 from src.core.logger_config import logger
 from src.display.display_settings import apply_scaled_style
@@ -151,15 +152,16 @@ class AlbumTabBuilder:
         row_layout.setSpacing(6)
 
         artist_search = build_entity_search_widget(
-            self.controller, "Artist", "artist_name", "artist_id", "Search artists…"
+            self.controller,
+            "Artist",
+            "artist_name",
+            "artist_id",
+            "Search artists…",
+            context_builder=artist_context_map,
         )
 
         role_search = build_entity_search_widget(
-            self.controller,
-            "Role",
-            "role_name",
-            "role_id",
-            "Role (e.g. Performer, Composer…)",
+            self.controller, "Role", "role_name", "role_id", "Role (e.g. Performer, Composer…)"
         )
 
         add_btn = QPushButton("Add Artist Credit")
@@ -167,8 +169,7 @@ class AlbumTabBuilder:
 
         def _update_add_btn(*_args):
             add_btn.setEnabled(
-                len(artist_search.text().strip()) >= 2
-                and len(role_search.text().strip()) >= 2
+                len(artist_search.text().strip()) >= 2 and len(role_search.text().strip()) >= 2
             )
 
         artist_search.textChanged.connect(_update_add_btn)
@@ -226,9 +227,7 @@ class AlbumTabBuilder:
 
                     remove_btn = QPushButton("Remove")
                     remove_btn.clicked.connect(
-                        lambda checked, ap=album_publisher: (
-                            self.helper.remove_publisher(ap)
-                        )
+                        lambda checked, ap=album_publisher: self.helper.remove_publisher(ap)
                     )
                     widget_layout.addWidget(remove_btn)
                     layout.addWidget(widget)
@@ -324,15 +323,11 @@ class AlbumTabBuilder:
         try:
             award_associations = (
                 self.controller.get.get_all_entities(
-                    "AwardAssociation",
-                    entity_id=self.album.album_id,
-                    entity_type="Album",
+                    "AwardAssociation", entity_id=self.album.album_id, entity_type="Album"
                 )
                 or []
             )
-            album_awards = [
-                assoc.award for assoc in award_associations if assoc.award is not None
-            ]
+            album_awards = [assoc.award for assoc in award_associations if assoc.award is not None]
         except (AttributeError, TypeError) as e:
             logger.error(f"Error loading album awards: {e}")
             album_awards = []
@@ -461,9 +456,7 @@ class AlbumTabBuilder:
             # that would defeat the whole point of letting it be reordered.
             last_index = len(artist_tuples) - 1
             for index, (artist_name, role_assoc) in enumerate(artist_tuples):
-                chip = self._build_artist_credit_chip(
-                    artist_name, role_assoc, index, last_index
-                )
+                chip = self._build_artist_credit_chip(artist_name, role_assoc, index, last_index)
                 flow.addWidget(chip)
                 chip.show()  # force visible now so the layout pass below places it
 

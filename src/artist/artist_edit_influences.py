@@ -23,17 +23,14 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.entity_completer_context import artist_context_map
 from src.common.entity_completer_edit import EntityCompleterEdit
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 
 # Direction constants — stored in the table's UserRole+1 slot per row.
-DIR_INFLUENCED = (
-    "influenced"  # this artist -> other artist (other was influenced by this one)
-)
-DIR_INFLUENCER = (
-    "influencer"  # other artist -> this artist (this one was influenced by other)
-)
+DIR_INFLUENCED = "influenced"  # this artist -> other artist (other was influenced by this one)
+DIR_INFLUENCER = "influencer"  # other artist -> this artist (this one was influenced by other)
 
 _DIRECTION_COLOR = {
     DIR_INFLUENCED: QColor("#2f7dd1"),  # blue: this artist influenced them
@@ -92,11 +89,14 @@ def _find_or_create_artist(controller, name, **create_kwargs):
 
 
 def _artist_display(artist):
-    """'Artist Name' or 'Artist Name (Type1, Type2)' when disambiguation is available."""
-    name = getattr(artist, "artist_name", None) or str(artist)
-    types = getattr(artist, "types", None) or []
-    type_names = ", ".join(sorted(t.type_name for t in types))
-    return f"{name} ({type_names})" if type_names else name
+    """Bare artist name -- the completion value typed into the field.
+
+    Artist type / career-span detail used to be baked in here as
+    "Name (Type1, Type2)", but that context then landed in the line edit
+    on pick and could make a multi-entry add (`A;B`) create a spurious
+    "A (Type)" artist. Context now rides the completer's dimmed
+    secondary-text channel instead (see artist_context_map)."""
+    return getattr(artist, "artist_name", None) or str(artist)
 
 
 def _build_artist_index(artists):
@@ -281,8 +281,8 @@ class _AddInfluenceBar(QWidget):
         self.name_edit.reset()
         self.desc_edit.clear()
 
-    def set_completer_index(self, index):
-        self.name_edit.set_index(index)
+    def set_completer_index(self, index, context_by_id=None):
+        self.name_edit.set_index(index, context_by_id)
 
     def register_new_artist(self, display, artist_id):
         # Deferred: this can run nested inside EntityCompleterEdit's own
@@ -355,12 +355,8 @@ class InfluencesTab(QWidget):
 
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
-        self.table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeToContents
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeToContents
-        )
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -370,14 +366,11 @@ class InfluencesTab(QWidget):
         self.table.setSortingEnabled(True)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
-        self.table.cellDoubleClicked.connect(
-            lambda row, _col: self._handle_edit_description(row)
-        )
+        self.table.cellDoubleClicked.connect(lambda row, _col: self._handle_edit_description(row))
         layout.addWidget(self.table, 1)
 
         self.add_bar = _AddInfluenceBar(
-            on_add=self._handle_add,
-            artist_name=getattr(self.artist, "artist_name", None),
+            on_add=self._handle_add, artist_name=getattr(self.artist, "artist_name", None)
         )
         layout.addWidget(self.add_bar)
 
@@ -440,16 +433,14 @@ class InfluencesTab(QWidget):
     def _refresh_completer_index(self):
         artists = _fetch_all_artists(self.controller)
         index = _build_artist_index(artists)
-        self.add_bar.set_completer_index(index)
+        self.add_bar.set_completer_index(index, artist_context_map(artists))
 
     # ── rendering ────────────────────────────────────────────────────────────
 
     def _render(self):
         active_filter = self.filter_chips.current_filter()
         visible = [
-            r
-            for r in self._rows
-            if active_filter is None or r["direction"] == active_filter
+            r for r in self._rows if active_filter is None or r["direction"] == active_filter
         ]
 
         artist_name = getattr(self.artist, "artist_name", None)
@@ -500,20 +491,12 @@ class InfluencesTab(QWidget):
                 continue
 
             if direction == DIR_INFLUENCED:
-                kwargs = {
-                    "influencer_id": self.artist.artist_id,
-                    "influenced_id": other.artist_id,
-                }
+                kwargs = {"influencer_id": self.artist.artist_id, "influenced_id": other.artist_id}
             else:
-                kwargs = {
-                    "influencer_id": other.artist_id,
-                    "influenced_id": self.artist.artist_id,
-                }
+                kwargs = {"influencer_id": other.artist_id, "influenced_id": self.artist.artist_id}
 
             try:
-                self.controller.add.add_entity(
-                    "ArtistInfluence", description=description, **kwargs
-                )
+                self.controller.add.add_entity("ArtistInfluence", description=description, **kwargs)
             except SQLAlchemyError as e:
                 errors.append(f"{name}: could not add influence ({e})")
 
@@ -535,12 +518,14 @@ class InfluencesTab(QWidget):
                 continue
             name_item = self.table.item(row, 0)
             desc_item = self.table.item(row, 2)
-            rows.append({
-                "direction": rel_item.data(Qt.UserRole + 1),
-                "other_id": rel_item.data(Qt.UserRole),
-                "name": name_item.text() if name_item else "",
-                "description": desc_item.text() if desc_item else "",
-            })
+            rows.append(
+                {
+                    "direction": rel_item.data(Qt.UserRole + 1),
+                    "other_id": rel_item.data(Qt.UserRole),
+                    "name": name_item.text() if name_item else "",
+                    "description": desc_item.text() if desc_item else "",
+                }
+            )
         return rows
 
     def _handle_remove_selected(self):
@@ -565,9 +550,7 @@ class InfluencesTab(QWidget):
             influencer_id, influenced_id = self._row_key(r["direction"], r["other_id"])
             try:
                 self.controller.delete.delete_entity(
-                    "ArtistInfluence",
-                    influencer_id=influencer_id,
-                    influenced_id=influenced_id,
+                    "ArtistInfluence", influencer_id=influencer_id, influenced_id=influenced_id
                 )
             except SQLAlchemyError as e:
                 errors.append(str(e))
@@ -602,9 +585,7 @@ class InfluencesTab(QWidget):
             influencer_id, influenced_id = self._row_key(r["direction"], r["other_id"])
             try:
                 self.controller.delete.delete_entity(
-                    "ArtistInfluence",
-                    influencer_id=influencer_id,
-                    influenced_id=influenced_id,
+                    "ArtistInfluence", influencer_id=influencer_id, influenced_id=influenced_id
                 )
                 swapped = self.controller.add.add_entity(
                     "ArtistInfluence",
@@ -619,9 +600,7 @@ class InfluencesTab(QWidget):
 
         if skipped:
             show_status_message(
-                self,
-                "Skipped — the reverse relationship already exists:\n"
-                + "\n".join(skipped),
+                self, "Skipped — the reverse relationship already exists:\n" + "\n".join(skipped)
             )
         if errors:
             QMessageBox.critical(
@@ -645,9 +624,7 @@ class InfluencesTab(QWidget):
         influencer_id, influenced_id = self._row_key(direction, other_id)
         try:
             self.controller.delete.delete_entity(
-                "ArtistInfluence",
-                influencer_id=influencer_id,
-                influenced_id=influenced_id,
+                "ArtistInfluence", influencer_id=influencer_id, influenced_id=influenced_id
             )
             self.controller.add.add_entity(
                 "ArtistInfluence",
