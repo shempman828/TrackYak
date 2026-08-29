@@ -383,7 +383,10 @@ across every chart at once if you're looking for something specific.
 **Missing Popular** ranks unmatched chart entries by how well they performed,
 and **Gap Fills** specifically surfaces songs that would connect two runs of
 chart weeks you already own, which is a good way to round out a near-complete
-run without chasing everything at once.
+run without chasing everything at once. Both rankings scan every chart week,
+so after you open the tab, change the chart filter or run length, or match an
+entry, "Computing recommendations…" shows briefly while the list rebuilds in
+the background — the rest of the app stays responsive meanwhile.
 
 **Matching by hand**: right-click any entry (in Week Browser, Search, or
 Recommendations) for Match to Track/Album, which opens a search-and-pick
