@@ -1,7 +1,7 @@
 import html as html_escape
 import json
 from pathlib import Path
-from typing import Dict, List
+from typing import ClassVar
 
 from PySide6.QtCore import QObject, QSettings, Slot
 from PySide6.QtWebChannel import QWebChannel
@@ -23,7 +23,6 @@ from src.core.status_utility import show_status_message
 from src.place.place_assoc_details import AssociationDetailsDialog
 from src.place.place_map_filter import MultiSelectWidget
 
-
 # QSettings key for remembering the selected place type filters
 _SETTINGS_SELECTED_TYPES = "place_map/selected_types"
 
@@ -35,7 +34,7 @@ class MapView(QWidget):
     """Interactive map display with color-coded markers based on place type."""
 
     # Define color mapping for place types
-    COLOR_MAPPING = {
+    COLOR_MAPPING: ClassVar[dict[str, str]] = {
         "country": "#2ecc71",  # Green
         "state": "#e67e22",  # Orange
         "county": "#f1c40f",  # Yellow/Gold
@@ -52,7 +51,7 @@ class MapView(QWidget):
     # cluster center that will absorb other markers); "disable_zoom" is the
     # zoom level past which clustering stops entirely. A radius of 0 disables
     # clustering outright.
-    CLUSTER_LEVELS = {
+    CLUSTER_LEVELS: ClassVar[dict[str, dict[str, int]]] = {
         "Off": {"radius": 0, "disable_zoom": 20},
         "Low": {"radius": 15, "disable_zoom": 16},
         "Medium": {"radius": 25, "disable_zoom": 15},
@@ -102,9 +101,7 @@ class MapView(QWidget):
         self.filter_container.setVisible(False)  # Hide by default
         # Fixed vertical policy so the container only claims its sizeHint,
         # instead of splitting leftover space evenly with the map widget.
-        self.filter_container.setSizePolicy(
-            QSizePolicy.Preferred, QSizePolicy.Fixed
-        )
+        self.filter_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         filter_main_layout = QVBoxLayout(self.filter_container)
         filter_main_layout.setContentsMargins(0, 0, 0, 5)
 
@@ -173,7 +170,7 @@ class MapView(QWidget):
         ]
         return palette[hash_val % len(palette)]
 
-    def _order_types_by_hierarchy(self, raw_places, unique_types) -> List[str]:
+    def _order_types_by_hierarchy(self, raw_places, unique_types) -> list[str]:
         """Order place types broad-to-narrow (country, state, ... building).
 
         Rather than relying solely on a hardcoded list, this walks the real
@@ -190,11 +187,7 @@ class MapView(QWidget):
         def depth_of(place, seen):
             if place.place_id in depth_cache:
                 return depth_cache[place.place_id]
-            parent = (
-                places_by_id.get(place.parent_id)
-                if place.parent_id is not None
-                else None
-            )
+            parent = places_by_id.get(place.parent_id) if place.parent_id is not None else None
             if parent is None or place.place_id in seen:
                 depth_cache[place.place_id] = 0
                 return 0
@@ -275,7 +268,7 @@ class MapView(QWidget):
             self.load_places()
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error refreshing place types: {str(e)}")
+            logger.error(f"Error refreshing place types: {e!s}")
             QMessageBox.warning(self, "Error", "Failed to refresh place types")
 
     def setup_js_communication(self):
@@ -294,7 +287,7 @@ class MapView(QWidget):
                         place_id = data.get("placeId")
                         self.map_view.show_associations_for_place(place_id)
                 except json.JSONDecodeError as e:
-                    logger.error(f"Error handling JS message: {str(e)}")
+                    logger.error(f"Error handling JS message: {e!s}")
 
         self.bridge = Bridge(self)
         self.channel = QWebChannel()
@@ -340,9 +333,7 @@ class MapView(QWidget):
 
     def _load_saved_cluster_level(self):
         """Return the previously saved clustering aggressiveness, or the default."""
-        saved = self._settings.value(
-            _SETTINGS_CLUSTER_LEVEL, self.DEFAULT_CLUSTER_LEVEL, type=str
-        )
+        saved = self._settings.value(_SETTINGS_CLUSTER_LEVEL, self.DEFAULT_CLUSTER_LEVEL, type=str)
         if saved not in self.CLUSTER_LEVELS:
             return self.DEFAULT_CLUSTER_LEVEL
         return saved
@@ -359,11 +350,9 @@ class MapView(QWidget):
 
     def _save_selected_types(self, selected_types):
         """Persist the selected place types so the filter survives restarts."""
-        self._settings.setValue(
-            _SETTINGS_SELECTED_TYPES, json.dumps(sorted(selected_types))
-        )
+        self._settings.setValue(_SETTINGS_SELECTED_TYPES, json.dumps(sorted(selected_types)))
 
-    def load_places(self, places: List[Dict] = None):
+    def load_places(self, places: list[dict] | None = None):
         try:
             if places is None:
                 raw_places = self.controller.get.get_all_entities("Place")
@@ -383,14 +372,12 @@ class MapView(QWidget):
             self.generate_map(filtered_places)
 
         except SQLAlchemyError as e:
-            logger.error(f"Failed to load places: {str(e)}", exc_info=True)
+            logger.error(f"Failed to load places: {e!s}", exc_info=True)
 
-    def generate_map(self, places: List[Dict]):
+    def generate_map(self, places: list[dict]):
         """Create and display Leaflet map with color-coded markers."""
         try:
-            valid_places = [
-                p for p in places if p["lat"] is not None and p["lon"] is not None
-            ]
+            valid_places = [p for p in places if p["lat"] is not None and p["lon"] is not None]
 
             if valid_places:
                 avg_lat = sum(p["lat"] for p in valid_places) / len(valid_places)
@@ -406,18 +393,14 @@ class MapView(QWidget):
                 # incremental marker update instead -- a full setHtml()
                 # reload tears down and rebuilds the whole Chromium page,
                 # which is what caused the visible whole-screen flash.
-                html_content = self._create_map_html(
-                    valid_places, avg_lat, avg_lon, zoom_level
-                )
+                html_content = self._create_map_html(valid_places, avg_lat, avg_lon, zoom_level)
                 self._page_ready = False
                 self.map_widget.setHtml(html_content)
                 self._map_initialized = True
             else:
                 markers_js = self._create_markers_js(valid_places)
                 bounds_js = self._create_bounds_js(valid_places)
-                self._run_js(
-                    f"markerClusterGroup.clearLayers();\n{markers_js}\n{bounds_js}"
-                )
+                self._run_js(f"markerClusterGroup.clearLayers();\n{markers_js}\n{bounds_js}")
 
             logger.info(
                 f"Map generated with {len(valid_places)} valid places "
@@ -425,24 +408,22 @@ class MapView(QWidget):
             )
 
         except (KeyError, RuntimeError) as e:
-            logger.error(f"Map generation failed: {str(e)}", exc_info=True)
+            logger.error(f"Map generation failed: {e!s}", exc_info=True)
             self.show_fallback_map()
 
     def _create_map_html(
-        self, places: List[Dict], center_lat: float, center_lon: float, zoom: int
+        self, places: list[dict], center_lat: float, center_lon: float, zoom: int
     ) -> str:
         """Create complete HTML content for the map with WebChannel support."""
 
         # Load HTML template from file
-        template_path = (
-            Path(__file__).parent.parent.parent / "assets" / "place_map_template.html"
-        )
+        template_path = Path(__file__).parent.parent.parent / "assets" / "place_map_template.html"
         if template_path.exists():
             try:
-                with open(template_path, "r", encoding="utf-8") as f:
+                with template_path.open(encoding="utf-8") as f:
                     template = f.read()
             except OSError as e:
-                logger.error(f"Failed to load HTML template: {str(e)}")
+                logger.error(f"Failed to load HTML template: {e!s}")
                 template = self._get_fallback_template()
         else:
             logger.warning("HTML template not found, using fallback")
@@ -463,11 +444,9 @@ class MapView(QWidget):
         html = html.replace("{markers_js}", markers_js)
         html = html.replace("{bounds_js}", bounds_js)
         html = html.replace("{cluster_radius}", str(cluster_opts["radius"]))
-        html = html.replace("{cluster_disable_zoom}", str(cluster_opts["disable_zoom"]))
+        return html.replace("{cluster_disable_zoom}", str(cluster_opts["disable_zoom"]))
 
-        return html
-
-    def _create_markers_js(self, places: List[Dict]) -> str:
+    def _create_markers_js(self, places: list[dict]) -> str:
         """Create JavaScript code for map markers with dynamic coloring."""
         marker_chunks = []
         for place in places:
@@ -477,18 +456,22 @@ class MapView(QWidget):
             popup_content = self._create_popup_content(place)
 
             # Escape backticks and backslashes so they don't break the JS template literal
-            popup_content_escaped = popup_content.replace("\\", "\\\\").replace(
-                "`", "\\`"
-            )
+            popup_content_escaped = popup_content.replace("\\", "\\\\").replace("`", "\\`")
 
             # Escape single quotes in the tooltip name so they don't break the JS string
             tooltip_name = place["name"].replace("'", "\\'")
+
+            marker_html = (
+                f'<div style="background-color: {marker_color}; width: 18px; '
+                "height: 18px; border-radius: 50%; border: 2px solid white; "
+                'box-shadow: 0 0 4px rgba(0,0,0,0.5);"></div>'
+            )
 
             marker_chunks.append(f"""
                 markerClusterGroup.addLayer(L.marker([{place["lat"]}, {place["lon"]}], {{
                     icon: L.divIcon({{
                         className: 'custom-div-icon',
-                        html: '<div style="background-color: {marker_color}; width: 18px; height: 18px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.5);"></div>',
+                        html: '{marker_html}',
                         iconSize: [18, 18],
                         iconAnchor: [9, 9]
                     }})
@@ -498,7 +481,7 @@ class MapView(QWidget):
                 """)
         return "".join(marker_chunks)
 
-    def _create_bounds_js(self, places: List[Dict]) -> str:
+    def _create_bounds_js(self, places: list[dict]) -> str:
         """Create JavaScript code for map bounds."""
         if not places:
             return ""
@@ -511,25 +494,30 @@ class MapView(QWidget):
 
     def _get_fallback_template(self) -> str:
         """Get a fallback HTML template if file is not found."""
-        return """<!DOCTYPE html>
+        unpkg = "https://unpkg.com"
+        esri = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas"
+        cluster = f"{unpkg}/leaflet.markercluster@1.5.3/dist"
+        base_tiles = f"{esri}/World_Dark_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}"
+        ref_tiles = f"{esri}/World_Dark_Gray_Reference/MapServer/tile/{{z}}/{{y}}/{{x}}"
+        return f"""<!DOCTYPE html>
 <html>
 <head>
     <title>Places Map</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    <link rel="stylesheet" href="{unpkg}/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
         crossorigin=""/>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    <script src="{unpkg}/leaflet@1.9.4/dist/leaflet.js"
             integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
             crossorigin=""></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <link rel="stylesheet" href="{cluster}/MarkerCluster.css" />
+    <link rel="stylesheet" href="{cluster}/MarkerCluster.Default.css" />
+    <script src="{cluster}/leaflet.markercluster.js"></script>
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
     <style>
-        body { margin: 0; padding: 0; }
-        #map { height: 100vh; width: 100%; }
+        body {{ margin: 0; padding: 0; }}
+        #map {{ height: 100vh; width: 100%; }}
     </style>
 </head>
 <body>
@@ -546,33 +534,34 @@ class MapView(QWidget):
                 }}));
             }}
         }};
-        var map = L.map('map', {{ worldCopyJump: true }}).setView([{center_lat}, {center_lon}], {zoom});
+        var map = L.map('map', {{ worldCopyJump: true }})
+            .setView([{{center_lat}}, {{center_lon}}], {{zoom}});
         // Esri "Dark Gray Canvas" -- keyless dark raster basemap (label-free
         // base + transparent reference overlay). Native tiles stop at z16.
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
+        L.tileLayer('{base_tiles}', {{
             attribution: 'Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors',
             maxZoom: 18,
             maxNativeZoom: 16
         }}).addTo(map);
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
+        L.tileLayer('{ref_tiles}', {{
             maxZoom: 18,
             maxNativeZoom: 16,
             zIndex: 2
         }}).addTo(map);
         var markerClusterGroup = L.markerClusterGroup({{
-            maxClusterRadius: {cluster_radius},
-            disableClusteringAtZoom: {cluster_disable_zoom},
+            maxClusterRadius: {{cluster_radius}},
+            disableClusteringAtZoom: {{cluster_disable_zoom}},
             spiderfyOnMaxZoom: true,
             showCoverageOnHover: false
         }});
-        {markers_js}
+        {{markers_js}}
         map.addLayer(markerClusterGroup);
-        {bounds_js}
+        {{bounds_js}}
     </script>
 </body>
 </html>"""
 
-    def _create_popup_content(self, place: Dict) -> str:
+    def _create_popup_content(self, place: dict) -> str:
         """Generate popup content with view associations button."""
         # Escape HTML in the description to prevent XSS
         description = ""
@@ -581,15 +570,20 @@ class MapView(QWidget):
 
         content = [
             f"<h3 style='margin: 0 0 8px 0; color: #8599ea;'>{place['name']}</h3>",
-            "<div style='border-bottom: 1px solid rgba(133, 153, 234, 0.3); padding-bottom: 8px; margin-bottom: 8px;'>",
+            (
+                "<div style='border-bottom: 1px solid rgba(133, 153, 234, 0.3); "
+                "padding-bottom: 8px; margin-bottom: 8px;'>"
+            ),
             f"<strong>Type:</strong> {place['type']}<br>",
             f"<strong>Coordinates:</strong> {place['lat']:.4f}, {place['lon']:.4f}",
             "</div>",
         ]
 
         if description:
+            ellipsis = "..." if len(description) > 200 else ""
             content.append(
-                f"<div style='margin-top: 8px;'><strong>Description:</strong><br>{description[:200]}{'...' if len(description) > 200 else ''}</div>"
+                f"<div style='margin-top: 8px;'><strong>Description:</strong><br>"
+                f"{description[:200]}{ellipsis}</div>"
             )
 
         # Add view associations button
@@ -608,9 +602,7 @@ class MapView(QWidget):
     def show_associations_for_place(self, place_id):
         """Show associations for a place from map pin click."""
         try:
-            place = self.controller.get.get_entity_object(
-                "Place", place_id=int(place_id)
-            )
+            place = self.controller.get.get_entity_object("Place", place_id=int(place_id))
             if place:
                 dialog = AssociationDetailsDialog(self.controller, place, self)
                 dialog.exec_()
@@ -618,12 +610,10 @@ class MapView(QWidget):
                 logger.error(f"Place with ID {place_id} not found")
                 show_status_message(self, f"Place with ID {place_id} not found")
         except (SQLAlchemyError, ValueError, TypeError, RuntimeError) as e:
-            logger.error(f"Error showing associations: {str(e)}")
-            QMessageBox.critical(
-                self, "Error", f"Failed to show associations: {str(e)}"
-            )
+            logger.error(f"Error showing associations: {e!s}")
+            QMessageBox.critical(self, "Error", f"Failed to show associations: {e!s}")
 
-    def _create_place_data(self, raw_place) -> Dict:
+    def _create_place_data(self, raw_place) -> dict:
         """Convert raw place data to UI format."""
         lat = raw_place.place_latitude
         lon = raw_place.place_longitude
