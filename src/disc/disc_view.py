@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -67,7 +68,7 @@ class DiscManagementView(QWidget):
         # Action buttons
         action_layout = QHBoxLayout()
 
-        self.add_disc_btn = QPushButton("➕ Add Disc")
+        self.add_disc_btn = QPushButton("➕ Add Disc")  # noqa: RUF001
         self.add_disc_btn.clicked.connect(self.add_disc)
         action_layout.addWidget(self.add_disc_btn)
 
@@ -126,11 +127,7 @@ class DiscManagementView(QWidget):
         self.disc_count_label = QLabel("Discs: 0")
         self.unassigned_label = QLabel("Unassigned: 0")
 
-        for label in [
-            self.track_count_label,
-            self.disc_count_label,
-            self.unassigned_label,
-        ]:
+        for label in [self.track_count_label, self.disc_count_label, self.unassigned_label]:
             label.setProperty("textRole", "muted")
             stats_layout.addWidget(label)
 
@@ -142,10 +139,7 @@ class DiscManagementView(QWidget):
         try:
             # Load physical tracks for this album
             self.physical_tracks = (
-                self.controller.get.get_all_entities(
-                    "Track", album_id=self.album.album_id
-                )
-                or []
+                self.controller.get.get_all_entities("Track", album_id=self.album.album_id) or []
             )
 
             # Load virtual track links for this album
@@ -157,19 +151,14 @@ class DiscManagementView(QWidget):
             )
 
             # Extract actual tracks from virtual links
-            self.virtual_tracks = [
-                link.track for link in self.virtual_links if link.track
-            ]
+            self.virtual_tracks = [link.track for link in self.virtual_links if link.track]
 
             # Combine all tracks for display
             self.all_tracks = self.physical_tracks + self.virtual_tracks
 
             # Load discs for this album
             self.discs = (
-                self.controller.get.get_all_entities(
-                    "Disc", album_id=self.album.album_id
-                )
-                or []
+                self.controller.get.get_all_entities("Disc", album_id=self.album.album_id) or []
             )
 
             # Sort discs by disc_number
@@ -181,8 +170,17 @@ class DiscManagementView(QWidget):
             # Create track display
             self.create_track_display()
 
+            # Keep the Edit/Remove disc buttons in sync with what's loaded
+            self.update_action_buttons()
+
         except (SQLAlchemyError, AttributeError) as e:
             logger.error(f"Error loading disc data: {e}")
+
+    def update_action_buttons(self):
+        """Enable the Edit/Remove disc buttons only when the album has discs."""
+        has_discs = len(self.discs) > 0
+        self.edit_disc_btn.setEnabled(has_discs)
+        self.remove_disc_btn.setEnabled(has_discs)
 
     def update_stats(self):
         """Update statistics display"""
@@ -236,10 +234,7 @@ class DiscManagementView(QWidget):
                 disc_data = dialog.get_disc_data()
 
                 # Determine next disc number
-                if self.discs:
-                    next_number = max(d.disc_number for d in self.discs) + 1
-                else:
-                    next_number = 1
+                next_number = max(d.disc_number for d in self.discs) + 1 if self.discs else 1
 
                 # Create disc using controller
                 success = self.controller.add.add_entity(
@@ -259,11 +254,52 @@ class DiscManagementView(QWidget):
                 logger.error(f"Error adding disc: {e}")
                 QMessageBox.warning(self, "Error", f"Could not add disc: {e!s}")
 
+    @staticmethod
+    def _disc_label(disc):
+        """Human-readable "Disc N[: title]" label for a disc row."""
+        label = f"Disc {disc.disc_number}"
+        if disc.disc_title:
+            label += f": {disc.disc_title}"
+        return label
+
+    def _pick_disc(self, title, prompt):
+        """Let the user choose one of self.discs. Returns the Disc or None."""
+        if len(self.discs) == 1:
+            return self.discs[0]
+
+        disc_labels = [self._disc_label(d) for d in self.discs]
+        choice, ok = QInputDialog.getItem(self, title, prompt, disc_labels, editable=False)
+        if not ok:
+            return None
+        return self.discs[disc_labels.index(choice)]
+
     def edit_disc(self):
-        """Edit selected disc"""
-        # TODO: Implement disc selection and editing
-        # For now, show message
-        show_status_message(self, "Select a disc to edit (not yet implemented)")
+        """Pick a disc and edit its properties."""
+        if not self.discs:
+            show_status_message(self, "No discs to edit.")
+            return
+
+        disc = self._pick_disc("Edit Disc", "Select a disc to edit:")
+        if disc is None:
+            return
+
+        dialog = DiscEditDialog(self.album, self.controller, parent=self, disc=disc)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        disc_data = dialog.get_disc_data()
+        try:
+            success = self.controller.update.update_entity(
+                "Disc", disc.disc_id, disc_title=disc_data.get("disc_title")
+            )
+            if success:
+                self.status_label.setText(f"Updated {self._disc_label(disc)}")
+                self.refresh_view()
+            else:
+                QMessageBox.warning(self, "Error", "Failed to update disc.")
+        except SQLAlchemyError as e:
+            logger.error(f"Error updating disc: {e}")
+            QMessageBox.warning(self, "Error", f"Could not update disc: {e!s}")
 
     def remove_disc(self):
         """Remove selected disc"""
@@ -271,28 +307,10 @@ class DiscManagementView(QWidget):
             show_status_message(self, "No discs to remove.")
             return
 
-        # Build a list of disc choices for the user
-        disc_labels = []
-        for d in self.discs:
-            label = f"Disc {d.disc_number}"
-            if d.disc_title:
-                label += f": {d.disc_title}"
-            disc_labels.append(label)
-
-        # Use a simple input dialog to pick a disc
-        from PySide6.QtWidgets import QInputDialog
-
-        choice, ok = QInputDialog.getItem(
-            self,
-            "Remove Disc",
-            "Select a disc to remove:",
-            disc_labels,
-            editable=False,
-        )
-        if not ok:
+        disc = self._pick_disc("Remove Disc", "Select a disc to remove:")
+        if disc is None:
             return
-
-        disc = self.discs[disc_labels.index(choice)]
+        choice = self._disc_label(disc)
 
         # Warn if the disc has tracks assigned to it
         assigned_tracks = [t for t in self.physical_tracks if t.disc_id == disc.disc_id]
@@ -331,17 +349,13 @@ class DiscManagementView(QWidget):
         # Reload data
         self.load_data()
 
-        # Re-enable/disable buttons based on data
-        has_discs = len(self.discs) > 0
-        self.edit_disc_btn.setEnabled(has_discs)
-        self.remove_disc_btn.setEnabled(has_discs)
+        # Re-enable/disable buttons based on data (also done inside load_data)
+        self.update_action_buttons()
 
         self.status_label.setText("Ready")
         self.tracks_changed.emit()
 
     def show_message(self, message, is_error=False):
         """Show status message"""
-        set_style_property(
-            self.status_label, "statusState", "error" if is_error else "ok"
-        )
+        set_style_property(self.status_label, "statusState", "error" if is_error else "ok")
         self.status_label.setText(message)

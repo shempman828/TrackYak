@@ -13,18 +13,20 @@ from src.core.logger_config import logger
 class DiscEditDialog(QDialog):
     """Dialog for adding/editing disc properties"""
 
-    def __init__(self, album, controller, parent=None):
+    def __init__(self, album, controller, parent=None, disc=None):
         super().__init__(parent)
         self.album = album
         self.controller = controller
+        self.disc = disc
         logger.debug(
-            f"Opening disc edit dialog for album {getattr(album, 'album_name', album)}"
+            f"Opening disc {'edit' if disc else 'add'} dialog for album "
+            f"{getattr(album, 'album_name', album)}"
         )
         self.init_ui()
 
     def init_ui(self):
         """Initialize dialog UI"""
-        self.setWindowTitle("Add Disc")
+        self.setWindowTitle("Edit Disc" if self.disc is not None else "Add Disc")
         self.setMinimumWidth(300)
 
         layout = QVBoxLayout(self)
@@ -36,6 +38,8 @@ class DiscEditDialog(QDialog):
         # Disc title
         self.title_input = QLineEdit()
         self.title_input.setPlaceholderText("Optional disc title")
+        if self.disc is not None and self.disc.disc_title:
+            self.title_input.setText(self.disc.disc_title)
         form_layout.addRow("Title:", self.title_input)
 
         form_group.setLayout(form_layout)
@@ -49,6 +53,4 @@ class DiscEditDialog(QDialog):
 
     def get_disc_data(self):
         """Get entered disc data"""
-        return {
-            "disc_title": self.title_input.text().strip() or None,
-        }
+        return {"disc_title": self.title_input.text().strip() or None}
