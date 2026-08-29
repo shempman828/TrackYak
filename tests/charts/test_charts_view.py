@@ -22,6 +22,7 @@ from src.db.db_tables.associations import TrackArtistRole
 from src.db.db_tables.base import Base
 from src.db.db_tables.chart import Chart, ChartEntry
 from src.db.db_tables.database import MusicDatabase
+from src.db.db_tables.playlist import Playlist
 from src.db.db_tables.role import Role
 from src.db.db_tables.track import Track
 
@@ -160,6 +161,29 @@ def test_fully_synced_shows_fetch_and_match_buttons(qapp, session, controller, t
     assert view.match_btn.isVisible()
     assert view.playlists_btn.isVisible()  # AC12: same rule as match_btn
     assert "2023-12-31" in view.status_label.text()
+
+
+def test_playlists_btn_label_is_contextual(qapp, session, controller, tmp_path):
+    """Button reads "Generate" until a chart-derived playlist tree exists
+    (a Playlist carrying the builder's marker prefix), then "Update"."""
+    (tmp_path / "hot-100-current.csv").write_text("stub")
+    (tmp_path / "billboard-200-current.csv").write_text("stub")
+    _seed_charts_fully_synced(session)
+
+    view = ChartsView(controller)
+    view.show()
+    assert view.playlists_btn.text() == "Generate Charts Playlists"
+
+    session.add(
+        Playlist(
+            playlist_name="Billboard Hot 100",
+            playlist_description="__chart_playlist__:root:hot-100",
+        )
+    )
+    session.commit()
+
+    view.load_charts()
+    assert view.playlists_btn.text() == "Update Charts Playlists"
 
 
 def test_week_browser_tab_populates_from_seeded_entry(qapp, session, controller, tmp_path):

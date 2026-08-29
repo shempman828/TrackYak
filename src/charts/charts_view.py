@@ -23,6 +23,7 @@ from src.charts.chart_download import chart_csv_exists
 from src.charts.chart_download_worker import ChartDownloadWorker
 from src.charts.chart_import_worker import ChartImportWorker
 from src.charts.chart_matching_worker import ChartMatchingWorker
+from src.charts.chart_playlist_builder import CHART_PLAYLIST_MARKER_PREFIX
 from src.charts.chart_playlist_worker import ChartPlaylistWorker
 from src.charts.chart_recommendations_tab import ChartRecommendationsTab
 from src.charts.chart_search_tab import ChartSearchTab
@@ -64,7 +65,7 @@ class ChartsView(QWidget):
         self.match_btn.clicked.connect(self._start_match)
         header.addWidget(self.match_btn)
 
-        self.playlists_btn = QPushButton("Generate/Update Charts Playlists")
+        self.playlists_btn = QPushButton("Generate Charts Playlists")
         self.playlists_btn.clicked.connect(self._start_playlist_generation)
         header.addWidget(self.playlists_btn)
 
@@ -107,22 +108,34 @@ class ChartsView(QWidget):
         self.fetch_btn.setVisible(all_downloaded)
         self.match_btn.setVisible(bool(synced_charts))
         self.playlists_btn.setVisible(bool(synced_charts))
+        self._refresh_playlists_btn_label()
 
         if synced_charts:
             self.week_tab.set_charts(synced_charts)
             self.search_tab.set_charts(synced_charts)
             self.recommendations_tab.set_charts(synced_charts)
             latest = max(
-                (c.last_downloaded_at for c in self._charts if c.last_downloaded_at),
-                default=None,
+                (c.last_downloaded_at for c in self._charts if c.last_downloaded_at), default=None
             )
             self.status_label.setText(
                 f"Last updated: {latest.strftime('%Y-%m-%d %H:%M')}" if latest else ""
             )
         else:
-            self.status_label.setText(
-                "No chart data imported yet." if all_downloaded else ""
+            self.status_label.setText("No chart data imported yet." if all_downloaded else "")
+
+    def _refresh_playlists_btn_label(self):
+        """Contextual label: "Generate Charts Playlists" until a chart-derived
+        playlist tree exists, "Update Charts Playlists" once one does. Existence
+        is keyed off the builder's marker in Playlist.playlist_description, the
+        same signal ChartPlaylistBuilder uses for idempotent regeneration."""
+        has_tree = bool(
+            self.controller.get.get_all_entities(
+                "Playlist", playlist_description__startswith=CHART_PLAYLIST_MARKER_PREFIX
             )
+        )
+        self.playlists_btn.setText(
+            "Update Charts Playlists" if has_tree else "Generate Charts Playlists"
+        )
 
     # -----------------------------------------------------------------------
     # Download -> import pipeline (Download Chart Data / Fetch Updates)
@@ -204,9 +217,7 @@ class ChartsView(QWidget):
         self.match_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
-        self._match_queue = [
-            c.chart_key for c in self._charts if c.last_synced_week is not None
-        ]
+        self._match_queue = [c.chart_key for c in self._charts if c.last_synced_week is not None]
         self._match_total = len(self._match_queue)
         self._run_next_match()
 
@@ -225,9 +236,7 @@ class ChartsView(QWidget):
         position = self._match_total - len(self._match_queue)
         self._match_queue_label = f"chart {position}/{self._match_total}"
         self.progress_bar.setRange(0, 0)
-        self.status_label.setText(
-            f"Matching {chart_key} ({self._match_queue_label})..."
-        )
+        self.status_label.setText(f"Matching {chart_key} ({self._match_queue_label})...")
         self._match_worker = ChartMatchingWorker(self.controller, chart_key)
         self._match_worker.stage.connect(self._on_match_stage)
         self._match_worker.progress.connect(self._on_match_progress)
@@ -238,9 +247,7 @@ class ChartsView(QWidget):
         self._match_worker.start()
 
     def _on_match_stage(self, stage: str):
-        self.status_label.setText(
-            f"{stage} ({self._match_chart_key}, {self._match_queue_label})"
-        )
+        self.status_label.setText(f"{stage} ({self._match_chart_key}, {self._match_queue_label})")
 
     def _on_match_progress(self, scored: int, total: int, matched: int):
         if total > 0:
@@ -252,7 +259,9 @@ class ChartsView(QWidget):
         )
 
     def _on_match_finished(self, chart_key: str, stats):
-        show_status_message(self, f"Matched {stats.matched}/{stats.total_unmatched} for {chart_key}")
+        show_status_message(
+            self, f"Matched {stats.matched}/{stats.total_unmatched} for {chart_key}"
+        )
         # See _on_import_finished: finished fires before the thread has fully
         # unwound, so wait() here before reassigning self._match_worker.
         self._match_worker.wait()
@@ -297,6 +306,8 @@ class ChartsView(QWidget):
         self.fetch_btn.setEnabled(True)
         self.match_btn.setEnabled(True)
         self.playlists_btn.setEnabled(True)
+        # A first run just created the tree -> flip the label to "Update".
+        self._refresh_playlists_btn_label()
 
     # -----------------------------------------------------------------------
     # Shared error handling

@@ -26,7 +26,11 @@ from src.core.logger_config import logger
 from src.db.db_tables.track import Track
 from src.playlist.playlist_track_sync import sync_playlist_tracks
 
-_MARKER_PREFIX = "__chart_playlist__"
+# Public: other views (e.g. charts_view.py) detect whether a chart-derived
+# playlist tree already exists by looking for this prefix in
+# Playlist.playlist_description.
+CHART_PLAYLIST_MARKER_PREFIX = "__chart_playlist__"
+_MARKER_PREFIX = CHART_PLAYLIST_MARKER_PREFIX
 
 # A matched track only belongs in a chart *year* playlist if it actually
 # came out around then. Catalog re-entries and hits-compilation matches
@@ -84,9 +88,7 @@ class ChartPlaylistBuilder:
         charts = self.controller.get.get_all_entities("Chart")
 
         # Collect first so progress reporting has an accurate total.
-        chart_year_tracks = [
-            (chart, self._collect_year_tracks(chart)) for chart in charts
-        ]
+        chart_year_tracks = [(chart, self._collect_year_tracks(chart)) for chart in charts]
         total_years = sum(len(yt) for _, yt in chart_year_tracks)
         done = 0
 
@@ -125,9 +127,7 @@ class ChartPlaylistBuilder:
         # still exist, so a stale id resolves to None here and is skipped,
         # which also keeps it from poisoning a whole insert with a FOREIGN
         # KEY failure.
-        expanded_track_ids = {
-            tid for tids in album_track_map.values() for tid in tids
-        }
+        expanded_track_ids = {tid for tids in album_track_map.values() for tid in tids}
         track_years = self._track_year_map(track_entity_ids | expanded_track_ids)
 
         year_tracks: dict[int, set[int]] = defaultdict(set)
@@ -154,15 +154,10 @@ class ChartPlaylistBuilder:
         if not track_ids:
             return {}
         tracks = self.controller.get.get_all_entities(
-            "Track",
-            track_id__in=list(track_ids),
-            load_options=[selectinload(Track.album)],
+            "Track", track_id__in=list(track_ids), load_options=[selectinload(Track.album)]
         )
         return {
-            t.track_id: (
-                t.recorded_year
-                or (t.album.release_year if t.album else None)
-            )
+            t.track_id: (t.recorded_year or (t.album.release_year if t.album else None))
             for t in tracks
         }
 
@@ -172,9 +167,7 @@ class ChartPlaylistBuilder:
         times over its run)."""
         if not album_ids:
             return {}
-        tracks = self.controller.get.get_all_entities(
-            "Track", album_id__in=list(album_ids)
-        )
+        tracks = self.controller.get.get_all_entities("Track", album_id__in=list(album_ids))
         mapping: dict[int, list[int]] = defaultdict(list)
         for track in tracks:
             mapping[track.album_id].append(track.track_id)
@@ -198,18 +191,11 @@ class ChartPlaylistBuilder:
             decade_tracks[year - (year % 10)].update(track_ids)
 
         live_markers = {_root_marker(chart.chart_key)}
-        live_markers.update(
-            _decade_marker(chart.chart_key, decade) for decade in decade_tracks
-        )
-        live_markers.update(
-            _year_marker(chart.chart_key, year) for year in year_tracks
-        )
+        live_markers.update(_decade_marker(chart.chart_key, decade) for decade in decade_tracks)
+        live_markers.update(_year_marker(chart.chart_key, year) for year in year_tracks)
 
         root = self._find_or_create(
-            marker=_root_marker(chart.chart_key),
-            name=chart.chart_name,
-            parent_id=None,
-            stats=stats,
+            marker=_root_marker(chart.chart_key), name=chart.chart_name, parent_id=None, stats=stats
         )
         if root is None:
             logger.error(f"Could not create/find root playlist for chart {chart.chart_key}")
@@ -256,9 +242,7 @@ class ChartPlaylistBuilder:
     # Stale-node pruning
     # ------------------------------------------------------------------
 
-    def _prune_stale_playlists(
-        self, live_markers: set[str], stats: ChartPlaylistStats
-    ) -> None:
+    def _prune_stale_playlists(self, live_markers: set[str], stats: ChartPlaylistStats) -> None:
         """Strip stranded tracks from -- and delete when childless -- any
         previously generated chart playlist whose year/decade no longer
         resolves to a single matched track this run (e.g. its only matched
@@ -294,12 +278,10 @@ class ChartPlaylistBuilder:
             parts = marker.split(":")
             return parts[1] if len(parts) > 1 else ""
 
-        for playlist_id, marker in sorted(
+        for playlist_id, _marker in sorted(
             stale_ids, key=lambda pair: depth.get(_kind(pair[1]), 9)
         ):
-            has_child = self.controller.get.get_entity_object(
-                "Playlist", parent_id__eq=playlist_id
-            )
+            has_child = self.controller.get.get_entity_object("Playlist", parent_id__eq=playlist_id)
             if has_child is not None:
                 continue
             if self.controller.delete.delete_entity("Playlist", entity_id=playlist_id):
@@ -317,10 +299,7 @@ class ChartPlaylistBuilder:
             return existing
 
         created = self.controller.add.add_entity(
-            "Playlist",
-            playlist_name=name,
-            parent_id=parent_id,
-            playlist_description=marker,
+            "Playlist", playlist_name=name, parent_id=parent_id, playlist_description=marker
         )
         if created is not None:
             stats.playlists_created += 1
