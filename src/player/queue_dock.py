@@ -1,6 +1,4 @@
-"""
-queue_dock.py — QueueDockWidget
-"""
+"""queue_dock.py — QueueDockWidget"""
 
 from pathlib import Path
 
@@ -20,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.logger_config import logger
+from src.player.track_info_widget import _ElidingLabel
 from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
 
 # How many upcoming rows are visible / loaded at a time before the user scrolls
@@ -31,6 +30,10 @@ SCROLL_THRESHOLD = 20
 # color can't be sourced from themes/dark_mode.qss like the rest of this
 # file's styling. Kept in sync with QListView#QueueListView's `color`.
 _MODEL_TEXT_COLOR = QColor("#b8c0f0")
+
+# Shared invalid-index singleton for the QAbstractListModel overrides below —
+# a fresh QModelIndex() in an argument default trips ruff's B008.
+_ROOT_INDEX = QModelIndex()
 
 
 # ── _QueueModel ───────────────────────────────────────────────────────────────
@@ -53,7 +56,7 @@ class _QueueModel(QAbstractListModel):
 
     # ── QAbstractListModel interface ──────────────────────────────────────────
 
-    def rowCount(self, parent=QModelIndex()) -> int:
+    def rowCount(self, parent=_ROOT_INDEX) -> int:
         return self._loaded_count
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
@@ -110,15 +113,10 @@ class _QueueModel(QAbstractListModel):
     @staticmethod
     def _format(track, row: int) -> str:
         title = (
-            getattr(track, "track_name", None)
-            or getattr(track, "track_title", None)
-            or "Unknown"
+            getattr(track, "track_name", None) or getattr(track, "track_title", None) or "Unknown"
         )
         artists = getattr(track, "artists", None) or []
-        if artists:
-            artist = getattr(artists[0], "artist_name", "") or ""
-        else:
-            artist = ""
+        artist = getattr(artists[0], "artist_name", "") or "" if artists else ""
         number = row + 1
         if artist:
             return f"{number}.  {title}  —  {artist}"
@@ -149,17 +147,18 @@ class _NowPlayingCard(QFrame):
         tag.setObjectName("NowPlayingTag")
         layout.addWidget(tag)
 
-        # Track title
-        self._title = QLabel("—")
+        # Track title — elides rather than reporting its full text width as a
+        # layout minimum, which would flow up into QMainWindow's minimum size
+        # and push the dock (and window edge) off-screen on a long title.
+        self._title = _ElidingLabel("—")
         self._title.setObjectName("NowPlayingTitle")
         title_font = QFont("Cambria", 13, QFont.Bold)
         self._title.setFont(title_font)
-        self._title.setWordWrap(False)
         self._title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         layout.addWidget(self._title)
 
         # Artist — Album
-        self._sub = QLabel("—")
+        self._sub = _ElidingLabel("—")
         self._sub.setObjectName("NowPlayingSubtitle")
         layout.addWidget(self._sub)
 
@@ -170,9 +169,7 @@ class _NowPlayingCard(QFrame):
             return
 
         title = (
-            getattr(track, "track_name", None)
-            or getattr(track, "track_title", None)
-            or "Unknown"
+            getattr(track, "track_name", None) or getattr(track, "track_title", None) or "Unknown"
         )
         self._title.setText(title)
 
@@ -401,9 +398,7 @@ class QueueDockWidget(QWidget):
             # Move the clicked track to position 0 by re-inserting
             if 0 < real_index < len(self.queue_manager.queue):
                 # Remove from its current position and insert at front
-                self.queue_manager.queue.insert(
-                    0, self.queue_manager.queue.pop(real_index)
-                )
+                self.queue_manager.queue.insert(0, self.queue_manager.queue.pop(real_index))
                 self.queue_manager.queue_changed.emit()
             self.track_double_clicked.emit(Path(file_path))
 
