@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -85,6 +85,18 @@ class ScrollingLabel(QLabel):
         # Re-check whether scrolling is needed after the widget is resized
         self._reset()
 
+    def minimumSizeHint(self):
+        """Never demand the full text width from the layout.
+
+        A plain QLabel reports its whole (unwrapped) text width as the
+        minimum it can occupy. Inside the player dock that flows straight up
+        into QMainWindow's minimum size, so a long track title forces the
+        whole window wider than the screen and shoves the dock off-screen
+        (even in fullscreen). This label scrolls text that doesn't fit, so a
+        narrow minimum is safe.
+        """
+        return QSize(0, super().minimumSizeHint().height())
+
     def paintEvent(self, event):
         fm = self.fontMetrics()
         text_w = fm.horizontalAdvance(self.text())
@@ -104,6 +116,39 @@ class ScrollingLabel(QLabel):
         y = (self.height() + fm.ascent() - fm.descent()) // 2
         painter.drawText(-self._offset, y, self.text())
         painter.end()
+
+
+class _ElidingLabel(QLabel):
+    """QLabel that elides overflowing text with an ellipsis instead of
+    demanding its full text width from the layout.
+
+    Same rationale as ScrollingLabel.minimumSizeHint: a plain QLabel's
+    minimum width is its entire text width, which propagates into the player
+    dock and then QMainWindow's minimum size, pushing the window past the
+    screen edge on long artist/album strings.
+    """
+
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self._full_text = text or ""
+
+    def setText(self, text):
+        self._full_text = text or ""
+        self._apply_elision()
+
+    def text(self):
+        return self._full_text
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_elision()
+
+    def _apply_elision(self):
+        elided = self.fontMetrics().elidedText(self._full_text, Qt.ElideRight, self.width())
+        super().setText(elided)
+
+    def minimumSizeHint(self):
+        return QSize(0, super().minimumSizeHint().height())
 
 
 class TrackInfoWidget(QWidget):
@@ -131,12 +176,12 @@ class TrackInfoWidget(QWidget):
         self.title_label.setMinimumWidth(180)
 
         # Artist label — display only (editing via context menu on PlayerUI)
-        self.artist_label = QLabel("")
+        self.artist_label = _ElidingLabel("")
         self.artist_label.setAlignment(Qt.AlignCenter)
         self.artist_label.setObjectName("PlayerArtistLabel")
 
         # Album label — display only (editing via context menu on PlayerUI)
-        self.album_label = QLabel("")
+        self.album_label = _ElidingLabel("")
         self.album_label.setAlignment(Qt.AlignCenter)
         self.album_label.setObjectName("PlayerAlbumLabel")
 
