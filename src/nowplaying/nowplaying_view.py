@@ -280,7 +280,10 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
         # Toggle to show/hide the sync-offset slider row
         self._sync_toggle_btn = QPushButton("⏱")
-        self._sync_toggle_btn.setFixedSize(24, 24)
+        # Pin height only — the shared [npToggle] QSS reserves 8px of horizontal
+        # padding each side, so a 24px-wide square clips the glyph. Let the width
+        # follow the size hint (glyph + padding + border).
+        self._sync_toggle_btn.setFixedHeight(24)
         self._sync_toggle_btn.setCursor(Qt.PointingHandCursor)
         self._sync_toggle_btn.setToolTip("Toggle lyric sync slider")
         self._sync_toggle_btn.setProperty("npToggle", True)
