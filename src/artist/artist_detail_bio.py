@@ -2,14 +2,7 @@
 import webbrowser
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from src.core.logger_config import logger
 
@@ -20,6 +13,13 @@ class BioWidget(QWidget):
     def __init__(self, artist):
         super().__init__()
         self.artist = artist
+        # True when there's nothing to show at all (no bio, no MBID, no
+        # links). Callers use this to drop the widget entirely rather than
+        # leave an empty box eating layout space beside the infobox.
+        self.is_empty = not any(
+            getattr(self.artist, attr, "")
+            for attr in ("biography", "MBID", "wikipedia_link", "website_link")
+        )
         self.init_ui()
 
     def init_ui(self):
@@ -28,6 +28,9 @@ class BioWidget(QWidget):
         layout.setSpacing(16)
 
         # --- Biography Text ---
+        # When there's no biography we render nothing here (no placeholder,
+        # no separator) so the section doesn't waste vertical space beside
+        # the infobox.
         biography = getattr(self.artist, "biography", "")
         if biography:
             self.bio_label = QLabel(biography)
@@ -35,26 +38,24 @@ class BioWidget(QWidget):
             self.bio_label.setWordWrap(True)
             self.bio_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
             layout.addWidget(self.bio_label)
-        else:
-            no_bio_label = QLabel("No biography available.")
-            no_bio_label.setObjectName("NoBiography")
-            no_bio_label.setWordWrap(True)
-            no_bio_label.setAlignment(Qt.AlignCenter)
-            layout.addWidget(no_bio_label)
 
-        # Separator
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        separator.setMaximumHeight(1)
-        layout.addWidget(separator)
+        mbid = getattr(self.artist, "MBID", "")
+        wikipedia = getattr(self.artist, "wikipedia_link", "")
+        website = getattr(self.artist, "website_link", "")
+
+        # Separator — only when it actually divides bio text from a links row
+        if biography and (mbid or wikipedia or website):
+            separator = QFrame()
+            separator.setFrameShape(QFrame.HLine)
+            separator.setFrameShadow(QFrame.Sunken)
+            separator.setMaximumHeight(1)
+            layout.addWidget(separator)
 
         # --- External Links Section ---
         links_layout = QHBoxLayout()
         links_layout.setSpacing(12)
 
         # MBID
-        mbid = getattr(self.artist, "MBID", "")
         if mbid:
             mbid_container = QWidget()
             mbid_layout = QVBoxLayout(mbid_container)
@@ -72,7 +73,6 @@ class BioWidget(QWidget):
             links_layout.addWidget(mbid_container)
 
         # Wikipedia Link
-        wikipedia = getattr(self.artist, "wikipedia_link", "")
         if wikipedia:
             wikipedia_btn = QPushButton("🌐 Wikipedia")
             wikipedia_btn.setObjectName("WikipediaButton")
@@ -81,7 +81,6 @@ class BioWidget(QWidget):
             links_layout.addWidget(wikipedia_btn)
 
         # Website Link
-        website = getattr(self.artist, "website_link", "")
         if website:
             website_btn = QPushButton("🔗 Website")
             website_btn.setObjectName("WebsiteButton")

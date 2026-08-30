@@ -1,12 +1,5 @@
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import (
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QSizePolicy,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_detail_alias import AliasesCarousel
@@ -39,9 +32,7 @@ class PlacesWidget(QWidget):
         try:
             associations = (
                 self.controller.get.get_all_entities(
-                    "PlaceAssociation",
-                    entity_id=self.artist.artist_id,
-                    entity_type="Artist",
+                    "PlaceAssociation", entity_id=self.artist.artist_id, entity_type="Artist"
                 )
                 or []
             )
@@ -54,9 +45,7 @@ class PlacesWidget(QWidget):
             for assoc in associations:
                 if not assoc.place:
                     continue
-                type_name = (
-                    assoc.association_type.type_name if assoc.association_type else ""
-                )
+                type_name = assoc.association_type.type_name if assoc.association_type else ""
                 if type_name == "Birthplace":
                     birth_places.append(assoc.place)
                 elif type_name == "Origin":
@@ -68,9 +57,7 @@ class PlacesWidget(QWidget):
 
             # Display birth place
             if birth_places:
-                birth_text = "Born in: " + ", ".join(
-                    [p.place_name for p in birth_places[:3]]
-                )
+                birth_text = "Born in: " + ", ".join([p.place_name for p in birth_places[:3]])
                 if len(birth_places) > 3:
                     birth_text += f" (+{len(birth_places) - 3} more)"
                 birth_label = QLabel(birth_text)
@@ -80,9 +67,7 @@ class PlacesWidget(QWidget):
 
             # Display origin (formed-in) place
             if origin_places:
-                origin_text = "Formed in: " + ", ".join(
-                    [p.place_name for p in origin_places[:3]]
-                )
+                origin_text = "Formed in: " + ", ".join([p.place_name for p in origin_places[:3]])
                 if len(origin_places) > 3:
                     origin_text += f" (+{len(origin_places) - 3} more)"
                 origin_label = QLabel(origin_text)
@@ -92,9 +77,7 @@ class PlacesWidget(QWidget):
 
             # Display death place
             if death_places:
-                death_text = "Died in: " + ", ".join(
-                    [p.place_name for p in death_places[:3]]
-                )
+                death_text = "Died in: " + ", ".join([p.place_name for p in death_places[:3]])
                 if len(death_places) > 3:
                     death_text += f" (+{len(death_places) - 3} more)"
                 death_label = QLabel(death_text)
@@ -142,8 +125,7 @@ class ArtistInfobox(QGroupBox):
         portrait.setAlignment(Qt.AlignCenter)
         portrait.setPixmap(
             load_pixmap_with_fallback(
-                getattr(self.artist, "profile_pic_path", "") or "",
-                PORTRAIT_MAX_SIZE,
+                getattr(self.artist, "profile_pic_path", "") or "", PORTRAIT_MAX_SIZE
             )
         )
         portrait_row = QHBoxLayout()
@@ -247,8 +229,15 @@ class HeaderWidget(QWidget):
 
         # Lead biography flows here, beside the infobox, rather than
         # waiting below it — matches how a wiki article's lead paragraph
-        # wraps around its infobox instead of leaving it stranded.
-        title_col.addWidget(BioWidget(self.artist), 1)
+        # wraps around its infobox instead of leaving it stranded. When
+        # the artist has no bio and no links, drop it entirely and let a
+        # plain stretch take up the slack so nothing renders an empty box.
+        bio_widget = BioWidget(self.artist)
+        if bio_widget.is_empty:
+            bio_widget.deleteLater()
+            title_col.addStretch(1)
+        else:
+            title_col.addWidget(bio_widget, 1)
         layout.addLayout(title_col, 1)
 
         # --- Right: infobox ---
