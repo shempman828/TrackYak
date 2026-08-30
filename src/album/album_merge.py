@@ -598,9 +598,6 @@ class AlbumMerge:
 
     # Open the duplicate-finder list:
     engine.open_list(parent=some_widget)
-
-    # Programmatic merge (no UI):
-    engine.execute_merge(source_id, target_id)
     """
 
     def __init__(self, controller):
@@ -624,24 +621,3 @@ class AlbumMerge:
         """Open the duplicate-finder list dialog."""
         dlg = AlbumMergeList(self.controller, parent=parent)
         dlg.exec()
-
-    def execute_merge(self, source_id: int, target_id: int) -> bool:
-        """
-        Perform a merge programmatically with no UI.
-
-        The source album is merged into the target and then deleted.
-        Returns True on success.
-        """
-        try:
-            success = self.controller.merge.merge_entities(
-                "Album", source_id, target_id
-            )
-            if not success:
-                logger.error(
-                    f"merge_entities returned falsy for "
-                    f"source={source_id} target={target_id}"
-                )
-            return bool(success)
-        except SQLAlchemyError as e:
-            logger.error(f"execute_merge failed: {e}")
-            return False
