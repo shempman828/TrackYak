@@ -393,13 +393,8 @@ class QueueDockWidget(QWidget):
 
         file_path = getattr(track, "track_file_path", None)
         if file_path:
-            # The track is at queue[row + 1] (because model is queue[1:])
-            real_index = index.row() + 1
-            # Move the clicked track to position 0 by re-inserting
-            if 0 < real_index < len(self.queue_manager.queue):
-                # Remove from its current position and insert at front
-                self.queue_manager.queue.insert(0, self.queue_manager.queue.pop(real_index))
-                self.queue_manager.queue_changed.emit()
+            # Model row N maps to queue[N + 1] (model is queue[1:]).
+            self.queue_manager.jump_to_upcoming(index.row())
             self.track_double_clicked.emit(Path(file_path))
 
     def _show_shuffle_menu(self):
@@ -419,40 +414,15 @@ class QueueDockWidget(QWidget):
 
     def _remove_selected(self):
         """Remove all selected rows from the queue."""
-        indexes = self._list_view.selectedIndexes()
-        if not indexes:
-            return
-        # Sort descending so we pop from the back first and indices stay valid
-        rows = sorted({idx.row() for idx in indexes}, reverse=True)
-        for row in rows:
-            # row in the model is queue[row + 1]
-            real_index = row + 1
-            if 0 < real_index < len(self.queue_manager.queue):
-                self.queue_manager.queue.pop(real_index)
-        self.queue_manager.queue_changed.emit()
-        self.queue_modified.emit()
+        rows = {idx.row() for idx in self._list_view.selectedIndexes()}
+        if rows and self.queue_manager.remove_upcoming(rows):
+            self.queue_modified.emit()
 
     def _move_selected_to_next(self):
         """Move selected tracks to play immediately after the current track."""
-        indexes = self._list_view.selectedIndexes()
-        if not indexes:
-            return
-        rows = sorted({idx.row() for idx in indexes})
-        tracks = [
-            self.queue_manager.queue[r + 1]
-            for r in rows
-            if 0 < r + 1 < len(self.queue_manager.queue)
-        ]
-        # Remove from original positions (descending)
-        for row in sorted(rows, reverse=True):
-            real = row + 1
-            if 0 < real < len(self.queue_manager.queue):
-                self.queue_manager.queue.pop(real)
-        # Insert at position 1 (right after current)
-        for i, track in enumerate(tracks):
-            self.queue_manager.queue.insert(1 + i, track)
-        self.queue_manager.queue_changed.emit()
-        self.queue_modified.emit()
+        rows = {idx.row() for idx in self._list_view.selectedIndexes()}
+        if rows and self.queue_manager.move_upcoming_to_next(rows):
+            self.queue_modified.emit()
 
     # ── Context menu ──────────────────────────────────────────────────────────
 

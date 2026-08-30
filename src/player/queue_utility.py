@@ -1,19 +1,16 @@
-"""
-queue_utility.py — QueueManager
-"""
+"""queue_utility.py — QueueManager"""
 
-import json
-import random
 from collections import deque
+import json
 from pathlib import Path
-from typing import List, Optional
+import random
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.db.db_tables import Track
 from src.core.asset_paths import config as config_path
 from src.core.logger_config import logger
+from src.db.db_tables import Track
 from src.metadata.metadata_writer_backup import atomic_write
 
 # ── Persistence limits ────────────────────────────────────────────────────────
@@ -21,7 +18,7 @@ SAVE_HISTORY_LIMIT = 500  # most-recent N played tracks kept (recency buffer, no
 
 # Weight given to tracks with no user_rating in weighted_shuffle_queue(), so they
 # still turn up at a reasonable rate instead of always sinking to the end.
-# Rating scale is 0.5–10 (see statistics_utility.RATING_MIN/RATING_MAX); this
+# Rating scale is 0.5-10 (see statistics_utility.RATING_MIN/RATING_MAX); this
 # sits below the midpoint so rated-and-liked tracks still skew earlier on average.
 WEIGHTED_SHUFFLE_UNRATED_WEIGHT = 3.0
 
@@ -35,7 +32,7 @@ class _BulkAddWorker(QObject):
     finished = Signal(list)  # emits the new list of tracks to append
     error = Signal(str)
 
-    def __init__(self, tracks: List[Track], shuffle: bool):
+    def __init__(self, tracks: list[Track], shuffle: bool):
         super().__init__()
         self._tracks = tracks
         self._shuffle = shuffle
@@ -74,7 +71,7 @@ class QueueManager(QObject):
 
     def __init__(self, config=None):
         super().__init__()
-        self.queue: List[Track] = []
+        self.queue: list[Track] = []
         # maxlen keeps memory bounded; oldest entry is auto-dropped when full.
         self.history: deque = deque(
             maxlen=SAVE_HISTORY_LIMIT
@@ -85,16 +82,16 @@ class QueueManager(QObject):
         self.history_exists: bool = False
 
         # Thread bookkeeping
-        self._bulk_thread: Optional[QThread] = None
-        self._bulk_worker: Optional[_BulkAddWorker] = None
+        self._bulk_thread: QThread | None = None
+        self._bulk_worker: _BulkAddWorker | None = None
 
     # ── Current / next / previous ─────────────────────────────────────────────
 
-    def get_current_track(self) -> Optional[Track]:
+    def get_current_track(self) -> Track | None:
         """Index 0 is always current.  Returns None if queue is empty."""
         return self.queue[0] if self.queue else None
 
-    def get_previous_track(self) -> Optional[Track]:
+    def get_previous_track(self) -> Track | None:
         """Peek at the most recently played track without changing state."""
         return self.history[-1] if self.history else None
 
@@ -134,19 +131,17 @@ class QueueManager(QObject):
 
     # ── Queue mutation ────────────────────────────────────────────────────────
 
-    def add_tracks_to_queue(self, tracks: List[Track]):
+    def add_tracks_to_queue(self, tracks: list[Track]):
         """
         Append multiple tracks synchronously.
         Fine for small-to-medium lists (< ~5 000 tracks).
         For library-scale additions use add_tracks_async().
         """
         self.queue.extend(tracks)
-        logger.info(
-            f"add_tracks_to_queue: +{len(tracks)} tracks (total: {len(self.queue)})"
-        )
+        logger.info(f"add_tracks_to_queue: +{len(tracks)} tracks (total: {len(self.queue)})")
         self.queue_changed.emit()
 
-    def add_tracks_async(self, tracks: List[Track], shuffle: bool = False):
+    def add_tracks_async(self, tracks: list[Track], shuffle: bool = False):
         """
         Add (and optionally shuffle) a large batch of tracks on a background
         thread so the UI stays responsive.
@@ -160,9 +155,7 @@ class QueueManager(QObject):
 
         # If a previous bulk add is still running, wait for it to finish first.
         if self._bulk_thread and self._bulk_thread.isRunning():
-            logger.warning(
-                "add_tracks_async: previous bulk add still running — queuing after"
-            )
+            logger.warning("add_tracks_async: previous bulk add still running — queuing after")
             # Simple approach: just do it synchronously to avoid complexity.
             lst = list(tracks)
             if shuffle:
@@ -188,12 +181,10 @@ class QueueManager(QObject):
         self._bulk_thread.start()
 
     @Slot(list)
-    def _on_bulk_add_finished(self, tracks: List[Track]):
+    def _on_bulk_add_finished(self, tracks: list[Track]):
         count = len(tracks)
         self.queue.extend(tracks)
-        logger.info(
-            f"bulk add complete: +{count} tracks (queue total: {len(self.queue)})"
-        )
+        logger.info(f"bulk add complete: +{count} tracks (queue total: {len(self.queue)})")
         self.bulk_add_finished.emit(count)
         self.queue_changed.emit()
         self._bulk_worker = None
@@ -208,7 +199,7 @@ class QueueManager(QObject):
         """Null out the thread reference after Qt has deleted the C++ object."""
         self._bulk_thread = None
 
-    def insert_tracks_next(self, tracks: List[Track]):
+    def insert_tracks_next(self, tracks: list[Track]):
         """
         Insert tracks immediately after the current track (index 1).
         If the queue is empty the tracks become the queue.
@@ -218,6 +209,66 @@ class QueueManager(QObject):
             self.queue.insert(insert_at + i, track)
         logger.debug(f"insert_tracks_next: {len(tracks)} track(s) at index {insert_at}")
         self.queue_changed.emit()
+
+    def remove_upcoming(self, rows) -> int:
+        """
+        Remove upcoming tracks by position.  ``rows`` is an iterable of
+        indices into the upcoming portion of the queue (queue[1:]) — row 0
+        is the track immediately after the current one.  Out-of-range and
+        duplicate rows are ignored.
+
+        Returns the number of tracks removed; emits queue_changed once if
+        anything was removed.
+        """
+        upcoming_len = len(self.queue) - 1
+        targets = sorted({r for r in rows if 0 <= r < upcoming_len}, reverse=True)
+        for row in targets:
+            self.queue.pop(row + 1)
+        if targets:
+            logger.debug(f"remove_upcoming: removed {len(targets)} track(s)")
+            self.queue_changed.emit()
+        return len(targets)
+
+    def move_upcoming_to_next(self, rows) -> int:
+        """
+        Move the given upcoming tracks so they play immediately after the
+        current track, preserving their existing relative order.  ``rows``
+        is an iterable of indices into the upcoming portion of the queue
+        (queue[1:]).  Out-of-range and duplicate rows are ignored.
+
+        Returns the number of tracks moved; emits queue_changed once if
+        anything moved.
+        """
+        upcoming_len = len(self.queue) - 1
+        ordered = sorted({r for r in rows if 0 <= r < upcoming_len})
+        if not ordered:
+            return 0
+        moved = [self.queue[r + 1] for r in ordered]
+        for row in reversed(ordered):
+            self.queue.pop(row + 1)
+        for offset, track in enumerate(moved):
+            self.queue.insert(1 + offset, track)
+        logger.debug(f"move_upcoming_to_next: moved {len(moved)} track(s)")
+        self.queue_changed.emit()
+        return len(moved)
+
+    def jump_to_upcoming(self, row: int) -> Track | None:
+        """
+        Move the upcoming track at ``row`` (index into queue[1:]) to the
+        front of the queue so it becomes the current track.  The
+        previously-current track shifts to index 1 — it is not pushed to
+        history; the caller decides how to treat it.
+
+        Returns the moved track, or None if ``row`` is out of range.
+        """
+        real_index = row + 1
+        if not (0 < real_index < len(self.queue)):
+            return None
+        track = self.queue.pop(real_index)
+        self.queue.insert(0, track)
+        logger.debug(f"jump_to_upcoming[{row}]: '{getattr(track, 'track_name', '?')}'")
+        self.queue_changed.emit()
+        return track
 
     def shuffle_queue(self):
         """
@@ -300,8 +351,7 @@ class QueueManager(QObject):
             atomic_write(self._queue_state_path(), data)
 
             logger.info(
-                f"save_queue_to_config: {len(history_ids)} history + "
-                f"{len(queue_ids)} queue saved"
+                f"save_queue_to_config: {len(history_ids)} history + {len(queue_ids)} queue saved"
             )
         except (OSError, TypeError, AttributeError) as exc:
             logger.error(f"save_queue_to_config failed: {exc}")
@@ -325,7 +375,7 @@ class QueueManager(QObject):
             if not state_path.exists():
                 return False
 
-            with open(state_path, "r", encoding="utf-8") as f:
+            with state_path.open(encoding="utf-8") as f:
                 state = json.load(f)
 
             history_ids = state.get("history", [])
@@ -334,7 +384,7 @@ class QueueManager(QObject):
             if not queue_ids and not history_ids:
                 return False
 
-            def _fetch_tracks(ids: List[int]) -> List[Track]:
+            def _fetch_tracks(ids: list[int]) -> list[Track]:
                 if not ids:
                     return []
                 # Single batch query — fast regardless of list length
