@@ -1,6 +1,6 @@
+import contextlib
 from functools import partial
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QIcon, Qt
@@ -18,11 +18,11 @@ from PySide6.QtWidgets import (
 
 from src.core.asset_paths import icon
 from src.core.config_setup import app_config
+from src.core.logger_config import logger
+from src.core.status_utility import show_status_message
 from src.file_management.file_manager import CLEANUP_PROGRESS_START, FileOrganizer
 from src.file_management.file_organizer_preview_dialog import OrganizationPreviewDialog
 from src.metadata.metadata_writer_dialog import show_metadata_write_dialog
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
 
 # --- Long HTML texts extracted for clarity ---
 _DIR_EXPLANATION = (
@@ -44,11 +44,10 @@ class FileManager(QDialog):
     def __init__(self, controller) -> None:
         super().__init__()
         self.controller = controller
-        self.root_path: Optional[Path] = None
+        self.root_path: Path | None = None
 
-        # worker references (plain Python references; guarded when used)
+        # worker reference (plain Python reference; guarded when used)
         self.organizer = None
-        self.metadata_updater = None
 
         self.setWindowTitle("Library File Management")
         self.setMinimumSize(800, 520)
@@ -116,9 +115,7 @@ class FileManager(QDialog):
 
         header = QLabel("File Organization")
         header.setAlignment(Qt.AlignCenter)
-        explanation = QLabel(
-            "Organizes your music files into a consistent folder structure:"
-        )
+        explanation = QLabel("Organizes your music files into a consistent folder structure:")
         structure = QLabel("AlbumArtist/Album Title/Track# - Track Title.ext")
         structure.setStyleSheet("color: #EAD685;")
         explanation.setWordWrap(True)
@@ -156,14 +153,8 @@ class FileManager(QDialog):
 
         header = QLabel("Metadata Management")
         header.setAlignment(Qt.AlignCenter)
-        explanation = QLabel(
-            "Update embedded metadata (tags) to match the library database."
-        )
+        explanation = QLabel("Update embedded metadata (tags) to match the library database.")
         explanation.setWordWrap(True)
-
-        self.metadata_progress = QProgressBar()
-        self.metadata_progress.hide()
-        self.metadata_status = QLabel("Ready to update metadata")
 
         btn_layout = QHBoxLayout()
         self.btn_update_metadata = QPushButton("Update Metadata")
@@ -173,26 +164,16 @@ class FileManager(QDialog):
         )
         self.btn_update_metadata.setProperty("class", "primary")
 
-        self.btn_cancel_metadata = QPushButton("Cancel")
-        self.btn_cancel_metadata.setIcon(QIcon(icon("minus.svg")))
-        self.btn_cancel_metadata.clicked.connect(self._cancel_metadata_update)
-        self.btn_cancel_metadata.setEnabled(False)
-
         btn_layout.addWidget(self.btn_update_metadata)
-        btn_layout.addWidget(self.btn_cancel_metadata)
 
         layout.addWidget(header)
         layout.addWidget(explanation)
-        layout.addWidget(self.metadata_status)
-        layout.addWidget(self.metadata_progress)
         layout.addLayout(btn_layout)
 
         return container
 
     # -------------------- Helpers & Small Utilities --------------------
-    def _reset_progress(
-        self, bar: QProgressBar, label: QLabel, text: str = "Ready"
-    ) -> None:
+    def _reset_progress(self, bar: QProgressBar, label: QLabel, text: str = "Ready") -> None:
         bar.hide()
         bar.setValue(0)
         label.setText(text)
@@ -200,11 +181,7 @@ class FileManager(QDialog):
     def _worker_is_running(self, worker) -> bool:
         """Return True if worker exists and reports running state."""
         try:
-            return (
-                worker is not None
-                and hasattr(worker, "isRunning")
-                and worker.isRunning()
-            )
+            return worker is not None and hasattr(worker, "isRunning") and worker.isRunning()
         except RuntimeError:
             # underlying Qt object was already deleted
             return False
@@ -225,21 +202,18 @@ class FileManager(QDialog):
             except RuntimeError as exc:  # defensive
                 logger.warning(f"Error cancelling worker: {exc}")
             finally:
-                try:
+                # underlying Qt object may already be deleted
+                with contextlib.suppress(RuntimeError):
                     worker_ref.deleteLater()
-                except RuntimeError:
-                    pass  # underlying Qt object was already deleted
 
         # common UI cleanup regardless of whether worker was running
         status_label.setText(cancel_message)
         self._reset_progress(progress, status_label, cancel_message)
         cancel_button.setEnabled(False)
 
-        # if this was the organizer or metadata_updater, clear the attribute
+        # if this was the organizer, clear the attribute
         if worker_ref is self.organizer:
             self.organizer = None
-        if worker_ref is self.metadata_updater:
-            self.metadata_updater = None
 
     # -------------------- Organization Flow --------------------
     def _organize_files(self) -> None:
@@ -284,15 +258,14 @@ class FileManager(QDialog):
         )
         self.org_status.setText(f"Cleaning: {current_dir}")
 
-    def _show_organization_preview(self, operations: List[Dict]) -> None:
+    def _show_organization_preview(self, operations: list[dict]) -> None:
         # if nothing to do, short-circuit
         if not operations:
             show_status_message(self, "All files are already organized correctly!")
             if self.organizer and hasattr(self.organizer, "user_cancelled"):
-                try:
+                # underlying Qt object may already be deleted
+                with contextlib.suppress(RuntimeError):
                     self.organizer.user_cancelled()
-                except RuntimeError:
-                    pass  # underlying Qt object was already deleted
             self._organization_complete(True, 0)
             return
 
@@ -327,9 +300,7 @@ class FileManager(QDialog):
             self.organizer = None
 
     def _organization_complete(self, success: bool, files_moved: int) -> None:
-        self._reset_progress(
-            self.org_progress, self.org_status, "Ready to organize files"
-        )
+        self._reset_progress(self.org_progress, self.org_status, "Ready to organize files")
         self.btn_cancel_organize.setEnabled(False)
 
         if success:
@@ -351,22 +322,6 @@ class FileManager(QDialog):
             self.btn_cancel_organize,
             "Organization cancelled",
         )
-
-    # -------------------- Metadata Flow --------------------
-    def _cancel_metadata_update(self) -> None:
-        self._cancel_worker(
-            self.metadata_updater,
-            self.metadata_status,
-            self.metadata_progress,
-            self.btn_cancel_metadata,
-            "Metadata update cancelled",
-        )
-
-    def _reset_metadata_ui(self) -> None:
-        self.btn_update_metadata.setEnabled(True)
-        self.btn_cancel_metadata.setEnabled(False)
-        self.metadata_progress.setValue(0)
-        self.metadata_progress.hide()
 
     # -------------------- Config / Path Helpers --------------------
     def _load_root_from_config(self) -> None:
@@ -391,9 +346,7 @@ class FileManager(QDialog):
 
     def _set_root(self) -> None:
         try:
-            current_dir = (
-                app_config.get_base_directory() if app_config else str(Path.home())
-            )
+            current_dir = app_config.get_base_directory() if app_config else str(Path.home())
             picked = QFileDialog.getExistingDirectory(
                 self, "Select Root Directory", str(current_dir)
             )
