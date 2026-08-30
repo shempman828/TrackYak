@@ -139,8 +139,9 @@ class ArtistInfobox(QGroupBox):
         type_badge = QLabel(", ".join(type_names) or "Artist")
         type_badge.setObjectName("TypeBadge")
         type_badge.setAlignment(Qt.AlignCenter)
-        type_badge.setFixedHeight(24)
-        type_badge.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        type_badge.setWordWrap(True)
+        type_badge.setMinimumHeight(24)
+        type_badge.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         layout.addWidget(type_badge, alignment=Qt.AlignHCenter)
 
         # Dates / age
