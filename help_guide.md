@@ -133,7 +133,10 @@ a table.
 toolbar to make the covers bigger or smaller, and use the sort dropdown to
 reorder by title, artist, year, rating, play count, track count, duration, or
 even art resolution — or just shuffle. The search bar matches title, artist,
-and year.
+and year. With **developer mode** on (see General Settings), the sort dropdown
+also gains a "Primary Artist Count" option, which orders albums by how many
+distinct primary artists are credited across their tracks; the new option
+appears after a restart.
 
 **Narrowing down what you see**: open the filter row for more specific
 digging — a year range, a minimum track count, whether metadata review is
@@ -554,7 +557,10 @@ Double-click any queued track to jump to it immediately.
   exists on disk (moved, renamed outside the app, deleted) so you can clean
   up dangling entries.
 - **General Settings** — display, audio device, and general app preferences,
-  all in one dialog.
+  all in one dialog. The **Developer** tab holds a single "Enable developer
+  mode" toggle that unlocks experimental/diagnostic options (currently just the
+  "Primary Artist Count" album sort); some of what it exposes needs a restart
+  to appear.
 - **Exit** (`Ctrl+Q`) — closes the app.
 
 ## Library Statistics

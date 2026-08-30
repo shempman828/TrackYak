@@ -226,6 +226,16 @@ def main() -> None:
 
         config = Config()
 
+        # Developer mode: self-contained opt-in package that patches itself
+        # into the app. Patches are installed unconditionally; the [developer]
+        # config flag gates what they actually expose.
+        try:
+            from src.dev import install as install_dev_mode
+
+            install_dev_mode()
+        except Exception:
+            logger.exception("developer-mode install failed; continuing without it")
+
         # Create any missing asset/data directories (e.g. assets/charts)
         # before anything tries to read or write into them.
         ensure_directories_exist()
@@ -265,8 +275,6 @@ if __name__ == "__main__":
         traceback_str = "".join(traceback.format_tb(launch_error.__traceback__))
         logger.error(f"Traceback:\n{traceback_str}")
         QMessageBox.critical(
-            None,
-            "Fatal Error",
-            f"A fatal error occurred:\n{launch_error}\n\nSee log for details.",
+            None, "Fatal Error", f"A fatal error occurred:\n{launch_error}\n\nSee log for details."
         )
         sys.exit(1)
