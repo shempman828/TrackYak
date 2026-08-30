@@ -328,7 +328,10 @@ tab for browsing (and removing tracks from) that mood directly, with a
 Recursive toggle to also pull in tracks tagged with any of its child moods.
 New Mood, New Parent/Child
 Mood, Merge, and Delete round out the rest — see the [Genres](#genres)
-section above for how those work, since the pattern is identical.
+section above for how those work, since the pattern is identical. Select
+several moods (Ctrl/Shift-click) and the right-click menu offers a single
+"Delete N Moods" that removes all of them and their track associations at
+once.
 
 Most moods actually get applied automatically — see
 [Mood Tagging](#tools-menu) in the Tools menu, which scans lyrics for you.
