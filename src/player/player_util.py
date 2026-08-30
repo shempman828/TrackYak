@@ -74,18 +74,6 @@ class MusicPlayer(
     # Must use QueuedConnection (see __init__).
     _track_finished = Signal()
 
-    # ── Stubs for crossfade API (kept so existing UI code doesn't break) ──────
-    crossfade_enabled = False
-    crossfade_duration = 0
-
-    def enable_crossfade(self, enabled: bool):
-        """Crossfade is not supported in streaming mode — call is silently ignored."""
-        pass
-
-    def set_crossfade_duration(self, duration_ms: int):
-        """Crossfade is not supported in streaming mode — call is silently ignored."""
-        pass
-
     # ── Init ──────────────────────────────────────────────────────────────────
 
     def __init__(self, controller, parent=None):

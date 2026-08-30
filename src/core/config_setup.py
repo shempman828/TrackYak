@@ -301,8 +301,6 @@ class Config:
             "volume": "75",
             "shuffle": "false",
             "repeat": "none",  # none, one, all
-            "fade_duration": "0",
-            "crossfade": "false",
         }
 
         # Audio section
@@ -463,8 +461,6 @@ _CONFIG_FIELDS = [
     _primitive("volume", "playback", "volume", "int", 75),
     _primitive("shuffle", "playback", "shuffle", "bool", False),
     _primitive("repeat_mode", "playback", "repeat", "str", "none"),
-    _primitive("fade_duration", "playback", "fade_duration", "float", 0.0),
-    _primitive("crossfade", "playback", "crossfade", "bool", False),
     _primitive("output_device", "audio", "output_device", "str", "default"),
     _primitive("buffer_size", "audio", "buffer_size", "int", 1024),
     _primitive("exclusive_mode", "audio", "exclusive_mode", "bool", False),
