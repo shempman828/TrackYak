@@ -119,9 +119,7 @@ class MusicDatabase:
             # column and silently orphan the old one (and its data). Handle
             # known renames explicitly first, preserving existing values.
             if "tracks" in existing_tables:
-                self._rename_column_if_needed(
-                    "tracks", "fidelity_score", "audiophile_score"
-                )
+                self._rename_column_if_needed("tracks", "fidelity_score", "audiophile_score")
             for table_name in ("albums", "artists", "tracks", "publishers"):
                 if table_name in existing_tables:
                     self._rename_column_if_needed(table_name, "is_fixed", "first_pass")
@@ -140,16 +138,13 @@ class MusicDatabase:
                 if table_name not in existing_tables:
                     continue  # Already handled above
 
-                existing_columns = {
-                    col["name"] for col in inspector.get_columns(table_name)
-                }
+                existing_columns = {col["name"] for col in inspector.get_columns(table_name)}
                 for column in table.columns:
                     if column.name in existing_columns:
                         continue
                     if self._try_add_column(table_name, column):
                         logger.info(
-                            f"Added missing column {table_name}.{column.name} "
-                            f"via ALTER TABLE."
+                            f"Added missing column {table_name}.{column.name} via ALTER TABLE."
                         )
                     else:
                         missing_columns.append(f"{table_name}.{column.name}")
@@ -227,9 +222,7 @@ class MusicDatabase:
             if table_name not in existing_tables:
                 continue  # create_all() already created it, indexes included
 
-            existing_indexes = {
-                idx["name"] for idx in inspector.get_indexes(table_name)
-            }
+            existing_indexes = {idx["name"] for idx in inspector.get_indexes(table_name)}
             for index in table.indexes:
                 if index.name in existing_indexes:
                     continue
@@ -319,15 +312,11 @@ class MusicDatabase:
                         """
                     )
                 )
-            logger.info(
-                "Created chart_entries_fts FTS5 virtual table and sync triggers."
-            )
+            logger.info("Created chart_entries_fts FTS5 virtual table and sync triggers.")
         except SQLAlchemyError as e:
             logger.error(f"Failed to create chart_entries_fts: {e}")
 
-    def _rename_column_if_needed(
-        self, table_name: str, old_name: str, new_name: str
-    ) -> None:
+    def _rename_column_if_needed(self, table_name: str, old_name: str, new_name: str) -> None:
         """Rename a column in-place via SQLite's RENAME COLUMN, if the old
         name is still present and the new one isn't already there. This is
         for renames only — SQLite's ADD COLUMN path in _try_add_column can't
@@ -340,16 +329,12 @@ class MusicDatabase:
             columns = {col["name"] for col in inspector.get_columns(table_name)}
             if old_name not in columns or new_name in columns:
                 return
-            ddl = (
-                f'ALTER TABLE "{table_name}" RENAME COLUMN "{old_name}" TO "{new_name}"'
-            )
+            ddl = f'ALTER TABLE "{table_name}" RENAME COLUMN "{old_name}" TO "{new_name}"'
             with self.engine.begin() as conn:
                 conn.execute(text(ddl))
             logger.info(f"Renamed column {table_name}.{old_name} to {new_name}.")
         except SQLAlchemyError as e:
-            logger.error(
-                f"Failed to rename column {table_name}.{old_name} to {new_name}: {e}"
-            )
+            logger.error(f"Failed to rename column {table_name}.{old_name} to {new_name}: {e}")
 
     def _drop_artist_name_unique_constraint_if_needed(self) -> None:
         """Artist.artist_name used to be unique=True, enforced as an inline
@@ -374,9 +359,7 @@ class MusicDatabase:
         raw_conn = self.engine.raw_connection()
         try:
             cursor = raw_conn.cursor()
-            cursor.execute(
-                "SELECT sql FROM sqlite_master WHERE type='table' AND name='artists'"
-            )
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='artists'")
             row = cursor.fetchone()
             if row is None or row[0] is None:
                 return
@@ -388,12 +371,8 @@ class MusicDatabase:
             columns = [info[1] for info in cursor.fetchall()]
             col_list = ", ".join(f'"{c}"' for c in columns)
 
-            new_sql = re.sub(
-                r"UNIQUE\s*\(\s*artist_name\s*\)\s*,\s*", "", create_sql, count=1
-            )
-            new_sql = new_sql.replace(
-                "CREATE TABLE artists (", "CREATE TABLE artists_new (", 1
-            )
+            new_sql = re.sub(r"UNIQUE\s*\(\s*artist_name\s*\)\s*,\s*", "", create_sql, count=1)
+            new_sql = new_sql.replace("CREATE TABLE artists (", "CREATE TABLE artists_new (", 1)
             if "artists_new" not in new_sql:
                 raise SQLAlchemyError(
                     "Could not safely rewrite the artists table's CREATE "
@@ -406,8 +385,7 @@ class MusicDatabase:
                 cursor.execute("BEGIN")
                 cursor.execute(new_sql)
                 cursor.execute(
-                    f"INSERT INTO artists_new ({col_list}) "
-                    f"SELECT {col_list} FROM artists"
+                    f"INSERT INTO artists_new ({col_list}) SELECT {col_list} FROM artists"
                 )
                 cursor.execute("DROP TABLE artists")
                 cursor.execute("ALTER TABLE artists_new RENAME TO artists")
@@ -450,12 +428,7 @@ class MusicDatabase:
 
                 updated = 0
                 for album in albums:
-                    tracks = (
-                        session
-                        .query(Track)
-                        .filter(Track.album_id == album.album_id)
-                        .all()
-                    )
+                    tracks = session.query(Track).filter(Track.album_id == album.album_id).all()
                     if not tracks:
                         continue
                     album_gain, album_peak = compute_album_gain_peak(tracks)
@@ -484,9 +457,7 @@ class MusicDatabase:
         """
         try:
             with self.Session() as session:
-                albums = (
-                    session.query(Album).filter(Album.release_type.isnot(None)).all()
-                )
+                albums = session.query(Album).filter(Album.release_type.isnot(None)).all()
                 updated = 0
                 for album in albums:
                     normalized = normalize_release_type(album.release_type)
@@ -496,9 +467,7 @@ class MusicDatabase:
 
                 if updated:
                     session.commit()
-                    logger.info(
-                        f"Normalized release_type casing for {updated} album(s)."
-                    )
+                    logger.info(f"Normalized release_type casing for {updated} album(s).")
         except SQLAlchemyError as e:
             logger.error(f"release_type casing normalization failed: {e}")
 

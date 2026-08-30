@@ -71,20 +71,16 @@ class InfluenceGraphDataMixin:
     def debug_graph_structure(self):
         """Log summary info about the graph"""
         try:
-            logger.info(
-                f"Graph has {len(self.node_names)} nodes and {len(self.edges)} edges"
-            )
+            logger.info(f"Graph has {len(self.node_names)} nodes and {len(self.edges)} edges")
 
-            connection_counts = {nid: 0 for nid in self.node_names.keys()}
+            connection_counts = dict.fromkeys(self.node_names.keys(), 0)
             for a, b in self.edges:
                 if a in connection_counts:
                     connection_counts[a] += 1
                 if b in connection_counts:
                     connection_counts[b] += 1
 
-            sorted_nodes = sorted(
-                connection_counts.items(), key=lambda x: x[1], reverse=True
-            )
+            sorted_nodes = sorted(connection_counts.items(), key=lambda x: x[1], reverse=True)
             logger.info("Top connected nodes:")
             for node_id, count in sorted_nodes[:5]:
                 node_name = self.node_names.get(node_id, f"Artist {node_id}")
@@ -99,18 +95,16 @@ class InfluenceGraphDataMixin:
         self.page_rank_scores = scores.page_rank_scores
         self.combined_scores = scores.combined_scores
 
-        top_influential = sorted(
-            self.influence_scores.items(), key=lambda x: x[1], reverse=True
-        )[:10]
+        top_influential = sorted(self.influence_scores.items(), key=lambda x: x[1], reverse=True)[
+            :10
+        ]
         logger.info("Top influential artists (unique descendants):")
         for node_id, score in top_influential:
             name = self.node_names.get(node_id, f"Artist {node_id}")
             logger.info(f"  {name}: {score} total influenced artists")
 
         if self.page_rank_scores:
-            top_pr = sorted(
-                self.page_rank_scores.items(), key=lambda x: x[1], reverse=True
-            )[:10]
+            top_pr = sorted(self.page_rank_scores.items(), key=lambda x: x[1], reverse=True)[:10]
             logger.info("Top PageRank artists:")
             for node_id, pr in top_pr:
                 name = self.node_names.get(node_id, f"Artist {node_id}")
@@ -179,11 +173,7 @@ class InfluenceGraphDataMixin:
     _FONT_SCALE = 3.5
 
     @staticmethod
-    def get_label_font_size(
-        size,
-        min_font=8 * _FONT_SCALE,
-        max_font=13 * _FONT_SCALE,
-    ):
+    def get_label_font_size(size, min_font=8 * _FONT_SCALE, max_font=13 * _FONT_SCALE):
         """Scale label font size down for small/low-influence nodes so
         more characters fit before eliding, instead of a fixed size that
         barely shows 2-3 letters on the smallest pills."""

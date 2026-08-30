@@ -72,9 +72,7 @@ class PlayerTransportMixin:
                 self.paused = False
                 self.state_changed.emit("playing")
                 self._position_timer.start()
-                logger.info(
-                    f"Playback continued on existing stream: {self.current_file.name}"
-                )
+                logger.info(f"Playback continued on existing stream: {self.current_file.name}")
                 logger.debug(f"play() EXIT at {time.time():.3f}")
                 return
 
@@ -317,10 +315,7 @@ class PlayerTransportMixin:
             self._position = position_ms
             self._frames_played = int(position_ms / 1000.0 * self.current_sample_rate)
 
-            if (
-                self._duration > 0
-                and (position_ms / self._duration) < PLAY_COUNT_THRESHOLD
-            ):
+            if self._duration > 0 and (position_ms / self._duration) < PLAY_COUNT_THRESHOLD:
                 self._has_reached_threshold = False
                 self._play_count_recorded = False
 

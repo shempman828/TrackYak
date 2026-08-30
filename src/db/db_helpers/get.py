@@ -20,9 +20,7 @@ class GetFromDB(BaseDBHelper):
         ``selectinload(...)``) so callers that need related data can eager-load
         it in one extra query instead of triggering a lazy-load per row.
         """
-        logger.debug(
-            f"Querying {entity_class} (multiple={multiple}) with filters: {filters}"
-        )
+        logger.debug(f"Querying {entity_class} (multiple={multiple}) with filters: {filters}")
 
         try:
             entity_class_obj = MODEL_REGISTRY[entity_class]
@@ -66,16 +64,12 @@ class GetFromDB(BaseDBHelper):
                         )
                     case "in":
                         if not isinstance(value, (list, tuple, set)):
-                            logger.warning(
-                                f"Filter 'in' requires iterable, got {type(value)}"
-                            )
+                            logger.warning(f"Filter 'in' requires iterable, got {type(value)}")
                             continue
                         stmt = stmt.where(column.in_(value))
                     case "not_in":
                         if not isinstance(value, (list, tuple, set)):
-                            logger.warning(
-                                f"Filter 'not_in' requires iterable, got {type(value)}"
-                            )
+                            logger.warning(f"Filter 'not_in' requires iterable, got {type(value)}")
                             continue
                         stmt = stmt.where(~column.in_(value))
                     case "contains":
@@ -128,9 +122,7 @@ class GetFromDB(BaseDBHelper):
             return [] if multiple else None
 
     def get_all_entities(self, model_name: str, load_options=None, **kwargs):
-        return self.query_entities(
-            model_name, multiple=True, load_options=load_options, **kwargs
-        )
+        return self.query_entities(model_name, multiple=True, load_options=load_options, **kwargs)
 
     def get_entity_object(self, model_name: str, **kwargs):
         return self.query_entities(model_name, multiple=False, **kwargs)
@@ -141,9 +133,7 @@ class GetFromDB(BaseDBHelper):
         and exact set of artist IDs (for Album Artist role only).
         """
         if not artist_ids:
-            logger.debug(
-                f"No artist IDs provided for album check: '{album_name}' ({release_year})"
-            )
+            logger.debug(f"No artist IDs provided for album check: '{album_name}' ({release_year})")
             return None
 
         logger.debug(
@@ -154,8 +144,7 @@ class GetFromDB(BaseDBHelper):
         try:
             # Find albums with matching name and year
             base_albums_stmt = select(Album.album_id, Album.album_name).where(
-                Album.album_name == album_name,
-                Album.release_year == release_year,
+                Album.album_name == album_name, Album.release_year == release_year
             )
             candidate_albums = self.session.execute(base_albums_stmt).all()
 
@@ -171,9 +160,9 @@ class GetFromDB(BaseDBHelper):
                     AlbumRoleAssociation.album_id == album_id,
                     AlbumRoleAssociation.role_id == 1,  # Album Artist role
                 )
-                album_artist_ids = sorted([
-                    row[0] for row in self.session.execute(artist_stmt).all()
-                ])
+                album_artist_ids = sorted(
+                    [row[0] for row in self.session.execute(artist_stmt).all()]
+                )
 
                 logger.debug(
                     f"Album '{candidate_album_name}' (ID: {album_id}) has album artists: {album_artist_ids}"
@@ -182,9 +171,7 @@ class GetFromDB(BaseDBHelper):
                 if album_artist_ids == expected_artist_ids:
                     # Found exact match, return the album
                     album = self.session.get(Album, album_id)
-                    logger.debug(
-                        f"Found matching album: {album.album_id} - {album.album_name}"
-                    )
+                    logger.debug(f"Found matching album: {album.album_id} - {album.album_name}")
                     self.session.commit()
                     return album
 

@@ -18,11 +18,11 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.asset_paths import icon
-from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.publisher.publisher_albums import PublisherAlbumsWindow
 from src.publisher.publisher_hierarchy import get_publisher_albums
+from src.track.base_track_view import BaseTrackView
 
 
 class PublisherDetailTab(QWidget):
@@ -186,16 +186,14 @@ class PublisherDetailTab(QWidget):
             self._load_publisher_places(publisher_id)
 
         except SQLAlchemyError as e:
-            logger.error(f"Error loading publisher data: {str(e)}")
+            logger.error(f"Error loading publisher data: {e!s}")
             self.show_empty_state()
 
     def _open_albums_window(self):
         """Open a separate window showing all albums for this publisher."""
         if not self.current_publisher:
             return
-        self._albums_window = PublisherAlbumsWindow(
-            self.controller, self.current_publisher, self
-        )
+        self._albums_window = PublisherAlbumsWindow(self.controller, self.current_publisher, self)
         self._albums_window.show()
 
     def _display_publisher_info(self, publisher):
@@ -238,9 +236,7 @@ class PublisherDetailTab(QWidget):
         else:
             pixmap = icon("default_logo.svg").pixmap(120, 120)
 
-        scaled_pixmap = pixmap.scaled(
-            120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
+        scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.logo_label.setPixmap(scaled_pixmap)
 
     def _load_publisher_places(self, publisher_id):
@@ -265,7 +261,7 @@ class PublisherDetailTab(QWidget):
                     self.places_list.addItem(item)
 
         except SQLAlchemyError as e:
-            logger.error(f"Error loading places: {str(e)}")
+            logger.error(f"Error loading places: {e!s}")
             self.places_list.addItem("Error loading places")
 
     def show_tracks(self):
@@ -279,8 +275,7 @@ class PublisherDetailTab(QWidget):
 
             if not tracks:
                 show_status_message(
-                    self,
-                    f"No tracks found for publisher: {self.current_publisher.publisher_name}",
+                    self, f"No tracks found for publisher: {self.current_publisher.publisher_name}"
                 )
                 return
 
@@ -303,8 +298,8 @@ class PublisherDetailTab(QWidget):
             track_view.exec_()
 
         except SQLAlchemyError as e:
-            logger.error(f"Error showing publisher tracks: {str(e)}")
-            QMessageBox.critical(self, "Error", f"Failed to load tracks:\n{str(e)}")
+            logger.error(f"Error showing publisher tracks: {e!s}")
+            QMessageBox.critical(self, "Error", f"Failed to load tracks:\n{e!s}")
 
     def _get_publisher_tracks(self):
         """Get all tracks associated with the current publisher."""
@@ -314,9 +309,7 @@ class PublisherDetailTab(QWidget):
         tracks = []
         try:
             # Get all albums associated with this publisher (including child publishers)
-            albums = get_publisher_albums(
-                self.controller, self.current_publisher.publisher_id
-            )
+            albums = get_publisher_albums(self.controller, self.current_publisher.publisher_id)
 
             for album in albums:
                 # Get all tracks for this album using direct relationship
@@ -343,5 +336,5 @@ class PublisherDetailTab(QWidget):
             return list(unique_tracks.values())
 
         except SQLAlchemyError as e:
-            logger.error(f"Error fetching publisher tracks: {str(e)}")
+            logger.error(f"Error fetching publisher tracks: {e!s}")
             return []

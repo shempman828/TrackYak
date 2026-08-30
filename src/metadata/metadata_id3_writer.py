@@ -1,5 +1,4 @@
 import struct
-from typing import List
 
 from src.core.logger_config import logger
 
@@ -22,9 +21,7 @@ class ID3TagWriter:
 
         # Frame header: ID (4 bytes) + size (4 bytes) + flags (2 bytes)
         frame_size = len(frame_data)
-        frame_header = (
-            frame_id.encode("ascii") + struct.pack(">I", frame_size) + b"\x00\x00"
-        )
+        frame_header = frame_id.encode("ascii") + struct.pack(">I", frame_size) + b"\x00\x00"
 
         return frame_header + frame_data
 
@@ -34,9 +31,7 @@ class ID3TagWriter:
             return b""
 
         encoded_text = text.encode("utf-16")
-        frame_data = (
-            language.encode("iso-8859-1") + struct.pack(">B", 0x01) + encoded_text
-        )
+        frame_data = language.encode("iso-8859-1") + struct.pack(">B", 0x01) + encoded_text
 
         frame_size = len(frame_data)
         frame_header = b"COMM" + struct.pack(">I", frame_size) + b"\x00\x00"
@@ -65,9 +60,7 @@ class ID3TagWriter:
             return b""
 
         encoded_text = lyrics.encode("utf-16")
-        frame_data = (
-            language.encode("iso-8859-1") + struct.pack(">B", 0x01) + encoded_text
-        )
+        frame_data = language.encode("iso-8859-1") + struct.pack(">B", 0x01) + encoded_text
 
         frame_size = len(frame_data)
         frame_header = b"USLT" + struct.pack(">I", frame_size) + b"\x00\x00"
@@ -118,15 +111,10 @@ class ID3TagWriter:
         """Convert a 28-bit integer to a proper 4-byte sync-safe encoding
         (7 significant bits per byte, matching the ID3v2 header size field)."""
         return bytes(
-            [
-                (value >> 21) & 0x7F,
-                (value >> 14) & 0x7F,
-                (value >> 7) & 0x7F,
-                value & 0x7F,
-            ]
+            [(value >> 21) & 0x7F, (value >> 14) & 0x7F, (value >> 7) & 0x7F, value & 0x7F]
         )
 
-    def build_id3_tag(self, frames: List[bytes]) -> bytes:
+    def build_id3_tag(self, frames: list[bytes]) -> bytes:
         """Build complete ID3 tag from frames."""
         if not frames:
             logger.debug("No frames provided to build_id3_tag; skipping tag creation")
@@ -136,11 +124,6 @@ class ID3TagWriter:
         tag_size = len(tag_data)
 
         # ID3 header: "ID3"(3) + major+revision(2) + flags(1) + size(4) = 10 bytes
-        header = (
-            b"ID3"
-            + struct.pack(">BB", 3, 0)
-            + b"\x00"
-            + self.sync_safe_int(tag_size)
-        )
+        header = b"ID3" + struct.pack(">BB", 3, 0) + b"\x00" + self.sync_safe_int(tag_size)
 
         return header + tag_data

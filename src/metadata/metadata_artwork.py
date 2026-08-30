@@ -294,9 +294,7 @@ class ArtworkExtractor:
             del leftovers[fallback_type]
 
         for leftover_type in leftovers:
-            logger.debug(
-                f"Unmapped picture type {leftover_type} in {file_path} left unassigned"
-            )
+            logger.debug(f"Unmapped picture type {leftover_type} in {file_path} left unassigned")
 
         return by_role
 
@@ -337,7 +335,7 @@ class ArtworkExtractor:
             image_bytes = data[d_start + 8 : d_end]
             if image_bytes.startswith(b"\xff\xd8"):
                 return self._process_image_data(image_bytes, "JPEG")
-            elif image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+            if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
                 return self._process_image_data(image_bytes, "PNG")
 
         except (IndexError, struct.error) as e:
@@ -495,4 +493,3 @@ class ArtworkExtractor:
         except (OSError, Image.DecompressionBombError) as e:
             logger.warning(f"Error processing image data: {e}")
             return None
-

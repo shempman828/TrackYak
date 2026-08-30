@@ -72,10 +72,7 @@ DIRECT_TRACK_FK = {
 
 # Association-row models that carry an album_id -- cascades to every track
 # on that album (album-level artist credits / publishers).
-ALBUM_FK = {
-    "AlbumRoleAssociation": "album_id",
-    "AlbumPublisher": "album_id",
-}
+ALBUM_FK = {"AlbumRoleAssociation": "album_id", "AlbumPublisher": "album_id"}
 
 
 def mark_tracks_dirty(session, track_ids) -> None:
@@ -83,9 +80,7 @@ def mark_tracks_dirty(session, track_ids) -> None:
     ids = {tid for tid in track_ids if tid is not None}
     if not ids:
         return
-    session.execute(
-        update(Track).where(Track.track_id.in_(ids)).values(needs_tag_write=1)
-    )
+    session.execute(update(Track).where(Track.track_id.in_(ids)).values(needs_tag_write=1))
 
 
 def tracks_for_album(session, album_ids) -> set:
@@ -93,11 +88,7 @@ def tracks_for_album(session, album_ids) -> set:
     ids = {i for i in album_ids if i is not None}
     if not ids:
         return set()
-    return set(
-        session.scalars(
-            select(Track.track_id).where(Track.album_id.in_(ids))
-        ).all()
-    )
+    return set(session.scalars(select(Track.track_id).where(Track.album_id.in_(ids))).all())
 
 
 def tracks_for_disc(session, disc_ids) -> set:
@@ -105,9 +96,7 @@ def tracks_for_disc(session, disc_ids) -> set:
     ids = {i for i in disc_ids if i is not None}
     if not ids:
         return set()
-    return set(
-        session.scalars(select(Track.track_id).where(Track.disc_id.in_(ids))).all()
-    )
+    return set(session.scalars(select(Track.track_id).where(Track.disc_id.in_(ids))).all())
 
 
 def sibling_track_ids(session, disc_id=None, album_id=None) -> set:
@@ -131,9 +120,7 @@ def tracks_for_artist(session, artist_ids) -> set:
         select(TrackArtistRole.track_id).where(TrackArtistRole.artist_id.in_(ids))
     ).all()
     album_ids = session.scalars(
-        select(AlbumRoleAssociation.album_id).where(
-            AlbumRoleAssociation.artist_id.in_(ids)
-        )
+        select(AlbumRoleAssociation.album_id).where(AlbumRoleAssociation.artist_id.in_(ids))
     ).all()
     return set(direct) | tracks_for_album(session, album_ids)
 
@@ -146,9 +133,7 @@ def tracks_for_role(session, role_ids) -> set:
         select(TrackArtistRole.track_id).where(TrackArtistRole.role_id.in_(ids))
     ).all()
     album_ids = session.scalars(
-        select(AlbumRoleAssociation.album_id).where(
-            AlbumRoleAssociation.role_id.in_(ids)
-        )
+        select(AlbumRoleAssociation.album_id).where(AlbumRoleAssociation.role_id.in_(ids))
     ).all()
     return set(direct) | tracks_for_album(session, album_ids)
 
@@ -168,9 +153,7 @@ def tracks_for_genre(session, genre_ids) -> set:
     if not ids:
         return set()
     return set(
-        session.scalars(
-            select(TrackGenre.track_id).where(TrackGenre.genre_id.in_(ids))
-        ).all()
+        session.scalars(select(TrackGenre.track_id).where(TrackGenre.genre_id.in_(ids))).all()
     )
 
 
@@ -180,9 +163,7 @@ def tracks_for_mood(session, mood_ids) -> set:
         return set()
     return set(
         session.scalars(
-            select(MoodTrackAssociation.track_id).where(
-                MoodTrackAssociation.mood_id.in_(ids)
-            )
+            select(MoodTrackAssociation.track_id).where(MoodTrackAssociation.mood_id.in_(ids))
         ).all()
     )
 
@@ -193,14 +174,12 @@ def tracks_for_place(session, place_ids) -> set:
         return set()
     direct = session.scalars(
         select(PlaceAssociation.entity_id).where(
-            PlaceAssociation.place_id.in_(ids),
-            PlaceAssociation.entity_type == "Track",
+            PlaceAssociation.place_id.in_(ids), PlaceAssociation.entity_type == "Track"
         )
     ).all()
     album_ids = session.scalars(
         select(PlaceAssociation.entity_id).where(
-            PlaceAssociation.place_id.in_(ids),
-            PlaceAssociation.entity_type == "Album",
+            PlaceAssociation.place_id.in_(ids), PlaceAssociation.entity_type == "Album"
         )
     ).all()
     return set(direct) | tracks_for_album(session, album_ids)
@@ -212,9 +191,7 @@ def tracks_for_playlist(session, playlist_ids) -> set:
         return set()
     return set(
         session.scalars(
-            select(PlaylistTracks.track_id).where(
-                PlaylistTracks.playlist_id.in_(ids)
-            )
+            select(PlaylistTracks.track_id).where(PlaylistTracks.playlist_id.in_(ids))
         ).all()
     )
 
@@ -272,10 +249,11 @@ CASCADE_RESOLVERS = {
 }
 
 
-def _track_siblings_for_move(session, old_disc_ids, old_album_ids, new_disc_ids, new_album_ids) -> set:
-    return (
-        tracks_for_disc(session, set(old_disc_ids) | set(new_disc_ids))
-        | tracks_for_album(session, set(old_album_ids) | set(new_album_ids))
+def _track_siblings_for_move(
+    session, old_disc_ids, old_album_ids, new_disc_ids, new_album_ids
+) -> set:
+    return tracks_for_disc(session, set(old_disc_ids) | set(new_disc_ids)) | tracks_for_album(
+        session, set(old_album_ids) | set(new_album_ids)
     )
 
 
@@ -292,9 +270,7 @@ def mark_dirty_for_entity_update(session, model_name: str, entity_ids, kwargs: d
             mark_tracks_dirty(session, entity_ids)
         if "disc_id" in kwargs or "album_id" in kwargs:
             rows = session.execute(
-                select(Track.disc_id, Track.album_id).where(
-                    Track.track_id.in_(entity_ids)
-                )
+                select(Track.disc_id, Track.album_id).where(Track.track_id.in_(entity_ids))
             ).all()
             old_disc_ids = {r[0] for r in rows if r[0] is not None}
             old_album_ids = {r[1] for r in rows if r[1] is not None}
@@ -348,9 +324,7 @@ def mark_dirty_for_bulk_track_update(session, updates: list) -> None:
     new_album_ids = {u["album_id"] for u in moving if u.get("album_id") is not None}
     mark_tracks_dirty(
         session,
-        _track_siblings_for_move(
-            session, old_disc_ids, old_album_ids, new_disc_ids, new_album_ids
-        ),
+        _track_siblings_for_move(session, old_disc_ids, old_album_ids, new_disc_ids, new_album_ids),
     )
 
 

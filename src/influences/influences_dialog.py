@@ -83,21 +83,15 @@ class AddInfluenceDialog(QDialog):
 
     def filter_artists(self, text, role):
         """Filter artists based on search text and update visual indicators"""
-        search_field = (
-            self.influencer_search if role == "influencer" else self.influenced_search
-        )
-        status_label = (
-            self.influencer_status if role == "influencer" else self.influenced_status
-        )
+        search_field = self.influencer_search if role == "influencer" else self.influenced_search
+        status_label = self.influencer_status if role == "influencer" else self.influenced_status
 
         if not text.strip():
             status_label.setText("")
             return
 
         # Check if any existing artist matches
-        matches = [
-            (id, name) for id, name in self.all_artists if text.lower() in name.lower()
-        ]
+        matches = [(id, name) for id, name in self.all_artists if text.lower() in name.lower()]
         exact_matches = [
             (id, name) for id, name in self.all_artists if name.lower() == text.lower()
         ]
@@ -136,21 +130,17 @@ class AddInfluenceDialog(QDialog):
 
         # Create new artist
         try:
-            new_artist = self.controller.add.add_entity(
-                "Artist", artist_name=artist_name
-            )
+            new_artist = self.controller.add.add_entity("Artist", artist_name=artist_name)
             # Extract the artist_id from the returned Artist object
             new_artist_id = new_artist.artist_id
             # Refresh the artists list
             artists = self.controller.get.get_all_entities("Artist")
-            self.all_artists = [
-                (artist.artist_id, artist.artist_name) for artist in artists
-            ]
+            self.all_artists = [(artist.artist_id, artist.artist_name) for artist in artists]
             # Store the newly created artist
             self.created_artists.append((new_artist_id, artist_name))
             return new_artist_id, True  # True = newly created
         except SQLAlchemyError as e:
-            raise Exception(f"Failed to create new artist '{artist_name}': {str(e)}")
+            raise Exception(f"Failed to create new artist '{artist_name}': {e!s}")
 
     def add_influence(self):
         influencer_name = self.influencer_search.text().strip()
@@ -159,9 +149,7 @@ class AddInfluenceDialog(QDialog):
 
         # Validate
         if not influencer_name or not influenced_name:
-            show_status_message(
-                self, "Please enter both influencer and influenced artist names!"
-            )
+            show_status_message(self, "Please enter both influencer and influenced artist names!")
             return
 
         if influencer_name.lower() == influenced_name.lower():
@@ -173,12 +161,8 @@ class AddInfluenceDialog(QDialog):
             self.created_artists = []
 
             # Get or create artist IDs (now returns tuple with creation flag)
-            influencer_id, influencer_created = self.get_or_create_artist_id(
-                influencer_name
-            )
-            influenced_id, influenced_created = self.get_or_create_artist_id(
-                influenced_name
-            )
+            influencer_id, influencer_created = self.get_or_create_artist_id(influencer_name)
+            influenced_id, influenced_created = self.get_or_create_artist_id(influenced_name)
 
             # Create the influence relationship
             influence_data = {
@@ -198,7 +182,7 @@ class AddInfluenceDialog(QDialog):
             # subclass), so this Qt button-click slot must catch the base
             # type to avoid crashing the app instead of showing this dialog.
             logger.exception("Failed to add influence")
-            QMessageBox.critical(self, "Error", f"Failed to add influence: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to add influence: {e!s}")
 
     def get_created_artists(self):
         """Return list of newly created artists (artist_id, artist_name)"""
@@ -261,9 +245,7 @@ class RemoveInfluenceDialog(QDialog):
         if not text.strip():
             # Show all when search is empty
             influences_to_show = self.all_influences
-            self.search_status.setText(
-                f"Showing all {len(influences_to_show)} relationships"
-            )
+            self.search_status.setText(f"Showing all {len(influences_to_show)} relationships")
         else:
             # Filter based on search text
             search_lower = text.lower()
@@ -296,9 +278,7 @@ class RemoveInfluenceDialog(QDialog):
         influencer_name = influence_data["influencer_name"]
         influenced_name = influence_data["influenced_name"]
 
-        self.selected_display.setText(
-            f"Selected: {influencer_name} → {influenced_name}"
-        )
+        self.selected_display.setText(f"Selected: {influencer_name} → {influenced_name}")
         self.remove_button.setEnabled(True)
 
     def remove_influence(self):
@@ -324,9 +304,7 @@ class RemoveInfluenceDialog(QDialog):
 
             if reply == QMessageBox.Yes:
                 success = self.controller.delete.delete_entity(
-                    "ArtistInfluence",
-                    influencer_id=influencer_id,
-                    influenced_id=influenced_id,
+                    "ArtistInfluence", influencer_id=influencer_id, influenced_id=influenced_id
                 )
                 if success:
                     QMessageBox.information(
@@ -340,4 +318,4 @@ class RemoveInfluenceDialog(QDialog):
 
         except (SQLAlchemyError, KeyError) as e:
             logger.error(f"Error removing influence: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to remove: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to remove: {e!s}")

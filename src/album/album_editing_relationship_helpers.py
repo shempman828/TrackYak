@@ -1,6 +1,4 @@
-"""
-album_editing_relationship_helpers.py
-"""
+"""album_editing_relationship_helpers.py"""
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -72,9 +70,7 @@ class RelationshipHelpers:
                 )
 
             self.controller.add.add_entity(
-                "AlbumPublisher",
-                publisher_id=publisher.publisher_id,
-                album_id=self.album.album_id,
+                "AlbumPublisher", publisher_id=publisher.publisher_id, album_id=self.album.album_id
             )
 
             self.show_updated_view()
@@ -137,9 +133,7 @@ class RelationshipHelpers:
                         "Artist", artist_name=artist_name
                     )
                     if not artist:
-                        artist = self.controller.add.add_entity(
-                            "Artist", artist_name=artist_name
-                        )
+                        artist = self.controller.add.add_entity("Artist", artist_name=artist_name)
                         register_cached_entity("Artist", artist)
                 if artist:
                     artists.append(artist)
@@ -151,17 +145,11 @@ class RelationshipHelpers:
             roles = []
             for role_name in role_names:
                 if matched_role_id is not None:
-                    role = self.controller.get.get_entity_object(
-                        "Role", role_id=matched_role_id
-                    )
+                    role = self.controller.get.get_entity_object("Role", role_id=matched_role_id)
                 else:
-                    role = self.controller.get.get_entity_object(
-                        "Role", role_name=role_name
-                    )
+                    role = self.controller.get.get_entity_object("Role", role_name=role_name)
                     if not role:
-                        role = self.controller.add.add_entity(
-                            "Role", role_name=role_name
-                        )
+                        role = self.controller.add.add_entity("Role", role_name=role_name)
                         register_cached_entity("Role", role)
                 if role:
                     roles.append(role)
@@ -181,12 +169,8 @@ class RelationshipHelpers:
                 for role in roles:
                     # New credits go to the end of their role group rather than
                     # defaulting to sort_order 0, which would jump them to the front.
-                    siblings = [
-                        ra for ra in self.album.album_roles if ra.role_id == role.role_id
-                    ]
-                    next_sort_order = (
-                        max(ra.sort_order for ra in siblings) + 1 if siblings else 0
-                    )
+                    siblings = [ra for ra in self.album.album_roles if ra.role_id == role.role_id]
+                    next_sort_order = max(ra.sort_order for ra in siblings) + 1 if siblings else 0
 
                     self.controller.add.add_entity(
                         "AlbumRoleAssociation",
@@ -206,14 +190,10 @@ class RelationshipHelpers:
     def remove_artist_credit(self, role_assoc):
         """Remove an artist credit from the album."""
         try:
-            self.controller.delete.delete_entity(
-                "AlbumRoleAssociation", role_assoc.association_id
-            )
+            self.controller.delete.delete_entity("AlbumRoleAssociation", role_assoc.association_id)
             self.show_updated_view()
         except SQLAlchemyError as e:
-            QMessageBox.critical(
-                None, "Error", f"Failed to remove artist credit: {e!s}"
-            )
+            QMessageBox.critical(None, "Error", f"Failed to remove artist credit: {e!s}")
 
     def convert_credit_to_per_track(self, role_assoc):
         """Swap an album-level artist credit to a per-track credit.
@@ -242,15 +222,11 @@ class RelationshipHelpers:
                 for track in tracks
             ]
             self.controller.add.add_entities("TrackArtistRole", rows)
-            self.controller.delete.delete_entity(
-                "AlbumRoleAssociation", role_assoc.association_id
-            )
+            self.controller.delete.delete_entity("AlbumRoleAssociation", role_assoc.association_id)
             self.show_updated_view()
         except SQLAlchemyError as e:
             logger.exception("Failed to convert credit to per-track")
-            QMessageBox.critical(
-                None, "Error", f"Failed to convert credit to per-track: {e!s}"
-            )
+            QMessageBox.critical(None, "Error", f"Failed to convert credit to per-track: {e!s}")
 
     def convert_credit_to_album_level(self, artist_id, role_id):
         """Swap a credit that's on every one of the album's tracks to a
@@ -263,13 +239,10 @@ class RelationshipHelpers:
         of the album's tracks, so any credit it renders already qualifies.
         """
         already_album_level = any(
-            ra.artist_id == artist_id and ra.role_id == role_id
-            for ra in self.album.album_roles
+            ra.artist_id == artist_id and ra.role_id == role_id for ra in self.album.album_roles
         )
         if already_album_level:
-            show_status_message(
-                self.widget, "This artist/role is already an album-level credit."
-            )
+            show_status_message(self.widget, "This artist/role is already an album-level credit.")
             return
 
         tracks = self.album.tracks
@@ -281,17 +254,12 @@ class RelationshipHelpers:
             # this pair show up as a common credit), so any one track's row
             # carries the alias override to preserve, if there is one.
             existing_row = self.controller.get.get_entity_object(
-                "TrackArtistRole",
-                track_id=tracks[0].track_id,
-                artist_id=artist_id,
-                role_id=role_id,
+                "TrackArtistRole", track_id=tracks[0].track_id, artist_id=artist_id, role_id=role_id
             )
             credited_alias_id = getattr(existing_row, "credited_alias_id", None)
 
             siblings = [ra for ra in self.album.album_roles if ra.role_id == role_id]
-            next_sort_order = (
-                max(ra.sort_order for ra in siblings) + 1 if siblings else 0
-            )
+            next_sort_order = max(ra.sort_order for ra in siblings) + 1 if siblings else 0
 
             # Create the album-level credit first -- only delete the
             # per-track rows once it's confirmed to exist, so a failure here
@@ -305,9 +273,7 @@ class RelationshipHelpers:
                 credited_alias_id=credited_alias_id,
             )
             if new_assoc is None:
-                QMessageBox.critical(
-                    None, "Error", "Failed to create the album-level credit."
-                )
+                QMessageBox.critical(None, "Error", "Failed to create the album-level credit.")
                 return
 
             self.controller.delete.delete_entity(
@@ -319,9 +285,7 @@ class RelationshipHelpers:
             self.show_updated_view()
         except SQLAlchemyError as e:
             logger.exception("Failed to convert credit to album-level")
-            QMessageBox.critical(
-                None, "Error", f"Failed to convert credit to album-level: {e!s}"
-            )
+            QMessageBox.critical(None, "Error", f"Failed to convert credit to album-level: {e!s}")
 
     def move_artist_credit(self, role_assoc, direction: int):
         """Move an artist credit up (-1) or down (+1) within its role group.
@@ -349,14 +313,9 @@ class RelationshipHelpers:
             return  # Already at the edge of its role group
 
         other = siblings[new_idx]
-        role_assoc.sort_order, other.sort_order = (
-            other.sort_order,
-            role_assoc.sort_order,
-        )
+        role_assoc.sort_order, other.sort_order = (other.sort_order, role_assoc.sort_order)
         self.controller.update.update_entity(
-            "AlbumRoleAssociation",
-            role_assoc.association_id,
-            sort_order=role_assoc.sort_order,
+            "AlbumRoleAssociation", role_assoc.association_id, sort_order=role_assoc.sort_order
         )
         self.controller.update.update_entity(
             "AlbumRoleAssociation", other.association_id, sort_order=other.sort_order
@@ -372,15 +331,11 @@ class RelationshipHelpers:
         artist has no aliases the dialog is skipped and
         ``(True, current_alias_id)`` is returned. On accept, ``alias_id`` is
         the chosen alias_id, or None for the canonical name."""
-        aliases = self.controller.get.get_all_entities(
-            "ArtistAlias", artist_id=artist.artist_id
-        )
+        aliases = self.controller.get.get_all_entities("ArtistAlias", artist_id=artist.artist_id)
         if not aliases:
             return True, current_alias_id
 
-        dialog = CreditedAsDialog(
-            artist, aliases, current_alias_id=current_alias_id, parent=None
-        )
+        dialog = CreditedAsDialog(artist, aliases, current_alias_id=current_alias_id, parent=None)
         if dialog.exec() == QDialog.Accepted:
             return True, dialog.selected_alias_id()
         return False, current_alias_id
@@ -402,9 +357,7 @@ class RelationshipHelpers:
             )
             self.show_updated_view()
         except SQLAlchemyError as e:
-            QMessageBox.critical(
-                None, "Error", f"Failed to update credited name: {e!s}"
-            )
+            QMessageBox.critical(None, "Error", f"Failed to update credited name: {e!s}")
 
     # =========================================================================
     # Place management
@@ -441,13 +394,9 @@ class RelationshipHelpers:
             return
 
         try:
-            place = self.controller.get.get_entity_object(
-                "Place", place_name=result["place_name"]
-            )
+            place = self.controller.get.get_entity_object("Place", place_name=result["place_name"])
             if not place:
-                place = self.controller.add.add_entity(
-                    "Place", place_name=result["place_name"]
-                )
+                place = self.controller.add.add_entity("Place", place_name=result["place_name"])
 
             assoc_type_obj = find_or_create_association_type(
                 self.controller, result["association_type"], known_types
@@ -458,9 +407,7 @@ class RelationshipHelpers:
                 place_id=place.place_id,
                 entity_id=self.album.album_id,
                 entity_type="Album",
-                association_type_id=assoc_type_obj.association_type_id
-                if assoc_type_obj
-                else None,
+                association_type_id=assoc_type_obj.association_type_id if assoc_type_obj else None,
             )
 
             self.show_updated_view()
@@ -472,14 +419,10 @@ class RelationshipHelpers:
     def remove_place(self, association):
         """Remove a place association from the album."""
         try:
-            self.controller.delete.delete_entity(
-                "PlaceAssociation", association.association_id
-            )
+            self.controller.delete.delete_entity("PlaceAssociation", association.association_id)
             self.show_updated_view()
         except SQLAlchemyError as e:
-            QMessageBox.critical(
-                None, "Error", f"Failed to remove place association: {e!s}"
-            )
+            QMessageBox.critical(None, "Error", f"Failed to remove place association: {e!s}")
 
     # =========================================================================
     # Award management
@@ -507,13 +450,9 @@ class RelationshipHelpers:
             return
 
         try:
-            award = self.controller.get.get_entity_object(
-                "Award", award_name=result["award_name"]
-            )
+            award = self.controller.get.get_entity_object("Award", award_name=result["award_name"])
             if not award:
-                award = self.controller.add.add_entity(
-                    "Award", award_name=result["award_name"]
-                )
+                award = self.controller.add.add_entity("Award", award_name=result["award_name"])
 
             self.controller.add.add_entity(
                 "AwardAssociation",
@@ -549,13 +488,9 @@ class RelationshipHelpers:
         """Get list of existing entity names for autocomplete."""
         try:
             entities = self.controller.get.get_all_entities(entity_type)
-            return [
-                getattr(e, name_field) for e in entities if getattr(e, name_field, None)
-            ]
+            return [getattr(e, name_field) for e in entities if getattr(e, name_field, None)]
         except SQLAlchemyError as e:
-            logger.warning(
-                f"Failed to load {entity_type} entities for autocomplete: {e}"
-            )
+            logger.warning(f"Failed to load {entity_type} entities for autocomplete: {e}")
             return []
 
 
@@ -653,8 +588,8 @@ class AutocompleteDialog:
     def _get_widget_value(widget):
         if isinstance(widget, QLineEdit):
             return widget.text().strip()
-        elif isinstance(widget, QTextEdit):
+        if isinstance(widget, QTextEdit):
             return widget.toPlainText().strip()
-        elif isinstance(widget, QSpinBox):
+        if isinstance(widget, QSpinBox):
             return widget.value()
         return None

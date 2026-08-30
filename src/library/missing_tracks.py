@@ -1,8 +1,8 @@
 import os
 
-from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
+from src.track.base_track_view import BaseTrackView
 
 
 class MissingTracks:
@@ -52,9 +52,7 @@ class MissingTracks:
             return None
 
         view = BaseTrackView(
-            controller=self.controller,
-            tracks=missing,
-            title=f"Missing Tracks ({len(missing)})",
+            controller=self.controller, tracks=missing, title=f"Missing Tracks ({len(missing)})"
         )
         view.exec()
         return view

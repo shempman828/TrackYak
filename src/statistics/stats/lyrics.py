@@ -12,8 +12,8 @@ uses the same rating validity range as the rest of the ratings stats
 lyricized, validly-rated tracks.
 """
 
-import re
 from collections import Counter
+import re
 
 from src.db.db_tables import Track
 from src.statistics.stats.helpers import RATING_MAX, RATING_MIN
@@ -36,25 +36,225 @@ _WORD_RE = re.compile(r"[a-zA-Z']+")
 # fts_query.py's 21-word title-matching list, since lyrics are full
 # natural-language text, not search titles.
 STOPWORDS = frozenset(
-    """
-    a about above after again against ain all am an and any are aren aren't
-    as at back be because been before being below between both but by
-    came can can't cannot come could couldn't did didn't do does doesn't
-    doing don don't down during each few for from further get gets go
-    goes going gonna gotta had hadn't has hasn't have haven't having he
-    he'd he'll he's her here here's hers herself him himself his how
-    how's i i'd i'll i'm i've if in into is isn't it it's its itself
-    just know let let's like ll ma me more most mustn't my myself never
-    no nor not now of off on once only or other ought our ours ourselves
-    out over own re s same shan't she she'd she'll she's should shouldn't
-    so some such t than that that's the their theirs them themselves
-    then there there's these they they'd they'll they're they've this
-    those through to too under until up ve very was wasn't we we'd
-    we'll we're we've were weren't what what's when when's where where's
-    which while who who's whom why why's will with won't would wouldn't
-    yeah yes you you'd you'll you're you've your yours yourself
-    yourselves ooh oh uh la na whoa ah hey mm mmm gon wanna oohh ohh
-    """.split()
+    [
+        "a",
+        "about",
+        "above",
+        "after",
+        "again",
+        "against",
+        "ain",
+        "all",
+        "am",
+        "an",
+        "and",
+        "any",
+        "are",
+        "aren",
+        "aren't",
+        "as",
+        "at",
+        "back",
+        "be",
+        "because",
+        "been",
+        "before",
+        "being",
+        "below",
+        "between",
+        "both",
+        "but",
+        "by",
+        "came",
+        "can",
+        "can't",
+        "cannot",
+        "come",
+        "could",
+        "couldn't",
+        "did",
+        "didn't",
+        "do",
+        "does",
+        "doesn't",
+        "doing",
+        "don",
+        "don't",
+        "down",
+        "during",
+        "each",
+        "few",
+        "for",
+        "from",
+        "further",
+        "get",
+        "gets",
+        "go",
+        "goes",
+        "going",
+        "gonna",
+        "gotta",
+        "had",
+        "hadn't",
+        "has",
+        "hasn't",
+        "have",
+        "haven't",
+        "having",
+        "he",
+        "he'd",
+        "he'll",
+        "he's",
+        "her",
+        "here",
+        "here's",
+        "hers",
+        "herself",
+        "him",
+        "himself",
+        "his",
+        "how",
+        "how's",
+        "i",
+        "i'd",
+        "i'll",
+        "i'm",
+        "i've",
+        "if",
+        "in",
+        "into",
+        "is",
+        "isn't",
+        "it",
+        "it's",
+        "its",
+        "itself",
+        "just",
+        "know",
+        "let",
+        "let's",
+        "like",
+        "ll",
+        "ma",
+        "me",
+        "more",
+        "most",
+        "mustn't",
+        "my",
+        "myself",
+        "never",
+        "no",
+        "nor",
+        "not",
+        "now",
+        "of",
+        "off",
+        "on",
+        "once",
+        "only",
+        "or",
+        "other",
+        "ought",
+        "our",
+        "ours",
+        "ourselves",
+        "out",
+        "over",
+        "own",
+        "re",
+        "s",
+        "same",
+        "shan't",
+        "she",
+        "she'd",
+        "she'll",
+        "she's",
+        "should",
+        "shouldn't",
+        "so",
+        "some",
+        "such",
+        "t",
+        "than",
+        "that",
+        "that's",
+        "the",
+        "their",
+        "theirs",
+        "them",
+        "themselves",
+        "then",
+        "there",
+        "there's",
+        "these",
+        "they",
+        "they'd",
+        "they'll",
+        "they're",
+        "they've",
+        "this",
+        "those",
+        "through",
+        "to",
+        "too",
+        "under",
+        "until",
+        "up",
+        "ve",
+        "very",
+        "was",
+        "wasn't",
+        "we",
+        "we'd",
+        "we'll",
+        "we're",
+        "we've",
+        "were",
+        "weren't",
+        "what",
+        "what's",
+        "when",
+        "when's",
+        "where",
+        "where's",
+        "which",
+        "while",
+        "who",
+        "who's",
+        "whom",
+        "why",
+        "why's",
+        "will",
+        "with",
+        "won't",
+        "would",
+        "wouldn't",
+        "yeah",
+        "yes",
+        "you",
+        "you'd",
+        "you'll",
+        "you're",
+        "you've",
+        "your",
+        "yours",
+        "yourself",
+        "yourselves",
+        "ooh",
+        "oh",
+        "uh",
+        "la",
+        "na",
+        "whoa",
+        "ah",
+        "hey",
+        "mm",
+        "mmm",
+        "gon",
+        "wanna",
+        "oohh",
+        "ohh",
+    ]
 )
 
 
@@ -119,9 +319,7 @@ class LyricsStats:
             token_counts.update(words)
             doc_counts.update(set(words))
 
-        eligible = [
-            word for word, n in doc_counts.items() if n >= WORD_CLOUD_MIN_TRACKS
-        ]
+        eligible = [word for word, n in doc_counts.items() if n >= WORD_CLOUD_MIN_TRACKS]
         eligible.sort(key=lambda word: token_counts[word], reverse=True)
         return [(word, token_counts[word]) for word in eligible]
 
@@ -185,11 +383,7 @@ class LyricsStats:
 
         ratings = sorted(rating for _lyrics, rating in rated)
         mid = len(ratings) // 2
-        median = (
-            ratings[mid]
-            if len(ratings) % 2
-            else (ratings[mid - 1] + ratings[mid]) / 2
-        )
+        median = ratings[mid] if len(ratings) % 2 else (ratings[mid - 1] + ratings[mid]) / 2
 
         high_docs = Counter()
         low_docs = Counter()
@@ -219,12 +413,8 @@ class LyricsStats:
             skews.append((word, high_frac - low_frac))
 
         skews.sort(key=lambda item: item[1], reverse=True)
-        high = [(word, round(skew, 4)) for word, skew in skews if skew > 0][
+        high = [(word, round(skew, 4)) for word, skew in skews if skew > 0][:WEIGHTED_WORDS_TOP_N]
+        low = [(word, round(-skew, 4)) for word, skew in reversed(skews) if skew < 0][
             :WEIGHTED_WORDS_TOP_N
         ]
-        low = [
-            (word, round(-skew, 4))
-            for word, skew in reversed(skews)
-            if skew < 0
-        ][:WEIGHTED_WORDS_TOP_N]
         return {"high": high, "low": low}

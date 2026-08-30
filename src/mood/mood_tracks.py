@@ -1,8 +1,8 @@
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QDialog
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
+from src.track.base_track_view import BaseTrackView
 
 
 class MoodTracksWindow(QDialog):
@@ -77,9 +77,7 @@ class MoodTracksWindow(QDialog):
 
             tracks = []
             for track_id in track_ids:
-                track = self.controller.get.get_entity_object(
-                    "Track", track_id=track_id
-                )
+                track = self.controller.get.get_entity_object("Track", track_id=track_id)
                 if track:
                     tracks.append(track)
 
@@ -90,7 +88,7 @@ class MoodTracksWindow(QDialog):
             self.track_count_label.setText(result_text)
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error loading tracks for mood: {str(e)}")
+            logger.error(f"Error loading tracks for mood: {e!s}")
             self.track_count_label.setText("Error loading tracks")
 
     def _get_all_descendant_mood_ids(self, mood_id):

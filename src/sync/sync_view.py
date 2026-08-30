@@ -1,5 +1,4 @@
 # sync_view.py
-from typing import List, Optional
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont
@@ -24,10 +23,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.db.db_helpers import Session
 from src.common.style_utils import set_style_property
 from src.core.logger_config import logger
 from src.core.status_utility import StatusManager, show_status_message
+from src.db.db_helpers import Session
 from src.display.display_settings import apply_scaled_style
 from src.sync.device_card import DeviceCard
 from src.sync.mtp_manager import MtpManager, mtp_available
@@ -36,7 +35,6 @@ from src.sync.sync_manager import SyncManager
 from src.sync.sync_profile import SyncProfile, SyncProfileStore
 from src.sync.sync_selection_mixin import SyncSelectionMixin
 from src.sync.sync_worker import SyncWorker
-
 
 # ---------------------------------------------------------------------------
 # SyncView — main view
@@ -72,11 +70,11 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.profile_store = SyncProfileStore()
         self.mtp_manager = MtpManager()
 
-        self.profiles: List[SyncProfile] = []
-        self.current_profile: Optional[SyncProfile] = None
-        self.cards: List[DeviceCard] = []
-        self.selected_card: Optional[DeviceCard] = None
-        self.sync_worker: Optional[SyncWorker] = None
+        self.profiles: list[SyncProfile] = []
+        self.current_profile: SyncProfile | None = None
+        self.cards: list[DeviceCard] = []
+        self.selected_card: DeviceCard | None = None
+        self.sync_worker: SyncWorker | None = None
         self.status_manager = StatusManager
 
         # Periodic MTP poll (every 5 s) to update connection badges
@@ -330,8 +328,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         options_layout = QVBoxLayout(options_group)
 
         self.clear_before_sync_check = QCheckBox(
-            "Clear destination before syncing  "
-            "(removes existing music and playlist folders first)"
+            "Clear destination before syncing  (removes existing music and playlist folders first)"
         )
         self.clear_before_sync_check.toggled.connect(self._on_option_changed)
         options_layout.addWidget(self.clear_before_sync_check)
@@ -437,7 +434,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self._load_profile_into_ui()
         self._update_sync_button_state()
 
-    def _find_card_for_profile(self, profile: SyncProfile) -> Optional[DeviceCard]:
+    def _find_card_for_profile(self, profile: SyncProfile) -> DeviceCard | None:
         for card in self.cards:
             if card.profile is profile:
                 return card
@@ -458,11 +455,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         name, ok = QInputDialog.getText(self, "New Profile", "Profile name:")
         if not ok or not name.strip():
             return
-        profile = SyncProfile(
-            name=name.strip(),
-            path="",
-            music_path=MtpManager.DEFAULT_MUSIC_PATH,
-        )
+        profile = SyncProfile(name=name.strip(), path="", music_path=MtpManager.DEFAULT_MUSIC_PATH)
         self.profiles.append(profile)
         self.profile_store.save(self.profiles)
         self._rebuild_cards()
@@ -549,17 +542,12 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         if self.current_profile.device_uri:
             # Try to get a friendly name from live MTP devices
             devices = self.mtp_manager.list_devices() if mtp_available() else []
-            match = next(
-                (d for d in devices if d.uri == self.current_profile.device_uri),
-                None,
-            )
+            match = next((d for d in devices if d.uri == self.current_profile.device_uri), None)
             if match:
                 self.device_label.setText(match.display_name)
                 set_style_property(self.device_label, "linkState", "connected")
             else:
-                name = (
-                    self.current_profile.device_name or self.current_profile.device_uri
-                )
+                name = self.current_profile.device_name or self.current_profile.device_uri
                 self.device_label.setText(f"{name}  (not connected)")
                 set_style_property(self.device_label, "linkState", "idle")
             self.unlink_device_btn.setVisible(True)
@@ -603,9 +591,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
     def _on_option_changed(self):
         if not self.current_profile:
             return
-        self.current_profile.clear_before_sync = (
-            self.clear_before_sync_check.isChecked()
-        )
+        self.current_profile.clear_before_sync = self.clear_before_sync_check.isChecked()
         self.profile_store.save(self.profiles)
 
     def _browse_folder(self):
@@ -618,7 +604,9 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
             QFileDialog.ShowDirsOnly,
         )
         if folder:
-            logger.info(f"Sync destination folder set to '{folder}' for profile '{self.current_profile.name}'")
+            logger.info(
+                f"Sync destination folder set to '{folder}' for profile '{self.current_profile.name}'"
+            )
             self.current_profile.path = folder
             self.folder_label.setText(folder)
             set_style_property(self.folder_label, "textRole", None)
@@ -641,9 +629,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
             return
 
         options = [d.display_name for d in devices]
-        choice, ok = QInputDialog.getItem(
-            self, "Link Device", "Select device:", options, 0, False
-        )
+        choice, ok = QInputDialog.getItem(self, "Link Device", "Select device:", options, 0, False)
         if not ok:
             return
 
@@ -712,8 +698,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
 
         if not new_devices:
             show_status_message(
-                self,
-                f"{len(devices)} device(s) connected — all already have profiles.",
+                self, f"{len(devices)} device(s) connected — all already have profiles."
             )
             return
 
@@ -722,8 +707,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
             reply = QMessageBox.question(
                 self,
                 "New Device Found",
-                f"Found: {device.display_name}\n\n"
-                "Create a sync profile for this device?",
+                f"Found: {device.display_name}\n\nCreate a sync profile for this device?",
                 QMessageBox.Yes | QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
@@ -752,4 +736,3 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
                     card.set_connected(card.profile.device_uri in connected_uris)
         except RuntimeError as e:
             logger.warning(f"Failed to poll MTP devices: {e}")
-

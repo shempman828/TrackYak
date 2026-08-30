@@ -26,9 +26,7 @@ def get_valid_parents(controller, genre):
     children_ids = set()
     if genre.genre_id:
         # Get direct children
-        direct_children = controller.get.get_all_entities(
-            "Genre", parent_id=genre.genre_id
-        )
+        direct_children = controller.get.get_all_entities("Genre", parent_id=genre.genre_id)
         children_ids.update(child.genre_id for child in direct_children)
 
         # For a more thorough exclusion, you could recursively get all descendants
@@ -92,11 +90,7 @@ class GenreEditDialog(QDialog):
             self.setMinimumSize(420, 420)
             layout.addRow(QLabel("Aliases:"))
             self.tab_aliases = EntityAliasesTab(
-                self.controller,
-                self.genre,
-                "Genre",
-                "genre_id",
-                placeholder="e.g. Film Scores",
+                self.controller, self.genre, "Genre", "genre_id", placeholder="e.g. Film Scores"
             )
             layout.addRow(self.tab_aliases)
 
@@ -133,7 +127,7 @@ class GenreEditDialog(QDialog):
                     logger.debug(f"Added to combo: {g.genre_name} (ID: {g.genre_id})")
 
             except SQLAlchemyError as e:
-                logger.error(f"Error loading valid parents: {str(e)}")
+                logger.error(f"Error loading valid parents: {e!s}")
                 QMessageBox.warning(self, "Error", "Could not load parent options")
 
             # Pre-select current parent
@@ -177,7 +171,7 @@ class GenreEditDialog(QDialog):
                 )
             self.accept()
         except SQLAlchemyError as e:
-            QMessageBox.critical(self, "Error", f"Failed to save genre: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to save genre: {e!s}")
 
 
 class GenreSetParentDialog(QDialog):
@@ -221,9 +215,7 @@ class GenreSetParentDialog(QDialog):
             for g in all_genres:
                 if g.genre_id in invalid_ids:
                     continue
-                if is_hierarchy_descendant(
-                    genre_id, g.genre_id, all_genres, id_attr="genre_id"
-                ):
+                if is_hierarchy_descendant(genre_id, g.genre_id, all_genres, id_attr="genre_id"):
                     invalid_ids.add(g.genre_id)
 
         valid_parents = [g for g in all_genres if g.genre_id not in invalid_ids]
@@ -244,9 +236,7 @@ class GenreSetParentDialog(QDialog):
         parent_id = self.parent_combo.currentData()
         try:
             for genre in self.genres:
-                self.controller.update.update_entity(
-                    "Genre", genre.genre_id, parent_id=parent_id
-                )
+                self.controller.update.update_entity("Genre", genre.genre_id, parent_id=parent_id)
             self.accept()
         except SQLAlchemyError as e:
-            QMessageBox.critical(self, "Error", f"Failed to set parent: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to set parent: {e!s}")

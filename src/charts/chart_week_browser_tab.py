@@ -6,7 +6,6 @@ result set (~100-200 rows), so the query runs synchronously off
 controller.get -- no worker needed, unlike the bulk import/matching passes.
 """
 
-
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from sqlalchemy import select
 

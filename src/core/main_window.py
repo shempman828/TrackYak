@@ -2,8 +2,8 @@
 Main GUI application for the Music Library manager using PySide6.
 """
 
-import traceback
 from pathlib import Path
+import traceback
 
 from PySide6.QtCore import QPoint, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence
@@ -22,28 +22,28 @@ from sqlalchemy.exc import SQLAlchemyError
 #    one entry to _VIEW_FACTORIES inside _create_views(). ─────────────────
 from src.album.album_view import AlbumView
 from src.artist.artist_view import ArtistView
-from src.core.asset_paths import icon, resolve_theme_assets, theme
 from src.award.award_view import AwardView
 from src.charts.charts_view import ChartsView
+from src.core.asset_paths import icon, resolve_theme_assets, theme
 from src.core.config_setup import app_config
+from src.core.logger_config import logger
+from src.core.menu_bar import MenuBar
+from src.core.navigation_dock import NavigationDock
+from src.core.status_utility import StatusManager
+from src.core.status_widget import StatusBarWidget
 from src.dates.dates_view import TimelineView
 from src.file_management.file_manager_dialog import FileManager
 from src.genre.genre_view import GenreView
 from src.importing.import_dialog import ImportDialog
 from src.influences.influences_view import InfluencesView
-from src.core.logger_config import logger
-from src.core.menu_bar import MenuBar
 from src.mood.moods_view import MoodView
-from src.core.navigation_dock import NavigationDock
 from src.nowplaying.nowplaying_view import NowPlayingView
 from src.place.place_view import PlaceView
 from src.player.player_dock import PlayerUI
+from src.player.queue_dock import QueueDockWidget
 from src.playlist.playlist_view import PlaylistView
 from src.publisher.publisher_view import PublisherView
-from src.player.queue_dock import QueueDockWidget
 from src.role.role_view import RoleView
-from src.core.status_utility import StatusManager
-from src.core.status_widget import StatusBarWidget
 from src.sync.sync_view import SyncView
 from src.track.track_view import TrackView
 
@@ -66,9 +66,7 @@ class GUI(QMainWindow, MenuBar):
         self.import_worker = None
 
         self.mediaplayer.track_changed.connect(self.update_now_playing_view)
-        self.mediaplayer.error_occurred.connect(
-            lambda msg: StatusManager.show_message(msg, 6000)
-        )
+        self.mediaplayer.error_occurred.connect(lambda msg: StatusManager.show_message(msg, 6000))
         self._init_ui()
         self._init_status_system()
 
@@ -319,7 +317,7 @@ class GUI(QMainWindow, MenuBar):
 
             logger.info("All built views refreshed successfully")
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Refresh error: {str(e)}")
+            logger.error(f"Refresh error: {e!s}")
 
     # =========================================================================
     #  Now Playing
@@ -328,9 +326,7 @@ class GUI(QMainWindow, MenuBar):
     def update_now_playing_view(self, file_path: Path):
         try:
             logger.info(f"Updating now playing view for: {file_path}")
-            track = self.controller.get.get_entity_object(
-                "Track", track_file_path=str(file_path)
-            )
+            track = self.controller.get.get_entity_object("Track", track_file_path=str(file_path))
             if track:
                 self.now_playing.updateUI(track)
             else:
@@ -388,9 +384,7 @@ class GUI(QMainWindow, MenuBar):
         self.queue_dock.setMinimumWidth(300)
         self.queue_dock.setMaximumWidth(500)
         self.addDockWidget(Qt.RightDockWidgetArea, self.queue_dock)
-        self.queue_widget.track_double_clicked.connect(
-            self._on_queue_track_double_clicked
-        )
+        self.queue_widget.track_double_clicked.connect(self._on_queue_track_double_clicked)
         self.queue_dock.hide()
         logger.info("Queue dock created and hidden by default")
 
@@ -451,13 +445,13 @@ class GUI(QMainWindow, MenuBar):
             theme_file = app_config.get_theme_file()
             theme_path = app_config.get_theme_path(theme_file)
             if theme_path.exists():
-                with open(theme_path, "r", encoding="utf-8") as f:
+                with open(theme_path, encoding="utf-8") as f:
                     QApplication.instance().setStyleSheet(resolve_theme_assets(f.read()))
                 logger.debug(f"Theme applied: {theme_file}")
             else:
                 default_theme = theme("dark_mode.qss")
                 if Path(default_theme).exists():
-                    with open(default_theme, "r", encoding="utf-8") as f:
+                    with open(default_theme, encoding="utf-8") as f:
                         QApplication.instance().setStyleSheet(resolve_theme_assets(f.read()))
                     logger.debug("Fallback theme applied")
                 else:
@@ -481,9 +475,7 @@ class GUI(QMainWindow, MenuBar):
             try:
                 self.restoreState(window_state)
                 logger.debug("Window state restored successfully")
-                QTimer.singleShot(
-                    40, self.navigation_dock.ensure_proper_navigation_size
-                )
+                QTimer.singleShot(40, self.navigation_dock.ensure_proper_navigation_size)
             except RuntimeError as e:
                 logger.warning(f"Failed to restore window state: {e}")
                 QTimer.singleShot(40, self.navigation_dock.size_navigation_to_content)
@@ -502,16 +494,11 @@ class GUI(QMainWindow, MenuBar):
             if not safe_rect.contains(window_geometry):
                 new_x = max(
                     safe_rect.left(),
-                    min(
-                        window_geometry.x(), safe_rect.right() - window_geometry.width()
-                    ),
+                    min(window_geometry.x(), safe_rect.right() - window_geometry.width()),
                 )
                 new_y = max(
                     safe_rect.top(),
-                    min(
-                        window_geometry.y(),
-                        safe_rect.bottom() - window_geometry.height(),
-                    ),
+                    min(window_geometry.y(), safe_rect.bottom() - window_geometry.height()),
                 )
                 self.move(new_x, new_y)
                 logger.debug("Adjusted window position to stay within safe screen area")
@@ -523,14 +510,8 @@ class GUI(QMainWindow, MenuBar):
         try:
             default_size = app_config.get_window_size()
             default_pos = app_config.get_window_position()
-            self.resize(
-                QSize(*default_size)
-                if isinstance(default_size, tuple)
-                else default_size
-            )
-            self.move(
-                QPoint(*default_pos) if isinstance(default_pos, tuple) else default_pos
-            )
+            self.resize(QSize(*default_size) if isinstance(default_size, tuple) else default_size)
+            self.move(QPoint(*default_pos) if isinstance(default_pos, tuple) else default_pos)
         except (TypeError, RuntimeError):
             logger.exception("Failed to apply window size/position, using defaults")
             self.resize(1280, 720)
@@ -552,9 +533,7 @@ class GUI(QMainWindow, MenuBar):
                 if expand_method and hasattr(dock, expand_method):
                     getattr(dock, expand_method)()
                 dock.show()
-                if attr_name == "queue_dock" and not getattr(
-                    app_config, "queue_visible", True
-                ):
+                if attr_name == "queue_dock" and not getattr(app_config, "queue_visible", True):
                     dock.hide()
                 if attr_name == "queue_dock" and hasattr(self, "toggle_queue_action"):
                     self.toggle_queue_action.setChecked(dock.isVisible())
@@ -566,8 +545,7 @@ class GUI(QMainWindow, MenuBar):
         if not getattr(self, "player_ui", None):
             self._create_player()
         player_dock = next(
-            (d for d in self.findChildren(QDockWidget) if d.widget() == self.player_ui),
-            None,
+            (d for d in self.findChildren(QDockWidget) if d.widget() == self.player_ui), None
         )
         if player_dock:
             player_dock.setFloating(False)

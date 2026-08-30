@@ -1,10 +1,9 @@
 import re
-from typing import List, Tuple
 
 _TS_RE = re.compile(r"^\[(\d{1,2}):(\d{2})(?:[.,](\d+))?\](.*)")
 
 
-def parse_lyrics(raw: str) -> Tuple[bool, List[Tuple[int, str]]]:
+def parse_lyrics(raw: str) -> tuple[bool, list[tuple[int, str]]]:
     """
     Parse raw lyrics string.
 
@@ -36,7 +35,7 @@ def parse_lyrics(raw: str) -> Tuple[bool, List[Tuple[int, str]]]:
     return is_synced, lines
 
 
-def active_index(lines: List[Tuple[int, str]], position_ms: int) -> int:
+def active_index(lines: list[tuple[int, str]], position_ms: int) -> int:
     """Return the index of the line that should be shown at position_ms."""
     idx = 0
     for i, (ts, _) in enumerate(lines):

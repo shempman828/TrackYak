@@ -19,10 +19,8 @@ Kept free of PySide6/SQLAlchemy imports so it's cheap to import in a spawned
 worker process.
 """
 
-from typing import Dict, List, Tuple
-
-import numpy as np
 from acoustid import MAX_ALIGN_OFFSET, MAX_BIT_ERROR
+import numpy as np
 
 
 def fast_match_fingerprints(a: np.ndarray, b: np.ndarray) -> float:
@@ -45,10 +43,8 @@ def fast_match_fingerprints(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def score_fingerprint_batch(
-    fingerprints: Dict[int, np.ndarray],
-    pairs: List[Tuple[int, int]],
-    threshold: float,
-) -> List[Tuple[int, int]]:
+    fingerprints: dict[int, np.ndarray], pairs: list[tuple[int, int]], threshold: float
+) -> list[tuple[int, int]]:
     """Run inside a worker process: score every (i, j) pair and return only
     the ones meeting the threshold, so scores (not just matches) never need
     to cross back over the process boundary."""

@@ -1,7 +1,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # Tab: Places & Awards
 # ══════════════════════════════════════════════════════════════════════════════
-from PySide6.QtCore import Qt, QStringListModel
+from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -120,8 +120,7 @@ class PlacesAwardsTab(QWidget):
         places_grp = QGroupBox("Associated Places")
         pl_layout = QVBoxLayout(places_grp)
         self.places_table = _make_table(
-            ["Place Name", "Association Type", "Place Type", "Region/Country"],
-            editable=False,
+            ["Place Name", "Association Type", "Place Type", "Region/Country"], editable=False
         )
         pl_layout.addWidget(self.places_table)
         place_help = QLabel(
@@ -146,9 +145,7 @@ class PlacesAwardsTab(QWidget):
         self.new_place_edit.textEdited.connect(self._on_place_text_edited)
 
         self.new_place_assoc_edit = QLineEdit()
-        self.new_place_assoc_edit.setPlaceholderText(
-            "Relationship (e.g. Birthplace, Hometown)"
-        )
+        self.new_place_assoc_edit.setPlaceholderText("Relationship (e.g. Birthplace, Hometown)")
         self._assoc_type_completer = QCompleter(
             [t.type_name for t in fetch_association_types(self.controller)]
         )
@@ -173,9 +170,7 @@ class PlacesAwardsTab(QWidget):
         # ── Awards ──────────────────────────────────────────────────────────
         awards_grp = QGroupBox("Awards")
         aw_layout = QVBoxLayout(awards_grp)
-        self.awards_table = _make_table(
-            ["Award Name", "Category", "Year"], editable=False
-        )
+        self.awards_table = _make_table(["Award Name", "Category", "Year"], editable=False)
         aw_layout.addWidget(self.awards_table)
         award_help = QLabel(
             "You can type a new award name — it will be created automatically if it doesn't exist yet."
@@ -211,9 +206,7 @@ class PlacesAwardsTab(QWidget):
         assocs_loaded = False
         try:
             place_assocs = self.controller.get.get_all_entities(
-                "PlaceAssociation",
-                entity_id=self.artist.artist_id,
-                entity_type="Artist",
+                "PlaceAssociation", entity_id=self.artist.artist_id, entity_type="Artist"
             )
             if place_assocs is not None:
                 for assoc in place_assocs:
@@ -223,9 +216,7 @@ class PlacesAwardsTab(QWidget):
                         self.places_table,
                         [
                             assoc.place.place_name,
-                            assoc.association_type.type_name
-                            if assoc.association_type
-                            else "",
+                            assoc.association_type.type_name if assoc.association_type else "",
                             assoc.place.place_type or "",
                             _parent_place_name(assoc.place),
                         ],
@@ -238,12 +229,7 @@ class PlacesAwardsTab(QWidget):
             for place in getattr(self.artist, "places", []):
                 _append_row(
                     self.places_table,
-                    [
-                        place.place_name,
-                        "",
-                        place.place_type or "",
-                        _parent_place_name(place),
-                    ],
+                    [place.place_name, "", place.place_type or "", _parent_place_name(place)],
                     user_data=place.place_id,
                 )
 
@@ -252,9 +238,7 @@ class PlacesAwardsTab(QWidget):
         assocs_loaded = False
         try:
             award_assocs = self.controller.get.get_all_entities(
-                "AwardAssociation",
-                entity_id=self.artist.artist_id,
-                entity_type="Artist",
+                "AwardAssociation", entity_id=self.artist.artist_id, entity_type="Artist"
             )
             if award_assocs is not None:
                 for assoc in award_assocs:
@@ -276,11 +260,7 @@ class PlacesAwardsTab(QWidget):
             for award in getattr(self.artist, "awards", []):
                 _append_row(
                     self.awards_table,
-                    [
-                        award.award_name,
-                        award.award_category or "",
-                        award.award_year or "",
-                    ],
+                    [award.award_name, award.award_category or "", award.award_year or ""],
                     user_data=award.award_id,
                 )
 
@@ -292,8 +272,7 @@ class PlacesAwardsTab(QWidget):
         association_type = self.new_place_assoc_edit.text().strip()
         if not association_type:
             show_status_message(
-                self,
-                "Please enter the relationship type (e.g. Birthplace, Hometown).",
+                self, "Please enter the relationship type (e.g. Birthplace, Hometown)."
             )
             return
 
@@ -323,9 +302,7 @@ class PlacesAwardsTab(QWidget):
                 entity_id=self.artist.artist_id,
                 entity_type="Artist",
                 place_id=place.place_id,
-                association_type_id=assoc_type_obj.association_type_id
-                if assoc_type_obj
-                else None,
+                association_type_id=assoc_type_obj.association_type_id if assoc_type_obj else None,
             )
         except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not link place:\n{e}")

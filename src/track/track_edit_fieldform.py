@@ -47,14 +47,8 @@ def _make_widget_for_field(field_name: str, field_config, on_change_cb):
         # the user a way to clear it back to NULL rather than being stuck
         # with whatever number is left in a plain QSpinBox.
         w = create_nullable_int_field(
-            min_val=(
-                int(field_config.min)
-                if field_config.min is not None
-                else -2_147_483_648
-            ),
-            max_val=(
-                int(field_config.max) if field_config.max is not None else 2_147_483_647
-            ),
+            min_val=(int(field_config.min) if field_config.min is not None else -2_147_483_648),
+            max_val=(int(field_config.max) if field_config.max is not None else 2_147_483_647),
         )
         w.textChanged.connect(lambda _t, fn=field_name: on_change_cb(fn))
     elif field_config.type == float:
@@ -74,9 +68,7 @@ def _make_widget_for_field(field_name: str, field_config, on_change_cb):
         if field_config.length:
             w.setMaxLength(field_config.length)
             if field_config.length <= 4:
-                w.setMaximumWidth(
-                    w.fontMetrics().horizontalAdvance("W" * field_config.length) + 24
-                )
+                w.setMaximumWidth(w.fontMetrics().horizontalAdvance("W" * field_config.length) + 24)
         w.textChanged.connect(lambda _t, fn=field_name: on_change_cb(fn))
     return w
 
@@ -133,9 +125,7 @@ def _coerce(value, field_config) -> Any:
         if field_config.type == bool:
             return bool(value)
     except (ValueError, TypeError) as e:
-        logger.warning(
-            f"Failed to coerce value {value!r} for field '{field_config.friendly}': {e}"
-        )
+        logger.warning(f"Failed to coerce value {value!r} for field '{field_config.friendly}': {e}")
         return None
     return value
 
@@ -198,11 +188,7 @@ class FieldFormTab(_BaseTab):
         layout = QFormLayout(self)
         layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
-        fields = {
-            name: cfg
-            for name, cfg in TRACK_FIELDS.items()
-            if cfg.category == self.category
-        }
+        fields = {name: cfg for name, cfg in TRACK_FIELDS.items() if cfg.category == self.category}
 
         if self.is_multi:
             note = QLabel("⚠  Changes will apply to all selected tracks.")
@@ -219,19 +205,14 @@ class FieldFormTab(_BaseTab):
                 current_section = cfg.section
                 layout.addRow(self._make_section_header(current_section))
 
-            partner_names = [
-                n for n in self._ROW_GROUPS.get(field_name, []) if n in fields
-            ]
+            partner_names = [n for n in self._ROW_GROUPS.get(field_name, []) if n in fields]
             if partner_names:
                 skip.update(partner_names)
                 rows = [
                     row
                     for row in (
                         self._make_row_field(field_name, cfg),
-                        *(
-                            self._make_row_field(name, fields[name])
-                            for name in partner_names
-                        ),
+                        *(self._make_row_field(name, fields[name]) for name in partner_names),
                     )
                     if row is not None
                 ]
@@ -325,9 +306,7 @@ class FieldFormTab(_BaseTab):
             for field_name, lbl in self._labels.items():
                 cfg = TRACK_FIELDS.get(field_name)
                 lbl.setText(
-                    _format_readonly(
-                        getattr(self.track, field_name, None), cfg, field_name
-                    )
+                    _format_readonly(getattr(self.track, field_name, None), cfg, field_name)
                 )
 
     def set_if_empty(self, values: dict[str, Any]) -> None:

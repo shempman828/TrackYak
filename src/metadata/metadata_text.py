@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from src.core.logger_config import logger
 from src.metadata.metadata_mapping import (
@@ -42,7 +42,7 @@ from src.metadata.metadata_mapping import (
 )
 
 
-def format_track_number(track: Any) -> Optional[str]:
+def format_track_number(track: Any) -> str | None:
     """Build the track-number string to write to file metadata. When the
     track has a vinyl side (e.g. "B"), it's prefixed onto the number
     (side "B" + track_number 1 -> "B1"), matching how records are labeled.
@@ -57,7 +57,7 @@ def format_track_number(track: Any) -> Optional[str]:
     return str(track_number)
 
 
-def build_iso_date_string(entity: Any, fields: List[str]) -> Optional[str]:
+def build_iso_date_string(entity: Any, fields: list[str]) -> str | None:
     """Build a YYYY[-MM[-DD]] date string from up to 3 year/month/day DB
     columns on `entity`, named by `fields` (year field first, then month,
     then day). Stops at the first missing/falsy field, so a year-only or
@@ -79,11 +79,11 @@ def build_iso_date_string(entity: Any, fields: List[str]) -> Optional[str]:
 
 
 def group_artists_by_tag(
-    artist_role_data: List[Dict[str, Any]],
-    role_to_tag: Dict[str, str],
-    id_tag_map: Dict[str, str],
+    artist_role_data: list[dict[str, Any]],
+    role_to_tag: dict[str, str],
+    id_tag_map: dict[str, str],
     dedupe: bool = False,
-) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     """Group artist-role dicts (each with "role" -> object with .role_name,
     "credited_name", and optional "artist_mbid") by output tag/frame id,
     using `role_to_tag` to map role name -> tag. Returns
@@ -98,8 +98,8 @@ def group_artists_by_tag(
     lets duplicates show up as repeated segments in that joined text,
     matching its pre-consolidation behavior.
     """
-    names_by_tag: Dict[str, List[str]] = {}
-    mbids_by_tag: Dict[str, List[str]] = {}
+    names_by_tag: dict[str, list[str]] = {}
+    mbids_by_tag: dict[str, list[str]] = {}
 
     for artist_data in artist_role_data:
         role_name = artist_data["role"].role_name
@@ -203,7 +203,7 @@ class TextMetadataExtractor:
         "wav": WAV_DATE_MAPPINGS,
     }
 
-    def __init__(self, filepath: str, file_extension: str, raw_tags: Dict[str, Any]):
+    def __init__(self, filepath: str, file_extension: str, raw_tags: dict[str, Any]):
         self.filepath = filepath
         self.file_extension = file_extension.lower().lstrip(".")
         self.raw_tags = raw_tags
@@ -213,14 +213,12 @@ class TextMetadataExtractor:
         """Determine the metadata format based on file extension."""
         return self.FILE_FORMAT_MAPPING.get(self.file_extension, "unknown")
 
-    def extract_metadata(self) -> Dict[str, List[Dict[str, Any]]]:
+    def extract_metadata(self) -> dict[str, list[dict[str, Any]]]:
         """
         Extract and normalize metadata from raw tags.
         """
         if self.format_type not in self.TRACK_MAPPINGS_BY_FORMAT:
-            logger.warning(
-                f"Unsupported file format: {self.format_type} for {self.filepath}"
-            )
+            logger.warning(f"Unsupported file format: {self.format_type} for {self.filepath}")
             return {}
 
         normalized_data = {}
@@ -254,7 +252,7 @@ class TextMetadataExtractor:
         return normalized_data
 
     def _process_simple_mappings_with_filter(
-        self, normalized_data: Dict[str, List[Dict[str, Any]]]
+        self, normalized_data: dict[str, list[dict[str, Any]]]
     ):
         """Process simple mappings but filter out already-processed PERFORMER tags."""
         mapping_sets = [
@@ -278,7 +276,7 @@ class TextMetadataExtractor:
                         self._add_normalized_field(normalized_data, mapping, value)
 
     def _process_artist_mappings_with_filter(
-        self, normalized_data: Dict[str, List[Dict[str, Any]]]
+        self, normalized_data: dict[str, list[dict[str, Any]]]
     ):
         """Process artist mappings but filter out already-processed PERFORMER tags."""
         artist_mappings = self.ARTIST_MAPPINGS_BY_FORMAT[self.format_type]
@@ -323,9 +321,7 @@ class TextMetadataExtractor:
                         normalized_data[entity] = []
                     normalized_data[entity].append(field_data)
 
-    def _process_special_mappings(
-        self, normalized_data: Dict[str, List[Dict[str, Any]]]
-    ):
+    def _process_special_mappings(self, normalized_data: dict[str, list[dict[str, Any]]]):
         """Process special mappings that require custom parsing."""
         special_mappings = self.SPECIAL_MAPPINGS_BY_FORMAT[self.format_type]
 
@@ -336,11 +332,9 @@ class TextMetadataExtractor:
                     if self.format_type == "id3":
                         self._parse_id3_special_mapping(normalized_data, mapping, value)
                     else:
-                        self._parse_vorbis_special_mapping(
-                            normalized_data, mapping, value
-                        )
+                        self._parse_vorbis_special_mapping(normalized_data, mapping, value)
 
-    def _process_date_mappings(self, normalized_data: Dict[str, List[Dict[str, Any]]]):
+    def _process_date_mappings(self, normalized_data: dict[str, list[dict[str, Any]]]):
         """Process date mappings with proper splitting."""
         date_mappings = self.DATE_MAPPINGS_BY_FORMAT[self.format_type]
 
@@ -351,10 +345,7 @@ class TextMetadataExtractor:
                     self._parse_date_mapping(normalized_data, mapping, value)
 
     def _parse_id3_special_mapping(
-        self,
-        normalized_data: Dict[str, List[Dict[str, Any]]],
-        mapping: Dict[str, Any],
-        value: str,
+        self, normalized_data: dict[str, list[dict[str, Any]]], mapping: dict[str, Any], value: str
     ):
         """Parse ID3 special mappings like TMCL/TIPL."""
         # TMCL/TIPL format: "role1,artist1,role2,artist2,..."
@@ -377,10 +368,7 @@ class TextMetadataExtractor:
                     )
 
     def _parse_vorbis_special_mapping(
-        self,
-        normalized_data: Dict[str, List[Dict[str, Any]]],
-        mapping: Dict[str, Any],
-        value: str,
+        self, normalized_data: dict[str, list[dict[str, Any]]], mapping: dict[str, Any], value: str
     ):
         """Parse Vorbis special mappings like PERFORMER with pattern."""
         if "patterns" in mapping:
@@ -399,20 +387,13 @@ class TextMetadataExtractor:
 
             self._add_normalized_field(
                 normalized_data,
-                {
-                    "field": mapping["artist_field"],
-                    "type": "str",
-                    "entity": mapping["entity"],
-                },
+                {"field": mapping["artist_field"], "type": "str", "entity": mapping["entity"]},
                 artist,
                 additional_data={"role": role},
             )
 
     def _parse_date_mapping(
-        self,
-        normalized_data: Dict[str, List[Dict[str, Any]]],
-        mapping: Dict[str, Any],
-        value: str,
+        self, normalized_data: dict[str, list[dict[str, Any]]], mapping: dict[str, Any], value: str
     ):
         """Parse date mappings into year/month/day components."""
         try:
@@ -436,12 +417,8 @@ class TextMetadataExtractor:
                 # Map parts to field names
                 field_mapping = {
                     0: mapping["fields"][0],  # year field e.g., "release_year"
-                    1: mapping["fields"][1]
-                    if len(mapping["fields"]) > 1
-                    else None,  # month field
-                    2: mapping["fields"][2]
-                    if len(mapping["fields"]) > 2
-                    else None,  # day field
+                    1: mapping["fields"][1] if len(mapping["fields"]) > 1 else None,  # month field
+                    2: mapping["fields"][2] if len(mapping["fields"]) > 2 else None,  # day field
                 }
 
                 # Add each component that exists
@@ -456,14 +433,12 @@ class TextMetadataExtractor:
                                 "type": "int",
                                 "entity": mapping["entity"],
                             }
-                            self._add_to_entity(
-                                normalized_data, mapping["entity"], field_data
-                            )
+                            self._add_to_entity(normalized_data, mapping["entity"], field_data)
 
         except KeyError as e:
             logger.warning(f"Error parsing date '{value}': {e}")
 
-    def _get_tag_values(self, tag_key: str) -> List[str]:
+    def _get_tag_values(self, tag_key: str) -> list[str]:
         """Get tag values, handling both single values and lists."""
         value = self.raw_tags[tag_key]
 
@@ -472,15 +447,14 @@ class TextMetadataExtractor:
         if isinstance(value, list):
             # Already a list - process each item
             return [str(v).strip() for v in value if v and str(v).strip()]
-        else:
-            return [str(value)]
+        return [str(value)]
 
     def _add_normalized_field(
         self,
-        normalized_data: Dict[str, List[Dict[str, Any]]],
-        mapping: Dict[str, Any],
+        normalized_data: dict[str, list[dict[str, Any]]],
+        mapping: dict[str, Any],
         value: str,
-        additional_data: Optional[Dict[str, Any]] = None,
+        additional_data: dict[str, Any] | None = None,
     ):
         """Add a normalized field to the output data with type conversion."""
         try:
@@ -501,15 +475,13 @@ class TextMetadataExtractor:
             self._add_to_entity(normalized_data, mapping["entity"], field_data)
 
         except KeyError as e:
-            logger.warning(
-                f"Error processing field {mapping['field']} with value '{value}': {e}"
-            )
+            logger.warning(f"Error processing field {mapping['field']} with value '{value}': {e}")
 
     def _add_to_entity(
         self,
-        normalized_data: Dict[str, List[Dict[str, Any]]],
+        normalized_data: dict[str, list[dict[str, Any]]],
         entity: str,
-        field_data: Dict[str, Any],
+        field_data: dict[str, Any],
     ):
         """Add field data to the appropriate entity list."""
         if entity not in normalized_data:
@@ -521,14 +493,13 @@ class TextMetadataExtractor:
         # Handle both string type names and actual type objects
         if target_type in [int, "int"]:
             return self._safe_int(value)
-        elif target_type in [float, "float"]:
+        if target_type in [float, "float"]:
             return self._safe_float(value)
-        elif target_type in [str, "str"]:
+        if target_type in [str, "str"]:
             return value.strip()
-        else:
-            return value  # Return as-is for unknown types
+        return value  # Return as-is for unknown types
 
-    def _safe_int(self, value: str) -> Optional[int]:
+    def _safe_int(self, value: str) -> int | None:
         """Safely convert to int, returning None on failure."""
         try:
             # Handle common cases like "1/10" by taking first part
@@ -538,7 +509,7 @@ class TextMetadataExtractor:
         except (ValueError, TypeError):
             return None
 
-    def _safe_float(self, value: str) -> Optional[float]:
+    def _safe_float(self, value: str) -> float | None:
         """Safely convert to float, returning None on failure."""
         try:
             if isinstance(value, str):
@@ -563,13 +534,12 @@ class TextMetadataExtractor:
                     return None
 
                 return float(clean_value)
-            else:
-                return float(value)
+            return float(value)
         except (ValueError, TypeError, AttributeError) as e:
             logger.debug(f"Could not convert '{value}' to float: {e}")
             return None
 
-    def _process_performer_tag(self, normalized_data: Dict[str, List[Dict[str, Any]]]):
+    def _process_performer_tag(self, normalized_data: dict[str, list[dict[str, Any]]]):
         """Special handling for PERFORMER tag which can be in multiple formats."""
         if "PERFORMER" not in self.raw_tags:
             return
@@ -600,7 +570,7 @@ class TextMetadataExtractor:
                     normalized_data[entity] = []
                 normalized_data[entity].append(field_data)
 
-    def _parse_performer_value(self, value: str) -> Optional[Tuple[str, str]]:
+    def _parse_performer_value(self, value: str) -> tuple[str, str] | None:
         """Parse performer value using multiple pattern formats.
         Returns (artist_name, role_name) or None if parsing fails.
         """
@@ -616,10 +586,7 @@ class TextMetadataExtractor:
             # 5. Common role abbreviations
             (
                 r"^(?P<artist>.+?)\s*\((?P<abbr>voc|vox|dr|gtr|bass|keys|cond|arr)\)$",
-                lambda m: (
-                    m.group("artist"),
-                    self._expand_abbreviation(m.group("abbr")),
-                ),
+                lambda m: (m.group("artist"), self._expand_abbreviation(m.group("abbr"))),
             ),
             # 6. Just artist name (fallback)
             (r"^(?P<artist>.+)$", lambda m: (m.group("artist"), "Performer")),
@@ -630,8 +597,7 @@ class TextMetadataExtractor:
             if match:
                 if processor:
                     return processor(match)
-                else:
-                    return match.group("artist").strip(), match.group("role").strip()
+                return match.group("artist").strip(), match.group("role").strip()
 
         return None
 
@@ -655,9 +621,7 @@ class TextMetadataExtractor:
         return expansions.get(abbr.lower(), abbr.title())
 
 
-def flatten_text_metadata(
-    text_metadata: Dict[str, List[Dict[str, Any]]],
-) -> Dict[str, Any]:
+def flatten_text_metadata(text_metadata: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     """
     Convert TextMetadataExtractor.extract_metadata()'s grouped-by-entity
     structure into the flat field-name dict the rest of the app (import
@@ -674,10 +638,7 @@ def flatten_text_metadata(
             # Handle different entity types with proper list management
             if entity == "Track":
                 # For track fields, use lists for multi-value capable fields
-                multi_value_track_fields = {
-                    "comment",
-                    "lyrics",
-                }  # Add others as needed
+                multi_value_track_fields = {"comment", "lyrics"}  # Add others as needed
                 if field_name in multi_value_track_fields:
                     if field_name not in flattened:
                         flattened[field_name] = []
@@ -695,9 +656,7 @@ def flatten_text_metadata(
                 # those, or downstream readers looking up the un-doubled
                 # key (e.g. metadata.get("album_language")) never find it.
                 album_field_name = (
-                    field_name
-                    if field_name.startswith("album_")
-                    else f"album_{field_name}"
+                    field_name if field_name.startswith("album_") else f"album_{field_name}"
                 )
                 if field_name in multi_value_album_fields:
                     if album_field_name not in flattened:
@@ -706,9 +665,7 @@ def flatten_text_metadata(
                         flattened[album_field_name] = [flattened[album_field_name]]
                     flattened[album_field_name].append(value)
                 else:
-                    flattened[album_field_name] = (
-                        value  # Single value for most album fields
-                    )
+                    flattened[album_field_name] = value  # Single value for most album fields
 
             elif entity == "Artist":
                 # For artists, handle roles properly
@@ -779,7 +736,7 @@ def flatten_text_metadata(
     ]
 
     # Also add any artist role fields that should be lists
-    artist_role_fields = [key for key in flattened.keys() if key.startswith("artist_")]
+    artist_role_fields = [key for key in flattened if key.startswith("artist_")]
     list_fields.extend(artist_role_fields)
 
     for field in list_fields:

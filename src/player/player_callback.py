@@ -26,9 +26,7 @@ class PlayerCallbackMixin:
             self._finish_pending.set()
             self._track_finished.emit()
 
-    def _audio_callback(
-        self, outdata: np.ndarray, frames: int, time, status, generation: int
-    ):
+    def _audio_callback(self, outdata: np.ndarray, frames: int, time, status, generation: int):
         if status:
             # Don't log here — the callback runs on PortAudio's realtime
             # thread, and a blocking disk write from logger.warning() here

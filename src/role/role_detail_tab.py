@@ -2,18 +2,11 @@ from collections import defaultdict
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import (
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QMenu,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QLabel, QListWidget, QListWidgetItem, QMenu, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
+from src.track.base_track_view import BaseTrackView
 
 
 class RoleDetailTab(QWidget):
@@ -45,9 +38,7 @@ class RoleDetailTab(QWidget):
         self.artist_list = QListWidget()
         # Enable context menu
         self.artist_list.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.artist_list.customContextMenuRequested.connect(
-            self.show_artist_context_menu
-        )
+        self.artist_list.customContextMenuRequested.connect(self.show_artist_context_menu)
 
         layout.addWidget(self.artist_list)
 
@@ -78,15 +69,11 @@ class RoleDetailTab(QWidget):
         try:
             tracks = self._get_artist_tracks_for_role(artist_id)
             if not tracks:
-                logger.info(
-                    f"No tracks found for artist {artist_id} in role {self.role_id}"
-                )
+                logger.info(f"No tracks found for artist {artist_id} in role {self.role_id}")
                 return
 
             # Get artist name for window title
-            artist = self.controller.get.get_entity_object(
-                "Artist", artist_id=artist_id
-            )
+            artist = self.controller.get.get_entity_object("Artist", artist_id=artist_id)
             artist_name = artist.artist_name if artist else f"Artist {artist_id}"
             role_name = self._get_role_name()
 
@@ -105,9 +92,7 @@ class RoleDetailTab(QWidget):
             )
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(
-                f"Error showing tracks for artist {artist_id}: {e}", exc_info=True
-            )
+            logger.error(f"Error showing tracks for artist {artist_id}: {e}", exc_info=True)
 
     def _get_artist_tracks_for_role(self, artist_id):
         """Get all tracks for an artist in the current role, from both album and track assignments."""
@@ -118,18 +103,14 @@ class RoleDetailTab(QWidget):
             # Album roles: get albums where artist has this role, then get tracks from those albums
             album_links = (
                 self.controller.get.get_all_entities(
-                    "AlbumRoleAssociation",
-                    role_id=self.role_id,
-                    artist_id=artist_id,
+                    "AlbumRoleAssociation", role_id=self.role_id, artist_id=artist_id
                 )
                 or []
             )
 
             for link in album_links:
                 album_tracks = (
-                    self.controller.get.get_entity_links(
-                        "AlbumTracks", album_id=link.album_id
-                    )
+                    self.controller.get.get_entity_links("AlbumTracks", album_id=link.album_id)
                     or []
                 )
 
@@ -154,9 +135,7 @@ class RoleDetailTab(QWidget):
             for link in track_links:
                 if link.track_id in seen_track_ids:
                     continue
-                track = self.controller.get.get_entity_object(
-                    "Track", track_id=link.track_id
-                )
+                track = self.controller.get.get_entity_object("Track", track_id=link.track_id)
                 if track:
                     tracks.append(track)
                     seen_track_ids.add(link.track_id)
@@ -182,16 +161,11 @@ class RoleDetailTab(QWidget):
 
         try:
             album_links = (
-                self.controller.get.get_all_entities(
-                    "AlbumRoleAssociation", role_id=self.role_id
-                )
+                self.controller.get.get_all_entities("AlbumRoleAssociation", role_id=self.role_id)
                 or []
             )
             track_links = (
-                self.controller.get.get_all_entities(
-                    "TrackArtistRole", role_id=self.role_id
-                )
-                or []
+                self.controller.get.get_all_entities("TrackArtistRole", role_id=self.role_id) or []
             )
 
             if not album_links and not track_links:
@@ -205,9 +179,7 @@ class RoleDetailTab(QWidget):
 
             def _note_artist(artist_id):
                 if artist_id not in artist_entities:
-                    artist = self.controller.get.get_entity_object(
-                        "Artist", artist_id=artist_id
-                    )
+                    artist = self.controller.get.get_entity_object("Artist", artist_id=artist_id)
                     if artist:
                         artist_entities[artist_id] = artist
 
@@ -238,9 +210,7 @@ class RoleDetailTab(QWidget):
                     )
 
             # Sort by total appearances descending
-            sorted_artists = sorted(
-                artists_display, key=lambda x: x["total"], reverse=True
-            )
+            sorted_artists = sorted(artists_display, key=lambda x: x["total"], reverse=True)
 
             # Display
             for data in sorted_artists:
@@ -256,21 +226,14 @@ class RoleDetailTab(QWidget):
 
                 # Create list item with artist ID stored as data
                 item = QListWidgetItem(item_text)
-                item.setData(
-                    Qt.UserRole, data["artist_id"]
-                )  # Store artist ID for context menu
+                item.setData(Qt.UserRole, data["artist_id"])  # Store artist ID for context menu
                 self.artist_list.addItem(item)
 
                 # Also store in map for quick access if needed
                 self.artist_data_map[data["artist_id"]] = data
 
-            logger.info(
-                f"Loaded {len(sorted_artists)} artists for role {self.role_id}"
-            )
+            logger.info(f"Loaded {len(sorted_artists)} artists for role {self.role_id}")
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(
-                f"Failed to load artist data for role {self.role_id}: {e}",
-                exc_info=True,
-            )
+            logger.error(f"Failed to load artist data for role {self.role_id}: {e}", exc_info=True)
             self.artist_list.addItem("Error loading data.")

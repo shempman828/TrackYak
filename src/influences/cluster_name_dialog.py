@@ -99,9 +99,7 @@ class ClusterNamesDialog(QDialog):
             header.setSpacing(6)
             swatch = QLabel()
             swatch.setFixedSize(12, 12)
-            apply_scaled_style(
-                swatch, f"background-color: {color.name()}; border-radius: 3px;"
-            )
+            apply_scaled_style(swatch, f"background-color: {color.name()}; border-radius: 3px;")
             header.addWidget(swatch)
             header.addWidget(QLabel(f"{count} artist{'s' if count != 1 else ''}"))
             header.addStretch()
@@ -136,9 +134,6 @@ class ClusterNamesDialog(QDialog):
         """Return {level: {community_index: new_name}} for every cluster
         shown, across every level visited in this session."""
         return {
-            level: {
-                community_index: edit.text().strip()
-                for community_index, edit in edits.items()
-            }
+            level: {community_index: edit.text().strip() for community_index, edit in edits.items()}
             for level, edits in self._edits.items()
         }

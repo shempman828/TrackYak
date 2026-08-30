@@ -1,5 +1,5 @@
-import re
 from difflib import SequenceMatcher
+import re
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -58,10 +58,7 @@ _EDITION_TAG_RE = re.compile(
 # Series markers ('Vol. 1', 'Part 2', 'Disc 3', ...) — a strong signal two
 # albums are *different* entries in the same series, even when the rest of
 # the title matches closely.
-_VOLUME_RE = re.compile(
-    r"\b(?:vol(?:ume)?s?|pt|part|disc|disk|book)\.?\s*(\d+)\b",
-    re.IGNORECASE,
-)
+_VOLUME_RE = re.compile(r"\b(?:vol(?:ume)?s?|pt|part|disc|disk|book)\.?\s*(\d+)\b", re.IGNORECASE)
 
 _UNKNOWN_ARTIST_NAMES = {"unknown artist", "unknown", "various", "various artists"}
 
@@ -175,16 +172,14 @@ def score_pair(album_a, album_b) -> float:
     drives most decisions.
     """
     name_s = _name_similarity(
-        getattr(album_a, "album_name", "") or "",
-        getattr(album_b, "album_name", "") or "",
+        getattr(album_a, "album_name", "") or "", getattr(album_b, "album_name", "") or ""
     )
     artist_s = _artist_similarity(
         getattr(album_a, "album_artist_names", "") or "",
         getattr(album_b, "album_artist_names", "") or "",
     )
     year_s = _year_score(
-        getattr(album_a, "release_year", None),
-        getattr(album_b, "release_year", None),
+        getattr(album_a, "release_year", None), getattr(album_b, "release_year", None)
     )
     return name_s * 0.60 + artist_s * 0.30 + year_s * 0.10
 
@@ -325,13 +320,9 @@ class AlbumMergeList(QDialog):
         # --- Results table ---
         self._table = QTableWidget(0, 4)
         self._table.setHorizontalHeaderLabels(["", "Album A", "Match", "Album B"])
-        self._table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeToContents
-        )
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeToContents
-        )
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -405,9 +396,7 @@ class AlbumMergeList(QDialog):
             self._status_label.setText("No duplicates found above threshold.")
             return
 
-        self._status_label.setText(
-            f"{len(pairs)} candidate pair(s) found. Check pairs to merge."
-        )
+        self._status_label.setText(f"{len(pairs)} candidate pair(s) found. Check pairs to merge.")
         self._populate_table(pairs)
         self._select_all_btn.setEnabled(True)
 
@@ -509,10 +498,7 @@ class AlbumMergeList(QDialog):
         """Open AlbumMergeDialog for each pair in sequence, then close."""
         for album_a, album_b in pairs:
             dlg = AlbumMergeDialog(
-                self.controller,
-                preload_source=album_a,
-                preload_target=album_b,
-                parent=self,
+                self.controller, preload_source=album_a, preload_target=album_b, parent=self
             )
             # accept() or reject() both just advance to next pair
             dlg.exec()
@@ -534,9 +520,7 @@ class AlbumMergeDialog(MergeDBDialog):
       - _build_entity_info  : adds artist, year, and track count to the panel
     """
 
-    def __init__(
-        self, controller, parent=None, preload_source=None, preload_target=None
-    ):
+    def __init__(self, controller, parent=None, preload_source=None, preload_target=None):
         super().__init__(
             controller,
             "Album",
@@ -610,11 +594,7 @@ class AlbumMerge:
 
         Returns True if the merge was completed, False if cancelled.
         """
-        dlg = AlbumMergeDialog(
-            self.controller,
-            preload_source=album,
-            parent=parent,
-        )
+        dlg = AlbumMergeDialog(self.controller, preload_source=album, parent=parent)
         return dlg.exec() == QDialog.Accepted
 
     def open_list(self, parent=None):

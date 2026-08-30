@@ -9,7 +9,7 @@ rather than a QPainter widget, since it's an interactive control, not a
 data visualization.
 """
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QPushButton, QWidget

@@ -6,8 +6,8 @@ have to re-inspect every DB field on every open.
 """
 
 import json
-import threading
 from pathlib import Path
+import threading
 
 from src.core.asset_paths import config
 from src.core.logger_config import logger

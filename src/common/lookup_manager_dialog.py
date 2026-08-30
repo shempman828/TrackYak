@@ -11,8 +11,6 @@ button row, add-new-entry flow, delete-selected flow, and name/description
 edit validation are the same shape regardless of which widget holds the rows.
 """
 
-from typing import List, Tuple
-
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -69,7 +67,7 @@ class BaseLookupManagerDialog(QDialog):
     _DELETE_DIALOG_TITLE: str = ""
     _DELETE_INTRO: str = ""
 
-    def __init__(self, controller, title: str, size: Tuple[int, int], parent=None):
+    def __init__(self, controller, title: str, size: tuple[int, int], parent=None):
         super().__init__(parent)
         self.controller = controller
         self.setWindowTitle(title)
@@ -106,7 +104,7 @@ class BaseLookupManagerDialog(QDialog):
     def _load(self):
         raise NotImplementedError
 
-    def _selected_entries(self) -> List[Tuple[int, str, str]]:
+    def _selected_entries(self) -> list[tuple[int, str, str]]:
         raise NotImplementedError
 
     def _fetch_counts(self) -> dict:
@@ -124,9 +122,7 @@ class BaseLookupManagerDialog(QDialog):
     # ── Add ──────────────────────────────────────────────────────────────
 
     def _add(self):
-        name, ok = QInputDialog.getText(
-            self, self._ADD_DIALOG_TITLE, self._ADD_DIALOG_PROMPT
-        )
+        name, ok = QInputDialog.getText(self, self._ADD_DIALOG_TITLE, self._ADD_DIALOG_PROMPT)
         name = name.strip()
         if not ok or not name:
             return
@@ -136,9 +132,7 @@ class BaseLookupManagerDialog(QDialog):
         )
         if existing:
             QMessageBox.warning(
-                self,
-                "Duplicate Name",
-                f"A {self._ENTITY_LABEL} named '{name}' already exists.",
+                self, "Duplicate Name", f"A {self._ENTITY_LABEL} named '{name}' already exists."
             )
             return
 
@@ -153,9 +147,7 @@ class BaseLookupManagerDialog(QDialog):
         discard the bad edit)."""
         new_name = new_name.strip()
         if not new_name:
-            QMessageBox.warning(
-                self, "Invalid Name", f"{self._NAME_EMPTY_LABEL} cannot be empty."
-            )
+            QMessageBox.warning(self, "Invalid Name", f"{self._NAME_EMPTY_LABEL} cannot be empty.")
             self._load()
             return False
 
@@ -164,9 +156,7 @@ class BaseLookupManagerDialog(QDialog):
         )
         if existing and getattr(existing, self._ID_ATTR) != entity_id:
             QMessageBox.warning(
-                self,
-                "Duplicate Name",
-                f"A {self._ENTITY_LABEL} named '{new_name}' already exists.",
+                self, "Duplicate Name", f"A {self._ENTITY_LABEL} named '{new_name}' already exists."
             )
             self._load()
             return False
@@ -186,9 +176,7 @@ class BaseLookupManagerDialog(QDialog):
     def _delete_selected(self):
         entries = self._selected_entries()
         if not entries:
-            QMessageBox.information(
-                self, self._DELETE_DIALOG_TITLE, self._DELETE_SELECT_FIRST_MSG
-            )
+            QMessageBox.information(self, self._DELETE_DIALOG_TITLE, self._DELETE_SELECT_FIRST_MSG)
             return
 
         lines = [f"• {name} ({count} artist(s))" for _id, name, count in entries]
@@ -203,7 +191,5 @@ class BaseLookupManagerDialog(QDialog):
             return
 
         for entity_id, _name, _count in entries:
-            self.controller.delete.delete_entity(
-                self._ENTITY_TYPE, **{self._ID_ATTR: entity_id}
-            )
+            self.controller.delete.delete_entity(self._ENTITY_TYPE, **{self._ID_ATTR: entity_id})
         self._load()

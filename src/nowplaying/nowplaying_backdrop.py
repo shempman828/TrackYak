@@ -1,12 +1,10 @@
 # ──────────────────────────────────────────────────────────────────────────────
 #  Blurred backdrop
 # ──────────────────────────────────────────────────────────────────────────────
-from typing import Optional
 
 from PySide6.QtCore import Property, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPixmap, QRadialGradient
 from PySide6.QtWidgets import QWidget
-
 
 
 class _BlurredBackdrop(QWidget):
@@ -14,11 +12,11 @@ class _BlurredBackdrop(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._pixmap: Optional[QPixmap] = None
+        self._pixmap: QPixmap | None = None
         self._opacity: float = 0.0
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
 
-    def set_pixmap(self, pixmap: Optional[QPixmap]):
+    def set_pixmap(self, pixmap: QPixmap | None):
         self._pixmap = pixmap
         self.update()
 

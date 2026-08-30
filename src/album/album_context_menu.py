@@ -32,9 +32,7 @@ class AlbumContextMenuMixin:
         menu.addSeparator()
 
         global_pos = self.scroll_area.mapToGlobal(position)
-        widget_at = self.scroll_content.childAt(
-            self.scroll_content.mapFromGlobal(global_pos)
-        )
+        widget_at = self.scroll_content.childAt(self.scroll_content.mapFromGlobal(global_pos))
         target_album_widget = self._find_album_widget_ancestor(widget_at)
 
         if target_album_widget is not None:
@@ -48,17 +46,13 @@ class AlbumContextMenuMixin:
             menu.addSeparator()
 
             # --- Merge submenu ---
-            merge_menu = menu.addMenu(
-                f"🔀 Merge {getattr(album, 'album_name', 'Album')}…"
-            )
+            merge_menu = menu.addMenu(f"🔀 Merge {getattr(album, 'album_name', 'Album')}…")
             merge_this_action = merge_menu.addAction("Merge this album into another…")
             merge_this_action.triggered.connect(lambda: self._merge_album(album))
 
             menu.addSeparator()
 
-            delete_action = menu.addAction(
-                f"🗑 Delete {getattr(album, 'album_name', 'Album')}"
-            )
+            delete_action = menu.addAction(f"🗑 Delete {getattr(album, 'album_name', 'Album')}")
             delete_action.triggered.connect(lambda: self._delete_album(album))
             menu.addSeparator()
 
@@ -91,15 +85,11 @@ class AlbumContextMenuMixin:
 
         tracks = self._get_album_tracks(album)
         if not tracks:
-            logger.warning(
-                f"No tracks found for album '{getattr(album, 'album_name', '?')}'"
-            )
+            logger.warning(f"No tracks found for album '{getattr(album, 'album_name', '?')}'")
             return
 
         qm.add_tracks_to_queue(tracks)
-        logger.info(
-            f"Added {len(tracks)} tracks from album '{album.album_name}' to queue"
-        )
+        logger.info(f"Added {len(tracks)} tracks from album '{album.album_name}' to queue")
 
     def _get_queue_manager(self):
         """Retrieve the queue manager from the controller or media player."""
@@ -123,9 +113,7 @@ class AlbumContextMenuMixin:
         # Last resort: query all tracks and filter by album_id
         try:
             all_tracks = self.controller.get.get_all_entities("Track") or []
-            return [
-                t for t in all_tracks if getattr(t, "album_id", None) == album.album_id
-            ]
+            return [t for t in all_tracks if getattr(t, "album_id", None) == album.album_id]
         except SQLAlchemyError as e:
             logger.error(f"Failed to fetch tracks for album {album.album_id}: {e}")
             return []
@@ -150,10 +138,7 @@ class AlbumContextMenuMixin:
             return
 
         try:
-            kwargs = {
-                "album_name": dlg.album_name,
-                "is_compilation": dlg.is_compilation,
-            }
+            kwargs = {"album_name": dlg.album_name, "is_compilation": dlg.is_compilation}
             if dlg.release_year is not None:
                 kwargs["release_year"] = dlg.release_year
 
@@ -165,9 +150,7 @@ class AlbumContextMenuMixin:
                     "Artist", artist_name=dlg.artist_name
                 )
                 if not artist:
-                    artist = self.controller.add.add_entity(
-                        "Artist", artist_name=dlg.artist_name
-                    )
+                    artist = self.controller.add.add_entity("Artist", artist_name=dlg.artist_name)
                 self.controller.add.add_entity(
                     "AlbumRoleAssociation",
                     album_id=new_album.album_id,
@@ -199,11 +182,7 @@ class AlbumContextMenuMixin:
         msg += "\n\nThis action cannot be undone."
 
         reply = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            msg,
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            self, "Confirm Delete", msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if reply != QMessageBox.Yes:
             return

@@ -165,8 +165,8 @@ class AudioCalculations(AudioRhythmMixin, AudioSpectralMixin, AudiophileScoreMix
             stft_20_4096 = self._stft_magnitude(self._segment(mono, 20.0), nperseg=4096)
 
             bpm, tempo_confidence = self.calculate_bpm()
-            primary_time_signature, time_signature_confidence = (
-                self.calculate_time_signature(bpm=bpm, tempo_confidence=tempo_confidence)
+            primary_time_signature, time_signature_confidence = self.calculate_time_signature(
+                bpm=bpm, tempo_confidence=tempo_confidence
             )
             key, mode, key_confidence = self.calculate_key()
             track_gain = self.calculate_track_gain()
@@ -188,15 +188,10 @@ class AudioCalculations(AudioRhythmMixin, AudioSpectralMixin, AudiophileScoreMix
             )
             liveness = self.calculate_liveness(stft=stft_30_2048)
             valence = self.calculate_valence(
-                bpm=bpm,
-                mode=mode,
-                key_confidence=key_confidence,
-                centroid=spectral_centroid,
+                bpm=bpm, mode=mode, key_confidence=key_confidence, centroid=spectral_centroid
             )
             audiophile_score = self.calculate_audiophile_score()
-            acoustid_fingerprint, acoustid_fingerprint_duration = (
-                self.calculate_fingerprint()
-            )
+            acoustid_fingerprint, acoustid_fingerprint_duration = self.calculate_fingerprint()
 
             return {
                 "bpm": bpm,

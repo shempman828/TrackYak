@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 from PySide6.QtWidgets import QMessageBox
 
 from src.core.logger_config import logger
@@ -32,9 +30,7 @@ class SyncExecutionMixin:
                 show_status_message(self, "No device linked.")
                 return
             name = self.current_profile.device_name or self.current_profile.device_uri
-            dest_desc = (
-                f"Device: {name}\nMusic folder: {self.current_profile.music_path}"
-            )
+            dest_desc = f"Device: {name}\nMusic folder: {self.current_profile.music_path}"
         else:
             if not self.current_profile.path:
                 show_status_message(self, "No destination folder set.")
@@ -52,9 +48,7 @@ class SyncExecutionMixin:
         clear = self.current_profile.clear_before_sync
 
         confirm_msg = (
-            f"Sync {' + '.join(selection_parts)} "
-            f"({total_tracks} tracks) to:\n\n"
-            f"{dest_desc}"
+            f"Sync {' + '.join(selection_parts)} ({total_tracks} tracks) to:\n\n{dest_desc}"
         )
         if clear:
             confirm_msg += "\n\n⚠️  Destination will be cleared first."
@@ -80,11 +74,7 @@ class SyncExecutionMixin:
         if clear:
             self.sync_log.append("⚠️  Clearing destination first…")
 
-        self.sync_worker = SyncWorker(
-            self.sync_manager,
-            self.selected_items,
-            self.current_profile,
-        )
+        self.sync_worker = SyncWorker(self.sync_manager, self.selected_items, self.current_profile)
         self.sync_worker.progress.connect(self._on_sync_progress)
         self.sync_worker.playlist_complete.connect(self._on_playlist_complete)
         self.sync_worker.finished.connect(self._on_sync_finished)
@@ -93,10 +83,7 @@ class SyncExecutionMixin:
     def _cancel_sync(self):
         if self.sync_worker and self.sync_worker.isRunning():
             reply = QMessageBox.question(
-                self,
-                "Cancel Sync",
-                "Cancel the running sync?",
-                QMessageBox.Yes | QMessageBox.No,
+                self, "Cancel Sync", "Cancel the running sync?", QMessageBox.Yes | QMessageBox.No
             )
             if reply == QMessageBox.Yes:
                 self.sync_worker.cancel()
@@ -121,7 +108,7 @@ class SyncExecutionMixin:
         pct = f"  ({current / total * 100:.0f}%)" if total > 0 else ""
         self.status_manager.show_message(f"Syncing: {message}{pct}", 0)
 
-    def _on_playlist_complete(self, result: Dict):
+    def _on_playlist_complete(self, result: dict):
         icon = "✅" if result["success"] else "❌"
         skipped = result.get("tracks_skipped", 0)
         failed = result.get("tracks_failed", 0)
@@ -131,14 +118,10 @@ class SyncExecutionMixin:
         if failed:
             notes.append(f"{failed} failed after retries")
         note = f"  ({', '.join(notes)})" if notes else ""
-        self.sync_log.append(
-            f"{icon} {result['playlist_name']}: {result['message']}{note}"
-        )
-        self.sync_log.verticalScrollBar().setValue(
-            self.sync_log.verticalScrollBar().maximum()
-        )
+        self.sync_log.append(f"{icon} {result['playlist_name']}: {result['message']}{note}")
+        self.sync_log.verticalScrollBar().setValue(self.sync_log.verticalScrollBar().maximum())
 
-    def _on_sync_finished(self, results: List[Dict]):
+    def _on_sync_finished(self, results: list[dict]):
         self._set_sync_ui_state(True)
         self.progress_bar.setVisible(False)
 
@@ -165,8 +148,7 @@ class SyncExecutionMixin:
 
         if successful > 0:
             self.status_manager.end_task(
-                f"Sync complete: {total_copied} copied, {total_skipped} skipped{failed_note}",
-                5000,
+                f"Sync complete: {total_copied} copied, {total_skipped} skipped{failed_note}", 5000
             )
             show_status_message(
                 self,

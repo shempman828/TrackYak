@@ -80,9 +80,7 @@ def _life_span_label(life_span: dict) -> str:
     begin = life_span.get("begin") or ""
     if not begin:
         return ""
-    end = life_span.get("end") or (
-        "present" if life_span.get("ended") == "false" else ""
-    )
+    end = life_span.get("end") or ("present" if life_span.get("ended") == "false" else "")
     return f"[{begin}–{end}]" if end else f"[{begin}]"
 
 
@@ -162,10 +160,7 @@ def suggest_artist_names(artist_name: str, limit: int = 5) -> list[str]:
 
 
 # Relation "type" strings, per MusicBrainz's url-relationship vocabulary.
-_ARTIST_LINK_RELATIONS = {
-    "wikipedia": "wikipedia_link",
-    "official homepage": "website_link",
-}
+_ARTIST_LINK_RELATIONS = {"wikipedia": "wikipedia_link", "official homepage": "website_link"}
 
 
 def _fetch_full_artist(mbid: str) -> dict[str, Any]:
@@ -268,16 +263,12 @@ def _resolve_artist_place_chains(candidate: MBCandidate) -> None:
     cache: dict[str, list[dict[str, Any]]] = {}
     if relations.birthplace_mbid:
         try:
-            relations.birthplace_chain = resolve_area_chain(
-                relations.birthplace_mbid, cache
-            )
+            relations.birthplace_chain = resolve_area_chain(relations.birthplace_mbid, cache)
         except MusicBrainzLookupError as e:
             logger.warning(f"Could not resolve birthplace area chain: {e}")
     if relations.deathplace_mbid:
         try:
-            relations.deathplace_chain = resolve_area_chain(
-                relations.deathplace_mbid, cache
-            )
+            relations.deathplace_chain = resolve_area_chain(relations.deathplace_mbid, cache)
         except MusicBrainzLookupError as e:
             logger.warning(f"Could not resolve deathplace area chain: {e}")
 

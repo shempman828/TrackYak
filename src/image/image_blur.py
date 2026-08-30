@@ -22,9 +22,7 @@ def blur_pixmap(pixmap: QPixmap, strength: int = 12) -> QPixmap:
     w, h = pixmap.width(), pixmap.height()
     small_w = max(1, w // strength)
     small_h = max(1, h // strength)
-    small = pixmap.scaled(
-        small_w, small_h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation
-    )
+    small = pixmap.scaled(small_w, small_h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
     return small.scaled(w, h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
 
 
@@ -34,9 +32,7 @@ def _blur_enabled() -> bool:
     return bool(getattr(display, "blur_explicit_art", False))
 
 
-def load_art_pixmap(
-    path: str | None, is_explicit: bool = False, strength: int = 12
-) -> QPixmap:
+def load_art_pixmap(path: str | None, is_explicit: bool = False, strength: int = 12) -> QPixmap:
     """Load a QPixmap from `path`, blurring it if the art is marked explicit
     and the "blur explicit album art" display option is enabled.
 

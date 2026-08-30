@@ -9,9 +9,7 @@ ALBUM_FIELDS = {
         tooltip="The database's unique ID for the album.",
     ),
     "album_name": FieldSpec(
-        friendly="Album Title",
-        short="Title",
-        tooltip="The preferred display name for the album.",
+        friendly="Album Title", short="Title", tooltip="The preferred display name for the album."
     ),
     "album_language": FieldSpec(
         friendly="Album Primary Language",
@@ -19,9 +17,7 @@ ALBUM_FIELDS = {
         tooltip="The primary language used in the album",
     ),
     "album_subtitle": FieldSpec(
-        friendly="Album Subtitle",
-        short="Subtitle",
-        tooltip="The album's subtitle, if any.",
+        friendly="Album Subtitle", short="Subtitle", tooltip="The album's subtitle, if any."
     ),
     "MBID": FieldSpec(
         friendly="MusicBrainz ID",
@@ -41,10 +37,7 @@ ALBUM_FIELDS = {
         longtext=True,
     ),
     "release_year": FieldSpec(
-        type=int,
-        friendly="Release Year",
-        short="Year",
-        tooltip="The year the album was released",
+        type=int, friendly="Release Year", short="Year", tooltip="The year the album was released"
     ),
     "release_month": FieldSpec(
         type=int,
@@ -53,10 +46,7 @@ ALBUM_FIELDS = {
         tooltip="The month the album was released",
     ),
     "release_day": FieldSpec(
-        type=int,
-        friendly="Release Day",
-        short="Day",
-        tooltip="The day the album was released",
+        type=int, friendly="Release Day", short="Day", tooltip="The day the album was released"
     ),
     "catalog_number": FieldSpec(
         friendly="Catalog Number",
@@ -106,9 +96,7 @@ ALBUM_FIELDS = {
         tooltip="The album is dedicated to live recordings",
     ),
     "is_compilation": FieldSpec(
-        type=bool,
-        friendly="Compilation",
-        tooltip="The album compiles music by different artists.",
+        type=bool, friendly="Compilation", tooltip="The album compiles music by different artists."
     ),
     "art_is_explicit": FieldSpec(
         type=bool,

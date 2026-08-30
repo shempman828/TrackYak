@@ -50,9 +50,7 @@ class TrackViewEditingMixin:
             return
 
         count = len(tracks)
-        names = ", ".join(
-            getattr(t, "track_name", f"ID {t.track_id}") for t in tracks[:3]
-        )
+        names = ", ".join(getattr(t, "track_name", f"ID {t.track_id}") for t in tracks[:3])
         if count > 3:
             names += f" … and {count - 3} more"
 
@@ -79,9 +77,7 @@ class TrackViewEditingMixin:
         if ok:
             logger.info(f"Batch-deleted {count} track(s) from DB")
         else:
-            logger.error(
-                "Batch delete returned False — some tracks may not have been removed"
-            )
+            logger.error("Batch delete returned False — some tracks may not have been removed")
 
         # --- Optionally delete files from disk via the existing delete_file helper ---
         if delete_files and file_paths:
@@ -103,8 +99,7 @@ class TrackViewEditingMixin:
                     "Some Files Not Deleted",
                     f"{len(failed_paths)} of {len(file_paths)} file(s) could not be "
                     "deleted from disk (e.g. permission denied or already removed). "
-                    "The library entries were still removed.\n\n"
-                    + "\n".join(failed_paths),
+                    "The library entries were still removed.\n\n" + "\n".join(failed_paths),
                 )
 
         self._force_reload()
@@ -129,9 +124,7 @@ class TrackViewEditingMixin:
 
         # ── Playback ──────────────────────────────────────────────────────
         play_next_action = QAction("▶  Play Next", self)
-        play_next_action.triggered.connect(
-            lambda: self.add_selected_to_queue(insert_next=True)
-        )
+        play_next_action.triggered.connect(lambda: self.add_selected_to_queue(insert_next=True))
         menu.addAction(play_next_action)
 
         add_queue_action = QAction("➕  Add to Queue", self)
@@ -183,11 +176,7 @@ class TrackViewEditingMixin:
                     member_ids = {lnk.mood_id for lnk in links}
 
             for mood in moods:
-                children = [
-                    m
-                    for m in moods
-                    if getattr(m, "parent_mood_id", None) == mood.mood_id
-                ]
+                children = [m for m in moods if getattr(m, "parent_mood_id", None) == mood.mood_id]
                 if children:
                     sub = QMenu(mood.mood_name, parent_menu)
                     for child in children:
@@ -224,9 +213,7 @@ class TrackViewEditingMixin:
                 if already:
                     continue
                 ok = self.controller.add.add_entity_link(
-                    "MoodTrackAssociation",
-                    mood_id=mood_id,
-                    track_id=int(track_id),
+                    "MoodTrackAssociation", mood_id=mood_id, track_id=int(track_id)
                 )
                 if ok:
                     added += 1

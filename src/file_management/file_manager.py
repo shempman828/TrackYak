@@ -1,11 +1,10 @@
 """Module for managing music library files and directories with enhanced UX"""
 
+from datetime import datetime
 import json
 import os
-import shutil
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+import shutil
 
 from PySide6.QtCore import Signal
 from sqlalchemy.exc import SQLAlchemyError
@@ -60,9 +59,7 @@ class FileOrganizer(CancellableWorker):
 
             self.progress_updated.emit(0, "Analyzing file organization...")
             operations = self._analyze_organization(tracks)
-            logger.info(
-                f"FileOrganizer: Analysis complete - {len(operations)} operations"
-            )
+            logger.info(f"FileOrganizer: Analysis complete - {len(operations)} operations")
 
             # Store operations for later execution
             self.operations = operations
@@ -85,9 +82,7 @@ class FileOrganizer(CancellableWorker):
                     f"FileOrganizer: Starting execution phase with {len(self.approved_operations)} approved operations"
                 )
                 files_moved = self._execute_organization()
-                logger.info(
-                    f"FileOrganizer: Execution complete - moved {files_moved} files"
-                )
+                logger.info(f"FileOrganizer: Execution complete - moved {files_moved} files")
 
                 # Phase 3: Cleanup empty directories
                 if not self.is_cancelled:
@@ -112,7 +107,7 @@ class FileOrganizer(CancellableWorker):
             self._release_db_session()
             self.finished.emit(success, files_moved)
 
-    def user_approval_received(self, approved_ops: List[Dict]):
+    def user_approval_received(self, approved_ops: list[dict]):
         """Called when user makes a decision in the preview dialog"""
         logger.info(f"FileOrganizer: User approved {len(approved_ops)} operations")
         self.approved_operations = approved_ops
@@ -125,7 +120,7 @@ class FileOrganizer(CancellableWorker):
         self._waiting_for_approval = False
         self.request_cancel()
 
-    def _analyze_organization(self, tracks) -> List[Dict]:
+    def _analyze_organization(self, tracks) -> list[dict]:
         """Analyze organization needs and build the list of pending move operations."""
         operations = []
         total = len(tracks)
@@ -153,11 +148,7 @@ class FileOrganizer(CancellableWorker):
                 continue  # Skip - already in correct location
 
             operations.append(
-                {
-                    "track": track,
-                    "current_path": current_path,
-                    "expected_path": expected_path,
-                }
+                {"track": track, "current_path": current_path, "expected_path": expected_path}
             )
 
         return operations
@@ -186,9 +177,7 @@ class FileOrganizer(CancellableWorker):
         # Build filename
         track_num = f"{track.track_number:02d}" if track.track_number else "01"
         track_name = self._sanitize_filename(track.track_name or "Unknown Track")
-        extension = (
-            Path(track.track_file_path).suffix if track.track_file_path else ".mp3"
-        )
+        extension = Path(track.track_file_path).suffix if track.track_file_path else ".mp3"
 
         return target_dir / f"{track_num} - {track_name}{extension}"
 
@@ -207,9 +196,7 @@ class FileOrganizer(CancellableWorker):
         """
         files_moved = 0
         total = len(self.approved_operations)
-        logger.info(
-            f"FileOrganizer._execute_organization: Starting with {total} operations"
-        )
+        logger.info(f"FileOrganizer._execute_organization: Starting with {total} operations")
 
         pending_updates = []  # [(track, final_target_path, log_base), ...]
         log_buffer = []  # completed log entries not yet flushed to disk
@@ -223,9 +210,7 @@ class FileOrganizer(CancellableWorker):
                 {"track_id": track.track_id, "track_file_path": str(final_path)}
                 for track, final_path, _ in pending_updates
             ]
-            batch_ok = self.controller.update.update_entities_bulk(
-                "Track", bulk_values
-            )
+            batch_ok = self.controller.update.update_entities_bulk("Track", bulk_values)
 
             if batch_ok:
                 for track, final_path, log_base in pending_updates:
@@ -262,9 +247,7 @@ class FileOrganizer(CancellableWorker):
 
         for idx, operation in enumerate(self.approved_operations):
             if self.is_cancelled:
-                logger.info(
-                    "FileOrganizer._execute_organization: Cancelled during execution"
-                )
+                logger.info("FileOrganizer._execute_organization: Cancelled during execution")
                 break
 
             track = operation["track"]
@@ -272,8 +255,7 @@ class FileOrganizer(CancellableWorker):
             expected_path = operation["expected_path"]
 
             self.progress_updated.emit(
-                ANALYSIS_PROGRESS_SHARE
-                + int((idx + 1) / total * EXECUTION_PROGRESS_SHARE),
+                ANALYSIS_PROGRESS_SHARE + int((idx + 1) / total * EXECUTION_PROGRESS_SHARE),
                 f"Moving: {track.track_name or 'Unknown'}",
             )
 
@@ -284,9 +266,7 @@ class FileOrganizer(CancellableWorker):
                 if final_path is not None:
                     pending_updates.append((track, final_path, log_base))
                 else:
-                    logger.warning(
-                        f"FileOrganizer: Failed to move file {idx + 1}/{total}"
-                    )
+                    logger.warning(f"FileOrganizer: Failed to move file {idx + 1}/{total}")
                     log_buffer.append(log_base)
             except Exception:
                 # Intentional broad boundary catch: _move_file_only() already
@@ -319,9 +299,7 @@ class FileOrganizer(CancellableWorker):
         the dirnames list from os.walk, which can become stale as siblings are
         removed during the same traversal.
         """
-        self.progress_updated.emit(
-            CLEANUP_PROGRESS_START, "Cleaning up empty directories..."
-        )
+        self.progress_updated.emit(CLEANUP_PROGRESS_START, "Cleaning up empty directories...")
 
         # Collect candidate dirs bottom-up (topdown=False) so children are
         # evaluated before their parents.
@@ -336,8 +314,7 @@ class FileOrganizer(CancellableWorker):
                 break
 
             self.cleanup_progress.emit(
-                int((idx + 1) / len(candidate_dirs) * 100),
-                f"Removing: {empty_dir.name}",
+                int((idx + 1) / len(candidate_dirs) * 100), f"Removing: {empty_dir.name}"
             )
 
             try:
@@ -366,7 +343,7 @@ class FileOrganizer(CancellableWorker):
         """Path to the move log file in the library root."""
         return self.root / ".organize_log.json"
 
-    def _flush_move_log(self, entries: List[Dict]) -> None:
+    def _flush_move_log(self, entries: list[dict]) -> None:
         """Append a batch of move records to the persistent move log in one write.
 
         The log is a JSON array of objects:
@@ -389,7 +366,7 @@ class FileOrganizer(CancellableWorker):
         log_path = self._move_log_path()
         try:
             if log_path.exists():
-                with open(log_path, "r", encoding="utf-8") as f:
+                with open(log_path, encoding="utf-8") as f:
                     records = json.load(f)
             else:
                 records = []
@@ -440,19 +417,14 @@ class FileOrganizer(CancellableWorker):
             # --- Pre-flight checks ---
             if not source_path.exists():
                 logger.error(f"Source file does not exist: {source_path}")
-                return None, {
-                    **log_base,
-                    "status": "failed",
-                    "reason": "source not found",
-                }
+                return None, {**log_base, "status": "failed", "reason": "source not found"}
 
             # --- Containment check: never write outside the library root ---
             try:
                 target_path.resolve().relative_to(self.root.resolve())
             except ValueError:
                 logger.error(
-                    f"Refusing to move outside library root: {target_path} "
-                    f"is not under {self.root}"
+                    f"Refusing to move outside library root: {target_path} is not under {self.root}"
                 )
                 return None, {
                     **log_base,
@@ -481,9 +453,7 @@ class FileOrganizer(CancellableWorker):
 
             # --- Verify destination ---
             if not target_path.exists():
-                logger.error(
-                    f"Move appeared to succeed but destination not found: {target_path}"
-                )
+                logger.error(f"Move appeared to succeed but destination not found: {target_path}")
                 return None, {
                     **log_base,
                     "status": "failed",
@@ -498,11 +468,7 @@ class FileOrganizer(CancellableWorker):
             import traceback
 
             logger.error(f"Move error details: {traceback.format_exc()}")
-            return None, {
-                **log_base,
-                "status": "failed",
-                "reason": str(e),
-            }
+            return None, {**log_base, "status": "failed", "reason": str(e)}
 
     def _sanitize_filename(self, name):
         """Remove invalid characters from filenames"""

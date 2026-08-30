@@ -43,6 +43,7 @@ def _parse_datetime(text: str) -> QDateTime:
         dt = QDateTime.fromString(text, Qt.ISODate)
     return dt
 
+
 # ---------------------------------------------------------------------------
 # Fields to exclude from smart playlist filtering (internal / not filterable)
 # ---------------------------------------------------------------------------
@@ -180,12 +181,7 @@ OPERATORS_BY_GROUP = {
         ("isnull", "is empty"),
         ("notnull", "has a value"),
     ],
-    "Bool": [
-        ("eq", "is"),
-        ("not", "is not"),
-        ("isnull", "is empty"),
-        ("notnull", "has a value"),
-    ],
+    "Bool": [("eq", "is"), ("not", "is not"), ("isnull", "is empty"), ("notnull", "has a value")],
     "Datetime": [
         ("gt", "after"),
         ("lt", "before"),
@@ -279,8 +275,7 @@ class CriteriaWidget(QWidget):
         super().__init__(parent)
         # Lookup: field_name → (op_group, display, tooltip, min, max)
         self._field_meta = {
-            name: (grp, disp, tip, mn, mx)
-            for name, grp, disp, tip, mn, mx, cat in CRITERIA_FIELDS
+            name: (grp, disp, tip, mn, mx) for name, grp, disp, tip, mn, mx, cat in CRITERIA_FIELDS
         }
         self.init_ui()
 
@@ -326,9 +321,7 @@ class CriteriaWidget(QWidget):
 
         # Delete button
         delete_btn = QPushButton()
-        delete_btn.setIcon(
-            QApplication.style().standardIcon(QStyle.SP_DialogCloseButton)
-        )
+        delete_btn.setIcon(QApplication.style().standardIcon(QStyle.SP_DialogCloseButton))
         delete_btn.setFixedSize(24, 24)
         delete_btn.setToolTip("Remove this criteria")
         delete_btn.clicked.connect(lambda: self.delete_requested.emit(self))
@@ -350,9 +343,7 @@ class CriteriaWidget(QWidget):
 
     def _current_meta(self):
         """Return (op_group, display, tooltip, min, max) for selected field."""
-        return self._field_meta.get(
-            self._current_field_name(), ("String", "", "", None, None)
-        )
+        return self._field_meta.get(self._current_field_name(), ("String", "", "", None, None))
 
     def _rebuild_operator_combo(self):
         """Refill operators to only those valid for the current field's type."""
@@ -362,9 +353,7 @@ class CriteriaWidget(QWidget):
         self.operator_combo.clear()
 
         op_group = self._current_meta()[0]
-        for kwarg, description in OPERATORS_BY_GROUP.get(
-            op_group, OPERATORS_BY_GROUP["String"]
-        ):
+        for kwarg, description in OPERATORS_BY_GROUP.get(op_group, OPERATORS_BY_GROUP["String"]):
             self.operator_combo.addItem(description, kwarg)
 
         # Restore previous operator if it still exists in the new list
@@ -492,9 +481,7 @@ class CriteriaWidget(QWidget):
         elif isinstance(self.value_widget, QLineEdit):
             text = self.value_widget.text().strip()
             if op_group == "List":
-                value = (
-                    [v.strip() for v in text.split(",") if v.strip()] if text else []
-                )
+                value = [v.strip() for v in text.split(",") if v.strip()] if text else []
             else:
                 value = text if text else None
         elif isinstance(self.value_widget, (QSpinBox, QDoubleSpinBox)):
@@ -507,12 +494,7 @@ class CriteriaWidget(QWidget):
         else:
             value = None
 
-        return {
-            "field": field_name,
-            "comparison": operator,
-            "value": value,
-            "type": op_group,
-        }
+        return {"field": field_name, "comparison": operator, "value": value, "type": op_group}
 
     def set_criteria(self, criteria_dict: dict):
         """

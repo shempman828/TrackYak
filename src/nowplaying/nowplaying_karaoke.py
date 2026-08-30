@@ -1,12 +1,10 @@
 # ──────────────────────────────────────────────────────────────────────────────
 #  Karaoke label (animated)
 # ──────────────────────────────────────────────────────────────────────────────
-from typing import Optional
 
 from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QLabel, QSizePolicy
-
 
 
 class _KaraokeLine(QLabel):
@@ -20,7 +18,7 @@ class _KaraokeLine(QLabel):
         self.setWordWrap(True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self._opacity: float = 1.0
-        self._anim: Optional[QPropertyAnimation] = None
+        self._anim: QPropertyAnimation | None = None
         self._set_opacity(1.0)
 
     def _get_opacity(self) -> float:

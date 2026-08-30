@@ -5,7 +5,7 @@ Shared "delete from DB only, or also delete the file(s) from disk" prompt,
 used everywhere a file-backed entity (currently: tracks) can be removed.
 """
 
-from typing import Literal, Optional
+from typing import Literal
 
 from PySide6.QtWidgets import QMessageBox
 
@@ -16,11 +16,11 @@ def confirm_delete_with_file_option(
     parent,
     title: str,
     message: str,
-    informative_text: Optional[str] = (
+    informative_text: str | None = (
         "Remove from Library deletes the DB entry only.\n"
         "Delete File(s) Too also removes the audio file(s) from disk."
     ),
-) -> Optional[DeleteChoice]:
+) -> DeleteChoice | None:
     """Show a 3-way delete confirmation: DB-only vs. DB + file vs. cancel.
 
     Returns "db_only", "db_and_file", or None if the user cancelled.

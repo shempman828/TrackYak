@@ -10,7 +10,7 @@ separate artists the way TrackImporter's did. Centralizing it here removes
 that drift risk.
 """
 
-from typing import Any, Dict, List
+from typing import Any
 
 from src.core.logger_config import logger
 
@@ -19,7 +19,7 @@ ALBUM_ARTIST_FIELDS = ["artist_album_artist", "album_artist_name"]
 TRACK_ARTIST_FIELDS = ["artist_name", "artist_primary_artist"]
 
 
-def normalize_artists_data(artists_data: Any) -> List[str]:
+def normalize_artists_data(artists_data: Any) -> list[str]:
     """Normalize artist metadata from various formats to a consistent list.
 
     Handles:
@@ -35,9 +35,7 @@ def normalize_artists_data(artists_data: Any) -> List[str]:
         for delimiter in [";", ",", "/", "|"]:
             if delimiter in artists_data:
                 artists = [
-                    artist.strip()
-                    for artist in artists_data.split(delimiter)
-                    if artist.strip()
+                    artist.strip() for artist in artists_data.split(delimiter) if artist.strip()
                 ]
                 break
 
@@ -47,16 +45,12 @@ def normalize_artists_data(artists_data: Any) -> List[str]:
         return artists
 
     if isinstance(artists_data, list):
-        return [
-            artist.strip() for artist in artists_data if artist and artist.strip()
-        ]
+        return [artist.strip() for artist in artists_data if artist and artist.strip()]
 
     return normalize_artists_data(str(artists_data))
 
 
-def extract_artists_from_metadata(
-    metadata: Dict[str, Any], field_names: List[str]
-) -> List[str]:
+def extract_artists_from_metadata(metadata: dict[str, Any], field_names: list[str]) -> list[str]:
     """Try each field name in priority order; return the first field's
     normalized artist list that isn't empty.
 

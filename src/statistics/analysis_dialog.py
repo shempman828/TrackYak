@@ -13,7 +13,7 @@ Responsibilities
   show live progress immediately.
 """
 
-from PySide6.QtCore import QThread, Qt, Signal, Slot
+from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -31,6 +31,8 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.orm import selectinload
 
+from src.core.logger_config import logger
+from src.core.status_utility import StatusManager, show_status_message
 from src.db.db_tables import Track, TrackArtistRole
 from src.statistics.analysis_cache import analysis_cache, track_needs_analysis
 from src.statistics.batch_analysis_scheduler import (
@@ -38,8 +40,6 @@ from src.statistics.batch_analysis_scheduler import (
     max_worker_count,
     recommended_worker_count,
 )
-from src.core.logger_config import logger
-from src.core.status_utility import StatusManager, show_status_message
 
 
 class _PendingTracksWorker(QThread):
@@ -67,9 +67,7 @@ class _PendingTracksWorker(QThread):
                 all_tracks = self._controller.get.get_all_entities(
                     "Track",
                     load_options=[
-                        selectinload(Track.artist_roles).selectinload(
-                            TrackArtistRole.artist
-                        )
+                        selectinload(Track.artist_roles).selectinload(TrackArtistRole.artist)
                     ],
                 )
             except Exception as e:
@@ -103,8 +101,7 @@ class _PendingTracksWorker(QThread):
             pending = [
                 track
                 for track in all_tracks
-                if not analysis_cache.is_analysed(track.track_id)
-                or track_needs_analysis(track)
+                if not analysis_cache.is_analysed(track.track_id) or track_needs_analysis(track)
             ]
         self.tracks_loaded.emit(pending, len(all_tracks))
 
@@ -117,9 +114,7 @@ class AudioAnalysisDialog(QDialog):
     is passed in (or created fresh) so it can outlive the dialog being closed.
     """
 
-    def __init__(
-        self, controller, scheduler: BatchAnalysisScheduler | None = None, parent=None
-    ):
+    def __init__(self, controller, scheduler: BatchAnalysisScheduler | None = None, parent=None):
         super().__init__(parent)
         self.controller = controller
 
@@ -176,9 +171,7 @@ class AudioAnalysisDialog(QDialog):
         self._list.setAlternatingRowColors(True)
         self._list.setContextMenuPolicy(Qt.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._show_context_menu)
-        self._list.setToolTip(
-            "Right-click a track to force re-analysis even if it is cached."
-        )
+        self._list.setToolTip("Right-click a track to force re-analysis even if it is cached.")
         tracks_layout.addWidget(self._list)
 
         root.addWidget(tracks_group)
@@ -269,9 +262,7 @@ class AudioAnalysisDialog(QDialog):
         self._start_btn.setEnabled(False)
 
         self._scan_worker = _PendingTracksWorker(
-            self.controller,
-            force_all=self._force_all_checkbox.isChecked(),
-            parent=self,
+            self.controller, force_all=self._force_all_checkbox.isChecked(), parent=self
         )
         self._scan_worker.tracks_loaded.connect(self._on_pending_tracks_loaded)
         self._scan_worker.failed.connect(self._on_pending_scan_failed)
@@ -321,8 +312,7 @@ class AudioAnalysisDialog(QDialog):
 
         if self._force_all_checkbox.isChecked():
             self._summary_label.setText(
-                f"Re-analyzing all tracks: {pending} queued "
-                "(ignoring cache and existing values)."
+                f"Re-analyzing all tracks: {pending} queued (ignoring cache and existing values)."
             )
         else:
             self._summary_label.setText(
@@ -441,9 +431,7 @@ class AudioAnalysisDialog(QDialog):
         StatusManager.end_task(f"Analysis complete: {total} tracks processed", 5000)
 
         if self.isVisible():
-            show_status_message(
-                self, f"Audio analysis finished. {total} tracks processed.", 5000
-            )
+            show_status_message(self, f"Audio analysis finished. {total} tracks processed.", 5000)
 
     @Slot(int, str)
     def _on_track_error(self, track_id: int, message: str):
@@ -515,9 +503,7 @@ class AudioAnalysisDialog(QDialog):
         self._progress_bar.setValue(completed)
         self._progress_label.setText(f"{completed} / {total} tracks processed")
         self._status_label.setText(
-            f"Analysing… ({completed}/{total} complete)"
-            if completed < total
-            else "Finishing up…"
+            f"Analysing… ({completed}/{total} complete)" if completed < total else "Finishing up…"
         )
 
     # ------------------------------------------------------------------
@@ -529,9 +515,7 @@ class AudioAnalysisDialog(QDialog):
             # Disconnect so a scan that finishes after the dialog is gone
             # doesn't try to update widgets that no longer exist.
             try:
-                self._scan_worker.tracks_loaded.disconnect(
-                    self._on_pending_tracks_loaded
-                )
+                self._scan_worker.tracks_loaded.disconnect(self._on_pending_tracks_loaded)
                 self._scan_worker.failed.disconnect(self._on_pending_scan_failed)
             except RuntimeError:
                 pass  # Already disconnected

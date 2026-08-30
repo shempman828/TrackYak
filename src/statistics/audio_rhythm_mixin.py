@@ -92,9 +92,7 @@ class AudioRhythmMixin:
         # Smooth to extract rhythmic pulses
         smooth_win = max(3, int(envelope_sr * 0.05))
         envelope = np.convolve(
-            envelope,
-            np.hanning(smooth_win) / np.sum(np.hanning(smooth_win)),
-            mode="same",
+            envelope, np.hanning(smooth_win) / np.sum(np.hanning(smooth_win)), mode="same"
         )
         return envelope, envelope_sr
 
@@ -309,8 +307,7 @@ class AudioRhythmMixin:
                         if (
                             pulses_a < pulses_b
                             and pulses_b % pulses_a == 0
-                            and raw_scores[label_b]
-                            <= raw_scores[label_a] + _HARMONIC_TOLERANCE
+                            and raw_scores[label_b] <= raw_scores[label_a] + _HARMONIC_TOLERANCE
                         ):
                             raw_scores[label_b] = 0.0
 
@@ -360,12 +357,8 @@ class AudioRhythmMixin:
 
         # Conventional enharmonic spelling per mode (circle-of-fifths preference),
         # not a fixed sharps-only table — e.g. "Ab major" rather than "G# major".
-        MAJOR_KEY_NAMES = [
-            "C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B",
-        ]
-        MINOR_KEY_NAMES = [
-            "C", "C#", "D", "Eb", "E", "F", "F#", "G", "G#", "A", "Bb", "B",
-        ]
+        MAJOR_KEY_NAMES = ["C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
+        MINOR_KEY_NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "G#", "A", "Bb", "B"]
 
         # Krumhansl-Schmuckler profiles (normalised later)
         KS_MAJOR = np.array(

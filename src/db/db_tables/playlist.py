@@ -37,10 +37,7 @@ class Playlist(Base):
     )
     parent = relationship("Playlist", remote_side=[playlist_id], backref="children")
     smart_playlist = relationship(
-        "SmartPlaylist",
-        back_populates="playlist",
-        uselist=False,
-        cascade="all, delete-orphan",
+        "SmartPlaylist", back_populates="playlist", uselist=False, cascade="all, delete-orphan"
     )
 
     @property

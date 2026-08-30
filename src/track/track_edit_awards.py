@@ -59,12 +59,8 @@ class AwardsTab(_BaseTab):
         self._table.setHorizontalHeaderLabels(["Award", "Category", "Year", ""])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeToContents
-        )
-        self._table.horizontalHeader().setSectionResizeMode(
-            3, QHeaderView.ResizeToContents
-        )
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         layout.addWidget(self._table)
 
     def load(self, tracks: list) -> None:
@@ -78,16 +74,9 @@ class AwardsTab(_BaseTab):
             )
             rows = []
             for a in assocs:
-                award = self.controller.get.get_entity_object(
-                    "Award", award_id=a.award_id
-                )
+                award = self.controller.get.get_entity_object("Award", award_id=a.award_id)
                 if award:
-                    rows.append((
-                        award.award_id,
-                        award.award_name,
-                        a.category or "",
-                        a.year,
-                    ))
+                    rows.append((award.award_id, award.award_name, a.category or "", a.year))
         for award_id, award_name, category, year in rows:
             self._add_row(award_id, award_name, category, year)
 
@@ -99,23 +88,14 @@ class AwardsTab(_BaseTab):
                 "AwardAssociation", entity_id=t.track_id, entity_type="Track"
             )
             for a in assocs:
-                award = self.controller.get.get_entity_object(
-                    "Award", award_id=a.award_id
-                )
+                award = self.controller.get.get_entity_object("Award", award_id=a.award_id)
                 if award:
-                    s.add((
-                        award.award_id,
-                        award.award_name,
-                        a.category or "",
-                        a.year or 0,
-                    ))
+                    s.add((award.award_id, award.award_name, a.category or "", a.year or 0))
             all_sets.append(s)
         common = all_sets[0]
         for s in all_sets[1:]:
             common &= s
-        return [
-            (aid, aname, cat, yr if yr != 0 else None) for aid, aname, cat, yr in common
-        ]
+        return [(aid, aname, cat, yr if yr != 0 else None) for aid, aname, cat, yr in common]
 
     def _add_row(self, award_id, award_name, category, year):
         row = self._table.rowCount()
@@ -162,9 +142,7 @@ class AwardsTab(_BaseTab):
         if combo_data and combo_data != "new":
             award = self.controller.get.get_entity_object("Award", award_id=combo_data)
         else:
-            existing = self.controller.get.get_entity_object(
-                "Award", award_name=award_name
-            )
+            existing = self.controller.get.get_entity_object("Award", award_name=award_name)
             if existing:
                 award = existing if not isinstance(existing, list) else existing[0]
             else:
@@ -199,10 +177,7 @@ class AwardsTab(_BaseTab):
         track_ids = [track.track_id for track in self.tracks]
         try:
             self.controller.delete.delete_entity(
-                "AwardAssociation",
-                entity_id=track_ids,
-                entity_type="Track",
-                award_id=award_id,
+                "AwardAssociation", entity_id=track_ids, entity_type="Track", award_id=award_id
             )
         except SQLAlchemyError as e:
             logger.error(f"Failed to remove award from tracks: {e}")

@@ -222,11 +222,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         # Possibly Incomplete filter
         add(QLabel("Completeness:"))
         self.incomplete_combo = QComboBox()
-        self.incomplete_combo.addItems([
-            "Any",
-            "Possibly Incomplete",
-            "Likely Complete",
-        ])
+        self.incomplete_combo.addItems(["Any", "Possibly Incomplete", "Likely Complete"])
         self.incomplete_combo.currentIndexChanged.connect(self._apply_filters)
         add(_shrink_combo_to_content(self.incomplete_combo))
 
@@ -266,9 +262,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         self.scroll_content.setLayout(self.grid_layout)
         self.scroll_area.setWidget(self.scroll_content)
 
-        self.scroll_area.verticalScrollBar().valueChanged.connect(
-            self._check_scroll_position
-        )
+        self.scroll_area.verticalScrollBar().valueChanged.connect(self._check_scroll_position)
         self.scroll_area.setContextMenuPolicy(Qt.CustomContextMenu)
         self.scroll_area.customContextMenuRequested.connect(self._show_context_menu)
 
@@ -286,9 +280,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         """Load all albums from the controller and refresh the grid."""
         try:
             self.all_albums = (
-                self.controller.get.get_all_entities(
-                    "Album", load_options=_ALBUM_LIST_LOAD_OPTIONS
-                )
+                self.controller.get.get_all_entities("Album", load_options=_ALBUM_LIST_LOAD_OPTIONS)
                 or []
             )
             self._restore_sort_combo()
@@ -311,9 +303,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
 
     def _append_more_album_widgets(self):
         prev = self.display_count
-        self.display_count = min(
-            self.display_count + self.load_chunk, len(self.filtered_albums)
-        )
+        self.display_count = min(self.display_count + self.load_chunk, len(self.filtered_albums))
         for album in self.filtered_albums[prev : self.display_count]:
             self._add_album_widget(album)
         self.grid_layout.update()
@@ -332,9 +322,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
 
     def _check_scroll_position(self, value: int):
         bar = self.scroll_area.verticalScrollBar()
-        if value >= bar.maximum() - 50 and self.display_count < len(
-            self.filtered_albums
-        ):
+        if value >= bar.maximum() - 50 and self.display_count < len(self.filtered_albums):
             self._append_more_album_widgets()
 
     def _check_viewport_fill(self):
@@ -364,15 +352,11 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
     def _show_album_details(self, album):
         """Open the AlbumEditor directly as a standalone dialog."""
         try:
-            fresh = self.controller.get.get_entity_object(
-                "Album", album_id=album.album_id
-            )
+            fresh = self.controller.get.get_entity_object("Album", album_id=album.album_id)
             if fresh:
                 album = fresh
         except SQLAlchemyError as e:
-            logger.warning(
-                f"Failed to refresh album {album.album_id} before editing: {e}"
-            )
+            logger.warning(f"Failed to refresh album {album.album_id} before editing: {e}")
 
         dialog = AlbumEditor(self.controller, album)
 
@@ -461,11 +445,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         # Only patch the single widget in place when the edit didn't change
         # its position in the (possibly re-sorted) list — if the order
         # changed, a full rebuild is required to reflect the new positions.
-        if (
-            new_idx == patched_idx
-            and new_idx is not None
-            and new_idx < self.display_count
-        ):
+        if new_idx == patched_idx and new_idx is not None and new_idx < self.display_count:
             item = self.grid_layout.itemAt(new_idx)
             w = item.widget() if item is not None else None
             if w is not None and hasattr(w, "refresh_album"):
@@ -482,9 +462,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         saved_scroll = self.scroll_area.verticalScrollBar().value()
         saved_display = self.display_count
 
-        results, pending_art, art_mode, art_generation = (
-            self._compute_filtered_results()
-        )
+        results, pending_art, art_mode, art_generation = self._compute_filtered_results()
 
         self.filtered_albums = results
         self._sort_filtered()
@@ -492,18 +470,12 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
 
         # Clamp display_count to the new result set size, but don't shrink below
         # what we were already showing — the user's lazy-load progress is preserved.
-        self.display_count = min(
-            max(saved_display, self.load_chunk), len(self.filtered_albums)
-        )
+        self.display_count = min(max(saved_display, self.load_chunk), len(self.filtered_albums))
         self._refresh_album_widgets()
-        QTimer.singleShot(
-            0, lambda: self.scroll_area.verticalScrollBar().setValue(saved_scroll)
-        )
+        QTimer.singleShot(0, lambda: self.scroll_area.verticalScrollBar().setValue(saved_scroll))
 
         if pending_art:
-            self._start_art_worker(
-                pending_art, art_mode, self._sort_criteria, art_generation
-            )
+            self._start_art_worker(pending_art, art_mode, self._sort_criteria, art_generation)
 
     # =========================================================================
     # Helpers
@@ -602,8 +574,7 @@ class _AnySpinBox(QSpinBox):
         # ("9999" or "Any") instead.
         fm = QFontMetrics(self.font())
         text_width = max(
-            fm.horizontalAdvance(str(self.maximum())),
-            fm.horizontalAdvance(self.specialValueText()),
+            fm.horizontalAdvance(str(self.maximum())), fm.horizontalAdvance(self.specialValueText())
         )
         return QSize(text_width + 28, super().sizeHint().height())
 

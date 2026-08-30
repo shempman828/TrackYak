@@ -1,5 +1,5 @@
+from datetime import UTC, datetime
 import os
-from datetime import datetime, timezone
 
 from src.core.logger_config import logger
 from src.metadata.metadata_artwork import ArtworkExtractor
@@ -58,14 +58,12 @@ class MetadataExtractor:
                 "track_file_path": file_path,
                 "file_size": len(data),
                 "file_extension": file_ext.lstrip("."),
-                "date_added": datetime.now(timezone.utc),
+                "date_added": datetime.now(UTC),
             }
 
             raw_tags = self.raw_tag_extractor.extract_raw_tags(data, file_ext)
 
-            text_extractor = TextMetadataExtractor(
-                file_path, file_ext.lstrip("."), raw_tags
-            )
+            text_extractor = TextMetadataExtractor(file_path, file_ext.lstrip("."), raw_tags)
             text_metadata = text_extractor.extract_metadata()
             metadata.update(flatten_text_metadata(text_metadata))
 
@@ -79,16 +77,12 @@ class MetadataExtractor:
             metadata.update(audio_properties)
 
             logger.debug(f"Successfully extracted metadata from {file_path}")
-            logger.debug(
-                f"Metadata keys: {list(self._safe_for_logging(metadata).keys())}"
-            )
+            logger.debug(f"Metadata keys: {list(self._safe_for_logging(metadata).keys())}")
 
             return metadata
 
-        except Exception as e:  # ruff: ignore[blind-except]
-            logger.exception(
-                f"Critical error extracting metadata from {file_path}: {str(e)[:500]}"
-            )
+        except Exception as e:
+            logger.exception(f"Critical error extracting metadata from {file_path}: {str(e)[:500]}")
             return self._get_basic_file_info(file_path)
 
     def _get_basic_file_info(self, file_path):
@@ -101,7 +95,7 @@ class MetadataExtractor:
             "track_file_path": file_path,
             "file_size": stat.st_size,
             "file_extension": file_extension,
-            "date_added": datetime.now(timezone.utc),
+            "date_added": datetime.now(UTC),
         }
 
     def _safe_for_logging(self, metadata):

@@ -37,9 +37,7 @@ class Album(Base):
         Integer, CheckConstraint("art_is_explicit IN (0, 1)")
     )  # Cover/liner art contains explicit imagery
     estimated_sales = Column(Integer)
-    status = Column(
-        String
-    )  # official, promotion, bootleg, withdrawn, expunged, cancelled
+    status = Column(String)  # official, promotion, bootleg, withdrawn, expunged, cancelled
     discogs_master_url = Column(String)
 
     album_roles = relationship(
@@ -51,16 +49,10 @@ class Album(Base):
     )
     tracks = relationship("Track", back_populates="album")
     discs = relationship(
-        "Disc",
-        back_populates="album",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
+        "Disc", back_populates="album", cascade="all, delete-orphan", passive_deletes=True
     )
     publisher_associations = relationship(
-        "AlbumPublisher",
-        back_populates="album",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
+        "AlbumPublisher", back_populates="album", cascade="all, delete-orphan", passive_deletes=True
     )
     publishers = association_proxy("publisher_associations", "publisher")
     # viewonly: writes to place_associations always go through PlaceAssociation
@@ -84,11 +76,7 @@ class Album(Base):
         secondaryjoin="AwardAssociation.award_id == Award.award_id",
         viewonly=True,
     )
-    album_aliases = relationship(
-        "AlbumAlias",
-        back_populates="album",
-        cascade="all, delete-orphan",
-    )
+    album_aliases = relationship("AlbumAlias", back_populates="album", cascade="all, delete-orphan")
     virtual_track_links = relationship(
         "AlbumVirtualTrack", back_populates="album", cascade="all, delete-orphan"
     )
@@ -141,9 +129,7 @@ class Album(Base):
     @property
     def average_rating(self):
         """Get average user rating across all tracks in the album."""
-        ratings = [
-            track.user_rating for track in self.tracks if track.user_rating is not None
-        ]
+        ratings = [track.user_rating for track in self.tracks if track.user_rating is not None]
         if ratings:
             return sum(ratings) / len(ratings)
         return None
@@ -160,14 +146,13 @@ class Album(Base):
 
         if sales < 250_000:
             return "None"
-        elif sales < 500_000:
+        if sales < 500_000:
             return "Silver"
-        elif sales < 1_000_000:
+        if sales < 1_000_000:
             return "Gold"
-        else:
-            # Multi-Platinum calculation
-            platinum_count = sales // 1_000_000
-            return f"{platinum_count}× Platinum" if platinum_count > 1 else "Platinum"
+        # Multi-Platinum calculation
+        platinum_count = sales // 1_000_000
+        return f"{platinum_count}× Platinum" if platinum_count > 1 else "Platinum"
 
     @property
     def full_tracklist(self):
@@ -186,9 +171,7 @@ class Album(Base):
         if not self.tracks:
             return None
 
-        numbered = sorted(
-            t.track_number for t in self.tracks if t.track_number is not None
-        )
+        numbered = sorted(t.track_number for t in self.tracks if t.track_number is not None)
 
         if not numbered:
             return None
@@ -221,9 +204,7 @@ class AlbumAlias(Base):
     alias_id = Column(Integer, primary_key=True)
     alias_name = Column(String, unique=True, nullable=False)
     alias_type = Column(String)
-    album_id = Column(
-        Integer, ForeignKey("albums.album_id", ondelete="CASCADE"), nullable=False
-    )
+    album_id = Column(Integer, ForeignKey("albums.album_id", ondelete="CASCADE"), nullable=False)
 
     album = relationship("Album", back_populates="album_aliases")
     album_name = association_proxy("album", "album_name")

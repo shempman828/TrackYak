@@ -1,7 +1,7 @@
 # display_settings.py
+from pathlib import Path
 import re
 import weakref
-from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QFont
@@ -13,20 +13,39 @@ from src.core.logger_config import logger
 # QSS properties whose px values should track the UI scale slider.
 _SCALABLE_QSS_PROPS = (
     "font-size",
-    "min-width", "max-width", "width",
-    "min-height", "max-height", "height",
-    "border-top-left-radius", "border-top-right-radius",
-    "border-bottom-left-radius", "border-bottom-right-radius", "border-radius",
-    "padding-top", "padding-right", "padding-bottom", "padding-left", "padding",
-    "margin-top", "margin-right", "margin-bottom", "margin-left", "margin",
-    "border-top", "border-bottom", "border-left", "border-right", "border",
-    "outline-offset", "outline",
-    "letter-spacing", "spacing",
+    "min-width",
+    "max-width",
+    "width",
+    "min-height",
+    "max-height",
+    "height",
+    "border-top-left-radius",
+    "border-top-right-radius",
+    "border-bottom-left-radius",
+    "border-bottom-right-radius",
+    "border-radius",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+    "padding",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+    "margin",
+    "border-top",
+    "border-bottom",
+    "border-left",
+    "border-right",
+    "border",
+    "outline-offset",
+    "outline",
+    "letter-spacing",
+    "spacing",
 )
 
-_SCALABLE_QSS_PATTERN = re.compile(
-    r"\b(" + "|".join(_SCALABLE_QSS_PROPS) + r")(\s*:\s*)([^;}]+)"
-)
+_SCALABLE_QSS_PATTERN = re.compile(r"\b(" + "|".join(_SCALABLE_QSS_PROPS) + r")(\s*:\s*)([^;}]+)")
 _PX_VALUE_PATTERN = re.compile(r"(-?\d+(?:\.\d+)?)px\b")
 
 
@@ -115,9 +134,7 @@ class DisplaySettings(QObject):
         # widget -> unscaled inline stylesheet, for widgets styled via
         # style_widget() instead of the theme QSS. Weak-keyed so a widget
         # is dropped automatically once nothing else references it.
-        self._styled_widgets: "weakref.WeakKeyDictionary[QWidget, str]" = (
-            weakref.WeakKeyDictionary()
-        )
+        self._styled_widgets: weakref.WeakKeyDictionary[QWidget, str] = weakref.WeakKeyDictionary()
 
     # ---------------------------------------------------------
     # Theme handling
@@ -268,9 +285,7 @@ class DisplaySettings(QObject):
         self.menu_bar_auto_hide = enabled
 
         if self.config:
-            self.config.config.set(
-                "display", "menu_bar_auto_hide", str(enabled).lower()
-            )
+            self.config.config.set("display", "menu_bar_auto_hide", str(enabled).lower())
             self.config.save()
 
         logger.debug(f"Menu bar auto-hide set to {enabled}")

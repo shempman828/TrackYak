@@ -1,13 +1,9 @@
 from typing import Any
 
-
 from src.album.release_type_utils import normalize_release_type
 from src.artist.artist_resolution import resolve_or_create_artist
 from src.core.logger_config import logger
-from src.importing.artist_field_extraction import (
-    ALBUM_ARTIST_FIELDS,
-    extract_artists_from_metadata,
-)
+from src.importing.artist_field_extraction import ALBUM_ARTIST_FIELDS, extract_artists_from_metadata
 
 
 class AlbumImporter:
@@ -84,9 +80,7 @@ class AlbumImporter:
         )
         if potential_albums:
             existing_album = potential_albums[0]
-            logger.debug(
-                f"Using existing album (fallback match): {existing_album.album_name}"
-            )
+            logger.debug(f"Using existing album (fallback match): {existing_album.album_name}")
             return existing_album
 
         return None
@@ -98,10 +92,8 @@ class AlbumImporter:
         album_data = {
             "album_name": album_name,
             "release_year": release_year,
-            "release_month": metadata.get("album_release_month")
-            or metadata.get("release_month"),
-            "release_day": metadata.get("album_release_day")
-            or metadata.get("release_day"),
+            "release_month": metadata.get("album_release_month") or metadata.get("release_month"),
+            "release_day": metadata.get("album_release_day") or metadata.get("release_day"),
             "album_description": metadata.get("album_description"),
             "album_subtitle": metadata.get("album_subtitle"),
             "catalog_number": metadata.get("album_catalog_number"),
@@ -126,9 +118,7 @@ class AlbumImporter:
             "AlbumRoleAssociation", album_id=album_id
         )
         existing_artist_ids = (
-            {assoc.artist_id for assoc in existing_associations}
-            if existing_associations
-            else set()
+            {assoc.artist_id for assoc in existing_associations} if existing_associations else set()
         )
 
         for artist_id in artist_ids:
@@ -197,14 +187,10 @@ class AlbumImporter:
         disc_data = {k: v for k, v in disc_data.items() if v is not None}
 
         new_disc = self.controller.add.add_entity("Disc", commit=False, **disc_data)
-        logger.debug(
-            f"Created new disc: album_id={album_id}, disc_number={disc_number}"
-        )
+        logger.debug(f"Created new disc: album_id={album_id}, disc_number={disc_number}")
         return new_disc
 
-    def _create_album_publisher_relationships(
-        self, album_id: int, metadata: dict[str, Any]
-    ):
+    def _create_album_publisher_relationships(self, album_id: int, metadata: dict[str, Any]):
         """Create publisher relationships for an album."""
         publisher_names = metadata.get("publisher_name")
         if not publisher_names:
@@ -232,9 +218,7 @@ class AlbumImporter:
                 album_id=album_id,
                 publisher_id=publisher.publisher_id,
             )
-            logger.debug(
-                f"Created publisher relationship: {publisher_name} -> album {album_id}"
-            )
+            logger.debug(f"Created publisher relationship: {publisher_name} -> album {album_id}")
 
     def _resolve_publisher(self, publisher_name: str):
         """Resolve a publisher name to its canonical Publisher entity,
@@ -247,10 +231,7 @@ class AlbumImporter:
         )
 
     def _process_artist_name(
-        self,
-        artist_name: str,
-        processed_names: set,
-        is_group: int | None = None,
+        self, artist_name: str, processed_names: set, is_group: int | None = None
     ) -> int | None:
         """Process individual artist name and return artist ID."""
         if not artist_name or not artist_name.strip():

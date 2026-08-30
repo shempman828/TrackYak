@@ -4,8 +4,9 @@ Works entirely on file paths and byte blobs - no database access.
 """
 
 import struct
-from typing import Any, List, Tuple
+from typing import Any
 
+from src.core.logger_config import logger
 from src.metadata.metadata_byte_utils import syncsafe_to_int
 from src.metadata.metadata_image_utils import find_picture_index_for_role
 from src.metadata.metadata_raw_tags import RawTagExtractor
@@ -14,7 +15,6 @@ from src.metadata.metadata_writer_flac_picture import FlacPictureWriter
 from src.metadata.metadata_writer_merge import merge_vorbis_comments
 from src.metadata.metadata_writer_types import WriteMode
 from src.metadata.metadata_writer_vorbis import VorbisCommentWriter
-from src.core.logger_config import logger
 
 
 class FlacFileWriter:
@@ -38,9 +38,7 @@ class FlacFileWriter:
             with open(file_path, "rb") as f:
                 file_data = f.read()
 
-            existing_comments = self.raw_tag_extractor.extract_raw_tags(
-                file_data, ".flac"
-            )
+            existing_comments = self.raw_tag_extractor.extract_raw_tags(file_data, ".flac")
             merged = merge_vorbis_comments(existing_comments, new_comments, mode)
             new_comment_block = self.vorbis_writer.build_vorbis_comments(merged)
 
@@ -107,8 +105,7 @@ class FlacFileWriter:
             # Offsets are only valid against the original file, so slice out
             # every block's payload up front.
             raw_blocks = [
-                (block_type, file_data[pos : pos + size])
-                for block_type, pos, size in blocks
+                (block_type, file_data[pos : pos + size]) for block_type, pos, size in blocks
             ]
 
             target_idx = self._find_picture_index_for_role(raw_blocks, role)
@@ -156,7 +153,7 @@ class FlacFileWriter:
             logger.debug(f"Error checking FLAC prefix for {file_path}: {e}")
         return -1
 
-    def _find_metadata_blocks(self, file_path: str) -> List[Tuple[int, int, int]]:
+    def _find_metadata_blocks(self, file_path: str) -> list[tuple[int, int, int]]:
         """Find FLAC metadata blocks and their positions."""
         blocks = []
         try:
@@ -191,9 +188,7 @@ class FlacFileWriter:
 
         return blocks
 
-    def _audio_tail(
-        self, file_data: bytes, blocks: List[Tuple[int, int, int]]
-    ) -> bytes:
+    def _audio_tail(self, file_data: bytes, blocks: list[tuple[int, int, int]]) -> bytes:
         """Bytes after the last metadata block - the actual audio frames,
         which must always be carried through untouched on any FLAC write."""
         if not blocks:
@@ -202,10 +197,7 @@ class FlacFileWriter:
         return file_data[last_pos + last_size :]
 
     def _serialize_blocks(
-        self,
-        ordered_blocks: List[Tuple[int, bytes]],
-        audio_tail: bytes,
-        prefix: bytes = b"",
+        self, ordered_blocks: list[tuple[int, bytes]], audio_tail: bytes, prefix: bytes = b""
     ) -> bytes:
         """
         Given an ordered list of (block_type, payload_bytes) - not including
@@ -228,9 +220,7 @@ class FlacFileWriter:
         out += audio_tail
         return bytes(out)
 
-    def _find_picture_index_for_role(
-        self, raw_blocks: List[Tuple[int, bytes]], role: str
-    ):
+    def _find_picture_index_for_role(self, raw_blocks: list[tuple[int, bytes]], role: str):
         """
         Find the index of the existing PICTURE block that currently
         represents `role`, using the same typed + untyped-fallback-to-front
@@ -238,7 +228,7 @@ class FlacFileWriter:
         reader agree on which picture "is" the front/rear/liner cover.
         """
 
-        def picture_type_for_block(item: Tuple[int, bytes]):
+        def picture_type_for_block(item: tuple[int, bytes]):
             block_type, payload = item
             if block_type != 6 or len(payload) < 4:  # PICTURE block, has a type field
                 return None

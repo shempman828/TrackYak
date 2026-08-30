@@ -12,10 +12,12 @@ collaborators need the database controller except TrackDataAssembler.
 
 import os
 import shutil
-from typing import Any, Dict, List
+from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.core.logger_config import logger
+from src.core.status_utility import StatusManager
 from src.metadata.metadata_flac_file_writer import FlacFileWriter
 from src.metadata.metadata_id3_frame_builder import ID3FrameBuilder
 from src.metadata.metadata_mp3_file_writer import MP3FileWriter
@@ -23,10 +25,8 @@ from src.metadata.metadata_ogg_file_writer import OggFileWriter
 from src.metadata.metadata_track_data import TrackDataAssembler
 from src.metadata.metadata_vorbis_comment_builder import VorbisCommentBuilder
 from src.metadata.metadata_writer_types import AudioFormat, WriteMode
-from src.core.logger_config import logger
-from src.core.status_utility import StatusManager
 
-__all__ = ["MetadataWriter", "WriteMode", "AudioFormat"]
+__all__ = ["AudioFormat", "MetadataWriter", "WriteMode"]
 
 
 class MetadataWriter:
@@ -47,26 +47,21 @@ class MetadataWriter:
         ext = os.path.splitext(file_path)[1].lower()
         if ext in [".mp3", ".mp2", ".mp1"]:
             return AudioFormat.MP3
-        elif ext in [".flac"]:
+        if ext in [".flac"]:
             return AudioFormat.FLAC
-        elif ext in [".ogg", ".oga"]:
+        if ext in [".ogg", ".oga"]:
             return AudioFormat.OGG
-        else:
-            return AudioFormat.UNKNOWN
+        return AudioFormat.UNKNOWN
 
     def write_metadata_to_file(
         self, track_id: int, file_path: str, mode: WriteMode = WriteMode.UPDATE_EXISTING
     ) -> bool:
         """Write database metadata to audio file with complete file handling."""
         try:
-            self.status_manager.start_task(
-                f"Writing metadata to {os.path.basename(file_path)}"
-            )
+            self.status_manager.start_task(f"Writing metadata to {os.path.basename(file_path)}")
 
             if not os.path.exists(file_path):
-                self.status_manager.end_task(
-                    f"File not found: {os.path.basename(file_path)}", 3000
-                )
+                self.status_manager.end_task(f"File not found: {os.path.basename(file_path)}", 3000)
                 raise FileNotFoundError(f"Audio file not found: {file_path}")
 
             data = self.track_data.get_track_data(track_id)
@@ -81,18 +76,12 @@ class MetadataWriter:
             elif audio_format in [AudioFormat.FLAC, AudioFormat.OGG]:
                 result = self._write_vorbis(file_path, data, mode, audio_format)
             else:
-                self.status_manager.end_task(
-                    f"Unsupported format: {audio_format}", 3000
-                )
+                self.status_manager.end_task(f"Unsupported format: {audio_format}", 3000)
                 raise ValueError(f"Unsupported audio format: {audio_format}")
 
             if result:
-                self.controller.update.update_entity(
-                    "Track", track_id, needs_tag_write=0
-                )
-                self.status_manager.end_task(
-                    f"Updated {os.path.basename(file_path)}", 3000
-                )
+                self.controller.update.update_entity("Track", track_id, needs_tag_write=0)
+                self.status_manager.end_task(f"Updated {os.path.basename(file_path)}", 3000)
             else:
                 self.status_manager.end_task(
                     f"Failed to update {os.path.basename(file_path)}", 3000
@@ -105,16 +94,12 @@ class MetadataWriter:
             self.status_manager.end_task(f"Error: {os.path.basename(file_path)}", 3000)
             return False
 
-    def _write_id3(self, file_path: str, data: Dict[str, Any], mode: WriteMode) -> bool:
+    def _write_id3(self, file_path: str, data: dict[str, Any], mode: WriteMode) -> bool:
         new_frames = self.id3_frame_builder.build_frames(data)
         return self.mp3_writer.write_tags(file_path, new_frames, mode)
 
     def _write_vorbis(
-        self,
-        file_path: str,
-        data: Dict[str, Any],
-        mode: WriteMode,
-        audio_format: AudioFormat,
+        self, file_path: str, data: dict[str, Any], mode: WriteMode, audio_format: AudioFormat
     ) -> bool:
         """Write Vorbis metadata to a FLAC/OGG file.
 
@@ -148,7 +133,7 @@ class MetadataWriter:
                 os.remove(backup_path)
             return False
 
-    def get_changed_tags(self, track_id: int, file_path: str) -> List[str]:
+    def get_changed_tags(self, track_id: int, file_path: str) -> list[str]:
         """Compare a file's current on-disk tags to what the database would
         write, without modifying the file. Returns the sorted list of tag
         keys (ID3 frame IDs or Vorbis comment names) that differ; an empty
@@ -164,15 +149,13 @@ class MetadataWriter:
         audio_format = self.detect_audio_format(file_path)
         if audio_format == AudioFormat.MP3:
             return self._diff_id3(file_path, data)
-        elif audio_format in (AudioFormat.FLAC, AudioFormat.OGG):
+        if audio_format in (AudioFormat.FLAC, AudioFormat.OGG):
             return self._diff_vorbis(file_path, data)
         return []
 
-    def _diff_id3(self, file_path: str, data: Dict[str, Any]) -> List[str]:
+    def _diff_id3(self, file_path: str, data: dict[str, Any]) -> list[str]:
         new_frames = self.id3_frame_builder.build_frames(data)
-        new_by_id = {
-            f[0:4].decode("ascii", errors="ignore"): f for f in new_frames if len(f) >= 10
-        }
+        new_by_id = {f[0:4].decode("ascii", errors="ignore"): f for f in new_frames if len(f) >= 10}
         existing_by_id = self.mp3_writer.get_existing_frame_map(file_path)
 
         changed = [
@@ -182,15 +165,13 @@ class MetadataWriter:
         ]
         return sorted(changed)
 
-    def _diff_vorbis(self, file_path: str, data: Dict[str, Any]) -> List[str]:
+    def _diff_vorbis(self, file_path: str, data: dict[str, Any]) -> list[str]:
         new_comments = self.vorbis_comment_builder.build_comments(data)
 
         with open(file_path, "rb") as f:
             file_data = f.read()
         ext = os.path.splitext(file_path)[1].lower()
-        existing_comments = self.flac_writer.raw_tag_extractor.extract_raw_tags(
-            file_data, ext
-        )
+        existing_comments = self.flac_writer.raw_tag_extractor.extract_raw_tags(file_data, ext)
 
         sanitize = self.flac_writer.vorbis_writer.sanitize_value
 
@@ -210,7 +191,7 @@ class MetadataWriter:
         ]
         return sorted(changed)
 
-    def sync_metadata_to_track(self, track_id: int) -> Dict[str, Any]:
+    def sync_metadata_to_track(self, track_id: int) -> dict[str, Any]:
         """Read a track's file tags, compare them to the database, and write
         only the fields that actually differ.
 
@@ -222,25 +203,13 @@ class MetadataWriter:
         try:
             track = self.controller.get.get_entity_object("Track", track_id=track_id)
             if not track or not track.track_file_path:
-                return {
-                    "success": False,
-                    "changed": [],
-                    "message": "No file path on record",
-                }
+                return {"success": False, "changed": [], "message": "No file path on record"}
 
             if not os.path.exists(track.track_file_path):
-                return {
-                    "success": False,
-                    "changed": [],
-                    "message": "File not found on disk",
-                }
+                return {"success": False, "changed": [], "message": "File not found on disk"}
 
             if self.detect_audio_format(track.track_file_path) == AudioFormat.UNKNOWN:
-                return {
-                    "success": False,
-                    "changed": [],
-                    "message": "Unsupported file format",
-                }
+                return {"success": False, "changed": [], "message": "Unsupported file format"}
 
             changed = self.get_changed_tags(track_id, track.track_file_path)
             if not changed:
@@ -266,11 +235,10 @@ class MetadataWriter:
         ext = os.path.splitext(file_path)[1].lower()
         if ext == ".flac":
             return self.flac_writer.write_artwork(file_path, role, image_bytes)
-        elif ext == ".mp3":
+        if ext == ".mp3":
             return self.mp3_writer.write_artwork(file_path, role, image_bytes)
-        else:
-            logger.debug(f"Unsupported format for artwork write: {file_path}")
-            return False
+        logger.debug(f"Unsupported format for artwork write: {file_path}")
+        return False
 
     def write_metadata_to_track(
         self, track_id: int, mode: WriteMode = WriteMode.UPDATE_EXISTING
@@ -279,16 +247,12 @@ class MetadataWriter:
         try:
             track = self.controller.get.get_entity_object("Track", track_id=track_id)
             if not track or not track.track_file_path:
-                self.status_manager.show_message(
-                    f"Track {track_id} has no file path", 3000
-                )
+                self.status_manager.show_message(f"Track {track_id} has no file path", 3000)
                 logger.debug(f"Track {track_id} has no file path")
                 return False
 
             if not os.path.exists(track.track_file_path):
-                self.status_manager.show_message(
-                    f"File not found: {track.track_file_path}", 3000
-                )
+                self.status_manager.show_message(f"File not found: {track.track_file_path}", 3000)
                 logger.debug(f"Track file not found: {track.track_file_path}")
                 return False
 

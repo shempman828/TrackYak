@@ -6,7 +6,8 @@ lookup) off the UI thread, matching the CancellableWorker pattern already
 used for artist fuzzy-matching, art caching, etc.
 """
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from PySide6.QtCore import Signal
 

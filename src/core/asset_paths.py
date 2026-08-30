@@ -1,6 +1,7 @@
 # paths.py
 from pathlib import Path
 import sys
+
 from PySide6.QtGui import QIcon
 
 # --- Base Directories --------------------------------------------------------

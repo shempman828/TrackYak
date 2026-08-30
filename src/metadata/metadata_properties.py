@@ -149,18 +149,14 @@ class AudioPropertiesExtractor:
             properties["sample_rate"] = sample_rate
             properties["channels"] = channels
 
-            vbr_info = self._parse_mp3_vbr_header(
-                data, pos, version_bits, channel_mode
-            )
+            vbr_info = self._parse_mp3_vbr_header(data, pos, version_bits, channel_mode)
             if vbr_info and vbr_info.get("frames"):
                 duration = vbr_info["frames"] * samples_per_frame / sample_rate
                 if duration > 0:
                     properties["duration"] = duration
                     # bit_rate is stored/displayed in kbps throughout the app.
                     if vbr_info.get("bytes"):
-                        properties["bit_rate"] = int(
-                            vbr_info["bytes"] * 8 / duration / 1000
-                        )
+                        properties["bit_rate"] = int(vbr_info["bytes"] * 8 / duration / 1000)
                     elif bitrate:
                         properties["bit_rate"] = bitrate // 1000
                 return properties
@@ -174,9 +170,7 @@ class AudioPropertiesExtractor:
             scan_pos = pos
             while scan_pos < len(data) - 4:
                 if data[scan_pos] == 0xFF and (data[scan_pos + 1] & 0xE0) == 0xE0:
-                    frame_header = struct.unpack(
-                        ">I", data[scan_pos : scan_pos + 4]
-                    )[0]
+                    frame_header = struct.unpack(">I", data[scan_pos : scan_pos + 4])[0]
                     if (frame_header & 0xFFE00000) != 0xFFE00000:
                         scan_pos += 1
                         continue
@@ -243,11 +237,7 @@ class AudioPropertiesExtractor:
                     total_samples = bits & 0xFFFFFFFFF  # 36 bits
 
                     properties.update(
-                        {
-                            "sample_rate": sample_rate,
-                            "channels": channels,
-                            "bit_depth": bit_depth,
-                        }
+                        {"sample_rate": sample_rate, "channels": channels, "bit_depth": bit_depth}
                     )
 
                     # Calculate duration and bitrate
@@ -327,9 +317,7 @@ class AudioPropertiesExtractor:
                     if duration > 0:
                         properties["duration"] = duration
                         # bit_rate is stored/displayed in kbps throughout the app.
-                        properties["bit_rate"] = (
-                            sample_rate * channels * bits_per_sample
-                        ) // 1000
+                        properties["bit_rate"] = (sample_rate * channels * bits_per_sample) // 1000
 
         except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting WAV properties: {e}")
@@ -363,11 +351,7 @@ class AudioPropertiesExtractor:
                     sample_rate = self._parse_aiff_sample_rate(comm_data[8:18])
 
                     properties.update(
-                        {
-                            "channels": channels,
-                            "bit_depth": bit_depth,
-                            "sample_rate": sample_rate,
-                        }
+                        {"channels": channels, "bit_depth": bit_depth, "sample_rate": sample_rate}
                     )
 
                     if sample_rate and total_frames > 0:
@@ -375,9 +359,7 @@ class AudioPropertiesExtractor:
                         # Uncompressed PCM: exact, same formula as WAV.
                         # bit_rate is stored/displayed in kbps throughout
                         # the app.
-                        properties["bit_rate"] = (
-                            sample_rate * channels * bit_depth
-                        ) // 1000
+                        properties["bit_rate"] = (sample_rate * channels * bit_depth) // 1000
 
                     break
 
@@ -458,7 +440,7 @@ class AudioPropertiesExtractor:
                     timescale, duration_units = trak_timescale, trak_duration
                     channels, sample_rate = trak_channels, trak_sample_rate
                     break
-                elif timescale is None and trak_timescale:
+                if timescale is None and trak_timescale:
                     # Keep the first track's duration as a fallback in case
                     # no track yields a readable stsd audio entry.
                     timescale, duration_units = trak_timescale, trak_duration
@@ -562,9 +544,7 @@ class AudioPropertiesExtractor:
                 segment_table_start = pos + 27
                 if segment_table_start + page_segments > len(data):
                     break
-                segment_table = data[
-                    segment_table_start : segment_table_start + page_segments
-                ]
+                segment_table = data[segment_table_start : segment_table_start + page_segments]
                 payload_size = sum(segment_table)
                 payload_start = segment_table_start + page_segments
                 payload_end = payload_start + payload_size

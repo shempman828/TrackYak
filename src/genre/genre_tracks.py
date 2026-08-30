@@ -1,8 +1,8 @@
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
+from src.track.base_track_view import BaseTrackView
 
 
 class GenreTracksWindow(QDialog):
@@ -78,13 +78,9 @@ class GenreTracksWindow(QDialog):
                 logger.debug(f"Total track-genre associations: {len(track_genres)}")
 
                 # Filter to only associations with our target genres
-                matching_associations = [
-                    tg for tg in track_genres if tg.genre_id in genre_ids
-                ]
+                matching_associations = [tg for tg in track_genres if tg.genre_id in genre_ids]
 
-                logger.debug(
-                    f"Matching track-genre associations: {len(matching_associations)}"
-                )
+                logger.debug(f"Matching track-genre associations: {len(matching_associations)}")
 
                 track_ids = list(set([tg.track_id for tg in matching_associations]))
                 logger.debug(f"Unique track IDs: {track_ids}")
@@ -94,9 +90,7 @@ class GenreTracksWindow(QDialog):
                     # Query tracks one by one to avoid the list parameter issue
                     tracks = []
                     for track_id in track_ids:
-                        track = self.controller.get.get_entity_object(
-                            "Track", track_id=track_id
-                        )
+                        track = self.controller.get.get_entity_object("Track", track_id=track_id)
                         if track:
                             tracks.append(track)
                 else:
@@ -111,9 +105,7 @@ class GenreTracksWindow(QDialog):
                 matching_associations = [
                     tg for tg in track_genres if tg.genre_id == self.genre.genre_id
                 ]
-                logger.debug(
-                    f"Matching track-genre associations: {len(matching_associations)}"
-                )
+                logger.debug(f"Matching track-genre associations: {len(matching_associations)}")
 
                 track_ids = [tg.track_id for tg in matching_associations]
                 logger.debug(f"Track IDs: {track_ids}")
@@ -123,9 +115,7 @@ class GenreTracksWindow(QDialog):
                     # Query tracks one by one to avoid the list parameter issue
                     tracks = []
                     for track_id in track_ids:
-                        track = self.controller.get.get_entity_object(
-                            "Track", track_id=track_id
-                        )
+                        track = self.controller.get.get_entity_object("Track", track_id=track_id)
                         if track:
                             tracks.append(track)
                 else:
@@ -144,7 +134,7 @@ class GenreTracksWindow(QDialog):
             logger.debug(f"=== Track load completed: {result_text} ===")
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error loading tracks: {str(e)}")
+            logger.error(f"Error loading tracks: {e!s}")
             logger.exception("Full traceback:")
             self.track_count_label.setText("Error loading tracks")
 

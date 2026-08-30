@@ -92,9 +92,7 @@ class AdvancedTab(_BaseTab):
         self._write_btn.clicked.connect(self._on_write_metadata)
 
         self._analyze_btn = QPushButton("Analyze Audio")
-        self._analyze_btn.setToolTip(
-            "Run audio analysis on the selected track(s)."
-        )
+        self._analyze_btn.setToolTip("Run audio analysis on the selected track(s).")
         self._analyze_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._analyze_btn.clicked.connect(self._on_analyze)
 
@@ -154,9 +152,7 @@ class AdvancedTab(_BaseTab):
             ]
 
             updated = [(t, r) for t, r in results if r["success"] and r["changed"]]
-            unchanged = [
-                (t, r) for t, r in results if r["success"] and not r["changed"]
-            ]
+            unchanged = [(t, r) for t, r in results if r["success"] and not r["changed"]]
             failed = [(t, r) for t, r in results if not r["success"]]
 
             self._set_status(
@@ -171,21 +167,14 @@ class AdvancedTab(_BaseTab):
             if len(results) == 1:
                 track, result = results[0]
                 if not result["success"]:
-                    QMessageBox.warning(
-                        self, "Write Metadata to File", result["message"]
-                    )
+                    QMessageBox.warning(self, "Write Metadata to File", result["message"])
                 elif not result["changed"]:
                     show_status_message(self, "File tags already match the database.")
                 else:
-                    show_status_message(
-                        self, "Updated tag(s):\n" + "\n".join(result["changed"])
-                    )
+                    show_status_message(self, "Updated tag(s):\n" + "\n".join(result["changed"]))
                 return
 
-            lines = [
-                f"Updated: {len(updated)}",
-                f"Already up to date: {len(unchanged)}",
-            ]
+            lines = [f"Updated: {len(updated)}", f"Already up to date: {len(unchanged)}"]
             if failed:
                 lines.append(f"Failed: {len(failed)}")
                 for track, result in failed:

@@ -70,7 +70,9 @@ def _get_cached_entity_names(get_helper, model_name: str) -> list:
 class SplitDBDialog(QDialog):
     """Dialog for splitting a combined ORM entity (e.g., 'Paul Simon / Art Garfunkel')."""
 
-    def __init__(self, split_helper: SplitDB, model_name: str, entity_obj, parent=None, get_helper=None):
+    def __init__(
+        self, split_helper: SplitDB, model_name: str, entity_obj, parent=None, get_helper=None
+    ):
         super().__init__(parent)
         self.split_helper = split_helper
         self.model_name = model_name
@@ -198,9 +200,7 @@ class SplitDBDialog(QDialog):
                         try:
                             name_attr = self._find_name_attribute_for_obj(related_value)
                             if name_attr:
-                                related_name = getattr(
-                                    related_value, name_attr, "Unknown"
-                                )
+                                related_name = getattr(related_value, name_attr, "Unknown")
                         except (AttributeError, SQLAlchemyError):
                             logger.debug("Could not determine name for related object")
                         relationship_info.append(f"• {rel_key}: {related_name}")
@@ -359,11 +359,7 @@ class SplitDBDialog(QDialog):
 
         try:
             # Call SplitDB using the split_helper
-            self.split_helper.split_entity(
-                self.model_name,
-                entity_id,
-                split_attributes,
-            )
+            self.split_helper.split_entity(self.model_name, entity_id, split_attributes)
 
             logger.info(
                 f"Split {self.model_name} (id={entity_id}) into {len(names)} new entities: {names}"
@@ -375,7 +371,5 @@ class SplitDBDialog(QDialog):
         except SQLAlchemyError as e:
             logger.error(f"Failed to split {self.model_name} (id={entity_id}): {e}")
             QMessageBox.critical(
-                self,
-                "Split Failed",
-                f"An error occurred during the split:\n{str(e)}",
+                self, "Split Failed", f"An error occurred during the split:\n{e!s}"
             )

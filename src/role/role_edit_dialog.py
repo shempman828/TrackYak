@@ -1,10 +1,4 @@
-from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QFormLayout,
-    QLineEdit,
-    QMessageBox,
-)
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
@@ -54,19 +48,14 @@ class RoleEditDialog(QDialog):
 
         # Check for duplicate names (across all roles)
         existing_role = self.controller.get.get_entity_object("Role", role_name=name)
-        if existing_role and (
-            not self.role or existing_role.role_id != self.role.role_id
-        ):
+        if existing_role and (not self.role or existing_role.role_id != self.role.role_id):
             QMessageBox.warning(self, "Validation", "Role name already exists")
             return
 
         try:
             if self.role:  # Editing
                 self.controller.update.update_entity(
-                    "Role",
-                    self.role.role_id,
-                    role_name=name,
-                    role_description=description,
+                    "Role", self.role.role_id, role_name=name, role_description=description
                 )
                 self.result_role = self.role
             else:  # Creating
@@ -75,5 +64,5 @@ class RoleEditDialog(QDialog):
                 )
             self.accept()
         except SQLAlchemyError as e:
-            logger.error(f"Error saving role: {str(e)}")
-            QMessageBox.critical(self, "Error", f"Failed to save role: {str(e)}")
+            logger.error(f"Error saving role: {e!s}")
+            QMessageBox.critical(self, "Error", f"Failed to save role: {e!s}")

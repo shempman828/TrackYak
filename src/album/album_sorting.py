@@ -35,10 +35,7 @@ class AlbumSortingMixin:
         ),
         (
             "Release Date",
-            [
-                ("Year (Newest First)", "year", True),
-                ("Year (Oldest First)", "year", False),
-            ],
+            [("Year (Newest First)", "year", True), ("Year (Oldest First)", "year", False)],
         ),
         (
             "Popularity",
@@ -62,12 +59,7 @@ class AlbumSortingMixin:
                 ("Art Size (Smallest First)", "art_dimensions", False),
             ],
         ),
-        (
-            "Random",
-            [
-                ("Shuffle", "random", False),
-            ],
-        ),
+        ("Random", [("Shuffle", "random", False)]),
     ]
 
     def _on_sort_changed(self, index: int):
@@ -96,10 +88,7 @@ class AlbumSortingMixin:
 
     def _sort_filtered(self):
         try:
-            self.filtered_albums.sort(
-                key=self._sort_key,
-                reverse=self._sort_descending,
-            )
+            self.filtered_albums.sort(key=self._sort_key, reverse=self._sort_descending)
         except TypeError as e:
             logger.warning(f"Sorting failed: {e}")
 
@@ -110,11 +99,9 @@ class AlbumSortingMixin:
             if c == "title":
                 return getattr(album, "album_name", "").lower()
 
-            elif c == "artist":
+            if c == "artist":
                 artists = (
-                    getattr(album, "album_artists", None)
-                    or getattr(album, "artists", None)
-                    or []
+                    getattr(album, "album_artists", None) or getattr(album, "artists", None) or []
                 )
                 if artists:
                     first = artists[0]
@@ -123,12 +110,10 @@ class AlbumSortingMixin:
                     if isinstance(first, str):
                         return first.lower()
                     if isinstance(first, dict):
-                        return (
-                            first.get("artist_name") or first.get("name") or ""
-                        ).lower()
+                        return (first.get("artist_name") or first.get("name") or "").lower()
                 return ""
 
-            elif c == "year":
+            if c == "year":
                 y = getattr(album, "release_year", None)
                 try:
                     return int(y) if y else 0
@@ -145,11 +130,7 @@ class AlbumSortingMixin:
                 return getattr(album, "total_plays", 0) or 0
 
             elif c == "rating":
-                return (
-                    getattr(album, "average_rating", 0)
-                    or getattr(album, "user_rating", 0)
-                    or 0
-                )
+                return getattr(album, "average_rating", 0) or getattr(album, "user_rating", 0) or 0
 
             elif c == "length":
                 return getattr(album, "total_duration", 0) or 0
@@ -167,16 +148,14 @@ class AlbumSortingMixin:
                 # background worker by the caller (_apply_filters), which
                 # re-sorts once its real dimensions are known.
                 cache = get_artwork_cache()
-                _, dims = (
-                    cache.peek_dimensions(album, "front") if cache else (True, None)
-                )
+                _, dims = cache.peek_dimensions(album, "front") if cache else (True, None)
                 if dims:
                     return dims[0] * dims[1]
                 return 0
 
             return getattr(album, "album_name", "").lower()
 
-        except Exception:  # ruff: ignore[blind-except]
+        except Exception:
             logger.exception(
                 f"Sort key failed for album {getattr(album, 'album_name', '?')} "
                 f"(criteria={self._sort_criteria})"

@@ -5,8 +5,6 @@ Accepts a SyncProfile and automatically picks MTP or folder sync.
 Both paths emit identical signals so the UI is fully agnostic.
 """
 
-from typing import Dict, List
-
 from PySide6.QtCore import Signal
 
 from src.common.cancellable_worker import CancellableWorker
@@ -21,12 +19,7 @@ class SyncWorker(CancellableWorker):
     playlist_complete = Signal(dict)  # one playlist result
     finished = Signal(list)  # all results
 
-    def __init__(
-        self,
-        sync_manager: SyncManager,
-        playlists: List[Dict],
-        profile: SyncProfile,
-    ):
+    def __init__(self, sync_manager: SyncManager, playlists: list[dict], profile: SyncProfile):
         super().__init__()
         self.sync_manager = sync_manager
         self.playlists = playlists
@@ -42,9 +35,7 @@ class SyncWorker(CancellableWorker):
             if profile.clear_before_sync and not self.is_cancelled:
                 self.progress.emit(0, 1, "Clearing destination…")
                 if profile.is_mtp:
-                    self.sync_manager.clear_mtp_folders(
-                        profile.device_uri, profile.music_path
-                    )
+                    self.sync_manager.clear_mtp_folders(profile.device_uri, profile.music_path)
                 else:
                     self.sync_manager.clear_device_folder(profile.path)
 
@@ -60,16 +51,11 @@ class SyncWorker(CancellableWorker):
 
                 if profile.is_mtp:
                     result = self.sync_manager.sync_playlist_to_mtp(
-                        playlist,
-                        profile.device_uri,
-                        profile.music_path,
-                        self._progress_callback,
+                        playlist, profile.device_uri, profile.music_path, self._progress_callback
                     )
                 else:
                     result = self.sync_manager.sync_playlist_to_device(
-                        playlist,
-                        profile.path,
-                        self._progress_callback,
+                        playlist, profile.path, self._progress_callback
                     )
 
                 self.results.append(result)
@@ -82,7 +68,7 @@ class SyncWorker(CancellableWorker):
             # and must not let an exception kill the thread silently — surface
             # it to the UI instead.
             logger.exception("SyncWorker error")
-            StatusManager.end_task(f"Sync error: {str(e)}", 5000)
+            StatusManager.end_task(f"Sync error: {e!s}", 5000)
             self.finished.emit([])
         finally:
             # sync_manager now resolves its own session lazily per calling

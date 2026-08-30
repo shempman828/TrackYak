@@ -12,8 +12,6 @@ All colors complement the dark_mode.qss theme palette:
   Base: #0b0c10 | Accent: #8599ea | Text: #b8c0f0 | Highlight: #EAD685
 """
 
-from typing import List, Optional
-
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
@@ -55,16 +53,16 @@ class TimelineWidget(QWidget):
         super().__init__(parent)
 
         # Raw data
-        self.years: List[int] = []  # all unique years, sorted
-        self.selected_year: Optional[int] = None
+        self.years: list[int] = []  # all unique years, sorted
+        self.selected_year: int | None = None
 
         # Derived data (rebuilt whenever self.years changes)
-        self._decades: List[int] = []  # e.g. [1990, 2000, 2010]
+        self._decades: list[int] = []  # e.g. [1990, 2000, 2010]
         self._decade_years: dict = {}  # {1990: [1990,1991,...,1999], ...}
 
         # UI state
-        self._expanded_decade: Optional[int] = None  # None → decade view
-        self._hovered_index: Optional[int] = None  # index into current items
+        self._expanded_decade: int | None = None  # None → decade view
+        self._hovered_index: int | None = None  # index into current items
         self._back_hovered: bool = False  # mouse is over the "back" chip
 
         self.setMouseTracking(True)
@@ -74,7 +72,7 @@ class TimelineWidget(QWidget):
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
-    def set_years(self, years: List[int]):
+    def set_years(self, years: list[int]):
         """Set the list of years to display (duplicates and unsorted OK)."""
         if not years:
             return
@@ -105,7 +103,7 @@ class TimelineWidget(QWidget):
 
     # ── Current display items ──────────────────────────────────────────────────
 
-    def _current_items(self) -> List:
+    def _current_items(self) -> list:
         """
         Return the list of items currently drawn on the track.
         In decade view: list of decade ints (e.g. [1990, 2000]).
@@ -131,7 +129,7 @@ class TimelineWidget(QWidget):
         usable = self.width() - left_margin - self.MARGIN
         return left_margin + int(index / (total - 1) * usable)
 
-    def _index_near_x(self, x: float) -> Optional[int]:
+    def _index_near_x(self, x: float) -> int | None:
         items = self._current_items()
         n = len(items)
         if n == 0:
@@ -185,9 +183,7 @@ class TimelineWidget(QWidget):
         if selected_item in items:
             sel_idx = items.index(selected_item)
             sel_x = self._x_for_index(sel_idx, n)
-            pen_fill = QPen(
-                self.COLOR_TRACK_FILL, self.TRACK_H, Qt.SolidLine, Qt.RoundCap
-            )
+            pen_fill = QPen(self.COLOR_TRACK_FILL, self.TRACK_H, Qt.SolidLine, Qt.RoundCap)
             painter.setPen(pen_fill)
             painter.drawLine(left_margin, cy, sel_x, cy)
 

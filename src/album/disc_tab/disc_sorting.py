@@ -28,9 +28,7 @@ class TrackSortingDisplay(QTreeWidget):
     # Emitted after tracks are deleted so the parent view can reload.
     track_deleted = Signal()
 
-    def __init__(
-        self, tracks, discs=None, virtual_links=None, controller=None, parent=None
-    ):
+    def __init__(self, tracks, discs=None, virtual_links=None, controller=None, parent=None):
         super().__init__(parent)
         self.physical_tracks = tracks
         self.discs = discs or []
@@ -58,24 +56,28 @@ class TrackSortingDisplay(QTreeWidget):
         items = []
         for track in self.physical_tracks:
             disc = discs_by_id.get(track.disc_id)
-            items.append({
-                "track": track,
-                "is_virtual": False,
-                "disc_id": track.disc_id,
-                "disc_number": disc.disc_number if disc else None,
-                "track_number": track.track_number,
-                "side": track.side,
-            })
+            items.append(
+                {
+                    "track": track,
+                    "is_virtual": False,
+                    "disc_id": track.disc_id,
+                    "disc_number": disc.disc_number if disc else None,
+                    "track_number": track.track_number,
+                    "side": track.side,
+                }
+            )
         for link in self.virtual_links:
             if link.track:
-                items.append({
-                    "track": link.track,
-                    "is_virtual": True,
-                    "link": link,
-                    "disc_number": link.virtual_disc_number,
-                    "track_number": link.virtual_track_number,
-                    "side": link.virtual_side,
-                })
+                items.append(
+                    {
+                        "track": link.track,
+                        "is_virtual": True,
+                        "link": link,
+                        "disc_number": link.virtual_disc_number,
+                        "track_number": link.virtual_track_number,
+                        "side": link.virtual_side,
+                    }
+                )
         return items
 
     def _organize_tracks(self):
@@ -274,9 +276,7 @@ class TrackSortingDisplay(QTreeWidget):
             return
 
         count = len(tracks)
-        names = ", ".join(
-            getattr(t, "track_name", None) or f"ID {t.track_id}" for t in tracks[:3]
-        )
+        names = ", ".join(getattr(t, "track_name", None) or f"ID {t.track_id}" for t in tracks[:3])
         if count > 3:
             names += f" … and {count - 3} more"
 
@@ -303,9 +303,7 @@ class TrackSortingDisplay(QTreeWidget):
         if ok:
             logger.info(f"Batch-deleted {count} track(s) from DB")
         else:
-            logger.error(
-                "Batch delete returned False — some tracks may not have been removed"
-            )
+            logger.error("Batch delete returned False — some tracks may not have been removed")
 
         # --- Optionally remove files from disk ---
         if delete_files and file_paths:
@@ -327,8 +325,7 @@ class TrackSortingDisplay(QTreeWidget):
                     "Some Files Not Deleted",
                     f"{len(failed_paths)} of {len(file_paths)} file(s) could not be "
                     "deleted from disk (e.g. permission denied or already removed). "
-                    "The library entries were still removed.\n\n"
-                    + "\n".join(failed_paths),
+                    "The library entries were still removed.\n\n" + "\n".join(failed_paths),
                 )
 
         self.track_deleted.emit()
@@ -377,12 +374,7 @@ class TrackSortingDisplay(QTreeWidget):
         track_name = (track.track_name or "Unknown") + (" 👻" if is_v else "")
 
         node = QTreeWidgetItem(
-            parent_item,
-            [
-                str(item_dict["track_number"] or "?"),
-                track_name,
-                duration,
-            ],
+            parent_item, [str(item_dict["track_number"] or "?"), track_name, duration]
         )
         # Store track_id as an int so show_context_menu can identify track rows
         node.setData(0, Qt.UserRole, int(track.track_id))
@@ -460,9 +452,7 @@ class TrackSortingDisplay(QTreeWidget):
             }
             for track_id, (track_number, absolute_number) in updates.items()
         ]
-        updated, failed = controller.update.update_entities_bulk_with_fallback(
-            "Track", rows
-        )
+        updated, failed = controller.update.update_entities_bulk_with_fallback("Track", rows)
         for row in failed:
             logger.error(f"Failed to renumber track {row['track_id']}")
 
@@ -528,13 +518,15 @@ class TrackSortingDisplay(QTreeWidget):
                     group_position += 1
                     child.setText(0, str(group_position))
                     if not child.data(1, Qt.UserRole):  # skip virtual tracks
-                        rows.append({
-                            "track_id": track_id,
-                            "track_number": group_position,
-                            "absolute_track_number": absolute_position,
-                            "side": side_name,
-                            "disc_id": disc_obj.disc_id if disc_obj else None,
-                        })
+                        rows.append(
+                            {
+                                "track_id": track_id,
+                                "track_number": group_position,
+                                "absolute_track_number": absolute_position,
+                                "side": side_name,
+                                "disc_id": disc_obj.disc_id if disc_obj else None,
+                            }
+                        )
                 else:
                     child_side = child.data(0, Qt.UserRole)
                     visit(child, disc_obj, child_side if isinstance(child_side, str) else None)
@@ -548,9 +540,7 @@ class TrackSortingDisplay(QTreeWidget):
 
         _, failed = controller.update.update_entities_bulk_with_fallback("Track", rows)
         for row in failed:
-            logger.error(
-                f"Failed to persist drag-and-drop reorder for track {row['track_id']}"
-            )
+            logger.error(f"Failed to persist drag-and-drop reorder for track {row['track_id']}")
 
         # Counts (Unassigned/per-disc) may have shifted if a track changed
         # discs -- update_stats() reads the parent's already-synced in-memory

@@ -64,11 +64,7 @@ class _BaseTrackAssociationTab(_BaseTab):
 
         search_row = QHBoxLayout()
         self._search = build_entity_search_widget(
-            self.controller,
-            self.model_name,
-            self.name_field,
-            self.id_field,
-            self.placeholder_text,
+            self.controller, self.model_name, self.name_field, self.id_field, self.placeholder_text
         )
         self._search.textChanged.connect(self._on_search_text_changed)
         self._search.returnPressed.connect(self._add)
@@ -98,9 +94,7 @@ class _BaseTrackAssociationTab(_BaseTab):
 
     def _load_track_items(self, track):
         """Return [(id, name), ...] tagged on a single track."""
-        assocs = self.controller.get.get_entity_links(
-            self.assoc_model, track_id=track.track_id
-        )
+        assocs = self.controller.get.get_entity_links(self.assoc_model, track_id=track.track_id)
         items = []
         for a in assocs:
             entity_id = getattr(a, self.id_field)
@@ -108,9 +102,7 @@ class _BaseTrackAssociationTab(_BaseTab):
                 self.model_name, **{self.id_field: entity_id}
             )
             if entity:
-                items.append(
-                    (getattr(entity, self.id_field), getattr(entity, self.name_field))
-                )
+                items.append((getattr(entity, self.id_field), getattr(entity, self.name_field)))
         return items
 
     def load(self, tracks: list) -> None:
@@ -144,11 +136,7 @@ class _BaseTrackAssociationTab(_BaseTab):
 
     def _find_or_create(self, name: str):
         return find_or_create_by_name(
-            self.controller,
-            self.model_name,
-            self.name_field,
-            name,
-            self._known_entities(),
+            self.controller, self.model_name, self.name_field, name, self._known_entities()
         )
 
     def _add(self):
@@ -190,16 +178,12 @@ class _BaseTrackAssociationTab(_BaseTab):
             for track in self.tracks
         ]
         try:
-            _, failed = self.controller.add.add_entities_with_fallback(
-                self.assoc_model, rows
-            )
+            _, failed = self.controller.add.add_entities_with_fallback(self.assoc_model, rows)
         except SQLAlchemyError as e:
             logger.error(f"Failed to add {self.model_name} to tracks: {e}")
             failed = []
         if failed:
-            bad_track_ids = ", ".join(
-                dict.fromkeys(str(row["track_id"]) for row in failed)
-            )
+            bad_track_ids = ", ".join(dict.fromkeys(str(row["track_id"]) for row in failed))
             logger.warning(
                 f"Failed to tag {len(failed)} track(s) with {self.model_name}: "
                 f"track_id(s) {bad_track_ids}"

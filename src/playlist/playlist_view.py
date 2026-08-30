@@ -3,9 +3,9 @@ playlist_view.py
 
 """
 
-import datetime
 from collections import defaultdict
-from typing import Any, Optional
+import datetime
+from typing import Any
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -24,10 +24,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
-from src.common.hierarchy_tree_style import (
-    configure_hierarchy_tree,
-    icon_for_depth,
-)
+from src.common.hierarchy_tree_style import configure_hierarchy_tree, icon_for_depth
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.playlist.playlist_edit import EditPlaylist
@@ -76,7 +73,7 @@ class PlaylistView(QWidget):
         super().__init__()
         self.controller = controller
         self.open_playlist_windows = {}
-        self.selected_item: Optional[QTreeWidgetItem] = None
+        self.selected_item: QTreeWidgetItem | None = None
         self.flat_view = False
         self.exporter = PlaylistExporter(self.controller, parent_widget=self)
         self.init_ui()
@@ -194,10 +191,8 @@ class PlaylistView(QWidget):
             logger.info("Playlist hierarchy loaded successfully")
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error loading playlists: {str(e)}")
-            QMessageBox.critical(
-                self, "Loading Error", "Failed to load playlist hierarchy"
-            )
+            logger.error(f"Error loading playlists: {e!s}")
+            QMessageBox.critical(self, "Loading Error", "Failed to load playlist hierarchy")
 
     def export_selected_playlist(self) -> None:
         """Export the currently selected playlist."""
@@ -231,9 +226,7 @@ class PlaylistView(QWidget):
         # Save the reference so we can reuse it if the user opens this playlist again
         self.open_playlist_windows[playlist_id] = window
         # Remove the reference when the window is closed so it can be garbage collected
-        window.destroyed.connect(
-            lambda: self.open_playlist_windows.pop(playlist_id, None)
-        )
+        window.destroyed.connect(lambda: self.open_playlist_windows.pop(playlist_id, None))
         window.show()
 
     def show_context_menu(self, pos):
@@ -271,25 +264,13 @@ class PlaylistView(QWidget):
         if item_type == "playlist":
             if is_smart_playlist:
                 # Smart playlist options
-                menu.addAction(
-                    "✏️ Edit Smart Playlist",
-                    lambda: self.edit_smart_playlist(item_id),
-                )
-                menu.addAction(
-                    "🔄 Refresh Playlist",
-                    lambda: self._refresh_smart_playlist(item_id),
-                )
-                menu.addAction(
-                    "👁 View Tracks",
-                    lambda: self.open_playlist_editor(item_id),
-                )
+                menu.addAction("✏️ Edit Smart Playlist", lambda: self.edit_smart_playlist(item_id))
+                menu.addAction("🔄 Refresh Playlist", lambda: self._refresh_smart_playlist(item_id))
+                menu.addAction("👁 View Tracks", lambda: self.open_playlist_editor(item_id))
             else:
                 # Normal playlist options
                 menu.addAction("Edit Playlist Metadata", self.edit_playlist)
-                menu.addAction(
-                    "Open Track Editor",
-                    lambda: self.open_playlist_editor(item_id),
-                )
+                menu.addAction("Open Track Editor", lambda: self.open_playlist_editor(item_id))
 
             menu.addSeparator()
 
@@ -340,7 +321,7 @@ class PlaylistView(QWidget):
                 else []
             )
         except SQLAlchemyError as e:
-            logger.error(f"Error loading tracks for selected playlists: {str(e)}")
+            logger.error(f"Error loading tracks for selected playlists: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to load tracks for playlists")
             return
 
@@ -368,9 +349,7 @@ class PlaylistView(QWidget):
         if not groups:
             return
 
-        child_names = ", ".join(
-            item.text(0) for children in groups.values() for item in children
-        )
+        child_names = ", ".join(item.text(0) for children in groups.values() for item in children)
         parent_names = ", ".join(parent_item.text(0) for parent_item in groups)
         confirm = QMessageBox.question(
             self,
@@ -390,9 +369,7 @@ class PlaylistView(QWidget):
                     "PlaylistTracks", playlist_id=parent_id
                 )
                 existing_track_ids = {t.track_id for t in existing_tracks}
-                next_position = (
-                    max((t.position for t in existing_tracks), default=0) + 1
-                )
+                next_position = max((t.position for t in existing_tracks), default=0) + 1
 
                 for child_item in children:
                     child_id = child_item.data(0, Qt.UserRole)[1]
@@ -414,21 +391,12 @@ class PlaylistView(QWidget):
 
             self.load_playlists()
             self.playlist_updated.emit()
-            logger.info(
-                f"Added {total_added} track(s) from {child_names} to {parent_names}"
-            )
-            show_status_message(
-                self,
-                f"Added {total_added} track(s) to the parent playlist(s).",
-            )
+            logger.info(f"Added {total_added} track(s) from {child_names} to {parent_names}")
+            show_status_message(self, f"Added {total_added} track(s) to the parent playlist(s).")
 
         except SQLAlchemyError as e:
-            logger.error(f"Failed to add tracks to parent playlist: {str(e)}")
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to add tracks to parent playlist:\n{str(e)}",
-            )
+            logger.error(f"Failed to add tracks to parent playlist: {e!s}")
+            QMessageBox.critical(self, "Error", f"Failed to add tracks to parent playlist:\n{e!s}")
 
     @staticmethod
     def _format_playlist_name(playlist_obj) -> str:
@@ -448,9 +416,7 @@ class PlaylistView(QWidget):
         Use the playlist's own properties — no recalculation needed here.
         """
         own_count = getattr(playlist_obj, "track_count", 0) or 0
-        recursive_total = (
-            getattr(playlist_obj, "recursive_track_count", own_count) or own_count
-        )
+        recursive_total = getattr(playlist_obj, "recursive_track_count", own_count) or own_count
         if recursive_total != own_count:
             # Has sub-playlists contributing additional tracks, e.g. "3 · 10"
             return f"{own_count} · {recursive_total}"
@@ -498,8 +464,7 @@ class PlaylistView(QWidget):
         parent_id = parent_item.data(0, Qt.UserRole)[1] if parent_item else None
 
         children = sorted(
-            children_map.get(parent_id, []),
-            key=lambda x: getattr(x, "playlist_name", "").lower(),
+            children_map.get(parent_id, []), key=lambda x: getattr(x, "playlist_name", "").lower()
         )
 
         for child in children:
@@ -516,9 +481,7 @@ class PlaylistView(QWidget):
 
     def _build_flat(self, playlists) -> None:
         """Populate the tree as a single alphabetical list with no nesting."""
-        for playlist in sorted(
-            playlists, key=lambda x: getattr(x, "playlist_name", "").lower()
-        ):
+        for playlist in sorted(playlists, key=lambda x: getattr(x, "playlist_name", "").lower()):
             item = self._make_playlist_item(playlist, 0)
             self.tree.addTopLevelItem(item)
 
@@ -535,9 +498,7 @@ class PlaylistView(QWidget):
             try:
                 # Add to database using your controller's create method
                 self.controller.add.add_entity(
-                    "Playlist",
-                    playlist_name=name,
-                    playlist_description=description,
+                    "Playlist", playlist_name=name, playlist_description=description
                 )
 
                 # Refresh the UI
@@ -546,7 +507,7 @@ class PlaylistView(QWidget):
                 logger.info(f"Created new playlist: {name}")
 
             except SQLAlchemyError as e:
-                logger.error(f"Failed to create playlist: {str(e)}")
+                logger.error(f"Failed to create playlist: {e!s}")
                 QMessageBox.critical(self, "Error", f"Could not create playlist: {e}")
 
     def create_smart_playlist(self):
@@ -563,10 +524,7 @@ class PlaylistView(QWidget):
             try:
                 # Create the Playlist record
                 playlist = self.controller.add.add_entity(
-                    "Playlist",
-                    playlist_name=name,
-                    playlist_description=description,
-                    is_smart=1,
+                    "Playlist", playlist_name=name, playlist_description=description, is_smart=1
                 )
 
                 # Create the SmartPlaylist record (stores logic = AND/OR)
@@ -593,20 +551,14 @@ class PlaylistView(QWidget):
                 # off the UI thread — a large library can make this slow.
                 self._start_smart_playlist_refresh(
                     playlist.playlist_id,
-                    lambda success, pid: self._on_created_playlist_refreshed(
-                        success, pid, name
-                    ),
+                    lambda success, pid: self._on_created_playlist_refreshed(success, pid, name),
                 )
 
             except (SQLAlchemyError, RuntimeError) as e:
-                logger.error(f"Failed to create smart playlist: {str(e)}")
-                QMessageBox.critical(
-                    self, "Error", f"Could not create smart playlist: {e}"
-                )
+                logger.error(f"Failed to create smart playlist: {e!s}")
+                QMessageBox.critical(self, "Error", f"Could not create smart playlist: {e}")
 
-    def _on_created_playlist_refreshed(
-        self, success: bool, playlist_id: int, name: str
-    ) -> None:
+    def _on_created_playlist_refreshed(self, success: bool, playlist_id: int, name: str) -> None:
         # Whether or not the initial match found tracks, the playlist and
         # its criteria already exist — always refresh the UI to show it.
         self.load_playlists()
@@ -626,9 +578,7 @@ class PlaylistView(QWidget):
         item_type, item_id = item_data
 
         try:
-            playlist_obj = self.controller.get.get_entity_object(
-                "Playlist", playlist_id=item_id
-            )
+            playlist_obj = self.controller.get.get_entity_object("Playlist", playlist_id=item_id)
             name = playlist_obj.playlist_name if playlist_obj else item.text(0)
         except SQLAlchemyError as e:
             logger.warning(f"Could not load playlist name for delete confirmation: {e}")
@@ -651,10 +601,8 @@ class PlaylistView(QWidget):
                 logger.info(f"Deleted {item_type}: {name}")
 
             except SQLAlchemyError as e:
-                logger.error(f"Deletion failed: {str(e)}")
-                QMessageBox.critical(
-                    self, "Error", f"Failed to delete {item_type}:\n{str(e)}"
-                )
+                logger.error(f"Deletion failed: {e!s}")
+                QMessageBox.critical(self, "Error", f"Failed to delete {item_type}:\n{e!s}")
 
     @staticmethod
     def _depth_of(item: QTreeWidgetItem) -> int:
@@ -667,7 +615,7 @@ class PlaylistView(QWidget):
         return depth
 
     @staticmethod
-    def _is_descendant(ancestor: QTreeWidgetItem, item: Optional[QTreeWidgetItem]) -> bool:
+    def _is_descendant(ancestor: QTreeWidgetItem, item: QTreeWidgetItem | None) -> bool:
         """Return True if `item` is nested somewhere below `ancestor`."""
         while item is not None:
             item = item.parent()
@@ -693,7 +641,7 @@ class PlaylistView(QWidget):
                 "Playlist", playlist_id=item_data[1]
             )
         except SQLAlchemyError as e:
-            logger.error(f"Failed to refresh playlist item display: {str(e)}")
+            logger.error(f"Failed to refresh playlist item display: {e!s}")
             return
         if not playlist_obj:
             return
@@ -728,18 +676,14 @@ class PlaylistView(QWidget):
 
             # Dropping a playlist onto itself or one of its own descendants
             # would create a cycle in the tree - refuse it.
-            if target_item is dragged_item or self._is_descendant(
-                dragged_item, target_item
-            ):
+            if target_item is dragged_item or self._is_descendant(dragged_item, target_item):
                 event.ignore()
                 return
 
             old_parent_item = dragged_item.parent()
 
             # Update the playlist's parent_id in database
-            self.controller.update.update_entity(
-                "Playlist", dragged_id, parent_id=new_parent_id
-            )
+            self.controller.update.update_entity("Playlist", dragged_id, parent_id=new_parent_id)
 
             # Move the item within the tree in place instead of reloading the
             # whole module, so selection/scroll position/expanded state don't
@@ -747,9 +691,7 @@ class PlaylistView(QWidget):
             if old_parent_item is not None:
                 old_parent_item.removeChild(dragged_item)
             else:
-                self.tree.takeTopLevelItem(
-                    self.tree.indexOfTopLevelItem(dragged_item)
-                )
+                self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(dragged_item))
 
             if target_item is not None:
                 target_item.addChild(dragged_item)
@@ -775,7 +717,7 @@ class PlaylistView(QWidget):
             event.accept()
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Drag-drop error: {str(e)}")
+            logger.error(f"Drag-drop error: {e!s}")
             event.ignore()
 
     def edit_playlist(self) -> None:
@@ -789,11 +731,9 @@ class PlaylistView(QWidget):
 
         playlist_id = item.data(0, Qt.UserRole)[1]
         try:
-            playlist = self.controller.get.get_entity_object(
-                "Playlist", playlist_id=playlist_id
-            )
+            playlist = self.controller.get.get_entity_object("Playlist", playlist_id=playlist_id)
         except SQLAlchemyError as e:
-            logger.error(f"Failed to fetch playlist object: {str(e)}")
+            logger.error(f"Failed to fetch playlist object: {e!s}")
             QMessageBox.critical(self, "Error", "Unable to load playlist details.")
             return
 
@@ -808,9 +748,7 @@ class PlaylistView(QWidget):
         if dialog.exec_() == QDialog.Accepted:
             # Dialog saved changes — now re-evaluate which tracks match,
             # off the UI thread.
-            self._start_smart_playlist_refresh(
-                playlist_id, self._on_edited_playlist_refreshed
-            )
+            self._start_smart_playlist_refresh(playlist_id, self._on_edited_playlist_refreshed)
 
     def _on_edited_playlist_refreshed(self, success: bool, playlist_id: int) -> None:
         if success:
@@ -826,9 +764,7 @@ class PlaylistView(QWidget):
 
     def _refresh_smart_playlist(self, playlist_id: int):
         """Refresh a smart playlist and show the user a result message."""
-        self._start_smart_playlist_refresh(
-            playlist_id, self._on_manual_playlist_refreshed
-        )
+        self._start_smart_playlist_refresh(playlist_id, self._on_manual_playlist_refreshed)
 
     def _on_manual_playlist_refreshed(self, success: bool, playlist_id: int) -> None:
         if success:
@@ -851,9 +787,7 @@ class PlaylistView(QWidget):
             show_status_message(self, msg)
         else:
             QMessageBox.warning(
-                self,
-                "Refresh Failed",
-                "Could not refresh the playlist. Check the log for details.",
+                self, "Refresh Failed", "Could not refresh the playlist. Check the log for details."
             )
 
     def _start_smart_playlist_refresh(self, playlist_id: int, on_finished) -> None:

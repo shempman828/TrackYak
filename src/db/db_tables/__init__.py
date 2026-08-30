@@ -35,12 +35,7 @@ from src.db.db_tables.genre import Genre, GenreAlias, GenreSplitAlias
 from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.place import Place, PlaceAssociation
 from src.db.db_tables.place_association_type import PlaceAssociationType
-from src.db.db_tables.playlist import (
-    Playlist,
-    PlaylistTracks,
-    SmartPlaylist,
-    SmartPlaylistCriteria,
-)
+from src.db.db_tables.playlist import Playlist, PlaylistTracks, SmartPlaylist, SmartPlaylistCriteria
 from src.db.db_tables.publisher import Publisher, PublisherAlias, PublisherSplitAlias
 from src.db.db_tables.religion import Religion
 from src.db.db_tables.role import Role, RoleAlias, RoleSplitAlias

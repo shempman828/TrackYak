@@ -19,16 +19,10 @@ action emits a signal carrying the row's data rather than touching the DB
 directly, so this widget stays controller-free.
 """
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QHeaderView,
-    QMenu,
-    QTreeWidget,
-    QTreeWidgetItem,
-)
+from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QMenu, QTreeWidget, QTreeWidgetItem
 
 from src.charts.chart_recommendations import MissingChartItem
 
@@ -74,9 +68,7 @@ class ChartRecommendationTable(QTreeWidget):
         loop (mirrors ChartEntryTable.context_menu_for_entry)."""
         menu = QMenu(self)
         match_action = menu.addAction(f"Match to {item.entity_type}…")
-        match_action.triggered.connect(
-            lambda: self.bulk_match_requested.emit(item)
-        )
+        match_action.triggered.connect(lambda: self.bulk_match_requested.emit(item))
         return menu
 
     def _show_context_menu(self, pos) -> None:

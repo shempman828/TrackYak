@@ -95,9 +95,7 @@ class MarqueeLabel(QWidget):
         c = QColor(self._color) if not self._color.startswith("rgba") else None
         if c is None:
             # Handle rgba(r,g,b,a) where a is 0–1
-            nums = [
-                x.strip() for x in self._color.lstrip("rgba(").rstrip(")").split(",")
-            ]
+            nums = [x.strip() for x in self._color.lstrip("rgba(").rstrip(")").split(",")]
             try:
                 r, g, b = int(nums[0]), int(nums[1]), int(nums[2])
                 a = int(float(nums[3]) * 255) if len(nums) > 3 else 255
@@ -119,18 +117,13 @@ class MarqueeLabel(QWidget):
             bg = QColor(0, 0, 0, 0)  # transparent
             for x, fade_right in ((0, False), (w - self._FADE_WIDTH, True)):
                 grad = QLinearGradient(
-                    QPoint(x, 0),
-                    QPoint(x + self._FADE_WIDTH * (1 if fade_right else -1), 0),
+                    QPoint(x, 0), QPoint(x + self._FADE_WIDTH * (1 if fade_right else -1), 0)
                 )
                 grad.setColorAt(0.0, QColor(0, 0, 0, 200))
                 grad.setColorAt(1.0, bg)
                 painter.setCompositionMode(QPainter.CompositionMode_DestinationOut)
                 painter.fillRect(
-                    x if fade_right else x - self._FADE_WIDTH,
-                    0,
-                    self._FADE_WIDTH,
-                    h,
-                    grad,
+                    x if fade_right else x - self._FADE_WIDTH, 0, self._FADE_WIDTH, h, grad
                 )
             painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
 

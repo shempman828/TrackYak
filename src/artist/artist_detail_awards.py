@@ -7,14 +7,7 @@ from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QPalette
-from PySide6.QtWidgets import (
-    QFrame,
-    QGridLayout,
-    QLabel,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.layout_utils import clear_layout
@@ -193,9 +186,7 @@ class AwardsWidget(QWidget):
 
             # Get awards associated with this artist
             award_associations = self.controller.get.get_all_entities(
-                "AwardAssociation",
-                entity_id=self.artist.artist_id,
-                entity_type="Artist",
+                "AwardAssociation", entity_id=self.artist.artist_id, entity_type="Artist"
             )
 
             if not award_associations:
@@ -220,9 +211,7 @@ class AwardsWidget(QWidget):
                     self.awards_data.append(award_data)
 
             # Sort by year (chronologically)
-            self.awards_data.sort(
-                key=lambda x: (x.get("year") or 9999, x.get("name", ""))
-            )
+            self.awards_data.sort(key=lambda x: (x.get("year") or 9999, x.get("name", "")))
 
             # Display awards
             self.display_awards()

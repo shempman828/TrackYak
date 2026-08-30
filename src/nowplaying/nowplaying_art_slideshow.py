@@ -8,7 +8,6 @@ full-window blurred backdrop.
 """
 
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation
 from PySide6.QtGui import QPixmap
@@ -46,7 +45,7 @@ class NowPlayingArtMixin:
 
     # ── art ───────────────────────────────────────────────────────────────
 
-    def _load_art(self, pixmap: Optional[QPixmap]):
+    def _load_art(self, pixmap: QPixmap | None):
         """Single-image path kept for clearUI / fallback use."""
         self._start_art_slideshow([(pixmap, False, None)] if pixmap else [])
 
@@ -63,7 +62,7 @@ class NowPlayingArtMixin:
         # (pixmap, is_artist_photo, label) — artist photos are rendered
         # without forcing a square crop, since they aren't necessarily
         # square, and carry the artist's name to caption the photo.
-        pixmaps: List[Tuple[QPixmap, bool, Optional[str]]] = []
+        pixmaps: list[tuple[QPixmap, bool, str | None]] = []
         has_front = False
         if album and cache:
             # peek_has_art never reads/decodes the audio file. If the cache
@@ -84,9 +83,7 @@ class NowPlayingArtMixin:
                             has_front = True
 
         # Also try artist-level image
-        album_artist_ids = {
-            a.artist_id for a in (getattr(album, "album_artists", None) or [])
-        }
+        album_artist_ids = {a.artist_id for a in (getattr(album, "album_artists", None) or [])}
         for artist in getattr(track, "artists", None) or []:
             p = getattr(artist, "profile_pic_path", None) or ""
             if p and Path(p).exists():
@@ -99,10 +96,11 @@ class NowPlayingArtMixin:
                             if ar.artist_id != artist.artist_id:
                                 continue
                             role_name = getattr(ar.role, "role_name", None)
-                            if role_name and role_name not in (
-                                "Primary Artist",
-                                "Album Artist",
-                            ) and role_name not in credit_roles:
+                            if (
+                                role_name
+                                and role_name not in ("Primary Artist", "Album Artist")
+                                and role_name not in credit_roles
+                            ):
                                 credit_roles.append(role_name)
                         if credit_roles:
                             name = f"{name} ({', '.join(credit_roles)})"
@@ -140,9 +138,7 @@ class NowPlayingArtMixin:
         self._load_art_from_track(track)
 
     def _start_art_slideshow(
-        self,
-        pixmaps: List[Tuple[QPixmap, bool, Optional[str]]],
-        has_front: bool = False,
+        self, pixmaps: list[tuple[QPixmap, bool, str | None]], has_front: bool = False
     ):
         """Begin cycling through the given list of (pixmap, is_artist, label)
         triples. The blurred backdrop stays pinned to the album art (the
@@ -208,9 +204,7 @@ class NowPlayingArtMixin:
         neighbor = _ARTIST_DWELL_MS if next_is_artist else _COVER_DWELL_MS
         return round(neighbor * _FRONT_COVER_SHARE / (1 - _FRONT_COVER_SHARE))
 
-    def _apply_art(
-        self, pixmap: Optional[QPixmap], is_artist: bool = False, label: Optional[str] = None
-    ):
+    def _apply_art(self, pixmap: QPixmap | None, is_artist: bool = False, label: str | None = None):
         """Push a single pixmap to the small art card with a crossfade."""
         self._current_pixmap = pixmap
         self._art_card.set_art(pixmap, is_artist, label)
@@ -225,7 +219,7 @@ class NowPlayingArtMixin:
         self._art_transition_anim.setEasingCurve(QEasingCurve.InOutCubic)
         self._art_transition_anim.start()
 
-    def _apply_backdrop(self, pixmap: Optional[QPixmap]):
+    def _apply_backdrop(self, pixmap: QPixmap | None):
         """Crossfade the full-window blurred backdrop to `pixmap`. Called
         once per track (or when a new backdrop candidate appears), not on
         every art-card slide."""

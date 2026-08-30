@@ -91,13 +91,9 @@ class LyricsTab(_BaseTab):
             if self.is_multi:
                 values = [getattr(t, "is_explicit", None) for t in tracks]
                 unique = {str(v) for v in values}
-                _write_widget(
-                    self._explicit_widget, values[0] if len(unique) == 1 else None
-                )
+                _write_widget(self._explicit_widget, values[0] if len(unique) == 1 else None)
             else:
-                _write_widget(
-                    self._explicit_widget, getattr(self.track, "is_explicit", None)
-                )
+                _write_widget(self._explicit_widget, getattr(self.track, "is_explicit", None))
 
     def collect_changes(self) -> dict[str, Any]:
         changes = {}

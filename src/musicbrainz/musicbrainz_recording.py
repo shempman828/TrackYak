@@ -33,10 +33,7 @@ from src.musicbrainz.musicbrainz_release import (
 
 
 def search_recordings(
-    track_name: str,
-    artist_name: str | None = None,
-    album_name: str | None = None,
-    limit: int = 25,
+    track_name: str, artist_name: str | None = None, album_name: str | None = None, limit: int = 25
 ) -> list[MBCandidate]:
     configure()
     # Track title is passed as an unrestricted query (not `recording=`) so it
@@ -48,9 +45,7 @@ def search_recordings(
     if album_name:
         fields["release"] = album_name
     try:
-        result = musicbrainzngs.search_recordings(
-            _and_query(None, track_name, fields), limit=limit
-        )
+        result = musicbrainzngs.search_recordings(_and_query(None, track_name, fields), limit=limit)
     except Exception as e:
         # Intentional broad boundary catch: musicbrainzngs has no single
         # exception hierarchy covering every failure mode it can raise
@@ -94,10 +89,8 @@ def complete_recording_enrichment(candidate: MBCandidate) -> MBCandidate:
     configure()
     try:
         result = musicbrainzngs.get_recording_by_id(candidate.id, includes=["isrcs"])
-    except Exception as e:  # ruff: ignore[blind-except]
-        logger.warning(
-            f"MusicBrainz recording ISRC lookup failed for {candidate.id}: {e}"
-        )
+    except Exception as e:
+        logger.warning(f"MusicBrainz recording ISRC lookup failed for {candidate.id}: {e}")
         return candidate
 
     isrcs = result.get("recording", {}).get("isrc-list") or []
@@ -169,9 +162,7 @@ def search_canonical_album_for_recording(
         # isn't enough here).
         if not artist_mbid_set:
             return True
-        return any(
-            c.artist_mbid in artist_mbid_set for c in _parse_release_artist_credit(r)
-        )
+        return any(c.artist_mbid in artist_mbid_set for c in _parse_release_artist_credit(r))
 
     releases_by_id: dict[str, dict[str, Any]] = {}
     # release MBID -> the recording MBID that matched on it. Distinct
@@ -185,9 +176,7 @@ def search_canonical_album_for_recording(
         """Browse one known recording's releases into releases_by_id."""
         try:
             result = musicbrainzngs.browse_releases(
-                recording=rec_id,
-                includes=["release-groups", "artist-credits"],
-                limit=100,
+                recording=rec_id, includes=["release-groups", "artist-credits"], limit=100
             )
         except Exception as e:
             raise MusicBrainzLookupError(str(e)) from e
@@ -227,9 +216,7 @@ def search_canonical_album_for_recording(
         # artist) -- there's no discography to browse, so fall back to a
         # plain-text recording search instead.
         try:
-            result = musicbrainzngs.search_recordings(
-                _query_term(track_name, {}), limit=25
-            )
+            result = musicbrainzngs.search_recordings(_query_term(track_name, {}), limit=25)
         except Exception as e:
             raise MusicBrainzLookupError(str(e)) from e
         recordings = result.get("recording-list", [])
@@ -239,9 +226,7 @@ def search_canonical_album_for_recording(
                 if top_score - _ext_score(r) <= 10:
                     _browse_and_collect(r["id"])
 
-    releases_by_id = {
-        rid: r for rid, r in releases_by_id.items() if _is_primary_artist_release(r)
-    }
+    releases_by_id = {rid: r for rid, r in releases_by_id.items() if _is_primary_artist_release(r)}
     if not releases_by_id:
         return []
 
@@ -280,9 +265,9 @@ def search_canonical_album_for_recording(
     for releases in groups.values():
         releases.sort(key=_rank_key)
 
-    representative_groups = sorted(
-        groups.values(), key=lambda releases: _rank_key(releases[0])
-    )[:limit]
+    representative_groups = sorted(groups.values(), key=lambda releases: _rank_key(releases[0]))[
+        :limit
+    ]
 
     # Label distinct recordings among the final candidates -- e.g. "Ain't
     # Nobody Here but Us Chickens" by Louis Jordan has a 1946 original and a
@@ -309,17 +294,14 @@ def search_canonical_album_for_recording(
     if len(recording_earliest) > 1:
         ordered = sorted(recording_earliest.items(), key=lambda kv: kv[1])
         recording_labels = {
-            rec_id: f"Recording {i + 1} of {len(ordered)}"
-            for i, (rec_id, _) in enumerate(ordered)
+            rec_id: f"Recording {i + 1} of {len(ordered)}" for i, (rec_id, _) in enumerate(ordered)
         }
 
     def _build_candidate(r: dict[str, Any]) -> MBCandidate:
         credits = _parse_release_artist_credit(r)
         release_group = r.get("release-group") or {}
         secondary_types = release_group.get("secondary-type-list") or []
-        release_type = (
-            secondary_types[0] if secondary_types else release_group.get("primary-type")
-        )
+        release_type = secondary_types[0] if secondary_types else release_group.get("primary-type")
         date_parts = _parse_partial_date(r.get("date"), "release")
         recording_id = release_recording.get(r["id"])
         recording_label = recording_labels.get(recording_id) if recording_id else None
@@ -354,9 +336,7 @@ def search_canonical_album_for_recording(
                 "release_type": release_type,
                 "status": r.get("status"),
                 "country": r.get("country"),
-                "artist_credits": [
-                    {"mbid": c.artist_mbid, "name": c.artist_name} for c in credits
-                ],
+                "artist_credits": [{"mbid": c.artist_mbid, "name": c.artist_name} for c in credits],
             },
         )
 

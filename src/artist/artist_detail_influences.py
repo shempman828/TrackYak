@@ -3,13 +3,13 @@
 Influences widget showing artists influenced by and influencing the current artist.
 """
 
-from typing import Any, List
+from typing import Any
 
 from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.db.db_tables import Artist
 from src.core.logger_config import logger
+from src.db.db_tables import Artist
 
 
 class InfluencesWidget(QWidget):
@@ -88,11 +88,7 @@ class InfluencesWidget(QWidget):
             logger.error(f"Error loading influences data: {e}")
 
     def display_artist_list(
-        self,
-        layout: QGridLayout,
-        relations: List[Any],
-        relation_type: str,
-        empty_message: str,
+        self, layout: QGridLayout, relations: list[Any], relation_type: str, empty_message: str
     ):
         """Display a list of artists in a grid layout."""
         if not relations:
@@ -128,4 +124,3 @@ class InfluencesWidget(QWidget):
             child = layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
-

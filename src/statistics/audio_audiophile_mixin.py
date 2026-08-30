@@ -164,9 +164,7 @@ class AudiophileScoreMixin:
             logger.error(f"Long-term average spectrum calculation failed: {e}")
             return None, None
 
-    def _lossy_cutoff_gate(
-        self, ltas: tuple[np.ndarray, np.ndarray] | None = None
-    ) -> float:
+    def _lossy_cutoff_gate(self, ltas: tuple[np.ndarray, np.ndarray] | None = None) -> float:
         """
         Detects a lossy-codec-style hard frequency cutoff — a common,
         easy-to-miss defect in a library assembled from mixed sources over
@@ -221,9 +219,7 @@ class AudiophileScoreMixin:
         penalty = lowness * abruptness
         return float(np.clip(1.0 - penalty, 0.0, 1.0))
 
-    def _spectral_shape_score(
-        self, ltas: tuple[np.ndarray, np.ndarray] | None = None
-    ) -> float:
+    def _spectral_shape_score(self, ltas: tuple[np.ndarray, np.ndarray] | None = None) -> float:
         """
         Reuses the long-term average spectrum computed for the lossy-cutoff
         gate. Smooths it heavily to get the track's overall spectral
@@ -322,10 +318,7 @@ class AudiophileScoreMixin:
             # --- Quality axes ---
             soundstage_score = self._soundstage_stability_score()
             spectral_shape_score = self._spectral_shape_score(ltas=ltas)
-            quality = (
-                max(soundstage_score, FLOOR) ** 0.6
-                * max(spectral_shape_score, FLOOR) ** 0.4
-            )
+            quality = max(soundstage_score, FLOOR) ** 0.6 * max(spectral_shape_score, FLOOR) ** 0.4
 
             # --- Gates ---
             # Clipping: fraction of samples at or beyond 99.9% of full
@@ -368,12 +361,8 @@ class AudiophileScoreMixin:
         unset, same as any other calculate_* method's safe-default handling.
         """
         try:
-            duration, fingerprint = acoustid.fingerprint_file(
-                self.audio_file_path, maxlength=120
-            )
+            duration, fingerprint = acoustid.fingerprint_file(self.audio_file_path, maxlength=120)
             return fingerprint.decode() if isinstance(fingerprint, bytes) else fingerprint, duration
         except acoustid.AcoustidError as e:
-            logger.warning(
-                f"Fingerprint calculation failed for {self.audio_file_path}: {e}"
-            )
+            logger.warning(f"Fingerprint calculation failed for {self.audio_file_path}: {e}")
             return None, None

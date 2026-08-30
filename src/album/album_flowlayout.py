@@ -40,9 +40,7 @@ class FlowLayout(QLayout):
         self._h_space: int = h_spacing if h_spacing is not None else spacing
         self._v_space: int = v_spacing if v_spacing is not None else spacing
         self._item_list: list = []
-        logger.debug(
-            f"FlowLayout created (h_spacing={self._h_space}, v_spacing={self._v_space})"
-        )
+        logger.debug(f"FlowLayout created (h_spacing={self._h_space}, v_spacing={self._v_space})")
 
     # ------------------------------------------------------------------
     # QLayout required interface
@@ -172,7 +170,7 @@ class FlowLayout(QLayout):
     # Convenience / back-compat
     # ------------------------------------------------------------------
 
-    def update(self) -> None:  # noqa: A003
+    def update(self) -> None:
         """Invalidate cached geometry and request a re-layout."""
         self.invalidate()
         parent = self.parentWidget()

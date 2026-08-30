@@ -11,7 +11,6 @@ Formats date fields into visually pleasing strings with the following rules:
 """
 
 
-
 class DateFormatter:
     """Formats date information from Artist ORM objects"""
 
@@ -66,14 +65,7 @@ class DateFormatter:
     @classmethod
     def _has_any_date(cls, artist):
         """Check if any date field has data"""
-        date_fields = [
-            "begin_year",
-            "begin_month",
-            "begin_day",
-            "end_year",
-            "end_month",
-            "end_day",
-        ]
+        date_fields = ["begin_year", "begin_month", "begin_day", "end_year", "end_month", "end_day"]
 
         for field in date_fields:
             if getattr(artist, field, None) is not None:
@@ -98,15 +90,11 @@ class DateFormatter:
             return False
 
         # Format begin date
-        begin_str = cls._format_single_date(
-            artist.begin_day, artist.begin_month, artist.begin_year
-        )
+        begin_str = cls._format_single_date(artist.begin_day, artist.begin_month, artist.begin_year)
 
         # Format end date
         if artist.end_year is not None:
-            end_str = cls._format_single_date(
-                artist.end_day, artist.end_month, artist.end_year
-            )
+            end_str = cls._format_single_date(artist.end_day, artist.end_month, artist.end_year)
         elif begin_str:
             # Only show "Current" if we have a begin date
             end_str = "Current"
@@ -116,13 +104,12 @@ class DateFormatter:
         # Combine parts
         if begin_str and end_str:
             return f"{begin_str} — {end_str}"
-        elif begin_str:
+        if begin_str:
             return begin_str
-        elif end_str:
+        if end_str:
             return end_str
-        else:
-            # Should not reach here due to _has_any_date check, but just in case
-            return False
+        # Should not reach here due to _has_any_date check, but just in case
+        return False
 
 
 # Convenience function for direct use

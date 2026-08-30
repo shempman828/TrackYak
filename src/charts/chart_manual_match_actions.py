@@ -10,7 +10,7 @@ shared table, same DB operations) -- factored out here, following the same
 than duplicated per tab.
 """
 
-from typing import Callable
+from collections.abc import Callable
 
 from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 
@@ -21,9 +21,7 @@ from src.charts.chart_recommendations import MissingChartItem
 def handle_manual_match_requested(
     parent: QWidget, controller, chart_entry_id: int, on_done: Callable[[], None]
 ) -> None:
-    entry = controller.get.get_entity_object(
-        "ChartEntry", chart_entry_id=chart_entry_id
-    )
+    entry = controller.get.get_entity_object("ChartEntry", chart_entry_id=chart_entry_id)
     if entry is None:
         return
     dialog = ChartManualMatchDialog(

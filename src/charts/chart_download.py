@@ -9,10 +9,10 @@ covers Hot 100 (1958-present) + Billboard 200 (1967-present) in two CSVs
 updated Tue-Fri upstream, downloadable in seconds.
 """
 
+from collections.abc import Iterator
 import csv
 from datetime import date
 from pathlib import Path
-from typing import Iterator
 
 from src.core.asset_paths import chart_data_path
 

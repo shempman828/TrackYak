@@ -4,6 +4,7 @@ library_import.py
 This code handles importing audio files into a music library database and parsing very robust metadata.
 """
 
+from datetime import UTC
 from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar
@@ -44,15 +45,7 @@ class TrackImporter:
     - Ensure robust error handling and continue-on-error behavior
     """
 
-    SUPPORTED_EXTENSIONS: ClassVar = {
-        ".mp3",
-        ".flac",
-        ".wav",
-        ".m4a",
-        ".aac",
-        ".ogg",
-        ".opus",
-    }
+    SUPPORTED_EXTENSIONS: ClassVar = {".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".opus"}
 
     def __init__(self, controller):
         self.controller = controller
@@ -108,16 +101,13 @@ class TrackImporter:
                 track = self._create_track(metadata, album, file_path, disc)
 
                 if not track:
-                    raise RuntimeError(
-                        f"Failed to create track entity for: {file_path}"
-                    )
+                    raise RuntimeError(f"Failed to create track entity for: {file_path}")
 
                 # Create relationships
                 self._create_track_artist_relationships(track, artists, metadata)
                 self._create_track_genre_relationships(track, metadata)
                 album_extractor._create_album_artist_relationships(
-                    album.album_id,
-                    [a.artist_id for a in artists.get("Album Artist", [])],
+                    album.album_id, [a.artist_id for a in artists.get("Album Artist", [])]
                 )
 
                 self._process_playlist_tags(track, metadata)
@@ -256,9 +246,7 @@ class TrackImporter:
 
             # FIX: Use correct field names from metadata extraction and add album relationship
             track_data = {
-                "track_name": clean_value(
-                    metadata.get("track_name", Path(file_path).stem)
-                ),
+                "track_name": clean_value(metadata.get("track_name", Path(file_path).stem)),
                 "track_file_path": file_path,
                 "duration": clean_value(metadata.get("duration")),
                 "file_size": clean_value(metadata.get("file_size")),
@@ -284,12 +272,8 @@ class TrackImporter:
                 "work_name": clean_value(metadata.get("work_name")),
                 "movement_name": clean_value(metadata.get("movement_name")),
                 "movement_number": clean_value(metadata.get("movement_number")),
-                "classical_catalog_prefix": clean_value(
-                    metadata.get("classical_catalog_prefix")
-                ),
-                "classical_catalog_number": clean_value(
-                    metadata.get("classical_catalog_number")
-                ),
+                "classical_catalog_prefix": clean_value(metadata.get("classical_catalog_prefix")),
+                "classical_catalog_number": clean_value(metadata.get("classical_catalog_number")),
                 "MBID": clean_value(metadata.get("MBID")),
                 "track_gain": clean_value(metadata.get("track_gain")),
                 "classical_tempo": clean_value(metadata.get("classical_tempo")),
@@ -341,10 +325,7 @@ class TrackImporter:
         """
         role_cache = {}  # Cache role lookups
 
-        for (
-            role_name,
-            artists,
-        ) in artists_dict.items():  # role_name is already correct!
+        for role_name, artists in artists_dict.items():  # role_name is already correct!
             if role_name == "Album Artist":  # Album artists handled separately
                 continue
 
@@ -354,15 +335,10 @@ class TrackImporter:
 
                 try:
                     if role_name not in role_cache:
-                        role = self.controller.get.get_entity_object(
-                            "Role", role_name=role_name
-                        )
+                        role = self.controller.get.get_entity_object("Role", role_name=role_name)
                         if not role:
                             role = self.controller.add.add_entity(
-                                "Role",
-                                commit=False,
-                                role_name=role_name,
-                                role_type="credits",
+                                "Role", commit=False, role_name=role_name, role_type="credits"
                             )
                         role_cache[role_name] = role
                     else:
@@ -383,8 +359,7 @@ class TrackImporter:
                     )
                 except SQLAlchemyError as e:
                     logger.error(
-                        f"Error creating {role_name} relationship for "
-                        f"{artist.artist_name}: {e}"
+                        f"Error creating {role_name} relationship for {artist.artist_name}: {e}"
                     )
 
     def _process_playlist_tags(self, track, metadata: dict):
@@ -419,33 +394,27 @@ class TrackImporter:
                     playlist_names.append(str(vorbis_playlists))
 
             # ID3: stored as TXXX:PLAYLIST, multiple values joined by " ; "
-            id3_playlists = metadata.get("TXXX:PLAYLIST") or metadata.get(
-                "txxx:playlist"
-            )
+            id3_playlists = metadata.get("TXXX:PLAYLIST") or metadata.get("txxx:playlist")
             if id3_playlists:
                 # id3_playlists may itself be a list (if somehow multiple TXXX:PLAYLIST frames exist)
                 if isinstance(id3_playlists, list):
                     for entry in id3_playlists:
                         # Each entry may contain " ; "-separated names
-                        playlist_names.extend([
-                            p.strip() for p in str(entry).split(" ; ") if p.strip()
-                        ])
+                        playlist_names.extend(
+                            [p.strip() for p in str(entry).split(" ; ") if p.strip()]
+                        )
                 else:
-                    playlist_names.extend([
-                        p.strip() for p in str(id3_playlists).split(" ; ") if p.strip()
-                    ])
+                    playlist_names.extend(
+                        [p.strip() for p in str(id3_playlists).split(" ; ") if p.strip()]
+                    )
 
             # Remove duplicates and blanks
-            playlist_names = list(
-                dict.fromkeys(name for name in playlist_names if name)
-            )
+            playlist_names = list(dict.fromkeys(name for name in playlist_names if name))
 
             if not playlist_names:
                 return  # No playlist tags found — nothing to do
 
-            logger.info(
-                f"Track '{track.track_name}' has playlist tags: {playlist_names}"
-            )
+            logger.info(f"Track '{track.track_name}' has playlist tags: {playlist_names}")
 
             # ── 2. For each playlist name, find-or-create the playlist ──
             for playlist_name in playlist_names:
@@ -453,8 +422,7 @@ class TrackImporter:
 
         except SQLAlchemyError as e:
             logger.error(
-                f"Error processing playlist tags for track {track.track_id}: {e}",
-                exc_info=True,
+                f"Error processing playlist tags for track {track.track_id}: {e}", exc_info=True
             )
 
     def _add_track_to_playlist_by_name(self, track, playlist_name: str):
@@ -477,10 +445,7 @@ class TrackImporter:
             if not playlist:
                 logger.info(f"Creating new playlist from tag: '{playlist_name}'")
                 playlist = self.controller.add.add_entity(
-                    "Playlist",
-                    commit=False,
-                    playlist_name=playlist_name,
-                    is_smart=0,
+                    "Playlist", commit=False, playlist_name=playlist_name, is_smart=0
                 )
                 if not playlist:
                     logger.error(f"Failed to create playlist '{playlist_name}'")
@@ -488,9 +453,7 @@ class TrackImporter:
 
             # ── Check the track isn't already in this playlist ─────────
             existing = self.controller.get.get_entity_object(
-                "PlaylistTracks",
-                playlist_id=playlist.playlist_id,
-                track_id=track.track_id,
+                "PlaylistTracks", playlist_id=playlist.playlist_id, track_id=track.track_id
             )
             if existing:
                 logger.debug(
@@ -506,7 +469,7 @@ class TrackImporter:
             next_position = max((pt.position for pt in existing_tracks), default=0) + 1
 
             # ── Add the track ──────────────────────────────────────────
-            from datetime import datetime, timezone
+            from datetime import datetime
 
             self.controller.add.add_entity(
                 "PlaylistTracks",
@@ -514,7 +477,7 @@ class TrackImporter:
                 playlist_id=playlist.playlist_id,
                 track_id=track.track_id,
                 position=next_position,
-                date_added=datetime.now(timezone.utc),
+                date_added=datetime.now(UTC),
             )
 
             logger.info(
@@ -522,10 +485,7 @@ class TrackImporter:
             )
 
         except SQLAlchemyError as e:
-            logger.error(
-                f"Error adding track to playlist '{playlist_name}': {e}",
-                exc_info=True,
-            )
+            logger.error(f"Error adding track to playlist '{playlist_name}': {e}", exc_info=True)
 
     def _create_track_genre_relationships(self, track, metadata: dict[str, Any]):
         """Create TrackGenre relationships with better multi-value support.
@@ -566,9 +526,7 @@ class TrackImporter:
                 # genre. Otherwise, get or create genre, checking aliases
                 # first so a name merged/aliased to a canonical genre
                 # doesn't recreate it.
-                resolved_genres = self.controller.get.resolve_split_alias(
-                    "Genre", genre_name
-                )
+                resolved_genres = self.controller.get.resolve_split_alias("Genre", genre_name)
                 if not resolved_genres:
                     genre = self.controller.get.resolve_entity_or_alias(
                         "Genre", "genre_name", genre_name
@@ -580,20 +538,13 @@ class TrackImporter:
                     resolved_genres = [genre]
 
                 for genre in resolved_genres:
-                    relationship_data = {
-                        "track_id": track.track_id,
-                        "genre_id": genre.genre_id,
-                    }
-                    self.controller.add.add_entity(
-                        "TrackGenre", commit=False, **relationship_data
-                    )
+                    relationship_data = {"track_id": track.track_id, "genre_id": genre.genre_id}
+                    self.controller.add.add_entity("TrackGenre", commit=False, **relationship_data)
                     logger.debug(
                         f"Created genre relationship: {genre.genre_name} -> {track.track_name}"
                     )
             except SQLAlchemyError as e:
-                logger.error(
-                    f"Error creating genre relationship for '{genre_name}': {e}"
-                )
+                logger.error(f"Error creating genre relationship for '{genre_name}': {e}")
 
     def process_path(self, path: str) -> list[str]:
         """
@@ -643,9 +594,7 @@ class TrackImporter:
 
     def _track_exists(self, file_path: str) -> bool:
         """Check if track already exists in database."""
-        existing_track = self.controller.get.get_entity_object(
-            "Track", track_file_path=file_path
-        )
+        existing_track = self.controller.get.get_entity_object("Track", track_file_path=file_path)
         if existing_track:
             logger.info(f"Skipping existing track: {file_path}")
             return True
@@ -710,7 +659,7 @@ class ImportWorker(CancellableWorker):
             successful_imports = self._process_all_files()
             logger.info(f"Import completed: {successful_imports} successful imports")
             self.finished.emit(successful_imports)
-        except Exception as e:  # ruff: ignore[blind-except]
+        except Exception as e:
             error_msg = f"Import worker failed: {e!s}"
             logger.exception(error_msg)
             self.error_occurred.emit(error_msg)
@@ -776,7 +725,7 @@ class ImportWorker(CancellableWorker):
             error_msg = f"Memory error processing file {index + 1}/{total}: {file_path}"
             logger.error(error_msg)
             self.error_occurred.emit(error_msg)
-        except Exception as e:  # ruff: ignore[blind-except]
+        except Exception as e:
             error_msg = f"Error processing {file_path.name}: {str(e)[:200]}"
             logger.exception(error_msg)
         return 0

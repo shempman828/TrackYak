@@ -50,15 +50,11 @@ class DateStats:
                 "most_common_birthdate": _mode_month_day(
                     session, Artist.begin_month, Artist.begin_day
                 ),
-                "most_common_deathdate": _mode_month_day(
-                    session, Artist.end_month, Artist.end_day
-                ),
+                "most_common_deathdate": _mode_month_day(session, Artist.end_month, Artist.end_day),
                 "most_common_album_release_date": _mode_month_day(
                     session, Album.release_month, Album.release_day
                 ),
-                "album_release_year_distribution": self._album_release_year_distribution(
-                    session
-                ),
+                "album_release_year_distribution": self._album_release_year_distribution(session),
                 "most_complete_chart_year": self._most_complete_chart_year(session),
             }
         finally:
@@ -85,9 +81,7 @@ class DateStats:
                 Chart.matched_entity_type,
                 year_expr.label("year"),
                 func.count(ChartEntry.chart_entry_id).label("total"),
-                func.sum(
-                    case((ChartEntry.entity_id.isnot(None), 1), else_=0)
-                ).label("matched"),
+                func.sum(case((ChartEntry.entity_id.isnot(None), 1), else_=0)).label("matched"),
             )
             .join(Chart, ChartEntry.chart_id == Chart.chart_id)
             .group_by(Chart.matched_entity_type, "year")

@@ -68,9 +68,7 @@ class AwardDetailTab(QWidget):
 
         # Award Year
         layout.addWidget(QLabel("Year:"), 1, 0)
-        self.year_edit = QLineEdit(
-            str(self.award.award_year) if self.award.award_year else ""
-        )
+        self.year_edit = QLineEdit(str(self.award.award_year) if self.award.award_year else "")
         self.year_edit.setPlaceholderText("e.g., 2024")
         self.year_edit.textChanged.connect(self._enable_save)
         layout.addWidget(self.year_edit, 1, 1)
@@ -186,9 +184,7 @@ class AwardDetailTab(QWidget):
 
                 relationship_text = f"{assoc.entity_type}: {display_name}"
                 if assoc.association_type:
-                    relationship_text = (
-                        f"{assoc.association_type} - {relationship_text}"
-                    )
+                    relationship_text = f"{assoc.association_type} - {relationship_text}"
 
                 # Check if this is the recipient
                 if assoc.association_type == "recipient":
@@ -198,9 +194,7 @@ class AwardDetailTab(QWidget):
                     other_relationships.append(relationship_text)
 
             except (AttributeError, SQLAlchemyError) as e:
-                logger.error(
-                    f"Error loading entity {assoc.entity_type} {assoc.entity_id}: {e}"
-                )
+                logger.error(f"Error loading entity {assoc.entity_type} {assoc.entity_id}: {e}")
                 error_text = f"{assoc.entity_type}: Error loading"
                 if assoc.association_type == "recipient":
                     recipient_text = error_text
@@ -228,9 +222,7 @@ class AwardDetailTab(QWidget):
             # Remove only recipient associations
             for assoc in associations:
                 if assoc.association_type == "recipient":
-                    self.controller.delete.delete_entity(
-                        "AwardAssociation", assoc.association_id
-                    )
+                    self.controller.delete.delete_entity("AwardAssociation", assoc.association_id)
 
             self._enable_save()
             self._refresh_recipient_display()
@@ -312,9 +304,7 @@ class AwardDetailTab(QWidget):
 
             if award_year and (award_year < 1000 or award_year > 2999):
                 QMessageBox.warning(
-                    self,
-                    "Invalid Year",
-                    "Please enter a valid year between 1000 and 2999.",
+                    self, "Invalid Year", "Please enter a valid year between 1000 and 2999."
                 )
                 return
 
@@ -323,14 +313,11 @@ class AwardDetailTab(QWidget):
                 "award_name": self.name_edit.text().strip(),
                 "award_year": award_year,
                 "award_category": self.category_edit.text().strip() or None,
-                "award_description": self.description_edit.toPlainText().strip()
-                or None,
+                "award_description": self.description_edit.toPlainText().strip() or None,
                 "parent_id": self.parent_combo.currentData(),
             }
 
-            self.controller.update.update_entity(
-                "Award", self.award.award_id, **updates
-            )
+            self.controller.update.update_entity("Award", self.award.award_id, **updates)
 
             self.save_btn.setEnabled(False)
 
@@ -355,20 +342,15 @@ class AwardDetailTab(QWidget):
             logger.info(f"Updated award {self.award.award_id}")
 
         except ValueError:
-            QMessageBox.warning(
-                self, "Invalid Year", "Please enter a valid numeric year."
-            )
+            QMessageBox.warning(self, "Invalid Year", "Please enter a valid numeric year.")
         except (SQLAlchemyError, AttributeError, RuntimeError) as e:
             logger.error(f"Error saving award: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save changes: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to save changes: {e!s}")
 
     def _delete_award(self) -> None:
         """Delete the current award after confirmation."""
         children = (
-            self.controller.get.get_all_entities(
-                "Award", parent_id=self.award.award_id
-            )
-            or []
+            self.controller.get.get_all_entities("Award", parent_id=self.award.award_id) or []
         )
 
         message = f"Are you sure you want to delete the award '{self.award.award_name}'?"
@@ -379,11 +361,7 @@ class AwardDetailTab(QWidget):
             )
 
         reply = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            message,
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            self, "Confirm Delete", message, QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
 
         if reply == QMessageBox.Yes:
@@ -399,7 +377,7 @@ class AwardDetailTab(QWidget):
 
             except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Error deleting award: {e}")
-                QMessageBox.critical(self, "Error", f"Failed to delete award: {str(e)}")
+                QMessageBox.critical(self, "Error", f"Failed to delete award: {e!s}")
 
     def _on_relationship_added(
         self, entity_type: str, entity_id: int, relationship_type: str

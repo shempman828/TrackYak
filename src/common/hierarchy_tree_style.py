@@ -134,11 +134,7 @@ def restore_expanded_ids(
 
 
 def restore_expanded_ids_or_expand_all(
-    tree: QTreeWidget,
-    expanded_ids: set,
-    is_initial_load: bool,
-    *,
-    id_role: int = Qt.UserRole,
+    tree: QTreeWidget, expanded_ids: set, is_initial_load: bool, *, id_role: int = Qt.UserRole
 ) -> None:
     """After rebuilding `tree`, restore the expand state captured by
     `collect_expanded_ids`, or expand everything if this is the tree's
@@ -227,12 +223,7 @@ def handle_insert_as_new_relative(
 
 
 def render_hierarchy_as_text(
-    entities,
-    *,
-    id_attr: str,
-    name_attr: str,
-    parent_attr: str = "parent_id",
-    sort_key=None,
+    entities, *, id_attr: str, name_attr: str, parent_attr: str = "parent_id", sort_key=None
 ) -> str:
     """Render a flat list of hierarchical entities as a box-drawing tree,
     e.g.:

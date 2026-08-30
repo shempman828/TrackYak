@@ -11,8 +11,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import scoped_session, sessionmaker
 
 engine = create_engine(
-    "sqlite:///music_library.db",
-    connect_args={"check_same_thread": False, "timeout": 30},
+    "sqlite:///music_library.db", connect_args={"check_same_thread": False, "timeout": 30}
 )
 
 
@@ -34,9 +33,7 @@ def _set_sqlite_pragma(dbapi_connection, connection_record):
     cursor.close()
 
 
-Session = scoped_session(
-    sessionmaker(bind=engine, expire_on_commit=False)
-)
+Session = scoped_session(sessionmaker(bind=engine, expire_on_commit=False))
 # expire_on_commit=False: get.py's read helpers now commit right after
 # fetching (so a query doesn't leave its transaction open indefinitely --
 # see project memory on the "database is locked" investigation). Default

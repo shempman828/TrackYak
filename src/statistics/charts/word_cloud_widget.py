@@ -8,7 +8,6 @@ QPainter house style and keeping the implementation small.
 """
 
 import math
-from typing import List, Optional, Tuple
 
 from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
@@ -58,15 +57,15 @@ class WordCloudWidget(ThemedChartWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._words: List[Tuple[str, float]] = []
+        self._words: list[tuple[str, float]] = []
         # (rect, word, weight, font_size)
-        self._layout: List[Tuple[QRect, str, float, int]] = []
-        self._hovered_index: Optional[int] = None
+        self._layout: list[tuple[QRect, str, float, int]] = []
+        self._hovered_index: int | None = None
         self.setMouseTracking(True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self._apply_theme_palette()
 
-    def set_data(self, words: List[Tuple[str, float]]):
+    def set_data(self, words: list[tuple[str, float]]):
         """words: [(word, weight), ...] sorted most-significant first."""
         self._apply_theme_palette()
         self._words = words or []
@@ -131,9 +130,7 @@ class WordCloudWidget(ThemedChartWidget):
 
         for index, (rect, word, _weight, font_size) in enumerate(self._layout):
             painter.setPen(chip_border)
-            painter.setBrush(
-                chip_fill.lighter(130) if index == self._hovered_index else chip_fill
-            )
+            painter.setBrush(chip_fill.lighter(130) if index == self._hovered_index else chip_fill)
             painter.drawRoundedRect(rect, 4, 4)
 
             painter.setPen(text_color)

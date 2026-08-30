@@ -6,7 +6,7 @@ updating which tracks belong in the playlist.
 """
 
 import datetime
-from typing import Any, Dict, List, Set
+from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -41,15 +41,12 @@ class SmartPlaylistBuilder:
                 "SmartPlaylist", playlist_id=playlist_id
             )
             if not smart_playlist:
-                logger.error(
-                    f"SmartPlaylist record not found for playlist_id={playlist_id}"
-                )
+                logger.error(f"SmartPlaylist record not found for playlist_id={playlist_id}")
                 return False
 
             # 2. Load criteria rows for this smart playlist
             criteria_rows = self.controller.get.get_all_entities(
-                "SmartPlaylistCriteria",
-                smart_playlist_id=smart_playlist.playlist_id,
+                "SmartPlaylistCriteria", smart_playlist_id=smart_playlist.playlist_id
             )
 
             if not criteria_rows:
@@ -90,7 +87,7 @@ class SmartPlaylistBuilder:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _row_to_condition(self, row) -> Dict[str, Any]:
+    def _row_to_condition(self, row) -> dict[str, Any]:
         """
         Convert a SmartPlaylistCriteria ORM row into a plain dict like:
             {"field": "user_rating", "comparison": "gt", "value": "5.5", "type": "Float"}
@@ -102,7 +99,7 @@ class SmartPlaylistBuilder:
             "type": getattr(row, "type", "String"),
         }
 
-    def _get_matching_track_ids(self, conditions: List[Dict], logic: str) -> List[int]:
+    def _get_matching_track_ids(self, conditions: list[dict], logic: str) -> list[int]:
         """
         Query the Track table using the given conditions.
 
@@ -130,20 +127,20 @@ class SmartPlaylistBuilder:
             tracks = self.controller.get.get_all_entities("Track", **combined_kwargs)
             return [t.track_id for t in tracks]
 
-        else:  # OR
-            seen: Set[int] = set()
-            for condition in conditions:
-                kwargs = self._condition_to_kwargs(condition)
-                if kwargs is None:
-                    # Invalid condition contributes no matches — must not
-                    # be queried with empty kwargs, which would match
-                    # every track.
-                    continue
-                tracks = self.controller.get.get_all_entities("Track", **kwargs)
-                seen.update(t.track_id for t in tracks)
-            return list(seen)
+        # OR
+        seen: set[int] = set()
+        for condition in conditions:
+            kwargs = self._condition_to_kwargs(condition)
+            if kwargs is None:
+                # Invalid condition contributes no matches — must not
+                # be queried with empty kwargs, which would match
+                # every track.
+                continue
+            tracks = self.controller.get.get_all_entities("Track", **kwargs)
+            seen.update(t.track_id for t in tracks)
+        return list(seen)
 
-    def _condition_to_kwargs(self, condition: Dict[str, Any]) -> Dict[str, Any] | None:
+    def _condition_to_kwargs(self, condition: dict[str, Any]) -> dict[str, Any] | None:
         """
         Turn one condition dict into a **kwargs dict for get_all_entities.
 
@@ -193,7 +190,7 @@ class SmartPlaylistBuilder:
 
     def _datetime_condition_to_kwargs(
         self, field: str, comparison: str, value: Any
-    ) -> Dict[str, Any] | None:
+    ) -> dict[str, Any] | None:
         """
         Translate a Datetime condition into query kwargs.
 
@@ -259,22 +256,21 @@ class SmartPlaylistBuilder:
         try:
             if data_type == "Integer":
                 return int(float(str(value)))  # handles "5.0" → 5
-            elif data_type == "Float":
+            if data_type == "Float":
                 return float(value)
-            elif data_type == "List":
+            if data_type == "List":
                 # Could be a Python list already, or a comma-separated string
                 if isinstance(value, list):
                     return value
                 return [v.strip() for v in str(value).split(",") if v.strip()]
-            else:
-                # String, Text — keep as string (Datetime is handled separately
-                # by _datetime_condition_to_kwargs before this is ever called)
-                return str(value) if value != "" else None
+            # String, Text — keep as string (Datetime is handled separately
+            # by _datetime_condition_to_kwargs before this is ever called)
+            return str(value) if value != "" else None
         except (ValueError, TypeError) as e:
             logger.warning(f"Could not cast value '{value}' as {data_type}: {e}")
             return None
 
-    def _update_playlist_tracks(self, playlist_id: int, track_ids: List[int]) -> bool:
+    def _update_playlist_tracks(self, playlist_id: int, track_ids: list[int]) -> bool:
         """
         Bulk-diff the playlist's tracks against `track_ids` via the shared
         sync_playlist_tracks() helper (src/playlist/playlist_track_sync.py),
@@ -302,11 +298,7 @@ class SmartPlaylistBuilder:
         """Update the last_refreshed timestamp on the SmartPlaylist record."""
         try:
             self.controller.update.update_entity(
-                "SmartPlaylist",
-                entity_id=playlist_id,
-                last_refreshed=datetime.datetime.now(),
+                "SmartPlaylist", entity_id=playlist_id, last_refreshed=datetime.datetime.now()
             )
         except SQLAlchemyError as e:
-            logger.warning(
-                f"Could not update last_refreshed for playlist {playlist_id}: {e}"
-            )
+            logger.warning(f"Could not update last_refreshed for playlist {playlist_id}: {e}")

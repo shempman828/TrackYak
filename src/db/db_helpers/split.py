@@ -1,7 +1,6 @@
 """Class for splitting different database models."""
 
-from sqlalchemy import delete as sql_delete
-from sqlalchemy import select
+from sqlalchemy import delete as sql_delete, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from src.core.logger_config import logger
@@ -72,9 +71,7 @@ class SplitDB(BaseDBHelper):
         alias_info = _ALIAS_REGISTRY.get(entity_class.__name__)
         if alias_info:
             alias_model, relation_attr = alias_info
-            alias = self.session.scalar(
-                select(alias_model).where(alias_model.alias_name == name)
-            )
+            alias = self.session.scalar(select(alias_model).where(alias_model.alias_name == name))
             if alias:
                 return getattr(alias, relation_attr)
 
@@ -93,9 +90,7 @@ class SplitDB(BaseDBHelper):
         except IntegrityError:
             # Constraint violation — row already exists or PK collision.
             # The savepoint is automatically rolled back; session stays usable.
-            logger.debug(
-                f"Skipping duplicate {type(obj).__name__}: constraint violation"
-            )
+            logger.debug(f"Skipping duplicate {type(obj).__name__}: constraint violation")
             return False
 
     def set_split_alias(self, model_name: str, alias_name: str, target_ids: list) -> bool:
@@ -128,9 +123,7 @@ class SplitDB(BaseDBHelper):
         if not alias_info:
             return False
         alias_model, _fk_field = alias_info
-        self.session.execute(
-            sql_delete(alias_model).where(alias_model.alias_name == alias_name)
-        )
+        self.session.execute(sql_delete(alias_model).where(alias_model.alias_name == alias_name))
         self._commit()
         return True
 
@@ -154,16 +147,12 @@ class SplitDB(BaseDBHelper):
             return
         alias_model, fk_field = alias_info
 
-        self.session.execute(
-            sql_delete(alias_model).where(alias_model.alias_name == original_name)
-        )
+        self.session.execute(sql_delete(alias_model).where(alias_model.alias_name == original_name))
         for sort_order, entity in enumerate(new_entities):
             entity_id = getattr(entity, fk_field)
             self._safe_add(
                 alias_model(
-                    alias_name=original_name,
-                    sort_order=sort_order,
-                    **{fk_field: entity_id},
+                    alias_name=original_name, sort_order=sort_order, **{fk_field: entity_id}
                 )
             )
 
@@ -186,9 +175,7 @@ class SplitDB(BaseDBHelper):
             for name in new_names:
                 existing = self._resolve_existing(Publisher, "publisher_name", name)
                 if existing:
-                    logger.debug(
-                        f"Using existing publisher: {name} (ID: {existing.publisher_id})"
-                    )
+                    logger.debug(f"Using existing publisher: {name} (ID: {existing.publisher_id})")
                     new_publishers.append(existing)
                 else:
                     new_pub = Publisher(
@@ -206,9 +193,7 @@ class SplitDB(BaseDBHelper):
                     else:
                         # Race condition: someone inserted the same name between
                         # our SELECT and our INSERT — re-fetch and reuse.
-                        refetched = self._resolve_existing(
-                            Publisher, "publisher_name", name
-                        )
+                        refetched = self._resolve_existing(Publisher, "publisher_name", name)
                         if refetched:
                             new_publishers.append(refetched)
 
@@ -216,26 +201,17 @@ class SplitDB(BaseDBHelper):
                 logger.error("No publishers were created or found; aborting split.")
                 return False
 
-            album_ids = [
-                assoc.album_id for assoc in original_publisher.album_associations
-            ]
+            album_ids = [assoc.album_id for assoc in original_publisher.album_associations]
 
             for new_pub in new_publishers:
-                existing_album_ids = {
-                    assoc.album_id for assoc in new_pub.album_associations
-                }
+                existing_album_ids = {assoc.album_id for assoc in new_pub.album_associations}
                 for album_id in album_ids:
                     if album_id not in existing_album_ids:
                         self._safe_add(
-                            AlbumPublisher(
-                                album_id=album_id,
-                                publisher_id=new_pub.publisher_id,
-                            )
+                            AlbumPublisher(album_id=album_id, publisher_id=new_pub.publisher_id)
                         )
 
-            self._record_split_alias(
-                "Publisher", original_publisher.publisher_name, new_publishers
-            )
+            self._record_split_alias("Publisher", original_publisher.publisher_name, new_publishers)
 
             if original_publisher not in new_publishers:
                 self.session.delete(original_publisher)
@@ -271,9 +247,7 @@ class SplitDB(BaseDBHelper):
             for name in new_names:
                 existing = self._resolve_existing(Artist, "artist_name", name)
                 if existing:
-                    logger.debug(
-                        f"Using existing artist: {name} (ID: {existing.artist_id})"
-                    )
+                    logger.debug(f"Using existing artist: {name} (ID: {existing.artist_id})")
                     new_artists.append(existing)
                 else:
                     new_artist = Artist(artist_name=name)
@@ -290,23 +264,15 @@ class SplitDB(BaseDBHelper):
 
             # Pre-collect existing combos across all new artists to skip dupes
             existing_track_roles = {
-                (tr.track_id, tr.artist_id, tr.role_id)
-                for a in new_artists
-                for tr in a.track_roles
+                (tr.track_id, tr.artist_id, tr.role_id) for a in new_artists for tr in a.track_roles
             }
             existing_album_roles = {
-                (ar.album_id, ar.artist_id, ar.role_id)
-                for a in new_artists
-                for ar in a.album_roles
+                (ar.album_id, ar.artist_id, ar.role_id) for a in new_artists for ar in a.album_roles
             }
 
             for track_role in original_artist.track_roles:
                 for new_artist in new_artists:
-                    combo = (
-                        track_role.track_id,
-                        new_artist.artist_id,
-                        track_role.role_id,
-                    )
+                    combo = (track_role.track_id, new_artist.artist_id, track_role.role_id)
                     if combo not in existing_track_roles:
                         added = self._safe_add(
                             TrackArtistRole(
@@ -320,11 +286,7 @@ class SplitDB(BaseDBHelper):
 
             for album_role in original_artist.album_roles:
                 for new_artist in new_artists:
-                    combo = (
-                        album_role.album_id,
-                        new_artist.artist_id,
-                        album_role.role_id,
-                    )
+                    combo = (album_role.album_id, new_artist.artist_id, album_role.role_id)
                     if combo not in existing_album_roles:
                         added = self._safe_add(
                             AlbumRoleAssociation(
@@ -342,9 +304,7 @@ class SplitDB(BaseDBHelper):
                 self.session.delete(original_artist)
 
             self._commit()
-            logger.info(
-                f"Successfully split artist {artist_id} into {len(new_artists)} artists."
-            )
+            logger.info(f"Successfully split artist {artist_id} into {len(new_artists)} artists.")
             return True
 
         except SQLAlchemyError as e:
@@ -371,9 +331,7 @@ class SplitDB(BaseDBHelper):
             for name in new_names:
                 existing = self._resolve_existing(Genre, "genre_name", name)
                 if existing and existing.genre_id != genre_id:
-                    logger.info(
-                        f"Reusing existing genre '{name}' (ID: {existing.genre_id})"
-                    )
+                    logger.info(f"Reusing existing genre '{name}' (ID: {existing.genre_id})")
                     new_genres.append(existing)
                 else:
                     new_genre = Genre(
@@ -401,10 +359,7 @@ class SplitDB(BaseDBHelper):
                     combo = (track_genre.track_id, new_genre.genre_id)
                     if combo not in existing_track_genres:
                         added = self._safe_add(
-                            TrackGenre(
-                                track_id=track_genre.track_id,
-                                genre_id=new_genre.genre_id,
-                            )
+                            TrackGenre(track_id=track_genre.track_id, genre_id=new_genre.genre_id)
                         )
                         if added:
                             existing_track_genres.add(combo)
@@ -420,9 +375,7 @@ class SplitDB(BaseDBHelper):
                 self.session.delete(original_genre)
 
             self._commit()
-            logger.info(
-                f"Successfully split genre {genre_id} into {len(new_genres)} genres."
-            )
+            logger.info(f"Successfully split genre {genre_id} into {len(new_genres)} genres.")
             return True
 
         except SQLAlchemyError as e:
@@ -449,9 +402,7 @@ class SplitDB(BaseDBHelper):
             for name in new_names:
                 existing = self._resolve_existing(Mood, "mood_name", name)
                 if existing and existing.mood_id != mood_id:
-                    logger.info(
-                        f"Reusing existing mood '{name}' (ID: {existing.mood_id})"
-                    )
+                    logger.info(f"Reusing existing mood '{name}' (ID: {existing.mood_id})")
                     new_moods.append(existing)
                 else:
                     new_mood = Mood(
@@ -480,8 +431,7 @@ class SplitDB(BaseDBHelper):
                     if combo not in existing_mood_tracks:
                         added = self._safe_add(
                             MoodTrackAssociation(
-                                mood_id=new_mood.mood_id,
-                                track_id=mood_track.track_id,
+                                mood_id=new_mood.mood_id, track_id=mood_track.track_id
                             )
                         )
                         if added:
@@ -491,9 +441,7 @@ class SplitDB(BaseDBHelper):
                 self.session.delete(original_mood)
 
             self._commit()
-            logger.info(
-                f"Successfully split mood {mood_id} into {len(new_moods)} moods."
-            )
+            logger.info(f"Successfully split mood {mood_id} into {len(new_moods)} moods.")
             return True
 
         except SQLAlchemyError as e:
@@ -520,9 +468,7 @@ class SplitDB(BaseDBHelper):
             for name in new_names:
                 existing = self._resolve_existing(Role, "role_name", name)
                 if existing and existing.role_id != role_id:
-                    logger.info(
-                        f"Reusing existing role '{name}' (ID: {existing.role_id})"
-                    )
+                    logger.info(f"Reusing existing role '{name}' (ID: {existing.role_id})")
                     new_roles.append(existing)
                 else:
                     new_role = Role(
@@ -544,23 +490,15 @@ class SplitDB(BaseDBHelper):
                 return False
 
             existing_track_roles = {
-                (tr.track_id, tr.artist_id, tr.role_id)
-                for r in new_roles
-                for tr in r.track_roles
+                (tr.track_id, tr.artist_id, tr.role_id) for r in new_roles for tr in r.track_roles
             }
             existing_album_roles = {
-                (ar.album_id, ar.artist_id, ar.role_id)
-                for r in new_roles
-                for ar in r.album_roles
+                (ar.album_id, ar.artist_id, ar.role_id) for r in new_roles for ar in r.album_roles
             }
 
             for track_role in original_role.track_roles:
                 for new_role in new_roles:
-                    combo = (
-                        track_role.track_id,
-                        track_role.artist_id,
-                        new_role.role_id,
-                    )
+                    combo = (track_role.track_id, track_role.artist_id, new_role.role_id)
                     if combo not in existing_track_roles:
                         added = self._safe_add(
                             TrackArtistRole(
@@ -574,11 +512,7 @@ class SplitDB(BaseDBHelper):
 
             for album_role in original_role.album_roles:
                 for new_role in new_roles:
-                    combo = (
-                        album_role.album_id,
-                        album_role.artist_id,
-                        new_role.role_id,
-                    )
+                    combo = (album_role.album_id, album_role.artist_id, new_role.role_id)
                     if combo not in existing_album_roles:
                         added = self._safe_add(
                             AlbumRoleAssociation(
@@ -596,9 +530,7 @@ class SplitDB(BaseDBHelper):
                 self.session.delete(original_role)
 
             self._commit()
-            logger.info(
-                f"Successfully split role {role_id} into {len(new_roles)} roles."
-            )
+            logger.info(f"Successfully split role {role_id} into {len(new_roles)} roles.")
             return True
 
         except SQLAlchemyError as e:
@@ -612,9 +544,7 @@ class SplitDB(BaseDBHelper):
 
     def split_entity(self, model_name: str, entity_id: int, split_attributes: list):
         """Generic split method that routes to specific implementations."""
-        new_names = [
-            attrs.get("name", "") for attrs in split_attributes if attrs.get("name")
-        ]
+        new_names = [attrs.get("name", "") for attrs in split_attributes if attrs.get("name")]
         if not new_names:
             logger.error("No valid names provided for split")
             return False
@@ -629,6 +559,5 @@ class SplitDB(BaseDBHelper):
 
         if model_name in split_methods:
             return split_methods[model_name](entity_id, new_names)
-        else:
-            logger.error(f"Split not implemented for model: {model_name}")
-            return False
+        logger.error(f"Split not implemented for model: {model_name}")
+        return False

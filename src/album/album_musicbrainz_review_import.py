@@ -106,10 +106,7 @@ def _track_scalar_update(
     # already what's stored locally -- covers both small discrepancies
     # (e.g. "Layin'" vs "Laying") and a locally-truncated "Good
     # Riddance" becoming "Good Riddance (Time of Your Life)".
-    if (
-        mbt.title
-        and mbt.title.strip().lower() != (track.track_name or "").strip().lower()
-    ):
+    if mbt.title and mbt.title.strip().lower() != (track.track_name or "").strip().lower():
         kwargs["track_name"] = mbt.title
     if not track.track_barcode and barcode:
         kwargs["track_barcode"] = barcode
@@ -158,14 +155,10 @@ def _resolve_artist(controller, credit) -> Any | None:
         if artist is not None:
             return artist
 
-    artist = controller.get.resolve_entity_or_alias(
-        "Artist", "artist_name", credit.artist_name
-    )
+    artist = controller.get.resolve_entity_or_alias("Artist", "artist_name", credit.artist_name)
     if artist is not None and not artist.MBID:
         if credit.artist_mbid:
-            controller.update.update_entity(
-                "Artist", artist.artist_id, MBID=credit.artist_mbid
-            )
+            controller.update.update_entity("Artist", artist.artist_id, MBID=credit.artist_mbid)
             artist.MBID = credit.artist_mbid
             import_awards_for_entity(
                 controller.get.session, "Artist", artist.artist_id, credit.artist_mbid
@@ -182,15 +175,10 @@ def _resolve_artist(controller, credit) -> Any | None:
         )
         if artist is not None and not artist.MBID:
             if credit.artist_mbid:
-                controller.update.update_entity(
-                    "Artist", artist.artist_id, MBID=credit.artist_mbid
-                )
+                controller.update.update_entity("Artist", artist.artist_id, MBID=credit.artist_mbid)
                 artist.MBID = credit.artist_mbid
                 import_awards_for_entity(
-                    controller.get.session,
-                    "Artist",
-                    artist.artist_id,
-                    credit.artist_mbid,
+                    controller.get.session, "Artist", artist.artist_id, credit.artist_mbid
                 )
             controller.add.add_entity(
                 "ArtistAlias",
@@ -232,11 +220,7 @@ def _resolve_roles_for_credit(controller, role_name: str, known_roles: list[Any]
 
 
 def _plan_track_credit(
-    controller,
-    track,
-    credit,
-    known_roles: list[Any],
-    planned_by_track: dict[int, set],
+    controller, track, credit, known_roles: list[Any], planned_by_track: dict[int, set]
 ) -> list[dict]:
     """Resolve (and, if genuinely new, create) the artist(s)/role(s) for
     this credit, but leave the actual TrackArtistRole junction rows for
@@ -253,9 +237,7 @@ def _plan_track_credit(
         if not roles:
             return []
 
-        existing = {
-            (ar.artist_id, ar.role_id) for ar in (track.artist_roles or [])
-        }
+        existing = {(ar.artist_id, ar.role_id) for ar in (track.artist_roles or [])}
         planned = planned_by_track.setdefault(track.track_id, set())
         rows = []
         for artist in artists:
@@ -306,9 +288,7 @@ def _plan_album_credit(
 
         rows = []
         for role in roles:
-            siblings = [
-                ra for ra in (album.album_roles or []) if ra.role_id == role.role_id
-            ]
+            siblings = [ra for ra in (album.album_roles or []) if ra.role_id == role.role_id]
             existing_artist_ids = {ra.artist_id for ra in siblings}
             if role.role_id not in next_sort_order_by_role:
                 next_sort_order_by_role[role.role_id] = (
@@ -334,8 +314,7 @@ def _plan_album_credit(
         return rows
     except SQLAlchemyError as e:
         logger.warning(
-            f"Could not import album credit '{credit.artist_name} — "
-            f"{credit.role_name}': {e}"
+            f"Could not import album credit '{credit.artist_name} — {credit.role_name}': {e}"
         )
         return []
 
@@ -368,9 +347,7 @@ def _plan_location_rows(
             track = resolve_track(mbt)
             if track is None:
                 continue
-            already = any(
-                p.place_id == studio.place_id for p in (track.places or [])
-            )
+            already = any(p.place_id == studio.place_id for p in (track.places or []))
             if already:
                 continue
             rows.append(
@@ -378,9 +355,7 @@ def _plan_location_rows(
                     "entity_id": track.track_id,
                     "entity_type": "Track",
                     "place_id": studio.place_id,
-                    "association_type_id": (
-                        assoc_type.association_type_id if assoc_type else None
-                    ),
+                    "association_type_id": (assoc_type.association_type_id if assoc_type else None),
                 }
             )
         return rows
@@ -472,9 +447,7 @@ class _ReviewAcceptWorker(CancellableWorker):
 
         def get_track(track_id):
             if track_id not in track_cache:
-                track_cache[track_id] = controller.get.get_entity_object(
-                    "Track", track_id=track_id
-                )
+                track_cache[track_id] = controller.get.get_entity_object("Track", track_id=track_id)
             return track_cache[track_id]
 
         def resolve_track(mbt):
@@ -525,11 +498,7 @@ class _ReviewAcceptWorker(CancellableWorker):
                 track = get_track(track_id)
                 if track is not None:
                     update = _track_scalar_update(
-                        track,
-                        mbt_by_id[mbt_id],
-                        disc_by_number,
-                        self._detail.barcode,
-                        force=True,
+                        track, mbt_by_id[mbt_id], disc_by_number, self._detail.barcode, force=True
                     )
                     if update is not None:
                         manual_updates.append(update)
@@ -547,9 +516,7 @@ class _ReviewAcceptWorker(CancellableWorker):
                 }
                 for alias in self._checked_aliases
             ]
-            _, failed = controller.add.add_entities_with_fallback(
-                "AlbumAlias", alias_rows
-            )
+            _, failed = controller.add.add_entities_with_fallback("AlbumAlias", alias_rows)
             failed_writes.extend(f"Album alias '{row['alias_name']}'" for row in failed)
             for _ in self._checked_aliases:
                 tick()
@@ -587,8 +554,7 @@ class _ReviewAcceptWorker(CancellableWorker):
                 "AlbumRoleAssociation", album_credit_rows
             )
             failed_writes.extend(
-                f"Album credit (artist {row['artist_id']}, role {row['role_id']})"
-                for row in failed
+                f"Album credit (artist {row['artist_id']}, role {row['role_id']})" for row in failed
             )
 
         if self._checked_track_credits:
@@ -633,9 +599,7 @@ class _ReviewAcceptWorker(CancellableWorker):
                     )
                 )
                 tick()
-            _, failed = controller.add.add_entities_with_fallback(
-                "PlaceAssociation", place_rows
-            )
+            _, failed = controller.add.add_entities_with_fallback("PlaceAssociation", place_rows)
             failed_writes.extend(
                 f"Recording location for track {row['entity_id']}" for row in failed
             )

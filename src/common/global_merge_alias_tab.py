@@ -40,7 +40,9 @@ class _MergeAliasEditDialog(QDialog):
     """Popup for editing an existing merge-alias row's name and/or target
     entity."""
 
-    def __init__(self, controller, model_name, name_field, id_field, alias_name, target_id, parent=None):
+    def __init__(
+        self, controller, model_name, name_field, id_field, alias_name, target_id, parent=None
+    ):
         super().__init__(parent)
         self.setWindowTitle("Edit Alias")
         self.setMinimumWidth(360)
@@ -219,8 +221,13 @@ class GlobalMergeAliasTab(QWidget):
         alias_name = self.table.item(row, 0).text()
         target_id = self._row_target_id(row)
         dlg = _MergeAliasEditDialog(
-            self.controller, self.model_name, self.name_field, self.id_field,
-            alias_name, target_id, parent=self,
+            self.controller,
+            self.model_name,
+            self.name_field,
+            self.id_field,
+            alias_name,
+            target_id,
+            parent=self,
         )
         if dlg.exec_() != QDialog.Accepted:
             return
@@ -241,8 +248,11 @@ class GlobalMergeAliasTab(QWidget):
         alias_id = self._row_alias_id(row)
         alias_name = self.table.item(row, 0).text()
         reply = QMessageBox.question(
-            self, "Delete Alias", f"Delete alias <b>{alias_name}</b>?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            self,
+            "Delete Alias",
+            f"Delete alias <b>{alias_name}</b>?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
             return

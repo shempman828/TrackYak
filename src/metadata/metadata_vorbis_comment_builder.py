@@ -5,8 +5,9 @@ DISCTOTAL/PLAYLIST need are expected to already be in `data`, put there
 by TrackDataAssembler.
 """
 
-from typing import Any, Dict
+from typing import Any
 
+from src.core.logger_config import logger
 from src.metadata.metadata_mapping import (
     VORBIS_ALBUM_MAPPINGS,
     VORBIS_DISC_MAPPINGS,
@@ -17,13 +18,12 @@ from src.metadata.metadata_text import (
     format_track_number,
     group_artists_by_tag,
 )
-from src.core.logger_config import logger
 
 
 class VorbisCommentBuilder:
     """Builds the Vorbis comment tag dict a track's data should have."""
 
-    def build_comments(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def build_comments(self, data: dict[str, Any]) -> dict[str, Any]:
         """Build Vorbis comments from track data.
 
         Returns Dict[str, str | List[str]]. Lists produce repeated tag keys
@@ -177,11 +177,7 @@ class VorbisCommentBuilder:
         # has one.
         ID_TAG_MAP = {"ARTIST": "MUSICBRAINZ_ARTISTID", "ALBUMARTIST": "MUSICBRAINZ_ALBUMARTISTID"}
         ID_TAG_MAP.update(
-            {
-                tag: f"MUSICBRAINZ_{tag}ID"
-                for tag in ROLE_TO_TAG.values()
-                if tag not in ID_TAG_MAP
-            }
+            {tag: f"MUSICBRAINZ_{tag}ID" for tag in ROLE_TO_TAG.values() if tag not in ID_TAG_MAP}
         )
 
         all_artist_data = artists_with_roles + album_artists_with_roles

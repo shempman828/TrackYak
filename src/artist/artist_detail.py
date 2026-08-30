@@ -1,4 +1,4 @@
-from typing import Any, List, Tuple
+from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -13,12 +13,12 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.album.base_album_widget import ScrollableAlbumFlow
 from src.artist.artist_detail_awards import AwardsWidget
 from src.artist.artist_detail_credits import CreditsWidget
 from src.artist.artist_detail_header import HeaderWidget
 from src.artist.artist_detail_influences import InfluencesWidget
 from src.artist.artist_detail_member import MembershipWidget
-from src.album.base_album_widget import ScrollableAlbumFlow
 from src.core.logger_config import logger
 
 
@@ -51,9 +51,7 @@ class ArtistDetailTab(QWidget):
         article_layout = QVBoxLayout(article)
         article_layout.setContentsMargins(5, 5, 5, 5)
         article_layout.setSpacing(18)
-        article.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding
-        )
+        article.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
 
         # Title, aliases, and lead biography, beside an at-a-glance infobox
         article_layout.addWidget(HeaderWidget(self.artist, self.controller))
@@ -73,7 +71,7 @@ class ArtistDetailTab(QWidget):
         self.setLayout(main_layout)
         self.setWindowTitle(f"Artist: {self.artist.artist_name}")
 
-    def _build_sections(self) -> List[Tuple[str, QWidget]]:
+    def _build_sections(self) -> list[tuple[str, QWidget]]:
         """Build (heading, section block) for every section with content.
 
         Content widgets follow the existing convention of calling
@@ -85,9 +83,7 @@ class ArtistDetailTab(QWidget):
         candidates = []
 
         if self.artist.albums:
-            candidates.append(
-                ("Discography", lambda: ScrollableAlbumFlow(self.artist.albums))
-            )
+            candidates.append(("Discography", lambda: ScrollableAlbumFlow(self.artist.albums)))
 
         candidates += [
             ("Membership", lambda: MembershipWidget(self.artist)),
@@ -131,7 +127,7 @@ class ArtistDetailTab(QWidget):
 
         return block
 
-    def _build_toc(self, sections: List[Tuple[str, QWidget]]) -> QHBoxLayout:
+    def _build_toc(self, sections: list[tuple[str, QWidget]]) -> QHBoxLayout:
         """A row of jump-to-section chips for the sections that were built."""
         toc = QHBoxLayout()
         toc.setSpacing(6)

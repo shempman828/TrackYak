@@ -26,9 +26,7 @@ class ArtistViewTracksMixin:
             tracks = self._get_all_artist_tracks(artist.artist_id)
 
             if not tracks:
-                show_status_message(
-                    self, f"No tracks found for '{artist.artist_name}'."
-                )
+                show_status_message(self, f"No tracks found for '{artist.artist_name}'.")
                 return
 
             track_view = BaseTrackView(
@@ -47,8 +45,7 @@ class ArtistViewTracksMixin:
 
         except SQLAlchemyError as e:
             logger.error(
-                f"Error displaying tracks for artist {artist.artist_id}: {e}",
-                exc_info=True,
+                f"Error displaying tracks for artist {artist.artist_id}: {e}", exc_info=True
             )
             QMessageBox.critical(
                 self, "Error", f"Failed to load tracks for '{artist.artist_name}':\n{e}"
@@ -68,9 +65,7 @@ class ArtistViewTracksMixin:
                 "TrackArtistRole", artist_id=artist_id
             )
             for role in track_roles:
-                track = self.controller.get.get_entity_object(
-                    "Track", track_id=role.track_id
-                )
+                track = self.controller.get.get_entity_object("Track", track_id=role.track_id)
                 if track and track.track_id not in seen_ids:
                     seen_ids.add(track.track_id)
                     tracks.append(track)
@@ -82,9 +77,7 @@ class ArtistViewTracksMixin:
                 "AlbumRoleAssociation", artist_id=artist_id
             )
             for role in album_roles:
-                album_tracks = self.controller.get.get_all_entities(
-                    "Track", album_id=role.album_id
-                )
+                album_tracks = self.controller.get.get_all_entities("Track", album_id=role.album_id)
                 for track in album_tracks:
                     if track.track_id not in seen_ids:
                         seen_ids.add(track.track_id)

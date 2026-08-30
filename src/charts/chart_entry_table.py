@@ -8,16 +8,10 @@ src/publisher/publisher_tree.py (setColumnCount + setHeaderLabels +
 per-item setText(col, ...)) rather than QTableWidget.
 """
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QHeaderView,
-    QMenu,
-    QTreeWidget,
-    QTreeWidgetItem,
-)
+from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QMenu, QTreeWidget, QTreeWidgetItem
 
 from src.common.match_confidence import confidence_color
 from src.db.db_tables.chart import ChartEntry
@@ -95,14 +89,10 @@ class ChartEntryTable(QTreeWidget):
         entity_type = entry.chart.matched_entity_type
         menu = QMenu(self)
         match_action = menu.addAction(f"Match to {entity_type}…")
-        match_action.triggered.connect(
-            lambda: self.manual_match_requested.emit(entry_id)
-        )
+        match_action.triggered.connect(lambda: self.manual_match_requested.emit(entry_id))
         clear_action = menu.addAction("Clear Match")
         clear_action.setEnabled(entry.is_matched)
-        clear_action.triggered.connect(
-            lambda: self.clear_match_requested.emit(entry_id)
-        )
+        clear_action.triggered.connect(lambda: self.clear_match_requested.emit(entry_id))
         return menu
 
     def _show_context_menu(self, pos) -> None:

@@ -1,6 +1,6 @@
-import subprocess
 from functools import lru_cache
 from pathlib import Path
+import subprocess
 
 BASE_VERSION = "0.5"
 
@@ -10,10 +10,7 @@ _REPO_DIR = Path(__file__).resolve().parent
 def _git(*args: str) -> str | None:
     try:
         result = subprocess.run(
-            ["git", "-C", str(_REPO_DIR), *args],
-            capture_output=True,
-            text=True,
-            timeout=5,
+            ["git", "-C", str(_REPO_DIR), *args], capture_output=True, text=True, timeout=5
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

@@ -30,8 +30,7 @@ def format_track_display(track) -> str:
     try:
         if getattr(track, "is_classical", False):
             return _format_classical_track(track)
-        else:
-            return _format_standard_track(track)
+        return _format_standard_track(track)
     except (SQLAlchemyError, AttributeError, TypeError) as e:
         logger.error(f"Error formatting track display: {e}")
         return "Unknown Track"
@@ -44,9 +43,7 @@ def _format_standard_track(track) -> str:
     track_name = getattr(track, "track_name", "Unknown Title")
     parts.append(track_name)
 
-    artist_name = (
-        track.primary_artist_names if hasattr(track, "primary_artist_names") else None
-    )
+    artist_name = track.primary_artist_names if hasattr(track, "primary_artist_names") else None
     if artist_name:
         parts.append(f"by {artist_name}")
 
@@ -139,9 +136,7 @@ def _format_classical_track(track) -> str:
     if perf_parts:
         lines.append(f"({''.join(perf_parts)})")
 
-    performer_name = (
-        track.primary_artist_names if hasattr(track, "primary_artist_names") else None
-    )
+    performer_name = track.primary_artist_names if hasattr(track, "primary_artist_names") else None
     if performer_name:
         lines.append(f"Performed by {performer_name}")
 
@@ -165,8 +160,7 @@ def _get_composer_names(track) -> str:
 
         if composers:
             return ", ".join(composers)
-        else:
-            return "Unknown Composer"
+        return "Unknown Composer"
     except (SQLAlchemyError, AttributeError, TypeError) as e:
         logger.error(f"Error getting composer names: {e}")
         return "Unknown Composer"

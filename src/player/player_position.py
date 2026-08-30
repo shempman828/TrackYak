@@ -8,8 +8,8 @@ self._duration, self.current_file, self.controller, and
 self._flush_callback_diagnostics (see PlayerCallbackMixin).
 """
 
-import threading
 from datetime import datetime
+import threading
 
 from sqlalchemy.exc import SQLAlchemyError
 

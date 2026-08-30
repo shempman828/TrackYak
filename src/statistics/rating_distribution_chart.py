@@ -106,9 +106,7 @@ class RatingDistributionChart(ThemedChartWidget):
         self._apply_theme_palette()
         self._distribution = distribution or {}
         self._hovered_index = None
-        logger.debug(
-            f"Rating distribution chart updated with {len(self._distribution)} buckets"
-        )
+        logger.debug(f"Rating distribution chart updated with {len(self._distribution)} buckets")
         self.update()
 
     # ------------------------------------------------------------------ #
@@ -163,9 +161,7 @@ class RatingDistributionChart(ThemedChartWidget):
         for i, (rating, count) in enumerate(zip(self._ratings, counts)):
             slot_center = plot_left + (i + 0.5) * slot_w
             bar_h = (count / max_count) * plot_h if max_count else 0
-            bar_rect = QRectF(
-                slot_center - bar_w / 2, plot_bottom - bar_h, bar_w, bar_h
-            )
+            bar_rect = QRectF(slot_center - bar_w / 2, plot_bottom - bar_h, bar_w, bar_h)
             self._bar_rects.append(bar_rect)
 
             if count == 0:
@@ -185,12 +181,7 @@ class RatingDistributionChart(ThemedChartWidget):
             painter.drawRoundedRect(bar_rect, r, r)
             if bar_rect.height() > r:
                 painter.drawRect(
-                    QRectF(
-                        bar_rect.x(),
-                        bar_rect.y() + r,
-                        bar_rect.width(),
-                        bar_rect.height() - r,
-                    )
+                    QRectF(bar_rect.x(), bar_rect.y() + r, bar_rect.width(), bar_rect.height() - r)
                 )
 
             # Direct label on the tallest bar only
@@ -211,9 +202,7 @@ class RatingDistributionChart(ThemedChartWidget):
 
         # Baseline
         painter.setPen(QPen(self._color_grid, 1))
-        painter.drawLine(
-            int(plot_left), int(plot_bottom), int(plot_right), int(plot_bottom)
-        )
+        painter.drawLine(int(plot_left), int(plot_bottom), int(plot_right), int(plot_bottom))
 
         painter.end()
 
@@ -224,10 +213,7 @@ class RatingDistributionChart(ThemedChartWidget):
     def _index_at(self, pos: QPoint) -> int | None:
         for i, rect in enumerate(self._bar_rects):
             hit = QRectF(
-                rect.x() - 2,
-                self.MARGIN_TOP,
-                rect.width() + 4,
-                self.height() - self.MARGIN_TOP,
+                rect.x() - 2, self.MARGIN_TOP, rect.width() + 4, self.height() - self.MARGIN_TOP
             )
             if hit.contains(pos):
                 return i

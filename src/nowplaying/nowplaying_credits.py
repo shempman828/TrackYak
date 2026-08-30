@@ -1,7 +1,6 @@
 # ──────────────────────────────────────────────────────────────────────────────
 #  Credits panel
 # ──────────────────────────────────────────────────────────────────────────────
-from typing import Dict, List, Tuple
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
@@ -77,7 +76,7 @@ class _CreditsPanel(QWidget):
             self._show_placeholder("No track loaded")
             return
 
-        grouped: Dict[int, Tuple[str, List[str]]] = {}
+        grouped: dict[int, tuple[str, list[str]]] = {}
         try:
             for ar in getattr(track, "artist_roles", None) or []:
                 role = getattr(ar, "role", None)

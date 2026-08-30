@@ -62,15 +62,9 @@ class AlbumStats:
                 "rating_by_track_count": self._rating_by_track_count(session),
                 "sales_distribution": self._sales_distribution(session),
                 "top_bottom_selling_albums": self._top_bottom_selling_albums(session),
-                "release_country_distribution": self._release_country_distribution(
-                    session
-                ),
-                "highest_rated_album_by_country": self._highest_rated_album_by_country(
-                    session
-                ),
-                "most_diverse_albums_by_genre": self._most_diverse_albums_by_genre(
-                    session
-                ),
+                "release_country_distribution": self._release_country_distribution(session),
+                "highest_rated_album_by_country": self._highest_rated_album_by_country(session),
+                "most_diverse_albums_by_genre": self._most_diverse_albums_by_genre(session),
             }
         finally:
             session.close()
@@ -107,9 +101,12 @@ class AlbumStats:
         sales_query = session.query(Album).filter(Album.estimated_sales.isnot(None))
         if not sparse_data_guard(sales_query):
             return None
-        values = [v for (v,) in session.query(Album.estimated_sales).filter(
-            Album.estimated_sales.isnot(None)
-        ).all()]
+        values = [
+            v
+            for (v,) in session.query(Album.estimated_sales)
+            .filter(Album.estimated_sales.isnot(None))
+            .all()
+        ]
         return distribution_stats(values)
 
     def _top_bottom_selling_albums(self, session, n=5):

@@ -13,7 +13,7 @@ blocks on the network call.
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Optional
+from collections.abc import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -33,7 +33,7 @@ from src.musicbrainz.musicbrainz_core import MBCandidate
 from src.musicbrainz.musicbrainz_worker import MusicBrainzWorker
 
 
-def _detach_running_worker(worker: Optional[MusicBrainzWorker]) -> None:
+def _detach_running_worker(worker: MusicBrainzWorker | None) -> None:
     """Let a still-running MusicBrainzWorker finish on its own instead of
     being destroyed mid-flight when the owning dialog is closed early
     (Skip/Cancel/Esc/X while a search or follow-up lookup is in flight).
@@ -83,18 +83,18 @@ class MusicBrainzMatchDialog(QDialog):
     def __init__(
         self,
         entity_label: str,
-        search_call: Callable[[], List[MBCandidate]],
-        complete_call: Optional[Callable[[MBCandidate], MBCandidate]] = None,
+        search_call: Callable[[], list[MBCandidate]],
+        complete_call: Callable[[MBCandidate], MBCandidate] | None = None,
         parent=None,
     ):
         super().__init__(parent)
         self._entity_label = entity_label
         self._search_call = search_call
         self._complete_call = complete_call
-        self._candidates: List[MBCandidate] = []
-        self._result_enrichment: Optional[Dict] = None
-        self._result_candidate: Optional[MBCandidate] = None
-        self._worker: Optional[MusicBrainzWorker] = None
+        self._candidates: list[MBCandidate] = []
+        self._result_enrichment: dict | None = None
+        self._result_candidate: MBCandidate | None = None
+        self._worker: MusicBrainzWorker | None = None
 
         self.setWindowTitle("MusicBrainz Lookup")
         self.setMinimumSize(520, 420)
@@ -152,15 +152,13 @@ class MusicBrainzMatchDialog(QDialog):
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
-    def _on_search_finished(self, candidates: List[MBCandidate]):
+    def _on_search_finished(self, candidates: list[MBCandidate]):
         self._candidates = candidates
         self.progress_bar.hide()
         self.list_widget.clear()
 
         if not candidates:
-            self.status_label.setText(
-                f"No MusicBrainz matches found for {self._entity_label}."
-            )
+            self.status_label.setText(f"No MusicBrainz matches found for {self._entity_label}.")
             return
 
         self.status_label.setText(
@@ -183,7 +181,7 @@ class MusicBrainzMatchDialog(QDialog):
 
         self.variant_combo.blockSignals(True)
         self.variant_combo.clear()
-        candidate: Optional[MBCandidate] = items[0].data(Qt.UserRole) if items else None
+        candidate: MBCandidate | None = items[0].data(Qt.UserRole) if items else None
         has_variants = bool(candidate and candidate.alternates)
         if has_variants:
             for variant in [candidate, *candidate.alternates]:
@@ -246,10 +244,10 @@ class MusicBrainzMatchDialog(QDialog):
             self._result_candidate = candidate
         self.accept()
 
-    def result_enrichment(self) -> Optional[Dict]:
+    def result_enrichment(self) -> dict | None:
         return self._result_enrichment
 
-    def result_candidate(self) -> Optional[MBCandidate]:
+    def result_candidate(self) -> MBCandidate | None:
         """The full picked candidate, including any relational data
         (aliases, places, group membership) a `complete_call` populated on
         `candidate.relations`. Most callers only need `result_enrichment()`;
@@ -309,7 +307,7 @@ class MusicBrainzImportDialog(QDialog):
         self._supports_progress = supports_progress
         self._entity_label = entity_label
         self._result_candidate = None
-        self._worker: Optional[MusicBrainzWorker] = None
+        self._worker: MusicBrainzWorker | None = None
 
         self.setWindowTitle("MusicBrainz Import")
         self.setMinimumSize(420, 140)
@@ -350,8 +348,7 @@ class MusicBrainzImportDialog(QDialog):
             self.progress_bar.setRange(0, total)
         self.progress_bar.setValue(current)
         self.status_label.setText(
-            f"Resolving recording locations for {self._entity_label}… "
-            f"({current} of {total})"
+            f"Resolving recording locations for {self._entity_label}… ({current} of {total})"
         )
 
     def _on_finished(self, candidate):

@@ -12,19 +12,12 @@ class Disc(Base):
     __tablename__ = "discs"
 
     disc_id = Column(Integer, primary_key=True)
-    album_id = Column(
-        Integer, ForeignKey("albums.album_id", ondelete="CASCADE"), nullable=False
-    )
+    album_id = Column(Integer, ForeignKey("albums.album_id", ondelete="CASCADE"), nullable=False)
     disc_number = Column(Integer, nullable=False)
     disc_title = Column(String)
 
     album = relationship("Album", back_populates="discs")
-    tracks = relationship(
-        "Track",
-        backref="disc",
-        order_by="Track.track_number",
-        viewonly=True,
-    )
+    tracks = relationship("Track", backref="disc", order_by="Track.track_number", viewonly=True)
 
     @property
     def track_count(self):

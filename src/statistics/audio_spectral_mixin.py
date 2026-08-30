@@ -136,9 +136,7 @@ class AudioSpectralMixin:
             logger.error(f"Spectral flatness calculation failed: {e}")
             return 0.2
 
-    def calculate_spectral_flux(
-        self, stft: tuple[np.ndarray, np.ndarray] | None = None
-    ) -> float:
+    def calculate_spectral_flux(self, stft: tuple[np.ndarray, np.ndarray] | None = None) -> float:
         """
         Mean frame-to-frame change in the (energy-normalised) magnitude
         spectrum.  Low = static/sustained timbre (drones, pads); high =
@@ -411,9 +409,7 @@ class AudioSpectralMixin:
     # Derived perceptual metrics
     # ------------------------------------------------------------------
 
-    def calculate_energy(
-        self, stft: tuple[np.ndarray, np.ndarray] | None = None
-    ) -> float:
+    def calculate_energy(self, stft: tuple[np.ndarray, np.ndarray] | None = None) -> float:
         """
         Perceptual energy: blend of integrated loudness and spectral brightness.
         0 = quiet/flat, 1 = loud and bright.
@@ -438,22 +434,16 @@ class AudioSpectralMixin:
                 brightness_factor = 0.0
             else:
                 high_mask = f > 1000
-                brightness_factor = float(
-                    np.clip(mag[high_mask].sum() / total_e * 2.0, 0.0, 1.0)
-                )
+                brightness_factor = float(np.clip(mag[high_mask].sum() / total_e * 2.0, 0.0, 1.0))
 
-            return float(
-                np.clip(loudness_factor * 0.6 + brightness_factor * 0.4, 0.0, 1.0)
-            )
+            return float(np.clip(loudness_factor * 0.6 + brightness_factor * 0.4, 0.0, 1.0))
 
         except ValueError as e:
             logger.error(f"Energy calculation failed: {e}")
             return 0.5
 
     def calculate_danceability(
-        self,
-        bpm: float | None = None,
-        stft: tuple[np.ndarray, np.ndarray] | None = None,
+        self, bpm: float | None = None, stft: tuple[np.ndarray, np.ndarray] | None = None
     ) -> float:
         """
         Danceability based on three independently-normalised factors:
@@ -479,9 +469,7 @@ class AudioSpectralMixin:
             bass_mask = f <= 200
             bass_time = np.mean(mag[bass_mask, :], axis=0)
             mean_bass = np.mean(bass_time)
-            beat_strength = (
-                (np.std(bass_time) / (mean_bass + 1e-8)) if mean_bass > 1e-8 else 0.0
-            )
+            beat_strength = (np.std(bass_time) / (mean_bass + 1e-8)) if mean_bass > 1e-8 else 0.0
             beat_factor = float(np.clip(beat_strength / 1.5, 0.0, 1.0))
 
             # Spectral balance
@@ -492,9 +480,7 @@ class AudioSpectralMixin:
             mid_r = np.mean(mag[mid_mask]) / total
             high_r = np.mean(mag[high_mask]) / total
             # Ideal: bass ~0.35, mid ~0.45, high ~0.20
-            balance = 1.0 - (
-                abs(bass_r - 0.35) + abs(mid_r - 0.45) + abs(high_r - 0.20)
-            )
+            balance = 1.0 - (abs(bass_r - 0.35) + abs(mid_r - 0.45) + abs(high_r - 0.20))
             balance_factor = float(np.clip(balance, 0.0, 1.0))
 
             # Tempo
@@ -508,11 +494,7 @@ class AudioSpectralMixin:
                 tempo_factor = 0.25
 
             return float(
-                np.clip(
-                    beat_factor * 0.35 + balance_factor * 0.35 + tempo_factor * 0.30,
-                    0.0,
-                    1.0,
-                )
+                np.clip(beat_factor * 0.35 + balance_factor * 0.35 + tempo_factor * 0.30, 0.0, 1.0)
             )
 
         except ValueError as e:
@@ -520,9 +502,7 @@ class AudioSpectralMixin:
             return 0.5
 
     def calculate_acousticness(
-        self,
-        centroid: float | None = None,
-        stft: tuple[np.ndarray, np.ndarray] | None = None,
+        self, centroid: float | None = None, stft: tuple[np.ndarray, np.ndarray] | None = None
     ) -> float:
         """
         Estimates how acoustic (vs. electronic) the recording sounds.
@@ -564,18 +544,14 @@ class AudioSpectralMixin:
             centroid_factor = float(np.clip(1.0 - centroid / 6000.0, 0.0, 1.0))
 
             return float(
-                np.clip(
-                    tonality * 0.5 + freq_factor * 0.3 + centroid_factor * 0.2, 0.0, 1.0
-                )
+                np.clip(tonality * 0.5 + freq_factor * 0.3 + centroid_factor * 0.2, 0.0, 1.0)
             )
 
         except ValueError as e:
             logger.error(f"Acousticness calculation failed: {e}")
             return 0.5
 
-    def calculate_liveness(
-        self, stft: tuple[np.ndarray, np.ndarray] | None = None
-    ) -> float:
+    def calculate_liveness(self, stft: tuple[np.ndarray, np.ndarray] | None = None) -> float:
         """
         Estimates the probability of a live recording.
 
@@ -657,9 +633,7 @@ class AudioSpectralMixin:
                 # instead of both landing in a mushy middle.
                 persistence_factor = float(np.clip((30.0 - headroom_db) / 10.0, 0.0, 1.0))
 
-            return float(
-                np.clip(noise_factor * 0.15 + persistence_factor * 0.85, 0.0, 1.0)
-            )
+            return float(np.clip(noise_factor * 0.15 + persistence_factor * 0.85, 0.0, 1.0))
 
         except ValueError as e:
             logger.error(f"Liveness calculation failed: {e}")
@@ -714,11 +688,7 @@ class AudioSpectralMixin:
             brightness = float(np.clip(centroid / 5000.0, 0.0, 1.0))
 
             return float(
-                np.clip(
-                    mode_factor * 0.50 + tempo_factor * 0.30 + brightness * 0.20,
-                    0.0,
-                    1.0,
-                )
+                np.clip(mode_factor * 0.50 + tempo_factor * 0.30 + brightness * 0.20, 0.0, 1.0)
             )
 
         except (ValueError, TypeError) as e:

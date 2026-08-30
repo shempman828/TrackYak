@@ -2,17 +2,9 @@
 Artist-related ORM models: Artist, ArtistAlias, ArtistInfluence, and GroupMembership.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from sqlalchemy import (
-    CheckConstraint,
-    Column,
-    ForeignKey,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-)
+from sqlalchemy import CheckConstraint, Column, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.orm import relationship
 
@@ -43,16 +35,11 @@ class Artist(Base):
     profile_pic_path = Column(String)
     wikipedia_link = Column(String)
     website_link = Column(String)
-    religion_id = Column(
-        Integer, ForeignKey("religions.religion_id", ondelete="SET NULL")
-    )
+    religion_id = Column(Integer, ForeignKey("religions.religion_id", ondelete="SET NULL"))
 
     religion = relationship("Religion", back_populates="artists")
     aliases = relationship(
-        "ArtistAlias",
-        back_populates="artist",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
+        "ArtistAlias", back_populates="artist", cascade="all, delete-orphan", passive_deletes=True
     )
     aliases_list = association_proxy("aliases", "alias_name")
     types = relationship(
@@ -132,9 +119,7 @@ class Artist(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    founded_publishers = association_proxy(
-        "founded_publisher_associations", "publisher"
-    )
+    founded_publishers = association_proxy("founded_publisher_associations", "publisher")
 
     @property
     def albums(self):
@@ -149,7 +134,7 @@ class Artist(Base):
     def age(self):
         """Calculate artist's age or age at end."""
         if self.begin_year:
-            end_year = self.end_year or datetime.now(timezone.utc).year
+            end_year = self.end_year or datetime.now(UTC).year
             return end_year - self.begin_year
         return None
 
@@ -190,9 +175,7 @@ class ArtistAlias(Base):
     alias_type = Column(
         String
     )  # Legal Name, Stylized name, Project Name, Persona, Birth Name, Former Name, Localized name, Romanized name, Phonetic name
-    artist_id = Column(
-        Integer, ForeignKey("artists.artist_id", ondelete="CASCADE"), nullable=False
-    )
+    artist_id = Column(Integer, ForeignKey("artists.artist_id", ondelete="CASCADE"), nullable=False)
 
     artist = relationship("Artist", back_populates="aliases")
     artist_name = association_proxy("artist", "artist_name")
@@ -211,17 +194,13 @@ class ArtistSplitAlias(Base):
 
     split_alias_id = Column(Integer, primary_key=True)
     alias_name = Column(String, nullable=False, index=True)
-    artist_id = Column(
-        Integer, ForeignKey("artists.artist_id", ondelete="CASCADE"), nullable=False
-    )
+    artist_id = Column(Integer, ForeignKey("artists.artist_id", ondelete="CASCADE"), nullable=False)
     sort_order = Column(Integer, nullable=False, default=0)
 
     artist = relationship("Artist")
 
     __table_args__ = (
-        UniqueConstraint(
-            "alias_name", "artist_id", name="uq_artist_split_alias_name_artist"
-        ),
+        UniqueConstraint("alias_name", "artist_id", name="uq_artist_split_alias_name_artist"),
     )
 
 
@@ -250,9 +229,5 @@ class GroupMembership(Base):
     active_end_year = Column(Integer)
     is_current = Column(Integer, CheckConstraint("is_current IN (0, 1)"))
 
-    member = relationship(
-        "Artist", foreign_keys=[member_id], back_populates="member_memberships"
-    )
-    group = relationship(
-        "Artist", foreign_keys=[group_id], back_populates="group_memberships"
-    )
+    member = relationship("Artist", foreign_keys=[member_id], back_populates="member_memberships")
+    group = relationship("Artist", foreign_keys=[group_id], back_populates="group_memberships")

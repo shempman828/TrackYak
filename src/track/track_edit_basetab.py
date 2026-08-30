@@ -3,12 +3,9 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
-from PySide6.QtWidgets import (
-    QWidget,
-)
-
+from PySide6.QtWidgets import QWidget
 
 
 class _BaseTab(QWidget):
@@ -36,7 +33,7 @@ class _BaseTab(QWidget):
     def load(self, tracks: list) -> None:
         raise NotImplementedError
 
-    def collect_changes(self) -> Dict[str, Any]:
+    def collect_changes(self) -> dict[str, Any]:
         return {}
 
     def refresh_values(self, tracks: list) -> None:

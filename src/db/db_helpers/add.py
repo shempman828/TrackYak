@@ -25,9 +25,7 @@ class AddToDB(BaseDBHelper):
                 batching several related inserts into a single
                 all-or-nothing transaction it commits/rolls back itself.
         """
-        logger.debug(
-            f"Adding new entity of type: {model_name} with attributes: {kwargs}"
-        )
+        logger.debug(f"Adding new entity of type: {model_name} with attributes: {kwargs}")
 
         try:
             entity_class = MODEL_REGISTRY[model_name]
@@ -77,9 +75,7 @@ class AddToDB(BaseDBHelper):
         Returns:
             object: The newly created link entity instance.
         """
-        logger.debug(
-            f"Adding new link entity of type: {link_type} with attributes: {kwargs}"
-        )
+        logger.debug(f"Adding new link entity of type: {link_type} with attributes: {kwargs}")
         try:
             link_class = MODEL_REGISTRY[link_type]
         except KeyError:
@@ -104,15 +100,9 @@ class AddToDB(BaseDBHelper):
         if not pk_cols or not all(col in row for row in rows for col in pk_cols):
             return rows, []
 
-        existing = set(
-            self.session.query(*[getattr(entity_class, c) for c in pk_cols]).all()
-        )
-        new_rows = [
-            row for row in rows if tuple(row[c] for c in pk_cols) not in existing
-        ]
-        existing_rows = [
-            row for row in rows if tuple(row[c] for c in pk_cols) in existing
-        ]
+        existing = set(self.session.query(*[getattr(entity_class, c) for c in pk_cols]).all())
+        new_rows = [row for row in rows if tuple(row[c] for c in pk_cols) not in existing]
+        existing_rows = [row for row in rows if tuple(row[c] for c in pk_cols) in existing]
         return new_rows, existing_rows
 
     def add_entities(self, model_name: str, rows: list):
@@ -192,8 +182,7 @@ class AddToDB(BaseDBHelper):
         rows_to_add, existing_rows = self._split_existing_rows(entity_class, rows)
         if existing_rows:
             logger.debug(
-                f"Skipped {len(existing_rows)} duplicate {model_name} row(s) "
-                "already present"
+                f"Skipped {len(existing_rows)} duplicate {model_name} row(s) already present"
             )
         if not rows_to_add:
             return [], []

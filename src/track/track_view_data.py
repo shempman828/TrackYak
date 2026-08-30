@@ -20,11 +20,7 @@ from src.track.track_view_filter import LAZY_BATCH_SIZE, SortWorker
 _ALBUM_DERIVED_FIELDS = ("album_name", "release_year", "release_month", "release_day")
 
 # Relationship-derived columns that a lookup-cache refresh can change.
-_CACHE_DEPENDENT_FIELDS = frozenset({
-    "primary_artist_names",
-    "disc_number",
-    *_ALBUM_DERIVED_FIELDS,
-})
+_CACHE_DEPENDENT_FIELDS = frozenset({"primary_artist_names", "disc_number", *_ALBUM_DERIVED_FIELDS})
 
 
 def _oxford_join(names: list) -> str:
@@ -36,9 +32,7 @@ def _oxford_join(names: list) -> str:
     return f"{', '.join(names[:-1])}, & {names[-1]}"
 
 
-def _format_primary_artist_names(
-    primary_names: list, featured_names: list | None = None
-) -> str:
+def _format_primary_artist_names(primary_names: list, featured_names: list | None = None) -> str:
     """Oxford-comma join, mirroring Track.primary_artist_names in src/db_tables/track.py."""
     primary_names = [n.strip() for n in primary_names if n and n.strip()]
     if not primary_names:
@@ -77,9 +71,7 @@ def _fetch_lookup_caches(session):
         )
     }
 
-    disc_number_cache = dict(
-        session.execute(select(Disc.disc_id, Disc.disc_number)).all()
-    )
+    disc_number_cache = dict(session.execute(select(Disc.disc_id, Disc.disc_number)).all())
 
     by_track: dict[int, list[tuple[str, str]]] = {}
     rows = session.execute(
@@ -89,11 +81,7 @@ def _fetch_lookup_caches(session):
         # Match the (track_id, artist_id, role_id) composite PK index
         # order that a per-track lazy load would return, so cached names
         # come out in the same order as Track.primary_artist_names.
-        .order_by(
-            TrackArtistRole.track_id,
-            TrackArtistRole.artist_id,
-            TrackArtistRole.role_id,
-        )
+        .order_by(TrackArtistRole.track_id, TrackArtistRole.artist_id, TrackArtistRole.role_id)
     ).all()
     for track_id, artist_name, role_name in rows:
         by_track.setdefault(track_id, []).append((artist_name, role_name))
@@ -134,7 +122,7 @@ class TrackLookupCacheWorker(QObject):
         try:
             caches = _fetch_lookup_caches(self.controller.get.session)
             self.finished.emit(*caches)
-        except Exception as e:  # ruff: ignore[blind-except]
+        except Exception as e:
             # Intentional broad boundary catch: this runs on a background thread
             # and must not let an exception be lost silently.
             logger.exception("Failed to load track view lookup caches")
@@ -161,9 +149,7 @@ class TrackViewDataMixin:
                 tracks = self.controller.get.get_all_entities("Track")
                 self._all_tracks = tracks or []
                 self._tracks_loaded = True
-                logger.info(
-                    f"Fetched {len(self._all_tracks):,} tracks from DB (one-time)."
-                )
+                logger.info(f"Fetched {len(self._all_tracks):,} tracks from DB (one-time).")
             except SQLAlchemyError as e:
                 logger.error(f"Error fetching tracks: {e}")
                 self._all_tracks = []
@@ -216,8 +202,8 @@ class TrackViewDataMixin:
         `_refresh_lookup_caches_async` for the background-thread version
         used when revisiting the Tracks nav item.
         """
-        self._album_cache, self._disc_number_cache, self._artist_name_cache = (
-            _fetch_lookup_caches(self.controller.get.session)
+        self._album_cache, self._disc_number_cache, self._artist_name_cache = _fetch_lookup_caches(
+            self.controller.get.session
         )
 
     def _refresh_lookup_caches_async(self):
@@ -241,9 +227,7 @@ class TrackViewDataMixin:
 
         self._lookup_thread.start()
 
-    def _on_lookup_caches_loaded(
-        self, album_cache, disc_number_cache, artist_name_cache
-    ):
+    def _on_lookup_caches_loaded(self, album_cache, disc_number_cache, artist_name_cache):
         """Called on the main thread once TrackLookupCacheWorker finishes."""
         self._album_cache = album_cache
         self._disc_number_cache = disc_number_cache
@@ -281,8 +265,7 @@ class TrackViewDataMixin:
                     continue
                 item.setText(display_value)
                 item.setData(
-                    value if isinstance(value, (int, float)) else display_value,
-                    Qt.UserRole,
+                    value if isinstance(value, (int, float)) else display_value, Qt.UserRole
                 )
 
     @staticmethod
@@ -325,8 +308,7 @@ class TrackViewDataMixin:
                 item = QStandardItem(display_value)
                 item.setEditable(False)
                 item.setData(
-                    value if isinstance(value, (int, float)) else display_value,
-                    Qt.UserRole,
+                    value if isinstance(value, (int, float)) else display_value, Qt.UserRole
                 )
                 row_items.append(item)
 
@@ -363,8 +345,7 @@ class TrackViewDataMixin:
 
         header = self.table.horizontalHeader()
         header.setSortIndicator(
-            logical_index,
-            Qt.AscendingOrder if self._sort_ascending else Qt.DescendingOrder,
+            logical_index, Qt.AscendingOrder if self._sort_ascending else Qt.DescendingOrder
         )
 
         field_name = column_keys[logical_index]
@@ -373,9 +354,7 @@ class TrackViewDataMixin:
         self.table.setEnabled(False)
         self.status_label.setText("Sorting…")
 
-        self._sort_worker = SortWorker(
-            source, self._field_value, field_name, self._sort_ascending
-        )
+        self._sort_worker = SortWorker(source, self._field_value, field_name, self._sort_ascending)
         self._sort_worker.finished.connect(self._on_sort_done)
         self._sort_worker.start()
 
@@ -408,6 +387,4 @@ class TrackViewDataMixin:
                 f"Showing {self._loaded_count:,} / {visible:,} matches  ({total:,} total)"
             )
         else:
-            self.status_label.setText(
-                f"Showing {self._loaded_count:,} / {total:,} tracks"
-            )
+            self.status_label.setText(f"Showing {self._loaded_count:,} / {total:,} tracks")

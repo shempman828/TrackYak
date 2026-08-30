@@ -4,16 +4,7 @@ Track-related ORM models: Samples (self-referential sampling), Track, and TrackU
 
 from datetime import date, datetime
 
-from sqlalchemy import (
-    CheckConstraint,
-    Column,
-    DateTime,
-    Float,
-    ForeignKey,
-    Integer,
-    String,
-    Text,
-)
+from sqlalchemy import CheckConstraint, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
@@ -39,16 +30,8 @@ class Samples(Base):
         Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), primary_key=True
     )
     # relationships back to Track
-    sampled_by = relationship(
-        "Track",
-        foreign_keys=[sampled_by_id],
-        back_populates="samples_used",
-    )
-    sampled = relationship(
-        "Track",
-        foreign_keys=[sampled_id],
-        back_populates="sampled_by_tracks",
-    )
+    sampled_by = relationship("Track", foreign_keys=[sampled_by_id], back_populates="samples_used")
+    sampled = relationship("Track", foreign_keys=[sampled_id], back_populates="sampled_by_tracks")
 
 
 class Track(Base):
@@ -187,10 +170,7 @@ class Track(Base):
     # viewonly: writes to mood_track_association always go through
     # MoodTrackAssociation objects directly, never through this collection.
     moods = relationship(
-        "Mood",
-        secondary="mood_track_association",
-        back_populates="tracks",
-        viewonly=True,
+        "Mood", secondary="mood_track_association", back_populates="tracks", viewonly=True
     )
 
     # viewonly: writes to place_associations always go through PlaceAssociation
@@ -216,10 +196,7 @@ class Track(Base):
     )
 
     playlists = relationship(
-        "PlaylistTracks",
-        back_populates="track",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
+        "PlaylistTracks", back_populates="track", cascade="all, delete-orphan", passive_deletes=True
     )
     # Tracks that this track *samples*
     samples_used = relationship(
@@ -238,10 +215,7 @@ class Track(Base):
     )
     virtual_appearances = relationship("AlbumVirtualTrack", back_populates="track")
     usages = relationship(
-        "TrackUsage",
-        back_populates="track",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
+        "TrackUsage", back_populates="track", cascade="all, delete-orphan", passive_deletes=True
     )
 
     @hybrid_property
@@ -384,15 +358,13 @@ class Track(Base):
     @property
     def has_audio_analysis(self):
         """Return True if the key audio analysis fields are populated."""
-        return all(
-            v is not None for v in [self.bpm, self.key, self.energy, self.danceability]
-        )
+        return all(v is not None for v in [self.bpm, self.key, self.energy, self.danceability])
 
     @property
     def age_in_years(self):
         """Return how many years ago the track was recorded, or None if unknown."""
         if self.recorded_year:
-            return date.today().year - self.recorded_year  # ruff: ignore[call-date-today]
+            return date.today().year - self.recorded_year
         return None
 
     @property
@@ -401,8 +373,7 @@ class Track(Base):
         if not self.usages:
             return []
         return [
-            f"{u.usage_type}: {u.title}" + (f" ({u.year})" if u.year else "")
-            for u in self.usages
+            f"{u.usage_type}: {u.title}" + (f" ({u.year})" if u.year else "") for u in self.usages
         ]
 
 
@@ -412,9 +383,7 @@ class TrackUsage(Base):
     __tablename__ = "track_usages"
 
     usage_id = Column(Integer, primary_key=True)
-    track_id = Column(
-        Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), nullable=False
-    )
+    track_id = Column(Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), nullable=False)
     usage_type = Column(
         String,
         CheckConstraint(

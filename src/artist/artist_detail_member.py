@@ -2,13 +2,7 @@
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QFrame,
-    QGridLayout,
-    QLabel,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
 
 from src.core.logger_config import logger
 
@@ -113,9 +107,7 @@ class MembershipWidget(QWidget):
             is_current = getattr(membership, "is_current", 0) == 1
             status_text = "Current" if is_current else "Former"
             status_label = QLabel(status_text)
-            status_label.setObjectName(
-                f"MemberStatus{'Current' if is_current else 'Former'}"
-            )
+            status_label.setObjectName(f"MemberStatus{'Current' if is_current else 'Former'}")
             grid_layout.addWidget(status_label, row, 3)
 
         layout.addLayout(grid_layout)
@@ -197,9 +189,7 @@ class MembershipWidget(QWidget):
             is_current = getattr(membership, "is_current", 0) == 1
             status_text = "Current" if is_current else "Former"
             status_label = QLabel(status_text)
-            status_label.setObjectName(
-                f"GroupStatus{'Current' if is_current else 'Former'}"
-            )
+            status_label.setObjectName(f"GroupStatus{'Current' if is_current else 'Former'}")
             grid_layout.addWidget(status_label, row, 3)
 
         layout.addLayout(grid_layout)

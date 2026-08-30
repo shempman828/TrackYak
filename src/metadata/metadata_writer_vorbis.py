@@ -7,7 +7,7 @@ This is the correct format per the Vorbis I specification and expected by Picard
 """
 
 import struct
-from typing import Dict, List, Union
+from typing import Union
 
 from src.core.logger_config import logger
 
@@ -24,9 +24,7 @@ class VorbisCommentWriter:
     # Public API
     # ------------------------------------------------------------------
 
-    def build_vorbis_comments(
-        self, comments: Dict[str, Union[str, List[str]]]
-    ) -> bytes:
+    def build_vorbis_comments(self, comments: dict[str, Union[str, list[str]]]) -> bytes:
         """Build a complete Vorbis comment block from a tag dict.
 
         Values may be a plain string or a list of strings. Lists are expanded
@@ -41,7 +39,7 @@ class VorbisCommentWriter:
             comments = {}
 
         # Flatten to list of (field, value) pairs, expanding lists
-        pairs: List[tuple[str, str]] = []
+        pairs: list[tuple[str, str]] = []
         for field, value in comments.items():
             if value is None or value == "":
                 continue
@@ -62,9 +60,7 @@ class VorbisCommentWriter:
 
         # Comment list
         comment_count = struct.pack("<I", len(pairs))
-        comment_data = b"".join(
-            self._encode_comment(field, value) for field, value in pairs
-        )
+        comment_data = b"".join(self._encode_comment(field, value) for field, value in pairs)
 
         logger.debug(f"Built Vorbis comment block with {len(pairs)} entries")
         return vendor_block + comment_count + comment_data

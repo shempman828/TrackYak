@@ -3,17 +3,12 @@ from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import (
-    QMainWindow,
-    QMessageBox,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QMainWindow, QMessageBox, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
+from src.track.base_track_view import BaseTrackView
 
 
 class PlaylistTracksWindow(QMainWindow):
@@ -25,13 +20,9 @@ class PlaylistTracksWindow(QMainWindow):
         self.controller = controller
 
         # Check if this is a smart playlist
-        playlist = self.controller.get.get_entity_object(
-            "Playlist", playlist_id=playlist_id
-        )
+        playlist = self.controller.get.get_entity_object("Playlist", playlist_id=playlist_id)
         self.is_smart_playlist = getattr(playlist, "is_smart", False)
-        self.playlist_name = getattr(
-            playlist, "playlist_name", f"Playlist {playlist_id}"
-        )
+        self.playlist_name = getattr(playlist, "playlist_name", f"Playlist {playlist_id}")
 
         # === Window setup ===
         window_title = f"Playlist Editor — {self.playlist_name}"
@@ -39,9 +30,7 @@ class PlaylistTracksWindow(QMainWindow):
             window_title = f"🔍 Smart Playlist — {self.playlist_name}"
         self.setWindowTitle(window_title)
 
-        self.setWindowFlags(
-            Qt.Window | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint
-        )
+        self.setWindowFlags(Qt.Window | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint)
         self.resize(900, 700)
         self.setMinimumSize(600, 400)
 
@@ -52,9 +41,7 @@ class PlaylistTracksWindow(QMainWindow):
 
         # Create BaseTrackView with drag/drop enabled based on playlist type
         enable_drag = not self.is_smart_playlist  # Allow dragging from smart playlists?
-        enable_drop = (
-            not self.is_smart_playlist
-        )  # Only allow dropping on regular playlists
+        enable_drop = not self.is_smart_playlist  # Only allow dropping on regular playlists
 
         self.tracks_view = BaseTrackView(
             controller=controller,
@@ -128,25 +115,19 @@ class PlaylistTracksWindow(QMainWindow):
                 f"Showing {len(tracks)} tracks in playlist (Last updated: {datetime.now().strftime('%H:%M:%S')})"
             )
 
-            logger.info(
-                f"Loaded {len(tracks)} tracks for playlist {self.playlist_name}"
-            )
+            logger.info(f"Loaded {len(tracks)} tracks for playlist {self.playlist_name}")
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error loading playlist tracks: {str(e)}")
-            QMessageBox.critical(self, "Error", f"Failed to load tracks: {str(e)}")
+            logger.error(f"Error loading playlist tracks: {e!s}")
+            QMessageBox.critical(self, "Error", f"Failed to load tracks: {e!s}")
 
     def handle_drop(self, event):
         """Handle drop event to add tracks to playlist."""
         try:
             if event.mimeData().hasFormat("application/x-track-id"):
                 # Get the comma-separated track IDs
-                track_ids_data = (
-                    event.mimeData().data("application/x-track-id").data().decode()
-                )
-                track_ids = [
-                    int(tid.strip()) for tid in track_ids_data.split(",") if tid.strip()
-                ]
+                track_ids_data = event.mimeData().data("application/x-track-id").data().decode()
+                track_ids = [int(tid.strip()) for tid in track_ids_data.split(",") if tid.strip()]
 
                 if not track_ids:
                     event.ignore()
@@ -159,17 +140,13 @@ class PlaylistTracksWindow(QMainWindow):
                 playlist_tracks = self.controller.get.get_all_entities(
                     "PlaylistTracks", playlist_id=self.playlist_id
                 )
-                current_positions = [
-                    getattr(pt, "position", 0) for pt in playlist_tracks
-                ]
+                current_positions = [getattr(pt, "position", 0) for pt in playlist_tracks]
                 next_position = max(current_positions) + 1 if current_positions else 1
 
                 for track_id in track_ids:
                     # Check if track already exists in playlist
                     existing = self.controller.get.get_all_entities(
-                        "PlaylistTracks",
-                        playlist_id=self.playlist_id,
-                        track_id=track_id,
+                        "PlaylistTracks", playlist_id=self.playlist_id, track_id=track_id
                     )
 
                     if existing:
@@ -203,7 +180,7 @@ class PlaylistTracksWindow(QMainWindow):
                 event.ignore()
 
         except (SQLAlchemyError, ValueError) as e:
-            logger.error(f"Error handling drop in playlist: {str(e)}")
+            logger.error(f"Error handling drop in playlist: {e!s}")
             event.ignore()
 
     def remove_selected_tracks(self):
@@ -224,9 +201,7 @@ class PlaylistTracksWindow(QMainWindow):
 
             for track in selected_tracks:
                 success = self.controller.delete.delete_entity(
-                    "PlaylistTracks",
-                    playlist_id=self.playlist_id,
-                    track_id=track.track_id,
+                    "PlaylistTracks", playlist_id=self.playlist_id, track_id=track.track_id
                 )
                 if success:
                     removed_count += 1
@@ -236,8 +211,8 @@ class PlaylistTracksWindow(QMainWindow):
             logger.info(f"Removed {removed_count} tracks from playlist")
 
         except SQLAlchemyError as e:
-            logger.error(f"Error removing tracks: {str(e)}")
-            QMessageBox.critical(self, "Error", f"Failed to remove tracks: {str(e)}")
+            logger.error(f"Error removing tracks: {e!s}")
+            QMessageBox.critical(self, "Error", f"Failed to remove tracks: {e!s}")
 
     def cleanup(self, parent):
         """Clean up references when window is closed."""
@@ -251,9 +226,7 @@ class PlaylistTracksWindow(QMainWindow):
     # Optional: remember manual move/resize
     def moveEvent(self, event):
         if hasattr(self.controller, "settings"):
-            self.controller.settings.setValue(
-                f"playlist_window_{self.playlist_id}_pos", self.pos()
-            )
+            self.controller.settings.setValue(f"playlist_window_{self.playlist_id}_pos", self.pos())
         super().moveEvent(event)
 
     def resizeEvent(self, event):

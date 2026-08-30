@@ -56,9 +56,7 @@ class PlayerDeviceMixin:
             self.sd = sd
             self.sf = sf
             self.available_devices = list(sd.query_devices())
-            logger.info(
-                f"Audio backend ready. {len(self.available_devices)} devices found."
-            )
+            logger.info(f"Audio backend ready. {len(self.available_devices)} devices found.")
             return True
         except ImportError as exc:
             logger.error(f"Audio backend import failed: {exc}")
@@ -89,8 +87,7 @@ class PlayerDeviceMixin:
             self.current_device = saved_id
         else:
             logger.warning(
-                f"Saved output device index {saved_id} no longer exists; "
-                "using system default."
+                f"Saved output device index {saved_id} no longer exists; using system default."
             )
 
     @staticmethod
@@ -145,8 +142,7 @@ class PlayerDeviceMixin:
             or device == ""
             or (
                 device_name is not None
-                and device_name.strip().lower()
-                in ("default", "pulse", "pipewire", "sysdefault")
+                and device_name.strip().lower() in ("default", "pulse", "pipewire", "sysdefault")
             )
         )
 
@@ -210,9 +206,7 @@ class PlayerDeviceMixin:
             )
             return True
         except (subprocess.SubprocessError, OSError) as exc:
-            logger.debug(
-                f"pactl suspend-sink {sink_name} {'1' if suspend else '0'} failed: {exc}"
-            )
+            logger.debug(f"pactl suspend-sink {sink_name} {'1' if suspend else '0'} failed: {exc}")
             return False
 
     def _prepare_exclusive_device(self, device) -> int | None:
@@ -328,16 +322,9 @@ class PlayerDeviceMixin:
                 # jitter from the Python-side reader thread, which surfaced as
                 # frequent underrun hitches once a hw: device was actually
                 # grabbed. "high" keeps the same bit-perfect path with margin.
-                return {
-                    "device": self.current_device,
-                    "latency": "high",
-                }
+                return {"device": self.current_device, "latency": "high"}
 
-            return {
-                "device": self.current_device,
-                "latency": "high",
-                "clip_off": True,
-            }
+            return {"device": self.current_device, "latency": "high", "clip_off": True}
         except (OSError, self.sd.PortAudioError, IndexError, TypeError) as exc:
             logger.warning(f"Could not determine device config: {exc}")
             return {"device": None, "latency": "high"}

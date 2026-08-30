@@ -12,8 +12,8 @@ match is written by the caller as a PlaceAssociation using the existing
 "Song About" association type -- no new schema.
 """
 
-import re
 from functools import lru_cache
+import re
 
 
 @lru_cache(maxsize=4096)

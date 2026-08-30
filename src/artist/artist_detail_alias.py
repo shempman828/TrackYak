@@ -1,14 +1,11 @@
-from typing import List
-
 from PySide6.QtCore import QPropertyAnimation, QTimer
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
-
 
 
 class AliasesCarousel(QWidget):
     """A widget that cycles through artist aliases with animation"""
 
-    def __init__(self, aliases: List[str], parent=None):
+    def __init__(self, aliases: list[str], parent=None):
         super().__init__(parent)
         self.aliases = aliases
         self.current_index = 0

@@ -26,9 +26,7 @@ class UpdateDB(BaseDBHelper):
         Returns:
             bool: True if the update was successful, False otherwise.
         """
-        logger.debug(
-            f"Updating {model_name} with ID {entity_id} with attributes: {kwargs}"
-        )
+        logger.debug(f"Updating {model_name} with ID {entity_id} with attributes: {kwargs}")
         try:
             entity_class = MODEL_REGISTRY[model_name]
         except KeyError:
@@ -48,9 +46,7 @@ class UpdateDB(BaseDBHelper):
             return False
 
         stmt = (
-            update(entity_class)
-            .where(getattr(entity_class, pk_col) == entity_id)
-            .values(**kwargs)
+            update(entity_class).where(getattr(entity_class, pk_col) == entity_id).values(**kwargs)
         )
 
         try:
@@ -114,8 +110,7 @@ class UpdateDB(BaseDBHelper):
             return True
 
         logger.debug(
-            f"Batch-updating {len(entity_ids)} {model_name} row(s) "
-            f"with attributes: {kwargs}"
+            f"Batch-updating {len(entity_ids)} {model_name} row(s) with attributes: {kwargs}"
         )
         try:
             entity_class = MODEL_REGISTRY[model_name]
@@ -126,9 +121,7 @@ class UpdateDB(BaseDBHelper):
         pk_col = pk_cols[0].name if pk_cols else "id"
         pk_attr = getattr(entity_class, pk_col)
 
-        conflict = self._find_unique_conflict_bulk(
-            entity_class, pk_col, entity_ids, kwargs
-        )
+        conflict = self._find_unique_conflict_bulk(entity_class, pk_col, entity_ids, kwargs)
         if conflict is not None:
             field, value, other_id = conflict
             logger.error(

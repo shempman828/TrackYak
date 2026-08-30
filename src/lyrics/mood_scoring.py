@@ -22,10 +22,10 @@ built for the Lyrics tab's word cloud (src/statistics/stats/lyrics.py) so
 "total words in this lyric" is counted the same way everywhere in the app.
 """
 
-import json
-import re
 from dataclasses import dataclass
+import json
 from pathlib import Path
+import re
 
 from src.core.asset_paths import asset
 from src.core.logger_config import logger

@@ -25,11 +25,7 @@ def compute_album_gain_peak(tracks) -> tuple[float | None, float | None]:
     peaks = [t.track_peak for t in tracks if t.track_peak is not None]
     album_peak = max(peaks) if peaks else None
 
-    weighted = [
-        (t.track_gain, t.duration or 1.0)
-        for t in tracks
-        if t.track_gain is not None
-    ]
+    weighted = [(t.track_gain, t.duration or 1.0) for t in tracks if t.track_gain is not None]
     if weighted:
         total_weight = sum(w for _, w in weighted)
         album_gain = (

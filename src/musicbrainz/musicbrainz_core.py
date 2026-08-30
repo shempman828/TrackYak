@@ -17,9 +17,9 @@ by musicbrainzngs, enabled by default).
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import re
 import socket
-from dataclasses import dataclass, field
 from typing import Any
 
 import musicbrainzngs
@@ -124,7 +124,7 @@ class MBCandidate:
     id: str
     label: str
     enrichment: dict[str, Any] = field(default_factory=dict)
-    relations: "MBArtistRelations | None" = None
+    relations: MBArtistRelations | None = None
     # Other releases collapsed into this same candidate (e.g. other-country
     # pressings of the same release-group) -- populated only by search
     # functions that group multiple releases under one picker row, so a
@@ -184,7 +184,7 @@ def _resolve_place_area(place_mbid: str) -> tuple[str | None, str | None]:
     configure()
     try:
         result = musicbrainzngs.get_place_by_id(place_mbid)
-    except Exception as e:  # ruff: ignore[blind-except]
+    except Exception as e:
         logger.warning(f"Could not resolve area for place {place_mbid}: {e}")
         return None, None
     area = (result.get("place") or {}).get("area") or {}

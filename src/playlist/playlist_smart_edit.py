@@ -37,9 +37,7 @@ class SmartPlaylistEditDialog(BaseSmartPlaylistDialog):
             )
             if playlist:
                 self.name_edit.setText(playlist.playlist_name or "")
-                self.desc_edit.setPlainText(
-                    getattr(playlist, "playlist_description", "") or ""
-                )
+                self.desc_edit.setPlainText(getattr(playlist, "playlist_description", "") or "")
 
             # Load the SmartPlaylist row (AND / OR logic)
             smart_playlist = self.controller.get.get_entity_object(
@@ -53,8 +51,7 @@ class SmartPlaylistEditDialog(BaseSmartPlaylistDialog):
 
                 # Load criteria rows
                 criteria_rows = self.controller.get.get_all_entities(
-                    "SmartPlaylistCriteria",
-                    smart_playlist_id=smart_playlist.playlist_id,
+                    "SmartPlaylistCriteria", smart_playlist_id=smart_playlist.playlist_id
                 )
                 if criteria_rows:
                     for row in criteria_rows:
@@ -74,11 +71,7 @@ class SmartPlaylistEditDialog(BaseSmartPlaylistDialog):
 
         except SQLAlchemyError as e:
             logger.error(f"Failed to load smart playlist data: {e}")
-            QMessageBox.warning(
-                self,
-                "Load Error",
-                f"Could not load playlist details:\n{e}",
-            )
+            QMessageBox.warning(self, "Load Error", f"Could not load playlist details:\n{e}")
             # Fall back to a blank row so the dialog is still usable
             if not self.criteria_widgets:
                 self.add_criteria_widget()
@@ -115,8 +108,7 @@ class SmartPlaylistEditDialog(BaseSmartPlaylistDialog):
             # 3. Replace all criteria rows:
             #    Delete the old ones, then insert the new ones.
             self.controller.delete.delete_entity(
-                "SmartPlaylistCriteria",
-                smart_playlist_id=self.playlist_id,
+                "SmartPlaylistCriteria", smart_playlist_id=self.playlist_id
             )
 
             for criterion in criteria_list:
@@ -134,8 +126,4 @@ class SmartPlaylistEditDialog(BaseSmartPlaylistDialog):
 
         except SQLAlchemyError as e:
             logger.error(f"Failed to save smart playlist edits: {e}")
-            QMessageBox.critical(
-                self,
-                "Save Error",
-                f"Could not save changes:\n{e}",
-            )
+            QMessageBox.critical(self, "Save Error", f"Could not save changes:\n{e}")

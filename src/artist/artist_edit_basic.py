@@ -165,9 +165,7 @@ class BasicTab(QWidget):
         self.begin_date_label = QLabel("Born / Founded:")
         form.addRow(
             self.begin_date_label,
-            self._build_date_row(
-                self.begin_year_edit, self.begin_month_edit, self.begin_day_edit
-            ),
+            self._build_date_row(self.begin_year_edit, self.begin_month_edit, self.begin_day_edit),
         )
 
         # Active status toggle
@@ -289,9 +287,7 @@ class BasicTab(QWidget):
         except SQLAlchemyError as e:
             logger.warning(f"Could not fetch Religion for completer: {e}")
             self._known_religions = []
-        index = {
-            r.religion_name: r.religion_id for r in self._known_religions if r.religion_name
-        }
+        index = {r.religion_name: r.religion_id for r in self._known_religions if r.religion_name}
         self.religion_edit.set_index(index)
 
     def _open_religion_manager(self):
@@ -354,9 +350,7 @@ class BasicTab(QWidget):
         self.age_label.setText(f"Age: {age}" if age is not None else "Age: —")
 
         career_span = getattr(artist, "career_span", None)
-        self.career_span_label.setText(
-            f"Career: {career_span}" if career_span else "Career: —"
-        )
+        self.career_span_label.setText(f"Career: {career_span}" if career_span else "Career: —")
 
         track_count = getattr(artist, "track_count", None)
         self.track_count_label.setText(

@@ -42,7 +42,9 @@ from src.core.status_utility import show_status_message
 class _SplitAliasEditDialog(QDialog):
     """Popup for editing an existing split-alias rule's target set."""
 
-    def __init__(self, controller, model_name, name_field, id_field, alias_name, target_names, parent=None):
+    def __init__(
+        self, controller, model_name, name_field, id_field, alias_name, target_names, parent=None
+    ):
         super().__init__(parent)
         self.setWindowTitle("Edit Split Alias")
         self.setMinimumWidth(420)
@@ -74,9 +76,7 @@ class _SplitAliasEditDialog(QDialog):
 
     def _on_accept(self):
         if len(self.target_names) < 2:
-            QMessageBox.warning(
-                self, "Validation", "Enter 2 or more target names, separated by ;"
-            )
+            QMessageBox.warning(self, "Validation", "Enter 2 or more target names, separated by ;")
             return
         self.accept()
 
@@ -178,7 +178,9 @@ class GlobalSplitAliasTab(QWidget):
         edit_btn = QPushButton("Edit")
         edit_btn.setFlat(True)
         edit_btn.clicked.connect(
-            lambda checked=False, name=alias_name, targets=target_names: self._edit_rule(name, targets)
+            lambda checked=False, name=alias_name, targets=target_names: self._edit_rule(
+                name, targets
+            )
         )
         delete_btn = QPushButton("✕")
         delete_btn.setFlat(True)
@@ -247,8 +249,13 @@ class GlobalSplitAliasTab(QWidget):
 
     def _edit_rule(self, alias_name: str, current_targets: list[str]):
         dlg = _SplitAliasEditDialog(
-            self.controller, self.model_name, self.name_field, self.id_field,
-            alias_name, current_targets, parent=self,
+            self.controller,
+            self.model_name,
+            self.name_field,
+            self.id_field,
+            alias_name,
+            current_targets,
+            parent=self,
         )
         if dlg.exec_() != QDialog.Accepted:
             return
@@ -268,8 +275,11 @@ class GlobalSplitAliasTab(QWidget):
 
     def _delete_rule(self, alias_name: str):
         reply = QMessageBox.question(
-            self, "Delete Split Alias", f"Delete the split rule for <b>{alias_name}</b>?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            self,
+            "Delete Split Alias",
+            f"Delete the split rule for <b>{alias_name}</b>?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
             return

@@ -1,7 +1,7 @@
 """Artist management view handling both individuals and groups."""
 
-import webbrowser
 from typing import ClassVar
+import webbrowser
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
@@ -57,15 +57,8 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
         ("Most Tracks", None),  # special-case: requires track-count lookup
         ("Random", None),  # special-case: shuffled in _apply_filters
     ]
-    _SORT_REVERSED: ClassVar = {
-        "Name (Z–A)": True,
-        "Latest First": True,
-    }
-    _MODE_MAP: ClassVar = {
-        "All": "all",
-        "Individuals": "individuals",
-        "Groups": "groups",
-    }
+    _SORT_REVERSED: ClassVar = {"Name (Z–A)": True, "Latest First": True}
+    _MODE_MAP: ClassVar = {"All": "all", "Individuals": "individuals", "Groups": "groups"}
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
@@ -124,9 +117,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
 
         self.metadata_combo = QComboBox()
         self.metadata_combo.addItems(["Any", "Not Started", "First Pass", "Second Pass"])
-        self.metadata_combo.setToolTip(
-            "Filter by the artist's metadata review tier"
-        )
+        self.metadata_combo.setToolTip("Filter by the artist's metadata review tier")
         self.metadata_combo.currentTextChanged.connect(self._apply_filters)
         filter_bar.addWidget(self.metadata_combo)
 
@@ -210,9 +201,9 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
             self.all_artists = artists
 
             # Rebuild type filter options from loaded artists' ArtistType assignments
-            types = sorted({
-                t.type_name for a in artists for t in (getattr(a, "types", None) or [])
-            })
+            types = sorted(
+                {t.type_name for a in artists for t in (getattr(a, "types", None) or [])}
+            )
             if self._pending_restore_type is not None:
                 current_type = self._pending_restore_type
                 self._pending_restore_type = None
@@ -265,9 +256,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
         type_filter = self.type_combo.currentText()
         if type_filter and type_filter != "Any Type":
             artists = [
-                a
-                for a in artists
-                if any(t.type_name == type_filter for t in (a.types or []))
+                a for a in artists if any(t.type_name == type_filter for t in (a.types or []))
             ]
 
         # --- Sort ---
@@ -286,9 +275,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
                         )
                     ).all()
                 )
-                artists = sorted(
-                    artists, key=lambda a: counts.get(a.artist_id, 0), reverse=True
-                )
+                artists = sorted(artists, key=lambda a: counts.get(a.artist_id, 0), reverse=True)
             except SQLAlchemyError as e:
                 logger.warning(f"Track-count sort failed: {e}")
         else:
@@ -437,9 +424,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
 
         if selected:
             artist_id = selected.data(Qt.UserRole)
-            artist = self.controller.get.get_entity_object(
-                "Artist", artist_id=artist_id
-            )
+            artist = self.controller.get.get_entity_object("Artist", artist_id=artist_id)
             if not artist:
                 return
 
@@ -447,9 +432,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
 
             # ---- Track browsing ----
             view_tracks_action = menu.addAction("🎵 View Artist Tracks")
-            view_tracks_action.triggered.connect(
-                lambda: self._view_artist_tracks(artist)
-            )
+            view_tracks_action.triggered.connect(lambda: self._view_artist_tracks(artist))
 
             menu.addSeparator()
 
@@ -471,9 +454,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
                 add_member_action.triggered.connect(lambda: self._add_member(artist))
             else:
                 add_to_group_action = menu.addAction("👥 Add to Group")
-                add_to_group_action.triggered.connect(
-                    lambda: self._add_to_group(artist)
-                )
+                add_to_group_action.triggered.connect(lambda: self._add_to_group(artist))
 
             # ---- Common extras ----
             add_award_action = menu.addAction("🏆 Add Award")
@@ -487,9 +468,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
             # ---- Convert group status ----
             if is_group:
                 convert_action = menu.addAction("👤 Convert to Individual")
-                convert_action.triggered.connect(
-                    lambda: self._convert_to_individual(artist)
-                )
+                convert_action.triggered.connect(lambda: self._convert_to_individual(artist))
             else:
                 convert_action = menu.addAction("👥 Convert to Group")
                 convert_action.triggered.connect(lambda: self._convert_to_group(artist))

@@ -56,20 +56,12 @@ class TrackViewColumnsMixin:
         self._set_initial_column_visibility()
 
     def _set_initial_column_visibility(self):
-        hidden_by_default = {
-            "file_size",
-            "bit_rate",
-            "sample_rate",
-            "track_id",
-            "track_file_path",
-        }
+        hidden_by_default = {"file_size", "bit_rate", "sample_rate", "track_id", "track_file_path"}
         for i, (field_name, _) in enumerate(self.columns.items()):
             field_config = self.track_fields.get(field_name)
             if (
-                field_config
-                and field_config.category == "Technical"
-                or field_name in hidden_by_default
-            ):
+                field_config and field_config.category == "Technical"
+            ) or field_name in hidden_by_default:
                 self.table.setColumnHidden(i, True)
 
     # =========================================================================
@@ -80,9 +72,7 @@ class TrackViewColumnsMixin:
         """Return current visible columns and their visual order."""
         col_keys = list(self.columns.keys())
         header = self.table.horizontalHeader()
-        visible = [
-            k for i, k in enumerate(col_keys) if not self.table.isColumnHidden(i)
-        ]
+        visible = [k for i, k in enumerate(col_keys) if not self.table.isColumnHidden(i)]
         order = [col_keys[header.logicalIndex(v)] for v in range(header.count())]
         return {"visible": visible, "order": order}
 
@@ -116,9 +106,7 @@ class TrackViewColumnsMixin:
         try:
             col_keys = list(self.columns.keys())
             header = self.table.horizontalHeader()
-            visible = [
-                k for i, k in enumerate(col_keys) if not self.table.isColumnHidden(i)
-            ]
+            visible = [k for i, k in enumerate(col_keys) if not self.table.isColumnHidden(i)]
             order = [col_keys[header.logicalIndex(v)] for v in range(header.count())]
             widths = [self.table.columnWidth(i) for i in range(len(col_keys))]
 

@@ -7,8 +7,8 @@ blocked on it. ConfigDialog caches the result after the first run, so
 this only actually executes once per process.
 """
 
-import subprocess
 from collections import defaultdict
+import subprocess
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QFontDatabase
@@ -54,11 +54,7 @@ class FontFamilyWorker(CancellableWorker):
             return all_families
         try:
             result = subprocess.run(
-                ["fc-list", ":", "family"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=True,
+                ["fc-list", ":", "family"], capture_output=True, text=True, timeout=10, check=True
             )
         except (OSError, subprocess.SubprocessError):
             return all_families
@@ -92,8 +88,7 @@ class FontFamilyWorker(CancellableWorker):
             return style_count[name]
 
         canonical = {
-            max(members, key=lambda n: (styles_len(n), -len(n)))
-            for members in clusters.values()
+            max(members, key=lambda n: (styles_len(n), -len(n))) for members in clusters.values()
         }
         canonical |= all_families - set(parent.keys())
         return canonical & all_families

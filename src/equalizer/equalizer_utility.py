@@ -1,7 +1,5 @@
 """Modern High-Performance Equalizer with Scipy SOS Filters"""
 
-from typing import Dict
-
 import numpy as np
 from PySide6.QtCore import QObject, Signal
 from scipy import signal
@@ -22,76 +20,16 @@ class EqualizerUtility(QObject):
 
         # 10-band professional EQ with meaningful frequency distribution
         self.bands = [
-            {
-                "freq": 32,
-                "label": "Sub Bass",
-                "gain": 0.0,
-                "range": (-12.0, 12.0),
-                "Q": 1.0,
-            },
-            {
-                "freq": 64,
-                "label": "Bass",
-                "gain": 0.0,
-                "range": (-12.0, 12.0),
-                "Q": 1.0,
-            },
-            {
-                "freq": 125,
-                "label": "Low Mid",
-                "gain": 0.0,
-                "range": (-12.0, 12.0),
-                "Q": 1.0,
-            },
-            {
-                "freq": 250,
-                "label": "Mid",
-                "gain": 0.0,
-                "range": (-12.0, 12.0),
-                "Q": 1.0,
-            },
-            {
-                "freq": 500,
-                "label": "Mid",
-                "gain": 0.0,
-                "range": (-12.0, 12.0),
-                "Q": 1.0,
-            },
-            {
-                "freq": 1000,
-                "label": "Upper Mid",
-                "gain": 0.0,
-                "range": (-12.0, 12.0),
-                "Q": 1.0,
-            },
-            {
-                "freq": 2000,
-                "label": "Presence",
-                "gain": 0.0,
-                "range": (-12.0, 12.0),
-                "Q": 1.0,
-            },
-            {
-                "freq": 4000,
-                "label": "Brilliance",
-                "gain": 0.0,
-                "range": (-12.0, 12.0),
-                "Q": 1.0,
-            },
-            {
-                "freq": 8000,
-                "label": "High",
-                "gain": 0.0,
-                "range": (-12.0, 12.0),
-                "Q": 1.0,
-            },
-            {
-                "freq": 16000,
-                "label": "Air",
-                "gain": 0.0,
-                "range": (-12.0, 12.0),
-                "Q": 1.0,
-            },
+            {"freq": 32, "label": "Sub Bass", "gain": 0.0, "range": (-12.0, 12.0), "Q": 1.0},
+            {"freq": 64, "label": "Bass", "gain": 0.0, "range": (-12.0, 12.0), "Q": 1.0},
+            {"freq": 125, "label": "Low Mid", "gain": 0.0, "range": (-12.0, 12.0), "Q": 1.0},
+            {"freq": 250, "label": "Mid", "gain": 0.0, "range": (-12.0, 12.0), "Q": 1.0},
+            {"freq": 500, "label": "Mid", "gain": 0.0, "range": (-12.0, 12.0), "Q": 1.0},
+            {"freq": 1000, "label": "Upper Mid", "gain": 0.0, "range": (-12.0, 12.0), "Q": 1.0},
+            {"freq": 2000, "label": "Presence", "gain": 0.0, "range": (-12.0, 12.0), "Q": 1.0},
+            {"freq": 4000, "label": "Brilliance", "gain": 0.0, "range": (-12.0, 12.0), "Q": 1.0},
+            {"freq": 8000, "label": "High", "gain": 0.0, "range": (-12.0, 12.0), "Q": 1.0},
+            {"freq": 16000, "label": "Air", "gain": 0.0, "range": (-12.0, 12.0), "Q": 1.0},
         ]
 
         # Professional presets
@@ -110,7 +48,7 @@ class EqualizerUtility(QObject):
             "Dance": [5.0, 4.0, 2.0, 0.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0],
         }
 
-        self.preset_sos_cache: Dict[str, np.ndarray] = {}
+        self.preset_sos_cache: dict[str, np.ndarray] = {}
         # Combined SOS filter for optimal performance
         self.combined_sos = None
         self.filter_zi = None  # Filter initial conditions
@@ -144,9 +82,7 @@ class EqualizerUtility(QObject):
             if sos_list:
                 self.preset_sos_cache[preset_name] = np.vstack(sos_list)
             else:
-                self.preset_sos_cache[preset_name] = np.array(
-                    [[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]]
-                )
+                self.preset_sos_cache[preset_name] = np.array([[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]])
 
     def set_enabled(self, enabled: bool):
         """Enable or disable the equalizer."""
@@ -308,7 +244,7 @@ class EqualizerUtility(QObject):
         self.equalizer_changed.emit(self.get_settings())
         logger.info("Equalizer reset to flat")
 
-    def get_settings(self) -> Dict:
+    def get_settings(self) -> dict:
         """Get current equalizer settings."""
         return {
             "enabled": self.enabled,

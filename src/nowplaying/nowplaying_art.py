@@ -1,21 +1,6 @@
-from typing import Optional
-
 from PySide6.QtCore import Property, QRect, Qt
-from PySide6.QtGui import (
-    QColor,
-    QFont,
-    QLinearGradient,
-    QPainter,
-    QPainterPath,
-    QPixmap,
-    QRegion,
-)
-from PySide6.QtWidgets import (
-    QSizePolicy,
-    QWidget,
-)
-
-
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPixmap, QRegion
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Art card
@@ -40,14 +25,14 @@ class _ArtCard(QWidget):
     # the transition reads as motion rather than a flat opacity dissolve.
     _ZOOM_AMOUNT = 0.035
 
-    def __init__(self, parent=None, backdrop: Optional[QWidget] = None):
+    def __init__(self, parent=None, backdrop: QWidget | None = None):
         super().__init__(parent)
-        self._pixmap: Optional[QPixmap] = None
+        self._pixmap: QPixmap | None = None
         self._is_artist = False
-        self._label: Optional[str] = None
-        self._prev_pixmap: Optional[QPixmap] = None
+        self._label: str | None = None
+        self._prev_pixmap: QPixmap | None = None
         self._prev_is_artist = False
-        self._prev_label: Optional[str] = None
+        self._prev_label: str | None = None
         self._transition = 1.0  # 0 = showing prev, 1 = showing current
         self._prev_content_rect = QRect()
         # The widget the letterbox margin around the art should reveal — see
@@ -55,12 +40,7 @@ class _ArtCard(QWidget):
         self._backdrop = backdrop
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-    def set_art(
-        self,
-        pixmap: Optional[QPixmap],
-        is_artist: bool = False,
-        label: Optional[str] = None,
-    ):
+    def set_art(self, pixmap: QPixmap | None, is_artist: bool = False, label: str | None = None):
         # Remember the outgoing image so paintEvent can crossfade into the
         # new one instead of popping straight to it.
         self._prev_pixmap = self._pixmap
@@ -104,17 +84,19 @@ class _ArtCard(QWidget):
         if t < 1.0:
             zoom = 1.0 + self._ZOOM_AMOUNT * t
             self._paint_layer(
-                painter, self._prev_pixmap, self._prev_is_artist, self._prev_label,
-                frame, 1.0 - t, zoom,
+                painter,
+                self._prev_pixmap,
+                self._prev_is_artist,
+                self._prev_label,
+                frame,
+                1.0 - t,
+                zoom,
             )
             content_rect = content_rect.united(self._scale_rect_about_center(frame, zoom))
 
         if t > 0.0:
             zoom = 1.0 - self._ZOOM_AMOUNT * (1.0 - t)
-            self._paint_layer(
-                painter, self._pixmap, self._is_artist, self._label,
-                frame, t, zoom,
-            )
+            self._paint_layer(painter, self._pixmap, self._is_artist, self._label, frame, t, zoom)
             content_rect = content_rect.united(self._scale_rect_about_center(frame, zoom))
 
         # Pixels left over from a previous, larger/differently shaped paint
@@ -141,9 +123,9 @@ class _ArtCard(QWidget):
     def _paint_layer(
         self,
         painter: QPainter,
-        pixmap: Optional[QPixmap],
+        pixmap: QPixmap | None,
         is_artist: bool,
-        label: Optional[str],
+        label: str | None,
         rect: QRect,
         opacity: float,
         zoom: float,
@@ -182,12 +164,12 @@ class _ArtCard(QWidget):
         w, h = rect.width() * zoom, rect.height() * zoom
         return QRect(round(cx - w / 2), round(cy - h / 2), round(w), round(h))
 
-    def _layout_rect(self, pixmap: Optional[QPixmap], is_artist: bool, w: int, h: int) -> QRect:
+    def _layout_rect(self, pixmap: QPixmap | None, is_artist: bool, w: int, h: int) -> QRect:
         """Compute the rect this content would occupy at rest (transition
         progress 1), without painting anything."""
         if pixmap and not pixmap.isNull() and is_artist:
             return self._artist_photo_rect(pixmap, w, h)
-        elif pixmap and not pixmap.isNull():
+        if pixmap and not pixmap.isNull():
             return self._square_art_rect(pixmap, w, h)
         return self._placeholder_rect(w, h)
 
@@ -216,9 +198,7 @@ class _ArtCard(QWidget):
         painter.setPen(QColor(100, 120, 200, 80))
         painter.drawText(x, y, rw, rh, Qt.AlignCenter, "♪")
 
-    def _draw_label(
-        self, painter: QPainter, rect: QRect, text: Optional[str], opacity: float
-    ):
+    def _draw_label(self, painter: QPainter, rect: QRect, text: str | None, opacity: float):
         """Caption an artist photo with the artist's name, faded in/out in
         step with the photo's own crossfade opacity."""
         if not text or opacity <= 0.0 or not rect.isValid():
@@ -228,7 +208,9 @@ class _ArtCard(QWidget):
         painter.setOpacity(opacity)
 
         clip = QPainterPath()
-        clip.addRoundedRect(rect.x(), rect.y(), rect.width(), rect.height(), self._RADIUS, self._RADIUS)
+        clip.addRoundedRect(
+            rect.x(), rect.y(), rect.width(), rect.height(), self._RADIUS, self._RADIUS
+        )
         painter.setClipPath(clip)
 
         bar_h = max(44, int(rect.height() * 0.18))

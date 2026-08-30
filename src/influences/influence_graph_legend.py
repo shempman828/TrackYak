@@ -63,9 +63,7 @@ class InfluenceGraphLegendMixin:
             except json.JSONDecodeError:
                 legacy_names = {}
             if legacy_names:
-                community_identity.migrate_legacy_anchor_names(
-                    legacy_names, self.community_levels
-                )
+                community_identity.migrate_legacy_anchor_names(legacy_names, self.community_levels)
             app_config.config.remove_option("influences", "cluster_names")
             app_config.save()
 
@@ -74,8 +72,8 @@ class InfluenceGraphLegendMixin:
             members_by_community = {}
             for node_id, community_index in community_id.items():
                 members_by_community.setdefault(community_index, set()).add(node_id)
-            self.community_names_by_level[level] = (
-                community_identity.match_and_resolve_names(level, members_by_community)
+            self.community_names_by_level[level] = community_identity.match_and_resolve_names(
+                level, members_by_community
             )
         self.community_names = self.community_names_by_level.get(self.active_level, {})
 
@@ -95,10 +93,7 @@ class InfluenceGraphLegendMixin:
                 name = name.strip()
                 old_name = level_names.get(community_index)
                 community_identity.persist_rename(
-                    level,
-                    name,
-                    old_name,
-                    members_by_community.get(community_index, set()),
+                    level, name, old_name, members_by_community.get(community_index, set())
                 )
                 if name:
                     level_names[community_index] = name

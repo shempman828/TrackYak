@@ -37,9 +37,7 @@ class GenreMoodStats:
                 "genres_by_track_count": self._genres_by_track_count(session),
                 "mood_ratings_outlier_controlled": self._mood_ratings(session),
                 "mood_play_counts": self._mood_play_counts(session),
-                "representative_tracks_per_mood": (
-                    self._representative_tracks_per_mood(session)
-                ),
+                "representative_tracks_per_mood": (self._representative_tracks_per_mood(session)),
             }
         finally:
             session.close()
@@ -92,11 +90,7 @@ class GenreMoodStats:
         if not genres_with_tracks:
             return None
         deepest = max(genres_with_tracks, key=lambda g: g.depth)
-        return {
-            "name": deepest.genre_name,
-            "depth": deepest.depth,
-            "path": deepest.full_genre_path,
-        }
+        return {"name": deepest.genre_name, "depth": deepest.depth, "path": deepest.full_genre_path}
 
     # ------------------------------------------------------------------ #
     #  Top/bottom 5 genres by track count                                 #
@@ -127,18 +121,14 @@ class GenreMoodStats:
             ratings = [
                 t.user_rating
                 for t in mood.tracks
-                if t.user_rating is not None
-                and RATING_MIN <= t.user_rating <= RATING_MAX
+                if t.user_rating is not None and RATING_MIN <= t.user_rating <= RATING_MAX
             ]
             avg = outlier_controlled_average(ratings)
             if avg is not None:
                 results.append((mood.mood_name, round(avg, 2), len(ratings)))
 
         results.sort(key=lambda r: r[1], reverse=True)
-        return {
-            "highest": results[:5],
-            "lowest": results[-5:][::-1] if results else [],
-        }
+        return {"highest": results[:5], "lowest": results[-5:][::-1] if results else []}
 
     # ------------------------------------------------------------------ #
     #  Most / least played mood                                           #
@@ -147,8 +137,7 @@ class GenreMoodStats:
     def _mood_play_counts(self, session, limit=5):
         rows = (
             session.query(
-                Mood.mood_name,
-                func.coalesce(func.sum(Track.play_count), 0).label("plays"),
+                Mood.mood_name, func.coalesce(func.sum(Track.play_count), 0).label("plays")
             )
             .select_from(Mood)
             .join(MoodTrackAssociation, Mood.mood_id == MoodTrackAssociation.mood_id)
@@ -186,11 +175,7 @@ class GenreMoodStats:
             .join(Track, Track.track_id == MoodTrackAssociation.track_id)
             .filter(MoodTrackAssociation.score.isnot(None))
             .filter(MoodTrackAssociation.score > 0)
-            .order_by(
-                Mood.mood_name,
-                MoodTrackAssociation.score.desc(),
-                Track.track_name.asc(),
-            )
+            .order_by(Mood.mood_name, MoodTrackAssociation.score.desc(), Track.track_name.asc())
             .all()
         )
 

@@ -56,16 +56,10 @@ class PlacesCreditsStats:
             return {
                 "rated_places_leaderboard": self._rated_places_leaderboard(session),
                 "rated_countries": self._rated_countries(session),
-                "highest_rated_artist_by_country": self._highest_rated_artist_by_country(
-                    session
-                ),
-                "rated_publishers_leaderboard": self._rated_publishers_leaderboard(
-                    session
-                ),
+                "highest_rated_artist_by_country": self._highest_rated_artist_by_country(session),
+                "rated_publishers_leaderboard": self._rated_publishers_leaderboard(session),
                 "most_prolific_composer": self._most_prolific_composer(session),
-                "rated_composers_leaderboard": self._rated_composers_leaderboard(
-                    session
-                ),
+                "rated_composers_leaderboard": self._rated_composers_leaderboard(session),
                 "role_credit_counts": self._role_credit_counts(session),
                 "role_rating_comparison": self._role_rating_comparison(session),
                 "prolific_artist_by_role": self._prolific_artist_by_role(session),
@@ -121,14 +115,9 @@ class PlacesCreditsStats:
                 results.append((country.place_name, round(avg, 2), len(ratings)))
 
         results.sort(key=lambda r: r[1], reverse=True)
-        return {
-            "highest": results[:5],
-            "lowest": results[-5:][::-1] if results else [],
-        }
+        return {"highest": results[:5], "lowest": results[-5:][::-1] if results else []}
 
-    def _highest_rated_artist_by_country(
-        self, session, min_rated_tracks=ARTIST_BY_COUNTRY_MIN_N
-    ):
+    def _highest_rated_artist_by_country(self, session, min_rated_tracks=ARTIST_BY_COUNTRY_MIN_N):
         dedup = distinct_artist_track_subquery(session)
         artist_ratings = dict(
             (artist_id, (round(avg_rating, 2), n))
@@ -275,8 +264,7 @@ class PlacesCreditsStats:
         columns after its own table, leaving the union's column names
         mismatched."""
         track_credits = session.query(
-            TrackArtistRole.artist_id.label("artist_id"),
-            TrackArtistRole.role_id.label("role_id"),
+            TrackArtistRole.artist_id.label("artist_id"), TrackArtistRole.role_id.label("role_id")
         )
         album_credits = session.query(
             AlbumRoleAssociation.artist_id.label("artist_id"),
@@ -302,9 +290,7 @@ class PlacesCreditsStats:
         by_distinct = sorted(rows, key=lambda r: r[2], reverse=True)[:limit]
         return {
             "most_credits": [(name, total) for name, total, _distinct in by_total],
-            "most_distinct_roles": [
-                (name, distinct) for name, _total, distinct in by_distinct
-            ],
+            "most_distinct_roles": [(name, distinct) for name, _total, distinct in by_distinct],
         }
 
     def _role_rating_comparison(self, session):
@@ -348,9 +334,12 @@ class PlacesCreditsStats:
     # ------------------------------------------------------------------ #
 
     def _prolific_artist_by_role(self, session, limit=5):
-        roles = session.query(Role.role_id, Role.role_name).join(
-            TrackArtistRole, Role.role_id == TrackArtistRole.role_id
-        ).distinct().all()
+        roles = (
+            session.query(Role.role_id, Role.role_name)
+            .join(TrackArtistRole, Role.role_id == TrackArtistRole.role_id)
+            .distinct()
+            .all()
+        )
 
         results = {}
         for role_id, role_name in roles:
@@ -369,9 +358,12 @@ class PlacesCreditsStats:
         return results
 
     def _top_rated_artist_by_role(self, session):
-        roles = session.query(Role.role_id, Role.role_name).join(
-            TrackArtistRole, Role.role_id == TrackArtistRole.role_id
-        ).distinct().all()
+        roles = (
+            session.query(Role.role_id, Role.role_name)
+            .join(TrackArtistRole, Role.role_id == TrackArtistRole.role_id)
+            .distinct()
+            .all()
+        )
 
         results = {}
         for role_id, role_name in roles:

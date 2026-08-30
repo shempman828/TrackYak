@@ -1,11 +1,9 @@
 # ──────────────────────────────────────────────────────────────────────────────
 #  Chip widgets
 # ──────────────────────────────────────────────────────────────────────────────
-from typing import List
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QWidget
-
 
 
 class _Chip(QLabel):
@@ -64,7 +62,7 @@ class _ScrollingChipRow(QScrollArea):
 
     # ── chip management ────────────────────────────────────────────────────
 
-    def set_chips(self, chips: List[_Chip]):
+    def set_chips(self, chips: list[_Chip]):
         """Show only the chips in *chips*; hide the rest.
 
         We deliberately do NOT reparent or destroy chip widgets —
@@ -73,7 +71,7 @@ class _ScrollingChipRow(QScrollArea):
         Instead we just show/hide each chip in-place.
         """
         # Collect every widget currently in the layout
-        all_widgets: List[QWidget] = []
+        all_widgets: list[QWidget] = []
         for i in range(self._row.count()):
             item = self._row.itemAt(i)
             if item and item.widget():

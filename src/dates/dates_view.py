@@ -2,12 +2,11 @@ from datetime import date
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
-
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.core.logger_config import logger
 from src.dates.dates_calendar import CalendarWidget, OnThisDayDialog
 from src.dates.dates_timeline import TimelineWidget
-from src.core.logger_config import logger
 
 
 class TimelineView(QWidget):
@@ -112,9 +111,7 @@ class TimelineView(QWidget):
         """Show every event that ever happened on today's month/day, across all years."""
         today = date.today()
         matches = [
-            d
-            for d in self.all_dates
-            if d.get("month") == today.month and d.get("day") == today.day
+            d for d in self.all_dates if d.get("month") == today.month and d.get("day") == today.day
         ]
         dialog = OnThisDayDialog(today.month, today.day, matches, parent=self)
         dialog.exec()
@@ -144,9 +141,7 @@ class TimelineView(QWidget):
         self.calendar_widget.set_events(calendar_events)
 
         # Log statistics
-        logger.info(
-            f"Calendar updated for year {year} with {len(calendar_events)} dated events"
-        )
+        logger.info(f"Calendar updated for year {year} with {len(calendar_events)} dated events")
 
         # Also update the month combo to show current month if we have data
         if calendar_events:
@@ -169,9 +164,7 @@ class TimelineView(QWidget):
         if self.current_year:
             # Get events for this specific month
             month_events = self.filter_dates_by_year_and_month(self.current_year, month)
-            calendar_events = [
-                event for event in month_events if event.get("day") is not None
-            ]
+            calendar_events = [event for event in month_events if event.get("day") is not None]
 
             # Update just the current month display (calendar handles this internally)
             # We don't need to call set_events here as the calendar already has all year data
@@ -209,12 +202,8 @@ class TimelineView(QWidget):
                 dates.append(
                     {
                         "year": album.release_year,
-                        "month": album.release_month
-                        if hasattr(album, "release_month")
-                        else None,
-                        "day": album.release_day
-                        if hasattr(album, "release_day")
-                        else None,
+                        "month": album.release_month if hasattr(album, "release_month") else None,
+                        "day": album.release_day if hasattr(album, "release_day") else None,
                         "type": "album_release",
                         "entity": "Album",
                         "entity_id": album.album_id,
@@ -236,12 +225,8 @@ class TimelineView(QWidget):
                 dates.append(
                     {
                         "year": track.recorded_year,
-                        "month": track.recorded_month
-                        if hasattr(track, "recorded_month")
-                        else None,
-                        "day": track.recorded_day
-                        if hasattr(track, "recorded_day")
-                        else None,
+                        "month": track.recorded_month if hasattr(track, "recorded_month") else None,
+                        "day": track.recorded_day if hasattr(track, "recorded_day") else None,
                         "type": "track_recorded",
                         "entity": "Track",
                         "entity_id": track.track_id,
@@ -255,12 +240,8 @@ class TimelineView(QWidget):
                 dates.append(
                     {
                         "year": track.composed_year,
-                        "month": track.composed_month
-                        if hasattr(track, "composed_month")
-                        else None,
-                        "day": track.composed_day
-                        if hasattr(track, "composed_day")
-                        else None,
+                        "month": track.composed_month if hasattr(track, "composed_month") else None,
+                        "day": track.composed_day if hasattr(track, "composed_day") else None,
                         "type": "track_composed",
                         "entity": "Track",
                         "entity_id": track.track_id,
@@ -312,12 +293,8 @@ class TimelineView(QWidget):
                 dates.append(
                     {
                         "year": artist.begin_year,
-                        "month": artist.begin_month
-                        if hasattr(artist, "begin_month")
-                        else None,
-                        "day": artist.begin_day
-                        if hasattr(artist, "begin_day")
-                        else None,
+                        "month": artist.begin_month if hasattr(artist, "begin_month") else None,
+                        "day": artist.begin_day if hasattr(artist, "begin_day") else None,
                         "type": "artist_begin",
                         "entity": "Artist",
                         "entity_id": artist.artist_id,
@@ -331,9 +308,7 @@ class TimelineView(QWidget):
                 dates.append(
                     {
                         "year": artist.end_year,
-                        "month": artist.end_month
-                        if hasattr(artist, "end_month")
-                        else None,
+                        "month": artist.end_month if hasattr(artist, "end_month") else None,
                         "day": artist.end_day if hasattr(artist, "end_day") else None,
                         "type": "artist_end",
                         "entity": "Artist",
@@ -421,14 +396,10 @@ class TimelineView(QWidget):
 
         for d in self.all_dates:
             if d["year"] and d["year"] == year:
-                if month and d["month"] and d["month"] == month:
-                    filtered.append(d)
-                elif not month:  # If month is None, return all for the year
+                if (month and d["month"] and d["month"] == month) or not month:
                     filtered.append(d)
 
-        logger.info(
-            f"Filtered to {len(filtered)} dates from year {year}, month {month}"
-        )
+        logger.info(f"Filtered to {len(filtered)} dates from year {year}, month {month}")
         return filtered
 
     def extract_unique_years(self):

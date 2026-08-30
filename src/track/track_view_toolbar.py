@@ -59,8 +59,7 @@ class TrackViewToolbarMixin:
         queue_menu = QMenu(queue_btn)
         queue_menu.addAction("Add Filtered to Queue", self._add_filtered_to_queue)
         queue_menu.addAction(
-            "Shuffle Filtered to Queue",
-            lambda: self._add_filtered_to_queue(shuffle=True),
+            "Shuffle Filtered to Queue", lambda: self._add_filtered_to_queue(shuffle=True)
         )
         queue_menu.addSeparator()
         queue_menu.addAction("Shuffle Entire Library", self._add_all_to_queue)
@@ -74,9 +73,7 @@ class TrackViewToolbarMixin:
 
         view_menu = QMenu(view_btn)
         view_menu.addAction("Toggle Columns", self.show_column_menu)
-        view_menu.addAction(
-            "Column Order && Visibility", self.show_column_customization
-        )
+        view_menu.addAction("Column Order && Visibility", self.show_column_customization)
         view_menu.addSeparator()
         view_menu.addAction("Refresh Library", self._force_reload)
         view_btn.setMenu(view_menu)
@@ -134,9 +131,7 @@ class TrackViewToolbarMixin:
         if not action:
             return
         self._search_field_name = action.data() or SEARCH_ALL
-        label = (
-            action.text() if self._search_field_name != SEARCH_ALL else "All Columns"
-        )
+        label = action.text() if self._search_field_name != SEARCH_ALL else "All Columns"
         self.search_column_btn.setText(f"{label} \u25be")
         logger.debug(f"Search column changed to '{label}'")
         # Re-run the search immediately with the new column choice

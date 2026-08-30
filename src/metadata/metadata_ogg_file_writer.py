@@ -5,13 +5,13 @@ track's tags into an OGG Vorbis file.
 
 import struct
 
+from src.core.logger_config import logger
 from src.metadata.metadata_ogg_pages import replace_comment_packet
 from src.metadata.metadata_raw_tags import RawTagExtractor
 from src.metadata.metadata_writer_backup import atomic_write
 from src.metadata.metadata_writer_merge import merge_vorbis_comments
 from src.metadata.metadata_writer_types import WriteMode
 from src.metadata.metadata_writer_vorbis import VorbisCommentWriter
-from src.core.logger_config import logger
 
 
 class OggFileWriter:
@@ -40,9 +40,7 @@ class OggFileWriter:
             with open(file_path, "rb") as f:
                 file_data = f.read()
 
-            existing_comments = self.raw_tag_extractor.extract_raw_tags(
-                file_data, ".ogg"
-            )
+            existing_comments = self.raw_tag_extractor.extract_raw_tags(file_data, ".ogg")
             merged = merge_vorbis_comments(existing_comments, new_comments, mode)
             comment_block = self.vorbis_writer.build_vorbis_comments(merged)
 

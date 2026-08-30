@@ -179,9 +179,7 @@ class AlbumFilteringMixin:
         """Apply all active filters and rebuild the grid from the top."""
         self._cancel_art_worker()
 
-        results, pending_art, art_mode, art_generation = (
-            self._compute_filtered_results()
-        )
+        results, pending_art, art_mode, art_generation = self._compute_filtered_results()
 
         self.filtered_albums = results
         self._sort_filtered()
@@ -192,9 +190,7 @@ class AlbumFilteringMixin:
         QTimer.singleShot(100, self._check_viewport_fill)
 
         if pending_art:
-            self._start_art_worker(
-                pending_art, art_mode, self._sort_criteria, art_generation
-            )
+            self._start_art_worker(pending_art, art_mode, self._sort_criteria, art_generation)
 
         self._filter_save_timer.start()
 
@@ -234,9 +230,7 @@ class AlbumFilteringMixin:
         self._art_worker = worker
         worker.start()
 
-    def _on_art_resolved(
-        self, album_id: int, generation: int, art_mode: str, sort_criteria: str
-    ):
+    def _on_art_resolved(self, album_id: int, generation: int, art_mode: str, sort_criteria: str):
         if generation != self._art_filter_generation:
             return  # A newer filter/sort run has already superseded this one.
 
@@ -244,9 +238,7 @@ class AlbumFilteringMixin:
         if cache is None:
             return
 
-        already_shown = any(
-            getattr(a, "album_id", None) == album_id for a in self.filtered_albums
-        )
+        already_shown = any(getattr(a, "album_id", None) == album_id for a in self.filtered_albums)
 
         if not already_shown:
             # This album was excluded by the Art filter while its status was
@@ -255,19 +247,12 @@ class AlbumFilteringMixin:
             if art_mode == "Any":
                 return
             album = next(
-                (
-                    a
-                    for a in self.all_albums
-                    if getattr(a, "album_id", None) == album_id
-                ),
-                None,
+                (a for a in self.all_albums if getattr(a, "album_id", None) == album_id), None
             )
             if album is None:
                 return
             has_art = bool(cache.peek_has_art(album, "front"))
-            matches = (art_mode == "No Art" and not has_art) or (
-                art_mode == "Has Art" and has_art
-            )
+            matches = (art_mode == "No Art" and not has_art) or (art_mode == "Has Art" and has_art)
             if not matches:
                 return
             self._art_batch.append(album)
@@ -288,8 +273,7 @@ class AlbumFilteringMixin:
         if not self._art_batch and not self._art_needs_resort:
             return
         prev_visible_ids = [
-            getattr(a, "album_id", None)
-            for a in self.filtered_albums[: self.display_count]
+            getattr(a, "album_id", None) for a in self.filtered_albums[: self.display_count]
         ]
         if self._art_batch:
             self.filtered_albums.extend(self._art_batch)
@@ -298,8 +282,7 @@ class AlbumFilteringMixin:
         self._sort_filtered()
         self._update_stats()
         new_visible_ids = [
-            getattr(a, "album_id", None)
-            for a in self.filtered_albums[: self.display_count]
+            getattr(a, "album_id", None) for a in self.filtered_albums[: self.display_count]
         ]
         if new_visible_ids == prev_visible_ids:
             # Nothing about the currently visible slice moved - e.g. the

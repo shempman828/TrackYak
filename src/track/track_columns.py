@@ -30,9 +30,7 @@ class ColumnCustomizationDialog(QDialog):
         layout = QVBoxLayout(self)
 
         # Instructions
-        instructions = QLabel(
-            "Drag items to reorder columns. Check/uncheck to show/hide columns."
-        )
+        instructions = QLabel("Drag items to reorder columns. Check/uncheck to show/hide columns.")
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
 
@@ -82,9 +80,7 @@ class ColumnCustomizationDialog(QDialog):
                 display_name = self.track_view.columns[field_name]
                 item = QListWidgetItem(display_name)
                 item.setData(Qt.UserRole, field_name)
-                item.setCheckState(
-                    Qt.Checked if field_name in state["visible"] else Qt.Unchecked
-                )
+                item.setCheckState(Qt.Checked if field_name in state["visible"] else Qt.Unchecked)
                 self.column_list.addItem(item)
 
         # Add any missing columns (shouldn't happen, but just in case)
@@ -131,9 +127,7 @@ class ColumnCustomizationDialog(QDialog):
             display_name = self.track_view.columns[field_name]
             item = QListWidgetItem(display_name)
             item.setData(Qt.UserRole, field_name)
-            item.setCheckState(
-                Qt.Checked if field_name in default_visible else Qt.Unchecked
-            )
+            item.setCheckState(Qt.Checked if field_name in default_visible else Qt.Unchecked)
             self.column_list.addItem(item)
 
     def get_selected_state(self):
@@ -170,9 +164,7 @@ class ColumnCustomizationDialog(QDialog):
             # Set visibility
             all_columns = list(self.track_view.columns.keys())
             for i, field_name in enumerate(all_columns):
-                self.track_view.table.setColumnHidden(
-                    i, field_name not in state["visible"]
-                )
+                self.track_view.table.setColumnHidden(i, field_name not in state["visible"])
 
             # Save to config
             self.track_view.save_column_state()
@@ -181,6 +173,4 @@ class ColumnCustomizationDialog(QDialog):
 
         except (RuntimeError, KeyError) as e:
             logger.error(f"Error applying column state: {e}")
-            QMessageBox.warning(
-                self, "Error", f"Failed to apply column changes:\n{e!s}"
-            )
+            QMessageBox.warning(self, "Error", f"Failed to apply column changes:\n{e!s}")

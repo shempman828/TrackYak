@@ -57,9 +57,7 @@ class EditPlaylist(QDialog):
 
         # Warning label for smart playlists
         if self.is_smart_playlist:
-            warning_label = QLabel(
-                "⚠️ Smart playlists can only be edited in Smart Playlist Editor"
-            )
+            warning_label = QLabel("⚠️ Smart playlists can only be edited in Smart Playlist Editor")
             warning_label.setProperty("danger", True)
             layout.addWidget(warning_label)
             self.name_edit.setEnabled(False)
@@ -97,22 +95,15 @@ class EditPlaylist(QDialog):
         description = self.desc_edit.toPlainText().strip()
 
         if not name:
-            logger.debug(
-                f"Playlist edit rejected for playlist {self.playlist_id}: name is empty"
-            )
-            QMessageBox.warning(
-                self, "Validation Error", "Playlist name cannot be empty."
-            )
+            logger.debug(f"Playlist edit rejected for playlist {self.playlist_id}: name is empty")
+            QMessageBox.warning(self, "Validation Error", "Playlist name cannot be empty.")
             self.name_edit.setFocus()
             return
 
         try:
             # Update playlist in database
             self.controller.update.update_entity(
-                "Playlist",
-                self.playlist_id,
-                playlist_name=name,
-                playlist_description=description,
+                "Playlist", self.playlist_id, playlist_name=name, playlist_description=description
             )
 
             logger.info(f"Updated playlist {self.playlist_id}: {name}")
@@ -120,4 +111,4 @@ class EditPlaylist(QDialog):
 
         except SQLAlchemyError as e:
             logger.error(f"Failed to update playlist {self.playlist_id}: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to update playlist: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to update playlist: {e!s}")

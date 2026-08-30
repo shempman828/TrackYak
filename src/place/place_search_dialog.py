@@ -1,11 +1,5 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QListWidget,
-    QListWidgetItem,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QListWidget, QListWidgetItem, QVBoxLayout
 
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -63,9 +57,7 @@ class SearchResultsDialog(QDialog):
         self.tree_widget.setMinimumHeight(total_height)
 
         # Optionally, resize width to fit longest item
-        max_width = max(
-            self.tree_widget.sizeHintForColumn(0), 300
-        )  # 300 as a minimum width
+        max_width = max(self.tree_widget.sizeHintForColumn(0), 300)  # 300 as a minimum width
         self.tree_widget.setMinimumWidth(max_width)
 
         # Let the dialog adjust

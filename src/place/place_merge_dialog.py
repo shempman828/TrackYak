@@ -46,7 +46,7 @@ class PlaceMergeDialog(MergeDBDialog):
             self._update_action_buttons()
 
         except (AttributeError, RuntimeError) as e:
-            logger.error(f"Error pre-populating source place: {str(e)}")
+            logger.error(f"Error pre-populating source place: {e!s}")
 
     def _get_related_count(self, place_id):
         """Get the number of entities associated with a place and its descendants."""
@@ -56,9 +56,7 @@ class PlaceMergeDialog(MergeDBDialog):
                 return 0
             return place.recursive_association_count
         except SQLAlchemyError as e:
-            logger.error(
-                f"Error getting association count for place {place_id}: {str(e)}"
-            )
+            logger.error(f"Error getting association count for place {place_id}: {e!s}")
             return 0
 
     def _get_child_count(self, place):

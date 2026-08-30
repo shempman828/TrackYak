@@ -4,7 +4,6 @@ Streamlined version - entire library updates only.
 """
 
 import os
-from typing import Dict, List, Optional
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
@@ -75,9 +74,7 @@ class MetadataScannerWorker(CancellableWorker):
                 self.progress.emit(i + 1, total)
 
                 try:
-                    eligible = bool(
-                        track.track_file_path and os.path.exists(track.track_file_path)
-                    )
+                    eligible = bool(track.track_file_path and os.path.exists(track.track_file_path))
                     results[track.track_id] = eligible
 
                     if i % 100 == 0 or i == total - 1:
@@ -85,9 +82,7 @@ class MetadataScannerWorker(CancellableWorker):
 
                 except (SQLAlchemyError, AttributeError, RuntimeError) as e:
                     logger.error(f"Error scanning track {track.track_id}: {e}")
-                    self.log_message.emit(
-                        f"Error scanning track {track.track_id}: {str(e)}"
-                    )
+                    self.log_message.emit(f"Error scanning track {track.track_id}: {e!s}")
                     results[track.track_id] = False
 
             eligible_count = sum(1 for v in results.values() if v)
@@ -101,7 +96,7 @@ class MetadataScannerWorker(CancellableWorker):
             # an unhandled exception here would kill the thread silently
             # instead of surfacing to the UI, so it must never propagate.
             logger.exception("Library metadata scan failed")
-            self.log_message.emit(f"Scan failed: {str(e)}")
+            self.log_message.emit(f"Scan failed: {e!s}")
             self.finished.emit({})
         finally:
             # get_all_entities is read-only and nothing else here commits --
@@ -117,11 +112,7 @@ class MetadataWriteWorker(CancellableWorker):
     log_message = Signal(str)
 
     def __init__(
-        self,
-        metadata_writer: MetadataWriter,
-        track_ids: List[int],
-        mode: WriteMode,
-        parent=None,
+        self, metadata_writer: MetadataWriter, track_ids: list[int], mode: WriteMode, parent=None
     ):
         super().__init__(parent)
         self.metadata_writer = metadata_writer
@@ -145,9 +136,7 @@ class MetadataWriteWorker(CancellableWorker):
                 self.progress.emit(i + 1, total, track_id)
 
                 try:
-                    success = self.metadata_writer.write_metadata_to_track(
-                        track_id, self.mode
-                    )
+                    success = self.metadata_writer.write_metadata_to_track(track_id, self.mode)
                     results[track_id] = success
 
                     if success:
@@ -157,7 +146,7 @@ class MetadataWriteWorker(CancellableWorker):
 
                 except RuntimeError as e:
                     logger.error(f"Error updating track {track_id}: {e}")
-                    self.log_message.emit(f"✗ Error updating track {track_id}: {str(e)}")
+                    self.log_message.emit(f"✗ Error updating track {track_id}: {e!s}")
                     results[track_id] = False
         finally:
             self._release_db_session()
@@ -173,11 +162,9 @@ class MetadataWriteDialog(QDialog):
         self.controller = controller
         self.metadata_writer = MetadataWriter(controller)
         self.status_manager = StatusManager
-        self.scanner_thread: Optional[MetadataScannerWorker] = None
-        self.writer_thread: Optional[MetadataWriteWorker] = None
-        self.scan_results: Dict[
-            int, tuple
-        ] = {}  # track_id: (needs_update, diff_summary)
+        self.scanner_thread: MetadataScannerWorker | None = None
+        self.writer_thread: MetadataWriteWorker | None = None
+        self.scan_results: dict[int, tuple] = {}  # track_id: (needs_update, diff_summary)
 
         self.setWindowTitle("Update Audio File Metadata")
         self.setMinimumSize(600, 500)
@@ -198,12 +185,8 @@ class MetadataWriteDialog(QDialog):
 
         self.mode_combo = QComboBox()
         self.mode_combo.addItem("Add missing tags only (safe)", WriteMode.ADD_ONLY)
-        self.mode_combo.addItem(
-            "Update existing tags (recommended)", WriteMode.UPDATE_EXISTING
-        )
-        self.mode_combo.addItem(
-            "Replace all tags (overwrites everything)", WriteMode.REPLACE_ALL
-        )
+        self.mode_combo.addItem("Update existing tags (recommended)", WriteMode.UPDATE_EXISTING)
+        self.mode_combo.addItem("Replace all tags (overwrites everything)", WriteMode.REPLACE_ALL)
         self.mode_combo.setCurrentIndex(1)  # Default to UPDATE_EXISTING
 
         mode_layout.addWidget(QLabel("How should metadata be written?"))
@@ -330,9 +313,7 @@ class MetadataWriteDialog(QDialog):
         total_count = len(results)
 
         if eligible_count > 0:
-            self.status_manager.end_task(
-                f"Found {eligible_count} files to update", 5000
-            )
+            self.status_manager.end_task(f"Found {eligible_count} files to update", 5000)
             self.update_btn.setEnabled(True)
             self.update_status(f"Ready to write metadata for {eligible_count} files")
             self.tracks_to_update = eligible_ids
@@ -366,12 +347,8 @@ class MetadataWriteDialog(QDialog):
 
         if self.dry_run_check.isChecked():
             self.log_message("=== DRY RUN - No files will be modified ===")
-            self.log_message(
-                f"Would update {len(track_ids)} files with mode: {mode.name}"
-            )
-            self.update_status(
-                f"Dry run complete - would update {len(track_ids)} files"
-            )
+            self.log_message(f"Would update {len(track_ids)} files with mode: {mode.name}")
+            self.update_status(f"Dry run complete - would update {len(track_ids)} files")
             self.status_manager.show_message("Dry run complete", 3000)
             return
 
@@ -398,24 +375,18 @@ class MetadataWriteDialog(QDialog):
         """Update write progress display."""
         self.progress_bar.setMaximum(total)
         self.progress_bar.setValue(current)
-        self.progress_label.setText(
-            f"Updating: {current}/{total} (Track ID: {track_id})"
-        )
+        self.progress_label.setText(f"Updating: {current}/{total} (Track ID: {track_id})")
 
-    def on_update_finished(self, results: Dict[int, bool]):
+    def on_update_finished(self, results: dict[int, bool]):
         """Handle completion of metadata update."""
         success_count = sum(1 for success in results.values() if success)
         total_count = len(results)
 
         # Update status manager
         if success_count == total_count:
-            self.status_manager.end_task(
-                f"Successfully updated all {total_count} files", 5000
-            )
+            self.status_manager.end_task(f"Successfully updated all {total_count} files", 5000)
         else:
-            self.status_manager.end_task(
-                f"Updated {success_count}/{total_count} files", 5000
-            )
+            self.status_manager.end_task(f"Updated {success_count}/{total_count} files", 5000)
 
         # Re-enable UI
         self.scan_btn.setEnabled(True)
@@ -427,15 +398,11 @@ class MetadataWriteDialog(QDialog):
         logger.info(
             f"Metadata update complete: {success_count}/{total_count} files updated successfully"
         )
-        self.log_message(
-            f"=== Update complete: {success_count}/{total_count} successful ==="
-        )
+        self.log_message(f"=== Update complete: {success_count}/{total_count} successful ===")
         self.update_status(f"Updated {success_count}/{total_count} files successfully")
 
         if success_count == total_count:
-            show_status_message(
-                self, f"Successfully updated metadata for all {total_count} files"
-            )
+            show_status_message(self, f"Successfully updated metadata for all {total_count} files")
         else:
             QMessageBox.warning(
                 self,

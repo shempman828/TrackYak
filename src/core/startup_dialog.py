@@ -41,8 +41,7 @@ class StartupDialog(QDialog):
 
         # Welcome message
         welcome_label = QLabel(
-            "<h1>Welcome to TrackYak</h1>"
-            "<p>Let's adjust a few settings before we start.</p>"
+            "<h1>Welcome to TrackYak</h1><p>Let's adjust a few settings before we start.</p>"
         )
         welcome_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(welcome_label)

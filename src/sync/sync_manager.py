@@ -8,17 +8,17 @@ Both return the same result-dict shape so SyncWorker and the UI are
 completely agnostic about which path is running.
 """
 
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import os
 import shutil
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import selectinload
 
+from src.core.logger_config import logger
 from src.db.db_helpers import GetFromDB
 from src.db.db_tables import MoodTrackAssociation, PlaylistTracks, Track, TrackArtistRole
-from src.core.logger_config import logger
 from src.sync.mtp_manager import MtpDevice, MtpManager
 
 # Post-copy verification retries this many times before a track is
@@ -40,7 +40,7 @@ class SyncManager:
     # Database helpers
     # ------------------------------------------------------------------
 
-    def get_playlists(self) -> List[Dict]:
+    def get_playlists(self) -> list[dict]:
         playlists = self.get_db.get_all_entities("Playlist")
         return [
             {
@@ -56,7 +56,7 @@ class SyncManager:
             for pl in playlists
         ]
 
-    def get_moods(self) -> List[Dict]:
+    def get_moods(self) -> list[dict]:
         moods = self.get_db.get_all_entities("Mood")
         return [
             {
@@ -71,7 +71,7 @@ class SyncManager:
             for mood in moods
         ]
 
-    def _track_to_dict(self, track) -> Dict:
+    def _track_to_dict(self, track) -> dict:
         artists = track.primary_artists
         artist_name = "Various Artists"
         if artists:
@@ -84,7 +84,7 @@ class SyncManager:
             "duration": track.duration,
         }
 
-    def get_playlist_tracks(self, playlist_id: int) -> List[Dict]:
+    def get_playlist_tracks(self, playlist_id: int) -> list[dict]:
         playlist_tracks = self.get_db.get_all_entities(
             "PlaylistTracks",
             playlist_id=playlist_id,
@@ -99,7 +99,7 @@ class SyncManager:
         )
         return [self._track_to_dict(pt.track) for pt in playlist_tracks]
 
-    def get_mood_tracks(self, mood_id: int) -> List[Dict]:
+    def get_mood_tracks(self, mood_id: int) -> list[dict]:
         associations = self.get_db.get_all_entities(
             "MoodTrackAssociation",
             mood_id=mood_id,
@@ -114,7 +114,7 @@ class SyncManager:
         )
         return [self._track_to_dict(assoc.track) for assoc in associations]
 
-    def get_item_tracks(self, item_data: Dict) -> List[Dict]:
+    def get_item_tracks(self, item_data: dict) -> list[dict]:
         """Dispatch to the right track lookup based on item_data['kind']."""
         if item_data.get("kind") == "mood":
             return self.get_mood_tracks(item_data["mood_id"])
@@ -161,11 +161,11 @@ class SyncManager:
         except OSError:
             return False
 
-    def _list_local_pool(self, music_dir: str) -> Dict[str, int]:
+    def _list_local_pool(self, music_dir: str) -> dict[str, int]:
         """One directory scan → {filename: size} for everything already
         present in music_dir. Backs both the diff pre-pass and post-copy
         verification so neither pays a per-file stat/exists call."""
-        existing: Dict[str, int] = {}
+        existing: dict[str, int] = {}
         try:
             with os.scandir(music_dir) as it:
                 for entry in it:
@@ -178,9 +178,7 @@ class SyncManager:
             pass
         return existing
 
-    def _diff_local_pool(
-        self, tracks: List[Dict], music_dir: str
-    ) -> Tuple[List[Dict], List[Dict]]:
+    def _diff_local_pool(self, tracks: list[dict], music_dir: str) -> tuple[list[dict], list[dict]]:
         """
         Partition tracks into (to_copy, to_skip) using ONE directory listing
         instead of a per-track existence check. Name+size matches are
@@ -188,8 +186,8 @@ class SyncManager:
         scheduled to copy. Sets device_filename on every track it accepts.
         """
         existing = self._list_local_pool(music_dir)
-        to_copy: List[Dict] = []
-        md5_candidates: List[Tuple[Dict, str]] = []
+        to_copy: list[dict] = []
+        md5_candidates: list[tuple[dict, str]] = []
 
         for track in tracks:
             if not track["file_path"] or not os.path.exists(track["file_path"]):
@@ -208,7 +206,7 @@ class SyncManager:
             else:
                 to_copy.append(track)
 
-        to_skip: List[Dict] = []
+        to_skip: list[dict] = []
         if md5_candidates:
             with ThreadPoolExecutor(max_workers=_DUPLICATE_CHECK_WORKERS) as pool:
                 futures = {
@@ -222,8 +220,8 @@ class SyncManager:
         return to_copy, to_skip
 
     def _diff_mtp_pool(
-        self, tracks: List[Dict], device: MtpDevice, music_dir_uri: str
-    ) -> Tuple[List[Dict], List[Dict]]:
+        self, tracks: list[dict], device: MtpDevice, music_dir_uri: str
+    ) -> tuple[list[dict], list[dict]]:
         """
         Partition tracks into (to_copy, to_skip) using ONE remote directory
         listing (one `gio list`) instead of a `gio info` round trip per
@@ -231,8 +229,8 @@ class SyncManager:
         number of subprocess calls changes (N -> 1).
         """
         existing = self.mtp.list_remote_dir(device, music_dir_uri)
-        to_copy: List[Dict] = []
-        to_skip: List[Dict] = []
+        to_copy: list[dict] = []
+        to_skip: list[dict] = []
 
         for track in tracks:
             local_path = track.get("file_path", "")
@@ -256,14 +254,14 @@ class SyncManager:
 
     def _copy_with_retry(
         self,
-        tracks: List[Dict],
-        copy_one: Callable[[Dict], bool],
-        list_existing: Callable[[], Dict[str, int]],
-        expected_size: Callable[[Dict], Optional[int]],
+        tracks: list[dict],
+        copy_one: Callable[[dict], bool],
+        list_existing: Callable[[], dict[str, int]],
+        expected_size: Callable[[dict], int | None],
         progress_callback=None,
         progress_total: int = 0,
         progress_label: str = "Copying",
-    ) -> Tuple[List[Dict], List[Dict]]:
+    ) -> tuple[list[dict], list[dict]]:
         """
         Copy `tracks` via copy_one(), then verify each one actually landed
         by re-listing the destination ONCE and comparing sizes -- a
@@ -274,12 +272,14 @@ class SyncManager:
         copied_successfully=True.
         """
         remaining = tracks
-        succeeded: List[Dict] = []
+        succeeded: list[dict] = []
 
         for attempt in range(_MAX_RETRIES + 1):
             if not remaining:
                 break
-            label = progress_label if attempt == 0 else f"Retrying ({attempt + 1}/{_MAX_RETRIES + 1})"
+            label = (
+                progress_label if attempt == 0 else f"Retrying ({attempt + 1}/{_MAX_RETRIES + 1})"
+            )
             for i, track in enumerate(remaining):
                 if progress_callback:
                     progress_callback(i, progress_total, f"{label}: {track['title']}")
@@ -309,10 +309,7 @@ class SyncManager:
         return succeeded, remaining
 
     def _build_m3u_content(
-        self,
-        playlist_data: Dict,
-        tracks: List[Dict],
-        music_subpath: str = "../Music",
+        self, playlist_data: dict, tracks: list[dict], music_subpath: str = "../Music"
     ) -> str:
         """Build the text content of an M3U playlist file."""
         lines = ["#EXTM3U"]
@@ -354,11 +351,8 @@ class SyncManager:
                 logger.info(f"Cleared folder: {target}")
 
     def sync_playlist_to_device(
-        self,
-        playlist_data: Dict,
-        device_path: str,
-        progress_callback=None,
-    ) -> Dict:
+        self, playlist_data: dict, device_path: str, progress_callback=None
+    ) -> dict:
         """Sync a single playlist or mood to a local folder path."""
         playlist_name = playlist_data["name"]
 
@@ -384,11 +378,11 @@ class SyncManager:
         for track in to_skip:
             track["copied_successfully"] = True
 
-        def copy_one(track: Dict) -> bool:
+        def copy_one(track: dict) -> bool:
             dest_path = os.path.join(music_dir, track["device_filename"])
             return self.copy_track(track["file_path"], dest_path)
 
-        def expected_size(track: Dict) -> Optional[int]:
+        def expected_size(track: dict) -> int | None:
             try:
                 return os.path.getsize(track["file_path"])
             except OSError:
@@ -410,9 +404,7 @@ class SyncManager:
         tracks_failed = len(failed)
 
         m3u_content = self._build_m3u_content(playlist_data, processed_tracks)
-        safe_name = "".join(
-            c for c in playlist_name if c.isalnum() or c in (" ", "-", "_")
-        ).strip()
+        safe_name = "".join(c for c in playlist_name if c.isalnum() or c in (" ", "-", "_")).strip()
         m3u_path = os.path.join(playlists_dir, f"{safe_name}.m3u")
         try:
             with open(m3u_path, "w", encoding="utf-8") as f:
@@ -438,7 +430,7 @@ class SyncManager:
     # MTP sync
     # ------------------------------------------------------------------
 
-    def _get_mtp_device(self, device_uri: str) -> Optional[MtpDevice]:
+    def _get_mtp_device(self, device_uri: str) -> MtpDevice | None:
         """
         Return the live MtpDevice matching device_uri, or None if not found.
         Ensures the device is mounted before returning.
@@ -467,12 +459,8 @@ class SyncManager:
             logger.info(f"Cleared MTP folder: {uri}")
 
     def sync_playlist_to_mtp(
-        self,
-        playlist_data: Dict,
-        device_uri: str,
-        music_path: str,
-        progress_callback=None,
-    ) -> Dict:
+        self, playlist_data: dict, device_uri: str, music_path: str, progress_callback=None
+    ) -> dict:
         """
         Sync a single playlist or mood to a connected Android device via MTP.
 
@@ -499,9 +487,7 @@ class SyncManager:
         # Ensure remote directories exist
         music_dir_uri = self.mtp.build_music_uri(device, music_path)
         self.mtp.make_remote_dir(device, music_dir_uri)
-        self.mtp.make_remote_dir(
-            device, self.mtp.build_playlists_dir_uri(device, music_path)
-        )
+        self.mtp.make_remote_dir(device, self.mtp.build_playlists_dir_uri(device, music_path))
 
         tracks = self.get_item_tracks(playlist_data)
         if not tracks:
@@ -520,11 +506,11 @@ class SyncManager:
         for track in to_skip:
             track["copied_successfully"] = True
 
-        def copy_one(track: Dict) -> bool:
+        def copy_one(track: dict) -> bool:
             remote_uri = self.mtp.build_file_uri(device, music_path, track["device_filename"])
             return self.mtp.copy_file(device, track["file_path"], remote_uri)
 
-        def expected_size(track: Dict) -> Optional[int]:
+        def expected_size(track: dict) -> int | None:
             try:
                 return os.path.getsize(track["file_path"])
             except OSError:
@@ -547,9 +533,7 @@ class SyncManager:
 
         # Push M3U — relative path from Playlists dir back up to Music dir
         music_folder_name = music_path.strip("/").split("/")[-1]
-        parent_path = (
-            "/".join(music_path.strip("/").split("/")[:-1]) if "/" in music_path else ""
-        )
+        parent_path = "/".join(music_path.strip("/").split("/")[:-1]) if "/" in music_path else ""
         if parent_path:
             # If music is in a subdirectory, need to go up to parent then down to Music
             depth = len(music_path.strip("/").split("/"))
@@ -560,13 +544,9 @@ class SyncManager:
             music_subpath = f"../{music_folder_name}"
 
         m3u_content = self._build_m3u_content(
-            playlist_data,
-            processed_tracks,
-            music_subpath=music_subpath,
+            playlist_data, processed_tracks, music_subpath=music_subpath
         )
-        safe_name = "".join(
-            c for c in playlist_name if c.isalnum() or c in (" ", "-", "_")
-        ).strip()
+        safe_name = "".join(c for c in playlist_name if c.isalnum() or c in (" ", "-", "_")).strip()
         playlist_uri = self.mtp.build_playlist_uri(device, music_path, safe_name)
         self.mtp.copy_text_as_file(device, m3u_content, playlist_uri)
 

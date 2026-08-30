@@ -90,9 +90,7 @@ class ArtistActionsMixin:
                 group = next((g for g in groups if g.artist_name == name), None)
                 if group:
                     self.controller.add.add_entity(
-                        "GroupMembership",
-                        group_id=group.artist_id,
-                        member_id=artist.artist_id,
+                        "GroupMembership", group_id=group.artist_id, member_id=artist.artist_id
                     )
                     self._on_artist_selected()
         except SQLAlchemyError as e:
@@ -109,9 +107,7 @@ class ArtistActionsMixin:
         )
         if reply == QMessageBox.Yes:
             try:
-                self.controller.update.update_entity(
-                    "Artist", artist.artist_id, isgroup=1
-                )
+                self.controller.update.update_entity("Artist", artist.artist_id, isgroup=1)
                 self.load_artists()
             except SQLAlchemyError as e:
                 QMessageBox.critical(self, "Error", f"Failed to convert: {e}")
@@ -127,9 +123,7 @@ class ArtistActionsMixin:
         )
         if reply == QMessageBox.Yes:
             try:
-                self.controller.update.update_entity(
-                    "Artist", artist.artist_id, isgroup=0
-                )
+                self.controller.update.update_entity("Artist", artist.artist_id, isgroup=0)
                 self.load_artists()
             except SQLAlchemyError as e:
                 QMessageBox.critical(self, "Error", f"Failed to convert: {e}")
@@ -140,11 +134,7 @@ class ArtistActionsMixin:
             return
 
         dialog = SplitDBDialog(
-            self.controller.split,
-            "Artist",
-            artist,
-            self,
-            get_helper=self.controller.get,
+            self.controller.split, "Artist", artist, self, get_helper=self.controller.get
         )
         if dialog.exec_() == QDialog.Accepted:
             self.load_artists()
@@ -182,9 +172,7 @@ class ArtistActionsMixin:
         )
         if reply == QMessageBox.Yes:
             try:
-                self.controller.delete.delete_entity(
-                    "Artist", artist_id=artist.artist_id
-                )
+                self.controller.delete.delete_entity("Artist", artist_id=artist.artist_id)
                 self.load_artists()
             except SQLAlchemyError as e:
                 QMessageBox.critical(self, "Error", f"Failed to delete artist: {e}")
@@ -207,18 +195,14 @@ class ArtistActionsMixin:
                 if place_id:
                     known_types = fetch_association_types(self.controller)
                     assoc_type = find_or_create_association_type(
-                        self.controller,
-                        dialog.selected_association_type,
-                        known_types,
+                        self.controller, dialog.selected_association_type, known_types
                     )
                     self.controller.add.add_entity(
                         "PlaceAssociation",
                         place_id=place_id,
                         entity_id=artist.artist_id,
                         entity_type="Artist",
-                        association_type_id=assoc_type.association_type_id
-                        if assoc_type
-                        else None,
+                        association_type_id=assoc_type.association_type_id if assoc_type else None,
                     )
         except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Failed to add place: {e}")

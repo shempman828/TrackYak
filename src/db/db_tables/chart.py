@@ -29,9 +29,7 @@ class Chart(Base):
     chart_name = Column(String(100), nullable=False)  # "Billboard Hot 100"
     source_url = Column(String, nullable=False)
     matched_entity_type = Column(
-        String,
-        CheckConstraint("matched_entity_type IN ('Track', 'Album')"),
-        nullable=False,
+        String, CheckConstraint("matched_entity_type IN ('Track', 'Album')"), nullable=False
     )
     last_downloaded_at = Column(DateTime)  # last successful CSV fetch
     last_synced_week = Column(Date)  # most recent chart_week imported; drives update diffing
@@ -45,25 +43,18 @@ class Chart(Base):
     last_library_fingerprint = Column(String)
 
     entries = relationship(
-        "ChartEntry",
-        back_populates="chart",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
+        "ChartEntry", back_populates="chart", cascade="all, delete-orphan", passive_deletes=True
     )
 
 
 class ChartEntry(Base):
     __tablename__ = "chart_entries"
     __table_args__ = (
-        UniqueConstraint(
-            "chart_id", "chart_week", "position", name="uq_chart_entry_week_position"
-        ),
+        UniqueConstraint("chart_id", "chart_week", "position", name="uq_chart_entry_week_position"),
     )
 
     chart_entry_id = Column(Integer, primary_key=True)
-    chart_id = Column(
-        Integer, ForeignKey("charts.chart_id", ondelete="CASCADE"), nullable=False
-    )
+    chart_id = Column(Integer, ForeignKey("charts.chart_id", ondelete="CASCADE"), nullable=False)
     chart_week = Column(Date, nullable=False)
     position = Column(Integer, nullable=False)
     last_week_position = Column(Integer)  # nullable: new entries have no prior week

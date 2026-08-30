@@ -146,14 +146,11 @@ class PlaceAssociation(Base):
     entity_id = Column(Integer, nullable=False)
     entity_type = Column(
         String,
-        CheckConstraint(
-            "entity_type IN ('Artist', 'Track', 'Album', 'Publisher', 'Playlist')"
-        ),
+        CheckConstraint("entity_type IN ('Artist', 'Track', 'Album', 'Publisher', 'Playlist')"),
         nullable=False,
     )
     association_type_id = Column(
-        Integer,
-        ForeignKey("place_association_types.association_type_id", ondelete="SET NULL"),
+        Integer, ForeignKey("place_association_types.association_type_id", ondelete="SET NULL")
     )
 
     place = relationship("Place", back_populates="associations")

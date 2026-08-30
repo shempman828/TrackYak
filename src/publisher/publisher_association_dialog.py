@@ -1,11 +1,5 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QDialog,
-    QPushButton,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QDialog, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
@@ -49,16 +43,12 @@ class PublisherAssociationDialog(QDialog):
             )
 
             for link in album_links:
-                album = self.controller.get.get_entity_object(
-                    "Album", album_id=link.album_id
-                )
+                album = self.controller.get.get_entity_object("Album", album_id=link.album_id)
                 if album:
                     album_item = QTreeWidgetItem(
                         [
                             album.album_name,
-                            str(album.release_year)
-                            if album.release_year
-                            else "Unknown",
+                            str(album.release_year) if album.release_year else "Unknown",
                             str(album.track_count or 0),
                         ]
                     )
@@ -86,4 +76,4 @@ class PublisherAssociationDialog(QDialog):
             self.albums_tree.resizeColumnToContents(0)
 
         except SQLAlchemyError as e:
-            logger.error(f"Error loading associations: {str(e)}")
+            logger.error(f"Error loading associations: {e!s}")

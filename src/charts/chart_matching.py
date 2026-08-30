@@ -82,13 +82,13 @@ can never silently miss a match that a rename made possible; it only skips
 the case where re-scoring is provably pointless.
 """
 
-import hashlib
-import re
-import unicodedata
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+import hashlib
+import re
+import unicodedata
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
@@ -136,74 +136,78 @@ _ARTIST_SPLIT_RE = re.compile(
 # than a different song -- lets "On the Border" match "On the Border
 # (2001 Remaster)" and "Get Up" match "Get Up (Featuring Chamillionaire)"
 # while still rejecting "Focus" -> "Focus on Sanity".
-_TITLE_TAIL_MARKERS = frozenset({
-    "remaster",
-    "remastered",
-    "remasters",
-    "remix",
-    "remixed",
-    "mix",
-    "edit",
-    "edited",
-    "version",
-    "reissue",
-    "deluxe",
-    "expanded",
-    "anniversary",
-    "edition",
-    "mono",
-    "stereo",
-    "live",
-    "acoustic",
-    "unplugged",
-    "demo",
-    "session",
-    "sessions",
-    "instrumental",
-    "single",
-    "radio",
-    "album",
-    "bonus",
-    "rerecorded",
-    "rerecording",
-    "taylors",
-    "mixes",
-    "extended",
-    "original",
-    "digital",
-    "explicit",
-    "clean",
-    "featuring",
-    "feat",
-    "ft",
-    "with",
-})
+_TITLE_TAIL_MARKERS = frozenset(
+    {
+        "remaster",
+        "remastered",
+        "remasters",
+        "remix",
+        "remixed",
+        "mix",
+        "edit",
+        "edited",
+        "version",
+        "reissue",
+        "deluxe",
+        "expanded",
+        "anniversary",
+        "edition",
+        "mono",
+        "stereo",
+        "live",
+        "acoustic",
+        "unplugged",
+        "demo",
+        "session",
+        "sessions",
+        "instrumental",
+        "single",
+        "radio",
+        "album",
+        "bonus",
+        "rerecorded",
+        "rerecording",
+        "taylors",
+        "mixes",
+        "extended",
+        "original",
+        "digital",
+        "explicit",
+        "clean",
+        "featuring",
+        "feat",
+        "ft",
+        "with",
+    }
+)
 
 # The subset of the above that specifically signals a *reissue* -- i.e. a
 # case where the candidate album's release_year is a later reissue date,
 # not the year the recording actually came out, so the "not after the
 # chart year" check must not fire.
-_REISSUE_MARKERS = frozenset({
-    "remaster",
-    "remastered",
-    "remasters",
-    "reissue",
-    "deluxe",
-    "expanded",
-    "anniversary",
-    "edition",
-    "mono",
-    "stereo",
-    "rerecorded",
-    "rerecording",
-    "taylors",
-    "version",
-    "mix",
-    "mixes",
-    "remix",
-    "remixed",
-    "edit",
-})
+_REISSUE_MARKERS = frozenset(
+    {
+        "remaster",
+        "remastered",
+        "remasters",
+        "reissue",
+        "deluxe",
+        "expanded",
+        "anniversary",
+        "edition",
+        "mono",
+        "stereo",
+        "rerecorded",
+        "rerecording",
+        "taylors",
+        "version",
+        "mix",
+        "mixes",
+        "remix",
+        "remixed",
+        "edit",
+    }
+)
 
 # The only two outcomes a match can have: normalized titles came out
 # exactly equal, or one merely contains the other. Chosen to land in
@@ -230,9 +234,7 @@ def normalize_title(s: str | None) -> str:
     s = s.lower().strip()
     # Fold accents: "é" -> "e", "ö" -> "o" -- chart CSVs and library tags
     # disagree on these constantly (Beyonce/Beyoncé, Motley/Mötley).
-    s = "".join(
-        ch for ch in unicodedata.normalize("NFKD", s) if not unicodedata.combining(ch)
-    )
+    s = "".join(ch for ch in unicodedata.normalize("NFKD", s) if not unicodedata.combining(ch))
     s = _HYPHENISH_RE.sub(" ", s)  # "go-go" -> "go go", not "gogo"
     s = _PUNCT_RE.sub("", s)
     s = _CONNECTOR_RE.sub(" ", s)
@@ -305,9 +307,7 @@ def _artists_match(a_raw: str | None, b_raw: str | None) -> bool:
         return True
     a_segs, b_segs = _artist_segments(a_raw), _artist_segments(b_raw)
     shared = set(a_segs) & set(b_segs)
-    if shared and (
-        (a_segs and a_segs[0] in shared) or (b_segs and b_segs[0] in shared)
-    ):
+    if shared and ((a_segs and a_segs[0] in shared) or (b_segs and b_segs[0] in shared)):
         return True
     at, bt = a.split(), b.split()
     short, long_ = (at, bt) if len(at) <= len(bt) else (bt, at)
@@ -365,8 +365,7 @@ def _rebuild_scratch_index(session, entity_type: str) -> tuple:
                 "title": track.track_name,
                 "artist_names": track.primary_artist_names,
                 "entity_id": track.track_id,
-                "year": track.recorded_year
-                or (track.album.release_year if track.album else None),
+                "year": track.recorded_year or (track.album.release_year if track.album else None),
             }
             for track in tracks
         ]
@@ -375,9 +374,7 @@ def _rebuild_scratch_index(session, entity_type: str) -> tuple:
         albums = session.scalars(
             select(Album).options(
                 selectinload(role_chain).selectinload(AlbumRoleAssociation.artist),
-                selectinload(role_chain).selectinload(
-                    AlbumRoleAssociation.credited_alias
-                ),
+                selectinload(role_chain).selectinload(AlbumRoleAssociation.credited_alias),
                 selectinload(role_chain).selectinload(AlbumRoleAssociation.role),
             )
         ).all()
@@ -410,9 +407,7 @@ def _rebuild_scratch_index(session, entity_type: str) -> tuple:
         # Store the *raw* credit, not norm_artist: _artists_match needs the
         # "&"/"feat." separators intact to split a credit into its
         # contributors, and normalize_title has already stripped them.
-        exact_index[norm_title].append(
-            (row["entity_id"], row["artist_names"], row["year"])
-        )
+        exact_index[norm_title].append((row["entity_id"], row["artist_names"], row["year"]))
         row_hash = hashlib.md5(
             f"{row['entity_id']}|{norm_title}|{norm_artist}|{row['year']}".encode()
         ).digest()
@@ -549,32 +544,26 @@ def match_chart(
     """
     if stage_callback:
         stage_callback("Building title index...")
-    exact_index, fingerprint = _rebuild_scratch_index(
-        session, chart.matched_entity_type
-    )
+    exact_index, fingerprint = _rebuild_scratch_index(session, chart.matched_entity_type)
     cursor = session.connection().connection.dbapi_connection.cursor()
 
     unmatched = session.scalars(
         select(ChartEntry).where(
-            ChartEntry.chart_id == chart.chart_id,
-            ChartEntry.entity_id.is_(None),
+            ChartEntry.chart_id == chart.chart_id, ChartEntry.entity_id.is_(None)
         )
     ).all()
 
     library_unchanged = (
-        chart.last_library_fingerprint is not None
-        and chart.last_library_fingerprint == fingerprint
+        chart.last_library_fingerprint is not None and chart.last_library_fingerprint == fingerprint
     )
     to_score = [
-        entry
-        for entry in unmatched
-        if not library_unchanged or entry.last_match_attempt_at is None
+        entry for entry in unmatched if not library_unchanged or entry.last_match_attempt_at is None
     ]
 
     if stage_callback:
         stage_callback("Matching entries...")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     matched = 0
     for scored, entry in enumerate(to_score, start=1):
         if scored % 500 == 0:

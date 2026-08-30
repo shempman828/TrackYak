@@ -10,9 +10,9 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.config_setup import app_config
+from src.core.logger_config import logger
 from src.influences.influence_graph import InfluenceGraphView
 from src.influences.influences_dialog import RemoveInfluenceDialog
-from src.core.logger_config import logger
 
 
 class InfluencesView(QWidget):
@@ -96,9 +96,7 @@ class InfluencesView(QWidget):
 
         except RuntimeError as e:
             logger.error(f"Error displaying global view: {e}")
-            QMessageBox.critical(
-                self, "Error", f"Failed to display global graph: {str(e)}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to display global graph: {e!s}")
 
     def show_add_influence_dialog(self):
         """Show dialog to add new influence relationship"""
@@ -125,9 +123,7 @@ class InfluencesView(QWidget):
 
         except (ImportError, SQLAlchemyError) as e:
             logger.error(f"Error showing add influence dialog: {e}")
-            QMessageBox.critical(
-                self, "Error", f"Failed to open influence dialog: {str(e)}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to open influence dialog: {e!s}")
 
     def add_new_influence_edges(self):
         """Add the most recent influence edges to the existing graph"""
@@ -139,9 +135,7 @@ class InfluencesView(QWidget):
             recent_influences = influences[-5:]  # Get last 5 to be safe
 
             for influence in recent_influences:
-                self.graph_view.add_edge(
-                    influence.influencer_id, influence.influenced_id
-                )
+                self.graph_view.add_edge(influence.influencer_id, influence.influenced_id)
                 logger.info(
                     f"Added new edge: {influence.influencer_id} -> {influence.influenced_id}"
                 )
@@ -152,7 +146,7 @@ class InfluencesView(QWidget):
             QMessageBox.warning(
                 self,
                 "Partial Error",
-                f"Added influence but couldn't update display properly: {str(e)}",
+                f"Added influence but couldn't update display properly: {e!s}",
             )
 
     def on_influence_modified(self):
@@ -165,7 +159,7 @@ class InfluencesView(QWidget):
 
         except RuntimeError as e:
             logger.error(f"Error updating graph after complex modification: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to update graph: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to update graph: {e!s}")
 
     def closeEvent(self, event):
         """Clean up when closing"""
@@ -180,7 +174,7 @@ class InfluencesView(QWidget):
 
         except RuntimeError as e:
             logger.error(f"Error refreshing graph: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to refresh graph: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to refresh graph: {e!s}")
 
     def show_remove_influence_dialog(self):
         """Show dialog to remove influence relationship"""
@@ -208,6 +202,4 @@ class InfluencesView(QWidget):
 
         except (SQLAlchemyError, AttributeError) as e:
             logger.error(f"Error showing remove influence dialog: {e}")
-            QMessageBox.critical(
-                self, "Error", f"Failed to open remove influence dialog: {str(e)}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to open remove influence dialog: {e!s}")

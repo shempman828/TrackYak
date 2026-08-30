@@ -20,10 +20,7 @@ class Mood(Base):
     # viewonly: writes to mood_track_association always go through
     # MoodTrackAssociation objects directly, never through this collection.
     tracks = relationship(
-        "Track",
-        secondary="mood_track_association",
-        back_populates="moods",
-        viewonly=True,
+        "Track", secondary="mood_track_association", back_populates="moods", viewonly=True
     )
 
     @property
@@ -40,12 +37,8 @@ class Mood(Base):
 class MoodTrackAssociation(Base):
     __tablename__ = "mood_track_association"
 
-    mood_id = Column(
-        Integer, ForeignKey("moods.mood_id", ondelete="CASCADE"), primary_key=True
-    )
-    track_id = Column(
-        Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), primary_key=True
-    )
+    mood_id = Column(Integer, ForeignKey("moods.mood_id", ondelete="CASCADE"), primary_key=True)
+    track_id = Column(Integer, ForeignKey("tracks.track_id", ondelete="CASCADE"), primary_key=True)
 
     # Lyrics-match strength for THIS (mood, track) pair: the mood's keyword
     # `density` (raw hits / total lyric tokens) as computed by
@@ -60,9 +53,5 @@ class MoodTrackAssociation(Base):
     # does not refresh an existing row's score (additive-only mood system).
     score = Column(Float)
 
-    mood = relationship(
-        "Mood", backref=backref("mood_tracks", cascade="all, delete-orphan")
-    )
-    track = relationship(
-        "Track", backref=backref("track_moods", cascade="all, delete-orphan")
-    )
+    mood = relationship("Mood", backref=backref("mood_tracks", cascade="all, delete-orphan"))
+    track = relationship("Track", backref=backref("track_moods", cascade="all, delete-orphan"))

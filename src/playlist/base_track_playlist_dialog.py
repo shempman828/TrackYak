@@ -1,10 +1,4 @@
-from PySide6.QtWidgets import (
-    QDialog,
-    QVBoxLayout,
-    QListWidget,
-    QPushButton,
-    QHBoxLayout,
-)
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QListWidget, QPushButton, QVBoxLayout
 
 from src.core.logger_config import logger
 
@@ -29,9 +23,7 @@ class PlaylistSelectionDialog(QDialog):
 
         # Populate list
         for playlist in self.playlists:
-            self.playlist_list.addItem(
-                f"{playlist.playlist_name} ({playlist.track_count} tracks)"
-            )
+            self.playlist_list.addItem(f"{playlist.playlist_name} ({playlist.track_count} tracks)")
 
         layout.addWidget(self.playlist_list)
 
@@ -57,9 +49,7 @@ class PlaylistSelectionDialog(QDialog):
             self.selected_playlist = self.playlists[current_row]
             self.accept()
         else:
-            logger.debug(
-                "Playlist selection dialog: accept attempted with no playlist selected"
-            )
+            logger.debug("Playlist selection dialog: accept attempted with no playlist selected")
 
     def get_selected_playlist(self):
         """Return the selected playlist."""

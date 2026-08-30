@@ -1,7 +1,6 @@
 """Class for merging database entries."""
 
-from sqlalchemy import delete as sql_delete
-from sqlalchemy import select, update
+from sqlalchemy import delete as sql_delete, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from src.core.logger_config import logger
@@ -59,11 +58,7 @@ class MergeDB(BaseDBHelper):
     """Class for merging database entries."""
 
     def merge_entities(
-        self,
-        model_name: str,
-        source_id: int,
-        target_id: int,
-        resolved_fields: dict | None = None,
+        self, model_name: str, source_id: int, target_id: int, resolved_fields: dict | None = None
     ):
         """Merge two entities of the same type across all relationship tables."""
         logger.debug(f"Merging {model_name} ID {source_id} -> {target_id}")
@@ -80,9 +75,7 @@ class MergeDB(BaseDBHelper):
             return False
 
         try:
-            pk_columns = [
-                col.name for col in entity_class.__table__.primary_key.columns
-            ]
+            pk_columns = [col.name for col in entity_class.__table__.primary_key.columns]
             if not pk_columns:
                 logger.error(f"No primary key found for {model_name}.")
                 return False
@@ -98,9 +91,7 @@ class MergeDB(BaseDBHelper):
             # tracks are included too, since resolved_fields (below) may
             # rename the surviving entity.
             resolver = CASCADE_RESOLVERS.get(model_name)
-            dirty_track_ids = (
-                resolver(self.session, [source_id, target_id]) if resolver else set()
-            )
+            dirty_track_ids = resolver(self.session, [source_id, target_id]) if resolver else set()
 
             for table in metadata.tables.values():
                 if table.name == entity_class.__table__.name:
@@ -126,8 +117,7 @@ class MergeDB(BaseDBHelper):
                             rowcount = self._safe_execute(update_stmt)
                             if rowcount > 0:
                                 logger.info(
-                                    f"Updated {rowcount} rows in "
-                                    f"{table.name}.{column.name}"
+                                    f"Updated {rowcount} rows in {table.name}.{column.name}"
                                 )
                                 updated_tables.add(table.name)
                             elif rowcount == -1:
@@ -153,11 +143,7 @@ class MergeDB(BaseDBHelper):
                                     )
                                     skipped_tables.add(table.name)
 
-            for (
-                assoc_table,
-                type_col_name,
-                id_col_name,
-            ) in _POLYMORPHIC_ASSOCIATION_TABLES:
+            for assoc_table, type_col_name, id_col_name in _POLYMORPHIC_ASSOCIATION_TABLES:
                 type_col = assoc_table.c[type_col_name]
                 id_col = assoc_table.c[id_col_name]
 
@@ -221,9 +207,7 @@ class MergeDB(BaseDBHelper):
                 # hierarchy instead of being reparented onto the target.
                 self._reparent_role_children(source_id, target_id)
 
-            self._preserve_alias_on_merge(
-                model_name, source_entity, target_entity, resolved_fields
-            )
+            self._preserve_alias_on_merge(model_name, source_entity, target_entity, resolved_fields)
 
             # Expire any relationship collections that may have been loaded
             # earlier in this session (e.g. by viewing the entity's detail
@@ -324,12 +308,9 @@ class MergeDB(BaseDBHelper):
                 setattr(existing_alias, fk_field, target_id)
             return
 
-        self.session.add(
-            alias_class(alias_name=discarded_name, **{fk_field: target_id})
-        )
+        self.session.add(alias_class(alias_name=discarded_name, **{fk_field: target_id}))
         logger.info(
-            f"Preserved '{discarded_name}' as an alias of {model_name} {target_id} "
-            f"after merge."
+            f"Preserved '{discarded_name}' as an alias of {model_name} {target_id} after merge."
         )
 
     def _reparent_place_children(self, source_id, target_id):
@@ -372,17 +353,12 @@ class MergeDB(BaseDBHelper):
             )
             self._safe_execute(
                 update(table)
-                .where(
-                    table.c.parent_id == source_id,
-                    table.c.place_id != chain_child_id,
-                )
+                .where(table.c.parent_id == source_id, table.c.place_id != chain_child_id)
                 .values(parent_id=target_id)
             )
         else:
             self._safe_execute(
-                update(table)
-                .where(table.c.parent_id == source_id)
-                .values(parent_id=target_id)
+                update(table).where(table.c.parent_id == source_id).values(parent_id=target_id)
             )
 
     def _reparent_role_children(self, source_id, target_id):
@@ -424,17 +400,12 @@ class MergeDB(BaseDBHelper):
             )
             self._safe_execute(
                 update(table)
-                .where(
-                    table.c.parent_id == source_id,
-                    table.c.role_id != chain_child_id,
-                )
+                .where(table.c.parent_id == source_id, table.c.role_id != chain_child_id)
                 .values(parent_id=target_id)
             )
         else:
             self._safe_execute(
-                update(table)
-                .where(table.c.parent_id == source_id)
-                .values(parent_id=target_id)
+                update(table).where(table.c.parent_id == source_id).values(parent_id=target_id)
             )
 
     def _dedupe_place_associations(self, place_id):
@@ -461,9 +432,7 @@ class MergeDB(BaseDBHelper):
         for assoc_id, entity_type, entity_id, association_type_id in rows:
             key = (entity_type, entity_id, association_type_id)
             if key in seen:
-                self._safe_execute(
-                    sql_delete(table).where(table.c.association_id == assoc_id)
-                )
+                self._safe_execute(sql_delete(table).where(table.c.association_id == assoc_id))
                 dropped += 1
             else:
                 seen.add(key)
@@ -512,9 +481,7 @@ class MergeDB(BaseDBHelper):
         dropped = 0
         for row in rows:
             row_filter = [col == val for col, val in zip(pk_columns, row)]
-            update_stmt = (
-                update(table).where(*row_filter).values({fk_column.name: target_id})
-            )
+            update_stmt = update(table).where(*row_filter).values({fk_column.name: target_id})
             rowcount = self._safe_execute(update_stmt)
             if rowcount > 0:
                 moved += 1

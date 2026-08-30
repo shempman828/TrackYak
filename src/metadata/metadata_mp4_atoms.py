@@ -5,11 +5,11 @@ Only implements enough of ISO/IEC 14496-12 to locate specific atoms by
 type and iterate direct children - not a general-purpose MP4 parser.
 """
 
+from collections.abc import Iterator
 import struct
-from typing import Iterator, Optional, Tuple
 
 
-def iter_atoms(data: bytes, start: int, end: int) -> Iterator[Tuple[bytes, int, int]]:
+def iter_atoms(data: bytes, start: int, end: int) -> Iterator[tuple[bytes, int, int]]:
     """Yield (atom_type, payload_start, payload_end) for each direct child
     atom in data[start:end]."""
     pos = start
@@ -33,9 +33,7 @@ def iter_atoms(data: bytes, start: int, end: int) -> Iterator[Tuple[bytes, int, 
         pos += size
 
 
-def find_atom(
-    data: bytes, atom_type: bytes, start: int, end: int
-) -> Optional[Tuple[int, int]]:
+def find_atom(data: bytes, atom_type: bytes, start: int, end: int) -> tuple[int, int] | None:
     """Return (payload_start, payload_end) of the first direct child atom
     matching atom_type, or None if not found."""
     for child_type, child_start, child_end in iter_atoms(data, start, end):

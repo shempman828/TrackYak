@@ -22,12 +22,7 @@ class RawTagExtractor:
     # understand — AIFF resolves to the "id3" format type in
     # TextMetadataExtractor, so raw tags need to speak that vocabulary
     # rather than AIFF's native chunk names.
-    _AIFF_CHUNK_TO_ID3 = {
-        b"NAME": "TIT2",
-        b"AUTH": "TPE1",
-        b"(c) ": "TCOP",
-        b"ANNO": "COMM",
-    }
+    _AIFF_CHUNK_TO_ID3 = {b"NAME": "TIT2", b"AUTH": "TPE1", b"(c) ": "TCOP", b"ANNO": "COMM"}
 
     def __init__(self):
         self.format_handlers = {
@@ -54,9 +49,7 @@ class RawTagExtractor:
         failures, so this is a last-resort safety net."""
         handler = self.format_handlers.get(file_ext.lower())
         if not handler:
-            logger.warning(
-                f"Unsupported file format for raw tag extraction: {file_ext}"
-            )
+            logger.warning(f"Unsupported file format for raw tag extraction: {file_ext}")
             return {}
 
         try:
@@ -82,9 +75,7 @@ class RawTagExtractor:
                 if version_major == 2:
                     raw_tags.update(self._parse_id3v2_2_frames(frame_data))
                 elif version_major in [3, 4]:
-                    raw_tags.update(
-                        self._parse_id3v2_3_4_frames(frame_data, version_major)
-                    )
+                    raw_tags.update(self._parse_id3v2_3_4_frames(frame_data, version_major))
 
             # ID3v1 extraction (fallback)
             if len(data) >= 128 and data[-128:-125] == b"TAG":
@@ -147,9 +138,7 @@ class RawTagExtractor:
                         sep = len(frame_content)
                     owner = frame_content[:sep].decode("latin-1", errors="ignore")
                     identifier = (
-                        frame_content[sep + 1 :]
-                        .decode("ascii", errors="ignore")
-                        .strip("\x00")
+                        frame_content[sep + 1 :].decode("ascii", errors="ignore").strip("\x00")
                     )
 
                     storage_key = f"UFID:{owner}" if owner else "UFID"
@@ -173,26 +162,17 @@ class RawTagExtractor:
                             sep = len(rest)
                         raw_desc = rest[:sep]
                         raw_val = rest[sep + 2 :]  # skip the 2-byte null terminator
-                        description = raw_desc.decode(
-                            "utf-16be", errors="ignore"
-                        ).strip("\x00")
-                        value = raw_val.decode("utf-16be", errors="ignore").strip(
-                            "\x00"
-                        )
+                        description = raw_desc.decode("utf-16be", errors="ignore").strip("\x00")
+                        value = raw_val.decode("utf-16be", errors="ignore").strip("\x00")
                     else:
                         # ISO-8859-1 or UTF-8: null terminator is \x00
                         sep = rest.find(b"\x00")
                         if sep == -1:
                             sep = len(rest)
-                        description = (
-                            rest[:sep].decode("latin-1", errors="ignore").strip()
-                        )
+                        description = rest[:sep].decode("latin-1", errors="ignore").strip()
                         value = (
                             rest[sep + 1 :]
-                            .decode(
-                                "utf-8" if encoding == 0x03 else "latin-1",
-                                errors="ignore",
-                            )
+                            .decode("utf-8" if encoding == 0x03 else "latin-1", errors="ignore")
                             .strip("\x00")
                         )
 
@@ -220,18 +200,10 @@ class RawTagExtractor:
         """Parse raw ID3v1 tags."""
         return {
             "TIT2": self._strip_null(tag_data[3:33].decode("latin-1", errors="ignore")),
-            "TPE1": self._strip_null(
-                tag_data[33:63].decode("latin-1", errors="ignore")
-            ),
-            "TALB": self._strip_null(
-                tag_data[63:93].decode("latin-1", errors="ignore")
-            ),
-            "TYER": self._strip_null(
-                tag_data[93:97].decode("latin-1", errors="ignore")
-            ),
-            "COMM": self._strip_null(
-                tag_data[97:127].decode("latin-1", errors="ignore")
-            ),
+            "TPE1": self._strip_null(tag_data[33:63].decode("latin-1", errors="ignore")),
+            "TALB": self._strip_null(tag_data[63:93].decode("latin-1", errors="ignore")),
+            "TYER": self._strip_null(tag_data[93:97].decode("latin-1", errors="ignore")),
+            "COMM": self._strip_null(tag_data[97:127].decode("latin-1", errors="ignore")),
         }
 
     def _decode_id3_text(self, data):
@@ -242,12 +214,11 @@ class RawTagExtractor:
             text_data = data[1:]
             if encoding == 0:  # ISO-8859-1
                 return text_data.decode("latin-1", errors="ignore").strip("\x00")
-            elif encoding == 1:  # UTF-16 with BOM
+            if encoding == 1:  # UTF-16 with BOM
                 return text_data.decode("utf-16", errors="ignore").strip("\x00")
-            elif encoding == 3:  # UTF-8
+            if encoding == 3:  # UTF-8
                 return text_data.decode("utf-8", errors="ignore").strip("\x00")
-            else:
-                return text_data.decode("latin-1", errors="ignore").strip("\x00")
+            return text_data.decode("latin-1", errors="ignore").strip("\x00")
         except (IndexError, TypeError):
             return data.decode("latin-1", errors="ignore").strip("\x00")
 
@@ -312,9 +283,7 @@ class RawTagExtractor:
                     block_size = header & 0xFFFFFF
 
                     if block_type == 4:  # VORBIS_COMMENT
-                        raw_tags.update(
-                            self._parse_vorbis_comments(data[pos : pos + block_size])
-                        )
+                        raw_tags.update(self._parse_vorbis_comments(data[pos : pos + block_size]))
 
                     if is_last:
                         break
@@ -389,9 +358,7 @@ class RawTagExtractor:
                     # no dedicated 4-char atom, e.g. MusicBrainz IDs). All
                     # freeform atoms share this literal type, so they're
                     # distinguished by their 'mean'/'name' children instead.
-                    freeform = self._parse_mp4_freeform_atom(
-                        data, child_start, child_end
-                    )
+                    freeform = self._parse_mp4_freeform_atom(data, child_start, child_end)
                     if freeform is None:
                         continue
                     mean, name, value = freeform
@@ -401,9 +368,7 @@ class RawTagExtractor:
                     raw_tags.setdefault(key, []).append(value)
                     continue
 
-                value = self._parse_mp4_ilst_value(
-                    data, atom_type, child_start, child_end
-                )
+                value = self._parse_mp4_ilst_value(data, atom_type, child_start, child_end)
                 if value is None or value == "":
                     continue
                 key = atom_type.decode("latin-1", errors="ignore")
@@ -488,9 +453,7 @@ class RawTagExtractor:
                         list_type = data[pos + 8 : pos + 12]
                         if list_type == b"INFO":
                             raw_tags.update(
-                                self._parse_info_chunk(
-                                    data[pos + 12 : pos + 8 + chunk_size]
-                                )
+                                self._parse_info_chunk(data[pos + 12 : pos + 8 + chunk_size])
                             )
 
                     # RIFF chunks are padded to an even byte boundary.

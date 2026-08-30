@@ -2,17 +2,13 @@
 combining freshly-built tag data with whatever a file already has on disk.
 """
 
-from typing import Dict, List, Tuple
-
 from src.core.logger_config import logger
 from src.metadata.metadata_writer_types import WriteMode
 
 
 def merge_id3_frames(
-    existing_frames: List[Tuple[str, bytes]],
-    new_frames: List[bytes],
-    mode: WriteMode,
-) -> List[bytes]:
+    existing_frames: list[tuple[str, bytes]], new_frames: list[bytes], mode: WriteMode
+) -> list[bytes]:
     """Combine a file's existing ID3 frames with freshly-built ones.
 
     Args:
@@ -36,9 +32,7 @@ def merge_id3_frames(
         # fill in IDs the file doesn't have at all.
         existing_ids = {frame_id for frame_id, _ in existing_frames}
         added = [
-            f
-            for f in new_frames
-            if f[0:4].decode("ascii", errors="ignore") not in existing_ids
+            f for f in new_frames if f[0:4].decode("ascii", errors="ignore") not in existing_ids
         ]
         preserved = [frame_bytes for _, frame_bytes in existing_frames]
         return preserved + added
@@ -46,20 +40,16 @@ def merge_id3_frames(
     # UPDATE_EXISTING: new values win for any frame ID the app builds;
     # anything else already in the file (e.g. embedded artwork, or a tag
     # this app doesn't map) is carried through unchanged.
-    new_frame_ids = {
-        f[0:4].decode("ascii", errors="ignore") for f in new_frames if len(f) >= 4
-    }
+    new_frame_ids = {f[0:4].decode("ascii", errors="ignore") for f in new_frames if len(f) >= 4}
     preserved = [
-        frame_bytes
-        for frame_id, frame_bytes in existing_frames
-        if frame_id not in new_frame_ids
+        frame_bytes for frame_id, frame_bytes in existing_frames if frame_id not in new_frame_ids
     ]
     return preserved + list(new_frames)
 
 
 def merge_vorbis_comments(
-    existing: Dict[str, object], new: Dict[str, object], mode: WriteMode
-) -> Dict[str, object]:
+    existing: dict[str, object], new: dict[str, object], mode: WriteMode
+) -> dict[str, object]:
     """Combine a file's existing Vorbis comments with freshly-built ones.
 
     Args:

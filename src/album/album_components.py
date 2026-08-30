@@ -1,11 +1,5 @@
 from PySide6.QtGui import QDoubleValidator
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QLineEdit,
-    QSpinBox,
-    QTextEdit,
-)
+from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QSpinBox, QTextEdit
 
 from src.core.logger_config import logger
 
@@ -87,19 +81,19 @@ class AlbumUIComponents:
                     return None
             return text
 
-        elif isinstance(widget, QTextEdit):
+        if isinstance(widget, QTextEdit):
             text = widget.toPlainText().strip()
             return text if text else None
 
-        elif isinstance(widget, QSpinBox):
+        if isinstance(widget, QSpinBox):
             value = widget.value()
             # Treat 0 as "not set" for optional int fields
             return value if value != 0 else None
 
-        elif isinstance(widget, QCheckBox):
+        if isinstance(widget, QCheckBox):
             return int(widget.isChecked())
 
-        elif isinstance(widget, QComboBox):
+        if isinstance(widget, QComboBox):
             text = widget.currentText().strip()
             return text if text else None
 

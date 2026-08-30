@@ -31,9 +31,9 @@ from typing import Any
 from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QDialogButtonBox, QMessageBox
 
 from src.album.album_musicbrainz_review_import import (
-    _ReviewAcceptWorker,
     _batch_update_tracks,
     _plan_discs,
+    _ReviewAcceptWorker,
     _track_scalar_update,
 )
 from src.album.album_musicbrainz_review_ui import AlbumMusicBrainzReviewUIMixin
@@ -46,12 +46,7 @@ class AlbumMusicBrainzReviewDialog(
     AlbumMusicBrainzTrackMatchingMixin, AlbumMusicBrainzReviewUIMixin, QDialog
 ):
     def __init__(
-        self,
-        controller,
-        album,
-        detail: MBReleaseDetail,
-        aliases: list[MBAlias],
-        parent=None,
+        self, controller, album, detail: MBReleaseDetail, aliases: list[MBAlias], parent=None
     ):
         super().__init__(parent)
         self.controller = controller
@@ -74,9 +69,7 @@ class AlbumMusicBrainzReviewDialog(
         self.setMinimumSize(560, 540)
 
         self._match_tracks()
-        self._match_summary = (
-            f"Matched {len(self._matched)} of {len(detail.tracks)} track(s)."
-        )
+        self._match_summary = f"Matched {len(self._matched)} of {len(detail.tracks)} track(s)."
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -93,9 +86,7 @@ class AlbumMusicBrainzReviewDialog(
             track = self._matched.get(id(mbt))
             if track is None:
                 continue
-            update = _track_scalar_update(
-                track, mbt, disc_by_number, self.detail.barcode
-            )
+            update = _track_scalar_update(track, mbt, disc_by_number, self.detail.barcode)
             if update is not None:
                 updates.append(update)
         failed += _batch_update_tracks(self.controller, updates)
@@ -128,9 +119,7 @@ class AlbumMusicBrainzReviewDialog(
         synchronously froze the whole app long enough to trigger the OS
         "not responding" prompt. Nothing below this point may touch a
         QWidget from the worker; see _ReviewAcceptWorker's docstring."""
-        matched_track_ids = {
-            mbt_id: track.track_id for mbt_id, track in self._matched.items()
-        }
+        matched_track_ids = {mbt_id: track.track_id for mbt_id, track in self._matched.items()}
         manual_track_ids: dict[int, int | None] = {}
         for combo, mbt in self._manual_combos:
             track = combo.currentData()
@@ -183,9 +172,7 @@ class AlbumMusicBrainzReviewDialog(
         if self.progress_bar.maximum() == 0:
             self.progress_bar.setRange(0, total)
         self.progress_bar.setValue(current)
-        self.progress_status_label.setText(
-            f"Applying MusicBrainz data… ({current} of {total})"
-        )
+        self.progress_status_label.setText(f"Applying MusicBrainz data… ({current} of {total})")
 
     def _on_accept_finished(self, failed_writes: list[str]):
         self._set_busy(False)

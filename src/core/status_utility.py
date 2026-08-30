@@ -47,9 +47,7 @@ class _StatusManager(QObject):
 
     def show_message(self, message, duration=3000):
         """Show a status message with optional auto-hide duration"""
-        logger.debug(
-            f"DEBUG: StatusManager.show_message: '{message}', duration: {duration}"
-        )
+        logger.debug(f"DEBUG: StatusManager.show_message: '{message}', duration: {duration}")
         self._current_message = message
         self.show_status.emit(message, duration)
 

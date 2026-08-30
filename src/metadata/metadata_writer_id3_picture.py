@@ -39,7 +39,6 @@ class Id3PictureWriter:
 
         frame_header = b"APIC" + struct.pack(">I", len(payload)) + b"\x00\x00"
         logger.debug(
-            f"Built APIC frame: role={role}, format={format_type}, "
-            f"{len(image_bytes)} bytes"
+            f"Built APIC frame: role={role}, format={format_type}, {len(image_bytes)} bytes"
         )
         return frame_header + bytes(payload)

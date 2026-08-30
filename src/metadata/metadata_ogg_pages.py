@@ -8,8 +8,8 @@ if it's the last segment on the page, into the next page); any shorter
 segment ends the packet.
 """
 
+from collections.abc import Iterator
 import struct
-from typing import Iterator, List, Optional, Tuple
 
 from src.core.logger_config import logger
 
@@ -24,9 +24,7 @@ def iter_packets(data: bytes, max_packets: int = 8) -> Iterator[bytes]:
     packets_yielded = 0
 
     while (
-        pos + 27 <= len(data)
-        and data[pos : pos + 4] == b"OggS"
-        and packets_yielded < max_packets
+        pos + 27 <= len(data) and data[pos : pos + 4] == b"OggS" and packets_yielded < max_packets
     ):
         page_segments = data[pos + 26]
         seg_table_start = pos + 27
@@ -60,7 +58,7 @@ def iter_packets(data: bytes, max_packets: int = 8) -> Iterator[bytes]:
 # ---------------------------------------------------------------------
 
 
-def _make_crc_table() -> List[int]:
+def _make_crc_table() -> list[int]:
     table = []
     for i in range(256):
         r = i << 24
@@ -155,7 +153,7 @@ def _build_single_page(
     return page[:22] + struct.pack("<I", crc) + page[26:]
 
 
-def _lace_payload(payload: bytes) -> List[int]:
+def _lace_payload(payload: bytes) -> list[int]:
     """Split one packet's length into Ogg lacing segment values: 255-byte
     chunks, terminated by a segment shorter than 255 (an explicit 0 if
     the packet's length is an exact multiple of 255)."""
@@ -172,11 +170,11 @@ def _lace_payload(payload: bytes) -> List[int]:
 
 
 def build_pages(
-    packets: List[bytes],
+    packets: list[bytes],
     serial_number: int,
     start_sequence_number: int,
     first_page_flag: bool = True,
-) -> Tuple[bytes, int]:
+) -> tuple[bytes, int]:
     """Serialize a list of complete packets into one or more Ogg pages,
     using standard lacing. A packet only spans multiple pages if its own
     lacing needs more than the 255 segments a single page can hold (the
@@ -188,7 +186,7 @@ def build_pages(
     """
     pages = bytearray()
     seq = start_sequence_number
-    pending_segments: List[int] = []
+    pending_segments: list[int] = []
     pending_payload = bytearray()
     first_page_emitted = False
     continues_from_prev = False
@@ -243,9 +241,7 @@ def build_pages(
     return bytes(pages), seq
 
 
-def replace_comment_packet(
-    data: bytes, new_comment_packet: bytes
-) -> Optional[bytes]:
+def replace_comment_packet(data: bytes, new_comment_packet: bytes) -> bytes | None:
     """Rebuild an Ogg Vorbis file with its comment-header packet (the 2nd
     of the stream's 3 header packets) replaced.
 
@@ -265,14 +261,12 @@ def replace_comment_packet(
     """
     pages = list(iter_pages(data))
     if len(pages) < 2:
-        logger.warning(
-            f"Cannot rewrite Ogg comment packet: file has only {len(pages)} page(s)"
-        )
+        logger.warning(f"Cannot rewrite Ogg comment packet: file has only {len(pages)} page(s)")
         return None
 
     serial_number = pages[0]["serial_number"]
 
-    packets: List[bytes] = []
+    packets: list[bytes] = []
     current = bytearray()
     header_pages_end = None
 
@@ -318,16 +312,10 @@ def replace_comment_packet(
     # so any bytes sharing that first page beyond packet 1 are silently
     # never seen. This matches what every real encoder already does.
     id_header_bytes, seq_after_id = build_pages(
-        [packets[0]],
-        serial_number,
-        pages[0]["sequence_number"],
-        first_page_flag=True,
+        [packets[0]], serial_number, pages[0]["sequence_number"], first_page_flag=True
     )
     comment_setup_bytes, next_sequence = build_pages(
-        [new_comment_packet, packets[2]],
-        serial_number,
-        seq_after_id,
-        first_page_flag=False,
+        [new_comment_packet, packets[2]], serial_number, seq_after_id, first_page_flag=False
     )
     new_header_bytes = id_header_bytes + comment_setup_bytes
 
@@ -349,7 +337,6 @@ def replace_comment_packet(
         seq += 1
 
     logger.debug(
-        f"Rebuilt Ogg file with new comment packet: "
-        f"{len(new_header_bytes) + len(tail)} bytes total"
+        f"Rebuilt Ogg file with new comment packet: {len(new_header_bytes) + len(tail)} bytes total"
     )
     return new_header_bytes + bytes(tail)

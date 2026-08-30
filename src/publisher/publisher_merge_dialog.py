@@ -46,7 +46,7 @@ class PublisherMergeDialog(MergeDBDialog):
             self._update_action_buttons()
 
         except (AttributeError, RuntimeError) as e:
-            logger.error(f"Error pre-populating source publisher: {str(e)}")
+            logger.error(f"Error pre-populating source publisher: {e!s}")
 
     def _get_related_count(self, publisher_id):
         """Get the number of albums for a publisher."""
@@ -56,9 +56,7 @@ class PublisherMergeDialog(MergeDBDialog):
             )
             return len(albums)
         except SQLAlchemyError as e:
-            logger.error(
-                f"Error getting album count for publisher {publisher_id}: {str(e)}"
-            )
+            logger.error(f"Error getting album count for publisher {publisher_id}: {e!s}")
             return 0
 
     def _build_entity_info(self, entity, side):
@@ -77,7 +75,7 @@ class PublisherMergeDialog(MergeDBDialog):
 
         # Add status
         if hasattr(entity, "is_active"):
-            status = "Active" if getattr(entity, "is_active") == 1 else "Inactive"
+            status = "Active" if entity.is_active == 1 else "Inactive"
             info += f"Status: {status}"
 
         return info
@@ -87,9 +85,7 @@ class PublisherMergeDialog(MergeDBDialog):
         # Show publisher-specific confirmation message
         source_name = getattr(self.source_entity, self.name_attr)
         target_name = getattr(self.target_entity, self.name_attr)
-        source_albums = self._get_related_count(
-            getattr(self.source_entity, self.id_attr)
-        )
+        source_albums = self._get_related_count(getattr(self.source_entity, self.id_attr))
 
         if source_albums > 0:
             reply = QMessageBox.question(

@@ -20,9 +20,7 @@ def get_track_gain_from_db(controller, current_file):
     try:
         if current_file is None:
             return None, None
-        track = controller.get.get_entity_object(
-            "Track", track_file_path=str(current_file)
-        )
+        track = controller.get.get_entity_object("Track", track_file_path=str(current_file))
         if track:
             gain = getattr(track, "track_gain", None)
             peak = getattr(track, "track_peak", None)

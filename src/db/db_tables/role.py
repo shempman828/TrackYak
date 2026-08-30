@@ -22,10 +22,7 @@ class Role(Base):
     # Relationships
     parent = relationship("Role", remote_side=[role_id], backref="children")
     track_roles = relationship(
-        "TrackArtistRole",
-        back_populates="role",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
+        "TrackArtistRole", back_populates="role", cascade="all, delete-orphan", passive_deletes=True
     )
     album_roles = relationship(
         "AlbumRoleAssociation",
@@ -34,10 +31,7 @@ class Role(Base):
         passive_deletes=True,
     )
     aliases = relationship(
-        "RoleAlias",
-        back_populates="role",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
+        "RoleAlias", back_populates="role", cascade="all, delete-orphan", passive_deletes=True
     )
     aliases_list = association_proxy("aliases", "alias_name")
 
@@ -63,9 +57,7 @@ class RoleAlias(Base):
 
     alias_id = Column(Integer, primary_key=True)
     alias_name = Column(String, unique=True, nullable=False)
-    role_id = Column(
-        Integer, ForeignKey("roles.role_id", ondelete="CASCADE"), nullable=False
-    )
+    role_id = Column(Integer, ForeignKey("roles.role_id", ondelete="CASCADE"), nullable=False)
 
     role = relationship("Role", back_populates="aliases")
     role_name = association_proxy("role", "role_name")
@@ -84,15 +76,11 @@ class RoleSplitAlias(Base):
 
     split_alias_id = Column(Integer, primary_key=True)
     alias_name = Column(String, nullable=False, index=True)
-    role_id = Column(
-        Integer, ForeignKey("roles.role_id", ondelete="CASCADE"), nullable=False
-    )
+    role_id = Column(Integer, ForeignKey("roles.role_id", ondelete="CASCADE"), nullable=False)
     sort_order = Column(Integer, nullable=False, default=0)
 
     role = relationship("Role")
 
     __table_args__ = (
-        UniqueConstraint(
-            "alias_name", "role_id", name="uq_role_split_alias_name_role"
-        ),
+        UniqueConstraint("alias_name", "role_id", name="uq_role_split_alias_name_role"),
     )

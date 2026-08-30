@@ -110,13 +110,16 @@ def _group_events_by_type(events: list) -> dict:
 
 def _build_event_row(event: dict) -> QFrame:
     frame = QFrame()
-    apply_scaled_style(frame, f"""
+    apply_scaled_style(
+        frame,
+        f"""
         QFrame {{
             background-color: {_BG_CARD};
             border: 1px solid {_BORDER_SUBTLE};
             border-radius: 4px;
         }}
-    """)
+    """,
+    )
     row_layout = QVBoxLayout(frame)
     row_layout.setContentsMargins(8, 6, 8, 6)
     row_layout.setSpacing(2)
@@ -159,11 +162,7 @@ class CalendarDayWidget(QFrame):
         self._init_ui()
 
     def mousePressEvent(self, event):
-        if (
-            event.button() == Qt.LeftButton
-            and self.is_current_month
-            and self.events
-        ):
+        if event.button() == Qt.LeftButton and self.is_current_month and self.events:
             self.day_clicked.emit(self.day_number, self.events)
         super().mousePressEvent(event)
 
@@ -177,16 +176,21 @@ class CalendarDayWidget(QFrame):
         # ── Cell styling ─────────────────────────────────────────────────────
         if not self.is_current_month:
             # Empty / filler cell — very subtle, not stark black
-            apply_scaled_style(self, f"""
+            apply_scaled_style(
+                self,
+                f"""
                 CalendarDayWidget {{
                     background-color: {_BG_EMPTY};
                     border: 1px solid {_BORDER_SUBTLE};
                     border-radius: 4px;
                 }}
-            """)
+            """,
+            )
         elif self.events:
             # Day with events — gently highlighted with accent
-            apply_scaled_style(self, f"""
+            apply_scaled_style(
+                self,
+                f"""
                 CalendarDayWidget {{
                     background-color: {_ACCENT_DIM};
                     border: 1px solid {_ACCENT_BORDER};
@@ -196,12 +200,15 @@ class CalendarDayWidget(QFrame):
                     background-color: rgba(133,153,234,0.28);
                     border: 1px solid {_ACCENT};
                 }}
-            """)
+            """,
+            )
             self.setCursor(Qt.PointingHandCursor)
             self.setToolTip("Click for full details")
         else:
             # Normal day — slightly elevated from base
-            apply_scaled_style(self, f"""
+            apply_scaled_style(
+                self,
+                f"""
                 CalendarDayWidget {{
                     background-color: {_BG_CARD};
                     border: 1px solid {_BORDER_SUBTLE};
@@ -211,7 +218,8 @@ class CalendarDayWidget(QFrame):
                     background-color: {_BG_SLIGHT};
                     border: 1px solid rgba(133,153,234,0.3);
                 }}
-            """)
+            """,
+            )
 
         # ── Day number label ─────────────────────────────────────────────────
         if self.day_number > 0:
@@ -246,14 +254,17 @@ class CalendarDayWidget(QFrame):
                 chip.setMaximumWidth(120)
 
                 chip_color = _entity_color(group_events[0].get("entity", ""))
-                apply_scaled_style(chip, f"""
+                apply_scaled_style(
+                    chip,
+                    f"""
                     QLabel {{
                         font-size: 8px;
                         color: {chip_color};
                         background: transparent;
                         padding: 0px;
                     }}
-                """)
+                """,
+                )
 
                 names = "\n".join(f"• {e.get('entity_name', '?')}" for e in group_events[:8])
                 if count > 8:
@@ -307,8 +318,7 @@ class DateDetailDialog(QDialog):
         container_layout.setSpacing(8)
 
         sorted_events = sorted(
-            events,
-            key=lambda e: (_type_label(e.get("type", "")), e.get("entity_name", "")),
+            events, key=lambda e: (_type_label(e.get("type", "")), e.get("entity_name", ""))
         )
         for event in sorted_events:
             container_layout.addWidget(_build_event_row(event))
@@ -463,8 +473,7 @@ class CalendarWidget(QWidget):
     def _populate_type_filter(self):
         """Refresh the filter dropdown's options to match the currently loaded events."""
         types_present = sorted(
-            {e.get("type") for e in self.all_events if e.get("type")},
-            key=lambda t: _type_label(t),
+            {e.get("type") for e in self.all_events if e.get("type")}, key=lambda t: _type_label(t)
         )
         previous_selection = (
             self.type_filter_combo.currentData() if self.type_filter_combo.count() else None
@@ -484,7 +493,9 @@ class CalendarWidget(QWidget):
 
     def _apply_filter(self):
         """Rebuild events_data/events_by_date based on the active type filter."""
-        active_type = self.type_filter_combo.currentData() if self.type_filter_combo.count() else None
+        active_type = (
+            self.type_filter_combo.currentData() if self.type_filter_combo.count() else None
+        )
         if active_type:
             self.events_data = [e for e in self.all_events if e.get("type") == active_type]
         else:
@@ -552,7 +563,9 @@ class CalendarWidget(QWidget):
         self.on_this_day_button.setToolTip(
             "See what happened on today's date across every year in your library"
         )
-        apply_scaled_style(self.on_this_day_button, f"""
+        apply_scaled_style(
+            self.on_this_day_button,
+            f"""
             QPushButton {{
                 background-color: {_ACCENT_DIM};
                 color: {_GOLD};
@@ -565,7 +578,8 @@ class CalendarWidget(QWidget):
                 background-color: rgba(133,153,234,0.28);
                 border: 1px solid {_ACCENT};
             }}
-        """)
+        """,
+        )
         self.on_this_day_button.clicked.connect(self.on_this_day_requested.emit)
 
         header.addWidget(self.prev_button)
@@ -604,7 +618,9 @@ class CalendarWidget(QWidget):
             lbl.setAlignment(Qt.AlignCenter)
             is_weekend = col >= 5
             color = _PINK if is_weekend else _ACCENT
-            apply_scaled_style(lbl, f"""
+            apply_scaled_style(
+                lbl,
+                f"""
                 QLabel {{
                     background-color: {_BG_SLIGHT};
                     color: {color};
@@ -614,7 +630,8 @@ class CalendarWidget(QWidget):
                     border-bottom: 2px solid {color};
                     border-radius: 3px;
                 }}
-            """)
+            """,
+            )
             weekday_row.addWidget(lbl, 0, col)
         root.addLayout(weekday_row)
 
@@ -651,12 +668,8 @@ class CalendarWidget(QWidget):
                 if row == 0 and col < first_weekday:
                     cell = CalendarDayWidget(0, [], is_current_month=False)
                 elif day_counter <= days_in_month:
-                    day_events = self.events_by_date.get(
-                        (self.current_month, day_counter), []
-                    )
-                    cell = CalendarDayWidget(
-                        day_counter, day_events, is_current_month=True
-                    )
+                    day_events = self.events_by_date.get((self.current_month, day_counter), [])
+                    cell = CalendarDayWidget(day_counter, day_events, is_current_month=True)
                     if day_events:
                         cell.day_clicked.connect(self._show_day_detail)
                     day_counter += 1
@@ -670,9 +683,7 @@ class CalendarWidget(QWidget):
                 break
 
         # Summary
-        events_this_month = sum(
-            1 for e in self.events_data if e.get("month") == self.current_month
-        )
+        events_this_month = sum(1 for e in self.events_data if e.get("month") == self.current_month)
         month_name = self.month_combo.currentText()
         if events_this_month:
             self.summary_label.setText(

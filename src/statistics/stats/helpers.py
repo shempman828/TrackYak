@@ -8,8 +8,8 @@ applied to a different entity or join -- these helpers are written once and
 reused rather than re-implemented per stat.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Optional, Sequence
 
 import numpy as np
 from sqlalchemy import func
@@ -43,11 +43,7 @@ def distinct_artist_track_subquery(session):
     fixed -- but anything aggregating "this artist's tracks" across all
     roles (generation/type/religion/gender ratings, artist-by-country) does.
     """
-    return (
-        session.query(TrackArtistRole.artist_id, TrackArtistRole.track_id)
-        .distinct()
-        .subquery()
-    )
+    return session.query(TrackArtistRole.artist_id, TrackArtistRole.track_id).distinct().subquery()
 
 
 # ---------------------------------------------------------------------- #
@@ -88,14 +84,9 @@ def threshold_leaderboard(
     results = {}
     for threshold in thresholds:
         rows = (
-            grouped.having(func.count(rating_col) >= threshold)
-            .order_by(order)
-            .limit(limit)
-            .all()
+            grouped.having(func.count(rating_col) >= threshold).order_by(order).limit(limit).all()
         )
-        results[threshold] = [
-            (name, round(avg_rating, 2), n) for _id, name, avg_rating, n in rows
-        ]
+        results[threshold] = [(name, round(avg_rating, 2), n) for _id, name, avg_rating, n in rows]
     return results
 
 
@@ -105,11 +96,8 @@ def threshold_leaderboard(
 
 
 def outlier_controlled_average(
-    ratings: Sequence[float],
-    method: str = "iqr",
-    trim_fraction: float = 0.1,
-    min_n: int = 10,
-) -> Optional[float]:
+    ratings: Sequence[float], method: str = "iqr", trim_fraction: float = 0.1, min_n: int = 10
+) -> float | None:
     """Average a list of ratings with outlier control.
 
     method="iqr" (default): drop values outside [Q1 - 1.5*IQR, Q3 + 1.5*IQR]
@@ -155,9 +143,7 @@ class DistributionStats:
     n: int
 
 
-def distribution_stats(
-    values: Sequence[float], bucket_count: int = 20
-) -> Optional[DistributionStats]:
+def distribution_stats(values: Sequence[float], bucket_count: int = 20) -> DistributionStats | None:
     """Summarize a numeric column: min/max/mean/median/stdev plus a
     histogram bucket list. Returns None if `values` is empty.
     """
@@ -167,10 +153,7 @@ def distribution_stats(
 
     arr = np.array(cleaned, dtype=float)
     counts, edges = np.histogram(arr, bins=bucket_count)
-    buckets = [
-        (float(edges[i]), float(edges[i + 1]), int(counts[i]))
-        for i in range(len(counts))
-    ]
+    buckets = [(float(edges[i]), float(edges[i + 1]), int(counts[i])) for i in range(len(counts))]
 
     return DistributionStats(
         minimum=float(arr.min()),
@@ -206,11 +189,7 @@ def track_metric_top_bottom(session, metric_column, n=10, min_value=None, extra_
 
     def _rows(ordered_query):
         return [
-            (
-                track.track_name,
-                track.primary_artist_names,
-                getattr(track, metric_column.key),
-            )
+            (track.track_name, track.primary_artist_names, getattr(track, metric_column.key))
             for track in ordered_query.limit(n).all()
         ]
 

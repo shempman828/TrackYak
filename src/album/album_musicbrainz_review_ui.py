@@ -44,10 +44,7 @@ from src.musicbrainz.musicbrainz_release import MBLabelInfo
 
 class AlbumMusicBrainzReviewUIMixin:
     def _usable_aliases(self) -> list[MBAlias]:
-        existing = {
-            (a.alias_name or "").strip().lower()
-            for a in (self.album.album_aliases or [])
-        }
+        existing = {(a.alias_name or "").strip().lower() for a in (self.album.album_aliases or [])}
         own_name = (self.album.album_name or "").strip().lower()
         out = []
         for alias in self.aliases:
@@ -58,12 +55,9 @@ class AlbumMusicBrainzReviewUIMixin:
         return out
 
     def _usable_labels(self) -> list[MBLabelInfo]:
-        existing_mbids = {
-            p.MBID for p in (self.album.publishers or []) if p.MBID
-        }
+        existing_mbids = {p.MBID for p in (self.album.publishers or []) if p.MBID}
         existing_names = {
-            (p.publisher_name or "").strip().lower()
-            for p in (self.album.publishers or [])
+            (p.publisher_name or "").strip().lower() for p in (self.album.publishers or [])
         }
         out = []
         for label in self.detail.labels:
@@ -170,12 +164,8 @@ class AlbumMusicBrainzReviewUIMixin:
 
             table.resizeRowsToContents()
             table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            row_height_total = sum(
-                table.rowHeight(r) for r in range(table.rowCount())
-            )
-            table.setFixedHeight(
-                header.height() + row_height_total + 2 * table.frameWidth()
-            )
+            row_height_total = sum(table.rowHeight(r) for r in range(table.rowCount()))
+            table.setFixedHeight(header.height() + row_height_total + 2 * table.frameWidth())
             box_layout.addWidget(table)
             inner_layout.addWidget(box)
 
@@ -238,15 +228,11 @@ class AlbumMusicBrainzReviewUIMixin:
             box_layout = QVBoxLayout(box)
             for place_mbid, chain in self.detail.place_chains.items():
                 tracks_here = [
-                    mbt
-                    for mbt in self.detail.tracks
-                    if mbt.location_place_mbid == place_mbid
+                    mbt for mbt in self.detail.tracks if mbt.location_place_mbid == place_mbid
                 ]
                 if not tracks_here:
                     continue
-                chain_label = ", ".join(
-                    node["name"] for node in chain if node.get("name")
-                )
+                chain_label = ", ".join(node["name"] for node in chain if node.get("name"))
                 track_titles = ", ".join(mbt.title for mbt in tracks_here)
                 cb = QCheckBox(f"{chain_label}\n  → {track_titles}")
                 cb.setChecked(True)

@@ -107,9 +107,7 @@ class RatingStarsWidget(QWidget):
             for i in range(10):
                 r = outer_r if i % 2 == 0 else inner_r
                 angle = start_angle + i * (math.pi / 5)
-                points.append(
-                    QPointF(cx + r * math.cos(angle), cy + r * math.sin(angle))
-                )
+                points.append(QPointF(cx + r * math.cos(angle), cy + r * math.sin(angle)))
 
             path = QPainterPath()
             path.moveTo(points[0])

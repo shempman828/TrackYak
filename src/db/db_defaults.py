@@ -1,17 +1,36 @@
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.db.db_tables import ArtistType, Chart, Mood, Place, PlaceAssociationType, Role
 from src.core.logger_config import logger
+from src.db.db_tables import ArtistType, Chart, Mood, Place, PlaceAssociationType, Role
 
 # Default mood taxonomy for automatic lyrics-based mood tagging (see
 # docs/specs/lyrics_mood_tagging.md). Keyword lists for each of these
 # moods live in assets/mood_keywords.json, keyed by these exact names.
 DEFAULT_MOOD_NAMES = (
-    "Happy", "Sad", "Heartbreak", "Romantic", "Angry", "Rebellious",
-    "Sleepy", "Chill", "Party", "Driving", "Road Trip", "Study",
-    "Workout", "Beach", "Rainy Day", "Late Night", "Nostalgic",
-    "Hopeful", "Triumphant", "Melancholy", "Confidence", "Feel-Good",
-    "Dark/Moody", "Holiday",
+    "Happy",
+    "Sad",
+    "Heartbreak",
+    "Romantic",
+    "Angry",
+    "Rebellious",
+    "Sleepy",
+    "Chill",
+    "Party",
+    "Driving",
+    "Road Trip",
+    "Study",
+    "Workout",
+    "Beach",
+    "Rainy Day",
+    "Late Night",
+    "Nostalgic",
+    "Hopeful",
+    "Triumphant",
+    "Melancholy",
+    "Confidence",
+    "Feel-Good",
+    "Dark/Moody",
+    "Holiday",
 )
 
 
@@ -79,16 +98,12 @@ class Defaults:
             # keyed to these exact names). Inserting only the missing names
             # is still idempotent and safe to run on every launch.
             # -----------------
-            existing_mood_names = {
-                name for (name,) in session.query(Mood.mood_name).all()
-            }
+            existing_mood_names = {name for (name,) in session.query(Mood.mood_name).all()}
             missing_mood_names = [
                 name for name in DEFAULT_MOOD_NAMES if name not in existing_mood_names
             ]
             if missing_mood_names:
-                session.add_all(
-                    [Mood(mood_name=name) for name in missing_mood_names]
-                )
+                session.add_all([Mood(mood_name=name) for name in missing_mood_names])
                 session.commit()
                 logger.info(
                     f"Inserted {len(missing_mood_names)} default mood(s): "
@@ -105,24 +120,20 @@ class Defaults:
                 session.add_all(
                     [
                         PlaceAssociationType(
-                            type_name="Birthplace",
-                            type_description="Where a person was born",
+                            type_name="Birthplace", type_description="Where a person was born"
                         ),
                         PlaceAssociationType(
                             type_name="Origin",
                             type_description="Where a band/artist formed or originated",
                         ),
                         PlaceAssociationType(
-                            type_name="Hometown",
-                            type_description="Where a person grew up",
+                            type_name="Hometown", type_description="Where a person grew up"
                         ),
                         PlaceAssociationType(
-                            type_name="Residence",
-                            type_description="Where a person lived/lives",
+                            type_name="Residence", type_description="Where a person lived/lives"
                         ),
                         PlaceAssociationType(
-                            type_name="Deathplace",
-                            type_description="Where a person died",
+                            type_name="Deathplace", type_description="Where a person died"
                         ),
                         PlaceAssociationType(
                             type_name="Recording Location",
@@ -149,9 +160,7 @@ class Defaults:
                 session.commit()
                 logger.info("Inserted default place association types.")
             else:
-                logger.debug(
-                    "Place association types already exist, skipping defaults."
-                )
+                logger.debug("Place association types already exist, skipping defaults.")
 
             # -----------------
             # Places (MBID-backed example chains: USA, Japan, England)
@@ -264,8 +273,7 @@ class Defaults:
                     place_latitude=35.6762,
                     place_longitude=139.6503,
                     place_description=(
-                        "Tokyo is a subdivision (metropolis) of Japan and the country's "
-                        "capital."
+                        "Tokyo is a subdivision (metropolis) of Japan and the country's capital."
                     ),
                     parent_id=japan.place_id,
                     MBID="8dc97297-ac95-4d33-82bc-e07fab26fb5f",
@@ -356,8 +364,7 @@ class Defaults:
                     place_latitude=51.5156177,
                     place_longitude=-0.0919983,
                     place_description=(
-                        "London is the capital and largest city of England and the "
-                        "United Kingdom."
+                        "London is the capital and largest city of England and the United Kingdom."
                     ),
                     parent_id=england.place_id,
                     MBID="f03d09b3-39dc-4083-afd6-159e3f0d462f",

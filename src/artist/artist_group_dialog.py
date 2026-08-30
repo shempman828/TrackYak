@@ -119,9 +119,7 @@ class AddMemberDialog(QDialog):
                 "is_current": self.current_checkbox.isChecked(),
             }
 
-            new_membership = self.controller.add.add_entity(
-                "GroupMembership", **membership_data
-            )
+            new_membership = self.controller.add.add_entity("GroupMembership", **membership_data)
             if new_membership is None:
                 logger.warning(
                     f"Could not add member {artist_id} to group "
@@ -199,9 +197,7 @@ class AddGroupDialog(QDialog):
             if current_tab == 0:  # New Group tab
                 name = self.name_edit.text().strip()
                 if not name:
-                    QMessageBox.warning(
-                        self, "Input Error", "Please enter a group name"
-                    )
+                    QMessageBox.warning(self, "Input Error", "Please enter a group name")
                     return
 
                 self.controller.add.add_entity("Artist", artist_name=name, isgroup=1)
@@ -210,19 +206,15 @@ class AddGroupDialog(QDialog):
             else:  # Convert Artist tab
                 artist_id = self.artist_combo.currentData()
                 if not artist_id:
-                    QMessageBox.warning(
-                        self, "Input Error", "Please select an artist to convert"
-                    )
+                    QMessageBox.warning(self, "Input Error", "Please select an artist to convert")
                     return
 
                 self.controller.update.update_entity("Artist", artist_id, isgroup=1)
-                artist = self.controller.get.get_entity_object(
-                    "Artist", artist_id=artist_id
-                )
+                artist = self.controller.get.get_entity_object("Artist", artist_id=artist_id)
                 logger.info(f"Converted artist to group: {artist.artist_name}")
 
             self.accept()
 
         except SQLAlchemyError as e:
             logger.error(f"Error creating group: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to create group: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Failed to create group: {e!s}")

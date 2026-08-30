@@ -52,9 +52,7 @@ class AddAwardDialog(QDialog):
         layout = QVBoxLayout(self)
 
         # Info label
-        info_label = QLabel(
-            f"Creating new award for {self.entity_type} ID: {self.entity_id}"
-        )
+        info_label = QLabel(f"Creating new award for {self.entity_type} ID: {self.entity_id}")
         layout.addWidget(info_label)
 
         # Form layout for award details
@@ -62,9 +60,7 @@ class AddAwardDialog(QDialog):
 
         # Award Name (required)
         self.award_name_edit = QLineEdit()
-        self.award_name_edit.setPlaceholderText(
-            "e.g., Grammy Award, Billboard Music Award"
-        )
+        self.award_name_edit.setPlaceholderText("e.g., Grammy Award, Billboard Music Award")
         form_layout.addRow("Award Name*:", self.award_name_edit)
 
         # Award Year
@@ -76,23 +72,13 @@ class AddAwardDialog(QDialog):
 
         # Award Category
         self.award_category_edit = QLineEdit()
-        self.award_category_edit.setPlaceholderText(
-            "e.g., Best New Artist, Album of the Year"
-        )
+        self.award_category_edit.setPlaceholderText("e.g., Best New Artist, Album of the Year")
         form_layout.addRow("Category:", self.award_category_edit)
 
         # Association Type
         self.association_type_combo = QComboBox()
         self.association_type_combo.addItems(
-            [
-                "recipient",
-                "winner",
-                "nominee",
-                "honoree",
-                "finalist",
-                "awarded",
-                "presented",
-            ]
+            ["recipient", "winner", "nominee", "honoree", "finalist", "awarded", "presented"]
         )
         self.association_type_combo.setCurrentText("recipient")
         form_layout.addRow("Association Type:", self.association_type_combo)
@@ -100,9 +86,7 @@ class AddAwardDialog(QDialog):
         # Award Description
         self.award_description_edit = QTextEdit()
         self.award_description_edit.setMaximumHeight(100)
-        self.award_description_edit.setPlaceholderText(
-            "Optional description of the award..."
-        )
+        self.award_description_edit.setPlaceholderText("Optional description of the award...")
         form_layout.addRow("Description:", self.award_description_edit)
 
         # Wikipedia Link
@@ -121,9 +105,7 @@ class AddAwardDialog(QDialog):
         layout.addLayout(parent_layout)
 
         # Button box
-        self.button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
-        )
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         layout.addWidget(self.button_box)
 
     def setup_connections(self):
@@ -162,14 +144,10 @@ class AddAwardDialog(QDialog):
             # Get form values
             award_name = self.award_name_edit.text().strip()
             award_year = (
-                self.award_year_spin.value()
-                if self.award_year_spin.value() != 1900
-                else None
+                self.award_year_spin.value() if self.award_year_spin.value() != 1900 else None
             )
             award_category = self.award_category_edit.text().strip() or None
-            award_description = (
-                self.award_description_edit.toPlainText().strip() or None
-            )
+            award_description = self.award_description_edit.toPlainText().strip() or None
             wikipedia_link = self.wikipedia_link_edit.text().strip() or None
             parent_id = self.parent_award_combo.currentData()
 
@@ -201,21 +179,17 @@ class AddAwardDialog(QDialog):
 
                 if association:
                     logger.info(
-                        f"Created award {award.award_name} "
-                        f"for {self.entity_type} {self.entity_id}"
+                        f"Created award {award.award_name} for {self.entity_type} {self.entity_id}"
                     )
                     self.award_added.emit(award.award_id)
                     self.accept()
                 else:
-                    QMessageBox.critical(
-                        self, "Error", "Failed to create award association."
-                    )
+                    QMessageBox.critical(self, "Error", "Failed to create award association.")
             else:
                 QMessageBox.critical(self, "Error", "Failed to create award.")
 
         except SQLAlchemyError as e:
             logger.error(f"Error creating award: {e}")
             QMessageBox.critical(
-                self, "Error", f"An error occurred while creating the award:\n{str(e)}"
+                self, "Error", f"An error occurred while creating the award:\n{e!s}"
             )
-

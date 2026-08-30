@@ -24,7 +24,5 @@ def generate_community_palette(count):
         s = saturations[i % len(saturations)]
         v = values[i % len(values)]
         r, g, b = colorsys.hsv_to_rgb(hue, s, v)
-        palette.append(
-            "#{:02x}{:02x}{:02x}".format(round(r * 255), round(g * 255), round(b * 255))
-        )
+        palette.append(f"#{round(r * 255):02x}{round(g * 255):02x}{round(b * 255):02x}")
     return palette

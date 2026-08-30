@@ -8,11 +8,10 @@ self.queue_manager, self.equalizer, self.current_* track state, and the
 track_changed/duration_changed/position_changed signals.
 """
 
+from pathlib import Path
 import threading
 import time
 import unicodedata
-from pathlib import Path
-from typing import Optional
 
 from src.core.logger_config import logger
 from src.player.player_reader import READER_LOCK_TIMEOUT, _open_soundfile
@@ -24,7 +23,7 @@ class PlayerTrackLoadingMixin:
     """Opens a track for streaming playback and pre-loads the next one in
     the queue in the background so track transitions are gapless."""
 
-    def _resolve_path(self, file_path: Path) -> Optional[Path]:
+    def _resolve_path(self, file_path: Path) -> Path | None:
         """Return a Path that exists on disk, trying Unicode normalization forms if needed."""
         if file_path.exists():
             return file_path
@@ -102,9 +101,7 @@ class PlayerTrackLoadingMixin:
                 new_reader.close()
                 # TimeoutError subclasses OSError, so this is caught by the
                 # except clause below like any other open failure.
-                raise TimeoutError(
-                    "reader lock busy (reader thread likely stuck on slow I/O)"
-                )
+                raise TimeoutError("reader lock busy (reader thread likely stuck on slow I/O)")
             try:
                 old_reader = self._sf_reader
                 self._sf_reader = new_reader
@@ -204,7 +201,5 @@ class PlayerTrackLoadingMixin:
             except OSError as exc:
                 logger.warning(f"Pre-load failed for {next_path.name}: {exc}")
 
-        self._preload_thread = threading.Thread(
-            target=_preload, daemon=True, name="TrackPreload"
-        )
+        self._preload_thread = threading.Thread(target=_preload, daemon=True, name="TrackPreload")
         self._preload_thread.start()

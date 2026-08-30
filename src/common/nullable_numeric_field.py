@@ -53,10 +53,7 @@ def create_nullable_float_field(
     edit.setValidator(validator)
     edit.editingFinished.connect(
         lambda: set_nullable_field_value(
-            edit,
-            nullable_field_value(edit, is_float=True),
-            is_float=True,
-            decimals=decimals,
+            edit, nullable_field_value(edit, is_float=True), is_float=True, decimals=decimals
         )
     )
     set_nullable_field_value(edit, current_value, is_float=True, decimals=decimals)
@@ -75,11 +72,7 @@ def nullable_field_value(edit: QLineEdit, is_float: bool = False):
 
 
 def set_nullable_field_value(
-    edit: QLineEdit,
-    value,
-    is_float: bool = False,
-    decimals: int = 4,
-    group_separator: bool = False,
+    edit: QLineEdit, value, is_float: bool = False, decimals: int = 4, group_separator: bool = False
 ) -> None:
     """Write a value (or None) into a nullable field without emitting signals."""
     if value is None:

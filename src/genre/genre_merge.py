@@ -41,15 +41,13 @@ class GenreMergeDialog(MergeDBDialog):
             self._update_action_buttons()
 
         except RuntimeError as e:
-            logger.error(f"Error pre-populating source genre: {str(e)}")
+            logger.error(f"Error pre-populating source genre: {e!s}")
 
     def _get_related_count(self, genre_id):
         """Return the number of tracks associated with this genre."""
         try:
-            track_genres = self.controller.get.get_entity_links(
-                "TrackGenre", genre_id=genre_id
-            )
+            track_genres = self.controller.get.get_entity_links("TrackGenre", genre_id=genre_id)
             return len(track_genres)
         except SQLAlchemyError as e:
-            logger.error(f"Error getting track count for genre {genre_id}: {str(e)}")
+            logger.error(f"Error getting track count for genre {genre_id}: {e!s}")
             return 0

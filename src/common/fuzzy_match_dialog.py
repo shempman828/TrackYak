@@ -12,7 +12,7 @@ orchestration: building jobs from the checked rows, running them off the UI
 thread, and reporting progress/completion.
 """
 
-from typing import Callable, List, Optional
+from collections.abc import Callable
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QDialog, QMessageBox
@@ -43,7 +43,7 @@ class BaseMergeWorker(CancellableWorker):
         id_attr: str,
         name_attr: str,
         jobs: list,
-        on_pair_merged: Optional[Callable] = None,
+        on_pair_merged: Callable | None = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -66,12 +66,8 @@ class BaseMergeWorker(CancellableWorker):
                 old_id = getattr(old_entity, self.id_attr)
                 new_id = getattr(new_entity, self.id_attr)
                 try:
-                    logger.info(
-                        f"Merging {old_name} (ID: {old_id}) into {new_name} (ID: {new_id})"
-                    )
-                    merged = self.controller.merge.merge_entities(
-                        self.entity_type, old_id, new_id
-                    )
+                    logger.info(f"Merging {old_name} (ID: {old_id}) into {new_name} (ID: {new_id})")
+                    merged = self.controller.merge.merge_entities(self.entity_type, old_id, new_id)
                     if not merged:
                         msg = (
                             f"Failed to merge {old_name} → {new_name}: "
@@ -120,16 +116,14 @@ class BaseFuzzyMatchDialog(QDialog):
     _ID_ATTR: str = ""
     _NAME_ATTR: str = ""
 
-    def __init__(self, matches: List[tuple], controller, title: str, parent=None):
+    def __init__(self, matches: list[tuple], controller, title: str, parent=None):
         super().__init__(parent)
         self.controller = controller
-        self.matches = sorted(
-            matches, key=lambda x: x[2], reverse=True
-        )  # x[2] is the score
+        self.matches = sorted(matches, key=lambda x: x[2], reverse=True)  # x[2] is the score
         self.setWindowTitle(title)
         self.setMinimumSize(600, 400)
         self.match_widgets = []
-        self._worker: Optional[BaseMergeWorker] = None
+        self._worker: BaseMergeWorker | None = None
         self.init_ui()
 
     def init_ui(self) -> None:
@@ -194,16 +188,12 @@ class BaseFuzzyMatchDialog(QDialog):
 
         if success_count > 0:
             QMessageBox.information(
-                self,
-                "Merge Complete",
-                f"Successfully merged {success_count}/{total} pairs",
+                self, "Merge Complete", f"Successfully merged {success_count}/{total} pairs"
             )
             self.accept()
         else:
             QMessageBox.warning(
-                self,
-                "No Merges",
-                "No pairs were merged (none checked or errors occurred)",
+                self, "No Merges", "No pairs were merged (none checked or errors occurred)"
             )
 
     def reject(self) -> None:

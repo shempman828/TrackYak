@@ -27,7 +27,6 @@ latest week's row.
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
 from sqlalchemy import func, select
 
@@ -41,8 +40,8 @@ class MissingChartItem:
     entity_type: str  # 'Track' or 'Album'
     raw_title: str
     raw_performer: str
-    peak_position: Optional[int]
-    weeks_on_chart: Optional[int]
+    peak_position: int | None
+    weeks_on_chart: int | None
     gap_run_length: int = 0  # best (before + after owned run) this item would connect
 
 
@@ -54,7 +53,7 @@ def _popularity_key(item: MissingChartItem) -> tuple:
     return (peak, -weeks)
 
 
-def _aggregate_missing(session, chart_ids: Optional[list] = None) -> list:
+def _aggregate_missing(session, chart_ids: list | None = None) -> list:
     stmt = (
         select(
             ChartEntry.chart_id,
@@ -92,9 +91,7 @@ def _aggregate_missing(session, chart_ids: Optional[list] = None) -> list:
     ]
 
 
-def get_missing_popular(
-    session, chart_ids: Optional[list] = None, limit: int = 100
-) -> list:
+def get_missing_popular(session, chart_ids: list | None = None, limit: int = 100) -> list:
     """Missing entries ranked by chart performance alone (best peak
     position, then most weeks on chart as a tiebreaker)."""
     items = _aggregate_missing(session, chart_ids)
@@ -103,7 +100,7 @@ def get_missing_popular(
 
 
 def get_missing_gap_fills(
-    session, chart_ids: Optional[list] = None, min_gap: int = 4, limit: int = 100
+    session, chart_ids: list | None = None, min_gap: int = 4, limit: int = 100
 ) -> list:
     """Missing entries that would connect two runs of already-owned chart
     positions in the same week -- see module docstring. `min_gap` is the

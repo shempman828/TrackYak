@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -33,7 +33,7 @@ class PublisherFuzzyMatchDialog(BaseFuzzyMatchDialog):
     _ID_ATTR = "publisher_id"
     _NAME_ATTR = "publisher_name"
 
-    def __init__(self, matches: List[tuple], controller: Any, parent=None):
+    def __init__(self, matches: list[tuple], controller: Any, parent=None):
         super().__init__(matches, controller, "Merge Publishers", parent)
 
     @staticmethod
@@ -146,6 +146,4 @@ class PublisherFuzzyMatchDialog(BaseFuzzyMatchDialog):
         self.resize(width, height)
 
     def _notify_no_jobs(self) -> None:
-        show_status_message(
-            self, "No pairs were merged (none checked or errors occurred)"
-        )
+        show_status_message(self, "No pairs were merged (none checked or errors occurred)")

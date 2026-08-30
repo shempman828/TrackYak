@@ -89,21 +89,15 @@ Index(
 )  # Genre hierarchy walk: most-niche-genre depth, root-branch lookups
 
 # --- Mood ---
-Index(
-    "idx_moods_parent_id", Mood.parent_id
-)  # Mood hierarchy walk
+Index("idx_moods_parent_id", Mood.parent_id)  # Mood hierarchy walk
 
 # --- Disc ---
 Index("idx_discs_album_number", Disc.album_id, Disc.disc_number)
 
 # --- Junction tables ---
 Index("idx_track_artist_roles", TrackArtistRole.artist_id, TrackArtistRole.track_id)
-Index(
-    "idx_album_roles_artist", AlbumRoleAssociation.artist_id
-)  # Reverse lookup: artist → albums
-Index(
-    "idx_track_genres_genre_id", TrackGenre.genre_id
-)  # Reverse lookup: genre → tracks
+Index("idx_album_roles_artist", AlbumRoleAssociation.artist_id)  # Reverse lookup: artist → albums
+Index("idx_track_genres_genre_id", TrackGenre.genre_id)  # Reverse lookup: genre → tracks
 Index(
     "idx_mood_track_association_track_id", MoodTrackAssociation.track_id
 )  # Reverse lookup: track → moods
@@ -130,9 +124,7 @@ Index("idx_album_publisher_publisher_id", AlbumPublisher.publisher_id)
 Index(
     "idx_publisher_founders_artist_id", PublisherFounder.artist_id
 )  # Reverse lookup: artist → publishers founded
-Index(
-    "idx_publishers_parent_id", Publisher.parent_id
-)  # Publisher hierarchy walk
+Index("idx_publishers_parent_id", Publisher.parent_id)  # Publisher hierarchy walk
 
 # --- Role ---
 Index("idx_roles_parent_id", Role.parent_id)  # Role hierarchy walk
@@ -146,9 +138,7 @@ Index(
 # --- Place associations ---
 Index("idx_place_associations", PlaceAssociation.place_id, PlaceAssociation.entity_id)
 Index(
-    "idx_place_assoc_entity_type_id",
-    PlaceAssociation.entity_type,
-    PlaceAssociation.entity_id,
+    "idx_place_assoc_entity_type_id", PlaceAssociation.entity_type, PlaceAssociation.entity_id
 )  # Covers both entity_type-only sweeps and the common entity_type+entity_id lookup
 
 # --- Awards ---
@@ -159,9 +149,7 @@ Index(
 # --- Award associations ---
 Index("idx_award_associations", AwardAssociation.award_id, AwardAssociation.entity_id)
 Index(
-    "idx_award_assoc_entity_type_id",
-    AwardAssociation.entity_type,
-    AwardAssociation.entity_id,
+    "idx_award_assoc_entity_type_id", AwardAssociation.entity_type, AwardAssociation.entity_id
 )  # Covers both entity_type-only sweeps and the common entity_type+entity_id lookup
 
 # --- Playlists ---
@@ -181,9 +169,7 @@ Index(
 )  # Search tab lookups; also the matcher's title-bucket build query
 
 # --- Samples ---
-Index(
-    "idx_samples_sampled_id", Samples.sampled_id
-)  # Reverse lookup: track → tracks that sample it
+Index("idx_samples_sampled_id", Samples.sampled_id)  # Reverse lookup: track → tracks that sample it
 
 # --- TrackUsage ---
 Index("idx_track_usages_track_id", TrackUsage.track_id)

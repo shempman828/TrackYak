@@ -3,8 +3,8 @@ base_album_edit.py
 """
 
 import sqlite3
-import webbrowser
 from typing import ClassVar
+import webbrowser
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
@@ -41,10 +41,7 @@ from src.album.base_album_edit_tabs import (
     TrackCreditsTab,
     TracksTab,
 )
-from src.album.release_type_utils import (
-    RELEASE_TYPE_SUGGESTIONS,
-    normalize_release_type,
-)
+from src.album.release_type_utils import RELEASE_TYPE_SUGGESTIONS, normalize_release_type
 from src.common.edit_dirty import value_changed
 from src.common.layout_utils import clear_layout
 from src.common.nullable_numeric_field import create_nullable_int_field
@@ -72,14 +69,7 @@ ALBUM_LANGUAGE_SUGGESTIONS = [
 ]
 # RELEASE_TYPE_SUGGESTIONS lives in release_type_utils.py alongside the
 # normalization helper, since both need the same canonical casing.
-STATUS_SUGGESTIONS = [
-    "Official",
-    "Promotional",
-    "Bootleg",
-    "Withdrawn",
-    "Expunged",
-    "Cancelled",
-]
+STATUS_SUGGESTIONS = ["Official", "Promotional", "Bootleg", "Withdrawn", "Expunged", "Cancelled"]
 
 
 # =============================================================================
@@ -129,14 +119,10 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             fresh = controller.get.get_entity_object("Album", album_id=album.album_id)
             self.album = fresh if fresh is not None else album
         except SQLAlchemyError as e:
-            logger.warning(
-                f"Failed to reload album {album.album_id} on editor open: {e}"
-            )
+            logger.warning(f"Failed to reload album {album.album_id} on editor open: {e}")
             self.album = album
 
-        self.helper = RelationshipHelpers(
-            controller, album, self.refresh_view, widget=self
-        )
+        self.helper = RelationshipHelpers(controller, album, self.refresh_view, widget=self)
         self.field_widgets: dict = {}
         self.tab_builder = AlbumTabBuilder(self)
 
@@ -164,12 +150,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         instead of a plain QSpinBox so the user can clear the value back to
         NULL by clearing the text.
         """
-        NULLABLE_INT_FIELDS = {
-            "release_day",
-            "release_month",
-            "release_year",
-            "estimated_sales",
-        }
+        NULLABLE_INT_FIELDS = {"release_day", "release_month", "release_year", "estimated_sales"}
         for field_name, field_config in ALBUM_FIELDS.items():
             if not field_config.editable:
                 continue
@@ -177,9 +158,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
             if field_config.type is int and field_name in NULLABLE_INT_FIELDS:
                 min_val = field_config.min if field_config.min is not None else 0
-                max_val = (
-                    field_config.max if field_config.max is not None else 9_999_999
-                )
+                max_val = field_config.max if field_config.max is not None else 9_999_999
                 widget = create_nullable_int_field(
                     min_val=int(min_val),
                     max_val=int(max_val),
@@ -187,9 +166,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                     group_separator=(field_name == "estimated_sales"),
                 )
             else:
-                widget = AlbumUIComponents.create_editable_field(
-                    field_config, current_value
-                )
+                widget = AlbumUIComponents.create_editable_field(field_config, current_value)
             self.field_widgets[field_name] = widget
 
         self._attach_completer("album_language", self._get_album_language_suggestions())
@@ -243,9 +220,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
     def _get_status_suggestions(self):
         if AlbumEditor._status_cache is None:
-            AlbumEditor._status_cache = self._fetch_field_suggestions(
-                "status", STATUS_SUGGESTIONS
-            )
+            AlbumEditor._status_cache = self._fetch_field_suggestions("status", STATUS_SUGGESTIONS)
         return AlbumEditor._status_cache
 
     def _fetch_field_suggestions(self, field_name, fallback):
@@ -263,9 +238,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 if value:
                     suggestions.setdefault(value.lower(), value)
         except SQLAlchemyError:
-            logger.debug(
-                f"Could not fetch suggestions for {field_name!r}", exc_info=True
-            )
+            logger.debug(f"Could not fetch suggestions for {field_name!r}", exc_info=True)
         return sorted(suggestions.values(), key=str.lower)
 
     # =========================================================================
@@ -296,9 +269,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         self.tabs.addTab(self._genres_tab.build(), "Genres")
         self.tabs.addTab(self._track_credits_tab.build(), "Track Credits")
         self.tabs.addTab(self.tab_builder.build_artists_tab(), "Album credit")
-        self.tabs.addTab(
-            self.tab_builder.build_relationships_tab(), "Publishers && Places"
-        )
+        self.tabs.addTab(self.tab_builder.build_relationships_tab(), "Publishers && Places")
         self.tabs.addTab(self.tab_builder.build_awards_tab(), "Awards")
         self.tabs.addTab(self._advanced_tab.build(), "Advanced")
 
@@ -525,9 +496,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             remove_btn = QPushButton("✕ Remove")
             remove_btn.setFixedWidth(90)
             remove_btn.setProperty("danger", True)
-            remove_btn.clicked.connect(
-                lambda checked=False, a=alias: self._remove_alias(a)
-            )
+            remove_btn.clicked.connect(lambda checked=False, a=alias: self._remove_alias(a))
             row.addWidget(name_lbl, 2)
             row.addWidget(type_lbl, 1)
             row.addWidget(remove_btn)
@@ -652,9 +621,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         try:
             kwargs = self._collect_changed_fields()
             if kwargs:
-                self.controller.update.update_entity(
-                    "Album", self.album.album_id, **kwargs
-                )
+                self.controller.update.update_entity("Album", self.album.album_id, **kwargs)
             self.accept()
 
         except SQLAlchemyError as e:
@@ -684,9 +651,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         it isn't already one of those.
         """
         try:
-            updated = self.controller.get.get_entity_object(
-                "Album", album_id=self.album.album_id
-            )
+            updated = self.controller.get.get_entity_object("Album", album_id=self.album.album_id)
             if updated:
                 # get_entity_object returns the SAME identity-mapped Album
                 # instance (this session never expunges it), and every write
@@ -747,8 +712,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         """Return the vertical scroll value of every scroll area in widget,
         in traversal order, so it can be reapplied to a rebuilt replacement."""
         return [
-            area.verticalScrollBar().value()
-            for area in widget.findChildren(QAbstractScrollArea)
+            area.verticalScrollBar().value() for area in widget.findChildren(QAbstractScrollArea)
         ]
 
     @staticmethod
@@ -823,9 +787,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 return
             for idx in range(self.tabs.count()):
                 if self.tabs.tabText(idx) == title:
-                    if title == "Track Credits" and self._refresh_track_credits_tab(
-                        idx
-                    ):
+                    if title == "Track Credits" and self._refresh_track_credits_tab(idx):
                         return
                     was_current = self.tabs.currentIndex() == idx
                     old_tab = self.tabs.widget(idx)
@@ -850,9 +812,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     def _on_subdialog_closed(self, result=None):
         """Called whenever a sub-dialog (aliases, etc.) closes."""
         try:
-            updated = self.controller.get.get_entity_object(
-                "Album", album_id=self.album.album_id
-            )
+            updated = self.controller.get.get_entity_object("Album", album_id=self.album.album_id)
             if updated:
                 # Same staleness hazard as refresh_view() above -- expire so
                 # whatever the sub-dialog changed (aliases, etc.) is actually
@@ -874,9 +834,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         try:
             return (
                 self.controller.get.get_all_entities(
-                    "PlaceAssociation",
-                    entity_id=self.album.album_id,
-                    entity_type="Album",
+                    "PlaceAssociation", entity_id=self.album.album_id, entity_type="Album"
                 )
                 or []
             )

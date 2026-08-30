@@ -4,16 +4,14 @@ import inspect
 
 from sqlalchemy import select
 
-import src.db.db_tables
 from src.core.logger_config import logger
+import src.db.db_tables
 
 # Maps every ORM class name in src.db.db_tables to its class object, so the
 # rest of this package can look entities up by string name (e.g. "Track")
 # without each module needing its own copy of globals().
 MODEL_REGISTRY: dict = {
-    name: obj
-    for name, obj in inspect.getmembers(src.db.db_tables)
-    if inspect.isclass(obj)
+    name: obj for name, obj in inspect.getmembers(src.db.db_tables) if inspect.isclass(obj)
 }
 
 
@@ -60,8 +58,7 @@ class BaseDBHelper:
 
             conflict = self.session.scalar(
                 select(entity_class).where(
-                    column == value,
-                    getattr(entity_class, pk_col) != entity_id,
+                    column == value, getattr(entity_class, pk_col) != entity_id
                 )
             )
             if conflict is not None:
@@ -73,9 +70,7 @@ class BaseDBHelper:
 
         return None
 
-    def _find_unique_conflict_bulk(
-        self, entity_class, pk_col, entity_ids: list, values: dict
-    ):
+    def _find_unique_conflict_bulk(self, entity_class, pk_col, entity_ids: list, values: dict):
         """Same as ``_find_unique_conflict``, but for a batch update covering
         several rows at once: a collision only counts if it belongs to a row
         *outside* ``entity_ids`` (rows being updated together are allowed to
@@ -91,8 +86,7 @@ class BaseDBHelper:
 
             conflict = self.session.scalar(
                 select(entity_class).where(
-                    column == value,
-                    getattr(entity_class, pk_col).notin_(entity_ids),
+                    column == value, getattr(entity_class, pk_col).notin_(entity_ids)
                 )
             )
             if conflict is not None:

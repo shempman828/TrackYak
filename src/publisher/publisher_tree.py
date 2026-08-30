@@ -1,8 +1,5 @@
 from collections import defaultdict
 
-from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
-
 from PySide6.QtCore import QMimeData, Qt
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
@@ -12,6 +9,8 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem,
     QTreeWidgetItemIterator,
 )
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.asset_paths import icon
 from src.core.logger_config import logger
@@ -62,7 +61,7 @@ class PublisherTreeWidget(QTreeWidget):
         try:
             publishers = self.controller.get.get_all_entities("Publisher")
         except SQLAlchemyError as e:
-            logger.error(f"Failed loading publishers: {str(e)}")
+            logger.error(f"Failed loading publishers: {e!s}")
             return
 
         self.clear()
@@ -74,9 +73,7 @@ class PublisherTreeWidget(QTreeWidget):
                 self._make_publisher_item(
                     publisher, recursive_counts.get(publisher.publisher_id, 0)
                 )
-                for publisher in sorted(
-                    publishers, key=lambda p: (p.publisher_name or "").lower()
-                )
+                for publisher in sorted(publishers, key=lambda p: (p.publisher_name or "").lower())
             ]
         else:
             # Create dictionaries for hierarchy
@@ -87,10 +84,7 @@ class PublisherTreeWidget(QTreeWidget):
             for publisher in publishers:
                 album_count = recursive_counts.get(publisher.publisher_id, 0)
                 item = self._make_publisher_item(publisher, album_count)
-                publisher_dict[publisher.publisher_id] = {
-                    "item": item,
-                    "publisher": publisher,
-                }
+                publisher_dict[publisher.publisher_id] = {"item": item, "publisher": publisher}
 
             # Second pass: build hierarchy
             for publisher_id, data in publisher_dict.items():
@@ -168,12 +162,10 @@ class PublisherTreeWidget(QTreeWidget):
         publisher_id = item.data(0, Qt.UserRole)
 
         try:
-            self.controller.update.update_entity(
-                "Publisher", publisher_id, publisher_name=new_name
-            )
+            self.controller.update.update_entity("Publisher", publisher_id, publisher_name=new_name)
             logger.info(f"Publisher renamed to: {new_name}")
         except SQLAlchemyError as e:
-            logger.error(f"Failed to rename publisher: {str(e)}")
+            logger.error(f"Failed to rename publisher: {e!s}")
             self.load_publishers()
 
     def calculate_recursive_album_counts(self, publishers):
@@ -219,7 +211,7 @@ class PublisherTreeWidget(QTreeWidget):
             }
 
         except SQLAlchemyError as e:
-            logger.error(f"Error calculating album counts: {str(e)}")
+            logger.error(f"Error calculating album counts: {e!s}")
             return {}
 
     def count_total(self):
@@ -326,13 +318,11 @@ class PublisherTreeWidget(QTreeWidget):
             return
 
         try:
-            self.controller.update.update_entity(
-                "Publisher", source_id, parent_id=target_id
-            )
+            self.controller.update.update_entity("Publisher", source_id, parent_id=target_id)
             self.load_publishers()
             logger.info("Parent relationship updated successfully.")
         except SQLAlchemyError as e:
-            logger.error(f"Error updating parent: {str(e)}")
+            logger.error(f"Error updating parent: {e!s}")
 
     def is_child_of(self, parent_item, child_item):
         """Check if child_item is a descendant of parent_item."""
@@ -347,9 +337,7 @@ class PublisherTreeWidget(QTreeWidget):
         """Remove parent from item."""
         publisher_id = item.data(0, Qt.UserRole)
         try:
-            self.controller.update.update_entity(
-                "Publisher", publisher_id, parent_id=None
-            )
+            self.controller.update.update_entity("Publisher", publisher_id, parent_id=None)
             self.load_publishers()
         except SQLAlchemyError as e:
-            logger.error(f"Error removing parent: {str(e)}")
+            logger.error(f"Error removing parent: {e!s}")

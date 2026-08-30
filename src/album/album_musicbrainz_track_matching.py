@@ -70,11 +70,7 @@ class AlbumMusicBrainzTrackMatchingMixin:
         """A missing disc number on either side isn't a real conflict --
         only two present, differing disc numbers mean the track actually
         belongs to a different medium."""
-        return (
-            local_disc_num is None
-            or mb_disc_num is None
-            or local_disc_num == mb_disc_num
-        )
+        return local_disc_num is None or mb_disc_num is None or local_disc_num == mb_disc_num
 
     def _match_tracks(self):
         local_tracks = list(self.album.tracks or [])
@@ -126,8 +122,7 @@ class AlbumMusicBrainzTrackMatchingMixin:
                 (
                     self._title_similarity(mbt.title, local.track_name),
                     abs(
-                        (mbt.absolute_position or mbt.track_number or 0)
-                        - (local.track_number or 0)
+                        (mbt.absolute_position or mbt.track_number or 0) - (local.track_number or 0)
                     ),
                     mbt,
                     local,
@@ -189,9 +184,7 @@ class AlbumMusicBrainzTrackMatchingMixin:
         for row, (combo, _mbt) in enumerate(self._manual_combos):
             current = selections[row]
             taken_elsewhere = [
-                data
-                for i, data in enumerate(selections)
-                if i != row and data is not None
+                data for i, data in enumerate(selections) if i != row and data is not None
             ]
             available = [
                 local

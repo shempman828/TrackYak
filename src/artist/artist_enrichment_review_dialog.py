@@ -12,7 +12,7 @@ confirms what gets imported rather than it happening silently.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -27,11 +27,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.artist.artist_fuzzy_match import (
-    FuzzyMatchDialog,
-    _blocking_keys,
-    artist_name_similarity,
-)
+from src.artist.artist_fuzzy_match import FuzzyMatchDialog, _blocking_keys, artist_name_similarity
 from src.core.logger_config import logger
 from src.musicbrainz.musicbrainz_artist import MBAlias, MBArtistRelations, MBGroupRelation
 from src.place.place_association_types import (
@@ -64,11 +60,11 @@ class ArtistEnrichmentReviewDialog(QDialog):
         self.controller = controller
         self.artist = artist
         self.relations = relations
-        self._alias_checks: List[Tuple[QCheckBox, MBAlias]] = []
-        self._birthplace: Optional[Tuple[QCheckBox, str, List[Dict[str, Any]]]] = None
+        self._alias_checks: list[tuple[QCheckBox, MBAlias]] = []
+        self._birthplace: tuple[QCheckBox, str, list[dict[str, Any]]] | None = None
         self._birth_assoc_type = "Origin" if relations.is_group else "Birthplace"
-        self._deathplace: Optional[Tuple[QCheckBox, str, List[Dict[str, Any]]]] = None
-        self._member_checks: List[Tuple[QCheckBox, MBGroupRelation, object]] = []
+        self._deathplace: tuple[QCheckBox, str, list[dict[str, Any]]] | None = None
+        self._member_checks: list[tuple[QCheckBox, MBGroupRelation, object]] = []
         self.has_content = False
 
         self.setWindowTitle("Review MusicBrainz Details")
@@ -79,7 +75,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
     # Filtering / matching against existing local data (no DB writes)
     # ------------------------------------------------------------------
 
-    def _usable_aliases(self) -> List[MBAlias]:
+    def _usable_aliases(self) -> list[MBAlias]:
         own_name = (self.artist.artist_name or "").strip().lower()
         existing = {a.strip().lower() for a in (self.artist.aliases_list or [])}
         out = []
@@ -95,9 +91,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
             out.append(alias)
         return out
 
-    def _find_alias_merge_candidates(
-        self, aliases: List[MBAlias]
-    ) -> Dict[str, Tuple[object, int]]:
+    def _find_alias_merge_candidates(self, aliases: list[MBAlias]) -> dict[str, tuple[object, int]]:
         """Fuzzy-match each usable alias against every *other* local artist
         name, to catch near-duplicates (punctuation, spelling, spacing)
         that `_usable_aliases()`'s exact-match check lets through -- e.g. an
@@ -124,7 +118,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
             for key in _blocking_keys(artist.artist_name):
                 blocks[key].append(artist)
 
-        candidates: Dict[str, Tuple[object, int]] = {}
+        candidates: dict[str, tuple[object, int]] = {}
         for alias in aliases:
             candidate_ids_seen = set()
             best_artist, best_ratio = None, 0.0
@@ -138,11 +132,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
                     # itself confirms they're distinct people -- never
                     # suggest merging the alias onto it, however close the
                     # name match (see artist_fuzzy_match.py's same guard).
-                    if (
-                        self.artist.MBID
-                        and other.MBID
-                        and self.artist.MBID != other.MBID
-                    ):
+                    if self.artist.MBID and other.MBID and self.artist.MBID != other.MBID:
                         continue
                     ratio = artist_name_similarity(alias.name, other.artist_name)
                     if ratio >= ALIAS_MERGE_THRESHOLD and ratio > best_ratio:
@@ -155,9 +145,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
         try:
             assocs = (
                 self.controller.get.get_all_entities(
-                    "PlaceAssociation",
-                    entity_id=self.artist.artist_id,
-                    entity_type="Artist",
+                    "PlaceAssociation", entity_id=self.artist.artist_id, entity_type="Artist"
                 )
                 or []
             )
@@ -166,7 +154,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
             assocs = []
         return {a.association_type.type_name for a in assocs if a.association_type}
 
-    def _matched_group_relations(self) -> List[Tuple[MBGroupRelation, object]]:
+    def _matched_group_relations(self) -> list[tuple[MBGroupRelation, object]]:
         """Resolve each relation's counterpart to a local Artist by MBID,
         falling back to an exact (case-insensitive) name match. Relations
         with no local counterpart are dropped -- this flow never creates
@@ -182,9 +170,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
         for rel in self.relations.group_relations:
             counterpart = self.controller.get.get_entity_object("Artist", MBID=rel.mbid)
             if counterpart is None:
-                counterpart = self.controller.get.get_entity_object(
-                    "Artist", artist_name=rel.name
-                )
+                counterpart = self.controller.get.get_entity_object("Artist", artist_name=rel.name)
             if counterpart is None or counterpart.artist_id == self.artist.artist_id:
                 continue
             pair = (
@@ -311,18 +297,11 @@ class ArtistEnrichmentReviewDialog(QDialog):
         Duplicates" uses) scoped to just this alias's candidate, instead of
         re-implementing merge logic here.
         """
-        dialog = FuzzyMatchDialog(
-            [(self.artist, candidate_artist, score)], self.controller, self
-        )
+        dialog = FuzzyMatchDialog([(self.artist, candidate_artist, score)], self.controller, self)
         if dialog.exec_() != QDialog.Accepted:
             return
 
-        if (
-            self.controller.get.get_entity_object(
-                "Artist", artist_id=self.artist.artist_id
-            )
-            is None
-        ):
+        if self.controller.get.get_entity_object("Artist", artist_id=self.artist.artist_id) is None:
             # self.artist was the one merged away -- nothing left to enrich.
             self.reject()
             return
@@ -350,8 +329,11 @@ class ArtistEnrichmentReviewDialog(QDialog):
             except SQLAlchemyError as e:
                 logger.warning(f"Could not import MB alias '{alias.name}': {e}")
 
-        place_cache: Dict[str, Any] = {}
-        for entry, assoc_type in ((self._birthplace, self._birth_assoc_type), (self._deathplace, "Deathplace")):
+        place_cache: dict[str, Any] = {}
+        for entry, assoc_type in (
+            (self._birthplace, self._birth_assoc_type),
+            (self._deathplace, "Deathplace"),
+        ):
             if entry is None:
                 continue
             cb, place_name, chain = entry
@@ -383,11 +365,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
         self.accept()
 
     def _apply_place(
-        self,
-        place_name: str,
-        chain: List[Dict[str, Any]],
-        assoc_type: str,
-        cache: Dict[str, Any],
+        self, place_name: str, chain: list[dict[str, Any]], assoc_type: str, cache: dict[str, Any]
     ):
         try:
             if chain:
@@ -398,13 +376,9 @@ class ArtistEnrichmentReviewDialog(QDialog):
             else:
                 # MusicBrainz didn't return an area MBID (rare) -- fall
                 # back to the old flat by-name find-or-create.
-                place = self.controller.get.get_entity_object(
-                    "Place", place_name=place_name
-                )
+                place = self.controller.get.get_entity_object("Place", place_name=place_name)
                 if place is None:
-                    place = self.controller.add.add_entity(
-                        "Place", place_name=place_name
-                    )
+                    place = self.controller.add.add_entity("Place", place_name=place_name)
             if place is None:
                 return
             known_types = fetch_association_types(self.controller)
@@ -416,9 +390,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
                 entity_id=self.artist.artist_id,
                 entity_type="Artist",
                 place_id=place.place_id,
-                association_type_id=assoc_type_obj.association_type_id
-                if assoc_type_obj
-                else None,
+                association_type_id=assoc_type_obj.association_type_id if assoc_type_obj else None,
             )
         except SQLAlchemyError as e:
             logger.warning(f"Could not import {assoc_type} '{place_name}': {e}")

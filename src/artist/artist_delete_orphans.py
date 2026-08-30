@@ -1,6 +1,6 @@
 """Dialog for reviewing and bulk-deleting artists with no links to anything else."""
 
-from typing import Any, List
+from typing import Any
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -21,7 +21,7 @@ class OrphanArtistDialog(QDialog):
     or awards, and lets the user deselect any they'd rather keep before the
     remaining ones are permanently deleted."""
 
-    def __init__(self, orphans: List[Any], parent=None):
+    def __init__(self, orphans: list[Any], parent=None):
         super().__init__(parent)
         self.orphans = sorted(orphans, key=lambda a: a.artist_name.lower())
         self.setWindowTitle("Delete Unused Artists")
@@ -87,6 +87,6 @@ class OrphanArtistDialog(QDialog):
         for checkbox in self._checkboxes:
             checkbox.setChecked(checked)
 
-    def selected_artist_ids(self) -> List[int]:
+    def selected_artist_ids(self) -> list[int]:
         """Return the artist_ids of every still-checked row."""
         return [cb.artist_id for cb in self._checkboxes if cb.isChecked()]

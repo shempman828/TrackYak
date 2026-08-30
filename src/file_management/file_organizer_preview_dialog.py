@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -18,7 +16,7 @@ from src.core.logger_config import logger
 class OrganizationPreviewDialog(QDialog):
     """Dialog to preview and confirm file organization operations"""
 
-    def __init__(self, parent, operations: List[Dict]):
+    def __init__(self, parent, operations: list[dict]):
         super().__init__(parent)
         self.operations = operations
         logger.debug(f"Previewing file organization: {len(operations)} operations")
@@ -83,7 +81,7 @@ class OrganizationPreviewDialog(QDialog):
             item.setSizeHint(self._calculate_item_size(op))  # Set appropriate height
             self.ops_list.addItem(item)
 
-    def _calculate_item_size(self, op: Dict) -> QSize:
+    def _calculate_item_size(self, op: dict) -> QSize:
         """Calculate appropriate size for list item based on content"""
         # Estimate height based on path lengths (you can adjust these values)
         current_path_len = len(str(op["current_path"]))
@@ -91,13 +89,11 @@ class OrganizationPreviewDialog(QDialog):
 
         # Base height + extra for each line
         base_height = 60
-        extra_height = (
-            max(current_path_len, expected_path_len) // 50
-        )  # Adjust divisor as needed
+        extra_height = max(current_path_len, expected_path_len) // 50  # Adjust divisor as needed
 
         return QSize(400, base_height + (extra_height * 10))
 
-    def _format_operation_text(self, op: Dict) -> str:
+    def _format_operation_text(self, op: dict) -> str:
         """Format operation for display in list with full paths"""
         current_path = str(op["current_path"])
         expected_path = str(op["expected_path"])
@@ -117,7 +113,7 @@ class OrganizationPreviewDialog(QDialog):
             item = self.ops_list.item(i)
             item.setCheckState(Qt.Unchecked)
 
-    def get_approved_operations(self) -> List[Dict]:
+    def get_approved_operations(self) -> list[dict]:
         """Get list of approved operations to execute"""
         approved = []
 

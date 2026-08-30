@@ -54,13 +54,9 @@ def resolve_or_create_publisher(controller, label: MBLabelInfo) -> Any | None:
         _fill_blank_scalars(controller, publisher, label)
         return publisher
 
-    publisher = controller.get.resolve_entity_or_alias(
-        "Publisher", "publisher_name", label.name
-    )
+    publisher = controller.get.resolve_entity_or_alias("Publisher", "publisher_name", label.name)
     if publisher is not None and not publisher.MBID:
-        controller.update.update_entity(
-            "Publisher", publisher.publisher_id, MBID=label.mbid
-        )
+        controller.update.update_entity("Publisher", publisher.publisher_id, MBID=label.mbid)
         publisher.MBID = label.mbid
         _fill_blank_scalars(controller, publisher, label)
         return publisher
@@ -104,15 +100,12 @@ def _fill_blank_scalars(controller, publisher, label: MBLabelInfo) -> None:
     if not updates:
         return
     try:
-        controller.update.update_entity(
-            "Publisher", publisher.publisher_id, **updates
-        )
+        controller.update.update_entity("Publisher", publisher.publisher_id, **updates)
         for field, value in updates.items():
             setattr(publisher, field, value)
     except SQLAlchemyError as e:
         logger.warning(
-            f"Could not fill in MusicBrainz details for publisher "
-            f"'{publisher.publisher_name}': {e}"
+            f"Could not fill in MusicBrainz details for publisher '{publisher.publisher_name}': {e}"
         )
 
 
@@ -123,22 +116,16 @@ def resolve_or_create_founder_artist(controller, founder: MBFounderRelation) -> 
     if artist is not None:
         return artist
 
-    artist = controller.get.resolve_entity_or_alias(
-        "Artist", "artist_name", founder.name
-    )
+    artist = controller.get.resolve_entity_or_alias("Artist", "artist_name", founder.name)
     if artist is not None and not artist.MBID:
-        controller.update.update_entity(
-            "Artist", artist.artist_id, MBID=founder.mbid
-        )
+        controller.update.update_entity("Artist", artist.artist_id, MBID=founder.mbid)
         artist.MBID = founder.mbid
         return artist
     # A name match whose row already carries a (necessarily different)
     # MBID is a distinct real-world artist, not this founder -- ignore
     # it and create a new Artist instead of merging two different people.
 
-    return controller.add.add_entity(
-        "Artist", artist_name=founder.name, MBID=founder.mbid
-    )
+    return controller.add.add_entity("Artist", artist_name=founder.name, MBID=founder.mbid)
 
 
 def resolve_or_create_publishers(controller, label: MBLabelInfo) -> list[Any]:
@@ -171,9 +158,7 @@ def apply_publisher_headquarters(
     try:
         existing = (
             controller.get.get_all_entities(
-                "PlaceAssociation",
-                entity_type="Publisher",
-                entity_id=publisher.publisher_id,
+                "PlaceAssociation", entity_type="Publisher", entity_id=publisher.publisher_id
             )
             or []
         )
@@ -187,9 +172,7 @@ def apply_publisher_headquarters(
         if place is None:
             return
         known_types = fetch_association_types(controller)
-        hq_type = find_or_create_association_type(
-            controller, _HEADQUARTERS_TYPE_NAME, known_types
-        )
+        hq_type = find_or_create_association_type(controller, _HEADQUARTERS_TYPE_NAME, known_types)
         controller.add.add_entity(
             "PlaceAssociation",
             entity_id=publisher.publisher_id,
@@ -199,14 +182,11 @@ def apply_publisher_headquarters(
         )
     except SQLAlchemyError as e:
         logger.warning(
-            f"Could not import headquarters for publisher "
-            f"'{publisher.publisher_name}': {e}"
+            f"Could not import headquarters for publisher '{publisher.publisher_name}': {e}"
         )
 
 
-def apply_publisher_founders(
-    controller, publisher, founders: list[MBFounderRelation]
-) -> None:
+def apply_publisher_founders(controller, publisher, founders: list[MBFounderRelation]) -> None:
     """Resolve/create each founder Artist, then add any PublisherFounder
     rows not already present -- same diff-against-existing approach as
     PublisherEditDialog._save_founders."""
@@ -224,8 +204,7 @@ def apply_publisher_founders(
         }
     except SQLAlchemyError as e:
         logger.warning(
-            f"Could not load existing founders for publisher "
-            f"'{publisher.publisher_name}': {e}"
+            f"Could not load existing founders for publisher '{publisher.publisher_name}': {e}"
         )
         return
 
@@ -235,9 +214,7 @@ def apply_publisher_founders(
             if artist is None or artist.artist_id in existing_ids:
                 continue
             controller.add.add_entity(
-                "PublisherFounder",
-                publisher_id=publisher.publisher_id,
-                artist_id=artist.artist_id,
+                "PublisherFounder", publisher_id=publisher.publisher_id, artist_id=artist.artist_id
             )
             existing_ids.add(artist.artist_id)
         except SQLAlchemyError as e:

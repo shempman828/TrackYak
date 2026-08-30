@@ -32,8 +32,7 @@ class LyricSearch:
 
         if not artists:
             logger.debug(
-                "No artists found for track '%s'",
-                getattr(self.track, "title", "<unknown>"),
+                "No artists found for track '%s'", getattr(self.track, "title", "<unknown>")
             )
             return ""
 
@@ -84,9 +83,7 @@ class LyricSearch:
             return lyrics
 
         except JSONDecodeError:
-            logger.debug(
-                "Lyrics API returned an empty/non-JSON response; treating as not found"
-            )
+            logger.debug("Lyrics API returned an empty/non-JSON response; treating as not found")
             return None
         except URLError as e:
             logger.error(f"Error searching for lyrics: {e}")
@@ -124,9 +121,7 @@ class LyricSearch:
                     return lyrics
 
         except JSONDecodeError:
-            logger.debug(
-                "Lyrics API returned an empty/non-JSON response; treating as not found"
-            )
+            logger.debug("Lyrics API returned an empty/non-JSON response; treating as not found")
         except URLError as e:
             logger.error(f"Fallback search failed: {e}")
 
@@ -215,12 +210,7 @@ class LyricSearchThread(QObject):
     def is_running(self) -> bool:
         return self._thread.isRunning()
 
-    def search(
-        self,
-        track_orm,
-        use_fallback: bool = True,
-        none_char: str = "♪",
-    ) -> None:
+    def search(self, track_orm, use_fallback: bool = True, none_char: str = "♪") -> None:
         """
         Start a lyric search for *track_orm* in the background.
         If a search is already running it is abandoned (thread restarted).
@@ -232,9 +222,7 @@ class LyricSearchThread(QObject):
         """
         self._stop_current()
 
-        self._worker = _LyricWorker(
-            track_orm, use_fallback=use_fallback, none_char=none_char
-        )
+        self._worker = _LyricWorker(track_orm, use_fallback=use_fallback, none_char=none_char)
         self._worker.moveToThread(self._thread)
 
         # Wire worker signals → our forwarding signals

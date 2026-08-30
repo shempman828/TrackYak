@@ -1,7 +1,7 @@
-import re
 from collections import defaultdict
 from difflib import SequenceMatcher
-from typing import Any, List
+import re
+from typing import Any
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -209,7 +209,7 @@ class FuzzyMatchDialog(BaseFuzzyMatchDialog):
     _ID_ATTR = "artist_id"
     _NAME_ATTR = "artist_name"
 
-    def __init__(self, matches: List[tuple], controller: Any, parent=None):
+    def __init__(self, matches: list[tuple], controller: Any, parent=None):
         super().__init__(matches, controller, "Merge Artists", parent)
 
     def init_ui(self) -> None:
@@ -243,13 +243,9 @@ class FuzzyMatchDialog(BaseFuzzyMatchDialog):
             # credits) is shown alongside each name since it's the strongest
             # signal for which spelling is the canonical one -- e.g. "Lew"
             # with 63 credits vs. "Lewis" with 2 suggests "Lewis" is the typo.
-            radio_a = QRadioButton(
-                f"{artist_a.artist_name} ({artist_a.role_count} roles)"
-            )
+            radio_a = QRadioButton(f"{artist_a.artist_name} ({artist_a.role_count} roles)")
             radio_a.entity = artist_a
-            radio_b = QRadioButton(
-                f"{artist_b.artist_name} ({artist_b.role_count} roles)"
-            )
+            radio_b = QRadioButton(f"{artist_b.artist_name} ({artist_b.role_count} roles)")
             radio_b.entity = artist_b
             radio_a.setChecked(True)  # Default to first artist
 
@@ -287,17 +283,11 @@ class FuzzyMatchDialog(BaseFuzzyMatchDialog):
 
     def _notify_no_jobs(self) -> None:
         QMessageBox.warning(
-            self,
-            "No Merges",
-            "No pairs were merged (none checked or errors occurred)",
+            self, "No Merges", "No pairs were merged (none checked or errors occurred)"
         )
 
     def _on_pair_merged(self, old_artist, new_artist) -> None:
-        logger.info(
-            f"adding alias for {old_artist.artist_name} to {new_artist.artist_name}"
-        )
+        logger.info(f"adding alias for {old_artist.artist_name} to {new_artist.artist_name}")
         self.controller.add.add_entity(
-            "ArtistAlias",
-            artist_id=new_artist.artist_id,
-            alias_name=old_artist.artist_name,
+            "ArtistAlias", artist_id=new_artist.artist_id, alias_name=old_artist.artist_name
         )

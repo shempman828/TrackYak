@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QTreeWidgetItem
@@ -21,7 +19,7 @@ class SyncSelectionMixin:
     # Playlist / mood selection tree
     # -----------------------------------------------------------------------
 
-    def _add_hierarchy(self, parent_item: QTreeWidgetItem, items: List[Dict], id_key: str):
+    def _add_hierarchy(self, parent_item: QTreeWidgetItem, items: list[dict], id_key: str):
         """Recursively add items under parent_item, following each item's parent_id."""
         children_map: dict = {}
         for it in items:
@@ -31,9 +29,7 @@ class SyncSelectionMixin:
 
         def add_level(parent_id, node: QTreeWidgetItem):
             for it in children_map.get(parent_id, []):
-                tree_item = QTreeWidgetItem(
-                    node, [f"{it['name']}  ({it['track_count']} tracks)"]
-                )
+                tree_item = QTreeWidgetItem(node, [f"{it['name']}  ({it['track_count']} tracks)"])
                 tree_item.setFlags(tree_item.flags() | Qt.ItemIsUserCheckable)
                 tree_item.setCheckState(0, Qt.Unchecked)
                 tree_item.setToolTip(0, it.get("description") or "")
@@ -63,9 +59,7 @@ class SyncSelectionMixin:
         header_font.setBold(True)
 
         playlists = self.sync_manager.get_playlists()
-        playlists_header = QTreeWidgetItem(
-            self.sync_tree, [f"PLAYLISTS  ({len(playlists)})"]
-        )
+        playlists_header = QTreeWidgetItem(self.sync_tree, [f"PLAYLISTS  ({len(playlists)})"])
         playlists_header.setFlags(Qt.ItemIsEnabled)
         playlists_header.setFont(0, header_font)
         self._add_hierarchy(playlists_header, playlists, "playlist_id")
@@ -114,9 +108,7 @@ class SyncSelectionMixin:
                     playlist_ids.append(data["playlist_id"])
         self.current_profile.playlist_ids = playlist_ids
         self.current_profile.mood_ids = mood_ids
-        self.current_profile.clear_before_sync = (
-            self.clear_before_sync_check.isChecked()
-        )
+        self.current_profile.clear_before_sync = self.clear_before_sync_check.isChecked()
         self.profile_store.save(self.profiles)
 
     def _update_selected_items(self):
@@ -140,8 +132,7 @@ class SyncSelectionMixin:
             if n_moods:
                 parts.append(f"{n_moods} mood(s)")
             self.track_count_label.setText(
-                f"{' + '.join(parts)}  ·  {total_tracks} tracks  ·  "
-                f"{format_file_size(total_size)}"
+                f"{' + '.join(parts)}  ·  {total_tracks} tracks  ·  {format_file_size(total_size)}"
             )
         else:
             self.track_count_label.setText("")
@@ -180,7 +171,5 @@ class SyncSelectionMixin:
             self.sync_btn.setEnabled(False)
             return
 
-        has_destination = bool(self.current_profile.device_uri) or bool(
-            self.current_profile.path
-        )
+        has_destination = bool(self.current_profile.device_uri) or bool(self.current_profile.path)
         self.sync_btn.setEnabled(has_destination)

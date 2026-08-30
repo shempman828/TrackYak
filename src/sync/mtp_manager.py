@@ -3,14 +3,13 @@ MTP back-end availability checks, MtpDevice, and MtpManager — device
 detection and file transfer for Android devices connected over USB.
 """
 
+from dataclasses import dataclass
+import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
-import os
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, List
 
 from src.core.logger_config import logger
 
@@ -101,7 +100,7 @@ class MtpManager:
     # Device detection
     # ---------------------------------------------------------------------------
 
-    def list_devices(self) -> List[MtpDevice]:
+    def list_devices(self) -> list[MtpDevice]:
         """
         Return a list of connected MTP devices.
         Tries gio first, falls back to aft-mtp-cli.
@@ -117,7 +116,7 @@ class MtpManager:
 
         return []
 
-    def _gio_list_devices(self) -> List[MtpDevice]:
+    def _gio_list_devices(self) -> list[MtpDevice]:
         """
         Parse `gio mount -li` output to find MTP devices.
 
@@ -131,10 +130,7 @@ class MtpManager:
         """
         try:
             result = subprocess.run(
-                ["gio", "mount", "-li"],
-                capture_output=True,
-                text=True,
-                timeout=10,
+                ["gio", "mount", "-li"], capture_output=True, text=True, timeout=10
             )
             output = result.stdout
         except (subprocess.SubprocessError, OSError) as e:
@@ -165,17 +161,14 @@ class MtpManager:
 
         return devices
 
-    def _aft_list_devices(self) -> List[MtpDevice]:
+    def _aft_list_devices(self) -> list[MtpDevice]:
         """
         Fall back to aft-mtp-cli --list-devices.
         Typical output: "Device 0: Samsung Galaxy S21"
         """
         try:
             result = subprocess.run(
-                ["aft-mtp-cli", "--list-devices"],
-                capture_output=True,
-                text=True,
-                timeout=10,
+                ["aft-mtp-cli", "--list-devices"], capture_output=True, text=True, timeout=10
             )
             output = result.stdout
         except (subprocess.SubprocessError, OSError) as e:
@@ -205,10 +198,7 @@ class MtpManager:
             return True
         try:
             result = subprocess.run(
-                ["gio", "mount", device.uri],
-                capture_output=True,
-                text=True,
-                timeout=15,
+                ["gio", "mount", device.uri], capture_output=True, text=True, timeout=15
             )
             # 0 = success; 1 often means already mounted — both are fine
             return result.returncode in (0, 1)
@@ -220,7 +210,7 @@ class MtpManager:
     # Remote file info
     # ---------------------------------------------------------------------------
 
-    def list_remote_dir(self, device: MtpDevice, remote_dir_uri: str) -> Dict[str, int]:
+    def list_remote_dir(self, device: MtpDevice, remote_dir_uri: str) -> dict[str, int]:
         """
         Return {filename: size_bytes} for every file in remote_dir_uri, via
         ONE `gio list -a standard::size` call — replaces a `gio info` round
@@ -245,7 +235,7 @@ class MtpManager:
             logger.debug(f"gio list failed for {remote_dir_uri}: {e}")
             return {}
 
-        listing: Dict[str, int] = {}
+        listing: dict[str, int] = {}
         for line in result.stdout.splitlines():
             parts = line.split("\t")
             if len(parts) < 2:
@@ -260,12 +250,7 @@ class MtpManager:
     # File transfer
     # ---------------------------------------------------------------------------
 
-    def copy_file(
-        self,
-        device: MtpDevice,
-        local_path: str,
-        remote_uri: str,
-    ) -> bool:
+    def copy_file(self, device: MtpDevice, local_path: str, remote_uri: str) -> bool:
         """
         Copy a local file to the device.
         Uses `gio copy` for gio devices — this is the correct method that
@@ -274,8 +259,7 @@ class MtpManager:
         """
         if device.backend == "gio":
             return self._gio_copy(local_path, remote_uri)
-        else:
-            return self._aft_copy(local_path, remote_uri)
+        return self._aft_copy(local_path, remote_uri)
 
     def _gio_copy(self, local_path: str, remote_uri: str) -> bool:
         try:
@@ -291,8 +275,7 @@ class MtpManager:
             )
             if result.returncode != 0:
                 logger.error(
-                    f"gio copy failed ({local_path} → {remote_uri}): "
-                    f"{result.stderr.strip()}"
+                    f"gio copy failed ({local_path} → {remote_uri}): {result.stderr.strip()}"
                 )
                 return False
             return True
@@ -312,9 +295,7 @@ class MtpManager:
                 timeout=self._TIMEOUT,
             )
             if result.returncode != 0:
-                logger.error(
-                    f"aft-mtp-cli push failed ({local_path}): {result.stderr.strip()}"
-                )
+                logger.error(f"aft-mtp-cli push failed ({local_path}): {result.stderr.strip()}")
                 return False
             return True
         except subprocess.TimeoutExpired:
@@ -324,12 +305,7 @@ class MtpManager:
             logger.error(f"aft-mtp-cli push error: {e}")
             return False
 
-    def copy_text_as_file(
-        self,
-        device: MtpDevice,
-        content: str,
-        remote_uri: str,
-    ) -> bool:
+    def copy_text_as_file(self, device: MtpDevice, content: str, remote_uri: str) -> bool:
         """
         Write a string (e.g. M3U content) to a remote file.
         Writes to a local temp file first, then copies via the normal path.
@@ -357,10 +333,7 @@ class MtpManager:
             return True
         try:
             result = subprocess.run(
-                ["gio", "mkdir", "-p", remote_uri],
-                capture_output=True,
-                text=True,
-                timeout=15,
+                ["gio", "mkdir", "-p", remote_uri], capture_output=True, text=True, timeout=15
             )
             return result.returncode == 0 or "already exists" in result.stderr.lower()
         except (subprocess.SubprocessError, OSError) as e:
@@ -373,10 +346,7 @@ class MtpManager:
             return True
         try:
             result = subprocess.run(
-                ["gio", "remove", remote_uri],
-                capture_output=True,
-                text=True,
-                timeout=30,
+                ["gio", "remove", remote_uri], capture_output=True, text=True, timeout=30
             )
             return result.returncode == 0
         except (subprocess.SubprocessError, OSError) as e:
@@ -403,10 +373,7 @@ class MtpManager:
         try:
             # List the device root to find storage volume
             result = subprocess.run(
-                ["gio", "list", base + "/"],
-                capture_output=True,
-                text=True,
-                timeout=5,
+                ["gio", "list", base + "/"], capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0:
                 items = result.stdout.splitlines()
@@ -443,9 +410,8 @@ class MtpManager:
             # If music_path has subdirectories, keep the parent structure
             parent_path = "/".join(path_parts[:-1])
             return f"{base}/{parent_path}/Playlists/"
-        else:
-            # If music_path is just a single folder, put Playlists at same level
-            return f"{base}/Playlists/"
+        # If music_path is just a single folder, put Playlists at same level
+        return f"{base}/Playlists/"
 
     def build_playlist_uri(
         self, device: MtpDevice, music_path: str, safe_playlist_name: str
@@ -458,6 +424,5 @@ class MtpManager:
             # If music_path has subdirectories, keep the parent structure
             parent_path = "/".join(path_parts[:-1])
             return f"{base}/{parent_path}/Playlists/{safe_playlist_name}.m3u"
-        else:
-            # If music_path is just a single folder, put Playlists at same level
-            return f"{base}/Playlists/{safe_playlist_name}.m3u"
+        # If music_path is just a single folder, put Playlists at same level
+        return f"{base}/Playlists/{safe_playlist_name}.m3u"

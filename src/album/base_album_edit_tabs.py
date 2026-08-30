@@ -97,9 +97,7 @@ class TracksTab:
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(0, 0, 0, 0)
-        disc_view = DiscTabView(
-            self.editor.album, self.editor.controller, parent=tab
-        )
+        disc_view = DiscTabView(self.editor.album, self.editor.controller, parent=tab)
         # Track add/remove/reassignment here isn't routed through
         # RelationshipHelpers like credits/places/awards are, so the editor
         # needs its own hook to know other tabs' track snapshots (Genres,
@@ -191,8 +189,7 @@ class AliasesTab:
         layout.setSpacing(10)
 
         info = QLabel(
-            "Aliases are alternative titles for this album "
-            "(e.g. localized names, working titles)."
+            "Aliases are alternative titles for this album (e.g. localized names, working titles)."
         )
         info.setWordWrap(True)
         layout.addWidget(info)
@@ -214,9 +211,7 @@ class AliasesTab:
         add_row.addWidget(self.editor.new_alias_name, 2)
 
         self.editor.new_alias_type = QLineEdit()
-        self.editor.new_alias_type.setPlaceholderText(
-            "Type (e.g. Localized Title, Working Title…)"
-        )
+        self.editor.new_alias_type.setPlaceholderText("Type (e.g. Localized Title, Working Title…)")
         add_row.addWidget(self.editor.new_alias_type, 1)
 
         add_btn = QPushButton("Add Alias")
@@ -310,10 +305,7 @@ class TrackCreditsTab:
         layout.addWidget(info)
 
         roles_widget = TrackRolesTab(
-            tracks,
-            self.editor.controller,
-            parent=tab,
-            on_convert_to_album=self._convert_to_album,
+            tracks, self.editor.controller, parent=tab, on_convert_to_album=self._convert_to_album
         )
         roles_widget.load(tracks)
         layout.addWidget(roles_widget)
@@ -388,15 +380,9 @@ class AdvancedTab:
         rg_label.setProperty("title", True)
         layout.addWidget(rg_label)
         album_gain = getattr(album, "album_gain", None)
-        _read_only_row(
-            "Album Gain (dB):",
-            f"{album_gain:.2f}" if album_gain is not None else "—",
-        )
+        _read_only_row("Album Gain (dB):", f"{album_gain:.2f}" if album_gain is not None else "—")
         album_peak = getattr(album, "album_peak", None)
-        _read_only_row(
-            "Album Peak:",
-            f"{album_peak:.4f}" if album_peak is not None else "—",
-        )
+        _read_only_row("Album Peak:", f"{album_peak:.4f}" if album_peak is not None else "—")
 
         stats_label = QLabel("Library Stats")
         stats_label.setProperty("title", True)
@@ -409,14 +395,11 @@ class AdvancedTab:
             _read_only_row("Total Duration:", _format_duration(total_duration))
             if track_count:
                 _read_only_row(
-                    "Average Track Duration:",
-                    _format_duration(total_duration / track_count),
+                    "Average Track Duration:", _format_duration(total_duration / track_count)
                 )
 
         total_plays = getattr(album, "total_plays", None)
-        _read_only_row(
-            "Total Plays:", str(total_plays) if total_plays is not None else "—"
-        )
+        _read_only_row("Total Plays:", str(total_plays) if total_plays is not None else "—")
 
         avg_rating = getattr(album, "average_rating", None)
         if avg_rating is not None:
@@ -430,25 +413,19 @@ class AdvancedTab:
 
         if album.tracks:
             rated_tracks = len([t for t in album.tracks if t.user_rating])
-            played_tracks = len([
-                t for t in album.tracks if t.play_count and t.play_count > 0
-            ])
+            played_tracks = len([t for t in album.tracks if t.play_count and t.play_count > 0])
             _read_only_row("Rated Tracks:", f"{rated_tracks}/{track_count}")
             _read_only_row("Played Tracks:", f"{played_tracks}/{track_count}")
 
         possibly_incomplete = getattr(album, "possibly_incomplete", None)
         inc_text = (
-            "—"
-            if possibly_incomplete is None
-            else ("Yes ⚠️" if possibly_incomplete else "No")
+            "—" if possibly_incomplete is None else ("Yes ⚠️" if possibly_incomplete else "No")
         )
         _read_only_row("Possibly Incomplete:", inc_text)
 
         has_all_track_numbers = getattr(album, "has_all_track_numbers", None)
         tn_text = (
-            "—"
-            if has_all_track_numbers is None
-            else ("Yes ✓" if has_all_track_numbers else "No ✗")
+            "—" if has_all_track_numbers is None else ("Yes ✓" if has_all_track_numbers else "No ✗")
         )
         _read_only_row("Has All Track #s:", tn_text)
 

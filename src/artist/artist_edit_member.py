@@ -214,15 +214,11 @@ class _MembershipPanelBase(QWidget):
 
         btn_row = QHBoxLayout()
         edit_btn = QPushButton(self._EDIT_BUTTON_TEXT)
-        edit_btn.clicked.connect(
-            lambda: _edit_selected_row(self, self.table, self._edit)
-        )
+        edit_btn.clicked.connect(lambda: _edit_selected_row(self, self.table, self._edit))
         btn_row.addWidget(edit_btn)
 
         rm_btn = QPushButton(self._REMOVE_BUTTON_TEXT)
-        rm_btn.clicked.connect(
-            lambda: _remove_selected_row(self, self.table, self._remove)
-        )
+        rm_btn.clicked.connect(lambda: _remove_selected_row(self, self.table, self._remove))
         btn_row.addWidget(rm_btn)
         btn_row.addStretch()
         grp_layout.addLayout(btn_row)
@@ -299,10 +295,7 @@ class _MembershipPanelBase(QWidget):
                 "GroupMembership", group_id=group_id, member_id=member_id
             )
             self.controller.add.add_entity(
-                "GroupMembership",
-                group_id=group_id,
-                member_id=member_id,
-                **dialog.values(),
+                "GroupMembership", group_id=group_id, member_id=member_id, **dialog.values()
             )
         except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not update membership:\n{e}")

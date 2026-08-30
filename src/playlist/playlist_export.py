@@ -32,20 +32,15 @@ class PlaylistExporter:
         Export a single playlist to an M3U file in the standard playlist directory.
         Returns True if successful, False otherwise.
         """
-        playlist = self.controller.get.get_entity_object(
-            "Playlist", playlist_id=playlist_id
-        )
+        playlist = self.controller.get.get_entity_object("Playlist", playlist_id=playlist_id)
         if not playlist:
             self._show_message("Export Error", "Playlist not found.")
             return False
 
-        tracks = self.controller.get.get_all_entities(
-            "PlaylistTracks", playlist_id=playlist_id
-        )
+        tracks = self.controller.get.get_all_entities("PlaylistTracks", playlist_id=playlist_id)
         if not tracks:
             self._show_message(
-                "Export Error",
-                f"No tracks found in playlist '{playlist.playlist_name}'.",
+                "Export Error", f"No tracks found in playlist '{playlist.playlist_name}'."
             )
             return False
 
@@ -57,9 +52,7 @@ class PlaylistExporter:
             Path(file_path).parent.mkdir(parents=True, exist_ok=True)
         except OSError as e:
             logger.error(f"Could not resolve playlist save path: {e}")
-            self._show_message(
-                "Export Error", f"Invalid save path for '{playlist.playlist_name}'."
-            )
+            self._show_message("Export Error", f"Invalid save path for '{playlist.playlist_name}'.")
             return False
 
         failed = []
@@ -86,9 +79,7 @@ class PlaylistExporter:
 
                     try:
                         # Compute relative path from the playlist directory
-                        rel_path = Path(track.track_file_path).relative_to(
-                            Path(file_path).parent
-                        )
+                        rel_path = Path(track.track_file_path).relative_to(Path(file_path).parent)
                     except ValueError:
                         # If not under same root, fallback to just filename
                         rel_path = Path(track.track_file_path).name

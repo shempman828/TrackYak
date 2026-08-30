@@ -37,9 +37,7 @@ class InfluenceStatsWorker(CancellableWorker):
         try:
             nodes, edges = algorithms.extract_global_influence_graph(self.get_helper)
             if not nodes:
-                self.finished.emit(
-                    {"most_influential": None, "most_eclectic": None}
-                )
+                self.finished.emit({"most_influential": None, "most_eclectic": None})
                 return
 
             node_ids = [node_id for node_id, _name in nodes]
@@ -53,16 +51,12 @@ class InfluenceStatsWorker(CancellableWorker):
 
             most_influential = None
             if scores.influence_scores:
-                top_id, top_score = max(
-                    scores.influence_scores.items(), key=lambda item: item[1]
-                )
+                top_id, top_score = max(scores.influence_scores.items(), key=lambda item: item[1])
                 most_influential = (names_by_id.get(top_id, f"Artist {top_id}"), top_score)
 
             most_eclectic = None
             if bridge_counts:
-                top_id, top_bridges = max(
-                    bridge_counts.items(), key=lambda item: item[1]
-                )
+                top_id, top_bridges = max(bridge_counts.items(), key=lambda item: item[1])
                 most_eclectic = (names_by_id.get(top_id, f"Artist {top_id}"), top_bridges)
 
             self.finished.emit(

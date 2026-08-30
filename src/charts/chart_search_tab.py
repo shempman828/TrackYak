@@ -11,7 +11,6 @@ call-out of this as the one place search must be bounded rather than
 unlimited.
 """
 
-
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
 from sqlalchemy import bindparam, select, text

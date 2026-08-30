@@ -1,15 +1,11 @@
 """Shared image format detection helpers for embedded artwork read/write."""
 
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 from src.core.logger_config import logger
 
-_FORMAT_TO_MIME = {
-    "JPEG": "image/jpeg",
-    "PNG": "image/png",
-    "GIF": "image/gif",
-    "BMP": "image/bmp",
-}
+_FORMAT_TO_MIME = {"JPEG": "image/jpeg", "PNG": "image/png", "GIF": "image/gif", "BMP": "image/bmp"}
 
 # MusicBrainz/ID3-APIC picture-type convention used to assign a role to
 # each embedded picture, shared by every format's reader and writer so they
@@ -20,8 +16,8 @@ ARTWORK_TYPE_TO_ROLE = {v: k for k, v in ARTWORK_ROLE_TO_TYPE.items()}
 
 
 def find_picture_index_for_role(
-    items: List[Any], role: str, picture_type_for_item: Callable[[Any], Optional[int]]
-) -> Optional[int]:
+    items: list[Any], role: str, picture_type_for_item: Callable[[Any], int | None]
+) -> int | None:
     """
     Find the index in `items` of the picture that currently represents
     `role`, using a typed + untyped-fallback-to-front rule: a picture
@@ -34,7 +30,7 @@ def find_picture_index_for_role(
     be parsed) - such items are ignored entirely, matching
     ArtworkExtractor.extract_artwork_by_role so readers and writers agree.
     """
-    typed_indices: Dict[str, int] = {}
+    typed_indices: dict[str, int] = {}
     untyped_indices = []
 
     for idx, item in enumerate(items):
@@ -56,20 +52,20 @@ def find_picture_index_for_role(
     return None
 
 
-def determine_image_format(image_data: bytes, mime_type: str = "") -> Optional[str]:
+def determine_image_format(image_data: bytes, mime_type: str = "") -> str | None:
     """Determine image format from magic bytes, falling back to MIME type."""
     if image_data.startswith(b"\xff\xd8\xff"):
         return "JPEG"
-    elif image_data.startswith(b"\x89PNG\r\n\x1a\n"):
+    if image_data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "PNG"
-    elif image_data.startswith(b"GIF8"):
+    if image_data.startswith(b"GIF8"):
         return "GIF"
-    elif image_data.startswith(b"BM"):
+    if image_data.startswith(b"BM"):
         return "BMP"
 
     if "jpeg" in mime_type.lower() or "jpg" in mime_type.lower():
         return "JPEG"
-    elif "png" in mime_type.lower():
+    if "png" in mime_type.lower():
         return "PNG"
 
     logger.debug(
@@ -79,6 +75,6 @@ def determine_image_format(image_data: bytes, mime_type: str = "") -> Optional[s
     return None
 
 
-def mime_type_for_format(format_type: Optional[str]) -> str:
+def mime_type_for_format(format_type: str | None) -> str:
     """Map an internal format label (JPEG/PNG/...) to a MIME type for embedding."""
     return _FORMAT_TO_MIME.get(format_type, "application/octet-stream")

@@ -34,15 +34,11 @@ class AssociationDetailsDialog(QDialog):
 
         # Place info and toggle
         header_layout = QHBoxLayout()
-        place_info = QLabel(
-            f"<h3>{self.place.place_name} ({self.place.place_type})</h3>"
-        )
+        place_info = QLabel(f"<h3>{self.place.place_name} ({self.place.place_type})</h3>")
         header_layout.addWidget(place_info)
 
         self.recursive_toggle = QPushButton(
-            "Show Recursive Associations"
-            if not self.recursive_mode
-            else "Show Direct Associations"
+            "Show Recursive Associations" if not self.recursive_mode else "Show Direct Associations"
         )
         self.recursive_toggle.clicked.connect(self.toggle_recursive_mode)
         header_layout.addWidget(self.recursive_toggle)
@@ -53,9 +49,7 @@ class AssociationDetailsDialog(QDialog):
         filter_layout = QHBoxLayout()
         filter_layout.addWidget(QLabel("Filter:"))
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText(
-            "Type to filter by name, type, association, or path..."
-        )
+        self.filter_edit.setPlaceholderText("Type to filter by name, type, association, or path...")
         self.filter_edit.textChanged.connect(self.filter_associations)
         filter_layout.addWidget(self.filter_edit)
         layout.addLayout(filter_layout)
@@ -66,9 +60,7 @@ class AssociationDetailsDialog(QDialog):
 
         # Create tree widget with columns
         self.associations_tree = QTreeWidget()
-        self.associations_tree.setHeaderLabels(
-            ["Entity", "Type", "Association Type", "Path"]
-        )
+        self.associations_tree.setHeaderLabels(["Entity", "Type", "Association Type", "Path"])
         self.associations_tree.setSortingEnabled(True)
         self.associations_tree.setAlternatingRowColors(True)
         self.associations_tree.setSelectionMode(QTreeWidget.SingleSelection)
@@ -142,9 +134,7 @@ class AssociationDetailsDialog(QDialog):
         """Toggle between direct and recursive association views."""
         self.recursive_mode = not self.recursive_mode
         self.recursive_toggle.setText(
-            "Show Recursive Associations"
-            if not self.recursive_mode
-            else "Show Direct Associations"
+            "Show Recursive Associations" if not self.recursive_mode else "Show Direct Associations"
         )
         self.load_associations()
         self.adjust_size()
@@ -184,33 +174,23 @@ class AssociationDetailsDialog(QDialog):
                 type_item.setFont(0, font)
 
                 # Add count to group header
-                type_item.setText(
-                    0, f"{entity_type.title()}s ({len(type_associations)})"
-                )
+                type_item.setText(0, f"{entity_type.title()}s ({len(type_associations)})")
 
                 self.associations_tree.addTopLevelItem(type_item)
-                type_item.setExpanded(
-                    len(type_associations) <= GROUP_AUTO_EXPAND_THRESHOLD
-                )
+                type_item.setExpanded(len(type_associations) <= GROUP_AUTO_EXPAND_THRESHOLD)
 
                 for assoc in type_associations:
                     entity = self.get_entity_details(assoc.entity_type, assoc.entity_id)
                     if entity:
-                        display_name = self.get_entity_display_name(
-                            entity, assoc.entity_type
-                        )
+                        display_name = self.get_entity_display_name(entity, assoc.entity_type)
 
                         # Create child item
                         child_item = QTreeWidgetItem(
                             [
                                 display_name,
                                 assoc.entity_type.title(),
-                                assoc.association_type.type_name
-                                if assoc.association_type
-                                else "",
-                                assoc.place_path
-                                if hasattr(assoc, "place_path")
-                                else "Direct",
+                                assoc.association_type.type_name if assoc.association_type else "",
+                                assoc.place_path if hasattr(assoc, "place_path") else "Direct",
                             ]
                         )
 
@@ -231,12 +211,8 @@ class AssociationDetailsDialog(QDialog):
                             [
                                 f"Unknown {assoc.entity_type} (ID: {assoc.entity_id})",
                                 assoc.entity_type.title(),
-                                assoc.association_type.type_name
-                                if assoc.association_type
-                                else "",
-                                assoc.place_path
-                                if hasattr(assoc, "place_path")
-                                else "Direct",
+                                assoc.association_type.type_name if assoc.association_type else "",
+                                assoc.place_path if hasattr(assoc, "place_path") else "Direct",
                             ]
                         )
                         type_item.addChild(child_item)
@@ -250,9 +226,7 @@ class AssociationDetailsDialog(QDialog):
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.exception("Error loading associations")
-            error_item = QTreeWidgetItem(
-                [f"Error loading associations: {str(e)}", "", "", ""]
-            )
+            error_item = QTreeWidgetItem([f"Error loading associations: {e!s}", "", "", ""])
             self.associations_tree.addTopLevelItem(error_item)
 
     def create_entity_tooltip(self, entity, entity_type):
@@ -292,9 +266,7 @@ class AssociationDetailsDialog(QDialog):
             current_path = []
 
         associations = []
-        current_place = self.controller.get.get_entity_object(
-            "Place", place_id=place_id
-        )
+        current_place = self.controller.get.get_entity_object("Place", place_id=place_id)
 
         if not current_place:
             return associations
@@ -316,9 +288,7 @@ class AssociationDetailsDialog(QDialog):
         # Get child places and their associations recursively
         child_places = self.controller.get.get_all_entities("Place", parent_id=place_id)
         for child in child_places:
-            child_associations = self.get_recursive_associations(
-                child.place_id, new_path
-            )
+            child_associations = self.get_recursive_associations(child.place_id, new_path)
             associations.extend(child_associations)
 
         return associations
@@ -337,16 +307,11 @@ class AssociationDetailsDialog(QDialog):
             id_kwarg = f"{entity_type.lower()}_id"
 
             # call the controller getter with a dynamic kwarg
-            return self.controller.get.get_entity_object(
-                entity_name, **{id_kwarg: entity_id}
-            )
+            return self.controller.get.get_entity_object(entity_name, **{id_kwarg: entity_id})
 
         except SQLAlchemyError as e:
             logger.exception(
-                "Error getting entity details for %s id=%s: %s",
-                entity_type,
-                entity_id,
-                e,
+                "Error getting entity details for %s id=%s: %s", entity_type, entity_id, e
             )
             return None
 
@@ -361,9 +326,7 @@ class AssociationDetailsDialog(QDialog):
 
             attr = f"{entity_type.lower()}_name"
             # getattr fallback to a generic `name` or to a string indicating unknown
-            return getattr(
-                entity, attr, getattr(entity, "name", f"Unknown {entity_type}")
-            )
+            return getattr(entity, attr, getattr(entity, "name", f"Unknown {entity_type}"))
         except SQLAlchemyError:
             logger.exception("Error retrieving display name for %s", entity_type)
             return f"Unknown {entity_type}"

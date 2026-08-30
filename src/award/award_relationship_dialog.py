@@ -1,4 +1,5 @@
-from typing import Any, Callable, Dict, Tuple
+from collections.abc import Callable
+from typing import Any
 
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
@@ -26,7 +27,7 @@ from src.core.logger_config import logger
 # For each entity type:
 #   key: entity type name as used by controller
 #   value: (name_attr, id_attr)
-ENTITY_FIELDS: Dict[str, Tuple[str, str]] = {
+ENTITY_FIELDS: dict[str, tuple[str, str]] = {
     "Artist": ("artist_name", "artist_id"),
     "Album": ("album_name", "album_id"),
     "Track": ("track_name", "track_id"),
@@ -35,15 +36,7 @@ ENTITY_FIELDS: Dict[str, Tuple[str, str]] = {
 }
 
 # Relationship type options
-RELATIONSHIP_TYPES = [
-    "Recipient",
-    "Nominee",
-    "Presenter",
-    "Judge",
-    "Host",
-    "Sponsor",
-    "Organizer",
-]
+RELATIONSHIP_TYPES = ["Recipient", "Nominee", "Presenter", "Judge", "Host", "Sponsor", "Organizer"]
 
 
 def default_display(entity, name_attr: str, entity_type: str) -> str:
@@ -54,15 +47,11 @@ def default_display(entity, name_attr: str, entity_type: str) -> str:
 def album_display(entity, name_attr: str, entity_type: str) -> str:
     """Special display function for albums with year."""
     base = getattr(entity, name_attr)
-    return (
-        f"{base} ({entity.release_year})"
-        if getattr(entity, "release_year", None)
-        else base
-    )
+    return f"{base} ({entity.release_year})" if getattr(entity, "release_year", None) else base
 
 
 # Optional custom display logic
-DISPLAY_OVERRIDE: Dict[str, Callable] = {"Album": album_display}
+DISPLAY_OVERRIDE: dict[str, Callable] = {"Album": album_display}
 
 
 # ──────────────────────────────────────────────────────────────
@@ -73,9 +62,7 @@ DISPLAY_OVERRIDE: Dict[str, Callable] = {"Album": album_display}
 class AwardRelationshipDialog(QDialog):
     """Dialog for managing award relationships with entity search and creation."""
 
-    relationship_added = Signal(
-        str, int, str
-    )  # entity_type, entity_id, relationship_type
+    relationship_added = Signal(str, int, str)  # entity_type, entity_id, relationship_type
 
     def __init__(self, award: Any, controller: Any, parent=None):
         super().__init__(parent)
@@ -226,9 +213,7 @@ class AwardRelationshipDialog(QDialog):
 
             # Filter
             if search_text:
-                entities = [
-                    e for e in entities if search_text in getattr(e, name_attr).lower()
-                ]
+                entities = [e for e in entities if search_text in getattr(e, name_attr).lower()]
 
             # Determine display logic
             display_fn = DISPLAY_OVERRIDE.get(entity_type, default_display)
@@ -279,9 +264,7 @@ class AwardRelationshipDialog(QDialog):
 
         try:
             name_attr, id_attr = ENTITY_FIELDS[entity_type]
-            new_entity = self.controller.add.add_entity(
-                entity_type, **{name_attr: entity_name}
-            )
+            new_entity = self.controller.add.add_entity(entity_type, **{name_attr: entity_name})
             entity_id = getattr(new_entity, id_attr)
 
             self.relationship_added.emit(entity_type, entity_id, relationship_type)

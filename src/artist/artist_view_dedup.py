@@ -44,14 +44,10 @@ class ArtistDedupMixin:
             linked_ids.add(inf.influencer_id)
             linked_ids.add(inf.influenced_id)
 
-        places = self.controller.get.get_all_entities(
-            "PlaceAssociation", entity_type="Artist"
-        )
+        places = self.controller.get.get_all_entities("PlaceAssociation", entity_type="Artist")
         linked_ids.update(p.entity_id for p in places)
 
-        awards = self.controller.get.get_all_entities(
-            "AwardAssociation", entity_type="Artist"
-        )
+        awards = self.controller.get.get_all_entities("AwardAssociation", entity_type="Artist")
         linked_ids.update(a.entity_id for a in awards)
 
         return linked_ids
@@ -65,9 +61,7 @@ class ArtistDedupMixin:
             linked_ids = self._get_linked_artist_ids()
             orphans = [a for a in all_artists if a.artist_id not in linked_ids]
         except SQLAlchemyError as e:
-            QMessageBox.critical(
-                self, "Error", f"Failed to scan for unused artists: {e}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to scan for unused artists: {e}")
             return
 
         if not orphans:
@@ -91,9 +85,7 @@ class ArtistDedupMixin:
         else:
             deleted = 0
 
-        show_status_message(
-            self, f"Deleted {deleted} of {len(selected_ids)} selected artist(s)."
-        )
+        show_status_message(self, f"Deleted {deleted} of {len(selected_ids)} selected artist(s).")
         self.load_artists()
 
     def find_fuzzy_matches(self):
@@ -126,9 +118,7 @@ class ArtistDedupMixin:
 
         # --- Show a determinate progress dialog so the user can see it's
         # actually moving, and Cancel responds promptly ---
-        progress = QProgressDialog(
-            "Scanning for duplicate artists…", "Cancel", 0, 1, self
-        )
+        progress = QProgressDialog("Scanning for duplicate artists…", "Cancel", 0, 1, self)
         progress.setWindowTitle("Duplicate Scan")
         progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
@@ -140,9 +130,7 @@ class ArtistDedupMixin:
         def _on_progress(current, total):
             progress.setRange(0, total)
             progress.setValue(current)
-            progress.setLabelText(
-                f"Scanning for duplicate artists… ({current:,} / {total:,})"
-            )
+            progress.setLabelText(f"Scanning for duplicate artists… ({current:,} / {total:,})")
 
         def _on_finished(matches):
             progress.close()

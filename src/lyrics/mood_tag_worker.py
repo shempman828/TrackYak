@@ -39,9 +39,7 @@ class MoodAutoTagWorker(CancellableWorker):
         try:
             context = build_autotag_context(self.controller)
 
-            tracks = self.controller.get.query_entities(
-                "Track", lyrics__notnull=True
-            )
+            tracks = self.controller.get.query_entities("Track", lyrics__notnull=True)
             candidates = [t for t in tracks if t.lyrics and t.lyrics.strip()]
             total = len(candidates)
             scanned = 0

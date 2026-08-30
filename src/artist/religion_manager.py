@@ -23,12 +23,7 @@ from src.common.hierarchy_tree_style import (
     is_hierarchy_descendant,
     restore_expanded_ids_or_expand_all,
 )
-from src.common.lookup_manager_dialog import (
-    COUNT_COL,
-    DESC_COL,
-    NAME_COL,
-    BaseLookupManagerDialog,
-)
+from src.common.lookup_manager_dialog import COUNT_COL, DESC_COL, NAME_COL, BaseLookupManagerDialog
 from src.core.logger_config import logger
 from src.db.db_tables import Artist
 

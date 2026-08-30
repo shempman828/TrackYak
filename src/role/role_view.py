@@ -78,14 +78,10 @@ class RoleLoaderWorker(QObject):
             all_roles = self.controller.get.get_all_entities("Role") or []
 
             # --- Query 2: ALL album associations at once ---
-            all_album_links = (
-                self.controller.get.get_all_entities("AlbumRoleAssociation") or []
-            )
+            all_album_links = self.controller.get.get_all_entities("AlbumRoleAssociation") or []
 
             # --- Query 3: ALL track associations at once ---
-            all_track_links = (
-                self.controller.get.get_all_entities("TrackArtistRole") or []
-            )
+            all_track_links = self.controller.get.get_all_entities("TrackArtistRole") or []
 
             # Direct (own-role-only) counts, kept separate for the detail
             # tooltip's album/track breakdown.
@@ -103,9 +99,7 @@ class RoleLoaderWorker(QObject):
                 # the same artist can legitimately hold two different roles
                 # on the same track (e.g. Guitar and Producer), and those
                 # are two distinct credits that must both still count.
-                direct_track_ids[link.role_id].add(
-                    (link.track_id, link.artist_id, link.role_id)
-                )
+                direct_track_ids[link.role_id].add((link.track_id, link.artist_id, link.role_id))
 
             # Recursive (own + descendants) counts, unioned as sets per
             # dimension. AlbumRoleAssociation has a real per-row surrogate
@@ -141,13 +135,11 @@ class RoleLoaderWorker(QObject):
 
             recursive_counts: dict[int, int] = {}
             for role in all_roles:
-                recursive_counts[role.role_id] = len(
-                    album_ids_for(role.role_id)
-                ) + len(track_ids_for(role.role_id))
+                recursive_counts[role.role_id] = len(album_ids_for(role.role_id)) + len(
+                    track_ids_for(role.role_id)
+                )
 
-            self.finished.emit(
-                all_roles, dict(album_counts), dict(track_counts), recursive_counts
-            )
+            self.finished.emit(all_roles, dict(album_counts), dict(track_counts), recursive_counts)
 
         except Exception as e:
             # Intentional broad boundary catch: this runs on a QThread and must
@@ -358,11 +350,7 @@ class RoleView(QWidget):
             self.status_bar.setText("Loading…")
 
     def _on_roles_loaded(
-        self,
-        all_roles: list,
-        album_counts: dict,
-        track_counts: dict,
-        recursive_counts: dict,
+        self, all_roles: list, album_counts: dict, track_counts: dict, recursive_counts: dict
     ):
         """
         Called on the MAIN thread once the background worker finishes.
@@ -429,12 +417,7 @@ class RoleView(QWidget):
         # Build the tree — uses pre-fetched counts, zero extra queries
         if self.flat_view:
             root_count = self._build_role_flat(
-                all_roles,
-                role_map,
-                self.role_tree,
-                album_counts,
-                track_counts,
-                recursive_counts,
+                all_roles, role_map, self.role_tree, album_counts, track_counts, recursive_counts
             )
         else:
             root_count = self._build_role_tree(
@@ -479,8 +462,7 @@ class RoleView(QWidget):
         )
 
         logger.info(
-            f"Loaded {total} roles into unified tree with hierarchy "
-            f"({root_count} root items)"
+            f"Loaded {total} roles into unified tree with hierarchy ({root_count} root items)"
         )
 
     def toggle_flat_view(self):
@@ -569,9 +551,7 @@ class RoleView(QWidget):
         # Counts match — just the one number, e.g. "5"
         return str(own_count)
 
-    def _make_role_item(
-        self, role, depth, role_map, album_counts, track_counts, recursive_counts
-    ):
+    def _make_role_item(self, role, depth, role_map, album_counts, track_counts, recursive_counts):
         """Build a single role's tree item, shared by the tree and flat builders."""
         # Look up counts from the pre-fetched dicts (O(1), no DB call).
         # Album and track assignments are collapsed into one flat count per
@@ -619,20 +599,12 @@ class RoleView(QWidget):
         return item
 
     def _build_role_flat(
-        self,
-        all_roles,
-        role_map,
-        tree_widget,
-        album_counts,
-        track_counts,
-        recursive_counts,
+        self, all_roles, role_map, tree_widget, album_counts, track_counts, recursive_counts
     ):
         """Populate the tree as a single alphabetical list with no nesting."""
         if self.sort_mode == "count":
             sorted_roles = sorted(
-                all_roles,
-                key=lambda r: recursive_counts.get(r.role_id, 0),
-                reverse=True,
+                all_roles, key=lambda r: recursive_counts.get(r.role_id, 0), reverse=True
             )
         else:
             sorted_roles = sorted(all_roles, key=lambda r: r.role_name.lower())
@@ -796,9 +768,7 @@ class RoleView(QWidget):
                     continue
 
                 # Prevent circular references
-                if is_hierarchy_descendant(
-                    child_id, parent_id, self._all_roles, id_attr="role_id"
-                ):
+                if is_hierarchy_descendant(child_id, parent_id, self._all_roles, id_attr="role_id"):
                     show_status_message(
                         self,
                         f"Moving '{child_item.text(0)}' there would create a "
@@ -807,9 +777,7 @@ class RoleView(QWidget):
                     continue
 
                 logger.info(f"Moving role {child_id} to parent {parent_id}")
-                self.controller.update.update_entity(
-                    "Role", child_id, parent_id=parent_id
-                )
+                self.controller.update.update_entity("Role", child_id, parent_id=parent_id)
                 moved_any = True
 
             if moved_any:
@@ -842,12 +810,8 @@ class RoleView(QWidget):
         menu.addAction("Merge…", lambda: self.merge_role(self.current_role_id))
         menu.addAction("Split…", lambda: self.split_role(self.current_role_id))
         menu.addSeparator()
-        menu.addAction(
-            "New Parent Role", lambda: self.create_new_parent_role(self.current_role_id)
-        )
-        menu.addAction(
-            "New Child Role", lambda: self.create_new_child_role(self.current_role_id)
-        )
+        menu.addAction("New Parent Role", lambda: self.create_new_parent_role(self.current_role_id))
+        menu.addAction("New Child Role", lambda: self.create_new_child_role(self.current_role_id))
         menu.addSeparator()
         menu.addAction("Delete", lambda: self.delete_role(self.current_role_id))
 
@@ -875,9 +839,7 @@ class RoleView(QWidget):
         """Open edit dialog for selected role."""
         try:
             role = (
-                self.controller.get.get_entity_object("Role", role_id=role_id)
-                if role_id
-                else None
+                self.controller.get.get_entity_object("Role", role_id=role_id) if role_id else None
             )
             dialog = RoleEditDialog(self.controller, role, self)
             if dialog.exec_() == QDialog.Accepted:
@@ -887,9 +849,7 @@ class RoleView(QWidget):
                     # hierarchy or counts -- a fresh single-row fetch is
                     # enough to patch the cache, no need to re-query the
                     # whole role table on a background thread.
-                    updated = self.controller.get.get_entity_object(
-                        "Role", role_id=role_id
-                    )
+                    updated = self.controller.get.get_entity_object("Role", role_id=role_id)
                     self._patch_cached_role(
                         role_id,
                         role_name=updated.role_name,
@@ -907,9 +867,7 @@ class RoleView(QWidget):
     def merge_role(self, source_role_id):
         """Open the merge dialog for the selected role (e.g. combine 'Guitar' and 'Guitarist')."""
         try:
-            role_obj = self.controller.get.get_entity_object(
-                "Role", role_id=source_role_id
-            )
+            role_obj = self.controller.get.get_entity_object("Role", role_id=source_role_id)
             if not role_obj:
                 show_status_message(self, "The selected role no longer exists.")
                 return
@@ -1034,9 +992,7 @@ class RoleView(QWidget):
                 # hierarchy -- drop it from the cache and rebuild locally
                 # instead of re-querying the whole role table on a
                 # background thread.
-                self._all_roles = [
-                    r for r in self._all_roles if r.role_id != role_id
-                ]
+                self._all_roles = [r for r in self._all_roles if r.role_id != role_id]
                 self._album_counts.pop(role_id, None)
                 self._track_counts.pop(role_id, None)
                 self._recursive_counts.pop(role_id, None)

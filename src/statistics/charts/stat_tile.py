@@ -82,39 +82,25 @@ class StatTileWidget(ThemedChartWidget):
 
         painter.setPen(label_color)
         painter.setFont(QFont("Cambria", 9))
-        label_rect = QRect(
-            content_rect.left(), content_rect.top(), content_rect.width(), 16
-        )
+        label_rect = QRect(content_rect.left(), content_rect.top(), content_rect.width(), 16)
         painter.drawText(label_rect, Qt.AlignLeft | Qt.AlignVCenter, self._label)
 
         painter.setPen(value_color)
         painter.setFont(QFont("Cambria", 13, QFont.Bold))
-        value_rect = QRect(
-            content_rect.left(),
-            content_rect.top() + 18,
-            content_rect.width(),
-            22,
-        )
-        elided = painter.fontMetrics().elidedText(
-            self._value, Qt.ElideRight, value_rect.width()
-        )
+        value_rect = QRect(content_rect.left(), content_rect.top() + 18, content_rect.width(), 22)
+        elided = painter.fontMetrics().elidedText(self._value, Qt.ElideRight, value_rect.width())
         painter.drawText(value_rect, Qt.AlignLeft | Qt.AlignVCenter, elided)
 
         if self._subtitle:
             painter.setPen(subtitle_color)
             painter.setFont(QFont("Cambria", 8))
             subtitle_rect = QRect(
-                content_rect.left(),
-                content_rect.top() + 42,
-                content_rect.width(),
-                16,
+                content_rect.left(), content_rect.top() + 42, content_rect.width(), 16
             )
             elided_sub = painter.fontMetrics().elidedText(
                 self._subtitle, Qt.ElideRight, subtitle_rect.width()
             )
-            painter.drawText(
-                subtitle_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_sub
-            )
+            painter.drawText(subtitle_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_sub)
 
         painter.end()
 

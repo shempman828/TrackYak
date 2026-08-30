@@ -81,28 +81,15 @@ class UsedInTab(_BaseTab):
 
         # ── Table ─────────────────────────────────────────────────────────
         self._table = QTableWidget(0, 6)
-        self._table.setHorizontalHeaderLabels([
-            "Type",
-            "Title",
-            "Year",
-            "Description",
-            "Wikipedia",
-            "",
-        ])
-        self._table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeToContents
+        self._table.setHorizontalHeaderLabels(
+            ["Type", "Title", "Year", "Description", "Wikipedia", ""]
         )
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeToContents
-        )
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(
-            4, QHeaderView.ResizeToContents
-        )
-        self._table.horizontalHeader().setSectionResizeMode(
-            5, QHeaderView.ResizeToContents
-        )
+        self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         layout.addWidget(self._table)
 
     def load(self, tracks: list) -> None:
@@ -113,34 +100,19 @@ class UsedInTab(_BaseTab):
             rows = self._common_usages()
         else:
             rows = [
-                (
-                    u.usage_id,
-                    u.usage_type,
-                    u.title,
-                    u.year,
-                    u.description,
-                    u.wikipedia_link,
-                )
+                (u.usage_id, u.usage_type, u.title, u.year, u.description, u.wikipedia_link)
                 for u in self.track.usages
             ]
 
         for usage_id, usage_type, title, year, description, wikipedia_link in rows:
-            self._add_row(
-                usage_id, usage_type, title, year, description, wikipedia_link
-            )
+            self._add_row(usage_id, usage_type, title, year, description, wikipedia_link)
 
     def _common_usages(self):
         """Usage entries (matched by type/title/year) present on every selected track."""
         all_sets = []
         for t in self.tracks:
             s = {
-                (
-                    u.usage_type,
-                    u.title,
-                    u.year or 0,
-                    u.description or "",
-                    u.wikipedia_link or "",
-                )
+                (u.usage_type, u.title, u.year or 0, u.description or "", u.wikipedia_link or "")
                 for u in t.usages
             }
             all_sets.append(s)

@@ -2,14 +2,7 @@
 # Widget: Types (embedded in BasicTab, not its own dialog tab)
 # ══════════════════════════════════════════════════════════════════════════════
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import (
-    QApplication,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.album_flowlayout import FlowLayout
@@ -111,9 +104,7 @@ class ArtistTypesWidget(QWidget):
 
     def _refresh_completer_index(self):
         self._known_types = self._fetch_known_types()
-        index = {
-            t.type_name: t.artist_type_id for t in self._known_types if t.type_name
-        }
+        index = {t.type_name: t.artist_type_id for t in self._known_types if t.type_name}
         self._search.set_index(index)
 
     def load(self, artist):
@@ -220,11 +211,7 @@ class ArtistTypesWidget(QWidget):
                     )
                 else:
                     entity = find_or_create_by_name(
-                        self.controller,
-                        "ArtistType",
-                        "type_name",
-                        name,
-                        self._known_types,
+                        self.controller, "ArtistType", "type_name", name, self._known_types
                     )
                 if entity:
                     entities.append(entity)
@@ -240,10 +227,7 @@ class ArtistTypesWidget(QWidget):
                 self.controller.add.add_entities(
                     "ArtistTypeAssociation",
                     [
-                        {
-                            "artist_id": self.artist.artist_id,
-                            "artist_type_id": e.artist_type_id,
-                        }
+                        {"artist_id": self.artist.artist_id, "artist_type_id": e.artist_type_id}
                         for e in new_entities
                     ],
                 )

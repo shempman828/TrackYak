@@ -1,13 +1,6 @@
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
-from PySide6.QtWidgets import (
-    QGridLayout,
-    QLabel,
-    QScrollArea,
-    QSizePolicy,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QGridLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from src.common.style_utils import set_style_property
 from src.core.censor import censor_text
@@ -123,9 +116,7 @@ class AlbumWidget(QWidget):
 
         rect = QFontMetrics(painter.font()).boundingRect("No Art")
         painter.drawText(
-            (canvas_size - rect.width()) // 2,
-            (canvas_size + rect.height()) // 2,
-            "No Art",
+            (canvas_size - rect.width()) // 2, (canvas_size + rect.height()) // 2, "No Art"
         )
         painter.end()
         return pixmap
@@ -140,9 +131,7 @@ class AlbumWidget(QWidget):
 
     def refresh_album(self, album):
         """Update this widget in place to reflect fresh album data (e.g. after editing)."""
-        logger.debug(
-            f"Refreshing album widget in place: {getattr(album, 'album_name', '?')}"
-        )
+        logger.debug(f"Refreshing album widget in place: {getattr(album, 'album_name', '?')}")
         self.album = album
         self.refresh_display()
 
@@ -153,9 +142,7 @@ class AlbumWidget(QWidget):
                 self.click_timer.stop()
                 self.doubleClicked.emit(self.album)
             else:
-                self.click_timer = QTimer.singleShot(
-                    250, lambda: self.clicked.emit(self.album)
-                )
+                self.click_timer = QTimer.singleShot(250, lambda: self.clicked.emit(self.album))
         super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event):

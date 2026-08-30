@@ -28,9 +28,7 @@ def extract_global_influence_graph(get_helper):
     """
     try:
         all_influences = get_helper.get_all_entities("ArtistInfluence")
-        logger.info(
-            f"Found {len(all_influences)} influence relationships in database"
-        )
+        logger.info(f"Found {len(all_influences)} influence relationships in database")
 
         if not all_influences:
             logger.warning("No influence relationships found in database!")
@@ -47,13 +45,9 @@ def extract_global_influence_graph(get_helper):
             involved_artist_ids.add(influenced_id)
             edges.append((influencer_id, influenced_id))
 
-        logger.info(
-            f"Found {len(involved_artist_ids)} artists with influence relationships"
-        )
+        logger.info(f"Found {len(involved_artist_ids)} artists with influence relationships")
 
-        artists = get_helper.get_all_entities(
-            "Artist", artist_id__in=list(involved_artist_ids)
-        )
+        artists = get_helper.get_all_entities("Artist", artist_id__in=list(involved_artist_ids))
         artists_by_id = {artist.artist_id: artist for artist in artists}
         nodes = []
         for artist_id in involved_artist_ids:
@@ -93,10 +87,7 @@ def compute_descendant_counts(G):
             reach |= reachable[successor]
         reachable[scc_index] = reach
 
-    return {
-        node_id: len(reachable[mapping[node_id]] - {node_id})
-        for node_id in G.nodes()
-    }
+    return {node_id: len(reachable[mapping[node_id]] - {node_id}) for node_id in G.nodes()}
 
 
 def compute_decayed_pagerank(G, alpha=0.85):
@@ -116,7 +107,7 @@ def compute_decayed_pagerank(G, alpha=0.85):
         return nx.pagerank(reversed_G, alpha=alpha)
     except nx.NetworkXException as e:
         logger.error(f"Error computing PageRank: {e}")
-        return {n: 0.0 for n in G.nodes()}
+        return dict.fromkeys(G.nodes(), 0.0)
 
 
 @dataclass
@@ -139,9 +130,7 @@ def calculate_influence_scores(node_ids, edges):
             G.add_edge(source_id, target_id)
 
         descendant_counts = compute_descendant_counts(G)
-        influence_scores = {
-            node_id: descendant_counts.get(node_id, 0) for node_id in node_ids
-        }
+        influence_scores = {node_id: descendant_counts.get(node_id, 0) for node_id in node_ids}
 
         try:
             decayed_pr = compute_decayed_pagerank(G)
@@ -153,9 +142,7 @@ def calculate_influence_scores(node_ids, edges):
         except nx.NetworkXException as e:
             logger.error(f"Failed to compute decayed PageRank: {e}")
             page_rank_scores = {}
-            combined_scores = {
-                node: (influence_scores.get(node, 0), 0.0) for node in node_ids
-            }
+            combined_scores = {node: (influence_scores.get(node, 0), 0.0) for node in node_ids}
 
         logger.info(f"Calculated influence scores for {len(node_ids)} nodes")
         return InfluenceScores(
@@ -198,7 +185,7 @@ def assign_louvain_communities(node_ids, edges):
         ]
     except (TypeError, nx.NetworkXException) as e:
         logger.error(f"Error computing Louvain communities: {e}")
-        return [{nid: 0 for nid in node_ids}]
+        return [dict.fromkeys(node_ids, 0)]
 
 
 def filter_eligible_levels(dendrogram, max_dominant_fraction=0.8):
@@ -259,8 +246,6 @@ def compute_community_bridge_counts(node_ids, edges, community_id):
             neighbors[b].add(a)
 
     return {
-        node_id: len(
-            {community_id[n] for n in neighbor_set if n in community_id}
-        )
+        node_id: len({community_id[n] for n in neighbor_set if n in community_id})
         for node_id, neighbor_set in neighbors.items()
     }

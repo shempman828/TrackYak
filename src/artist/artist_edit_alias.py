@@ -32,8 +32,7 @@ class AliasesTab(EntityAliasesTab):
             extra_field_label="Type",
             extra_field_placeholder="e.g. Birth Name  (or type your own)",
             extra_field_hint=(
-                "Choose a suggestion or type a custom type — "
-                "leave blank if unspecified."
+                "Choose a suggestion or type a custom type — leave blank if unspecified."
             ),
             on_swap=self._perform_swap,
             on_before_add=self._check_existing_artist,
@@ -45,11 +44,7 @@ class AliasesTab(EntityAliasesTab):
         return self.entity
 
     def load(self, artist):
-        logger.debug(
-            "AliasesTab.load: artist_id=%s name=%r",
-            artist.artist_id,
-            artist.artist_name,
-        )
+        logger.debug("AliasesTab.load: artist_id=%s name=%r", artist.artist_id, artist.artist_name)
         super().load(artist)
 
     def _extra_completions(self) -> list[str]:
@@ -67,9 +62,7 @@ class AliasesTab(EntityAliasesTab):
         flow, or False if a merge was offered (accepted or declined) and
         no further action should be taken here.
         """
-        match = self.controller.get.resolve_entity_or_alias(
-            "Artist", "artist_name", alias_name
-        )
+        match = self.controller.get.resolve_entity_or_alias("Artist", "artist_name", alias_name)
         if not match or match.artist_id == self.artist.artist_id:
             return True
 
@@ -90,17 +83,12 @@ class AliasesTab(EntityAliasesTab):
                 self.artist.artist_id,
             )
             show_status_message(
-                self,
-                f"Alias not added — '{alias_name}' already belongs to another artist.",
+                self, f"Alias not added — '{alias_name}' already belongs to another artist."
             )
             return False
 
         dialog = MergeDBDialog(
-            self.controller,
-            "Artist",
-            self,
-            preload_source=match,
-            preload_target=self.artist,
+            self.controller, "Artist", self, preload_source=match, preload_target=self.artist
         )
         if dialog.exec() == QDialog.Accepted:
             logger.info(
@@ -123,9 +111,7 @@ class AliasesTab(EntityAliasesTab):
         )
 
         if new_primary == old_primary:
-            logger.debug(
-                "AliasesTab._perform_swap: no-op, alias already matches primary name"
-            )
+            logger.debug("AliasesTab._perform_swap: no-op, alias already matches primary name")
             show_status_message(self, "That alias is already the primary name.")
             return False
 

@@ -9,11 +9,7 @@ from typing import Any
 
 
 def resolve_or_create_artist(
-    controller,
-    artist_name: str,
-    *,
-    isgroup: int | None = None,
-    commit: bool = True,
+    controller, artist_name: str, *, isgroup: int | None = None, commit: bool = True
 ) -> Any | None:
     """Resolve `artist_name` to an Artist, checking ArtistAlias before
     creating a new one -- so a name the user has aliased to a canonical
@@ -25,9 +21,7 @@ def resolve_or_create_artist(
     if not artist_name:
         return None
 
-    artist = controller.get.resolve_entity_or_alias(
-        "Artist", "artist_name", artist_name
-    )
+    artist = controller.get.resolve_entity_or_alias("Artist", "artist_name", artist_name)
     if artist:
         return artist
 

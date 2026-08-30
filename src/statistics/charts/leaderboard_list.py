@@ -7,8 +7,6 @@ the old dialog (top artists, top genres, top moods, and every new
 leaderboard added across the statistics expansion).
 """
 
-from typing import List, Optional, Tuple
-
 from PySide6.QtCore import QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import QSizePolicy, QToolTip
@@ -57,14 +55,14 @@ class LeaderboardListWidget(ThemedChartWidget):
     def __init__(self, value_suffix: str = "", parent=None):
         super().__init__(parent)
         # rows: list of (name, value, secondary_label)
-        self._rows: List[Tuple[str, float, Optional[str]]] = []
+        self._rows: list[tuple[str, float, str | None]] = []
         self._value_suffix = value_suffix
-        self._hovered_index: Optional[int] = None
+        self._hovered_index: int | None = None
         self.setMouseTracking(True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self._apply_theme_palette()
 
-    def set_data(self, rows: List[Tuple[str, float, Optional[str]]]):
+    def set_data(self, rows: list[tuple[str, float, str | None]]):
         """rows: list of (name, value, secondary_label_or_None)."""
         self._apply_theme_palette()
         self._rows = rows or []
@@ -94,7 +92,9 @@ class LeaderboardListWidget(ThemedChartWidget):
             row_rect = QRect(0, y, w, ROW_HEIGHT - 2)
 
             if i == self._hovered_index:
-                painter.fillRect(row_rect, QColor(bar_color.red(), bar_color.green(), bar_color.blue(), 20))
+                painter.fillRect(
+                    row_rect, QColor(bar_color.red(), bar_color.green(), bar_color.blue(), 20)
+                )
 
             bar_w = (value / max_value) * (w - 16) if max_value else 0
             bar_rect = QRectF(8, y + 3, bar_w, ROW_HEIGHT - 8)
@@ -111,9 +111,7 @@ class LeaderboardListWidget(ThemedChartWidget):
             painter.setFont(QFont("Cambria", 9))
             label = name if not secondary else f"{name} — {secondary}"
             text_rect = QRect(28, y, w - 100, ROW_HEIGHT - 2)
-            elided = painter.fontMetrics().elidedText(
-                label, Qt.ElideRight, text_rect.width()
-            )
+            elided = painter.fontMetrics().elidedText(label, Qt.ElideRight, text_rect.width())
             painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, elided)
 
             painter.setPen(muted_color)
@@ -123,7 +121,7 @@ class LeaderboardListWidget(ThemedChartWidget):
 
         painter.end()
 
-    def _index_at(self, y: int) -> Optional[int]:
+    def _index_at(self, y: int) -> int | None:
         if not self._rows:
             return None
         idx = (y - 4) // ROW_HEIGHT
@@ -140,9 +138,7 @@ class LeaderboardListWidget(ThemedChartWidget):
             name, value, secondary = self._rows[idx]
             label = name if not secondary else f"{name} — {secondary}"
             QToolTip.showText(
-                event.globalPosition().toPoint(),
-                f"{label}: {value:g}{self._value_suffix}",
-                self,
+                event.globalPosition().toPoint(), f"{label}: {value:g}{self._value_suffix}", self
             )
         else:
             QToolTip.hideText()

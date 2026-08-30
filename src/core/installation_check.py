@@ -8,11 +8,11 @@ instead of a raw ImportError traceback. Deliberately stdlib-only.
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 import re
 import shutil
 import sys
-from importlib.metadata import PackageNotFoundError, version
-from pathlib import Path
 
 MIN_PYTHON_VERSION = (3, 10)
 

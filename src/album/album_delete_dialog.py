@@ -19,9 +19,7 @@ class DeleteEmptyAlbumsDialog(QDialog):
         self.empty_albums = empty_albums
         self.setWindowTitle("Delete Empty Albums - Confirmation")
         self.setMinimumSize(500, 400)
-        logger.info(
-            f"Opened empty-albums confirmation dialog with {len(empty_albums)} album(s)"
-        )
+        logger.info(f"Opened empty-albums confirmation dialog with {len(empty_albums)} album(s)")
         self.init_ui()
 
     def init_ui(self):

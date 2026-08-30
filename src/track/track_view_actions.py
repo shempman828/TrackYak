@@ -3,8 +3,8 @@ track_view_actions.py — clipboard copy, drag support, queue helpers, and
 playback actions for TrackView.
 """
 
-import random
 from pathlib import Path
+import random
 
 from PySide6.QtCore import QByteArray, QMimeData, Qt
 from PySide6.QtGui import QDrag, QPainter, QPixmap
@@ -122,8 +122,7 @@ class TrackViewActionsMixin:
 
         mime = QMimeData()
         mime.setData(
-            "application/x-track-id",
-            QByteArray(",".join(str(i) for i in track_ids).encode()),
+            "application/x-track-id", QByteArray(",".join(str(i) for i in track_ids).encode())
         )
 
         drag = QDrag(self)
@@ -168,9 +167,7 @@ class TrackViewActionsMixin:
         qm = self._get_queue_manager()
         if not qm:
             return
-        source = (
-            self._filtered_tracks if self._filter_active else list(self._all_tracks)
-        )
+        source = self._filtered_tracks if self._filter_active else list(self._all_tracks)
         tracks = list(source)
         if shuffle:
             random.shuffle(tracks)
@@ -197,9 +194,7 @@ class TrackViewActionsMixin:
             if not item:
                 continue
             try:
-                track = self.controller.get.get_entity_object(
-                    "Track", track_id=int(item.text())
-                )
+                track = self.controller.get.get_entity_object("Track", track_id=int(item.text()))
                 if track:
                     tracks.append(track)
             except (SQLAlchemyError, ValueError, RuntimeError) as e:

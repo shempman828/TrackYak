@@ -1,14 +1,4 @@
-from typing import Optional
-
-from PySide6.QtCore import (
-    Property,
-    QEasingCurve,
-    QPropertyAnimation,
-    QRect,
-    QSize,
-    Qt,
-    QTimer,
-)
+from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -30,9 +20,7 @@ class StartupSplash(QWidget):
         super().__init__()
 
         # Window setup
-        self.setWindowFlags(
-            Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
-        )
+        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         # A widget's own stylesheet always wins over the app-wide one, so this
@@ -50,8 +38,8 @@ class StartupSplash(QWidget):
         # Animation state
         self._opacity = 0.0
         self._scale = 0.8
-        self._message: Optional[str] = None
-        self._progress: Optional[int] = None
+        self._message: str | None = None
+        self._progress: int | None = None
 
         # Minimum duration
         self.min_duration_ms = min_duration_ms
@@ -133,7 +121,7 @@ class StartupSplash(QWidget):
         if self.finish_requested:
             self._animate_exit()
 
-    def update_status(self, message: str, progress: Optional[int] = None) -> None:
+    def update_status(self, message: str, progress: int | None = None) -> None:
         """Update status message and optional progress."""
         self._message = message
         self._progress = progress
@@ -179,9 +167,7 @@ class StartupSplash(QWidget):
             pixmap = QPixmap(target_device)
             pixmap.fill(_COLOR_FALLBACK_BG)
         else:
-            pixmap = pixmap.scaled(
-                target_device, Qt.KeepAspectRatio, Qt.SmoothTransformation
-            )
+            pixmap = pixmap.scaled(target_device, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         pixmap.setDevicePixelRatio(dpr)
         return pixmap
 
@@ -202,18 +188,12 @@ class StartupSplash(QWidget):
         offset_x = (full_w - scaled_w) // 2
         offset_y = (full_h - scaled_h) // 2
 
-        painter.drawPixmap(
-            QRect(offset_x, offset_y, scaled_w, scaled_h),
-            self.pixmap,
-        )
+        painter.drawPixmap(QRect(offset_x, offset_y, scaled_w, scaled_h), self.pixmap)
 
         # Draw status area
         if self._message:
             status_rect = QRect(
-                offset_x,
-                offset_y + int(scaled_h * 2 / 3),
-                scaled_w,
-                int(scaled_h / 3),
+                offset_x, offset_y + int(scaled_h * 2 / 3), scaled_w, int(scaled_h / 3)
             )
             surface = QColor(_COLOR_SURFACE)
             surface.setAlpha(220)

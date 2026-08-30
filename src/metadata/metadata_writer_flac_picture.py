@@ -13,16 +13,7 @@ from src.metadata.metadata_image_utils import (
     mime_type_for_format,
 )
 
-_MODE_BIT_DEPTHS = {
-    "1": 1,
-    "L": 8,
-    "P": 8,
-    "RGB": 24,
-    "RGBA": 32,
-    "CMYK": 32,
-    "I": 32,
-    "F": 32,
-}
+_MODE_BIT_DEPTHS = {"1": 1, "L": 8, "P": 8, "RGB": 24, "RGBA": 32, "CMYK": 32, "I": 32, "F": 32}
 
 
 class FlacPictureWriter:
@@ -32,9 +23,7 @@ class FlacPictureWriter:
     ROLE_TO_TYPE = ARTWORK_ROLE_TO_TYPE
     TYPE_TO_ROLE = ARTWORK_TYPE_TO_ROLE
 
-    def build_picture_block(
-        self, role: str, image_bytes: bytes, description: str = ""
-    ) -> bytes:
+    def build_picture_block(self, role: str, image_bytes: bytes, description: str = "") -> bytes:
         """Build a raw METADATA_BLOCK_PICTURE payload (no block header) for `role`."""
         if role not in self.ROLE_TO_TYPE:
             logger.error(f"Unknown artwork role for FLAC picture block: {role}")

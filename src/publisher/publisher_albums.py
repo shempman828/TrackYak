@@ -29,9 +29,7 @@ class PublisherAlbumsWindow(QDialog):
 
     def _load_albums(self):
         try:
-            albums = get_publisher_albums(
-                self.controller, self.publisher.publisher_id
-            )
+            albums = get_publisher_albums(self.controller, self.publisher.publisher_id)
 
             self.flow.set_albums(albums)
             count = len(albums)
@@ -39,5 +37,5 @@ class PublisherAlbumsWindow(QDialog):
                 f"{count} album{'s' if count != 1 else ''} — {self.publisher.publisher_name}"
             )
         except SQLAlchemyError as e:
-            logger.error(f"Error loading albums window: {str(e)}")
+            logger.error(f"Error loading albums window: {e!s}")
             self.status_label.setText("Error loading albums.")

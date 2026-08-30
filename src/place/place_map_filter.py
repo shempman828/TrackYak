@@ -119,9 +119,7 @@ class MultiSelectWidget(QWidget):
         for item in items:
             checkbox = QCheckBox(item)
             checkbox.setChecked(default_selected)
-            checkbox.stateChanged.connect(
-                lambda state, i=item: self.on_checkbox_changed(i, state)
-            )
+            checkbox.stateChanged.connect(lambda state, i=item: self.on_checkbox_changed(i, state))
             self.popup.content_layout.addWidget(checkbox)
             self.checkboxes[item] = checkbox
 

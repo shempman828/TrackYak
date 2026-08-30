@@ -2,12 +2,13 @@
 writers when writing tags or artwork.
 """
 
+from collections.abc import Callable
 import hashlib
 import os
 import shutil
 import struct
 import tempfile
-from typing import Any, Callable, Dict
+from typing import Any
 
 from PIL import Image
 
@@ -85,7 +86,7 @@ def write_artwork_with_backup(
     file_path: str,
     role: str,
     image_bytes: Any,
-    role_to_type: Dict[str, int],
+    role_to_type: dict[str, int],
     mutate: Callable[[], bool],
     error_context: str,
 ) -> bool:
@@ -146,6 +147,4 @@ def verify_artwork_write(file_path: str, role: str, image_bytes: Any) -> bool:
     if not picture:
         return False
 
-    return hashlib.sha256(picture["data"]).digest() == hashlib.sha256(
-        image_bytes
-    ).digest()
+    return hashlib.sha256(picture["data"]).digest() == hashlib.sha256(image_bytes).digest()

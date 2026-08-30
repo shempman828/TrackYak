@@ -28,7 +28,7 @@ from src.statistics.stats.places_credits import PlacesCreditsStats
 
 # Re-exported for backward compatibility with any existing import of these
 # names from this module; the canonical definition now lives in stats/helpers.py.
-__all__ = ["MusicStatistics", "RATING_MIN", "RATING_MAX"]
+__all__ = ["RATING_MAX", "RATING_MIN", "MusicStatistics"]
 
 
 class MusicStatistics:

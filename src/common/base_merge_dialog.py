@@ -1,6 +1,6 @@
+from difflib import SequenceMatcher
 import html
 import re
-from difflib import SequenceMatcher
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -33,12 +33,7 @@ class MergeDBDialog(QDialog):
     """Integrated dialog for searching, selecting, and resolving merge conflicts."""
 
     def __init__(
-        self,
-        controller,
-        model_name,
-        parent=None,
-        preload_source=None,
-        preload_target=None,
+        self, controller, model_name, parent=None, preload_source=None, preload_target=None
     ):
         super().__init__(parent)
         self.controller = controller
@@ -90,9 +85,7 @@ class MergeDBDialog(QDialog):
 
         # Source column with enhanced features
         source_col = QVBoxLayout()
-        source_col.addWidget(
-            QLabel(f"<b>Source {self.model_name}</b> (will be deleted):")
-        )
+        source_col.addWidget(QLabel(f"<b>Source {self.model_name}</b> (will be deleted):"))
 
         # Source info display — shown ABOVE the list so it's clearly the selected item
         self.source_info = QLabel("No entity selected")
@@ -103,16 +96,12 @@ class MergeDBDialog(QDialog):
         # Source search with "Find Similar" button
         source_search_layout = QHBoxLayout()
         self.source_search = QLineEdit()
-        self.source_search.setPlaceholderText(
-            f"Search source {self.model_name.lower()}..."
-        )
+        self.source_search.setPlaceholderText(f"Search source {self.model_name.lower()}...")
         self.source_search.textChanged.connect(lambda t: self._update_list(t, "source"))
         source_search_layout.addWidget(self.source_search)
 
         self.source_find_similar_btn = QPushButton("Find Similar")
-        self.source_find_similar_btn.clicked.connect(
-            lambda: self._find_similar("source")
-        )
+        self.source_find_similar_btn.clicked.connect(lambda: self._find_similar("source"))
         self.source_find_similar_btn.setToolTip(
             f"Find {self.model_name.lower()}s similar to the selected target"
         )
@@ -138,16 +127,12 @@ class MergeDBDialog(QDialog):
         # Target search with "Find Similar" button
         target_search_layout = QHBoxLayout()
         self.target_search = QLineEdit()
-        self.target_search.setPlaceholderText(
-            f"Search target {self.model_name.lower()}..."
-        )
+        self.target_search.setPlaceholderText(f"Search target {self.model_name.lower()}...")
         self.target_search.textChanged.connect(lambda t: self._update_list(t, "target"))
         target_search_layout.addWidget(self.target_search)
 
         self.target_find_similar_btn = QPushButton("Find Similar")
-        self.target_find_similar_btn.clicked.connect(
-            lambda: self._find_similar("target")
-        )
+        self.target_find_similar_btn.clicked.connect(lambda: self._find_similar("target"))
         self.target_find_similar_btn.setToolTip(
             f"Find {self.model_name.lower()}s similar to the selected source"
         )
@@ -203,11 +188,9 @@ class MergeDBDialog(QDialog):
 
         if self.all_entities_cache is None:
             try:
-                self.all_entities_cache = self.controller.get.get_all_entities(
-                    self.model_name
-                )
+                self.all_entities_cache = self.controller.get.get_all_entities(self.model_name)
             except SQLAlchemyError as e:
-                logger.error(f"Error fetching all {self.model_name.lower()}s: {str(e)}")
+                logger.error(f"Error fetching all {self.model_name.lower()}s: {e!s}")
                 self.all_entities_cache = []
 
         text_lower = text.strip().lower()
@@ -277,9 +260,7 @@ class MergeDBDialog(QDialog):
 
         # 4. Prefix matching
         if norm1.startswith(norm2) or norm2.startswith(norm1):
-            prefix_score = min(
-                len(norm2) / max(len(norm1), 1), len(norm1) / max(len(norm2), 1)
-            )
+            prefix_score = min(len(norm2) / max(len(norm1), 1), len(norm1) / max(len(norm2), 1))
             scores.append(prefix_score * 0.2)
 
         return min(sum(scores), 1.0)
@@ -294,12 +275,10 @@ class MergeDBDialog(QDialog):
 
         for entity in entities:
             entity_name = getattr(entity, self.name_attr, "")
-            selected_entity = (
-                self.source_entity if hasattr(self, "source_entity") else None
-            )
-            if selected_entity is not None and getattr(
-                entity, self.id_attr, None
-            ) == getattr(selected_entity, self.id_attr, None):
+            selected_entity = self.source_entity if hasattr(self, "source_entity") else None
+            if selected_entity is not None and getattr(entity, self.id_attr, None) == getattr(
+                selected_entity, self.id_attr, None
+            ):
                 continue
 
             score = self._calculate_name_similarity(base_name, entity_name)
@@ -335,9 +314,7 @@ class MergeDBDialog(QDialog):
         """Select an entity with enhanced info display and auto-suggest."""
         eid = item.data(Qt.UserRole)
         try:
-            entity = self.controller.get.get_entity_object(
-                self.model_name, **{self.id_attr: eid}
-            )
+            entity = self.controller.get.get_entity_object(self.model_name, **{self.id_attr: eid})
 
             if side == "source":
                 self.source_entity = entity
@@ -358,10 +335,8 @@ class MergeDBDialog(QDialog):
             self._highlight_selected_entities()
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error selecting entity: {str(e)}")
-            QMessageBox.warning(
-                self, "Selection Error", f"Failed to select entity: {str(e)}"
-            )
+            logger.error(f"Error selecting entity: {e!s}")
+            QMessageBox.warning(self, "Selection Error", f"Failed to select entity: {e!s}")
 
     def _build_entity_info(self, entity, side):
         """Build informational text for an entity."""
@@ -380,7 +355,7 @@ class MergeDBDialog(QDialog):
 
         # Add status if available (like is_active field)
         if hasattr(entity, "is_active"):
-            status = "Active" if getattr(entity, "is_active") == 1 else "Inactive"
+            status = "Active" if entity.is_active == 1 else "Inactive"
             info += f"Status: {status}"
 
         return info
@@ -405,9 +380,7 @@ class MergeDBDialog(QDialog):
                 selected_name, entities, limit=10
             )
 
-            list_widget = (
-                self.source_list if target_list_type == "source" else self.target_list
-            )
+            list_widget = self.source_list if target_list_type == "source" else self.target_list
 
             # Clear and show suggestions
             list_widget.clear()
@@ -415,9 +388,7 @@ class MergeDBDialog(QDialog):
             if similar_entities:
                 # Update search field placeholder
                 search_field = (
-                    self.source_search
-                    if target_list_type == "source"
-                    else self.target_search
+                    self.source_search if target_list_type == "source" else self.target_search
                 )
                 search_field.setPlaceholderText(f"Suggestions for '{selected_name}'")
 
@@ -438,16 +409,14 @@ class MergeDBDialog(QDialog):
             else:
                 # Clear search field placeholder
                 search_field = (
-                    self.source_search
-                    if target_list_type == "source"
-                    else self.target_search
+                    self.source_search if target_list_type == "source" else self.target_search
                 )
                 search_field.setPlaceholderText(
                     f"Search {target_list_type} {self.model_name.lower()}..."
                 )
 
         except (AttributeError, RuntimeError) as e:
-            logger.error(f"Error in auto-suggest: {str(e)}")
+            logger.error(f"Error in auto-suggest: {e!s}")
 
     def _find_similar(self, from_list_type):
         """Manually trigger finding similar entities."""
@@ -463,7 +432,7 @@ class MergeDBDialog(QDialog):
                 # Clear target search to show suggestions
                 self.target_search.clear()
         except RuntimeError as e:
-            logger.error(f"Error finding similar entities: {str(e)}")
+            logger.error(f"Error finding similar entities: {e!s}")
 
     def _swap_selection(self):
         """Enhanced swap with highlighting and info updates."""
@@ -475,12 +444,8 @@ class MergeDBDialog(QDialog):
 
         try:
             # Update the info labels
-            self.source_info.setText(
-                self._build_entity_info(self.source_entity, "source")
-            )
-            self.target_info.setText(
-                self._build_entity_info(self.target_entity, "target")
-            )
+            self.source_info.setText(self._build_entity_info(self.source_entity, "source"))
+            self.target_info.setText(self._build_entity_info(self.target_entity, "target"))
 
             # Clear and refresh the lists
             self._update_list(self.source_search.text(), "source")
@@ -492,7 +457,7 @@ class MergeDBDialog(QDialog):
             self._update_action_buttons()
 
         except RuntimeError as e:
-            logger.error(f"Error swapping selection: {str(e)}")
+            logger.error(f"Error swapping selection: {e!s}")
 
     def _highlight_selected_entities(self):
         """Highlight the currently selected entities in the lists."""
@@ -518,9 +483,7 @@ class MergeDBDialog(QDialog):
         """Update enabled states of all action buttons."""
         has_source = self.source_entity is not None
         has_target = self.target_entity is not None
-        different = (
-            has_source and has_target and self.source_entity != self.target_entity
-        )
+        different = has_source and has_target and self.source_entity != self.target_entity
 
         self.next_btn.setEnabled(different)
         self.swap_btn.setEnabled(has_source and has_target)
@@ -529,9 +492,7 @@ class MergeDBDialog(QDialog):
         if different:
             source_name = getattr(self.source_entity, self.name_attr, "Source")
             target_name = getattr(self.target_entity, self.name_attr, "Target")
-            self.next_btn.setText(
-                _esc_amp(f"Next: Merge '{source_name}' into '{target_name}' →")
-            )
+            self.next_btn.setText(_esc_amp(f"Next: Merge '{source_name}' into '{target_name}' →"))
         else:
             self.next_btn.setText("Next: Resolve Conflicts →")
 
@@ -598,12 +559,8 @@ class MergeDBDialog(QDialog):
                 source_name = getattr(self.source_entity, self.name_attr, "Source")
                 target_name = getattr(self.target_entity, self.name_attr, "Target")
 
-                s_radio = QRadioButton(
-                    _esc_amp(f"Keep Source ({source_name}): {s_display}")
-                )
-                t_radio = QRadioButton(
-                    _esc_amp(f"Keep Target ({target_name}): {t_display}")
-                )
+                s_radio = QRadioButton(_esc_amp(f"Keep Source ({source_name}): {s_display}"))
+                t_radio = QRadioButton(_esc_amp(f"Keep Target ({target_name}): {t_display}"))
 
                 group.addButton(s_radio, 0)
                 group.addButton(t_radio, 1)
@@ -665,11 +622,7 @@ class MergeDBDialog(QDialog):
             return True
 
         # Skip timestamp columns
-        if (
-            attr.endswith("_at")
-            or attr.startswith("created_")
-            or attr.startswith("updated_")
-        ):
+        if attr.endswith("_at") or attr.startswith("created_") or attr.startswith("updated_"):
             return True
 
         # Skip relationship fields — these are lists or mapped ORM objects,
@@ -698,9 +651,7 @@ class MergeDBDialog(QDialog):
             t_val = getattr(self.target_entity, attr)
 
             # Skip fields that should not be presented as merge choices
-            if self._is_skippable_field(attr, s_val) or self._is_skippable_field(
-                attr, t_val
-            ):
+            if self._is_skippable_field(attr, s_val) or self._is_skippable_field(attr, t_val):
                 continue
 
             if s_val != t_val:
@@ -766,8 +717,4 @@ class MergeDBDialog(QDialog):
         except (AttributeError, SQLAlchemyError) as e:
             logger.exception("Error during merge")
 
-            QMessageBox.critical(
-                self,
-                "Merge Error",
-                f"An error occurred during merge:\n\n{e}",
-            )
+            QMessageBox.critical(self, "Merge Error", f"An error occurred during merge:\n\n{e}")

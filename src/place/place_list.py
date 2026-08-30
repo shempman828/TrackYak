@@ -90,16 +90,14 @@ class DraggableTreeWidget(QTreeWidget):
                 self.list_view.controller.update.update_entity(
                     "Place", moved_place.place_id, parent_id=new_parent_id
                 )
-                logger.info(
-                    f"Updated parent for {moved_place.place_name} to {new_parent_id}"
-                )
+                logger.info(f"Updated parent for {moved_place.place_name} to {new_parent_id}")
 
             # Reload both views so tree items always reflect the real database state
             if self.list_view.parent_view:
                 self.list_view.parent_view.refresh_views()
 
         except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Failed to update parent: {str(e)}")
+            logger.error(f"Failed to update parent: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to update parent place")
             # Refresh to revert visual changes if the DB update failed
             if self.list_view.parent_view:
@@ -340,9 +338,7 @@ class ListView(QWidget):
         """Toggle the advanced filter bar (type / MBID missing / coordinates missing)."""
         is_visible = self.filter_container.isVisible()
         self.filter_container.setVisible(not is_visible)
-        self.toggle_filter_button.setText(
-            "Hide Filters" if not is_visible else "Show Filters"
-        )
+        self.toggle_filter_button.setText("Hide Filters" if not is_visible else "Show Filters")
 
     def apply_type_filter(self, selected_types):
         """Handle a change in the selected place types from the type filter dropdown."""
@@ -432,22 +428,15 @@ class ListView(QWidget):
             place = item.data(0, Qt.UserRole)
 
             menu.addAction(
-                "View Associations",
-                lambda p=place: self.show_association_details_for(p),
+                "View Associations", lambda p=place: self.show_association_details_for(p)
             )
-            menu.addAction(
-                "View Details", lambda p=place: self.view_place_details_for(p)
-            )
+            menu.addAction("View Details", lambda p=place: self.view_place_details_for(p))
             menu.addAction("Edit", lambda p=place: self.edit_place_for(p))
             menu.addAction("Merge", lambda p=place: self.merge_place(p))
             menu.addAction("Split", lambda p=place: self._split_place())
             menu.addSeparator()
-            menu.addAction(
-                "New Parent Place", lambda p=place: self.create_new_parent_place(p)
-            )
-            menu.addAction(
-                "New Child Place", lambda p=place: self.create_new_child_place(p)
-            )
+            menu.addAction("New Parent Place", lambda p=place: self.create_new_parent_place(p))
+            menu.addAction("New Child Place", lambda p=place: self.create_new_child_place(p))
             menu.addSeparator()
 
         # Delete works for single or multiple selection
@@ -469,10 +458,7 @@ class ListView(QWidget):
         for children in hierarchy.values():
             if self.sort_mode == "associations":
                 children.sort(
-                    key=lambda p: (
-                        -p.recursive_association_count,
-                        (p.place_name or "").lower(),
-                    )
+                    key=lambda p: (-p.recursive_association_count, (p.place_name or "").lower())
                 )
             else:
                 children.sort(key=lambda p: (p.place_name or "").lower())
@@ -498,11 +484,7 @@ class ListView(QWidget):
         """Add every place as a top-level item, sorted per self.sort_mode, with no nesting."""
         if self.sort_mode == "associations":
             ordered = sorted(
-                places,
-                key=lambda p: (
-                    -p.recursive_association_count,
-                    (p.place_name or "").lower(),
-                ),
+                places, key=lambda p: (-p.recursive_association_count, (p.place_name or "").lower())
             )
         else:
             ordered = sorted(places, key=lambda p: (p.place_name or "").lower())
@@ -539,10 +521,7 @@ class ListView(QWidget):
             assoc_text = "<span class='no-assoc'> - no associations</span>"
         elif recursive > direct:
             # Has associations in child places too — show both counts
-            assoc_text = (
-                f"<span class='assoc-count'> - {direct} direct"
-                f", {recursive} total</span>"
-            )
+            assoc_text = f"<span class='assoc-count'> - {direct} direct, {recursive} total</span>"
         else:
             assoc_text = f"<span class='assoc-count'> - {direct} association(s)</span>"
 
@@ -586,7 +565,7 @@ class ListView(QWidget):
                     self.parent_view.refresh_views()
                 logger.info("Place created successfully")
             except (SQLAlchemyError, RuntimeError) as e:
-                logger.error(f"Failed to create place: {str(e)}")
+                logger.error(f"Failed to create place: {e!s}")
                 QMessageBox.critical(self, "Error", "Failed to create place")
 
     def edit_place_for(self, old_place):
@@ -595,14 +574,12 @@ class ListView(QWidget):
         if dialog.exec_() == QDialog.Accepted:
             updated_data = dialog.get_place_data()
             try:
-                self.controller.update.update_entity(
-                    "Place", old_place.place_id, **updated_data
-                )
+                self.controller.update.update_entity("Place", old_place.place_id, **updated_data)
                 if self.parent_view:
                     self.parent_view.refresh_views()
                 logger.info("Place updated successfully")
             except (SQLAlchemyError, RuntimeError) as e:
-                logger.error(f"Failed to update place: {str(e)}")
+                logger.error(f"Failed to update place: {e!s}")
                 QMessageBox.critical(self, "Error", "Failed to update place")
 
     def edit_place(self):
@@ -645,7 +622,7 @@ class ListView(QWidget):
                 self.parent_view.refresh_views()
             logger.info("New parent place created and linked successfully.")
         except (SQLAlchemyError, ValueError, RuntimeError) as e:
-            logger.error(f"Failed to create new parent place: {str(e)}")
+            logger.error(f"Failed to create new parent place: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to create new parent place")
 
     def create_new_child_place(self, place):
@@ -670,7 +647,7 @@ class ListView(QWidget):
                 self.parent_view.refresh_views()
             logger.info("New child place created and linked successfully.")
         except (SQLAlchemyError, ValueError, RuntimeError) as e:
-            logger.error(f"Failed to create new child place: {str(e)}")
+            logger.error(f"Failed to create new child place: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to create new child place")
 
     def delete_selected_places(self):
@@ -695,10 +672,7 @@ class ListView(QWidget):
             message = f"Delete {count} places permanently?\n\n{names_preview}"
 
         confirm = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            message,
-            QMessageBox.Yes | QMessageBox.No,
+            self, "Confirm Delete", message, QMessageBox.Yes | QMessageBox.No
         )
         if confirm != QMessageBox.Yes:
             return
@@ -709,16 +683,14 @@ class ListView(QWidget):
                 self.controller.delete.delete_entity("Place", place.place_id)
             except SQLAlchemyError as e:
                 errors.append(place.place_name)
-                logger.error(f"Failed to delete place '{place.place_name}': {str(e)}")
+                logger.error(f"Failed to delete place '{place.place_name}': {e!s}")
 
         if self.parent_view:
             self.parent_view.refresh_views()
 
         if errors:
             QMessageBox.critical(
-                self,
-                "Error",
-                "Could not delete the following places:\n" + "\n".join(errors),
+                self, "Error", "Could not delete the following places:\n" + "\n".join(errors)
             )
         else:
             logger.info(f"Deleted {count} place(s) successfully")

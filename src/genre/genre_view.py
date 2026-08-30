@@ -80,8 +80,7 @@ class GenreLoaderWorker(CancellableWorker):
                 direct_track_ids[genre_id].add(track_id)
 
             direct_counts = {
-                genre_id: len(track_ids)
-                for genre_id, track_ids in direct_track_ids.items()
+                genre_id: len(track_ids) for genre_id, track_ids in direct_track_ids.items()
             }
 
             children_map = defaultdict(list)
@@ -102,11 +101,10 @@ class GenreLoaderWorker(CancellableWorker):
                 track_ids_for(genre.genre_id)
 
             recursive_totals = {
-                genre_id: len(track_ids)
-                for genre_id, track_ids in recursive_track_ids.items()
+                genre_id: len(track_ids) for genre_id, track_ids in recursive_track_ids.items()
             }
 
-        except Exception as e:  # ruff: ignore[blind-except]
+        except Exception as e:
             logger.exception("Genre count scan failed")
             self.error.emit(str(e))
             self._release_db_session()
@@ -277,9 +275,7 @@ class GenreView(QWidget):
             current_genre_id = current_item.data(0, Qt.UserRole)
 
             # Fetch the actual Genre ORM object from the database
-            genre_obj = self.controller.get.get_entity_object(
-                "Genre", genre_id=current_genre_id
-            )
+            genre_obj = self.controller.get.get_entity_object("Genre", genre_id=current_genre_id)
             if not genre_obj:
                 show_status_message(self, "The selected genre no longer exists.")
                 return
@@ -463,13 +459,7 @@ class GenreView(QWidget):
         return item
 
     def _build_genre_tree(
-        self,
-        parent_item,
-        children_map,
-        genre_map,
-        direct_counts,
-        recursive_counts,
-        depth,
+        self, parent_item, children_map, genre_map, direct_counts, recursive_counts, depth
     ):
         """Recursively build the tree structure with visual hierarchy
         indicators. Insertion order doesn't matter for display order —
@@ -479,9 +469,7 @@ class GenreView(QWidget):
         for genre in children_map.get(parent_id, []):
             own_count = direct_counts.get(genre.genre_id, 0)
             recursive_count = recursive_counts.get(genre.genre_id, own_count)
-            item = self._make_genre_item(
-                genre, own_count, recursive_count, depth, genre_map
-            )
+            item = self._make_genre_item(genre, own_count, recursive_count, depth, genre_map)
 
             if parent_item:
                 parent_item.addChild(item)
@@ -489,12 +477,7 @@ class GenreView(QWidget):
                 self.tree.addTopLevelItem(item)
 
             self._build_genre_tree(
-                item,
-                children_map,
-                genre_map,
-                direct_counts,
-                recursive_counts,
-                depth + 1,
+                item, children_map, genre_map, direct_counts, recursive_counts, depth + 1
             )
 
     def _build_genre_flat(self, genres, genre_map, direct_counts, recursive_counts):
@@ -503,9 +486,7 @@ class GenreView(QWidget):
         for genre in genres:
             own_count = direct_counts.get(genre.genre_id, 0)
             recursive_count = recursive_counts.get(genre.genre_id, own_count)
-            item = self._make_genre_item(
-                genre, own_count, recursive_count, 0, genre_map
-            )
+            item = self._make_genre_item(genre, own_count, recursive_count, 0, genre_map)
             self.tree.addTopLevelItem(item)
 
     def on_item_edited(self, item, column):
@@ -524,9 +505,7 @@ class GenreView(QWidget):
                 raise ValueError("Genre name cannot be empty")
 
             # Check if name already exists (excluding current genre)
-            existing = self.controller.get.get_entity_object(
-                "Genre", genre_name=new_name
-            )
+            existing = self.controller.get.get_entity_object("Genre", genre_name=new_name)
             if existing and existing.genre_id != genre_id:
                 raise ValueError("Genre name already exists")
 
@@ -572,8 +551,7 @@ class GenreView(QWidget):
                         child_id, target_id, all_genres, id_attr="genre_id"
                     ):
                         show_status_message(
-                            self,
-                            "Cannot make a genre a child of itself or its descendants.",
+                            self, "Cannot make a genre a child of itself or its descendants."
                         )
                         event.ignore()
                         return
@@ -582,9 +560,7 @@ class GenreView(QWidget):
             for item in selected_items:
                 child_id = item.data(0, Qt.UserRole)
                 logger.info(f"Moving {child_id} to {target_id}")
-                self.controller.update.update_entity(
-                    "Genre", child_id, parent_id=target_id
-                )
+                self.controller.update.update_entity("Genre", child_id, parent_id=target_id)
 
             self.load_genres()  # Refresh tree
             self.genre_updated.emit()
@@ -610,12 +586,9 @@ class GenreView(QWidget):
                 menu.addAction("Merge", lambda: self.merge_genre(self.current_genre_id))
                 menu.addAction("Split", lambda: self._split_genre())
                 menu.addSeparator()
+                menu.addAction("Set Parent...", lambda: self.set_parent_for_selected_genres())
                 menu.addAction(
-                    "Set Parent...", lambda: self.set_parent_for_selected_genres()
-                )
-                menu.addAction(
-                    "New Parent Genre",
-                    lambda: self.create_new_parent(self.current_genre_id),
+                    "New Parent Genre", lambda: self.create_new_parent(self.current_genre_id)
                 )
                 menu.addAction(
                     "New Child Genre", lambda: self.create_new_child(self.current_genre_id)
@@ -627,9 +600,7 @@ class GenreView(QWidget):
                     f"View Tracks ({len(selected_items)} genres)",
                     lambda: self.view_tracks_for_selected_genres(selected_items),
                 )
-                menu.addAction(
-                    "Set Parent...", lambda: self.set_parent_for_selected_genres()
-                )
+                menu.addAction("Set Parent...", lambda: self.set_parent_for_selected_genres())
 
             # Always show delete option (works for single or multiple)
             menu.addAction("Delete", lambda: self.delete_selected_genres())
@@ -659,14 +630,10 @@ class GenreView(QWidget):
         def sort_key(genre):
             name_key = genre.genre_name.lower()
             if sort_column == 1:
-                count = recursive_counts.get(
-                    genre.genre_id, direct_counts.get(genre.genre_id, 0)
-                )
+                count = recursive_counts.get(genre.genre_id, direct_counts.get(genre.genre_id, 0))
                 primary = -count if sort_order == Qt.DescendingOrder else count
                 return (primary, name_key)
-            return (
-                name_key if sort_order == Qt.AscendingOrder else _ReverseStr(name_key),
-            )
+            return (name_key if sort_order == Qt.AscendingOrder else _ReverseStr(name_key),)
 
         content = render_hierarchy_as_text(
             self._all_genres,
@@ -691,15 +658,11 @@ class GenreView(QWidget):
         try:
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            show_status_message(
-                self, f"Exported {len(self._all_genres)} genre(s) to {file_path}"
-            )
+            show_status_message(self, f"Exported {len(self._all_genres)} genre(s) to {file_path}")
             logger.info(f"Exported {len(self._all_genres)} genre(s) to {file_path}")
         except OSError as e:
             logger.error(f"Error exporting genre hierarchy: {e}")
-            QMessageBox.critical(
-                self, "Error", f"Failed to export genre hierarchy:\n{e!s}"
-            )
+            QMessageBox.critical(self, "Error", f"Failed to export genre hierarchy:\n{e!s}")
 
     def view_tracks_for_selected_genre(self):
         """Open tracks view window for selected genre."""
@@ -745,9 +708,7 @@ class GenreView(QWidget):
     def merge_genre(self, source_genre_id):
         """Open the merge dialog for the selected genre."""
         try:
-            genre_obj = self.controller.get.get_entity_object(
-                "Genre", genre_id=source_genre_id
-            )
+            genre_obj = self.controller.get.get_entity_object("Genre", genre_id=source_genre_id)
             if not genre_obj:
                 show_status_message(self, "The selected genre no longer exists.")
                 return
@@ -798,9 +759,7 @@ class GenreView(QWidget):
                 self.load_genres()
                 self.genre_updated.emit()
                 if len(genres) == 1:
-                    self.status_bar.setText(
-                        f"Updated parent for '{genres[0].genre_name}'"
-                    )
+                    self.status_bar.setText(f"Updated parent for '{genres[0].genre_name}'")
                 else:
                     self.status_bar.setText(f"Updated parent for {len(genres)} genres")
         except (SQLAlchemyError, RuntimeError) as e:
@@ -926,9 +885,8 @@ class GenreView(QWidget):
         if len(genre_names) == 1:
             message = f"Are you sure you want to delete '{genre_names[0]}'?"
         else:
-            message = (
-                f"Are you sure you want to delete {len(genre_names)} genres?\n\n"
-                + "\n".join(f"• {name}" for name in genre_names)
+            message = f"Are you sure you want to delete {len(genre_names)} genres?\n\n" + "\n".join(
+                f"• {name}" for name in genre_names
             )
 
         confirmed, add_to_excluded = self._confirm_delete(message)
@@ -965,9 +923,7 @@ class GenreView(QWidget):
 
             except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Error in bulk delete: {e!s}")
-                QMessageBox.critical(
-                    self, "Error", "Failed to delete one or more genres"
-                )
+                QMessageBox.critical(self, "Error", "Failed to delete one or more genres")
 
     def delete_genre(self, genre_id):
         """Delete single genre after confirmation (kept for backward compatibility)."""
@@ -1029,9 +985,7 @@ class GenreView(QWidget):
             # order so the promoted items land in the right spot, whether
             # that's alphabetical or by track count.
             header = self.tree.header()
-            self.tree.sortByColumn(
-                header.sortIndicatorSection(), header.sortIndicatorOrder()
-            )
+            self.tree.sortByColumn(header.sortIndicatorSection(), header.sortIndicatorOrder())
 
     def _reindent_subtree(self, item, depth):
         """Refresh depth-based icons after an item moves to a new tree level."""

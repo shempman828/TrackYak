@@ -17,6 +17,7 @@ from datetime import datetime
 from sqlalchemy import case, func
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.core.logger_config import logger
 from src.db.db_tables import (
     Album,
     Artist,
@@ -28,7 +29,6 @@ from src.db.db_tables import (
     TrackArtistRole,
     TrackGenre,
 )
-from src.core.logger_config import logger
 from src.statistics.stats.helpers import RATING_MAX, RATING_MIN
 
 
@@ -139,9 +139,7 @@ class BasicStats:
             avg_plays_query.label("avg_plays_per_track"),
         ).one()
 
-        total_duration = (
-            session.query(func.coalesce(func.sum(Track.duration), 0)).scalar() or 0
-        )
+        total_duration = session.query(func.coalesce(func.sum(Track.duration), 0)).scalar() or 0
 
         return {
             "total_plays": play_stats.total_plays or 0,
@@ -160,9 +158,9 @@ class BasicStats:
         rating_stats = (
             session.query(
                 func.avg(Track.user_rating).label("avg_rating"),
-                func.avg(
-                    case((Track.play_count > 0, Track.user_rating), else_=None)
-                ).label("avg_played_rating"),
+                func.avg(case((Track.play_count > 0, Track.user_rating), else_=None)).label(
+                    "avg_played_rating"
+                ),
                 func.count(Track.track_id).label("rated_tracks"),
             )
             .filter(
@@ -213,16 +211,9 @@ class BasicStats:
             total_artists = session.query(func.count(Artist.artist_id)).scalar() or 0
         if total_albums is None:
             total_albums = session.query(func.count(Album.album_id)).scalar() or 0
-        total_publishers = (
-            session.query(func.count(Publisher.publisher_id)).scalar() or 0
-        )
+        total_publishers = session.query(func.count(Publisher.publisher_id)).scalar() or 0
 
-        if (
-            total_tracks == 0
-            and total_artists == 0
-            and total_albums == 0
-            and total_publishers == 0
-        ):
+        if total_tracks == 0 and total_artists == 0 and total_albums == 0 and total_publishers == 0:
             return {
                 "tracks_complete": 0.0,
                 "artists_complete": 0.0,
@@ -233,41 +224,21 @@ class BasicStats:
 
         def _credit_expr(model):
             return func.sum(
-                case(
-                    (model.second_pass == 1, 1.0),
-                    (model.first_pass == 1, 0.5),
-                    else_=0.0,
-                )
+                case((model.second_pass == 1, 1.0), (model.first_pass == 1, 0.5), else_=0.0)
             )
 
-        credit_tracks = (
-            session.query(_credit_expr(Track)).scalar() or 0
-        )
-        credit_artists = (
-            session.query(_credit_expr(Artist)).scalar() or 0
-        )
-        credit_albums = (
-            session.query(_credit_expr(Album)).scalar() or 0
-        )
-        credit_publishers = (
-            session.query(_credit_expr(Publisher)).scalar() or 0
-        )
+        credit_tracks = session.query(_credit_expr(Track)).scalar() or 0
+        credit_artists = session.query(_credit_expr(Artist)).scalar() or 0
+        credit_albums = session.query(_credit_expr(Album)).scalar() or 0
+        credit_publishers = session.query(_credit_expr(Publisher)).scalar() or 0
 
-        tracks_pct = round(
-            (credit_tracks / total_tracks * 100) if total_tracks else 0, 1
-        )
-        artists_pct = round(
-            (credit_artists / total_artists * 100) if total_artists else 0, 1
-        )
-        albums_pct = round(
-            (credit_albums / total_albums * 100) if total_albums else 0, 1
-        )
+        tracks_pct = round((credit_tracks / total_tracks * 100) if total_tracks else 0, 1)
+        artists_pct = round((credit_artists / total_artists * 100) if total_artists else 0, 1)
+        albums_pct = round((credit_albums / total_albums * 100) if total_albums else 0, 1)
         publishers_pct = round(
             (credit_publishers / total_publishers * 100) if total_publishers else 0, 1
         )
-        total_pct = round(
-            (tracks_pct + artists_pct + albums_pct + publishers_pct) / 4, 1
-        )
+        total_pct = round((tracks_pct + artists_pct + albums_pct + publishers_pct) / 4, 1)
 
         return {
             "tracks_complete": tracks_pct,
@@ -303,9 +274,7 @@ class BasicStats:
 
             return {
                 "average_bit_rate": (
-                    round(quality_stats.avg_bit_rate, 0)
-                    if quality_stats.avg_bit_rate
-                    else None
+                    round(quality_stats.avg_bit_rate, 0) if quality_stats.avg_bit_rate else None
                 ),
                 "average_sample_rate": (
                     round(quality_stats.avg_sample_rate, 0)
@@ -313,19 +282,13 @@ class BasicStats:
                     else None
                 ),
                 "average_bit_depth": (
-                    round(quality_stats.avg_bit_depth, 1)
-                    if quality_stats.avg_bit_depth
-                    else None
+                    round(quality_stats.avg_bit_depth, 1) if quality_stats.avg_bit_depth else None
                 ),
                 "average_duration": (
-                    round(quality_stats.avg_duration, 1)
-                    if quality_stats.avg_duration
-                    else None
+                    round(quality_stats.avg_duration, 1) if quality_stats.avg_duration else None
                 ),
                 "average_file_size": (
-                    round(quality_stats.avg_file_size, 0)
-                    if quality_stats.avg_file_size
-                    else None
+                    round(quality_stats.avg_file_size, 0) if quality_stats.avg_file_size else None
                 ),
             }
         except SQLAlchemyError as e:
@@ -347,10 +310,7 @@ class BasicStats:
             session = self.session_factory()
         try:
             format_counts = (
-                session.query(
-                    Track.file_extension,
-                    func.count(Track.track_id).label("count"),
-                )
+                session.query(Track.file_extension, func.count(Track.track_id).label("count"))
                 .filter(Track.file_extension.isnot(None))
                 .group_by(Track.file_extension)
                 .order_by(func.count(Track.track_id).desc())
@@ -383,9 +343,7 @@ class BasicStats:
 
             decades = (
                 session.query(
-                    (tracks_with_years.c.effective_release_year / 10 * 10).label(
-                        "decade"
-                    ),
+                    (tracks_with_years.c.effective_release_year / 10 * 10).label("decade"),
                     func.sum(tracks_with_years.c.track_count).label("count"),
                 )
                 .filter(tracks_with_years.c.effective_release_year.isnot(None))
@@ -396,8 +354,7 @@ class BasicStats:
 
             release_years = (
                 session.query(
-                    tracks_with_years.c.effective_release_year,
-                    tracks_with_years.c.track_count,
+                    tracks_with_years.c.effective_release_year, tracks_with_years.c.track_count
                 )
                 .order_by(tracks_with_years.c.effective_release_year)
                 .all()
@@ -420,15 +377,11 @@ class BasicStats:
 
             if total_tracks is None:
                 total_tracks = session.query(func.count(Track.track_id)).scalar()
-            avg_tracks_per_year = (
-                total_tracks / years_with_tracks if years_with_tracks > 0 else 0
-            )
+            avg_tracks_per_year = total_tracks / years_with_tracks if years_with_tracks > 0 else 0
 
             return {
                 "decade_breakdown": {decade: count for decade, count in decades},
-                "release_years": {
-                    year: count for year, count in release_years if year is not None
-                },
+                "release_years": {year: count for year, count in release_years if year is not None},
                 "recently_added": [(name, added) for name, added in recent_tracks],
                 "avg_tracks_per_year": round(avg_tracks_per_year, 1),
                 "unique_years_count": years_with_tracks,
@@ -476,8 +429,7 @@ class BasicStats:
         """Top genres by play count — returns list of (name, plays) tuples."""
         rows = (
             session.query(
-                Genre.genre_name,
-                func.coalesce(func.sum(Track.play_count), 0).label("total_plays"),
+                Genre.genre_name, func.coalesce(func.sum(Track.play_count), 0).label("total_plays")
             )
             .select_from(Genre)
             .join(TrackGenre, Genre.genre_id == TrackGenre.genre_id)
@@ -493,8 +445,7 @@ class BasicStats:
         """Top moods by play count — returns list of (name, plays) tuples."""
         rows = (
             session.query(
-                Mood.mood_name,
-                func.coalesce(func.sum(Track.play_count), 0).label("total_plays"),
+                Mood.mood_name, func.coalesce(func.sum(Track.play_count), 0).label("total_plays")
             )
             .select_from(Mood)
             .join(MoodTrackAssociation, Mood.mood_id == MoodTrackAssociation.mood_id)
@@ -509,10 +460,7 @@ class BasicStats:
     def _get_top_tracks(self, session, limit=10):
         """Most played tracks — returns list of (name, play_count) tuples."""
         rows = (
-            session.query(
-                Track.track_name,
-                func.coalesce(Track.play_count, 0).label("play_count"),
-            )
+            session.query(Track.track_name, func.coalesce(Track.play_count, 0).label("play_count"))
             .order_by(func.coalesce(Track.play_count, 0).desc())
             .limit(limit)
             .all()
@@ -531,10 +479,7 @@ class BasicStats:
         """
         # Highest rated artists
         highest_rated_artists = (
-            session.query(
-                Artist.artist_name,
-                func.avg(Track.user_rating).label("avg_rating"),
-            )
+            session.query(Artist.artist_name, func.avg(Track.user_rating).label("avg_rating"))
             .select_from(Artist)
             .join(TrackArtistRole, Artist.artist_id == TrackArtistRole.artist_id)
             .join(Track, TrackArtistRole.track_id == Track.track_id)
@@ -552,10 +497,7 @@ class BasicStats:
 
         # Highest rated albums
         highest_rated_albums = (
-            session.query(
-                Album.album_name,
-                func.avg(Track.user_rating).label("avg_rating"),
-            )
+            session.query(Album.album_name, func.avg(Track.user_rating).label("avg_rating"))
             .select_from(Album)
             .join(Track, Album.album_id == Track.album_id)
             .filter(
@@ -572,10 +514,7 @@ class BasicStats:
 
         # Highest rated genres
         highest_rated_genres = (
-            session.query(
-                Genre.genre_name,
-                func.avg(Track.user_rating).label("avg_rating"),
-            )
+            session.query(Genre.genre_name, func.avg(Track.user_rating).label("avg_rating"))
             .select_from(Genre)
             .join(TrackGenre, Genre.genre_id == TrackGenre.genre_id)
             .join(Track, TrackGenre.track_id == Track.track_id)
@@ -593,10 +532,7 @@ class BasicStats:
 
         # Lowest rated genres
         lowest_rated_genres = (
-            session.query(
-                Genre.genre_name,
-                func.avg(Track.user_rating).label("avg_rating"),
-            )
+            session.query(Genre.genre_name, func.avg(Track.user_rating).label("avg_rating"))
             .select_from(Genre)
             .join(TrackGenre, Genre.genre_id == TrackGenre.genre_id)
             .join(Track, TrackGenre.track_id == Track.track_id)
@@ -614,9 +550,7 @@ class BasicStats:
 
         return {
             # Each entry is (name_string, avg_rating_float)
-            "highest_rated_artists": [
-                (n, round(r, 2)) for n, r in highest_rated_artists
-            ],
+            "highest_rated_artists": [(n, round(r, 2)) for n, r in highest_rated_artists],
             "highest_rated_albums": [(n, round(r, 2)) for n, r in highest_rated_albums],
             "highest_rated_genres": [(n, round(r, 2)) for n, r in highest_rated_genres],
             "lowest_rated_genres": [(n, round(r, 2)) for n, r in lowest_rated_genres],
@@ -644,9 +578,7 @@ class BasicStats:
             session = self.session_factory()
         try:
             ratings_distribution = (
-                session.query(
-                    Track.user_rating, func.count(Track.track_id).label("track_count")
-                )
+                session.query(Track.user_rating, func.count(Track.track_id).label("track_count"))
                 .filter(
                     Track.user_rating.isnot(None),
                     Track.user_rating >= RATING_MIN,
@@ -662,9 +594,7 @@ class BasicStats:
                 if rating is not None:
                     distribution_dict[float(rating)] = count
 
-            total_rated_tracks = (
-                sum(distribution_dict.values()) if distribution_dict else 0
-            )
+            total_rated_tracks = sum(distribution_dict.values()) if distribution_dict else 0
             unrated_tracks = (
                 session.query(func.count(Track.track_id))
                 .filter(Track.user_rating.is_(None))
@@ -672,9 +602,7 @@ class BasicStats:
                 or 0
             )
             total_tracks = session.query(func.count(Track.track_id)).scalar() or 0
-            invalid_rating_tracks = max(
-                0, total_tracks - total_rated_tracks - unrated_tracks
-            )
+            invalid_rating_tracks = max(0, total_tracks - total_rated_tracks - unrated_tracks)
 
             avg_rating_result = (
                 session.query(func.avg(Track.user_rating))
@@ -692,9 +620,7 @@ class BasicStats:
                 "total_unrated": unrated_tracks,
                 "total_invalid_rating": invalid_rating_tracks,
                 "total_tracks": total_tracks,
-                "average_rating": round(avg_rating_result, 2)
-                if avg_rating_result
-                else None,
+                "average_rating": round(avg_rating_result, 2) if avg_rating_result else None,
             }
         finally:
             if owns_session:

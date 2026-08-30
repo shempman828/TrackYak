@@ -36,7 +36,7 @@ class RoleMergeDialog(MergeDBDialog):
             self._update_action_buttons()
 
         except RuntimeError as e:
-            logger.error(f"Error pre-populating source role: {str(e)}")
+            logger.error(f"Error pre-populating source role: {e!s}")
 
     def _get_related_count(self, role_id):
         """Return the number of album and track assignments for this role."""
@@ -44,12 +44,8 @@ class RoleMergeDialog(MergeDBDialog):
             album_links = self.controller.get.get_entity_links(
                 "AlbumRoleAssociation", role_id=role_id
             )
-            track_links = self.controller.get.get_entity_links(
-                "TrackArtistRole", role_id=role_id
-            )
+            track_links = self.controller.get.get_entity_links("TrackArtistRole", role_id=role_id)
             return len(album_links or []) + len(track_links or [])
         except SQLAlchemyError as e:
-            logger.error(
-                f"Error getting assignment count for role {role_id}: {str(e)}"
-            )
+            logger.error(f"Error getting assignment count for role {role_id}: {e!s}")
             return 0

@@ -62,14 +62,9 @@ class AudioStats:
                 "track_gain_distribution": distribution_stats(
                     self._column_values(session, Track.track_gain)
                 ),
-                "time_signature_distribution": self._time_signature_distribution(
-                    session
-                ),
+                "time_signature_distribution": self._time_signature_distribution(session),
                 "file_size_distribution": distribution_stats(
-                    [
-                        v / (1024 * 1024)
-                        for v in self._column_values(session, Track.file_size)
-                    ]
+                    [v / (1024 * 1024) for v in self._column_values(session, Track.file_size)]
                 ),
                 "quietest_loudest": self._quietest_loudest(session),
                 "instrumental_distribution": self._boolean_distribution(
@@ -103,9 +98,7 @@ class AudioStats:
         together so the UI's confidence toggle is instant (no re-query)."""
         all_values = self._column_values(session, value_column)
         confident_values = self._column_values(
-            session,
-            value_column,
-            extra_filters=[confidence_column >= CONFIDENCE_THRESHOLD],
+            session, value_column, extra_filters=[confidence_column >= CONFIDENCE_THRESHOLD]
         )
         return {
             "all": distribution_stats(all_values),
@@ -117,9 +110,9 @@ class AudioStats:
         confidence-filtered variant."""
 
         def _fetch(extra_filters=None):
-            query = session.query(
-                Track.key, Track.mode, func.count(Track.track_id)
-            ).filter(Track.key.isnot(None))
+            query = session.query(Track.key, Track.mode, func.count(Track.track_id)).filter(
+                Track.key.isnot(None)
+            )
             if extra_filters:
                 query = query.filter(*extra_filters)
             rows = query.group_by(Track.key, Track.mode).all()
@@ -139,9 +132,9 @@ class AudioStats:
         confidence-filtered variant (same shape as _key_distribution)."""
 
         def _fetch(extra_filters=None):
-            query = session.query(
-                Track.primary_time_signature, func.count(Track.track_id)
-            ).filter(Track.primary_time_signature.isnot(None))
+            query = session.query(Track.primary_time_signature, func.count(Track.track_id)).filter(
+                Track.primary_time_signature.isnot(None)
+            )
             if extra_filters:
                 query = query.filter(*extra_filters)
             rows = query.group_by(Track.primary_time_signature).all()
@@ -149,9 +142,7 @@ class AudioStats:
 
         return {
             "all": _fetch(),
-            "confident": _fetch(
-                [Track.time_signature_confidence >= CONFIDENCE_THRESHOLD]
-            ),
+            "confident": _fetch([Track.time_signature_confidence >= CONFIDENCE_THRESHOLD]),
         }
 
     # ------------------------------------------------------------------ #
@@ -173,11 +164,9 @@ class AudioStats:
     def _boolean_distribution(self, session, column, true_label, false_label):
         rows = (
             session.query(
-                case(
-                    (column == 1, true_label),
-                    (column == 0, false_label),
-                    else_="Unknown",
-                ).label("bucket"),
+                case((column == 1, true_label), (column == 0, false_label), else_="Unknown").label(
+                    "bucket"
+                ),
                 func.count(Track.track_id),
             )
             .group_by("bucket")
@@ -191,9 +180,7 @@ class AudioStats:
 
     def _dsp_distributions(self, session):
         return {
-            label: distribution_stats(
-                self._column_values(session, getattr(Track, attr))
-            )
+            label: distribution_stats(self._column_values(session, getattr(Track, attr)))
             for label, attr in DSP_COLUMNS
         }
 

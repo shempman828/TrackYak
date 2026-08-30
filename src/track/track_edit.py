@@ -54,12 +54,7 @@ class TrackEditDialog(QDialog):
 
     field_modified = Signal()
 
-    def __init__(
-        self,
-        track_or_tracks: Any | list,
-        controller,
-        parent=None,
-    ):
+    def __init__(self, track_or_tracks: Any | list, controller, parent=None):
         # Qt.Window makes this a proper independent top-level window
         # so it can be moved freely, separate from the parent window.
         super().__init__(parent, Qt.Window)
@@ -126,44 +121,28 @@ class TrackEditDialog(QDialog):
         # cheap to build eagerly, so that's all _add_tab does here.
         self._tab_factories: list = []
         self._tabs: list[_BaseTab | None] = []
-        self._add_tab(
-            "Basic", lambda: FieldFormTab("Basic", self.tracks, self.controller)
-        )
+        self._add_tab("Basic", lambda: FieldFormTab("Basic", self.tracks, self.controller))
         self._add_tab("Artists & Roles", lambda: RolesTab(self.tracks, self.controller))
-        self._add_tab(
-            "Albums", lambda: AlbumsTab(self.tracks, self.controller, dialog=self)
-        )
-        self._add_tab(
-            "Dates", lambda: FieldFormTab("Date", self.tracks, self.controller)
-        )
+        self._add_tab("Albums", lambda: AlbumsTab(self.tracks, self.controller, dialog=self))
+        self._add_tab("Dates", lambda: FieldFormTab("Date", self.tracks, self.controller))
         self._add_tab("Genres", lambda: GenresTab(self.tracks, self.controller))
         self._add_tab(
-            "Description",
-            lambda: FieldFormTab("Description", self.tracks, self.controller),
+            "Description", lambda: FieldFormTab("Description", self.tracks, self.controller)
         )
         self._add_tab("Lyrics", lambda: LyricsTab(self.tracks, self.controller))
+        self._add_tab("Classical", lambda: FieldFormTab("Classical", self.tracks, self.controller))
         self._add_tab(
-            "Classical",
-            lambda: FieldFormTab("Classical", self.tracks, self.controller),
-        )
-        self._add_tab(
-            "Properties",
-            lambda: FieldFormTab("Properties", self.tracks, self.controller),
+            "Properties", lambda: FieldFormTab("Properties", self.tracks, self.controller)
         )
         self._add_tab("Moods", lambda: MoodsTab(self.tracks, self.controller))
         self._add_tab("Places", lambda: PlacesTab(self.tracks, self.controller))
         self._add_tab("Awards", lambda: AwardsTab(self.tracks, self.controller))
+        self._add_tab("User Data", lambda: FieldFormTab("User", self.tracks, self.controller))
         self._add_tab(
-            "User Data", lambda: FieldFormTab("User", self.tracks, self.controller)
-        )
-        self._add_tab(
-            "Identification",
-            lambda: IdentificationTab(self.tracks, self.controller, dialog=self),
+            "Identification", lambda: IdentificationTab(self.tracks, self.controller, dialog=self)
         )
         self._add_tab("Used In", lambda: UsedInTab(self.tracks, self.controller))
-        self._add_tab(
-            "Aliases", lambda: FieldFormTab("Alias", self.tracks, self.controller)
-        )
+        self._add_tab("Aliases", lambda: FieldFormTab("Alias", self.tracks, self.controller))
         self._add_tab("Samples", lambda: SamplesTab(self.tracks, self.controller))
         self._add_tab("Advanced", self._make_advanced_tab)
 
@@ -212,7 +191,7 @@ class TrackEditDialog(QDialog):
         try:
             tab = factory()
             tab.load(self.tracks)
-        except Exception as e:  # ruff: ignore[blind-except]
+        except Exception as e:
             # Intentional broad boundary catch: dispatches to 18 heterogeneous
             # tab classes (DB reads, dict/attr access, UI construction) via the
             # shared _BaseTab interface -- a bug in any one tab must not block
@@ -240,14 +219,12 @@ class TrackEditDialog(QDialog):
                 continue
             try:
                 tab.refresh_values(self.tracks)
-            except Exception as e:  # ruff: ignore[blind-except]
+            except Exception as e:
                 # Intentional broad boundary catch: refresh_values is
                 # overridden differently by each of the 18 tab classes -- a
                 # bug in one tab's refresh must not stop the rest from
                 # picking up the new analysis values.
-                logger.error(
-                    f"Error refreshing tab {type(tab).__name__}: {e}", exc_info=True
-                )
+                logger.error(f"Error refreshing tab {type(tab).__name__}: {e}", exc_info=True)
 
     # ── Save ──────────────────────────────────────────────────────────────
 
@@ -261,23 +238,18 @@ class TrackEditDialog(QDialog):
                 try:
                     changes = tab.collect_changes()
                     all_changes.update(changes)
-                except Exception as e:  # ruff: ignore[blind-except]
+                except Exception as e:
                     # Intentional broad boundary catch: collect_changes is
                     # overridden differently by each of the 18 tab classes --
                     # a bug in one tab's collection must not prevent saving
                     # the changes already gathered from the others.
-                    logger.exception(
-                        f"Error collecting changes from {type(tab).__name__}: {e}"
-                    )
+                    logger.exception(f"Error collecting changes from {type(tab).__name__}: {e}")
 
             if all_changes:
                 track_ids = [track.track_id for track in self.tracks]
-                self.controller.update.update_entities(
-                    "Track", track_ids, **all_changes
-                )
+                self.controller.update.update_entities("Track", track_ids, **all_changes)
                 logger.info(
-                    f"Saved {len(self.tracks)} track(s), "
-                    f"fields: {list(all_changes.keys())}"
+                    f"Saved {len(self.tracks)} track(s), fields: {list(all_changes.keys())}"
                 )
 
             self.field_modified.emit()
@@ -295,7 +267,7 @@ class TrackEditDialog(QDialog):
                 continue  # never built -> nothing to clean up
             try:
                 tab.cleanup()
-            except Exception as e:  # ruff: ignore[blind-except]
+            except Exception as e:
                 # Intentional broad boundary catch: shutdown/cleanup code for
                 # 18 heterogeneous tab classes (some tear down background
                 # QThreads) -- one tab failing to clean up must not stop the

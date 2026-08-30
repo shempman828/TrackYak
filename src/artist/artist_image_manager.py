@@ -1,8 +1,8 @@
 """Manages moving picked artist profile pictures into the managed images directory."""
 
+from pathlib import Path
 import re
 import shutil
-from pathlib import Path
 
 from src.core.asset_paths import ARTIST_IMAGES_DIR
 from src.core.logger_config import logger

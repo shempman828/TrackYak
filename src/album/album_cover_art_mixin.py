@@ -50,9 +50,7 @@ class AlbumCoverArtMixin:
                 continue
             px = cache.get_pixmap(self.album, cover_type, is_explicit) if cache else None
             if px and not px.isNull():
-                display.setPixmap(
-                    px.scaled(250, 250, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                )
+                display.setPixmap(px.scaled(250, 250, Qt.KeepAspectRatio, Qt.SmoothTransformation))
                 if path_label:
                     dims = cache.get_dimensions(self.album, cover_type) if cache else None
                     info_parts = ["Embedded in track file(s)"]
@@ -73,9 +71,7 @@ class AlbumCoverArtMixin:
             px.load(str(source))
 
         if not px.isNull():
-            label.setPixmap(
-                px.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            )
+            label.setPixmap(px.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
             label.setText("Invalid Image")
 
@@ -142,13 +138,11 @@ class AlbumCoverArtMixin:
             self.album, tracks, cache, self._metadata_writer, cover_type, image_bytes
         )
         worker.completed.connect(
-            lambda failed, dims, ct=cover_type, ib=image_bytes: (
-                self._on_cover_embed_done(ct, ib, failed, dims)
+            lambda failed, dims, ct=cover_type, ib=image_bytes: self._on_cover_embed_done(
+                ct, ib, failed, dims
             )
         )
-        worker.error.connect(
-            lambda msg, ct=cover_type: self._on_cover_embed_error(ct, msg)
-        )
+        worker.error.connect(lambda msg, ct=cover_type: self._on_cover_embed_error(ct, msg))
         worker.finished.connect(worker.deleteLater)
         self._cover_embed_worker = worker
         worker.start()
@@ -192,9 +186,7 @@ class AlbumCoverArtMixin:
     def _on_cover_embed_error(self, cover_type, message):
         self._finish_cover_embed()
         logger.error(f"Error saving {cover_type} cover: {message}")
-        QMessageBox.critical(
-            self, "Error", f"Could not save cover art:\n{message}"
-        )
+        QMessageBox.critical(self, "Error", f"Could not save cover art:\n{message}")
         # Reset the transient "Embedding…" label back to the real state.
         self._load_artwork_previews()
 

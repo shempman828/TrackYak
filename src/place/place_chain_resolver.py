@@ -86,9 +86,7 @@ def resolve_place_chain(
         existing = name_matches.get(i)
         if existing is not None:
             if existing.parent_id != parent_id:
-                controller.update.update_entity(
-                    "Place", existing.place_id, parent_id=parent_id
-                )
+                controller.update.update_entity("Place", existing.place_id, parent_id=parent_id)
                 existing.parent_id = parent_id
             place = existing
         else:

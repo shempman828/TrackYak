@@ -135,24 +135,18 @@ class PublisherView(QWidget):
                 menu.addSeparator()
 
                 new_parent_action = QAction("New Parent Publisher", self)
-                new_parent_action.triggered.connect(
-                    lambda: self.create_new_parent_publisher(item)
-                )
+                new_parent_action.triggered.connect(lambda: self.create_new_parent_publisher(item))
                 menu.addAction(new_parent_action)
 
                 new_child_action = QAction("New Child Publisher", self)
-                new_child_action.triggered.connect(
-                    lambda: self.create_new_child_publisher(item)
-                )
+                new_child_action.triggered.connect(lambda: self.create_new_child_publisher(item))
                 menu.addAction(new_child_action)
 
             menu.addSeparator()
 
             # Delete works for single or multiple selection
             count = len(selected_items)
-            delete_label = (
-                f"Delete {count} Publishers" if count > 1 else "Delete Publisher"
-            )
+            delete_label = f"Delete {count} Publishers" if count > 1 else "Delete Publisher"
             delete_action = QAction(delete_label, self)
             delete_action.triggered.connect(self._delete_selected_publisher)
             menu.addAction(delete_action)
@@ -183,7 +177,7 @@ class PublisherView(QWidget):
             self.load_publishers()
             logger.info("New publisher created successfully.")
         except SQLAlchemyError as e:
-            logger.error(f"Error creating new publisher: {str(e)}")
+            logger.error(f"Error creating new publisher: {e!s}")
 
     def _delete_selected_publisher(self):
         """Delete all currently selected publishers.
@@ -208,10 +202,7 @@ class PublisherView(QWidget):
             message = f"Are you sure you want to delete {count} publishers?\n\n{names_preview}"
 
         reply = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            message,
-            QMessageBox.Yes | QMessageBox.No,
+            self, "Confirm Delete", message, QMessageBox.Yes | QMessageBox.No
         )
 
         if reply == QMessageBox.Yes:
@@ -222,9 +213,7 @@ class PublisherView(QWidget):
                     self.controller.delete.delete_entity("Publisher", publisher_id)
                 except SQLAlchemyError as e:
                     errors.append(item.text(0))
-                    logger.error(
-                        f"Failed to delete publisher '{item.text(0)}': {str(e)}"
-                    )
+                    logger.error(f"Failed to delete publisher '{item.text(0)}': {e!s}")
 
             self.load_publishers()
             self.detail_tab.show_empty_state()
@@ -270,9 +259,7 @@ class PublisherView(QWidget):
     def _edit_publisher(self, item):
         """Open the edit dialog for the selected publisher."""
         publisher_id = item.data(0, Qt.UserRole)
-        publisher = self.controller.get.get_entity_object(
-            "Publisher", publisher_id=publisher_id
-        )
+        publisher = self.controller.get.get_entity_object("Publisher", publisher_id=publisher_id)
         if not publisher:
             show_status_message(self, "The selected publisher no longer exists.")
             return
@@ -290,9 +277,7 @@ class PublisherView(QWidget):
         child of the new publisher.
         """
         publisher_id = item.data(0, Qt.UserRole)
-        publisher = self.controller.get.get_entity_object(
-            "Publisher", publisher_id=publisher_id
-        )
+        publisher = self.controller.get.get_entity_object("Publisher", publisher_id=publisher_id)
         if not publisher:
             show_status_message(self, "The selected publisher no longer exists.")
             return
@@ -312,15 +297,13 @@ class PublisherView(QWidget):
             self.load_publishers()
             logger.info("New parent publisher created and linked successfully.")
         except SQLAlchemyError as e:
-            logger.error(f"Error creating new parent publisher: {str(e)}")
+            logger.error(f"Error creating new parent publisher: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to create new parent publisher")
 
     def create_new_child_publisher(self, item):
         """Create a new publisher and set it as a child of the given publisher."""
         publisher_id = item.data(0, Qt.UserRole)
-        publisher = self.controller.get.get_entity_object(
-            "Publisher", publisher_id=publisher_id
-        )
+        publisher = self.controller.get.get_entity_object("Publisher", publisher_id=publisher_id)
         if not publisher:
             show_status_message(self, "The selected publisher no longer exists.")
             return
@@ -337,7 +320,7 @@ class PublisherView(QWidget):
             self.load_publishers()
             logger.info("New child publisher created and linked successfully.")
         except SQLAlchemyError as e:
-            logger.error(f"Error creating new child publisher: {str(e)}")
+            logger.error(f"Error creating new child publisher: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to create new child publisher")
 
     def initiate_merge(self):
@@ -351,11 +334,9 @@ class PublisherView(QWidget):
                     "Publisher", publisher_id=publisher_id
                 )
             except SQLAlchemyError as e:
-                logger.error(f"Error fetching publisher for merge: {str(e)}")
+                logger.error(f"Error fetching publisher for merge: {e!s}")
 
-        merge_dialog = PublisherMergeDialog(
-            self.controller, self, publisher_obj=publisher_obj
-        )
+        merge_dialog = PublisherMergeDialog(self.controller, self, publisher_obj=publisher_obj)
         if merge_dialog.exec_() == QDialog.Accepted:
             self.load_publishers()
             logger.info("Publishers merged successfully.")
@@ -370,9 +351,9 @@ class PublisherView(QWidget):
 
         The scan runs in a background thread so the UI stays responsive.
         """
-        import re
         from collections import defaultdict
         from difflib import SequenceMatcher
+        import re
 
         from PySide6.QtCore import Signal
         from PySide6.QtWidgets import QProgressDialog
@@ -393,9 +374,7 @@ class PublisherView(QWidget):
             return
 
         # --- Show a progress dialog so the user knows work is happening ---
-        progress = QProgressDialog(
-            "Scanning for duplicate publishers…", "Cancel", 0, 0, self
-        )
+        progress = QProgressDialog("Scanning for duplicate publishers…", "Cancel", 0, 0, self)
         progress.setWindowTitle("Duplicate Scan")
         progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
@@ -526,8 +505,6 @@ class PublisherView(QWidget):
     def filter_publishers(self, *_args):
         """Filter publishers based on search text, MBID link status, and fixed status."""
         self.publishers_tree.filter_items(
-            self.search_bar.text(),
-            self.mbid_combo.currentText(),
-            self.fixed_combo.currentText(),
+            self.search_bar.text(), self.mbid_combo.currentText(), self.fixed_combo.currentText()
         )
         self._update_count_label()

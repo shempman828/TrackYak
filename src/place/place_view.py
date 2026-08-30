@@ -1,12 +1,6 @@
 """View to see places linked to music library"""
 
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QPushButton,
-    QStackedWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QHBoxLayout, QPushButton, QStackedWidget, QVBoxLayout, QWidget
 
 from src.place.place_list import ListView
 from src.place.place_map import MapView

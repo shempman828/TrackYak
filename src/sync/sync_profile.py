@@ -3,10 +3,9 @@ SyncProfile — a named sync profile — and SyncProfileStore, which persists
 a list of them to disk as JSON.
 """
 
-import json
 from dataclasses import dataclass, field
+import json
 from pathlib import Path
-from typing import List, Optional
 
 from src.core.logger_config import logger
 from src.sync.mtp_manager import MtpManager
@@ -34,8 +33,8 @@ class SyncProfile:
 
     name: str
     path: str
-    playlist_ids: List[int] = field(default_factory=list)
-    mood_ids: List[int] = field(default_factory=list)
+    playlist_ids: list[int] = field(default_factory=list)
+    mood_ids: list[int] = field(default_factory=list)
     clear_before_sync: bool = False
     device_uri: str = ""
     device_name: str = ""
@@ -80,27 +79,25 @@ class SyncProfile:
 class SyncProfileStore:
     """Load and save sync profiles to disk as JSON."""
 
-    def __init__(self, profiles_path: Optional[str] = None):
+    def __init__(self, profiles_path: str | None = None):
         if profiles_path is None:
             from src.core.asset_paths import config as asset_config
 
-            profiles_path = str(
-                Path(asset_config("config.ini")).parent / "sync_profiles.json"
-            )
+            profiles_path = str(Path(asset_config("config.ini")).parent / "sync_profiles.json")
         self.profiles_path = Path(profiles_path)
 
-    def load(self) -> List[SyncProfile]:
+    def load(self) -> list[SyncProfile]:
         if not self.profiles_path.exists():
             return []
         try:
-            with open(self.profiles_path, "r", encoding="utf-8") as f:
+            with open(self.profiles_path, encoding="utf-8") as f:
                 data = json.load(f)
             return [SyncProfile.from_dict(d) for d in data]
         except (OSError, json.JSONDecodeError) as e:
             logger.error(f"Failed to load sync profiles: {e}")
             return []
 
-    def save(self, profiles: List[SyncProfile]):
+    def save(self, profiles: list[SyncProfile]):
         try:
             self.profiles_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.profiles_path, "w", encoding="utf-8") as f:

@@ -8,8 +8,8 @@ canonical shape this mirrors).
 
 from pathlib import Path
 
-import requests
 from PySide6.QtCore import Signal
+import requests
 
 from src.charts.chart_download import CHART_FILES
 from src.common.cancellable_worker import CancellableWorker

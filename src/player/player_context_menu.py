@@ -97,9 +97,7 @@ class PlayerContextMenuMixin:
             # Get current track's playlist IDs
             track_playlist_ids = set()
             if self.current_track and hasattr(self.current_track, "playlists"):
-                track_playlist_ids = {
-                    pt.playlist_id for pt in self.current_track.playlists
-                }
+                track_playlist_ids = {pt.playlist_id for pt in self.current_track.playlists}
 
             # Build hierarchy map
             {p.playlist_id: p for p in playlists}
@@ -115,9 +113,7 @@ class PlayerContextMenuMixin:
                 children.sort(key=lambda x: x.playlist_name.lower())
 
             # Build hierarchical menu starting from root (None parent)
-            self._build_playlist_hierarchy(
-                submenu, None, children_map, track_playlist_ids
-            )
+            self._build_playlist_hierarchy(submenu, None, children_map, track_playlist_ids)
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error populating playlist submenu: {e}")
@@ -144,11 +140,7 @@ class PlayerContextMenuMixin:
 
                 # Recursively add children
                 self._build_playlist_hierarchy(
-                    playlist_menu,
-                    playlist.playlist_id,
-                    children_map,
-                    track_playlist_ids,
-                    depth + 1,
+                    playlist_menu, playlist.playlist_id, children_map, track_playlist_ids, depth + 1
                 )
 
                 # Add separator and option to add to this parent playlist
@@ -161,9 +153,7 @@ class PlayerContextMenuMixin:
                     action.setCheckable(True)
                     action.setChecked(True)
 
-                action.triggered.connect(
-                    self._context_add_to_playlist, Qt.QueuedConnection
-                )
+                action.triggered.connect(self._context_add_to_playlist, Qt.QueuedConnection)
                 playlist_menu.addAction(action)
 
                 parent_menu.addMenu(playlist_menu)
@@ -177,9 +167,7 @@ class PlayerContextMenuMixin:
                     action.setCheckable(True)
                     action.setChecked(True)
 
-                action.triggered.connect(
-                    self._context_add_to_playlist, Qt.QueuedConnection
-                )
+                action.triggered.connect(self._context_add_to_playlist, Qt.QueuedConnection)
                 parent_menu.addAction(action)
 
     def _populate_mood_submenu(self, submenu: QMenu):
@@ -301,9 +289,7 @@ class PlayerContextMenuMixin:
             if already_in:
                 # Track is already in playlist — remove it
                 success = self.controller.delete.delete_entity(
-                    "PlaylistTracks",
-                    playlist_id=playlist_id,
-                    track_id=track_id,
+                    "PlaylistTracks", playlist_id=playlist_id, track_id=track_id
                 )
                 if not success:
                     show_status_message(self, "Could not remove track from playlist.")
@@ -354,9 +340,7 @@ class PlayerContextMenuMixin:
             if existing:
                 # Already in mood — remove it
                 success = self.controller.delete.delete_entity(
-                    "MoodTrackAssociation",
-                    mood_id=mood_id,
-                    track_id=track_id,
+                    "MoodTrackAssociation", mood_id=mood_id, track_id=track_id
                 )
                 if not success:
                     show_status_message(self, "Could not remove track from mood.")
@@ -366,9 +350,7 @@ class PlayerContextMenuMixin:
             else:
                 # Not in mood — add it
                 success = self.controller.add.add_entity_link(
-                    "MoodTrackAssociation",
-                    mood_id=mood_id,
-                    track_id=track_id,
+                    "MoodTrackAssociation", mood_id=mood_id, track_id=track_id
                 )
                 if not success:
                     show_status_message(self, "Could not add track to mood.")
@@ -388,9 +370,7 @@ class PlayerContextMenuMixin:
             album_obj = getattr(self.current_track, "album", None)
             if album_obj is None:
                 return
-            album = self.controller.get.get_entity_object(
-                "Album", album_id=album_obj.album_id
-            )
+            album = self.controller.get.get_entity_object("Album", album_id=album_obj.album_id)
             if album:
                 dialog = AlbumEditor(self.controller, album)
                 dialog.exec_()
@@ -446,9 +426,7 @@ class PlayerContextMenuMixin:
         if artist_id is None:
             return
         try:
-            artist_obj = self.controller.get.get_entity_object(
-                "Artist", artist_id=artist_id
-            )
+            artist_obj = self.controller.get.get_entity_object("Artist", artist_id=artist_id)
             if artist_obj:
                 dialog = ArtistEditor(self.controller, artist_obj, self)
                 dialog.exec_()
@@ -470,11 +448,7 @@ class PlayerContextMenuMixin:
         track = self._lyric_search_track
         try:
             lyrics_text = self._format_lyrics(lyrics)
-            self.controller.update.update_entity(
-                "Track",
-                track.track_id,
-                lyrics=lyrics_text,
-            )
+            self.controller.update.update_entity("Track", track.track_id, lyrics=lyrics_text)
             message = "Lyrics found and saved."
             if lyrics_text:
                 moods_added, _places_added = auto_tag_lyrics_safe(

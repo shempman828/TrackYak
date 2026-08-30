@@ -5,20 +5,10 @@ Pianist, ...), independent of any single artist's edit dialog.
 """
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QHeaderView,
-    QTableWidget,
-    QTableWidgetItem,
-)
+from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTableWidget, QTableWidgetItem
 from sqlalchemy import func, select
 
-from src.common.lookup_manager_dialog import (
-    COUNT_COL,
-    DESC_COL,
-    NAME_COL,
-    BaseLookupManagerDialog,
-)
+from src.common.lookup_manager_dialog import COUNT_COL, DESC_COL, NAME_COL, BaseLookupManagerDialog
 from src.db.db_tables import ArtistTypeAssociation
 
 
@@ -38,8 +28,7 @@ class ArtistTypeManagerDialog(BaseLookupManagerDialog):
     _DELETE_SELECT_FIRST_MSG = "Select one or more types first."
     _DELETE_DIALOG_TITLE = "Delete Artist Type(s)"
     _DELETE_INTRO = (
-        "Delete the following type(s)? Any artists carrying them will simply "
-        "lose that type."
+        "Delete the following type(s)? Any artists carrying them will simply lose that type."
     )
 
     def __init__(self, controller, parent=None):
@@ -48,15 +37,9 @@ class ArtistTypeManagerDialog(BaseLookupManagerDialog):
     def _build_content_widget(self):
         self._table = QTableWidget(0, 3)
         self._table.setHorizontalHeaderLabels(["Name", "Description", "# Artists"])
-        self._table.horizontalHeader().setSectionResizeMode(
-            NAME_COL, QHeaderView.ResizeToContents
-        )
-        self._table.horizontalHeader().setSectionResizeMode(
-            DESC_COL, QHeaderView.Stretch
-        )
-        self._table.horizontalHeader().setSectionResizeMode(
-            COUNT_COL, QHeaderView.ResizeToContents
-        )
+        self._table.horizontalHeader().setSectionResizeMode(NAME_COL, QHeaderView.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(DESC_COL, QHeaderView.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(COUNT_COL, QHeaderView.ResizeToContents)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setAlternatingRowColors(True)
@@ -87,9 +70,7 @@ class ArtistTypeManagerDialog(BaseLookupManagerDialog):
                 name_item.setData(Qt.UserRole, t.artist_type_id)
                 self._table.setItem(row, NAME_COL, name_item)
 
-                self._table.setItem(
-                    row, DESC_COL, QTableWidgetItem(t.type_description or "")
-                )
+                self._table.setItem(row, DESC_COL, QTableWidgetItem(t.type_description or ""))
 
                 count_item = QTableWidgetItem(str(counts.get(t.artist_type_id, 0)))
                 count_item.setFlags(count_item.flags() & ~Qt.ItemIsEditable)
@@ -103,9 +84,7 @@ class ArtistTypeManagerDialog(BaseLookupManagerDialog):
         for row in rows:
             name_item = self._table.item(row, NAME_COL)
             count_item = self._table.item(row, COUNT_COL)
-            entries.append(
-                (name_item.data(Qt.UserRole), name_item.text(), count_item.text())
-            )
+            entries.append((name_item.data(Qt.UserRole), name_item.text(), count_item.text()))
         return entries
 
     # ── Editing ───────────────────────────────────────────────────────────

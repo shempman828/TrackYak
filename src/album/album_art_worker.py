@@ -8,8 +8,8 @@ album_art_worker.py — background workers for album art:
   the album editor no longer freezes while it rewrites a dozen FLACs.
 """
 
-import sqlite3
 from pathlib import Path
+import sqlite3
 
 from PySide6.QtCore import Signal
 
@@ -100,7 +100,7 @@ class CoverEmbedWorker(CancellableWorker):
                 if self._image_bytes is not None:
                     dims = self._cache.get_dimensions(self._album, self._role)
             self.completed.emit(failed, dims)
-        except Exception as e:  # ruff: ignore[blind-except]
+        except Exception as e:
             # Broad boundary catch: this runs on a background thread and an
             # escaping exception (PIL decode failure, sqlite error) would
             # otherwise be lost silently and leave the editor's buttons
@@ -119,19 +119,14 @@ class CoverEmbedWorker(CancellableWorker):
             if self.is_cancelled:
                 break
             file_path = getattr(track, "track_file_path", None)
-            if (
-                not file_path
-                or Path(file_path).suffix.lower() not in self._EMBEDDABLE_EXTENSIONS
-            ):
+            if not file_path or Path(file_path).suffix.lower() not in self._EMBEDDABLE_EXTENSIONS:
                 continue
             try:
                 success = self._writer.write_artwork_to_file(
                     file_path, self._role, self._image_bytes
                 )
             except ValueError as e:
-                logger.error(
-                    f"Error embedding {self._role} cover into {file_path}: {e}"
-                )
+                logger.error(f"Error embedding {self._role} cover into {file_path}: {e}")
                 success = False
             if not success:
                 failed.append(file_path)

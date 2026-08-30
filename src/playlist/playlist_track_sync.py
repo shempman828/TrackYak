@@ -8,8 +8,8 @@ so ChartPlaylistBuilder (src/charts/chart_playlist_builder.py) can reuse
 the same tested bulk-diff logic rather than duplicating it.
 """
 
+from collections.abc import Iterable
 import datetime
-from typing import Iterable, Optional
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -25,7 +25,7 @@ class PlaylistTrackSyncResult:
 
 def sync_playlist_tracks(
     controller, playlist_id: int, track_ids: Iterable[int]
-) -> Optional[PlaylistTrackSyncResult]:
+) -> PlaylistTrackSyncResult | None:
     """
     Bulk-diff a playlist's PlaylistTracks against `track_ids` and apply
     only the delta (delete removed, insert added), then touch the

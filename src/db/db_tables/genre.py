@@ -22,10 +22,7 @@ class Genre(Base):
     subgenre_names = association_proxy("children", "genre_name")
 
     aliases = relationship(
-        "GenreAlias",
-        back_populates="genre",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
+        "GenreAlias", back_populates="genre", cascade="all, delete-orphan", passive_deletes=True
     )
     aliases_list = association_proxy("aliases", "alias_name")
 
@@ -91,9 +88,7 @@ class GenreAlias(Base):
 
     alias_id = Column(Integer, primary_key=True)
     alias_name = Column(String, unique=True, nullable=False)
-    genre_id = Column(
-        Integer, ForeignKey("genres.genre_id", ondelete="CASCADE"), nullable=False
-    )
+    genre_id = Column(Integer, ForeignKey("genres.genre_id", ondelete="CASCADE"), nullable=False)
 
     genre = relationship("Genre", back_populates="aliases")
     genre_name = association_proxy("genre", "genre_name")
@@ -112,15 +107,11 @@ class GenreSplitAlias(Base):
 
     split_alias_id = Column(Integer, primary_key=True)
     alias_name = Column(String, nullable=False, index=True)
-    genre_id = Column(
-        Integer, ForeignKey("genres.genre_id", ondelete="CASCADE"), nullable=False
-    )
+    genre_id = Column(Integer, ForeignKey("genres.genre_id", ondelete="CASCADE"), nullable=False)
     sort_order = Column(Integer, nullable=False, default=0)
 
     genre = relationship("Genre")
 
     __table_args__ = (
-        UniqueConstraint(
-            "alias_name", "genre_id", name="uq_genre_split_alias_name_genre"
-        ),
+        UniqueConstraint("alias_name", "genre_id", name="uq_genre_split_alias_name_genre"),
     )

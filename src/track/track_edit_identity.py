@@ -5,11 +5,8 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton
 
-from src.musicbrainz.musicbrainz_recording import (
-    complete_recording_enrichment,
-    search_recordings,
-)
 from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzMatchDialog
+from src.musicbrainz.musicbrainz_recording import complete_recording_enrichment, search_recordings
 from src.track.track_edit_fieldform import FieldFormTab
 
 
@@ -40,9 +37,7 @@ class IdentificationTab(FieldFormTab):
         )
         track_name = (live_name or "").strip()
         if not track_name:
-            QMessageBox.warning(
-                self, "MusicBrainz Lookup", "This track has no title to look up."
-            )
+            QMessageBox.warning(self, "MusicBrainz Lookup", "This track has no title to look up.")
             return
 
         artist_name = self.track.primary_artist_names

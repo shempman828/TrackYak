@@ -18,6 +18,4 @@ class ArtistType(Base):
     type_name = Column(String, nullable=False, unique=True)
     type_description = Column(String)
 
-    artists = relationship(
-        "Artist", secondary="artist_type_associations", back_populates="types"
-    )
+    artists = relationship("Artist", secondary="artist_type_associations", back_populates="types")

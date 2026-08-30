@@ -30,10 +30,7 @@ from src.musicbrainz.musicbrainz_artist import (
     fetch_artist_by_mbid,
     search_artists,
 )
-from src.musicbrainz.musicbrainz_match_dialog import (
-    MusicBrainzImportDialog,
-    MusicBrainzMatchDialog,
-)
+from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzImportDialog, MusicBrainzMatchDialog
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Main dialog shell
@@ -66,9 +63,7 @@ class ArtistEditor(QDialog):
         root = QVBoxLayout(self)
         root.setSpacing(8)
 
-        hdr = QLabel(
-            f"<b style='font-size:15px'>Editing: {self.artist.artist_name}</b>"
-        )
+        hdr = QLabel(f"<b style='font-size:15px'>Editing: {self.artist.artist_name}</b>")
         root.addWidget(hdr)
 
         # Instantiate tabs

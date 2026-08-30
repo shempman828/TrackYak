@@ -30,9 +30,7 @@ class LegendRow(QWidget):
         apply_scaled_style(swatch, f"background-color: {color.name()}; border-radius: 3px;")
         row.addWidget(swatch)
 
-        label_text = (
-            f"{name} ({count})" if name else f"{count} artist{'s' if count != 1 else ''}"
-        )
+        label_text = f"{name} ({count})" if name else f"{count} artist{'s' if count != 1 else ''}"
         row.addWidget(QLabel(label_text))
         row.addStretch()
 

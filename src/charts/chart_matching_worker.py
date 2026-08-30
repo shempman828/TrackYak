@@ -33,13 +33,9 @@ class ChartMatchingWorker(CancellableWorker):
 
     def run(self):
         try:
-            chart = self.controller.get.get_entity_object(
-                "Chart", chart_key=self.chart_key
-            )
+            chart = self.controller.get.get_entity_object("Chart", chart_key=self.chart_key)
             if chart is None:
-                raise ValueError(
-                    f"No Chart row registered for chart_key={self.chart_key!r}"
-                )
+                raise ValueError(f"No Chart row registered for chart_key={self.chart_key!r}")
 
             stats: MatchStats = match_chart(
                 self.controller.get.session,
@@ -52,9 +48,7 @@ class ChartMatchingWorker(CancellableWorker):
             if not self.is_cancelled:
                 self.finished.emit(stats)
         except Exception as e:
-            logger.error(
-                f"ChartMatchingWorker failed for {self.chart_key}: {e}", exc_info=True
-            )
+            logger.error(f"ChartMatchingWorker failed for {self.chart_key}: {e}", exc_info=True)
             self.error.emit(str(e))
         finally:
             self._release_db_session()

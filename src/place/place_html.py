@@ -3,7 +3,6 @@ from PySide6.QtGui import QColor, QTextDocument
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate
 
 
-
 class HtmlDelegate(QStyledItemDelegate):
     """Delegate that renders HTML in QListWidgetItems, preserving selection and styling."""
 

@@ -34,11 +34,15 @@ def _transcode_to_wav(file_path: Path) -> Path:
         subprocess.run(
             [
                 "ffmpeg",
-                "-v", "error",
+                "-v",
+                "error",
                 "-y",
-                "-i", str(file_path),
-                "-f", "wav",
-                "-acodec", "pcm_f32le",
+                "-i",
+                str(file_path),
+                "-f",
+                "wav",
+                "-acodec",
+                "pcm_f32le",
                 str(tmp_path),
             ],
             check=True,
@@ -191,9 +195,7 @@ class PlayerReaderMixin:
                     chunk = reader.read(to_read, dtype="float32", always_2d=True)
                     self._current_frame += len(chunk)
                 except (OSError, self.sf.LibsndfileError) as exc:
-                    logger.error(
-                        f"Reader thread decode error, attempting to resync: {exc}"
-                    )
+                    logger.error(f"Reader thread decode error, attempting to resync: {exc}")
                     # Re-seek to the SAME position and retry once before giving
                     # up on it. Jumping straight to current_frame + BLOCKSIZE
                     # (the fallback below) permanently drops that span of
@@ -220,12 +222,8 @@ class PlayerReaderMixin:
                         recovered = False
                         if self._current_frame == 0 and self._resolved_file_path is not None:
                             try:
-                                fresh_reader = _open_soundfile(
-                                    self.sf, self._resolved_file_path
-                                )
-                                chunk = fresh_reader.read(
-                                    to_read, dtype="float32", always_2d=True
-                                )
+                                fresh_reader = _open_soundfile(self.sf, self._resolved_file_path)
+                                chunk = fresh_reader.read(to_read, dtype="float32", always_2d=True)
                                 self._current_frame += len(chunk)
                                 try:
                                     reader.close()

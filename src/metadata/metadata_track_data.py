@@ -3,7 +3,7 @@ into one plain dict, so those builders don't need any database access of
 their own - every database read for a metadata write happens here, once.
 """
 
-from typing import Any, Dict
+from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -18,7 +18,7 @@ class TrackDataAssembler:
     def __init__(self, controller):
         self.controller = controller
 
-    def get_track_data(self, track_id: int) -> Dict[str, Any]:
+    def get_track_data(self, track_id: int) -> dict[str, Any]:
         """Get complete track data from database using controller helpers."""
         try:
             track = self.controller.get.get_entity_object("Track", track_id=track_id)
@@ -27,27 +27,19 @@ class TrackDataAssembler:
 
             album = None
             if track.album_id:
-                album = self.controller.get.get_entity_object(
-                    "Album", album_id=track.album_id
-                )
+                album = self.controller.get.get_entity_object("Album", album_id=track.album_id)
 
             disc = None
             if track.disc_id:
-                disc = self.controller.get.get_entity_object(
-                    "Disc", disc_id=track.disc_id
-                )
+                disc = self.controller.get.get_entity_object("Disc", disc_id=track.disc_id)
 
             track_artist_roles = self.controller.get.get_all_entities(
                 "TrackArtistRole", track_id=track_id
             )
             artists_with_roles = []
             for tar in track_artist_roles:
-                artist = self.controller.get.get_entity_object(
-                    "Artist", artist_id=tar.artist_id
-                )
-                role = self.controller.get.get_entity_object(
-                    "Role", role_id=tar.role_id
-                )
+                artist = self.controller.get.get_entity_object("Artist", artist_id=tar.artist_id)
+                role = self.controller.get.get_entity_object("Role", role_id=tar.role_id)
                 if artist and role:
                     artists_with_roles.append(
                         {
@@ -64,12 +56,8 @@ class TrackDataAssembler:
                     "AlbumRoleAssociation", album_id=album.album_id
                 )
                 for ar in album_roles:
-                    artist = self.controller.get.get_entity_object(
-                        "Artist", artist_id=ar.artist_id
-                    )
-                    role = self.controller.get.get_entity_object(
-                        "Role", role_id=ar.role_id
-                    )
+                    artist = self.controller.get.get_entity_object("Artist", artist_id=ar.artist_id)
+                    role = self.controller.get.get_entity_object("Role", role_id=ar.role_id)
                     if artist and role:
                         album_artists_with_roles.append(
                             {
@@ -80,14 +68,10 @@ class TrackDataAssembler:
                             }
                         )
 
-            track_genres = self.controller.get.get_all_entities(
-                "TrackGenre", track_id=track_id
-            )
+            track_genres = self.controller.get.get_all_entities("TrackGenre", track_id=track_id)
             genres = []
             for tg in track_genres:
-                genre = self.controller.get.get_entity_object(
-                    "Genre", genre_id=tg.genre_id
-                )
+                genre = self.controller.get.get_entity_object("Genre", genre_id=tg.genre_id)
                 if genre:
                     genres.append(genre)
 
@@ -117,17 +101,13 @@ class TrackDataAssembler:
             )
             places = []
             for pa in place_associations:
-                place = self.controller.get.get_entity_object(
-                    "Place", place_id=pa.place_id
-                )
+                place = self.controller.get.get_entity_object("Place", place_id=pa.place_id)
                 if place:
                     places.append(place)
 
             disc_track_count = None
             if disc:
-                sibling_tracks = self.controller.get.get_all_entities(
-                    "Track", disc_id=disc.disc_id
-                )
+                sibling_tracks = self.controller.get.get_all_entities("Track", disc_id=disc.disc_id)
                 if sibling_tracks:
                     disc_track_count = len(sibling_tracks)
 

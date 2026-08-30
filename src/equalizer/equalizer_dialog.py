@@ -1,5 +1,3 @@
-from typing import Dict
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -258,11 +256,7 @@ class EqualizerDialog(QDialog):
             self.load_current_settings()
 
             # Auto-save custom settings if we had a custom configuration
-            if (
-                self.config
-                and hasattr(self, "last_was_custom")
-                and self.last_was_custom
-            ):
+            if self.config and hasattr(self, "last_was_custom") and self.last_was_custom:
                 # Get the custom preset name from config
                 custom_name = self.config.get_equalizer_custom_preset_name()
                 band_gains = self.equalizer.get_band_gains()
@@ -272,7 +266,7 @@ class EqualizerDialog(QDialog):
 
         self.last_was_custom = preset_name == "Custom"
 
-    def on_equalizer_changed(self, settings: Dict):
+    def on_equalizer_changed(self, settings: dict):
         """Update UI when equalizer settings change externally."""
         self.load_current_settings()
 

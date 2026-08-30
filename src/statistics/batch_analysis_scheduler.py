@@ -162,8 +162,7 @@ class BatchAnalysisScheduler:
                 self._pending.put((track.track_id, track.track_file_path))
 
             self._executor = concurrent.futures.ProcessPoolExecutor(
-                max_workers=self.num_workers,
-                mp_context=multiprocessing.get_context("spawn"),
+                max_workers=self.num_workers, mp_context=multiprocessing.get_context("spawn")
             )
             self._coordinator = threading.Thread(
                 target=self._coordinate, daemon=True, name="AnalysisCoordinator"
@@ -294,18 +293,14 @@ class BatchAnalysisScheduler:
                             track_id, file_path = self._pending.get_nowait()
                         except queue.Empty:
                             break
-                        future = self._executor.submit(
-                            _analyze_track_worker, track_id, file_path
-                        )
+                        future = self._executor.submit(_analyze_track_worker, track_id, file_path)
                         in_flight[future] = (track_id, file_path)
 
                 if not in_flight:
                     break  # nothing left to do and nothing pending/in flight
 
                 done, _ = concurrent.futures.wait(
-                    in_flight.keys(),
-                    timeout=1.0,
-                    return_when=concurrent.futures.FIRST_COMPLETED,
+                    in_flight.keys(), timeout=1.0, return_when=concurrent.futures.FIRST_COMPLETED
                 )
                 for future in done:
                     track_id, file_path = in_flight.pop(future)
@@ -322,9 +317,7 @@ class BatchAnalysisScheduler:
 
         logger.debug("AnalysisCoordinator: exiting")
 
-    def _handle_result(
-        self, track_id: int, file_path: str, future: concurrent.futures.Future
-    ):
+    def _handle_result(self, track_id: int, file_path: str, future: concurrent.futures.Future):
         try:
             _, metadata, error = future.result()
         except Exception as e:

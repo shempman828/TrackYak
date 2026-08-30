@@ -10,8 +10,8 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.place.place_edit import PlaceEditDialog
 from src.core.logger_config import logger
+from src.place.place_edit import PlaceEditDialog
 
 
 class PlaceDetailView(QDialog):
@@ -70,9 +70,7 @@ class PlaceDetailView(QDialog):
         coords_layout = QFormLayout()
 
         if self.place.place_latitude and self.place.place_longitude:
-            coords_text = (
-                f"{self.place.place_latitude:.4f}, {self.place.place_longitude:.4f}"
-            )
+            coords_text = f"{self.place.place_latitude:.4f}, {self.place.place_longitude:.4f}"
         else:
             coords_text = "Not specified"
 
@@ -99,27 +97,17 @@ class PlaceDetailView(QDialog):
         """Get the actual entity object based on type and ID."""
         try:
             if entity_type == "artist":
-                return self.controller.get.get_entity_object(
-                    "Artist", artist_id=entity_id
-                )
-            elif entity_type == "track":
-                return self.controller.get.get_entity_object(
-                    "Track", track_id=entity_id
-                )
-            elif entity_type == "album":
-                return self.controller.get.get_entity_object(
-                    "Album", album_id=entity_id
-                )
-            elif entity_type == "publisher":
-                return self.controller.get.get_entity_object(
-                    "Publisher", publisher_id=entity_id
-                )
-            elif entity_type == "playlist":
-                return self.controller.get.get_entity_object(
-                    "Playlist", playlist_id=entity_id
-                )
+                return self.controller.get.get_entity_object("Artist", artist_id=entity_id)
+            if entity_type == "track":
+                return self.controller.get.get_entity_object("Track", track_id=entity_id)
+            if entity_type == "album":
+                return self.controller.get.get_entity_object("Album", album_id=entity_id)
+            if entity_type == "publisher":
+                return self.controller.get.get_entity_object("Publisher", publisher_id=entity_id)
+            if entity_type == "playlist":
+                return self.controller.get.get_entity_object("Playlist", playlist_id=entity_id)
         except SQLAlchemyError as e:
-            logger.error(f"Error getting entity details: {str(e)}")
+            logger.error(f"Error getting entity details: {e!s}")
             return None
         return None
 
@@ -127,13 +115,13 @@ class PlaceDetailView(QDialog):
         """Get display name for different entity types."""
         if entity_type == "artist" and hasattr(entity, "artist_name"):
             return entity.artist_name
-        elif entity_type == "track" and hasattr(entity, "track_name"):
+        if entity_type == "track" and hasattr(entity, "track_name"):
             return entity.track_name
-        elif entity_type == "album" and hasattr(entity, "album_name"):
+        if entity_type == "album" and hasattr(entity, "album_name"):
             return entity.album_name
-        elif entity_type == "publisher" and hasattr(entity, "publisher_name"):
+        if entity_type == "publisher" and hasattr(entity, "publisher_name"):
             return entity.publisher_name
-        elif entity_type == "playlist" and hasattr(entity, "playlist_name"):
+        if entity_type == "playlist" and hasattr(entity, "playlist_name"):
             return entity.playlist_name
         return f"Unknown {entity_type}"
 

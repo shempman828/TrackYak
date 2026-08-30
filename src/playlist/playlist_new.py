@@ -1,11 +1,4 @@
-from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QFormLayout,
-    QLineEdit,
-    QTextEdit,
-)
-
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QTextEdit
 
 
 class PlaylistCreateDialog(QDialog):

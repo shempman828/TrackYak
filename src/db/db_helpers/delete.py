@@ -61,15 +61,14 @@ class DeleteDB(BaseDBHelper):
                 # cascade rules (e.g. deleting related join rows) fire correctly.
                 self._commit()
                 logger.info(
-                    f"Batch-deleted {len(entity_ids)} {model_name} row(s) "
-                    f"(ids={entity_ids})"
+                    f"Batch-deleted {len(entity_ids)} {model_name} row(s) (ids={entity_ids})"
                 )
                 return True
 
             # ------------------------------------------------------------------
             # SINGLE item path -- original behaviour, unchanged
             # ------------------------------------------------------------------
-            elif entity_id is not None:
+            if entity_id is not None:
                 entity = self.session.get(entity_class, entity_id)
                 if not entity:
                     logger.warning(f"{model_name} with ID {entity_id} not found")
@@ -83,7 +82,7 @@ class DeleteDB(BaseDBHelper):
             # ------------------------------------------------------------------
             # FILTER path -- original behaviour, unchanged
             # ------------------------------------------------------------------
-            elif filters:
+            if filters:
                 query = self.session.query(entity_class)
                 for attr, value in filters.items():
                     if not hasattr(entity_class, attr):
@@ -99,16 +98,11 @@ class DeleteDB(BaseDBHelper):
                 for entity in entities:
                     self.session.delete(entity)
                 self._commit()
-                logger.info(
-                    f"Deleted {len(entities)} {model_name} entities matching {filters}"
-                )
+                logger.info(f"Deleted {len(entities)} {model_name} entities matching {filters}")
                 return True
 
-            else:
-                logger.error(
-                    "Either entity_id, entity_ids, or filters must be provided"
-                )
-                return False
+            logger.error("Either entity_id, entity_ids, or filters must be provided")
+            return False
 
         except SQLAlchemyError as e:
             logger.error(f"Error deleting {model_name}: {e}")

@@ -5,8 +5,8 @@ allowed) and re-read automatically whenever the file changes, so users can
 edit the list without restarting the app.
 """
 
-import re
 from pathlib import Path
+import re
 
 from PySide6.QtWidgets import QApplication
 
@@ -38,9 +38,7 @@ def _get_pattern():
         return _cache["pattern"]
 
     pattern = (
-        re.compile(
-            r"\b(" + "|".join(re.escape(w) for w in words) + r")\b", re.IGNORECASE
-        )
+        re.compile(r"\b(" + "|".join(re.escape(w) for w in words) + r")\b", re.IGNORECASE)
         if words
         else None
     )

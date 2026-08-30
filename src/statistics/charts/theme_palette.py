@@ -71,6 +71,4 @@ class ThemedChartWidget(QWidget):
             theme_name = app_config.get_display_theme()
         except configparser.Error as e:
             logger.warning(f"Failed to get display theme, using default: {e}")
-        self._palette = self._THEME_PALETTE.get(
-            theme_name, self._THEME_PALETTE.get("dark_mode")
-        )
+        self._palette = self._THEME_PALETTE.get(theme_name, self._THEME_PALETTE.get("dark_mode"))

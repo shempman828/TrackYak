@@ -2,14 +2,7 @@
 Publisher ORM model.
 """
 
-from sqlalchemy import (
-    CheckConstraint,
-    Column,
-    ForeignKey,
-    Integer,
-    String,
-    UniqueConstraint,
-)
+from sqlalchemy import CheckConstraint, Column, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.orm import relationship
 
@@ -38,9 +31,7 @@ class Publisher(Base):
     MBID = Column(String)
 
     album_associations = relationship(
-        "AlbumPublisher",
-        back_populates="publisher",
-        cascade="all, delete-orphan",
+        "AlbumPublisher", back_populates="publisher", cascade="all, delete-orphan"
     )
     album_ids = association_proxy("album_associations", "album_id")
     album_names = association_proxy("album_associations", "album.album_name")
@@ -98,9 +89,7 @@ class PublisherSplitAlias(Base):
     split_alias_id = Column(Integer, primary_key=True)
     alias_name = Column(String, nullable=False, index=True)
     publisher_id = Column(
-        Integer,
-        ForeignKey("publishers.publisher_id", ondelete="CASCADE"),
-        nullable=False,
+        Integer, ForeignKey("publishers.publisher_id", ondelete="CASCADE"), nullable=False
     )
     sort_order = Column(Integer, nullable=False, default=0)
 

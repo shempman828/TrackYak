@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-from typing import List, Tuple
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon
@@ -18,11 +17,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.core.config_setup import app_config
-from src.importing.library_import import ImportWorker
 from src.core.asset_paths import config, icon
+from src.core.config_setup import app_config
 from src.core.logger_config import logger
 from src.core.status_utility import StatusManager, show_status_message
+from src.importing.library_import import ImportWorker
 
 CONFIG_FILE = config("import_paths.json")
 
@@ -36,7 +35,7 @@ class ImportDialog(QDialog):
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
-        self.directories: List[Tuple[Path, bool]] = []
+        self.directories: list[tuple[Path, bool]] = []
         self.setMinimumSize(800, 420)
         self.setWindowTitle("Import Music Files")
         self.import_worker = None
@@ -67,9 +66,7 @@ class ImportDialog(QDialog):
         btn_remove.clicked.connect(self._remove_directories)
         btn_layout.addWidget(btn_add)
         btn_layout.addWidget(btn_remove)
-        btn_layout.addSpacerItem(
-            QSpacerItem(20, 0, QSizePolicy.Expanding, QSizePolicy.Minimum)
-        )
+        btn_layout.addSpacerItem(QSpacerItem(20, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
         # Start/Cancel buttons
         action_layout = QHBoxLayout()
@@ -81,9 +78,7 @@ class ImportDialog(QDialog):
         self.btn_cancel.setEnabled(False)
         action_layout.addWidget(self.btn_scan)
         action_layout.addWidget(self.btn_cancel)
-        action_layout.addSpacerItem(
-            QSpacerItem(20, 0, QSizePolicy.Expanding, QSizePolicy.Minimum)
-        )
+        action_layout.addSpacerItem(QSpacerItem(20, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
         # Progress
         self.status_note = QLabel(
@@ -109,9 +104,7 @@ class ImportDialog(QDialog):
         logger.debug(f"DEBUG: ImportDialog progress: {current}/{total}")
         if total > 0:
             percent = int(current / total * 100)
-            StatusManager.show_message(
-                f"Importing: {current}/{total} files ({percent}%)", 0
-            )
+            StatusManager.show_message(f"Importing: {current}/{total} files ({percent}%)", 0)
         else:
             # Indeterminate progress
             StatusManager.show_message("Scanning files...", 0)
@@ -120,9 +113,7 @@ class ImportDialog(QDialog):
         """Add directory with duplicate checking"""
         try:
             default_dir = str(app_config.get_base_directory())
-            path = QFileDialog.getExistingDirectory(
-                self, "Select Music Directory", default_dir
-            )
+            path = QFileDialog.getExistingDirectory(self, "Select Music Directory", default_dir)
             if path:
                 path_obj = Path(path).resolve()
                 if any(p == path_obj for p, _ in self.directories):
@@ -180,9 +171,7 @@ class ImportDialog(QDialog):
 
     def _import_complete(self, success_count: int):
         """Handle import completion."""
-        StatusManager.end_task(
-            f"Import complete: {success_count} files processed", 3000
-        )
+        StatusManager.end_task(f"Import complete: {success_count} files processed", 3000)
         self.btn_scan.setEnabled(True)
         self.btn_cancel.setEnabled(False)
         self.status_note.hide()
@@ -217,7 +206,7 @@ class ImportDialog(QDialog):
         """Load directories from config but respect current UI state"""
         try:
             if Path(CONFIG_FILE).exists():
-                with open(CONFIG_FILE, "r") as f:
+                with open(CONFIG_FILE) as f:
                     saved = json.load(f)
                     if not self.directories:
                         self.directories = [(Path(p), s) for p, s in saved]
@@ -269,8 +258,7 @@ class ImportDialog(QDialog):
 
             # Update status to show import continues
             StatusManager.show_message(
-                "Import continues in background. Reopen import dialog to monitor progress.",
-                0,
+                "Import continues in background. Reopen import dialog to monitor progress.", 0
             )
 
             # IMPORTANT: DO NOT disconnect signals - they must remain connected

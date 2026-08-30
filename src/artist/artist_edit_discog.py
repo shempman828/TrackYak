@@ -134,9 +134,7 @@ class DiscographyTab(QWidget):
         self._track_filter_bar.changed.connect(self._apply_filters)
         tr_layout.addWidget(self._track_filter_bar)
 
-        self.tracks_table = _make_table(
-            ["Track", "Role", "Album", "Album Artist", "Year"]
-        )
+        self.tracks_table = _make_table(["Track", "Role", "Album", "Album Artist", "Year"])
         tr_layout.addWidget(self.tracks_table)
         self._sub_tabs.addTab(tracks_widget, "Tracks")
 
@@ -191,24 +189,17 @@ class DiscographyTab(QWidget):
             if role_name == "Primary Artist" and album_id in album_artist_ids:
                 continue
             self._track_rows.append(
-                (
-                    role_name,
-                    album_id,
-                    (track.track_name, role_name, album_name, album_artist, year),
-                )
+                (role_name, album_id, (track.track_name, role_name, album_name, album_artist, year))
             )
 
         # Rebuild filter bars with discovered roles
-        album_roles = sorted(
-            {r for g in self._album_groups.values() for r in g["roles"]}
-        )
+        album_roles = sorted({r for g in self._album_groups.values() for r in g["roles"]})
         track_roles = sorted({r for r, _, _ in self._track_rows})
         self._album_filter_bar.set_roles(album_roles)
         self._track_filter_bar.set_roles(track_roles)
 
         album_list = sorted(
-            self._album_groups.values(),
-            key=lambda g: (-(g["year"] or 0), g["name"] or ""),
+            self._album_groups.values(), key=lambda g: (-(g["year"] or 0), g["name"] or "")
         )
         self._album_flow.set_albums(album_list)
         logger.debug(
@@ -221,9 +212,7 @@ class DiscographyTab(QWidget):
     # ------------------------------------------------------------------ Interaction
 
     def _on_album_clicked(self, album_id):
-        self._selected_album_id = (
-            None if self._selected_album_id == album_id else album_id
-        )
+        self._selected_album_id = None if self._selected_album_id == album_id else album_id
         self._album_flow.set_selected(self._selected_album_id)
         self._apply_filters()
         if self._selected_album_id is not None:
@@ -240,18 +229,14 @@ class DiscographyTab(QWidget):
         album_active = self._album_filter_bar.active_roles()
         self._album_flow.apply_role_filter(album_active)
 
-        visible_albums = [
-            g for g in self._album_groups.values() if g["roles"] & album_active
-        ]
+        visible_albums = [g for g in self._album_groups.values() if g["roles"] & album_active]
         album_counts: dict[str, int] = {}
         for g in visible_albums:
             for role in g["roles"] & album_active:
                 album_counts[role] = album_counts.get(role, 0) + 1
         self._album_filter_bar.update_counts(album_counts)
         n = len(visible_albums)
-        self._albums_title.setText(
-            f"<b>Album Credits</b> — {n} album{'s' if n != 1 else ''}"
-        )
+        self._albums_title.setText(f"<b>Album Credits</b> — {n} album{'s' if n != 1 else ''}")
 
         # Tracks
         track_active = self._track_filter_bar.active_roles()
@@ -260,10 +245,7 @@ class DiscographyTab(QWidget):
         for role_name, album_id, values in self._track_rows:
             if role_name not in track_active:
                 continue
-            if (
-                self._selected_album_id is not None
-                and album_id != self._selected_album_id
-            ):
+            if self._selected_album_id is not None and album_id != self._selected_album_id:
                 continue
             _append_row(self.tracks_table, values)
             tr_counts[role_name] = tr_counts.get(role_name, 0) + 1
@@ -271,9 +253,7 @@ class DiscographyTab(QWidget):
         self._track_filter_bar.update_counts(tr_counts)
 
         if self._selected_album_id is not None:
-            album_name = self._album_groups.get(self._selected_album_id, {}).get(
-                "name", ""
-            )
+            album_name = self._album_groups.get(self._selected_album_id, {}).get("name", "")
             self._tracks_title.setText(
                 f"<b>Track Credits</b> — {total_tr} on \u201c{album_name}\u201d"
                 f" &nbsp;<a href='clear'>show all</a>"
@@ -383,9 +363,7 @@ class _AlbumChip(QFrame):
         title.setObjectName("albumChipTitle")
         title.setWordWrap(False)
         title.setText(
-            QFontMetrics(title.font()).elidedText(
-                title_text, Qt.ElideRight, _CHIP_TEXT_WIDTH
-            )
+            QFontMetrics(title.font()).elidedText(title_text, Qt.ElideRight, _CHIP_TEXT_WIDTH)
         )
         text_col.addWidget(title)
 
@@ -396,11 +374,7 @@ class _AlbumChip(QFrame):
         sub = QLabel()
         sub.setObjectName("albumChipSub")
         sub.setWordWrap(False)
-        sub.setText(
-            QFontMetrics(sub.font()).elidedText(
-                sub_text, Qt.ElideRight, _CHIP_TEXT_WIDTH
-            )
-        )
+        sub.setText(QFontMetrics(sub.font()).elidedText(sub_text, Qt.ElideRight, _CHIP_TEXT_WIDTH))
         text_col.addWidget(sub)
 
         lay.addLayout(text_col)
@@ -428,10 +402,7 @@ class _AlbumChip(QFrame):
             self._art_label.setText("")
             self._art_label.setPixmap(
                 pixmap.scaled(
-                    _CHIP_ART_SIZE,
-                    _CHIP_ART_SIZE,
-                    Qt.KeepAspectRatio,
-                    Qt.SmoothTransformation,
+                    _CHIP_ART_SIZE, _CHIP_ART_SIZE, Qt.KeepAspectRatio, Qt.SmoothTransformation
                 )
             )
         else:

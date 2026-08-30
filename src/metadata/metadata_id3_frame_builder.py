@@ -3,8 +3,9 @@ frame bytes, driven by the ID3_*_MAPPINGS tables. A pure function of its
 input - no database access of its own.
 """
 
-from typing import Any, Dict, List
+from typing import Any
 
+from src.core.logger_config import logger
 from src.metadata.metadata_id3_writer import ID3TagWriter
 from src.metadata.metadata_mapping import (
     ID3_ALBUM_MAPPINGS,
@@ -21,7 +22,6 @@ from src.metadata.metadata_text import (
     format_track_number,
     group_artists_by_tag,
 )
-from src.core.logger_config import logger
 
 
 class ID3FrameBuilder:
@@ -30,7 +30,7 @@ class ID3FrameBuilder:
     def __init__(self):
         self.id3_writer = ID3TagWriter()
 
-    def build_frames(self, data: Dict[str, Any]) -> List[bytes]:
+    def build_frames(self, data: dict[str, Any]) -> list[bytes]:
         """Build ID3 frames from track data with complete role handling."""
         frames = []
         track = data["track"]
@@ -50,33 +50,21 @@ class ID3FrameBuilder:
                 # so records get labeled the way they're actually printed.
                 track_number_text = format_track_number(track)
                 if track_number_text:
-                    frames.append(
-                        self.id3_writer.create_text_frame(tag_id, track_number_text)
-                    )
+                    frames.append(self.id3_writer.create_text_frame(tag_id, track_number_text))
                 continue
             field_value = getattr(track, field_name, None)
             if field_value is not None and field_value != "":
                 if mapping["type"] == str:  # noqa: E721
                     if tag_id == "USLT":  # Lyrics
-                        frames.append(
-                            self.id3_writer.create_lyrics_frame(str(field_value))
-                        )
+                        frames.append(self.id3_writer.create_lyrics_frame(str(field_value)))
                     elif tag_id == "COMM":  # Comment
-                        frames.append(
-                            self.id3_writer.create_comment_frame(str(field_value))
-                        )
+                        frames.append(self.id3_writer.create_comment_frame(str(field_value)))
                     else:
-                        frames.append(
-                            self.id3_writer.create_text_frame(tag_id, str(field_value))
-                        )
+                        frames.append(self.id3_writer.create_text_frame(tag_id, str(field_value)))
                 elif mapping["type"] == int:  # noqa: E721
-                    frames.append(
-                        self.id3_writer.create_number_frame(tag_id, int(field_value))
-                    )
+                    frames.append(self.id3_writer.create_number_frame(tag_id, int(field_value)))
                 elif mapping["type"] == float:  # noqa: E721
-                    frames.append(
-                        self.id3_writer.create_float_frame(tag_id, float(field_value))
-                    )
+                    frames.append(self.id3_writer.create_float_frame(tag_id, float(field_value)))
 
         # Album mappings
         for tag_id, mapping in ID3_ALBUM_MAPPINGS.items():
@@ -84,9 +72,7 @@ class ID3FrameBuilder:
                 field_name = mapping["field"]
                 field_value = getattr(album, field_name, None)
                 if field_value is not None and field_value != "":
-                    frames.append(
-                        self.id3_writer.create_text_frame(tag_id, str(field_value))
-                    )
+                    frames.append(self.id3_writer.create_text_frame(tag_id, str(field_value)))
 
         # Artist mappings with proper role handling
         role_to_frame_map = {
@@ -139,9 +125,7 @@ class ID3FrameBuilder:
         for txxx_description, mbids in mbids_by_frame.items():
             if mbids:
                 mbid_text = " / ".join(mbids)
-                frames.append(
-                    self.id3_writer.create_txxx_frame(txxx_description, mbid_text)
-                )
+                frames.append(self.id3_writer.create_txxx_frame(txxx_description, mbid_text))
 
         # Genre mappings
         for tag_id, mapping in ID3_GENRE_MAPPINGS.items():
@@ -171,9 +155,7 @@ class ID3FrameBuilder:
                 field_name = mapping["field"]
                 field_value = getattr(disc, field_name, None)
                 if field_value is not None:
-                    frames.append(
-                        self.id3_writer.create_number_frame(tag_id, int(field_value))
-                    )
+                    frames.append(self.id3_writer.create_number_frame(tag_id, int(field_value)))
 
         # Date mappings with proper formatting. A single-field mapping
         # (type "year") and a 3-field one (type "date") are both just an
@@ -201,15 +183,11 @@ class ID3FrameBuilder:
                     role_name = artist_data["role"].role_name
                     artist_name = artist_data["credited_name"]
                     if role_name and artist_name:
-                        role_artist_pairs.append(
-                            f"{role_name}{mapping['separator']}{artist_name}"
-                        )
+                        role_artist_pairs.append(f"{role_name}{mapping['separator']}{artist_name}")
 
                 if role_artist_pairs:
                     special_text = mapping["separator"].join(role_artist_pairs)
-                    frames.append(
-                        self.id3_writer.create_text_frame(tag_id, special_text)
-                    )
+                    frames.append(self.id3_writer.create_text_frame(tag_id, special_text))
 
         # ----------------------------------------------------------------
         # Playlist tags — written as TXXX:PLAYLIST
@@ -220,8 +198,6 @@ class ID3FrameBuilder:
         if playlist_names:
             joined = " ; ".join(playlist_names)
             frames.append(self.id3_writer.create_txxx_frame("PLAYLIST", joined))
-            logger.debug(
-                f"Writing ID3 TXXX:PLAYLIST for track {track.track_id}: {playlist_names}"
-            )
+            logger.debug(f"Writing ID3 TXXX:PLAYLIST for track {track.track_id}: {playlist_names}")
 
         return frames
