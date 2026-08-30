@@ -147,9 +147,7 @@ class ConfigDialog(QDialog):
         self.scan_startup_check = QCheckBox("Scan for music on startup")
         layout.addRow("", self.scan_startup_check)
 
-        self.auto_refresh_check = QCheckBox(
-            "Auto-refresh library when changes detected"
-        )
+        self.auto_refresh_check = QCheckBox("Auto-refresh library when changes detected")
         layout.addRow("", self.auto_refresh_check)
 
         return widget
@@ -163,9 +161,7 @@ class ConfigDialog(QDialog):
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setRange(0, 100)
         self.volume_label = QLabel("75%")
-        self.volume_slider.valueChanged.connect(
-            lambda v: self.volume_label.setText(f"{v}%")
-        )
+        self.volume_slider.valueChanged.connect(lambda v: self.volume_label.setText(f"{v}%"))
         volume_layout.addWidget(self.volume_slider)
         volume_layout.addWidget(self.volume_label)
         layout.addRow("Default Volume:", volume_layout)
@@ -195,9 +191,7 @@ class ConfigDialog(QDialog):
         if self.display_settings is not None:
             available_themes = self.display_settings.get_available_themes()
         else:
-            available_themes = [
-                Path(name).stem for name in self.config.get_available_themes()
-            ]
+            available_themes = [Path(name).stem for name in self.config.get_available_themes()]
         self.theme_combo.addItems(available_themes if available_themes else ["default"])
         if self.display_settings is not None:
             self.theme_combo.currentTextChanged.connect(self._on_theme_changed)
@@ -225,9 +219,7 @@ class ConfigDialog(QDialog):
         self.font_script_combo.addItem("Any", QFontDatabase.WritingSystem.Any)
         for ws in QFontDatabase.writingSystems():
             self.font_script_combo.addItem(QFontDatabase.writingSystemName(ws), ws)
-        self.font_script_combo.currentIndexChanged.connect(
-            lambda _: self._populate_font_combo()
-        )
+        self.font_script_combo.currentIndexChanged.connect(lambda _: self._populate_font_combo())
 
         self.font_combo = QComboBox()
         if ConfigDialog._canonical_font_families_cache is not None:
@@ -243,14 +235,10 @@ class ConfigDialog(QDialog):
             self.font_combo.setEnabled(False)
             self.font_script_combo.setEnabled(False)
             self._font_family_worker = FontFamilyWorker(parent=self)
-            self._font_family_worker.computed.connect(
-                self._on_font_families_computed
-            )
+            self._font_family_worker.computed.connect(self._on_font_families_computed)
             self._font_family_worker.start()
         if self.display_settings is not None:
-            self.font_combo.currentTextChanged.connect(
-                self.display_settings.set_font_family
-            )
+            self.font_combo.currentTextChanged.connect(self.display_settings.set_font_family)
 
         font_layout = QHBoxLayout()
         font_layout.addWidget(self.font_combo, 2)
@@ -262,9 +250,7 @@ class ConfigDialog(QDialog):
         self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(7, 20)
         if self.display_settings is not None:
-            self.font_size_spin.valueChanged.connect(
-                self.display_settings.set_font_size
-            )
+            self.font_size_spin.valueChanged.connect(self.display_settings.set_font_size)
         layout.addRow("Font Size:", self.font_size_spin)
 
         # ---- Menu Bar behaviour ----
@@ -278,9 +264,7 @@ class ConfigDialog(QDialog):
             "Move your mouse to the top of the window to reveal it."
         )
         if self.display_settings is not None:
-            self.auto_hide_check.toggled.connect(
-                self.display_settings.set_menu_bar_auto_hide
-            )
+            self.auto_hide_check.toggled.connect(self.display_settings.set_menu_bar_auto_hide)
         layout.addRow("", self.auto_hide_check)
 
         # ---- Explicit content ----
@@ -294,9 +278,7 @@ class ConfigDialog(QDialog):
             "explicit art is shown blurred until you choose to reveal it."
         )
         if self.display_settings is not None:
-            self.blur_art_check.toggled.connect(
-                self.display_settings.set_blur_explicit_art
-            )
+            self.blur_art_check.toggled.connect(self.display_settings.set_blur_explicit_art)
         layout.addRow("", self.blur_art_check)
 
         self.censor_words_check = QCheckBox("Censor explicit words")
@@ -306,9 +288,7 @@ class ConfigDialog(QDialog):
             "album titles, track titles, etc.)."
         )
         if self.display_settings is not None:
-            self.censor_words_check.toggled.connect(
-                self.display_settings.set_censor_explicit_words
-            )
+            self.censor_words_check.toggled.connect(self.display_settings.set_censor_explicit_words)
         layout.addRow("", self.censor_words_check)
 
         return widget
@@ -336,7 +316,7 @@ class ConfigDialog(QDialog):
         exclusive_info_label = QLabel(
             "Opens the output device directly, with no volume/format processing "
             "in between. Only works with a direct hardware device — pick one "
-            "labeled \"(Direct)\" above, not \"(Shared)\". If the device is busy "
+            'labeled "(Direct)" above, not "(Shared)". If the device is busy '
             "(e.g. held by PulseAudio/PipeWire), playback falls back to the "
             "default output."
         )
@@ -447,9 +427,7 @@ class ConfigDialog(QDialog):
         """
         writing_system = self.font_script_combo.currentData()
         families = sorted(
-            f
-            for f in QFontDatabase.families(writing_system)
-            if f in self._canonical_font_families
+            f for f in QFontDatabase.families(writing_system) if f in self._canonical_font_families
         )
 
         previous = self.font_combo.currentText()
@@ -552,8 +530,7 @@ class ConfigDialog(QDialog):
                 self.device_combo.addItem(display_name, device["id"])
 
                 if current_device and (
-                    str(device["id"]) == str(current_device)
-                    or device_name == current_device
+                    str(device["id"]) == str(current_device) or device_name == current_device
                 ):
                     current_index = i + 1
 
@@ -630,9 +607,7 @@ class ConfigDialog(QDialog):
             auto_hide = (
                 self.display_settings.get_menu_bar_auto_hide()
                 if self.display_settings is not None
-                else self.config.config.getboolean(
-                    "display", "menu_bar_auto_hide", fallback=False
-                )
+                else self.config.config.getboolean("display", "menu_bar_auto_hide", fallback=False)
             )
             self.auto_hide_check.setChecked(auto_hide)
 
@@ -662,12 +637,8 @@ class ConfigDialog(QDialog):
             )
 
             if self.music_player is not None:
-                norm_enabled = getattr(
-                    self.music_player, "normalization_enabled", False
-                )
-                norm_target = getattr(
-                    self.music_player, "normalization_target", -14.0
-                )
+                norm_enabled = getattr(self.music_player, "normalization_enabled", False)
+                norm_target = getattr(self.music_player, "normalization_target", -14.0)
                 self.normalization_check.setChecked(norm_enabled)
                 self.normalization_spin.setValue(norm_target)
 
@@ -680,9 +651,7 @@ class ConfigDialog(QDialog):
             if log_index >= 0:
                 self.log_level_combo.setCurrentIndex(log_index)
 
-            self.console_logging_check.setChecked(
-                self.config.is_console_logging_enabled()
-            )
+            self.console_logging_check.setChecked(self.config.is_console_logging_enabled())
             self.file_logging_check.setChecked(self.config.is_file_logging_enabled())
             self.max_file_size_spin.setValue(self.config.get_max_file_size_mb())
             self.backup_count_spin.setValue(self.config.get_backup_count())
@@ -700,8 +669,7 @@ class ConfigDialog(QDialog):
                 self.config.set_base_directory(dir_text)
             else:
                 show_status_message(
-                    self,
-                    "The selected music directory does not exist. Using current directory.",
+                    self, "The selected music directory does not exist. Using current directory."
                 )
 
             self.config.set_scan_on_startup(self.scan_startup_check.isChecked())
@@ -717,9 +685,7 @@ class ConfigDialog(QDialog):
 
             # Queue persistence
             self.config.config.set(
-                "queue",
-                "persist_queue",
-                str(self.queue_persist_check.isChecked()).lower(),
+                "queue", "persist_queue", str(self.queue_persist_check.isChecked()).lower()
             )
 
             # Appearance settings — theme/scale/font/auto-hide/explicit-content
@@ -731,14 +697,10 @@ class ConfigDialog(QDialog):
                 self.config.set_font_family(self.font_combo.currentText())
                 self.config.set_font_size(self.font_size_spin.value())
                 self.config.config.set(
-                    "display",
-                    "menu_bar_auto_hide",
-                    str(self.auto_hide_check.isChecked()).lower(),
+                    "display", "menu_bar_auto_hide", str(self.auto_hide_check.isChecked()).lower()
                 )
                 self.config.set_blur_explicit_art(self.blur_art_check.isChecked())
-                self.config.set_censor_explicit_words(
-                    self.censor_words_check.isChecked()
-                )
+                self.config.set_censor_explicit_words(self.censor_words_check.isChecked())
 
             # Audio settings
             buffer_size = int(self.buffer_combo.currentText())
@@ -772,18 +734,12 @@ class ConfigDialog(QDialog):
 
                 self.music_player.set_exclusive_mode(exclusive_mode)
 
-                self.music_player.enable_normalization(
-                    self.normalization_check.isChecked()
-                )
-                self.music_player.set_normalization_target(
-                    self.normalization_spin.value()
-                )
+                self.music_player.enable_normalization(self.normalization_check.isChecked())
+                self.music_player.set_normalization_target(self.normalization_spin.value())
 
             # Logging settings
             self.config.set_logging_level(self.log_level_combo.currentText())
-            self.config.set_console_logging_enabled(
-                self.console_logging_check.isChecked()
-            )
+            self.config.set_console_logging_enabled(self.console_logging_check.isChecked())
             self.config.set_file_logging_enabled(self.file_logging_check.isChecked())
             self.config.set_max_file_size_mb(self.max_file_size_spin.value())
             self.config.set_backup_count(self.backup_count_spin.value())
@@ -812,9 +768,7 @@ class ConfigDialog(QDialog):
         """Open a folder picker and update the directory display."""
         current = self.dir_display.text()
         directory = QFileDialog.getExistingDirectory(
-            self,
-            "Select Music Library Directory",
-            current if current else str(Path.home()),
+            self, "Select Music Library Directory", current if current else str(Path.home())
         )
         if directory:
             self.dir_display.setText(directory)

@@ -24,9 +24,9 @@ does the actual logging from the main thread.
 """
 
 import collections
-import threading
+import contextlib
 from pathlib import Path
-from typing import Optional
+import threading
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
@@ -86,17 +86,17 @@ class MusicPlayer(
         # ── Audio backend ──────────────────────────────────────────────────────
         self.sd = None
         self.sf = None
-        self.audio_stream: Optional[object] = None
+        self.audio_stream: object | None = None
 
         # ── Current track state ───────────────────────────────────────────────
         # We keep a SoundFile reader open instead of the whole array.
-        self.current_file: Optional[Path] = None
-        self._resolved_file_path: Optional[Path] = None  # on-disk path for current_file
-        self._sf_reader: Optional[object] = None  # soundfile.SoundFile
+        self.current_file: Path | None = None
+        self._resolved_file_path: Path | None = None  # on-disk path for current_file
+        self._sf_reader: object | None = None  # soundfile.SoundFile
         self.current_sample_rate: int = 44100
         self.current_channels: int = 2
         self.current_bit_depth: int = 32
-        self.current_format: Optional[str] = None
+        self.current_format: str | None = None
 
         self._total_frames: int = 0  # total frames in the file
         self._current_frame: int = 0  # how many frames we have read so far
@@ -107,19 +107,19 @@ class MusicPlayer(
         self._reader_lock = threading.Lock()
         self._audio_buffer: collections.deque = collections.deque()
         self._buffer_lock = threading.Lock()
-        self._reader_thread: Optional[threading.Thread] = None
+        self._reader_thread: threading.Thread | None = None
         self._reader_stop = threading.Event()
 
         # ── Pre-load: next track ──────────────────────────────────────────────
         # We open the *next* track's SoundFile in a background thread so it is
         # ready before the current track ends, giving zero-gap transitions.
-        self._next_sf_reader: Optional[object] = None
-        self._next_file: Optional[Path] = None
+        self._next_sf_reader: object | None = None
+        self._next_file: Path | None = None
         self._next_sample_rate: int = 0
         self._next_channels: int = 0
         self._next_total_frames: int = 0
         self._preload_lock = threading.Lock()
-        self._preload_thread: Optional[threading.Thread] = None
+        self._preload_thread: threading.Thread | None = None
         self._preload_generation: int = 0
 
         # ── Gain ──────────────────────────────────────────────────────────────
@@ -134,7 +134,7 @@ class MusicPlayer(
 
         self._is_advancing: bool = False
         self._stream_generation: int = 0
-        self._callback_native_tid: Optional[int] = None  # set by _stamped_callback on first fire
+        self._callback_native_tid: int | None = None  # set by _stamped_callback on first fire
         self._finish_pending = threading.Event()  # thread-safe flag for end-of-stream
         self._stream_close_event = threading.Event()  # set when async close completes
         self._stream_close_event.set()  # starts "set" (no close in progress)
@@ -158,7 +158,7 @@ class MusicPlayer(
         self._pending_status_count: int = 0
         self._last_status_value = None
         self._pending_error_count: int = 0
-        self._last_error_message: Optional[str] = None
+        self._last_error_message: str | None = None
         # App-level buffer underrun (reader thread fell behind) — distinct from
         # PortAudio's own `status` flag above: this one never reaches PortAudio
         # late, so PortAudio never flags it, but it's heard as the same hitch.
@@ -175,7 +175,7 @@ class MusicPlayer(
         # Name of the PipeWire/PulseAudio sink suspended to grab raw hw:
         # access for the current exclusive-mode stream, if any — resumed
         # when the stream closes so system sounds work again.
-        self._suspended_sink_name: Optional[str] = None
+        self._suspended_sink_name: str | None = None
 
         # ── Position timer ────────────────────────────────────────────────────
         self._position_timer = QTimer(self)
@@ -187,8 +187,7 @@ class MusicPlayer(
         from PySide6.QtCore import Qt as _Qt
 
         self._track_finished.connect(
-            self._handle_playback_finished,
-            type=_Qt.ConnectionType.QueuedConnection,
+            self._handle_playback_finished, type=_Qt.ConnectionType.QueuedConnection
         )
 
         # ── Boot ──────────────────────────────────────────────────────────────
@@ -235,18 +234,14 @@ class MusicPlayer(
 
         with self._reader_lock:
             if self._sf_reader is not None:
-                try:
+                with contextlib.suppress(OSError):
                     self._sf_reader.close()
-                except OSError:
-                    pass
                 self._sf_reader = None
 
         with self._preload_lock:
             if self._next_sf_reader is not None:
-                try:
+                with contextlib.suppress(OSError):
                     self._next_sf_reader.close()
-                except OSError:
-                    pass
                 self._next_sf_reader = None
 
         self._save_volume_to_config()

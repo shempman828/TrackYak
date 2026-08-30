@@ -1,10 +1,10 @@
 """Class for managing the startup screen and config creation."""
 
+from collections.abc import Callable
 import configparser
+from dataclasses import dataclass
 import json
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -135,9 +135,7 @@ def _encode_logging_level(self, section, keys, *values):
 
 
 def _decode_band_gains(self, section, keys):
-    gains_str = self._get_str(
-        section, keys[0], fallback="0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0"
-    )
+    gains_str = self._get_str(section, keys[0], fallback="0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0")
     try:
         return [float(gain) for gain in gains_str.split(",")]
     except ValueError:
@@ -175,13 +173,9 @@ def _encode_legend_size(self, section, keys, *values):
 
 def _decode_legend_position(self, section, keys):
     x_key, y_key = keys
-    if not self.config.has_option(section, x_key) or not self.config.has_option(
-        section, y_key
-    ):
+    if not self.config.has_option(section, x_key) or not self.config.has_option(section, y_key):
         return None
-    return self._get_int(section, x_key, fallback=0), self._get_int(
-        section, y_key, fallback=0
-    )
+    return self._get_int(section, x_key, fallback=0), self._get_int(section, y_key, fallback=0)
 
 
 def _encode_legend_position(self, section, keys, *values):
@@ -324,38 +318,32 @@ class Config:
             "custom_preset_name": "My Custom EQ",
             # Band gains stored as comma-separated values
             "band_gains": "0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0",
-            "presets": "Flat,Bass Boost,Treble Boost,Rock,Pop,Jazz,Classical,Electronic,Hip Hop,Acoustic,Vocal Boost,Dance",
+            "presets": (
+                "Flat,Bass Boost,Treble Boost,Rock,Pop,Jazz,"
+                "Classical,Electronic,Hip Hop,Acoustic,Vocal Boost,Dance"
+            ),
         }
         # Queue section
         # Note: queue/history track IDs live in queue_state.json, not here —
         # a shuffled full-library queue can be tens of thousands of IDs, which
         # doesn't belong in a human-editable settings file.
-        self.config["queue"] = {
-            "persist_queue": "true",
-        }
+        self.config["queue"] = {"persist_queue": "true"}
         self.config["track_view"] = {
             "visible_columns": "track_file_name,artist_name,album_name,title,genre,duration,year",
             "column_order": "track_file_name,artist_name,album_name,title,genre,duration,year",
             "column_widths": "",
         }
-        self.config["album_view"] = {
-            "filters": "",
-        }
-        self.config["artist_view"] = {
-            "filters": "",
-        }
+        self.config["album_view"] = {"filters": ""}
+        self.config["artist_view"] = {"filters": ""}
         self.config["nowplaying"] = {
-            "lyrics_sync_offset": "-5",  # stored as tenths of a second (int)
+            "lyrics_sync_offset": "-5"  # stored as tenths of a second (int)
         }
-        self.config["influences"] = {
-            "legend_visible": "true",
-            "cluster_names": "",
-        }
+        self.config["influences"] = {"legend_visible": "true", "cluster_names": ""}
 
     def save(self):
         """Save configuration to file"""
         try:
-            with open(self.config_path, "w") as configfile:
+            with self.config_path.open("w") as configfile:
                 self.config.write(configfile)
             logger.info(f"Configuration saved to {self.config_path}")
         except OSError as e:
@@ -421,9 +409,7 @@ class Config:
             theme_file = self.get_theme_file()
         return self.themes_dir / theme_file
 
-    def save_equalizer_settings(
-        self, enabled: bool, band_gains: list, preset_name: str = "Custom"
-    ):
+    def save_equalizer_settings(self, enabled: bool, band_gains: list, preset_name: str = "Custom"):
         """Convenience method to save all EQ settings at once"""
         self.set_equalizer_enabled(enabled)
         self.set_equalizer_band_gains(band_gains)
@@ -464,82 +450,44 @@ _CONFIG_FIELDS = [
     _primitive("output_device", "audio", "output_device", "str", "default"),
     _primitive("buffer_size", "audio", "buffer_size", "int", 1024),
     _primitive("exclusive_mode", "audio", "exclusive_mode", "bool", False),
+    ConfigField("window_size", "window", ("size",), _decode_window_size, _encode_window_size),
     ConfigField(
-        "window_size", "window", ("size",), _decode_window_size, _encode_window_size
+        "window_position", "window", ("position",), _decode_window_position, _encode_window_position
     ),
-    ConfigField(
-        "window_position",
-        "window",
-        ("position",),
-        _decode_window_position,
-        _encode_window_position,
-    ),
-    ConfigField(
-        "window_state",
-        "window",
-        ("state",),
-        _decode_window_state,
-        _encode_window_state,
-    ),
+    ConfigField("window_state", "window", ("state",), _decode_window_state, _encode_window_state),
     _primitive("window_maximized", "window", "maximized", "bool", False, prefix="is"),
-    _primitive(
-        "console_logging_enabled",
-        "logging",
-        "console_enabled",
-        "bool",
-        True,
-        prefix="is",
-    ),
-    _primitive(
-        "file_logging_enabled", "logging", "file_enabled", "bool", True, prefix="is"
-    ),
+    _primitive("console_logging_enabled", "logging", "console_enabled", "bool", True, prefix="is"),
+    _primitive("file_logging_enabled", "logging", "file_enabled", "bool", True, prefix="is"),
     _primitive("max_file_size_mb", "logging", "max_file_size_mb", "int", 10),
     _primitive("backup_count", "logging", "backup_count", "int", 14),
     ConfigField(
-        "logging_level",
-        "logging",
-        ("level",),
-        _decode_logging_level,
-        _encode_logging_level,
+        "logging_level", "logging", ("level",), _decode_logging_level, _encode_logging_level
     ),
     _primitive("equalizer_enabled", "equalizer", "enabled", "bool", False),
     _primitive(
-        "equalizer_custom_preset_name",
-        "equalizer",
-        "custom_preset_name",
-        "str",
-        "My Custom EQ",
+        "equalizer_custom_preset_name", "equalizer", "custom_preset_name", "str", "My Custom EQ"
     ),
     ConfigField(
-        "equalizer_band_gains",
-        "equalizer",
-        ("band_gains",),
-        _decode_band_gains,
-        _encode_band_gains,
+        "equalizer_band_gains", "equalizer", ("band_gains",), _decode_band_gains, _encode_band_gains
     ),
     _primitive(
         "equalizer_presets",
         "equalizer",
         "presets",
         "list",
-        "Flat,Bass Boost,Treble Boost,Rock,Pop,Jazz,Classical,Electronic,Hip Hop,Acoustic,Vocal Boost,Dance",
+        "Flat,Bass Boost,Treble Boost,Rock,Pop,Jazz,"
+        "Classical,Electronic,Hip Hop,Acoustic,Vocal Boost,Dance",
     ),
     _primitive("display_theme", "display", "theme", "str", "dark_mode"),
     _primitive("ui_scale", "display", "ui_scale", "float", 1.0),
     _primitive("font_family", "display", "font_family", "str", "Inter"),
     _primitive("font_size", "display", "font_size", "int", 10),
     _primitive("blur_explicit_art", "display", "blur_explicit_art", "bool", False),
-    _primitive(
-        "censor_explicit_words", "display", "censor_explicit_words", "bool", False
-    ),
+    _primitive("censor_explicit_words", "display", "censor_explicit_words", "bool", False),
     _primitive("persist_queue", "queue", "persist_queue", "bool", True),
-    _primitive(
-        "track_view_visible_columns", "track_view", "visible_columns", "list", ""
-    ),
+    _primitive("track_view_visible_columns", "track_view", "visible_columns", "list", ""),
     _primitive("track_view_column_order", "track_view", "column_order", "list", ""),
-    _primitive(
-        "track_view_column_widths", "track_view", "column_widths", "int_list", ""
-    ),
+    _primitive("track_view_column_widths", "track_view", "column_widths", "int_list", ""),
     ConfigField(
         "lyrics_sync_offset",
         "nowplaying",
@@ -547,9 +495,7 @@ _CONFIG_FIELDS = [
         _decode_lyrics_offset,
         _encode_lyrics_offset,
     ),
-    _primitive(
-        "influence_legend_visible", "influences", "legend_visible", "bool", True
-    ),
+    _primitive("influence_legend_visible", "influences", "legend_visible", "bool", True),
     ConfigField(
         "influence_legend_size",
         "influences",
@@ -565,18 +511,10 @@ _CONFIG_FIELDS = [
         _encode_legend_position,
     ),
     ConfigField(
-        "album_view_filters",
-        "album_view",
-        ("filters",),
-        _decode_json_dict,
-        _encode_json_dict,
+        "album_view_filters", "album_view", ("filters",), _decode_json_dict, _encode_json_dict
     ),
     ConfigField(
-        "artist_view_filters",
-        "artist_view",
-        ("filters",),
-        _decode_json_dict,
-        _encode_json_dict,
+        "artist_view_filters", "artist_view", ("filters",), _decode_json_dict, _encode_json_dict
     ),
     _primitive("last_art_dir", "ui", "last_art_dir", "str", str(Path.home())),
 ]
