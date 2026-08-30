@@ -17,8 +17,15 @@ def get_descendant_publisher_ids(controller, publisher_id):
     return ids
 
 
+def _album_chronological_key(album):
+    """Sort key ordering albums oldest-first, with unknown dates last."""
+    year = album.release_year
+    return (year is None, year or 0, album.release_month or 0, album.release_day or 0)
+
+
 def get_publisher_albums(controller, publisher_id):
-    """Return every Album linked to this publisher or any of its descendant publishers."""
+    """Return every Album linked to this publisher or any of its descendant
+    publishers, ordered chronologically by release date (unknown dates last)."""
     publisher_ids = get_descendant_publisher_ids(controller, publisher_id)
 
     albums = []
@@ -31,4 +38,5 @@ def get_publisher_albums(controller, publisher_id):
             if album:
                 seen_album_ids.add(link.album_id)
                 albums.append(album)
+    albums.sort(key=_album_chronological_key)
     return albums
