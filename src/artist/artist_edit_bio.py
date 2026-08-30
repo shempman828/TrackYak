@@ -5,7 +5,6 @@
 from PySide6.QtWidgets import QLabel, QTextEdit, QVBoxLayout, QWidget
 
 from src.common.edit_dirty import value_changed
-from src.core.logger_config import logger
 
 
 class BiographyTab(QWidget):

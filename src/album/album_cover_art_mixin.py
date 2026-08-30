@@ -83,12 +83,6 @@ class AlbumCoverArtMixin:
     # Cover art — picking & saving
     # =========================================================================
 
-    def change_front_cover(self):
-        self._pick_cover("front")
-
-    def change_rear_cover(self):
-        self._pick_cover("rear")
-
     def _pick_cover(self, cover_type: str):
         """Open a file dialog and embed the picked image into every track."""
         try:

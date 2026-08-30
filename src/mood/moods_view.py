@@ -738,10 +738,6 @@ class MoodView(QWidget):
             self.stats_label.setText(f"Total moods: {total_moods}")
             self.tracks_count_label.setText("Tracks with moods: Unknown")
 
-    def refresh_data(self):
-        """Refresh all data from database"""
-        self.load_moods()
-
     def get_tracks_for_mood(self, mood_id, include_children=None):
         """Get tracks associated with a mood, with optional recursive mode"""
         # If include_children is not specified, use the current recursive mode

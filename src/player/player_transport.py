@@ -224,10 +224,6 @@ class PlayerTransportMixin:
         self.state_changed.emit("stopped")
         logger.debug("Playback stopped")
 
-    def _force_close_stream(self):
-        """Actually close the audio stream — only call on device change or app exit."""
-        self._close_stream()
-
     def toggle_play_pause(self):
         if self.paused:
             self.play()

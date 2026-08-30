@@ -408,16 +408,6 @@ class Config:
         raw = self.config.get(section, key, fallback=fallback)
         return [int(item) for item in raw.split(",")] if raw else []
 
-    # Base directory has an alias name in addition to its generated
-    # get_base_directory/set_base_directory (see _CONFIG_FIELDS below).
-    def get_music_directory(self):
-        """Get music directory (alias for base directory)"""
-        return self.get_base_directory()
-
-    def set_music_directory(self, directory: str | Path):
-        """Set music directory (alias for base directory)"""
-        self.set_base_directory(directory)
-
     # Theme management (filesystem-backed, not config-value accessors)
     def get_available_themes(self):
         """Get list of available theme files"""
@@ -432,17 +422,6 @@ class Config:
         if theme_file is None:
             theme_file = self.get_theme_file()
         return self.themes_dir / theme_file
-
-    def load_theme_stylesheet(self, theme_file=None):
-        """Load QSS stylesheet from theme file"""
-        theme_path = self.get_theme_path(theme_file)
-        if theme_path.exists():
-            try:
-                with open(theme_path, "r", encoding="utf-8") as f:
-                    return f.read()
-            except (OSError, UnicodeDecodeError) as e:
-                logger.error(f"Error loading theme {theme_path}: {e}")
-        return ""
 
     def save_equalizer_settings(
         self, enabled: bool, band_gains: list, preset_name: str = "Custom"

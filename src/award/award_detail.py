@@ -1,6 +1,6 @@
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QGridLayout,
@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QTabWidget,
     QTextEdit,
-    QTreeWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -128,27 +127,6 @@ class AwardDetailTab(QWidget):
 
         rel_group.setLayout(layout)
         self.layout.addWidget(rel_group)
-
-    def _relationships_key_press_event(self, event):
-        """Handle key press events for the relationships widget."""
-        if event.key() in (Qt.Key_Delete, Qt.Key_Backspace):
-            self._remove_selected_relationship()
-        else:
-            # Call the original keyPressEvent for other keys
-            QTreeWidget.keyPressEvent(self.relationships_widget, event)
-
-    def _remove_selected_relationship(self):
-        """Remove the currently selected relationship."""
-        selected_items = self.relationships_widget.selectedItems()
-        if not selected_items:
-            return
-
-        item = selected_items[0]
-        # Get the association ID from the item data
-        association_id = item.data(0, Qt.UserRole)
-
-        if association_id:
-            self._remove_relationship(association_id)
 
     def _open_relationship_dialog(self) -> None:
         """Open the relationship management dialog."""

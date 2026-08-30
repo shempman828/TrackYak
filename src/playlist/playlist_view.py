@@ -522,14 +522,6 @@ class PlaylistView(QWidget):
             item = self._make_playlist_item(playlist, 0)
             self.tree.addTopLevelItem(item)
 
-    def _cleanup_editor(self, editor) -> None:
-        """Remove reference to closed editor."""
-        if hasattr(self, "_playlist_editors"):
-            try:
-                self._playlist_editors.remove(editor)
-            except ValueError:
-                pass
-
     def create_normal_playlist(self) -> None:
         """Open dialog to create a new playlist with name and description."""
         dialog = PlaylistCreateDialog(self)

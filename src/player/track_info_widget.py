@@ -23,6 +23,7 @@ class ScrollingLabel(QLabel):
     def __init__(self, text="", scroll_speed=1, pause_ms=1500, parent=None):
         super().__init__(text, parent)
         self.scroll_speed = scroll_speed  # pixels per tick
+        self._pause_ms = pause_ms  # gap before/after a scroll cycle
         self._offset = 0  # current horizontal scroll position
         self._paused = False  # True while we're in the pause gap
 
@@ -56,7 +57,7 @@ class ScrollingLabel(QLabel):
         if text_w > self.width():
             # Short pause before the text starts moving so the user can read
             # the beginning first.
-            QTimer.singleShot(1500, self._start_scroll)
+            QTimer.singleShot(self._pause_ms, self._start_scroll)
 
     def _start_scroll(self):
         if not self._timer.isActive():
@@ -72,7 +73,7 @@ class ScrollingLabel(QLabel):
         if self._offset > text_w + self.width() // 2:
             self._offset = 0
             self._paused = True
-            QTimer.singleShot(1500, self._unpause)
+            QTimer.singleShot(self._pause_ms, self._unpause)
         self.update()
 
     def _unpause(self):

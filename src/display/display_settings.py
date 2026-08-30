@@ -108,11 +108,6 @@ class DisplaySettings(QObject):
             self.blur_explicit_art: bool = False
             self.censor_explicit_words: bool = False
 
-        # ----- preview state -----
-        # Snapshot of committed values, populated when a preview is started.
-        # None means no preview is in progress.
-        self._pre_preview: dict | None = None
-
         # Unscaled QSS text of the currently loaded theme, re-scaled and
         # re-applied whenever ui_scale changes. None if no theme is loaded.
         self._raw_qss: str | None = None
@@ -169,8 +164,8 @@ class DisplaySettings(QObject):
         """Live-preview a scale change against only the given widget
         subtrees, instead of the whole app.
 
-        `set_ui_scale()`/`preview_ui_scale()` call `QApplication.setStyleSheet()`,
-        which re-polishes every live widget under the app -- including ones
+        `set_ui_scale()` calls `QApplication.setStyleSheet()`, which
+        re-polishes every live widget under the app -- including ones
         sitting hidden behind another tab. For a widget tree that grows
         with the library (e.g. the album grid, which never destroys
         off-screen cards), that re-polish is O(total widget count) and can
@@ -190,20 +185,6 @@ class DisplaySettings(QObject):
             for root in roots:
                 root.setStyleSheet(scaled_qss)
         self._reapply_styled_widgets()
-
-    def preview_ui_scale(self, scale: float):
-        """Apply a scale change live without persisting it.
-
-        Call commit_preview() to save or revert_preview() to undo.
-        Multiple preview_* calls in sequence are all reverted together by
-        a single revert_preview().
-        """
-        self._snapshot_for_preview()
-        self.ui_scale = scale
-        self._apply_font()
-        self._apply_stylesheet()
-        self._reapply_styled_widgets()
-        self.display_changed.emit()
 
     # ---------------------------------------------------------
     # Font handling
@@ -228,26 +209,6 @@ class DisplaySettings(QObject):
             self.config.set_font_size(size)
             self.config.save()
 
-        self._apply_font()
-        self.display_changed.emit()
-
-    def preview_font_family(self, family: str):
-        """Apply a font-family change live without persisting it.
-
-        Call commit_preview() to save or revert_preview() to undo.
-        """
-        self._snapshot_for_preview()
-        self.font_family = family
-        self._apply_font()
-        self.display_changed.emit()
-
-    def preview_font_size(self, size: int):
-        """Apply a font-size change live without persisting it.
-
-        Call commit_preview() to save or revert_preview() to undo.
-        """
-        self._snapshot_for_preview()
-        self.font_size = size
         self._apply_font()
         self.display_changed.emit()
 
@@ -293,58 +254,6 @@ class DisplaySettings(QObject):
                 # Underlying C++ widget was destroyed without the Python
                 # wrapper being collected yet -- drop it and move on.
                 del self._styled_widgets[widget]
-
-    # ---------------------------------------------------------
-    # Preview commit / revert
-    # ---------------------------------------------------------
-
-    def _snapshot_for_preview(self):
-        """Record current committed values the first time a preview begins."""
-        if self._pre_preview is None:
-            self._pre_preview = {
-                "ui_scale": self.ui_scale,
-                "font_family": self.font_family,
-                "font_size": self.font_size,
-            }
-
-    def commit_preview(self):
-        """Persist whatever font/scale values are currently live to config.
-
-        No-op if no preview is in progress.
-        """
-        if self._pre_preview is None:
-            return
-
-        self._pre_preview = None
-
-        if self.config:
-            self.config.set_ui_scale(self.ui_scale)
-            self.config.set_font_family(self.font_family)
-            self.config.set_font_size(self.font_size)
-            self.config.save()
-
-    def revert_preview(self):
-        """Restore font/scale to their last committed values and re-apply.
-
-        No-op if no preview is in progress.
-        """
-        if self._pre_preview is None:
-            return
-
-        self.ui_scale = self._pre_preview["ui_scale"]
-        self.font_family = self._pre_preview["font_family"]
-        self.font_size = self._pre_preview["font_size"]
-        self._pre_preview = None
-
-        self._apply_font()
-        self._apply_stylesheet()
-        self._reapply_styled_widgets()
-        self.display_changed.emit()
-
-    @property
-    def preview_pending(self) -> bool:
-        """True while a preview is in progress (i.e. commit_preview / revert_preview expected)."""
-        return self._pre_preview is not None
 
     # ---------------------------------------------------------
     # Menu bar auto-hide

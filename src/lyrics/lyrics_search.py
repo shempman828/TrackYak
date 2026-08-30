@@ -272,24 +272,3 @@ class LyricSearchThread(QObject):
             self._thread.started.disconnect()
         except RuntimeError:
             pass
-
-
-# ---------------------------------------------------------------------------
-# Convenience function (sync, unchanged)
-# ---------------------------------------------------------------------------
-
-
-def search_lyrics_for_track(track_orm, none_char: str = "♪") -> str | None:
-    """
-    Convenience function to search lyrics for a track ORM object.
-    Runs synchronously — prefer LyricSearchThread for UI contexts.
-
-    Args:
-        track_orm: ORM object with track metadata
-        none_char (str): Character to use when lyrics are not found
-
-    Returns:
-        Optional[str]: Lyrics if found, None otherwise
-    """
-    searcher = LyricSearch(track_orm)
-    return searcher.get_lyrics(none_char=none_char)

@@ -137,34 +137,6 @@ class PlaceDetailView(QDialog):
             return entity.playlist_name
         return f"Unknown {entity_type}"
 
-    def get_entity_tooltip(self, entity, entity_type):
-        """Generate detailed tooltip for different entity types."""
-        tooltip = ""
-        if entity_type == "artist":
-            tooltip = f"Artist: {entity.artist_name}\n"
-            tooltip += f"Type: {'Group' if entity.isgroup else 'Person'}\n"
-            if entity.begin_year:
-                tooltip += f"Born: {entity.begin_year}"
-                if entity.end_year:
-                    tooltip += f" - Died: {entity.end_year}"
-        elif entity_type == "track":
-            tooltip = f"Track: {entity.track_name}\n"
-            if hasattr(entity, "album") and entity.album:
-                tooltip += f"Album: {entity.album.album_name}\n"
-            if entity.duration:
-                tooltip += f"Duration: {entity.duration_formatted}"
-        elif entity_type == "album":
-            tooltip = f"Album: {entity.album_name}\n"
-            if entity.release_year:
-                tooltip += f"Released: {entity.release_year}"
-        elif entity_type == "publisher":
-            tooltip = f"Publisher: {entity.publisher_name}"
-        elif entity_type == "playlist":
-            tooltip = f"Playlist: {entity.playlist_name}\n"
-            if entity.playlist_description:
-                tooltip += f"Description: {entity.playlist_description}"
-        return tooltip
-
     def edit_place(self):
         """Open the place edit dialog."""
         dialog = PlaceEditDialog(self.controller, self, self.place)

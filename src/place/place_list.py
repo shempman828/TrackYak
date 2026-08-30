@@ -575,16 +575,6 @@ class ListView(QWidget):
         dialog = AssociationDetailsDialog(self.controller, place, self)
         dialog.exec_()
 
-    def show_association_details(self):
-        """Show detailed view of all entities associated with the selected place."""
-        selected = self.tree_widget.currentItem()
-        if not selected:
-            show_status_message(
-                self, "Please select a place to view its associations."
-            )
-            return
-        self.show_association_details_for(selected.data(0, Qt.UserRole))
-
     def add_place(self):
         """Add place and refresh both views"""
         dialog = PlaceEditDialog(self.controller, self)
@@ -682,10 +672,6 @@ class ListView(QWidget):
         except (SQLAlchemyError, ValueError, RuntimeError) as e:
             logger.error(f"Failed to create new child place: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to create new child place")
-
-    def delete_place(self):
-        """Delete the currently selected place(s)."""
-        self.delete_selected_places()
 
     def delete_selected_places(self):
         """Delete all currently selected places after a single confirmation.

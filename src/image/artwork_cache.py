@@ -16,10 +16,10 @@ migrated) the next read just sees a stale mtime and regenerates - no
 explicit invalidation required for correctness.
 
 Picking "the album's representative track" (any single embeddable track
-whose embedded art speaks for the whole album) is only safe because
-ArtworkConsistencyChecker (library_artwork_consistency.py) is used to
-verify every track in an album agrees on its embedded art per role
-before this cache is relied on.
+whose embedded art speaks for the whole album) assumes every track in an
+album agrees on its embedded art per role. That assumption is currently
+unverified in code -- if it proves shaky, add a consistency check before
+this cache is relied on.
 """
 
 import io
@@ -46,8 +46,8 @@ DEFAULT_JPEG_QUALITY = 95
 def _pick_representative_track(album):
     """Return the album's canonical embeddable track (or None), used as
     the single source of truth for that album's embedded art. Any
-    embeddable track works as long as ArtworkConsistencyChecker has
-    verified they all agree - this just needs to be deterministic."""
+    embeddable track works as long as they all agree on their embedded
+    art - this just needs to be deterministic."""
     tracks = [
         t
         for t in (getattr(album, "tracks", None) or [])

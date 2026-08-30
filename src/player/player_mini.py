@@ -360,15 +360,6 @@ class MiniPlayerWindow(QWidget):
             # Bottom edge
             self.move(self.pos().x(), screen_geometry.height() - 20)
 
-    def toggle_auto_hide(self, enabled: bool):
-        """Enable or disable auto-hide feature."""
-        self.auto_hide_enabled = enabled
-        if enabled:
-            self.auto_hide_timer.start(2000)  # Start with 2 second delay
-        else:
-            self.auto_hide_timer.stop()
-            self.show_full_window()
-
     def show(self):
         """Show the mini-player window."""
         super().show()

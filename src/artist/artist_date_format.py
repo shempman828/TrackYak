@@ -10,7 +10,6 @@ Formats date fields into visually pleasing strings with the following rules:
 - Ignores incomplete combinations (day without month, month without year)
 """
 
-from src.core.logger_config import logger
 
 
 class DateFormatter:
@@ -124,40 +123,6 @@ class DateFormatter:
         else:
             # Should not reach here due to _has_any_date check, but just in case
             return False
-
-    @classmethod
-    def format_dates_from_fields(cls, **kwargs):
-        """
-        Alternative method to format dates from field values directly.
-
-        Args:
-            begin_day, begin_month, begin_year,
-            end_day, end_month, end_year
-
-        Returns:
-            str or False: Formatted date string, or False if no date data
-        """
-
-        # Create a simple object to mimic ORM behavior
-        class SimpleObj:
-            pass
-
-        obj = SimpleObj()
-
-        # Set attributes from kwargs
-        fields = [
-            "begin_day",
-            "begin_month",
-            "begin_year",
-            "end_day",
-            "end_month",
-            "end_year",
-        ]
-
-        for field in fields:
-            setattr(obj, field, kwargs.get(field))
-
-        return cls.format_artist_dates(obj)
 
 
 # Convenience function for direct use

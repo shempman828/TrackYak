@@ -5,7 +5,6 @@ Influences widget showing artists influenced by and influencing the current arti
 
 from typing import Any, List
 
-from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -15,9 +14,6 @@ from src.core.logger_config import logger
 
 class InfluencesWidget(QWidget):
     """Widget displaying artist influences and influenced artists."""
-
-    # Signal emitted when an artist name is clicked
-    artist_clicked = Signal(int, str)  # artist_id, artist_name
 
     def __init__(self, artist: Artist, controller: Any = None):
         super().__init__()
@@ -133,12 +129,3 @@ class InfluencesWidget(QWidget):
             if child.widget():
                 child.widget().deleteLater()
 
-    def on_artist_clicked(self, artist: Artist):
-        """Handle artist name click."""
-        self.artist_clicked.emit(artist.artist_id, artist.artist_name)
-
-    def refresh_data(self, artist: Artist = None):
-        """Refresh the widget with new artist data."""
-        if artist:
-            self.artist = artist
-        self.load_influences_data()

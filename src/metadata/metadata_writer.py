@@ -297,32 +297,3 @@ class MetadataWriter:
             logger.debug(f"Error writing metadata to track {track_id}: {e}")
             self.status_manager.show_message(f"Error updating track {track_id}", 3000)
             return False
-
-    def batch_write_metadata(
-        self, track_ids: List[int], mode: WriteMode = WriteMode.UPDATE_EXISTING
-    ) -> Dict[int, bool]:
-        """Write metadata to multiple tracks with progress reporting."""
-        results = {}
-        total = len(track_ids)
-
-        self.status_manager.start_task(f"Updating metadata for {total} files")
-
-        success_count = 0
-        for i, track_id in enumerate(track_ids):
-            logger.debug(f"Processing track {i + 1}/{total} (ID: {track_id})")
-
-            progress_msg = f"Processing file {i + 1}/{total}"
-            self.status_manager.show_message(progress_msg, 0)  # Persistent
-
-            results[track_id] = self.write_metadata_to_track(track_id, mode)
-
-            if results[track_id]:
-                success_count += 1
-
-        self.status_manager.end_task(
-            f"Updated {success_count}/{total} files successfully", 5000
-        )
-
-        logger.debug(f"Batch write completed: {success_count}/{total} successful")
-
-        return results

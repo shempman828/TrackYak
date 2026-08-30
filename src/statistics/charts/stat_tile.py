@@ -66,10 +66,6 @@ class StatTileWidget(ThemedChartWidget):
         self._subtitle = subtitle
         self.update()
 
-    def set_label(self, label: str):
-        self._label = label
-        self.update()
-
     def paintEvent(self, event):
         (surface, border, label_color, value_color, subtitle_color) = self._palette
 

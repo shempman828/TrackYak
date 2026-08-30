@@ -691,24 +691,6 @@ class RoleView(QWidget):
             logger.error(f"Error handling role selection: {e!s}", exc_info=True)
             self._clear_detail_view()
 
-    def _get_hierarchy_info(self, role):
-        """Get hierarchy information for display."""
-        info_parts = []
-
-        if role.parent_id:
-            parent = self.controller.get.get_entity_object(
-                "Role", role_id=role.parent_id
-            )
-            if parent:
-                info_parts.append(f"Parent: {parent.role_name}")
-
-        # Count children
-        children = self.controller.get.get_all_entities("Role", parent_id=role.role_id)
-        if children:
-            info_parts.append(f"Children: {len(children)}")
-
-        return " | ".join(info_parts) if info_parts else "Root role"
-
     def _clear_detail_view(self):
         """Reset the detail view to empty state."""
         self.current_role_id = None
@@ -991,7 +973,7 @@ class RoleView(QWidget):
             entity=role,
             new_entity=new_role,
             reload_fn=self.load_roles,
-            emit_fn=lambda ne: self.role_updated.emit(),
+            emit_fn=lambda _ne: self.role_updated.emit(),
             status_fn=self.status_bar.setText,
         )
 
@@ -1017,7 +999,7 @@ class RoleView(QWidget):
             entity=role,
             new_entity=new_role,
             reload_fn=self.load_roles,
-            emit_fn=lambda ne: self.role_updated.emit(),
+            emit_fn=lambda _ne: self.role_updated.emit(),
             status_fn=self.status_bar.setText,
         )
 

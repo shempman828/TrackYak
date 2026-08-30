@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.layout_utils import clear_layout
-from src.core.logger_config import logger
 
 # Cap the dropdown's collapsed-button width so it stays compact in a filter
 # bar instead of stretching to fill all available horizontal space.

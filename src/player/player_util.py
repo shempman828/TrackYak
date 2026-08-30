@@ -234,11 +234,6 @@ class MusicPlayer(
             return "paused"
         return "stopped"
 
-    # Kept for UI compatibility — streaming mode has no separate audio_data array
-    @property
-    def audio_data(self):
-        return None  # Always None in streaming mode
-
     # =========================================================================
     #  Cleanup
     # =========================================================================

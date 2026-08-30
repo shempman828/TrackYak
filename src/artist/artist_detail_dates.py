@@ -1,7 +1,6 @@
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from src.artist.artist_date_format import format_artist_dates
-from src.core.logger_config import logger
 
 
 class DateDisplayWidget(QWidget):

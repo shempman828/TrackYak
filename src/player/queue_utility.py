@@ -94,10 +94,6 @@ class QueueManager(QObject):
         """Index 0 is always current.  Returns None if queue is empty."""
         return self.queue[0] if self.queue else None
 
-    def get_next_track(self) -> Optional[Track]:
-        """Peek at what will play after the current track."""
-        return self.queue[1] if len(self.queue) > 1 else None
-
     def get_previous_track(self) -> Optional[Track]:
         """Peek at the most recently played track without changing state."""
         return self.history[-1] if self.history else None
@@ -137,11 +133,6 @@ class QueueManager(QObject):
         return True
 
     # ── Queue mutation ────────────────────────────────────────────────────────
-
-    def add_track_to_queue(self, track: Track):
-        """Append a single track to the end of the queue."""
-        self.queue.append(track)
-        self.queue_changed.emit()
 
     def add_tracks_to_queue(self, tracks: List[Track]):
         """
@@ -228,27 +219,6 @@ class QueueManager(QObject):
         logger.debug(f"insert_tracks_next: {len(tracks)} track(s) at index {insert_at}")
         self.queue_changed.emit()
 
-    def remove_from_queue(self, index: int):
-        """Remove the track at queue[index].  Index 0 (current) can be removed."""
-        if 0 <= index < len(self.queue):
-            removed = self.queue.pop(index)
-            logger.debug(
-                f"remove_from_queue[{index}]: '{getattr(removed, 'track_name', '?')}'"
-            )
-            self.queue_changed.emit()
-
-    def move_track(self, from_index: int, to_index: int):
-        """
-        Reorder the queue by moving a track from one position to another.
-        Both indices are into self.queue.
-        """
-        n = len(self.queue)
-        if not (0 <= from_index < n and 0 <= to_index < n):
-            return
-        track = self.queue.pop(from_index)
-        self.queue.insert(to_index, track)
-        self.queue_changed.emit()
-
     def shuffle_queue(self):
         """
         Shuffle all upcoming tracks (index 1 onwards).
@@ -291,32 +261,6 @@ class QueueManager(QObject):
         self.queue.clear()
         logger.info("clear_queue: queue cleared")
         self.queue_changed.emit()
-
-    def clear_history(self):
-        """Wipe play history."""
-        self.history.clear()
-        self.queue_changed.emit()
-
-    # ── Info ──────────────────────────────────────────────────────────────────
-
-    def get_queue_length(self) -> int:
-        return len(self.queue)
-
-    def get_history_length(self) -> int:
-        return len(self.history)
-
-    # Kept for any legacy callers
-    def previous_track_in_queue(self) -> Optional[Track]:
-        """Legacy shim — returns the previous track without mutating state."""
-        return self.get_previous_track()
-
-    def get_queue_state_for_ui(self) -> dict:
-        return {
-            "tracks": self.queue,
-            "current_track": self.get_current_track(),
-            "history_length": len(self.history),
-            # queue_length omitted — callers can use len(tracks) directly
-        }
 
     # ── Persistence ───────────────────────────────────────────────────────────
     #

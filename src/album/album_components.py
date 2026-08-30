@@ -2,12 +2,9 @@ from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QHBoxLayout,
-    QLabel,
     QLineEdit,
     QSpinBox,
     QTextEdit,
-    QWidget,
 )
 
 from src.core.logger_config import logger
@@ -15,23 +12,6 @@ from src.core.logger_config import logger
 
 class AlbumUIComponents:
     """Helper class for creating reusable UI components"""
-
-    @staticmethod
-    def create_section_header(text):
-        """Create a standardized section header"""
-        label = QLabel(f"<h3>{text}</h3>")
-        label.setContentsMargins(0, 10, 0, 5)
-        return label
-
-    @staticmethod
-    def create_form_row(label_text, widget):
-        """Create a standardized form row"""
-        widget_row = QWidget()
-        layout = QHBoxLayout(widget_row)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(QLabel(label_text))
-        layout.addWidget(widget, 1)
-        return widget_row
 
     @staticmethod
     def create_editable_field(field_config, current_value=None):

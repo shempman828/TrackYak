@@ -407,8 +407,8 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.cards.clear()
         self.selected_card = None
 
-        # Re-insert before the stretch
-        stretch_item = self.card_layout.takeAt(self.card_layout.count() - 1)
+        # Drop the old trailing stretch; a fresh one is appended below.
+        self.card_layout.takeAt(self.card_layout.count() - 1)
 
         for profile in self.profiles:
             card = DeviceCard(profile, self._on_card_clicked, self.card_container)

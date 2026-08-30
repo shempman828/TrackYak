@@ -340,23 +340,6 @@ class PublisherView(QWidget):
             logger.error(f"Error creating new child publisher: {str(e)}")
             QMessageBox.critical(self, "Error", "Failed to create new child publisher")
 
-    def _remove_parent(self):
-        """Remove parent from selected publisher."""
-        item = self.publishers_tree.currentItem()
-        if not item:
-            return
-
-        publisher_id = item.data(0, Qt.UserRole)
-
-        try:
-            self.controller.update.update_entity(
-                "Publisher", publisher_id, parent_id=None
-            )
-            self.load_publishers()
-            logger.info("Parent relationship removed successfully.")
-        except SQLAlchemyError as e:
-            logger.error(f"Error removing parent: {str(e)}")
-
     def initiate_merge(self):
         """Open the merge dialog, pre-selecting the currently highlighted publisher."""
         publisher_obj = None

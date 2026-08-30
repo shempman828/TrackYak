@@ -31,7 +31,6 @@ from src.core.censor import censor_text
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.db.db_mapping_tracks import TRACK_FIELDS
-from src.playlist.base_track_playlist_dialog import PlaylistSelectionDialog
 from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
 
 
@@ -333,27 +332,6 @@ class BaseTrackView(QDialog):
             logger.error(f"Error opening track edit dialog: {e}")
             QMessageBox.warning(self, "Error", f"Failed to open track editor: {e!s}")
 
-    def show_playlist_selection_dialog(self):
-        """Show dialog to select a playlist to add tracks to."""
-        selected_tracks = self.get_selected_tracks()
-        if not selected_tracks:
-            return
-
-        # Get all non-smart playlists
-        try:
-            all_playlists = self.controller.get.get_all_entities("Playlist", is_smart=0)
-
-            # Create and show playlist selection dialog
-            dialog = PlaylistSelectionDialog(all_playlists, self.controller, self)
-            if dialog.exec_():
-                selected_playlist = dialog.get_selected_playlist()
-                if selected_playlist:
-                    self.add_tracks_to_playlist(selected_playlist, selected_tracks)
-
-        except (SQLAlchemyError, AttributeError, RuntimeError) as e:
-            logger.error(f"Error showing playlist selection dialog: {e}")
-            QMessageBox.warning(self, "Error", f"Failed to load playlists: {e!s}")
-
     def load_data(self, tracks):
         """Load tracks with lazy loading - only loads first batch initially."""
         self.tracks = tracks
@@ -418,23 +396,6 @@ class BaseTrackView(QDialog):
         if not queue_manager and hasattr(self.controller, "mediaplayer"):
             queue_manager = getattr(self.controller.mediaplayer, "queue_manager", None)
         return queue_manager
-
-    def _get_formatted_field_value(self, track, db_field, field_config):
-        """Get formatted value for a track field."""
-        # Handle special relationship fields
-        if db_field == "album_name":
-            name = track.album.album_name if track.album else "Unknown Album"
-            return censor_text(name)
-        elif db_field == "artist_name":
-            return self._get_artist_name(track)
-        elif db_field == "duration":
-            return track.duration_formatted
-
-        # Get the raw value from the track object
-        raw_value = getattr(track, db_field, "")
-
-        # Apply formatting
-        return self._format_value(raw_value, db_field, field_config)
 
     def _get_artist_name(self, track):
         """Extract artist name from track."""
@@ -641,12 +602,6 @@ class BaseTrackView(QDialog):
 
         event.acceptProposedAction()
         logger.warning("dropEvent should be overridden by subclass")
-
-    def get_track_ids(self, tracks=None):
-        """Get track IDs from track objects."""
-        if tracks is None:
-            tracks = self.get_selected_tracks()
-        return [track.track_id for track in tracks] if tracks else []
 
     def _populate_playlist_menu(self, track_ids):
         """Populate the playlist submenu with available playlists."""

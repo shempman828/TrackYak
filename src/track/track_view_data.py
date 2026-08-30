@@ -411,12 +411,3 @@ class TrackViewDataMixin:
             self.status_label.setText(
                 f"Showing {self._loaded_count:,} / {total:,} tracks"
             )
-
-    # =========================================================================
-    #  Fill model fully (used by _add_filtered_to_queue edge case)
-    # =========================================================================
-
-    def _fill_model_completely(self):
-        source = self._filtered_tracks if self._filter_active else self._all_tracks
-        while self._loaded_count < len(source):
-            self._append_next_batch(source)

@@ -520,10 +520,6 @@ class FileOrganizer(CancellableWorker):
             return "Unknown"
         return name
 
-    def set_approved_operations(self, approved_ops: List[Dict]):
-        """Set which operations to execute (called by preview dialog)"""
-        self.approved_operations = approved_ops
-
     def cancel(self):
         """Request organization cancellation"""
         self.request_cancel()

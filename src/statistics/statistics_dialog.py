@@ -1172,7 +1172,7 @@ class MusicStatsDialog(QDialog):
             logger.error(f"Error updating statistics UI: {e}")
 
     def on_stats_error(self, message):
-        pass
+        logger.error(f"Statistics background fetch failed: {message}")
 
     def load_overview_data(self):
         """Load overview tab data."""

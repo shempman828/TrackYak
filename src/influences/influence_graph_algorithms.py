@@ -12,7 +12,6 @@ influence_scores and community bridging for every artist, not just those
 displayed in the graph tab.
 """
 
-from collections import Counter
 from dataclasses import dataclass, field
 
 import networkx as nx

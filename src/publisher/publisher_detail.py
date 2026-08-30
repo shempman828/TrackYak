@@ -1,7 +1,5 @@
 import html
-import re
 from pathlib import Path
-from urllib.parse import urlparse
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
@@ -24,7 +22,6 @@ from src.track.base_track_view import BaseTrackView
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.publisher.publisher_albums import PublisherAlbumsWindow
-from src.publisher.publisher_association_dialog import PublisherAssociationDialog
 from src.publisher.publisher_hierarchy import get_publisher_albums
 
 
@@ -234,15 +231,6 @@ class PublisherDetailTab(QWidget):
         # Logo
         self._display_logo(publisher.logo_path)
 
-    def calculate_publisher_track_count(self, publisher_id):
-        """Calculate total tracks for this publisher."""
-        try:
-            albums = get_publisher_albums(self.controller, publisher_id)
-            return sum(album.track_count or 0 for album in albums)
-        except SQLAlchemyError as e:
-            logger.error(f"Error calculating track count: {str(e)}")
-            return 0
-
     def _display_logo(self, logo_path):
         """Display publisher logo."""
         if logo_path and Path(logo_path).exists():
@@ -279,44 +267,6 @@ class PublisherDetailTab(QWidget):
         except SQLAlchemyError as e:
             logger.error(f"Error loading places: {str(e)}")
             self.places_list.addItem("Error loading places")
-
-    def save_publisher_logo(self, publisher, image_data):
-        """Save selected logo for publisher."""
-        try:
-            url, image_bytes = image_data
-            parsed_url = urlparse(url)
-            extension = Path(parsed_url.path).suffix or ".png"
-
-            sanitized_name = re.sub(r'[<>:"/\\|?*]', "_", publisher.publisher_name)
-            filename = f"{publisher.publisher_id}_{sanitized_name}{extension}"
-
-            from src.core.asset_paths import PUBLISHER_LOGOS_DIR
-
-            logo_path = PUBLISHER_LOGOS_DIR / filename
-            PUBLISHER_LOGOS_DIR.mkdir(parents=True, exist_ok=True)
-
-            with open(logo_path, "wb") as f:
-                f.write(image_bytes)
-
-            self.controller.update.update_entity(
-                "Publisher", publisher.publisher_id, logo_path=str(logo_path)
-            )
-
-            self.load_publisher_data(publisher.publisher_id)
-            logger.info(f"Logo saved for {publisher.publisher_name}")
-
-        except (OSError, SQLAlchemyError) as e:
-            logger.error(f"Failed to save logo: {str(e)}")
-
-    def show_associations(self):
-        """Show association dialog for publisher."""
-        if not self.current_publisher:
-            return
-
-        dialog = PublisherAssociationDialog(
-            self.controller, self.current_publisher, self
-        )
-        dialog.exec_()
 
     def show_tracks(self):
         """Show all tracks associated with this publisher using BaseTrackView."""

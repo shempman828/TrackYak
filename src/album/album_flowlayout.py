@@ -116,12 +116,6 @@ class FlowLayout(QLayout):
             self._v_space = value
             self.invalidate()
 
-    def set_spacing(self, h: int, v: int | None = None) -> None:
-        """Set horizontal and (optionally) vertical spacing in one call."""
-        self._h_space = h
-        self._v_space = v if v is not None else h
-        self.invalidate()
-
     # ------------------------------------------------------------------
     # Core layout algorithm
     # ------------------------------------------------------------------
@@ -185,8 +179,3 @@ class FlowLayout(QLayout):
         if parent is not None:
             parent.updateGeometry()
             parent.update()
-
-    # Keep old attribute name readable for any code that pokes at internals
-    @property
-    def item_list(self) -> list:
-        return self._item_list

@@ -13,8 +13,6 @@ them and assigns results onto the host view's instance attributes.
 
 import math
 
-from sqlalchemy.exc import SQLAlchemyError
-
 from src.core.logger_config import logger
 from src.influences import influence_graph_algorithms as algorithms
 
@@ -29,72 +27,6 @@ class InfluenceGraphDataMixin:
     # -----------------------
     # Graph extraction
     # -----------------------
-    def extract_subgraph(self, center_artist_id, degrees):
-        """Extract artists and relationships within n degrees of center artist"""
-        try:
-            visited = {center_artist_id}
-            edges = []  # (influencer_id, influenced_id)
-
-            # Expand one BFS level at a time, batching the two lookups
-            # ("who influenced this frontier" / "who did this frontier
-            # influence") into a single query per direction per level
-            # instead of two queries per individual artist. For a
-            # `degrees`-hop search this bounds the DB round trips at
-            # 2*degrees total, regardless of how many artists are visited.
-            frontier = [center_artist_id]
-            for _ in range(degrees):
-                if not frontier:
-                    break
-
-                influences = self.controller.get.get_all_entities(
-                    "ArtistInfluence", influenced_id__in=frontier
-                )
-                influenced = self.controller.get.get_all_entities(
-                    "ArtistInfluence", influencer_id__in=frontier
-                )
-
-                for influence in influences:
-                    edges.append((influence.influencer_id, influence.influenced_id))
-                for influence in influenced:
-                    edges.append((influence.influencer_id, influence.influenced_id))
-
-                next_frontier = []
-                for influence in influences:
-                    if influence.influencer_id not in visited:
-                        visited.add(influence.influencer_id)
-                        next_frontier.append(influence.influencer_id)
-                for influence in influenced:
-                    if influence.influenced_id not in visited:
-                        visited.add(influence.influenced_id)
-                        next_frontier.append(influence.influenced_id)
-
-                frontier = next_frontier
-
-            # Dedupe edges (frontiers from different levels can rediscover
-            # the same relationship from either endpoint).
-            edges = list(dict.fromkeys(edges))
-
-            # Fetch all visited artists' names in one query instead of one
-            # `get_entity_object` round trip per artist.
-            artists = self.controller.get.get_all_entities(
-                "Artist", artist_id__in=list(visited)
-            )
-            artists_by_id = {artist.artist_id: artist for artist in artists}
-            nodes = []
-            for artist_id in visited:
-                artist = artists_by_id.get(artist_id)
-                if artist:
-                    nodes.append((artist_id, artist.artist_name))
-                else:
-                    logger.warning(f"Artist {artist_id} not found in database")
-
-            logger.info(f"Extracted subgraph: {len(nodes)} nodes, {len(edges)} edges")
-            return nodes, edges
-
-        except SQLAlchemyError as e:
-            logger.error(f"Error extracting subgraph: {e}")
-            return [], []
-
     def extract_global_graph(self):
         """Extract only artists with influence relationships"""
         return algorithms.extract_global_influence_graph(self.controller.get)
@@ -159,45 +91,6 @@ class InfluenceGraphDataMixin:
                 logger.info(f"  {node_name}: {count} connections")
         except (AttributeError, TypeError) as e:
             logger.error(f"Error in debug_graph_structure: {e}")
-
-    def check_database_relationships(self):
-        """Check if there are any influence relationships in the database"""
-        try:
-            all_influences = self.controller.get.get_all_entities("ArtistInfluence")
-            logger.info(
-                f"Total ArtistInfluence relationships in database: {len(all_influences)}"
-            )
-
-            if len(all_influences) == 0:
-                logger.warning("No ArtistInfluence relationships found in database!")
-                return False
-
-            for i, influence in enumerate(all_influences[:5]):  # First 5
-                influencer = self.controller.get.get_entity(
-                    "Artist", influence.influencer_id
-                )
-                influenced = self.controller.get.get_entity(
-                    "Artist", influence.influenced_id
-                )
-                influencer_name = (
-                    influencer.artist_name
-                    if influencer
-                    else f"Artist {influence.influencer_id}"
-                )
-                influenced_name = (
-                    influenced.artist_name
-                    if influenced
-                    else f"Artist {influence.influenced_id}"
-                )
-                logger.info(
-                    f"Relationship {i + 1}: {influencer_name} -> {influenced_name}"
-                )
-
-            return True
-
-        except SQLAlchemyError as e:
-            logger.error(f"Error checking database relationships: {e}")
-            return False
 
     def calculate_influence_scores(self, node_ids, edges):
         """Calculate influence scores and merge with decayed PageRank."""

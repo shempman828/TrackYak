@@ -83,13 +83,6 @@ class ChartEntryTable(QTreeWidget):
                 item.setToolTip(1, "Not yet matched to a library track")
             self.addTopLevelItem(item)
 
-    def selected_entry_id(self):
-        """Return the chart_entry_id of the currently selected row, or None."""
-        items = self.selectedItems()
-        if not items:
-            return None
-        return items[0].data(0, Qt.UserRole)
-
     def context_menu_for_entry(self, entry_id) -> QMenu | None:
         """Build (but don't show) the manual-match context menu for
         `entry_id`, or None if it's not a currently-populated row. Split out

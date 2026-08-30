@@ -4,7 +4,6 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QDockWidget,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -266,19 +265,6 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
             player.set_volume(restore)
             self._pre_mute_volume = None
 
-    def create_dock_widget(self, parent_window=None):
-        """Create and configure the dock widget for this player with mini-player support."""
-        # Use provided parent_window or fall back to self.parent_window
-        dock_parent = parent_window if parent_window else self.parent_window
-
-        dock = QDockWidget("Player", dock_parent)
-        dock.setWidget(self)
-
-        # Enable ALL features for maximum flexibility
-        dock.setFeatures(QDockWidget.DockWidgetMovable)
-
-        return dock
-
     def _update_track_display(self, file_path: Path):
         """Update UI elements based on track state.
 
@@ -323,21 +309,6 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
         self.track_info_widget.clear()
         self.current_track_info = ""
 
-    def adjust_dock_size(self):
-        """Adjust dock size to fit content."""
-        try:
-            ideal_size = self.sizeHint()
-            if ideal_size.isValid():
-                height = ideal_size.height() + 40
-                width = ideal_size.width()
-                dock = self.parent().parent() if self.parent() else None
-                if isinstance(dock, QDockWidget):
-                    dock.setMinimumHeight(height)
-                    dock.setMinimumWidth(width)
-                    self.setMinimumHeight(ideal_size.height())
-        except RuntimeError as e:
-            logger.error(f"Error adjusting player dock size: {e}")
-
     def setup_timers(self):
         """Set up periodic UI updates and auto-hide timer."""
         # Position update timer
@@ -361,15 +332,6 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
         if self.auto_hide_enabled and not self.is_hovered and self.is_visible:
             self.hide()
             self.is_visible = False
-
-    def toggle_auto_hide(self, enabled: bool):
-        """Enable or disable auto-hide behavior."""
-        self.auto_hide_enabled = enabled
-        if enabled and not self.is_hovered:
-            self.hide_timer.start(self.hide_delay)
-        else:
-            self.hide_timer.stop()
-            self.show_player()
 
     def _adjust_rating(self, delta: float):
         """Increase or decrease the current track's rating by `delta` (0.5 steps)."""
@@ -488,15 +450,6 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
         self._update_repeat_button()
         self.repeat_mode_change_requested.emit(self.repeat_mode)
 
-    def on_volume_changed(self, value: int):
-        """Adjust player volume and save to config."""
-        try:
-            self.player.set_volume(value)
-            app_config.set_volume(value)
-            app_config.save()
-        except (OSError, RuntimeError) as e:
-            logger.error(f"Error saving volume to config: {e}")
-
     def update_volume_slider(self, value: int):
         """Sync volume slider without triggering signals."""
         self.volume_slider.blockSignals(True)
@@ -532,30 +485,11 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
             self.position_slider.setEnabled(False)
             self.position_label.setText("0:00 / 0:00")
 
-    def handle_seek_move(self, position: int):
-        """Preview position during slider drag."""
-        if self.player.duration > 0:
-            self.position_label.setText(
-                f"{self.format_time(position)} / {self.format_time(self.player.duration)}"
-            )
-
-    def handle_seek_release(self):
-        """Seek player to slider value."""
-        if self.player.duration > 0:
-            self.player.seek(self.position_slider.value())
-
     @staticmethod
     def format_time(ms: int) -> str:
         """Convert milliseconds to MM:SS format."""
         minutes, seconds = divmod(ms // 1000, 60)
         return f"{minutes:02}:{seconds:02}"
-
-    def cycle_repeat_mode(self):
-        """Cycle through repeat modes."""
-        self.repeat_mode = (self.repeat_mode + 1) % 3
-        self.repeat_button.setIcon(QIcon(icon(self.repeat_icons[self.repeat_mode])))
-        self.repeat_button.setToolTip(self.repeat_labels[self.repeat_mode])
-        self.player.set_repeat_mode(self.repeat_mode)
 
     def handle_state_change(self, state: str):
         """Update UI button states based on player state."""

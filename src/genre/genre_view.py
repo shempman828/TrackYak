@@ -833,7 +833,7 @@ class GenreView(QWidget):
             entity=genre,
             new_entity=new_genre,
             reload_fn=self.load_genres,
-            emit_fn=lambda ne: self.genre_updated.emit(),
+            emit_fn=lambda _ne: self.genre_updated.emit(),
             status_fn=self.status_bar.setText,
         )
 
@@ -859,7 +859,7 @@ class GenreView(QWidget):
             entity=genre,
             new_entity=new_genre,
             reload_fn=self.load_genres,
-            emit_fn=lambda ne: self.genre_updated.emit(),
+            emit_fn=lambda _ne: self.genre_updated.emit(),
             status_fn=self.status_bar.setText,
         )
 

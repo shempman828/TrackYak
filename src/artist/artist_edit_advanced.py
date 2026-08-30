@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.edit_dirty import value_changed
-from src.core.logger_config import logger
 
 
 class AdvancedTab(QWidget):

@@ -1,6 +1,5 @@
 from typing import Any
 
-from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.release_type_utils import normalize_release_type
 from src.artist.artist_resolution import resolve_or_create_artist
@@ -202,17 +201,6 @@ class AlbumImporter:
             f"Created new disc: album_id={album_id}, disc_number={disc_number}"
         )
         return new_disc
-
-    def _get_album_artists(self, album_id: int) -> list[int]:
-        """Get all artist IDs associated with an album."""
-        try:
-            associations = self.controller.get.get_all_entities(
-                "AlbumRoleAssociation", album_id=album_id
-            )
-            return [assoc.artist_id for assoc in associations] if associations else []
-        except SQLAlchemyError as e:
-            logger.error(f"Error getting album artists: {e}")
-            return []
 
     def _create_album_publisher_relationships(
         self, album_id: int, metadata: dict[str, Any]

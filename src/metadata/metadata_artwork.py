@@ -380,7 +380,7 @@ class ArtworkExtractor:
             # Remaining data is the image
             if current_pos < len(frame_data):
                 image_data = frame_data[current_pos:]
-                format_type = self._determine_image_format(image_data, "")
+                format_type = determine_image_format(image_data, "")
                 processed_image = self._process_image_data(image_data, format_type)
                 if processed_image:
                     processed_image["picture_type"] = picture_type
@@ -458,7 +458,7 @@ class ArtworkExtractor:
             if len(picture_data) < 8:
                 return None
 
-            format_type = self._determine_image_format(picture_data, mime_type)
+            format_type = determine_image_format(picture_data, mime_type)
 
             # Process the image to validate it and get dimensions
             processed_image = self._process_image_data(picture_data, format_type)
@@ -496,6 +496,3 @@ class ArtworkExtractor:
             logger.warning(f"Error processing image data: {e}")
             return None
 
-    def _determine_image_format(self, image_data, mime_type):
-        """Determine image format from magic bytes or MIME type."""
-        return determine_image_format(image_data, mime_type)

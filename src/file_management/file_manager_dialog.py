@@ -20,7 +20,6 @@ from src.core.asset_paths import icon
 from src.core.config_setup import app_config
 from src.file_management.file_manager import CLEANUP_PROGRESS_START, FileOrganizer
 from src.file_management.file_organizer_preview_dialog import OrganizationPreviewDialog
-from src.importing.import_dialog import ImportDialog
 from src.metadata.metadata_writer_dialog import show_metadata_write_dialog
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
@@ -354,25 +353,6 @@ class FileManager(QDialog):
         )
 
     # -------------------- Metadata Flow --------------------
-    def _update_metadata_progress(self, percent: int, current_file: str) -> None:
-        if self.metadata_progress.maximum() == 0:
-            self.metadata_progress.setRange(0, 100)
-        self.metadata_progress.setValue(percent)
-        self.metadata_status.setText(f"{current_file} — {percent}%")
-
-    def _metadata_update_complete(self, success_count: int, total_count: int) -> None:
-        self._reset_metadata_ui()
-        self.metadata_status.setText(
-            f"Complete — {success_count}/{total_count} files updated"
-        )
-
-        show_status_message(
-            self, f"Metadata update complete: updated {success_count} out of {total_count} files"
-        )
-
-        if success_count > 0:
-            self.library_modified.emit()
-
     def _cancel_metadata_update(self) -> None:
         self._cancel_worker(
             self.metadata_updater,
@@ -434,10 +414,6 @@ class FileManager(QDialog):
             self._show_warning("Requirements Missing", "Root directory must be set")
             return False
         return True
-
-    def _show_import_dialog(self) -> None:
-        dlg = ImportDialog(self.controller)
-        dlg.exec_()
 
     # -------------------- Standardized Alerts --------------------
     def _show_warning(self, title: str, message: str) -> None:

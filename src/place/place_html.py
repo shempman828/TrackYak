@@ -2,7 +2,6 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QTextDocument
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate
 
-from src.core.logger_config import logger
 
 
 class HtmlDelegate(QStyledItemDelegate):

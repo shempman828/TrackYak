@@ -52,14 +52,5 @@ class MusicStatistics:
         stats.update(self.dates.get_comprehensive_date_stats())
         return stats
 
-    def get_metadata_completeness(self):
-        return self.basic.get_metadata_completeness()
-
-    def get_file_format_distribution(self, session=None):
-        return self.basic.get_file_format_distribution(session)
-
-    def get_ratings_distribution(self, session=None):
-        return self.basic.get_ratings_distribution(session)
-
     def get_on_this_day(self):
         return self.basic.get_on_this_day()

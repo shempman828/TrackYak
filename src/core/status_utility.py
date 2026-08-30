@@ -68,16 +68,6 @@ class _StatusManager(QObject):
             self._current_message = ""
             logger.debug("Status bar hidden - no active tasks")
 
-    @property
-    def has_active_tasks(self):
-        return self._active_tasks > 0
-
-    def get_status(self):
-        return {
-            "active_tasks": self._active_tasks,
-            "current_message": self._current_message,
-        }
-
 
 StatusManager = _StatusManager()
 

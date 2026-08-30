@@ -6,7 +6,6 @@ from PySide6.QtWidgets import (
     QTextEdit,
 )
 
-from src.core.logger_config import logger
 
 
 class PlaylistCreateDialog(QDialog):

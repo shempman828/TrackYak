@@ -155,14 +155,6 @@ class BasicStats:
     #  Rating statistics                                                   #
     # ------------------------------------------------------------------ #
 
-    def _valid_rating_filter(self):
-        """Return a SQLAlchemy filter expression for valid ratings (0.5 – 10)."""
-        return (
-            Track.user_rating.isnot(None),
-            Track.user_rating >= RATING_MIN,
-            Track.user_rating <= RATING_MAX,
-        )
-
     def _get_rating_statistics(self, session, total_tracks=None):
         """Get rating-related statistics, excluding out-of-range values."""
         rating_stats = (

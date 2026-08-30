@@ -219,13 +219,3 @@ class AddAwardDialog(QDialog):
                 self, "Error", f"An error occurred while creating the award:\n{str(e)}"
             )
 
-    def get_award_details(self):
-        """Get the created award details (for testing/validation)."""
-        return {
-            "award_name": self.award_name_edit.text().strip(),
-            "award_year": self.award_year_spin.value()
-            if self.award_year_spin.value() != 1900
-            else None,
-            "award_category": self.award_category_edit.text().strip() or None,
-            "association_type": self.association_type_combo.currentText(),
-        }

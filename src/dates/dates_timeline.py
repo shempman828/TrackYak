@@ -291,7 +291,6 @@ class TimelineWidget(QWidget):
             return
 
         x = event.position().x()
-        y = event.position().y()
 
         # "back" hit area — only in year view
         if self._expanded_decade is not None and x < self.BACK_ZONE_W:

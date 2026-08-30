@@ -316,21 +316,9 @@ class EqualizerUtility(QObject):
             "presets": list(self.presets.keys()),
         }
 
-    def get_band_gain(self, band_index: int) -> float:
-        """Get gain for a specific band."""
-        if 0 <= band_index < len(self.bands):
-            return self.bands[band_index]["gain"]
-        return 0.0
-
     def is_enabled(self) -> bool:
         """Check if equalizer is enabled."""
         return self.enabled
-
-    def save_to_config(self, config: Config, preset_name: str = "Custom"):
-        """Save current EQ settings to config"""
-        band_gains = [band["gain"] for band in self.bands]
-        config.save_equalizer_settings(self.enabled, band_gains, preset_name)
-        logger.info(f"Equalizer settings saved to config: {preset_name}")
 
     def load_from_config(self, config: Config):
         """Load EQ settings from config"""

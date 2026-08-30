@@ -6,7 +6,6 @@ from typing import List
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QWidget
 
-from src.core.logger_config import logger
 
 
 class _Chip(QLabel):

@@ -294,24 +294,3 @@ class AwardsWidget(QWidget):
 
         # Update container size
         self.awards_container.adjustSize()
-
-    def get_awards_summary(self) -> str:
-        """Get a text summary of the awards"""
-        if not self.awards_data:
-            return "No awards"
-
-        # Count wins vs nominations
-        wins = sum(1 for award in self.awards_data if award.get("is_winner", True))
-        nominations = len(self.awards_data) - wins
-
-        years = set(
-            award.get("year") for award in self.awards_data if award.get("year")
-        )
-        year_range = f"{min(years)}-{max(years)}" if years else ""
-
-        if wins and nominations:
-            return f"{wins} wins, {nominations} nominations ({year_range})"
-        elif wins:
-            return f"{wins} awards won ({year_range})"
-        else:
-            return f"{nominations} nominations ({year_range})"

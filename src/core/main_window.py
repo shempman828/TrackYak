@@ -518,34 +518,6 @@ class GUI(QMainWindow, MenuBar):
         except (AttributeError, RuntimeError) as e:
             logger.error(f"Error ensuring window in screen: {e}")
 
-    def adjust_dock_size(self):
-        """Adjust dock size to fit content safely."""
-        try:
-            ideal_size = self.sizeHint()
-            if ideal_size.isValid():
-                height = max(60, ideal_size.height() + 20)
-                width = max(400, ideal_size.width())
-                dock = self.parent().parent() if self.parent() else None
-                if isinstance(dock, QDockWidget):
-                    dock.setMinimumHeight(height)
-                    dock.setMinimumWidth(width)
-                    self.setMinimumHeight(max(50, ideal_size.height()))
-                    logger.debug(f"Adjusted dock size: {width}x{height}")
-            else:
-                dock = self.parent().parent() if self.parent() else None
-                if isinstance(dock, QDockWidget):
-                    dock.setMinimumHeight(60)
-                    dock.setMinimumWidth(400)
-        except RuntimeError as e:
-            logger.error(f"Error adjusting player dock size: {e}")
-            try:
-                dock = self.parent().parent() if self.parent() else None
-                if isinstance(dock, QDockWidget):
-                    dock.setMinimumHeight(60)
-                    dock.setMinimumWidth(400)
-            except RuntimeError as e:
-                logger.error(f"Error applying fallback player dock size: {e}")
-
     def _reset_ui_layout(self):
         """Reset window and dock positions using config."""
         try:

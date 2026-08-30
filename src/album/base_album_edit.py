@@ -145,7 +145,6 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
         self.init_editable_widgets()
         self.init_ui()
-        self.setup_connections()
 
         # Stop any in-flight background cover embed on every exit path
         # (OK / Cancel / window close) so its signals never reach a
@@ -593,9 +592,6 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         self._dialog_button_box = button_box
 
         layout.addWidget(button_box)
-
-    def setup_connections(self):
-        """Wire up any extra signal connections."""
 
     # =========================================================================
     # Unsaved-changes guard
