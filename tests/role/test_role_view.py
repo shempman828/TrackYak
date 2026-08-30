@@ -24,29 +24,20 @@ from src.role.role_view import RoleLoaderWorker, RoleView
 
 # ---- test_role_view_delete.py ------------------------------------------------
 class _Controller_del:
-    def __init__(self, session_del):
-        self.get = GetFromDB(session_del)
-        self.delete = DeleteDB(session_del)
+    def __init__(self, session):
+        self.get = GetFromDB(session)
+        self.delete = DeleteDB(session)
 
 
 @pytest.fixture
-def session_del():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    s = sessionmaker(bind=engine)()
-    yield s
-    s.close()
+def controller_del(session):
+    return _Controller_del(session)
 
 
-@pytest.fixture
-def controller_del(session_del):
-    return _Controller_del(session_del)
-
-
-def _make_role_del(session_del, name):
+def _make_role_del(session, name):
     role = Role(role_name=name)
-    session_del.add(role)
-    session_del.commit()
+    session.add(role)
+    session.commit()
     return role
 
 
@@ -207,29 +198,20 @@ def test_make_role_item_uses_own_recursive_display_convention(qapp):
 #
 # See src/role/role_view.py `_rebuild_tree()` and `on_item_edited()`.
 class _Controller_sf:
-    def __init__(self, session_sf):
-        self.get = GetFromDB(session_sf)
-        self.update = UpdateDB(session_sf)
+    def __init__(self, session):
+        self.get = GetFromDB(session)
+        self.update = UpdateDB(session)
 
 
 @pytest.fixture
-def session_sf():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    s = sessionmaker(bind=engine)()
-    yield s
-    s.close()
+def controller_sf(session):
+    return _Controller_sf(session)
 
 
-@pytest.fixture
-def controller_sf(session_sf):
-    return _Controller_sf(session_sf)
-
-
-def _make_role_sf(session_sf, name):
+def _make_role_sf(session, name):
     role = Role(role_name=name)
-    session_sf.add(role)
-    session_sf.commit()
+    session.add(role)
+    session.commit()
     return role
 
 
@@ -243,10 +225,10 @@ def _item_for(tree, role_id):
 
 
 def test_rename_preserves_search_filter_without_full_reload(
-    qapp, session_sf, controller_sf, monkeypatch
+    qapp, session, controller_sf, monkeypatch
 ):
-    guitar = _make_role_sf(session_sf, "Guitar")
-    piano = _make_role_sf(session_sf, "Piano")
+    guitar = _make_role_sf(session, "Guitar")
+    piano = _make_role_sf(session, "Piano")
 
     load_calls = {"n": 0}
     monkeypatch.setattr(

@@ -9,12 +9,9 @@ should replace it rather than accumulate alongside it.
 """
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from src.db.db_helpers.split import SplitDB
 from src.db.db_tables.artist import Artist, ArtistSplitAlias
-from src.db.db_tables.base import Base
 from src.db.db_tables.genre import Genre, GenreSplitAlias
 from src.db.db_tables.publisher import Publisher, PublisherSplitAlias
 from src.db.db_tables.role import Role, RoleSplitAlias
@@ -36,18 +33,6 @@ _CASES = [
 ]
 
 
-@pytest.fixture
-def session():
-    engine = create_engine("sqlite:///:memory:")
-    with engine.connect() as conn:
-        conn.exec_driver_sql("PRAGMA foreign_keys=ON")
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
-
-
 @pytest.mark.parametrize(
     "model_name,model_class,name_field,split_method,alias_class,fk_field", _CASES
 )
@@ -60,9 +45,7 @@ def test_split_into_two_records_alias_rule(
     original_id = original.__table__.primary_key.columns.keys()[0]
 
     splitter = SplitDB(session)
-    result = getattr(splitter, split_method)(
-        getattr(original, original_id), ["Viola", "Violin"]
-    )
+    result = getattr(splitter, split_method)(getattr(original, original_id), ["Viola", "Violin"])
     assert result is True
 
     rows = (
@@ -72,9 +55,11 @@ def test_split_into_two_records_alias_rule(
         .all()
     )
     assert len(rows) == 2
-    new_entities = session.query(model_class).filter(
-        getattr(model_class, name_field).in_(["Viola", "Violin"])
-    ).all()
+    new_entities = (
+        session.query(model_class)
+        .filter(getattr(model_class, name_field).in_(["Viola", "Violin"]))
+        .all()
+    )
     new_ids = {getattr(e, fk_field) for e in new_entities}
     assert {getattr(r, fk_field) for r in rows} == new_ids
     assert [r.sort_order for r in rows] == [0, 1]

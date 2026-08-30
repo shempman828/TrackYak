@@ -11,10 +11,22 @@ plumbing needed in each test.
 """
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+from src.db.db_tables.base import Base
 from src.genre.genre_view import GenreLoaderWorker
 
 
 @pytest.fixture(autouse=True)
 def _run_genre_loader_synchronously(monkeypatch):
     monkeypatch.setattr(GenreLoaderWorker, "start", GenreLoaderWorker.run)
+
+
+@pytest.fixture
+def session():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    s = sessionmaker(bind=engine)()
+    yield s
+    s.close()

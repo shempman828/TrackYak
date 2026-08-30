@@ -16,16 +16,13 @@ from unittest.mock import patch
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox
 import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import sessionmaker
 
 from src.common.alias_management_dialog import AliasManagementDialog
 from src.db.db_helpers.delete import DeleteDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB
 from src.db.db_tables.associations import TrackGenre
-from src.db.db_tables.base import Base
 from src.db.db_tables.genre import Genre
 from src.db.db_tables.track import Track
 from src.genre.genre_view import GenreLoaderWorker, GenreView
@@ -33,44 +30,35 @@ from src.genre.genre_view import GenreLoaderWorker, GenreView
 
 # ---- test_genre_hierarchy_export.py ------------------------------------------
 class _Controller_he:
-    def __init__(self, session_he):
-        self.get = GetFromDB(session_he)
-        self.update = UpdateDB(session_he)
-        self.delete = DeleteDB(session_he)
+    def __init__(self, session):
+        self.get = GetFromDB(session)
+        self.update = UpdateDB(session)
+        self.delete = DeleteDB(session)
 
 
 @pytest.fixture
-def session_he():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    s = sessionmaker(bind=engine)()
-    yield s
-    s.close()
+def controller_he(session):
+    return _Controller_he(session)
 
 
-@pytest.fixture
-def controller_he(session_he):
-    return _Controller_he(session_he)
-
-
-def _make_genre_he(session_he, name, parent=None):
+def _make_genre_he(session, name, parent=None):
     genre = Genre(genre_name=name, parent=parent)
-    session_he.add(genre)
-    session_he.commit()
+    session.add(genre)
+    session.commit()
     return genre
 
 
-def _add_tracks_with_genre_he(session_he, genre, n):
+def _add_tracks_with_genre_he(session, genre, n):
     for i in range(n):
         track = Track(track_name=f"{genre.genre_name} track {i}")
-        session_he.add(track)
-        session_he.flush()
-        session_he.add(TrackGenre(track_id=track.track_id, genre_id=genre.genre_id))
-    session_he.commit()
+        session.add(track)
+        session.flush()
+        session.add(TrackGenre(track_id=track.track_id, genre_id=genre.genre_id))
+    session.commit()
 
 
-def test_context_menu_has_export_action_on_item_and_empty_space(session_he, qapp, controller_he):
-    rock = _make_genre_he(session_he, "Rock")
+def test_context_menu_has_export_action_on_item_and_empty_space(session, qapp, controller_he):
+    rock = _make_genre_he(session, "Rock")
     view = GenreView(controller_he)
     item = view.tree.topLevelItem(0)
 
@@ -102,8 +90,8 @@ def test_export_with_no_genres_shows_status_and_skips_dialog(qapp, controller_he
     assert "No genres available" in mock_status.call_args.args[1]
 
 
-def test_export_opens_save_dialog_with_txt_md_filter(session_he, qapp, controller_he, tmp_path):
-    _make_genre_he(session_he, "Rock")
+def test_export_opens_save_dialog_with_txt_md_filter(session, qapp, controller_he, tmp_path):
+    _make_genre_he(session, "Rock")
     view = GenreView(controller_he)
 
     with patch(
@@ -117,9 +105,9 @@ def test_export_opens_save_dialog_with_txt_md_filter(session_he, qapp, controlle
     assert "*.md" in args[3]
 
 
-def test_txt_export_writes_plain_box_drawing_text(session_he, qapp, controller_he, tmp_path):
-    rock = _make_genre_he(session_he, "Rock")
-    _make_genre_he(session_he, "Punk", parent=rock)
+def test_txt_export_writes_plain_box_drawing_text(session, qapp, controller_he, tmp_path):
+    rock = _make_genre_he(session, "Rock")
+    _make_genre_he(session, "Punk", parent=rock)
     view = GenreView(controller_he)
 
     out_path = tmp_path / "hierarchy.txt"
@@ -133,9 +121,9 @@ def test_txt_export_writes_plain_box_drawing_text(session_he, qapp, controller_h
     assert content == "Rock\n└── Punk"
 
 
-def test_md_export_wraps_content_in_code_fence(session_he, qapp, controller_he, tmp_path):
-    rock = _make_genre_he(session_he, "Rock")
-    _make_genre_he(session_he, "Punk", parent=rock)
+def test_md_export_wraps_content_in_code_fence(session, qapp, controller_he, tmp_path):
+    rock = _make_genre_he(session, "Rock")
+    _make_genre_he(session, "Punk", parent=rock)
     view = GenreView(controller_he)
 
     out_path = tmp_path / "hierarchy.md"
@@ -149,9 +137,9 @@ def test_md_export_wraps_content_in_code_fence(session_he, qapp, controller_he, 
     assert content == "```\nRock\n└── Punk\n```"
 
 
-def test_export_identical_regardless_of_flat_view(session_he, qapp, controller_he, tmp_path):
-    rock = _make_genre_he(session_he, "Rock")
-    _make_genre_he(session_he, "Punk", parent=rock)
+def test_export_identical_regardless_of_flat_view(session, qapp, controller_he, tmp_path):
+    rock = _make_genre_he(session, "Rock")
+    _make_genre_he(session, "Punk", parent=rock)
     view = GenreView(controller_he)
 
     def _export():
@@ -172,10 +160,10 @@ def test_export_identical_regardless_of_flat_view(session_he, qapp, controller_h
     assert tree_view_output == flat_view_output
 
 
-def test_export_identical_regardless_of_search_filter(session_he, qapp, controller_he, tmp_path):
-    rock = _make_genre_he(session_he, "Rock")
-    _make_genre_he(session_he, "Punk", parent=rock)
-    _make_genre_he(session_he, "Jazz")
+def test_export_identical_regardless_of_search_filter(session, qapp, controller_he, tmp_path):
+    rock = _make_genre_he(session, "Rock")
+    _make_genre_he(session, "Punk", parent=rock)
+    _make_genre_he(session, "Jazz")
     view = GenreView(controller_he)
 
     def _export():
@@ -195,9 +183,9 @@ def test_export_identical_regardless_of_search_filter(session_he, qapp, controll
     assert unfiltered_output == filtered_output
 
 
-def test_export_follows_name_ascending_sort(session_he, qapp, controller_he, tmp_path):
-    _make_genre_he(session_he, "Zydeco")
-    _make_genre_he(session_he, "Alpha")
+def test_export_follows_name_ascending_sort(session, qapp, controller_he, tmp_path):
+    _make_genre_he(session, "Zydeco")
+    _make_genre_he(session, "Alpha")
     view = GenreView(controller_he)
     view.tree.sortByColumn(0, Qt.SortOrder.AscendingOrder)
 
@@ -212,16 +200,16 @@ def test_export_follows_name_ascending_sort(session_he, qapp, controller_he, tmp
 
 
 def test_export_follows_tracks_descending_sort_with_alphabetical_tiebreak(
-    session_he, qapp, controller_he, tmp_path
+    session, qapp, controller_he, tmp_path
 ):
-    rock = _make_genre_he(session_he, "Rock")
-    punk = _make_genre_he(session_he, "Punk", parent=rock)
-    jazz = _make_genre_he(session_he, "Jazz")
-    _add_tracks_with_genre_he(session_he, rock, 1)
-    _add_tracks_with_genre_he(session_he, punk, 5)  # rock recursive = 6
-    _add_tracks_with_genre_he(session_he, jazz, 2)
-    alt = _make_genre_he(session_he, "Alt")
-    _add_tracks_with_genre_he(session_he, alt, 2)  # ties with Jazz at 2
+    rock = _make_genre_he(session, "Rock")
+    punk = _make_genre_he(session, "Punk", parent=rock)
+    jazz = _make_genre_he(session, "Jazz")
+    _add_tracks_with_genre_he(session, rock, 1)
+    _add_tracks_with_genre_he(session, punk, 5)  # rock recursive = 6
+    _add_tracks_with_genre_he(session, jazz, 2)
+    alt = _make_genre_he(session, "Alt")
+    _add_tracks_with_genre_he(session, alt, 2)  # ties with Jazz at 2
 
     view = GenreView(controller_he)
     view.tree.sortByColumn(1, Qt.SortOrder.DescendingOrder)
@@ -238,10 +226,10 @@ def test_export_follows_tracks_descending_sort_with_alphabetical_tiebreak(
 
 
 def test_export_success_shows_status_message_with_count_and_path(
-    session_he, qapp, controller_he, tmp_path
+    session, qapp, controller_he, tmp_path
 ):
-    _make_genre_he(session_he, "Rock")
-    _make_genre_he(session_he, "Jazz")
+    _make_genre_he(session, "Rock")
+    _make_genre_he(session, "Jazz")
     view = GenreView(controller_he)
 
     out_path = tmp_path / "out.txt"
@@ -259,8 +247,8 @@ def test_export_success_shows_status_message_with_count_and_path(
     assert str(out_path) in message
 
 
-def test_export_write_failure_shows_error_dialog(session_he, qapp, controller_he, tmp_path):
-    _make_genre_he(session_he, "Rock")
+def test_export_write_failure_shows_error_dialog(session, qapp, controller_he, tmp_path):
+    _make_genre_he(session, "Rock")
     view = GenreView(controller_he)
 
     out_path = tmp_path / "out.txt"
@@ -279,11 +267,11 @@ def test_export_write_failure_shows_error_dialog(session_he, qapp, controller_he
     mock_status.assert_not_called()
 
 
-def test_export_contains_only_genre_names(session_he, qapp, controller_he, tmp_path):
-    rock = _make_genre_he(session_he, "Rock")
+def test_export_contains_only_genre_names(session, qapp, controller_he, tmp_path):
+    rock = _make_genre_he(session, "Rock")
     rock.description = "A genre about rocks, apparently"
-    session_he.commit()
-    _add_tracks_with_genre_he(session_he, rock, 42)
+    session.commit()
+    _add_tracks_with_genre_he(session, rock, 42)
     view = GenreView(controller_he)
 
     out_path = tmp_path / "out.txt"
@@ -338,30 +326,21 @@ class _StubConfig:
 
 
 class _Controller_de:
-    def __init__(self, session_de, config=None):
-        self.get = GetFromDB(session_de)
-        self.delete = DeleteDB(session_de)
+    def __init__(self, session, config=None):
+        self.get = GetFromDB(session)
+        self.delete = DeleteDB(session)
         self.config = config or _StubConfig()
 
 
 @pytest.fixture
-def session_de():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    s = sessionmaker(bind=engine)()
-    yield s
-    s.close()
+def controller_de(session):
+    return _Controller_de(session)
 
 
-@pytest.fixture
-def controller_de(session_de):
-    return _Controller_de(session_de)
-
-
-def _make_genre_de(session_de, name, parent_id=None):
+def _make_genre_de(session, name, parent_id=None):
     genre = Genre(genre_name=name, parent_id=parent_id)
-    session_de.add(genre)
-    session_de.commit()
+    session.add(genre)
+    session.commit()
     return genre
 
 
@@ -451,10 +430,10 @@ def test_checked_delete_adds_genre_names_to_excluded_genres(qapp, controller_de,
 
 
 def test_checked_delete_does_not_duplicate_existing_case_insensitive_entry(
-    qapp, session_de, monkeypatch
+    qapp, session, monkeypatch
 ):
-    controller_de = _Controller_de(session_de, config=_StubConfig(initial=["rock"]))
-    _make_genre_de(session_de, "Rock")
+    controller_de = _Controller_de(session, config=_StubConfig(initial=["rock"]))
+    _make_genre_de(session, "Rock")
     view = GenreView(controller_de)
     view.tree.selectAll()
     _patch_confirm_delete(view, monkeypatch, confirmed=True, checked=True)
@@ -588,67 +567,58 @@ def test_skipped_genres_tab_reflects_names_added_via_delete(qapp, controller_de,
 # (no real QThread), so GenreView(controller_sbc) can be used exactly as before
 # this feature -- see that file's docstring.
 class _Controller_sbc:
-    def __init__(self, session_sbc):
-        self.get = GetFromDB(session_sbc)
-        self.update = UpdateDB(session_sbc)
-        self.delete = DeleteDB(session_sbc)
+    def __init__(self, session):
+        self.get = GetFromDB(session)
+        self.update = UpdateDB(session)
+        self.delete = DeleteDB(session)
 
 
 @pytest.fixture
-def session_sbc():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    s = sessionmaker(bind=engine)()
-    yield s
-    s.close()
+def controller_sbc(session):
+    return _Controller_sbc(session)
 
 
-@pytest.fixture
-def controller_sbc(session_sbc):
-    return _Controller_sbc(session_sbc)
-
-
-def _make_genre_sbc(session_sbc, name, parent=None):
+def _make_genre_sbc(session, name, parent=None):
     genre = Genre(genre_name=name, parent=parent)
-    session_sbc.add(genre)
-    session_sbc.commit()
+    session.add(genre)
+    session.commit()
     return genre
 
 
-def _add_tracks_with_genre_sbc(session_sbc, genre, n):
+def _add_tracks_with_genre_sbc(session, genre, n):
     for i in range(n):
         track = Track(track_name=f"{genre.genre_name} track {i}")
-        session_sbc.add(track)
-        session_sbc.flush()
-        session_sbc.add(TrackGenre(track_id=track.track_id, genre_id=genre.genre_id))
-    session_sbc.commit()
+        session.add(track)
+        session.flush()
+        session.add(TrackGenre(track_id=track.track_id, genre_id=genre.genre_id))
+    session.commit()
 
 
 def _top_level_names(tree):
     return [tree.topLevelItem(i).text(0) for i in range(tree.topLevelItemCount())]
 
 
-def _count_execute_calls(session_sbc, monkeypatch):
-    """Wrap session_sbc.execute to count calls made during the `with` block."""
+def _count_execute_calls(session, monkeypatch):
+    """Wrap session.execute to count calls made during the `with` block."""
     calls = {"n": 0}
-    original = session_sbc.execute
+    original = session.execute
 
     def counting_execute(*args, **kwargs):
         calls["n"] += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(session_sbc, "execute", counting_execute)
+    monkeypatch.setattr(session, "execute", counting_execute)
     return calls
 
 
-def test_worker_computes_direct_and_recursive_counts(session_sbc, controller_sbc):
-    rock = _make_genre_sbc(session_sbc, "Rock")
-    punk = _make_genre_sbc(session_sbc, "Punk", parent=rock)
-    alt = _make_genre_sbc(session_sbc, "Alt", parent=rock)
-    jazz = _make_genre_sbc(session_sbc, "Jazz")
-    _add_tracks_with_genre_sbc(session_sbc, rock, 1)
-    _add_tracks_with_genre_sbc(session_sbc, punk, 2)
-    _add_tracks_with_genre_sbc(session_sbc, jazz, 3)
+def test_worker_computes_direct_and_recursive_counts(session, controller_sbc):
+    rock = _make_genre_sbc(session, "Rock")
+    punk = _make_genre_sbc(session, "Punk", parent=rock)
+    alt = _make_genre_sbc(session, "Alt", parent=rock)
+    jazz = _make_genre_sbc(session, "Jazz")
+    _add_tracks_with_genre_sbc(session, rock, 1)
+    _add_tracks_with_genre_sbc(session, punk, 2)
+    _add_tracks_with_genre_sbc(session, jazz, 3)
 
     worker = GenreLoaderWorker(controller_sbc)
     result = {}
@@ -675,17 +645,17 @@ def test_worker_computes_direct_and_recursive_counts(session_sbc, controller_sbc
     }
 
 
-def test_recursive_count_dedupes_track_tagged_at_multiple_levels(session_sbc, controller_sbc):
-    rock = _make_genre_sbc(session_sbc, "Rock")
-    punk = _make_genre_sbc(session_sbc, "Punk", parent=rock)
+def test_recursive_count_dedupes_track_tagged_at_multiple_levels(session, controller_sbc):
+    rock = _make_genre_sbc(session, "Rock")
+    punk = _make_genre_sbc(session, "Punk", parent=rock)
 
     track = Track(track_name="Overlap track")
-    session_sbc.add(track)
-    session_sbc.flush()
+    session.add(track)
+    session.flush()
     # Tagged with both Rock (parent) and Punk (child) -- one physical track.
-    session_sbc.add(TrackGenre(track_id=track.track_id, genre_id=rock.genre_id))
-    session_sbc.add(TrackGenre(track_id=track.track_id, genre_id=punk.genre_id))
-    session_sbc.commit()
+    session.add(TrackGenre(track_id=track.track_id, genre_id=rock.genre_id))
+    session.add(TrackGenre(track_id=track.track_id, genre_id=punk.genre_id))
+    session.commit()
 
     worker = GenreLoaderWorker(controller_sbc)
     result = {}
@@ -702,15 +672,13 @@ def test_recursive_count_dedupes_track_tagged_at_multiple_levels(session_sbc, co
     assert result["recursive"][punk.genre_id] == 1
 
 
-def test_worker_releases_session_and_emits_error_on_exception(
-    session_sbc, controller_sbc, monkeypatch
-):
-    _make_genre_sbc(session_sbc, "Rock")
+def test_worker_releases_session_and_emits_error_on_exception(session, controller_sbc, monkeypatch):
+    _make_genre_sbc(session, "Rock")
 
     def _boom(*args, **kwargs):
         raise RuntimeError("simulated query failure")
 
-    monkeypatch.setattr(session_sbc, "execute", _boom)
+    monkeypatch.setattr(session, "execute", _boom)
 
     released = {"called": False}
     monkeypatch.setattr(
@@ -740,24 +708,24 @@ def test_tree_has_genre_and_tracks_columns_with_sorting_enabled(qapp, controller
     assert view.tree.isHeaderHidden() is False
 
 
-def test_initial_load_is_alphabetical_ascending(session_sbc, qapp, controller_sbc):
-    _make_genre_sbc(session_sbc, "zydeco")
-    _make_genre_sbc(session_sbc, "Blues")
-    _make_genre_sbc(session_sbc, "Jazz")
+def test_initial_load_is_alphabetical_ascending(session, qapp, controller_sbc):
+    _make_genre_sbc(session, "zydeco")
+    _make_genre_sbc(session, "Blues")
+    _make_genre_sbc(session, "Jazz")
 
     view = GenreView(controller_sbc)
 
     assert _top_level_names(view.tree) == ["Blues", "Jazz", "zydeco"]
 
 
-def test_sorting_by_tracks_column_orders_by_recursive_count(session_sbc, qapp, controller_sbc):
-    rock = _make_genre_sbc(session_sbc, "Rock")
-    punk = _make_genre_sbc(session_sbc, "Punk", parent=rock)
-    _make_genre_sbc(session_sbc, "Alt", parent=rock)
-    jazz = _make_genre_sbc(session_sbc, "Jazz")
-    _add_tracks_with_genre_sbc(session_sbc, rock, 1)
-    _add_tracks_with_genre_sbc(session_sbc, punk, 5)  # rock recursive = 6
-    _add_tracks_with_genre_sbc(session_sbc, jazz, 2)
+def test_sorting_by_tracks_column_orders_by_recursive_count(session, qapp, controller_sbc):
+    rock = _make_genre_sbc(session, "Rock")
+    punk = _make_genre_sbc(session, "Punk", parent=rock)
+    _make_genre_sbc(session, "Alt", parent=rock)
+    jazz = _make_genre_sbc(session, "Jazz")
+    _add_tracks_with_genre_sbc(session, rock, 1)
+    _add_tracks_with_genre_sbc(session, punk, 5)  # rock recursive = 6
+    _add_tracks_with_genre_sbc(session, jazz, 2)
 
     view = GenreView(controller_sbc)
 
@@ -775,23 +743,23 @@ def test_sorting_by_tracks_column_orders_by_recursive_count(session_sbc, qapp, c
 
 
 def test_sorting_by_tracks_column_issues_no_database_queries(
-    session_sbc, qapp, controller_sbc, monkeypatch
+    session, qapp, controller_sbc, monkeypatch
 ):
-    rock = _make_genre_sbc(session_sbc, "Rock")
-    jazz = _make_genre_sbc(session_sbc, "Jazz")
-    _add_tracks_with_genre_sbc(session_sbc, rock, 1)
-    _add_tracks_with_genre_sbc(session_sbc, jazz, 2)
+    rock = _make_genre_sbc(session, "Rock")
+    jazz = _make_genre_sbc(session, "Jazz")
+    _add_tracks_with_genre_sbc(session, rock, 1)
+    _add_tracks_with_genre_sbc(session, jazz, 2)
 
     view = GenreView(controller_sbc)
 
-    calls = _count_execute_calls(session_sbc, monkeypatch)
+    calls = _count_execute_calls(session, monkeypatch)
     view.tree.sortByColumn(1, Qt.SortOrder.DescendingOrder)
     assert calls["n"] == 0
 
 
-def test_genre_without_subgenres_shows_plain_count(session_sbc, qapp, controller_sbc):
-    jazz = _make_genre_sbc(session_sbc, "Jazz")
-    _add_tracks_with_genre_sbc(session_sbc, jazz, 3)
+def test_genre_without_subgenres_shows_plain_count(session, qapp, controller_sbc):
+    jazz = _make_genre_sbc(session, "Jazz")
+    _add_tracks_with_genre_sbc(session, jazz, 3)
 
     view = GenreView(controller_sbc)
 
@@ -800,12 +768,12 @@ def test_genre_without_subgenres_shows_plain_count(session_sbc, qapp, controller
 
 
 def test_genre_with_subgenres_shows_own_and_recursive_when_they_differ(
-    session_sbc, qapp, controller_sbc
+    session, qapp, controller_sbc
 ):
-    rock = _make_genre_sbc(session_sbc, "Rock")
-    punk = _make_genre_sbc(session_sbc, "Punk", parent=rock)
-    _add_tracks_with_genre_sbc(session_sbc, rock, 12)
-    _add_tracks_with_genre_sbc(session_sbc, punk, 30)
+    rock = _make_genre_sbc(session, "Rock")
+    punk = _make_genre_sbc(session, "Punk", parent=rock)
+    _add_tracks_with_genre_sbc(session, rock, 12)
+    _add_tracks_with_genre_sbc(session, punk, 30)
 
     view = GenreView(controller_sbc)
 
@@ -813,12 +781,10 @@ def test_genre_with_subgenres_shows_own_and_recursive_when_they_differ(
     assert rock_item.text(1) == "12 · 42"
 
 
-def test_genre_with_zero_track_subgenres_collapses_to_single_number(
-    session_sbc, qapp, controller_sbc
-):
-    rock = _make_genre_sbc(session_sbc, "Rock")
-    _make_genre_sbc(session_sbc, "Silent Subgenre", parent=rock)  # no tracks
-    _add_tracks_with_genre_sbc(session_sbc, rock, 7)
+def test_genre_with_zero_track_subgenres_collapses_to_single_number(session, qapp, controller_sbc):
+    rock = _make_genre_sbc(session, "Rock")
+    _make_genre_sbc(session, "Silent Subgenre", parent=rock)  # no tracks
+    _add_tracks_with_genre_sbc(session, rock, 7)
 
     view = GenreView(controller_sbc)
 
@@ -826,13 +792,13 @@ def test_genre_with_zero_track_subgenres_collapses_to_single_number(
     assert rock_item.text(1) == "7"  # recursive == own, no "·"
 
 
-def test_tracks_column_is_right_aligned_italic_with_tooltip(session_sbc, qapp, controller_sbc):
-    rock = _make_genre_sbc(session_sbc, "Rock")
-    punk = _make_genre_sbc(session_sbc, "Punk", parent=rock)
-    _add_tracks_with_genre_sbc(session_sbc, rock, 1)
-    _add_tracks_with_genre_sbc(session_sbc, punk, 2)
-    jazz = _make_genre_sbc(session_sbc, "Jazz")
-    _add_tracks_with_genre_sbc(session_sbc, jazz, 5)
+def test_tracks_column_is_right_aligned_italic_with_tooltip(session, qapp, controller_sbc):
+    rock = _make_genre_sbc(session, "Rock")
+    punk = _make_genre_sbc(session, "Punk", parent=rock)
+    _add_tracks_with_genre_sbc(session, rock, 1)
+    _add_tracks_with_genre_sbc(session, punk, 2)
+    jazz = _make_genre_sbc(session, "Jazz")
+    _add_tracks_with_genre_sbc(session, jazz, 5)
 
     view = GenreView(controller_sbc)
 
@@ -848,11 +814,11 @@ def test_tracks_column_is_right_aligned_italic_with_tooltip(session_sbc, qapp, c
     assert jazz_item.toolTip(1) == ""  # no "·" -> no tooltip
 
 
-def test_tracks_column_sorts_numerically_not_lexicographically(session_sbc, qapp, controller_sbc):
-    nine = _make_genre_sbc(session_sbc, "Nine")
-    twelve = _make_genre_sbc(session_sbc, "Twelve")
-    _add_tracks_with_genre_sbc(session_sbc, nine, 9)
-    _add_tracks_with_genre_sbc(session_sbc, twelve, 12)
+def test_tracks_column_sorts_numerically_not_lexicographically(session, qapp, controller_sbc):
+    nine = _make_genre_sbc(session, "Nine")
+    twelve = _make_genre_sbc(session, "Twelve")
+    _add_tracks_with_genre_sbc(session, nine, 9)
+    _add_tracks_with_genre_sbc(session, twelve, 12)
 
     view = GenreView(controller_sbc)
     view.tree.sortByColumn(1, Qt.SortOrder.AscendingOrder)
@@ -862,15 +828,13 @@ def test_tracks_column_sorts_numerically_not_lexicographically(session_sbc, qapp
     assert _top_level_names(view.tree) == ["Nine", "Twelve"]
 
 
-def test_flat_view_sorted_by_tracks_column_is_unnested_and_ordered(
-    session_sbc, qapp, controller_sbc
-):
-    rock = _make_genre_sbc(session_sbc, "Rock")
-    punk = _make_genre_sbc(session_sbc, "Punk", parent=rock)
-    _add_tracks_with_genre_sbc(session_sbc, rock, 1)
-    _add_tracks_with_genre_sbc(session_sbc, punk, 5)
-    jazz = _make_genre_sbc(session_sbc, "Jazz")
-    _add_tracks_with_genre_sbc(session_sbc, jazz, 2)
+def test_flat_view_sorted_by_tracks_column_is_unnested_and_ordered(session, qapp, controller_sbc):
+    rock = _make_genre_sbc(session, "Rock")
+    punk = _make_genre_sbc(session, "Punk", parent=rock)
+    _add_tracks_with_genre_sbc(session, rock, 1)
+    _add_tracks_with_genre_sbc(session, punk, 5)
+    jazz = _make_genre_sbc(session, "Jazz")
+    _add_tracks_with_genre_sbc(session, jazz, 2)
 
     view = GenreView(controller_sbc)
     view.flat_view_button.setChecked(True)
@@ -886,11 +850,11 @@ def test_flat_view_sorted_by_tracks_column_is_unnested_and_ordered(
     assert _top_level_names(view.tree) == ["Rock", "Punk", "Jazz"]
 
 
-def test_sort_state_preserved_across_flat_view_toggle_and_reload(session_sbc, qapp, controller_sbc):
-    rock = _make_genre_sbc(session_sbc, "Rock")
-    _add_tracks_with_genre_sbc(session_sbc, rock, 1)
-    jazz = _make_genre_sbc(session_sbc, "Jazz")
-    _add_tracks_with_genre_sbc(session_sbc, jazz, 9)
+def test_sort_state_preserved_across_flat_view_toggle_and_reload(session, qapp, controller_sbc):
+    rock = _make_genre_sbc(session, "Rock")
+    _add_tracks_with_genre_sbc(session, rock, 1)
+    jazz = _make_genre_sbc(session, "Jazz")
+    _add_tracks_with_genre_sbc(session, jazz, 9)
 
     view = GenreView(controller_sbc)
     view.tree.sortByColumn(1, Qt.SortOrder.DescendingOrder)
@@ -911,11 +875,11 @@ def test_sort_state_preserved_across_flat_view_toggle_and_reload(session_sbc, qa
     assert _top_level_names(view.tree) == ["Jazz", "Rock"]
 
 
-def test_selection_and_expansion_preserved_across_resort(session_sbc, qapp, controller_sbc):
-    rock = _make_genre_sbc(session_sbc, "Rock")
-    punk = _make_genre_sbc(session_sbc, "Punk", parent=rock)
-    _add_tracks_with_genre_sbc(session_sbc, rock, 1)
-    _add_tracks_with_genre_sbc(session_sbc, punk, 2)
+def test_selection_and_expansion_preserved_across_resort(session, qapp, controller_sbc):
+    rock = _make_genre_sbc(session, "Rock")
+    punk = _make_genre_sbc(session, "Punk", parent=rock)
+    _add_tracks_with_genre_sbc(session, rock, 1)
+    _add_tracks_with_genre_sbc(session, punk, 2)
 
     view = GenreView(controller_sbc)
     rock_item = view.tree.topLevelItem(0)
@@ -934,21 +898,21 @@ def test_selection_and_expansion_preserved_across_resort(session_sbc, qapp, cont
     assert rebuilt_rock.isExpanded() is True
 
 
-def test_rename_via_name_column_updates_the_genre(session_sbc, qapp, controller_sbc):
-    rock = _make_genre_sbc(session_sbc, "Rock")
+def test_rename_via_name_column_updates_the_genre(session, qapp, controller_sbc):
+    rock = _make_genre_sbc(session, "Rock")
 
     view = GenreView(controller_sbc)
     item = view.tree.topLevelItem(0)
     item.setText(0, "Classic Rock")
     view.on_item_edited(item, 0)
 
-    session_sbc.expire(rock)
+    session.expire(rock)
     assert rock.genre_name == "Classic Rock"
 
 
-def test_editing_tracks_column_is_a_no_op(session_sbc, qapp, controller_sbc):
-    rock = _make_genre_sbc(session_sbc, "Rock")
-    _add_tracks_with_genre_sbc(session_sbc, rock, 4)
+def test_editing_tracks_column_is_a_no_op(session, qapp, controller_sbc):
+    rock = _make_genre_sbc(session, "Rock")
+    _add_tracks_with_genre_sbc(session, rock, 4)
 
     view = GenreView(controller_sbc)
     item = view.tree.topLevelItem(0)
@@ -957,14 +921,14 @@ def test_editing_tracks_column_is_a_no_op(session_sbc, qapp, controller_sbc):
     item.setText(1, "garbage")
     view.on_item_edited(item, 1)
 
-    session_sbc.expire(rock)
+    session.expire(rock)
     assert rock.genre_name == "Rock"  # untouched
     assert item.text(0) == "Rock"
     item.setText(1, original_count_text)  # cosmetic cleanup, not asserted
 
 
-def test_loading_state_shown_and_duplicate_load_is_guarded(session_sbc, qapp, controller_sbc):
-    _make_genre_sbc(session_sbc, "Rock")
+def test_loading_state_shown_and_duplicate_load_is_guarded(session, qapp, controller_sbc):
+    _make_genre_sbc(session, "Rock")
 
     view = GenreView(controller_sbc)
     # After the (synchronous, per conftest) worker finishes, the loading
@@ -985,16 +949,16 @@ def test_loading_state_shown_and_duplicate_load_is_guarded(session_sbc, qapp, co
 
 
 def test_flat_view_toggle_uses_cached_counts_no_database_calls(
-    session_sbc, qapp, controller_sbc, monkeypatch
+    session, qapp, controller_sbc, monkeypatch
 ):
-    rock = _make_genre_sbc(session_sbc, "Rock")
-    punk = _make_genre_sbc(session_sbc, "Punk", parent=rock)
-    _add_tracks_with_genre_sbc(session_sbc, rock, 1)
-    _add_tracks_with_genre_sbc(session_sbc, punk, 2)
+    rock = _make_genre_sbc(session, "Rock")
+    punk = _make_genre_sbc(session, "Punk", parent=rock)
+    _add_tracks_with_genre_sbc(session, rock, 1)
+    _add_tracks_with_genre_sbc(session, punk, 2)
 
     view = GenreView(controller_sbc)
 
-    calls = _count_execute_calls(session_sbc, monkeypatch)
+    calls = _count_execute_calls(session, monkeypatch)
     view.flat_view_button.setChecked(True)
     view.toggle_flat_view()
     view.flat_view_button.setChecked(False)
@@ -1003,20 +967,20 @@ def test_flat_view_toggle_uses_cached_counts_no_database_calls(
 
 
 def test_tooltip_build_does_not_touch_orm_parent_relationship_when_detached(
-    session_sbc, qapp, controller_sbc
+    session, qapp, controller_sbc
 ):
-    rock = _make_genre_sbc(session_sbc, "Rock")
-    punk = _make_genre_sbc(session_sbc, "Punk", parent=rock)
-    _add_tracks_with_genre_sbc(session_sbc, rock, 1)
-    _add_tracks_with_genre_sbc(session_sbc, punk, 2)
+    rock = _make_genre_sbc(session, "Rock")
+    punk = _make_genre_sbc(session, "Punk", parent=rock)
+    _add_tracks_with_genre_sbc(session, rock, 1)
+    _add_tracks_with_genre_sbc(session, punk, 2)
 
-    view = GenreView(controller_sbc)  # initial load, still session_sbc-bound: fine
+    view = GenreView(controller_sbc)  # initial load, still session-bound: fine
 
     # Now simulate what a real background-thread load hands back: genres
-    # whose session_sbc has already been released.
-    genres = list(session_sbc.query(Genre))
+    # whose session has already been released.
+    genres = list(session.query(Genre))
     for genre in genres:
-        session_sbc.expunge(genre)
+        session.expunge(genre)
 
     direct = {rock.genre_id: 1, punk.genre_id: 2}
     recursive = {rock.genre_id: 3, punk.genre_id: 2}

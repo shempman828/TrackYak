@@ -1,24 +1,7 @@
 """Tests for GetFromDB.resolve_split_alias (docs/specs/split_and_merge_aliases.md)."""
 
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 from src.db.db_helpers.get import GetFromDB
-from src.db.db_tables.base import Base
 from src.db.db_tables.role import Role, RoleSplitAlias
-
-
-@pytest.fixture
-def session():
-    engine = create_engine("sqlite:///:memory:")
-    with engine.connect() as conn:
-        conn.exec_driver_sql("PRAGMA foreign_keys=ON")
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
 
 
 def test_resolve_split_alias_returns_ordered_targets(session):
