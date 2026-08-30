@@ -246,6 +246,19 @@ class MBReleaseDetail:
     place_chains: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     # Every unique label attached to this release via label-info-list.
     labels: list[MBLabelInfo] = field(default_factory=list)
+    # Physical/digital carrier(s) of this pressing -- the distinct per-medium
+    # `format` strings, sorted and "/"-joined (e.g. "CD", '12" Vinyl',
+    # "CD/DVD-Video"). None when no medium carries a format on MusicBrainz.
+    media_format: str | None = None
+
+
+def _media_format_str(medium_list: list[dict[str, Any]] | None) -> str | None:
+    """The release's carrier as a single display string: every distinct
+    per-medium `format`, sorted and "/"-joined. Returns None when the list is
+    empty or no medium carries a format (MB genuinely leaves it unset for
+    some releases -- don't guess)."""
+    formats = sorted({m.get("format") for m in (medium_list or []) if m.get("format")})
+    return "/".join(formats) if formats else None
 
 
 def _parse_track_number_side(
@@ -754,8 +767,7 @@ def search_canonical_releases(
         date = r.get("date")
         country = r.get("country")
         media_list = r.get("medium-list") or []
-        media_formats = sorted({m.get("format") for m in media_list if m.get("format")})
-        format_str = "/".join(media_formats) if media_formats else None
+        format_str = _media_format_str(media_list)
 
         # Release-group primary type (Album/Single/EP/...) plus any secondary
         # types (Live/Compilation/Soundtrack/...) in parens, so the picker can
@@ -896,6 +908,7 @@ def fetch_release_detail(
         release_month=date_parts.get("release_month"),
         release_day=date_parts.get("release_day"),
         credits=_parse_release_artist_credit(release) + _parse_artist_credits(release),
+        media_format=_media_format_str(release.get("medium-list")),
     )
 
     # First pass: parse every track, collecting each unique recording-location

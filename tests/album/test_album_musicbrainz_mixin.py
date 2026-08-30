@@ -133,3 +133,34 @@ def test_live_year_field_value_is_still_used_as_hint(qapp):
     )
 
     assert _run_lookup_and_capture_expected_year(host) == 1961
+
+
+# ---- test_album_musicbrainz_media_format.py --------------------------------
+# media_format is a per-pressing scalar imported from MusicBrainz, fill-blank
+# only (same rule as catalog_number / release_country) -- it must never
+# overwrite a carrier the user already set.
+from src.album.album_musicbrainz_mixin import _SCALAR_ENRICHMENT_FIELDS  # noqa: E402
+
+
+def test_media_format_is_a_fill_blank_scalar_enrichment_field():
+    assert "media_format" in _SCALAR_ENRICHMENT_FIELDS
+
+
+def test_apply_musicbrainz_enrichment_fills_blank_media_format(qapp):
+    media_format_widget = QLineEdit("")
+
+    host = _Host_enr(field_widgets={"media_format": media_format_widget}, album=SimpleNamespace())
+
+    host._apply_musicbrainz_enrichment({"media_format": "CD"})
+
+    assert media_format_widget.text() == "CD"
+
+
+def test_apply_musicbrainz_enrichment_does_not_overwrite_existing_media_format(qapp):
+    media_format_widget = QLineEdit("Vinyl")
+
+    host = _Host_enr(field_widgets={"media_format": media_format_widget}, album=SimpleNamespace())
+
+    host._apply_musicbrainz_enrichment({"media_format": "CD"})
+
+    assert media_format_widget.text() == "Vinyl"

@@ -58,6 +58,14 @@ ALBUM_FIELDS = {
         short="Country",
         tooltip="The country this specific release/pressing was issued in, as a MusicBrainz country code (e.g. US, GB, XW for Worldwide).",
     ),
+    "media_format": FieldSpec(
+        friendly="Media Format",
+        short="Format",
+        tooltip='The physical or digital carrier of this pressing (e.g. CD, 12" Vinyl, '
+        "Digital Media, Cassette), taken from MusicBrainz. Mixed multi-disc sets show "
+        "each distinct format joined with a slash.",
+        placeholder='CD, 12" Vinyl, Digital Media, Cassette',
+    ),
     "first_pass": FieldSpec(
         type=bool,
         friendly="First Pass",

@@ -70,6 +70,21 @@ ALBUM_LANGUAGE_SUGGESTIONS = [
 # RELEASE_TYPE_SUGGESTIONS lives in release_type_utils.py alongside the
 # normalization helper, since both need the same canonical casing.
 STATUS_SUGGESTIONS = ["Official", "Promotional", "Bootleg", "Withdrawn", "Expunged", "Cancelled"]
+# MusicBrainz's common `format` values -- the completer merges these with
+# whatever's already used across the library (see _fetch_field_suggestions).
+MEDIA_FORMAT_SUGGESTIONS = [
+    "CD",
+    '12" Vinyl',
+    '7" Vinyl',
+    "Vinyl",
+    "Digital Media",
+    "Cassette",
+    "SACD",
+    "Hybrid SACD",
+    "DVD-Video",
+    "DVD-Audio",
+    "Blu-ray",
+]
 
 
 # =============================================================================
@@ -102,6 +117,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     _album_language_cache = None
     _release_type_cache = None
     _status_cache = None
+    _media_format_cache = None
 
     def __init__(self, controller, album, parent=None):
         super().__init__(parent)
@@ -171,6 +187,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
         self._attach_completer("album_language", self._get_album_language_suggestions())
         self._attach_completer("release_type", self._get_release_type_suggestions())
+        self._attach_completer("media_format", self._get_media_format_suggestions())
         self._setup_status_combo()
 
     def _setup_status_combo(self):
@@ -222,6 +239,13 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         if AlbumEditor._status_cache is None:
             AlbumEditor._status_cache = self._fetch_field_suggestions("status", STATUS_SUGGESTIONS)
         return AlbumEditor._status_cache
+
+    def _get_media_format_suggestions(self):
+        if AlbumEditor._media_format_cache is None:
+            AlbumEditor._media_format_cache = self._fetch_field_suggestions(
+                "media_format", MEDIA_FORMAT_SUGGESTIONS
+            )
+        return AlbumEditor._media_format_cache
 
     def _fetch_field_suggestions(self, field_name, fallback):
         """Distinct values already used for `field_name` across the library,

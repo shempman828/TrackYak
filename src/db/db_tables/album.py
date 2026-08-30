@@ -21,6 +21,11 @@ class Album(Base):
     release_group_MBID = Column(String)
     release_type = Column(String)
     release_country = Column(String)
+    # Physical/digital carrier of this specific pressing, taken verbatim from
+    # MusicBrainz's per-medium `format` (e.g. "CD", '12" Vinyl', "Digital
+    # Media", "Cassette"). Mixed multi-disc sets are the distinct formats
+    # sorted and "/"-joined (e.g. "CD/DVD-Video").
+    media_format = Column(String)
     album_description = Column(String)
     release_year = Column(Integer)
     release_month = Column(Integer, CheckConstraint("release_month BETWEEN 1 AND 12"))

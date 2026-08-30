@@ -65,6 +65,7 @@ class DetailsTab:
         _row("Release Type:", "release_type")
         _row("Catalog Number:", "catalog_number")
         _row("Release Country:", "release_country")
+        _row("Media Format:", "media_format")
         _row("MBID:", "MBID")
         _row("Status:", "status")
         _row("Est. Sales:", "estimated_sales")

@@ -976,3 +976,64 @@ class TestParseArtistCreditsIntegration:
         assert role_names == {"Viola", "Violin"}
         assert all(c.artist_name == "Multi Instrumentalist" for c in credits)
         assert all(c.artist_mbid == "artist-4" for c in credits)
+
+
+# ---- media_format ----------------------------------------------------------
+# The release's physical/digital carrier, taken verbatim from MusicBrainz's
+# per-medium `format`. Distinct formats across media are sorted and
+# "/"-joined; a release whose media carry no format is left None (not
+# guessed). Surfaced on MBReleaseDetail.media_format and reused by
+# search_canonical_releases' picker label.
+class TestMediaFormatStr:
+    def test_single_format_across_two_media(self):
+        media = [{"format": "CD"}, {"format": "CD"}]
+        assert mc._media_format_str(media) == "CD"
+
+    def test_mixed_formats_sorted_and_slash_joined(self):
+        media = [{"format": "DVD-Video"}, {"format": "CD"}]
+        assert mc._media_format_str(media) == "CD/DVD-Video"
+
+    def test_no_format_key_returns_none(self):
+        assert mc._media_format_str([{"title": "bonus disc"}, {}]) is None
+
+    def test_empty_or_none_list_returns_none(self):
+        assert mc._media_format_str([]) is None
+        assert mc._media_format_str(None) is None
+
+
+_MF_RELEASE_ID = "faada5d1-971b-499c-b902-5bab9e03bc1b"
+
+
+def _mf_release(medium_list):
+    return {
+        "release": {
+            "id": _MF_RELEASE_ID,
+            "release-group": {"id": "gggggggg-gggg-gggg-gggg-gggggggggggg"},
+            "medium-list": medium_list,
+        }
+    }
+
+
+class TestFetchReleaseDetailMediaFormat:
+    def test_single_cd_release_sets_media_format(self):
+        release = _mf_release([{"position": "1", "format": "CD", "track-list": []}])
+        with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=release):
+            detail = mc.fetch_release_detail(_MF_RELEASE_ID)
+        assert detail.media_format == "CD"
+
+    def test_mixed_media_release_joins_distinct_formats(self):
+        release = _mf_release(
+            [
+                {"position": "1", "format": "CD", "track-list": []},
+                {"position": "2", "format": "DVD-Video", "track-list": []},
+            ]
+        )
+        with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=release):
+            detail = mc.fetch_release_detail(_MF_RELEASE_ID)
+        assert detail.media_format == "CD/DVD-Video"
+
+    def test_release_with_no_format_leaves_media_format_none(self):
+        release = _mf_release([{"position": "1", "track-list": []}])
+        with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=release):
+            detail = mc.fetch_release_detail(_MF_RELEASE_ID)
+        assert detail.media_format is None

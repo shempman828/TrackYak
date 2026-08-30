@@ -150,6 +150,14 @@ Credits, Album Credit, Publishers & Places, Awards, and Advanced. You don't
 need to touch most of these day-to-day — Overview and Tracks cover the common
 cases.
 
+The Details tab carries the per-pressing metadata: language, release type,
+catalog number, release country, and **Media Format** — the physical or
+digital carrier (CD, 12" Vinyl, Digital Media, Cassette, and so on; mixed
+multi-disc sets read as e.g. "CD/DVD-Video"). A MusicBrainz lookup fills
+Media Format in from the matched release when the field is still blank, and
+it has a completer offering the common carriers plus whatever's already used
+elsewhere in your library.
+
 The Genres and Track Credits tabs show what's common to *every* track on the
 album, and editing them there applies the change to all of the album's
 tracks. The Publishers & Places tab works the same way for places: below the

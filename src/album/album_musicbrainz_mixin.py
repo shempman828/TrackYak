@@ -42,6 +42,7 @@ _SCALAR_ENRICHMENT_FIELDS = (
     "album_language",
     "catalog_number",
     "release_country",
+    "media_format",
     "release_year",
     "release_month",
     "release_day",
@@ -216,6 +217,8 @@ class AlbumMusicBrainzMixin:
             scalar_enrichment["catalog_number"] = detail.catalog_number
         if detail.release_country:
             scalar_enrichment["release_country"] = detail.release_country
+        if detail.media_format:
+            scalar_enrichment["media_format"] = detail.media_format
         if detail.release_year:
             scalar_enrichment["release_year"] = detail.release_year
         if detail.release_month:
