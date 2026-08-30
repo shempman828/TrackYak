@@ -3,6 +3,7 @@ runs the application
 Program name: TrackYak
 """
 
+import gc
 import os
 import random
 import sys
@@ -199,6 +200,15 @@ def initialize_application(splash, app, config: Config):
     mpris.start()
     window._mpris = mpris
 
+    # Everything above is permanent for the process lifetime (Qt widget tree,
+    # ORM classes, loaded modules). Freeze it out of GC bookkeeping so no future
+    # cyclic collection walks it again -- that keeps the collections that still
+    # run, including the one MusicPlayer forces when it closes a stream, short.
+    # Directly relevant to playback hitching: a long GC pause freezes the audio
+    # callback thread too.
+    gc.collect()
+    gc.freeze()
+
     return window, display_settings
 
 
@@ -250,7 +260,7 @@ if __name__ == "__main__":
     try:
         logger.info("Application starting")
         main()
-    except Exception as launch_error:  # ruff: ignore[blind-except]
+    except Exception as launch_error:
         logger.error(f"Fatal error during application launch: {launch_error}")
         traceback_str = "".join(traceback.format_tb(launch_error.__traceback__))
         logger.error(f"Traceback:\n{traceback_str}")

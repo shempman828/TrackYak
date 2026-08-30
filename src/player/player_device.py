@@ -9,6 +9,7 @@ self._position, self.error_occurred/audio_device_changed signals, and
 self.stop()/self.seek()/self.play() (transport controls).
 """
 
+import gc
 import json
 import re
 import subprocess
@@ -17,7 +18,6 @@ import time
 
 from src.core.config_setup import app_config
 from src.core.logger_config import logger
-from src.player.player_reader import BLOCKSIZE
 
 try:
     import dbus
@@ -241,7 +241,7 @@ class PlayerDeviceMixin:
         self._suspended_sink_name = sink_name
 
         target = f"hw:{hw_ids[0]},{hw_ids[1]}"
-        for attempt in range(5):
+        for _attempt in range(5):
             time.sleep(0.15)
             try:
                 self.sd._terminate()
@@ -340,7 +340,34 @@ class PlayerDeviceMixin:
             }
         except (OSError, self.sd.PortAudioError, IndexError, TypeError) as exc:
             logger.warning(f"Could not determine device config: {exc}")
-            return {"device": None, "latency": "high", "blocksize": BLOCKSIZE}
+            return {"device": None, "latency": "high"}
+
+    def _suspend_gc_during_playback(self):
+        """Turn off automatic cyclic garbage collection while an output stream
+        is live.
+
+        CPython's GC is stop-the-world: a collection freezes every Python
+        thread -- including PortAudio's real-time callback thread -- for the
+        full duration of the sweep. A large allocation/free burst anywhere in
+        the process (opening a heavy view on the main thread, an artist merge
+        or smart-playlist rebuild on a worker thread) trips a gen-2 collection
+        long enough to blow a callback deadline, heard as a hitch even though
+        the audio ring buffer is full. Reference-count reclamation is
+        unaffected, so this only defers reclaiming reference cycles until
+        _resume_gc() runs at stream close. gc.freeze() at startup (run.py)
+        keeps that deferred sweep cheap.
+        """
+        if gc.isenabled():
+            gc.disable()
+            logger.debug("Automatic GC disabled for playback")
+
+    def _resume_gc(self):
+        """Re-enable automatic GC and run one explicit sweep, now that no
+        real-time stream is open (so the collection pause can't be heard)."""
+        if not gc.isenabled():
+            gc.enable()
+            gc.collect()
+            logger.debug("Automatic GC re-enabled after playback")
 
     def _close_stream(self):
         if self.audio_stream is not None:
@@ -354,6 +381,7 @@ class PlayerDeviceMixin:
                 logger.debug(f"audio stream stop/close failed: {exc}")
             finally:
                 self.audio_stream = None
+        self._resume_gc()
         if self._suspended_sink_name is not None:
             self._suspend_sink(self._suspended_sink_name, False)
             self._suspended_sink_name = None

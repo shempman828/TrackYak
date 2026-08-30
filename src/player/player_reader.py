@@ -8,10 +8,10 @@ self.current_channels, self.sf (soundfile module).
 """
 
 import os
+from pathlib import Path
 import subprocess
 import tempfile
 import threading
-from pathlib import Path
 
 import numpy as np
 
@@ -67,7 +67,11 @@ def _open_soundfile(sf_module, file_path: Path):
     return sf_module.SoundFile(str(file_path), mode="r")
 
 
-BLOCKSIZE = 16384  # Frames per audio callback buffer. Larger = more stable.
+BLOCKSIZE = 16384  # Frames per decode chunk the reader thread pushes into the
+# ring buffer. NOT the audio-callback/PortAudio block size -- that is
+# STREAM_BLOCKSIZE in player_transport.py, deliberately left at 0 (let PortAudio
+# pick). Coupling the two used to force a 16384-frame callback, turning any
+# brief scheduling/GIL stall into a full ~371ms gap of silence.
 # How long UI-thread callers (seek/stop/load_track) will wait to acquire
 # _reader_lock before giving up. The reader thread can be blocked inside a
 # stalled disk read (flaky external/network storage) while holding this

@@ -9,15 +9,23 @@ PlayerDeviceMixin), self.queue_manager, self._position_timer, and the
 state_changed/error_occurred signals.
 """
 
+from pathlib import Path
 import threading
 import time
-from pathlib import Path
 
 from src.core.logger_config import logger
 from src.player.player_position import PLAY_COUNT_THRESHOLD
-from src.player.player_reader import BLOCKSIZE, READER_LOCK_TIMEOUT
+from src.player.player_reader import READER_LOCK_TIMEOUT
 
 RESTART_THRESHOLD_MS = 10_000
+
+# PortAudio callback block size. 0 = let PortAudio choose a small block and keep
+# a deep buffer sized by latency="high". Do NOT set this to the reader's decode
+# chunk size (16384): a large fixed block means every callback that runs even
+# slightly late -- because a main- or worker-thread alloc burst is holding the
+# GIL, or triggered a GC pause -- drops a full ~371ms of audio at once instead
+# of a ~10-40ms blip PortAudio's own queue can ride through.
+STREAM_BLOCKSIZE = 0
 
 
 class PlayerTransportMixin:
@@ -25,10 +33,9 @@ class PlayerTransportMixin:
 
     def play(self):
         logger.debug(f"play() ENTER at {time.time():.3f}")
-        if self.sd is None:
-            if not self._initialize_audio_backend():
-                self.error_occurred.emit("Audio backend not available.")
-                return
+        if self.sd is None and not self._initialize_audio_backend():
+            self.error_occurred.emit("Audio backend not available.")
+            return
 
         if self.current_file is None or self._sf_reader is None:
             track = self.queue_manager.get_current_track()
@@ -92,7 +99,7 @@ class PlayerTransportMixin:
                     dtype="float32",
                     device=device,
                     latency=device_config.get("latency", "high"),
-                    blocksize=BLOCKSIZE,
+                    blocksize=STREAM_BLOCKSIZE,
                     callback=_stamped_callback,
                 )
                 stream.start()
@@ -154,6 +161,11 @@ class PlayerTransportMixin:
                     raise
             if opened_exclusive_device:
                 self._request_exclusive_realtime_priority()
+            # A live output stream means a real-time callback thread with a hard
+            # deadline. Automatic cyclic GC is stop-the-world (freezes that
+            # thread too), so hold it off until the stream closes -- see
+            # _suspend_gc_during_playback().
+            self._suspend_gc_during_playback()
             self._start_reader_thread()
 
             self.playing = True
