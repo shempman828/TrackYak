@@ -43,8 +43,9 @@ right-clicking things.
 ### Autocomplete fields
 
 Fields that let you attach an existing entity — artist credits, influences,
-places, a publisher's parent or headquarters, a track's samples — show a
-drop-down of matches as you type. Each suggestion carries a dimmed line of
+places, a publisher's parent or headquarters, a track's samples, a track's
+album (in the track editor's Albums tab) — show a drop-down of matches as
+you type. Each suggestion carries a dimmed line of
 context on the right so same-named entries are easy to tell apart:
 
 - **Artists** show their disambiguation (or active years, or just

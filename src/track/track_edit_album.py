@@ -6,16 +6,14 @@ from __future__ import annotations
 import sqlite3
 import webbrowser
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -28,6 +26,13 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.awards.award_series_import import import_awards_for_entity
+from src.common.entity_completer_context import album_context_map
+from src.common.entity_completer_edit import (
+    build_entity_search_widget,
+    find_or_create_by_name,
+    get_cached_entities,
+    register_cached_entity,
+)
 from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 from src.musicbrainz.musicbrainz_artist import suggest_artist_names
@@ -149,15 +154,17 @@ class AlbumsTab(_BaseTab):
         set_layout = QVBoxLayout(set_group)
 
         add_row = QHBoxLayout()
-        self._album_search = QLineEdit()
-        self._album_search.setPlaceholderText("Search albums… (min 2 chars)")
-        self._album_search.textChanged.connect(self._on_album_search)
+        self._album_search = build_entity_search_widget(
+            self.controller,
+            "Album",
+            "album_name",
+            "album_id",
+            "Search albums…",
+            context_builder=album_context_map,
+        )
+        self._album_search.textChanged.connect(self._on_album_search_changed)
+        self._album_search.returnPressed.connect(self._set_primary_album)
         add_row.addWidget(self._album_search)
-
-        self._album_combo = QComboBox()
-        self._album_combo.setVisible(False)
-        self._album_combo.currentIndexChanged.connect(self._on_album_selected)
-        add_row.addWidget(self._album_combo)
 
         self._set_primary_btn = QPushButton("Set as Current Album")
         self._set_primary_btn.setEnabled(False)
@@ -187,15 +194,17 @@ class AlbumsTab(_BaseTab):
 
         # ── Add virtual appearance ────────────────────────────────────────
         virt_add_row = QHBoxLayout()
-        self._virt_search = QLineEdit()
-        self._virt_search.setPlaceholderText("Search albums… (min 2 chars)")
-        self._virt_search.textChanged.connect(self._on_virt_search)
+        self._virt_search = build_entity_search_widget(
+            self.controller,
+            "Album",
+            "album_name",
+            "album_id",
+            "Search albums…",
+            context_builder=album_context_map,
+        )
+        self._virt_search.textChanged.connect(self._on_virt_search_changed)
+        self._virt_search.returnPressed.connect(self._add_virtual)
         virt_add_row.addWidget(self._virt_search)
-
-        self._virt_combo = QComboBox()
-        self._virt_combo.setVisible(False)
-        self._virt_combo.currentIndexChanged.connect(self._on_virt_selected)
-        virt_add_row.addWidget(self._virt_combo)
 
         self._virt_track_num = QSpinBox()
         self._virt_track_num.setRange(0, 999)
@@ -249,7 +258,7 @@ class AlbumsTab(_BaseTab):
                 self._mb_open_btn.setVisible(False)
                 self._remove_primary_btn.setEnabled(True)
             self._open_primary_btn.setEnabled(False)
-            self._set_primary_btn.setEnabled(len(self._album_search.text().strip()) >= 2)
+            self._set_primary_btn.setEnabled(bool(self._album_search.text().strip()))
             self._virt_add_btn.setEnabled(False)
             self._virtual_table.setRowCount(0)
             self._update_virtual_table_height()
@@ -366,44 +375,48 @@ class AlbumsTab(_BaseTab):
 
     # ── Primary album search / set / remove ──────────────────────────────
 
-    def _on_album_search(self, text: str):
-        text = text.strip()
-        self._album_combo.blockSignals(True)
-        self._album_combo.clear()
-        if len(text) >= 2:
-            results = self.controller.get.get_entity_object("Album", album_name=text)
-            self._album_combo.addItem(f"Create new: '{text}'", "new")
-            if results is not None:
-                items = results if isinstance(results, list) else [results]
-                for a in items:
-                    self._album_combo.addItem(a.album_name, a.album_id)
-            self._album_combo.setVisible(self._album_combo.count() > 1)
-        else:
-            self._album_combo.setVisible(False)
-        self._album_combo.blockSignals(False)
-        self._set_primary_btn.setEnabled(len(text) >= 2)
+    def _on_album_search_changed(self, text: str):
+        self._set_primary_btn.setEnabled(bool(text.strip()))
 
-    def _on_album_selected(self, index: int):
-        if index > 0:
-            self._album_search.blockSignals(True)
-            self._album_search.setText(self._album_combo.currentText())
-            self._album_search.blockSignals(False)
+    def _known_albums(self, widget) -> list:
+        """Candidate set for find_or_create_by_name's case-insensitive
+        duplicate check: the full cached Album table when it's small enough
+        to preload, else the bounded search widget's last on-demand query."""
+        cached = get_cached_entities(self.controller, "Album")
+        if cached is not None:
+            return cached
+        known_matches = getattr(widget, "known_matches", None)
+        return known_matches() if known_matches is not None else []
+
+    def _resolve_album(self, widget):
+        """Resolve the album named in `widget` to an ORM object: the
+        completer's locked pick if there is one, else find-or-create by the
+        typed name (an existing album always wins over a same-named
+        duplicate -- see find_or_create_by_name). A freshly created album is
+        hot-registered into the completer index and shared cache."""
+        matched_id = widget.matched_id()
+        if matched_id is not None:
+            return self.controller.get.get_entity_object("Album", album_id=matched_id)
+        name = widget.text().strip()
+        if not name:
+            return None
+        known = self._known_albums(widget)
+        album = find_or_create_by_name(self.controller, "Album", "album_name", name, known)
+        if album is not None and album not in known:
+            # Deferred: this can run nested inside the completer's own
+            # keyPressEvent (Enter -> returnPressed), and add_to_index()
+            # rebuilds the QCompleter in place -- doing that mid key-dispatch
+            # corrupts its internals. See track_edit_places.py _add().
+            aid, aname = album.album_id, album.album_name
+            QTimer.singleShot(0, lambda: widget.add_to_index(aname, aid))
+            register_cached_entity("Album", album)
+        return album
 
     def _set_primary_album(self):
-        album_name = self._album_search.text().strip()
-        if not album_name:
-            return
-        combo_data = self._album_combo.currentData() if self._album_combo.isVisible() else None
-        if combo_data and combo_data != "new":
-            album = self.controller.get.get_entity_object("Album", album_id=combo_data)
-        else:
-            existing = self.controller.get.get_entity_object("Album", album_name=album_name)
-            if existing:
-                album = existing if not isinstance(existing, list) else existing[0]
-            else:
-                album = self.controller.add.add_entity("Album", album_name=album_name)
+        album = self._resolve_album(self._album_search)
         if not album:
-            QMessageBox.warning(self, "Error", "Could not resolve or create album.")
+            if self._album_search.text().strip():
+                QMessageBox.warning(self, "Error", "Could not resolve or create album.")
             return
 
         if self.is_multi:
@@ -431,8 +444,7 @@ class AlbumsTab(_BaseTab):
                 QMessageBox.warning(self, "Error", f"Failed to set album:\n{e}")
                 return
 
-        self._album_search.clear()
-        self._album_combo.setVisible(False)
+        self._album_search.reset()
         self._refresh_tracks()
         self.load(self.tracks)
 
@@ -731,44 +743,14 @@ class AlbumsTab(_BaseTab):
 
     # ── Virtual appearance search / add / remove ──────────────────────────
 
-    def _on_virt_search(self, text: str):
-        text = text.strip()
-        self._virt_combo.blockSignals(True)
-        self._virt_combo.clear()
-        if len(text) >= 2:
-            results = self.controller.get.get_entity_object("Album", album_name=text)
-            self._virt_combo.addItem(f"Create new: '{text}'", "new")
-            if results is not None:
-                items = results if isinstance(results, list) else [results]
-                for a in items:
-                    self._virt_combo.addItem(a.album_name, a.album_id)
-            self._virt_combo.setVisible(self._virt_combo.count() > 1)
-        else:
-            self._virt_combo.setVisible(False)
-        self._virt_combo.blockSignals(False)
-        self._virt_add_btn.setEnabled(len(text) >= 2)
-
-    def _on_virt_selected(self, index: int):
-        if index > 0:
-            self._virt_search.blockSignals(True)
-            self._virt_search.setText(self._virt_combo.currentText())
-            self._virt_search.blockSignals(False)
+    def _on_virt_search_changed(self, text: str):
+        self._virt_add_btn.setEnabled(bool(text.strip()))
 
     def _add_virtual(self):
-        album_name = self._virt_search.text().strip()
-        if not album_name:
-            return
-        combo_data = self._virt_combo.currentData() if self._virt_combo.isVisible() else None
-        if combo_data and combo_data != "new":
-            album = self.controller.get.get_entity_object("Album", album_id=combo_data)
-        else:
-            existing = self.controller.get.get_entity_object("Album", album_name=album_name)
-            if existing:
-                album = existing if not isinstance(existing, list) else existing[0]
-            else:
-                album = self.controller.add.add_entity("Album", album_name=album_name)
+        album = self._resolve_album(self._virt_search)
         if not album:
-            QMessageBox.warning(self, "Error", "Could not resolve or create album.")
+            if self._virt_search.text().strip():
+                QMessageBox.warning(self, "Error", "Could not resolve or create album.")
             return
         track_num = self._virt_track_num.value() or None
         disc_num = self._virt_disc_num.value() or None
@@ -784,8 +766,7 @@ class AlbumsTab(_BaseTab):
             logger.error(f"Failed to add virtual appearance: {e}")
             QMessageBox.warning(self, "Error", f"Failed to add virtual appearance:\n{e}")
             return
-        self._virt_search.clear()
-        self._virt_combo.setVisible(False)
+        self._virt_search.reset()
         self._virt_track_num.setValue(0)
         self._virt_disc_num.setValue(0)
         # virtual_appearances is cached on the Track instance once accessed;
