@@ -1,14 +1,15 @@
 # file: artist_detail_credits.py
-from typing import Any, Dict, List
+from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QPushButton,
-    QScrollArea,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -21,7 +22,12 @@ from src.core.logger_config import logger
 
 
 class RoleSection(QGroupBox):
-    """Collapsible section for a specific role with lazy-loaded table"""
+    """A role heading with its credit table, expanded by default.
+
+    The table is sized to show every row -- it never scrolls internally.
+    Scrolling for the whole Credits block is handled by the article's own
+    scroll area, the same way the other artist-detail sections work.
+    """
 
     def __init__(self, role_name: str, count: int, artist_id: int, controller: Any):
         super().__init__()
@@ -32,6 +38,7 @@ class RoleSection(QGroupBox):
         self.is_loaded = False
 
         self.init_ui()
+        self.load_data()
 
     def init_ui(self):
         # Main layout
@@ -42,8 +49,8 @@ class RoleSection(QGroupBox):
         # Header with toggle button and count
         header_layout = QHBoxLayout()
 
-        # Toggle button
-        self.toggle_btn = QPushButton("▶")
+        # Toggle button -- starts expanded
+        self.toggle_btn = QPushButton("▼")
         self.toggle_btn.setFixedSize(20, 20)
         self.toggle_btn.setObjectName("RoleToggle")
         self.toggle_btn.clicked.connect(self.toggle_section)
@@ -58,9 +65,8 @@ class RoleSection(QGroupBox):
 
         layout.addLayout(header_layout)
 
-        # Container for the table (initially hidden)
+        # Container for the table (visible by default)
         self.table_container = QWidget()
-        self.table_container.setVisible(False)
         table_layout = QVBoxLayout(self.table_container)
         table_layout.setContentsMargins(20, 8, 0, 8)
 
@@ -69,23 +75,31 @@ class RoleSection(QGroupBox):
 
         layout.addWidget(self.table_container)
 
+    def showEvent(self, event):
+        """Re-fit the table once real (styled) font/row metrics are known.
+
+        ``_fit_table_height`` also runs at construction time, but that is
+        before the widget is parented/polished, so its row-height estimate
+        can be a few px short under a themed stylesheet -- which, with the
+        vertical scrollbar disabled, would clip the last row.
+        """
+        super().showEvent(event)
+        if self.table_widget is not None:
+            self._fit_table_height()
+
     def toggle_section(self):
-        """Expand or collapse the section, loading data if needed"""
-        if not self.table_container.isVisible():
-            # Expand
+        """Expand or collapse the credit table for this role."""
+        if self.table_container.isVisible():
+            self.toggle_btn.setText("▶")
+            self.table_container.setVisible(False)
+        else:
             self.toggle_btn.setText("▼")
             self.table_container.setVisible(True)
 
-            # Load data if not already loaded
-            if not self.is_loaded:
-                self.load_data()
-        else:
-            # Collapse
-            self.toggle_btn.setText("▶")
-            self.table_container.setVisible(False)
-
     def load_data(self):
-        """Lazy load the credits data for this role"""
+        """Load the credits data for this role."""
+        if self.is_loaded:
+            return
         try:
             # Fetch track roles for this artist and role
             track_roles = self.controller.get.get_all_entities(
@@ -102,45 +116,51 @@ class RoleSection(QGroupBox):
 
             # Process track roles
             for tr in track_roles:
-                if hasattr(tr, "role") and tr.role.role_name == self.role_name:
-                    if hasattr(tr, "track") and tr.track:
-                        track_name = getattr(tr.track, "track_name", "Unknown Track")
-                        album_name = "Unknown Album"
-                        year = None
+                if (
+                    hasattr(tr, "role")
+                    and tr.role.role_name == self.role_name
+                    and hasattr(tr, "track")
+                    and tr.track
+                ):
+                    track_name = getattr(tr.track, "track_name", "Unknown Track")
+                    album_name = "Unknown Album"
+                    year = None
 
-                        # Get album info from track
-                        if hasattr(tr.track, "album") and tr.track.album:
-                            album_name = getattr(
-                                tr.track.album, "album_name", "Unknown Album"
-                            )
-                            year = getattr(tr.track.album, "year", None)
+                    # Get album info from track
+                    if hasattr(tr.track, "album") and tr.track.album:
+                        album_name = getattr(tr.track.album, "album_name", "Unknown Album")
+                        year = getattr(tr.track.album, "release_year", None)
 
-                        credits_data.append(
-                            {
-                                "type": "track",
-                                "track": track_name,
-                                "album": album_name,
-                                "year": year,
-                                "sort_key": (year or 9999, album_name, track_name),
-                            }
-                        )
+                    credits_data.append(
+                        {
+                            "type": "track",
+                            "track": track_name,
+                            "album": album_name,
+                            "year": year,
+                            "sort_key": (year or 9999, album_name, track_name),
+                        }
+                    )
 
             # Process album roles
             for ar in album_roles:
-                if hasattr(ar, "role") and ar.role.role_name == self.role_name:
-                    if hasattr(ar, "album") and ar.album:
-                        album_name = getattr(ar.album, "album_name", "Unknown Album")
-                        year = getattr(ar.album, "year", None)
+                if (
+                    hasattr(ar, "role")
+                    and ar.role.role_name == self.role_name
+                    and hasattr(ar, "album")
+                    and ar.album
+                ):
+                    album_name = getattr(ar.album, "album_name", "Unknown Album")
+                    year = getattr(ar.album, "release_year", None)
 
-                        credits_data.append(
-                            {
-                                "type": "album",
-                                "track": "",  # Empty for album roles
-                                "album": album_name,
-                                "year": year,
-                                "sort_key": (year or 9999, album_name, ""),
-                            }
-                        )
+                    credits_data.append(
+                        {
+                            "type": "album",
+                            "track": "",  # Empty for album roles
+                            "album": album_name,
+                            "year": year,
+                            "sort_key": (year or 9999, album_name, ""),
+                        }
+                    )
 
             # Sort chronologically
             credits_data.sort(key=lambda x: x["sort_key"])
@@ -158,11 +178,11 @@ class RoleSection(QGroupBox):
 
         except SQLAlchemyError as e:
             logger.error(f"Error loading credits for role {self.role_name}: {e}")
-            error_label = QLabel(f"Error loading credits: {str(e)}")
+            error_label = QLabel(f"Error loading credits: {e!s}")
             error_label.setObjectName("ErrorLabel")
             self.table_container.layout().addWidget(error_label)
 
-    def create_table(self, credits_data: List[Dict]):
+    def create_table(self, credits_data: list[dict]):
         """Create and populate the table widget"""
         # Create table
         self.table_widget = QTableWidget()
@@ -172,45 +192,63 @@ class RoleSection(QGroupBox):
 
         # Set table properties
         self.table_widget.setRowCount(len(credits_data))
-        self.table_widget.setSortingEnabled(True)
+        # Populate with sorting disabled -- inserting cells into a
+        # sort-enabled QTableWidget reorders rows mid-fill and lands items
+        # in the wrong cells. Re-enabled after the table is populated.
+        self.table_widget.setSortingEnabled(False)
         self.table_widget.horizontalHeader().setStretchLastSection(True)
         self.table_widget.verticalHeader().setVisible(False)
         self.table_widget.setAlternatingRowColors(True)
+        self.table_widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        # The table shows every row; the article's scroll area does the scrolling.
+        self.table_widget.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.table_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.table_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
         # Populate table
         for row, credit in enumerate(credits_data):
             # Track column
             track_item = QTableWidgetItem(credit["track"])
-            track_item.setFlags(track_item.flags() & ~Qt.ItemIsEditable)
             self.table_widget.setItem(row, 0, track_item)
 
             # Album column
             album_item = QTableWidgetItem(credit["album"])
-            album_item.setFlags(album_item.flags() & ~Qt.ItemIsEditable)
             self.table_widget.setItem(row, 1, album_item)
 
             # Year column
             year_text = str(credit["year"]) if credit["year"] else ""
             year_item = QTableWidgetItem(year_text)
-            year_item.setFlags(year_item.flags() & ~Qt.ItemIsEditable)
             # Set data for proper sorting
             if credit["year"]:
                 year_item.setData(Qt.EditRole, credit["year"])
             self.table_widget.setItem(row, 2, year_item)
 
+        self.table_widget.setSortingEnabled(True)
+
         # Adjust column widths
-        self.table_widget.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeToContents
-        )
-        self.table_widget.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.Stretch
-        )
-        self.table_widget.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeToContents
-        )
+        self.table_widget.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table_widget.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table_widget.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+
+        self._fit_table_height()
 
         # Add table to container
         self.table_container.layout().addWidget(self.table_widget)
+
+    def _fit_table_height(self):
+        """Pin the table's height to exactly fit header + every row, so it
+        shows all its credits instead of collapsing to a 2-row sliver."""
+        table = self.table_widget
+        table.resizeRowsToContents()
+
+        # header + every row + the frame border, top and bottom. Column 1
+        # stretches to fill, so a horizontal scrollbar never appears and is
+        # not accounted for here.
+        height = table.horizontalHeader().height() + 2 * table.frameWidth()
+        for row in range(table.rowCount()):
+            height += table.rowHeight(row)
+
+        table.setFixedHeight(height)
 
 
 class CreditsWidget(QWidget):
@@ -237,21 +275,16 @@ class CreditsWidget(QWidget):
         title_label.setObjectName("SectionTitle")
         self.layout.addWidget(title_label)
 
-        # Container for role sections
+        # Container for role sections -- rendered inline; the article's own
+        # scroll area handles scrolling, so there is no nested scroll area
+        # or height cap here (that combination clamped every table to a
+        # cramped ~190px double-scrollbar box).
         self.sections_container = QWidget()
         self.sections_layout = QVBoxLayout(self.sections_container)
         self.sections_layout.setContentsMargins(0, 0, 0, 0)
         self.sections_layout.setSpacing(4)
 
-        # Add to scroll area for many roles
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setWidget(self.sections_container)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setMaximumHeight(400)  # Limit height
-
-        self.layout.addWidget(scroll_area)
+        self.layout.addWidget(self.sections_container)
 
         # Initially hide the entire widget
         self.setVisible(False)
@@ -296,14 +329,10 @@ class CreditsWidget(QWidget):
 
             # Create role sections sorted by count (highest first)
             if role_counts:
-                sorted_roles = sorted(
-                    role_counts.items(), key=lambda x: x[1], reverse=True
-                )
+                sorted_roles = sorted(role_counts.items(), key=lambda x: x[1], reverse=True)
 
                 for role_name, count in sorted_roles:
-                    section = RoleSection(
-                        role_name, count, self.artist.artist_id, self.controller
-                    )
+                    section = RoleSection(role_name, count, self.artist.artist_id, self.controller)
                     self.sections_layout.addWidget(section)
                     self.role_sections[role_name] = section
 

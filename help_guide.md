@@ -178,7 +178,9 @@ a 👥 marker; artists linked to MusicBrainz get a 🔗.
 biography-style page — an infobox with the key facts up top, then whichever
 sections actually apply (Discography, Membership, Credits, Awards,
 Influences). A jump-to bar at the top lets you skip straight to any section
-that's present.
+that's present. **Credits** breaks down every role the artist is credited
+in, each as its own table of the tracks and albums involved; the tables are
+open by default, and each role heading can be collapsed with its toggle.
 
 **Managing an artist**: right-click for the full set of actions — Edit,
 Merge with another artist, Split into multiple artists, add them to a group
