@@ -15,9 +15,9 @@ shows the ranked list and lets the user override the top pick.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+import re
 from typing import Any
 
 import musicbrainzngs
@@ -283,7 +283,9 @@ def _relation_role_names(rel: dict[str, Any]) -> list[str]:
     rel_type = rel.get("type")
     attributes = rel.get("attribute-list") or []
     if rel_type in _PRODUCTION_RELATION_TYPES:
-        base_name = _PRODUCTION_RELATION_DISPLAY_NAMES.get(rel_type, rel_type.title() if rel_type else None)
+        base_name = _PRODUCTION_RELATION_DISPLAY_NAMES.get(
+            rel_type, rel_type.title() if rel_type else None
+        )
         if attributes:
             return [f"{attributes[0].title()} {base_name}"]
         return [base_name] if base_name else []
@@ -444,14 +446,14 @@ def _parse_work_credits(work: dict[str, Any]) -> list[MBTrackCredit]:
 
 # MusicBrainz titles inconsistently use curly vs. straight quotes for the
 # same contraction across different entries of the same era/song (e.g.
-# "Ain't" vs "Ain’t") -- normalizing both sides of an exact-title match
+# "Ain't" vs "Ain’t") -- normalizing both sides of an exact-title match  # noqa: RUF003
 # avoids silently missing genuine matches (including, in one real case
 # found while building this feature, the actual earliest/canonical release)
 # purely because of which quote character a cataloger happened to type.
-_QUOTE_NORMALIZE = str.maketrans({
-    "‘": "'", "’": "'", "‚": "'", "‛": "'",
-    "“": '"', "”": '"', "„": '"', "‟": '"',
-})
+# The curly quote chars below are the whole point of this table, not typos.
+_QUOTE_NORMALIZE = str.maketrans(
+    {"‘": "'", "’": "'", "‚": "'", "‛": "'", "“": '"', "”": '"', "„": '"', "‟": '"'}  # noqa: RUF001
+)
 
 
 def _normalize_title(title: str) -> str:
@@ -506,9 +508,7 @@ def _fetch_label_by_id(label_mbid: str) -> dict[str, Any]:
     module."""
     configure()
     try:
-        result = musicbrainzngs.get_label_by_id(
-            label_mbid, includes=["annotation", "artist-rels"]
-        )
+        result = musicbrainzngs.get_label_by_id(label_mbid, includes=["annotation", "artist-rels"])
     except Exception as e:
         # Intentional broad boundary catch: musicbrainzngs has no single
         # exception hierarchy covering every failure mode it can raise
@@ -636,7 +636,7 @@ def _backfill_release_details(r: dict[str, Any]) -> None:
         return
     try:
         detail = musicbrainzngs.get_release_by_id(r["id"], includes=["media"])
-    except Exception:  # ruff: ignore[blind-except]
+    except Exception:
         # Best-effort enrichment -- fall back to whatever the search result
         # already had (possibly still missing) rather than failing the
         # whole search over one release's lookup.
@@ -753,11 +753,35 @@ def search_canonical_releases(
         status = r.get("status")
         date = r.get("date")
         country = r.get("country")
-        media_formats = sorted({
-            m.get("format") for m in (r.get("medium-list") or []) if m.get("format")
-        })
+        media_list = r.get("medium-list") or []
+        media_formats = sorted({m.get("format") for m in media_list if m.get("format")})
         format_str = "/".join(media_formats) if media_formats else None
-        detail_bits = [b for b in (status, date, country, format_str) if b]
+
+        # Release-group primary type (Album/Single/EP/...) plus any secondary
+        # types (Live/Compilation/Soundtrack/...) in parens, so the picker can
+        # tell apart a 2-track single from a full album that shares its title.
+        release_group = r.get("release-group") or {}
+        primary_type = release_group.get("primary-type") or release_group.get("type")
+        secondary_types = release_group.get("secondary-type-list") or []
+        if primary_type and secondary_types:
+            type_str = f"{primary_type} ({', '.join(secondary_types)})"
+        elif primary_type:
+            type_str = primary_type
+        elif secondary_types:
+            type_str = ", ".join(secondary_types)
+        else:
+            type_str = None
+
+        # Total tracks across every medium -- summing per-medium track-count
+        # works whether the search index supplied `medium-list` directly or
+        # `_backfill_release_details` filled it in from a `media` lookup; fall
+        # back to the flat `medium-track-count` when there's no medium list.
+        track_total = sum(int(m.get("track-count") or 0) for m in media_list)
+        if not track_total:
+            track_total = int(r.get("medium-track-count") or 0)
+        track_str = f"{track_total} track{'s' if track_total != 1 else ''}" if track_total else None
+
+        detail_bits = [b for b in (type_str, track_str, status, date, country, format_str) if b]
         if detail_bits:
             label_bits.append(f"[{' — '.join(detail_bits)}]")
         if r.get("disambiguation"):
@@ -856,9 +880,7 @@ def fetch_release_detail(
 
     release_group = release.get("release-group") or {}
     secondary_types = release_group.get("secondary-type-list") or []
-    release_type = (
-        secondary_types[0] if secondary_types else release_group.get("primary-type")
-    )
+    release_type = secondary_types[0] if secondary_types else release_group.get("primary-type")
 
     detail = MBReleaseDetail(
         release_group_mbid=release_group.get("id"),
@@ -945,9 +967,7 @@ def fetch_release_detail(
     # once per unique label mbid, same dedup approach as recording
     # locations below (a release can list the same label against several
     # tracks/media, e.g. one catalog number per format).
-    raw_labels: dict[
-        str, tuple[MBLabelInfo, str | None]
-    ] = {}  # label_mbid -> (info, area_mbid)
+    raw_labels: dict[str, tuple[MBLabelInfo, str | None]] = {}  # label_mbid -> (info, area_mbid)
     for li in release.get("label-info-list", []) or []:
         label_stub = li.get("label") or {}
         label_mbid = label_stub.get("id")
@@ -972,9 +992,7 @@ def fetch_release_detail(
         except MusicBrainzLookupError as e:
             logger.warning(f"Could not resolve label {label_mbid}: {e}")
             continue
-        raw_labels[label_mbid] = _parse_label(
-            label_mbid, li.get("catalog-number"), full_label
-        )
+        raw_labels[label_mbid] = _parse_label(label_mbid, li.get("catalog-number"), full_label)
 
     # Each unique place needs its own direct lookup to find its containing
     # area (see _resolve_place_area) before that area's parent chain can be
@@ -1007,13 +1025,7 @@ def fetch_release_detail(
             # Same reasoning as the recording-location skip above -- this
             # area already exists locally with its own ancestry intact.
             area_cache[area_mbid] = [
-                {
-                    "mbid": area_mbid,
-                    "name": None,
-                    "type": None,
-                    "latitude": None,
-                    "longitude": None,
-                }
+                {"mbid": area_mbid, "name": None, "type": None, "latitude": None, "longitude": None}
             ]
         else:
             resolve_area_chain(area_mbid, area_cache)
@@ -1029,11 +1041,9 @@ def fetch_release_detail(
             "longitude": location.get("longitude"),
         }
         area_chain = (
-            area_cache.get(location.get("area_mbid"), [])
-            if location.get("area_mbid")
-            else []
+            area_cache.get(location.get("area_mbid"), []) if location.get("area_mbid") else []
         )
-        detail.place_chains[place_mbid] = [place_node] + area_chain
+        detail.place_chains[place_mbid] = [place_node, *area_chain]
 
     for label_info, area_mbid in raw_labels.values():
         label_info.area_chain = area_cache.get(area_mbid, []) if area_mbid else []
@@ -1048,9 +1058,7 @@ def fetch_release_group_aliases(release_group_mbid: str) -> list[MBAlias]:
     a separate, small follow-up call from fetch_release_detail."""
     configure()
     try:
-        result = musicbrainzngs.get_release_group_by_id(
-            release_group_mbid, includes=["aliases"]
-        )
+        result = musicbrainzngs.get_release_group_by_id(release_group_mbid, includes=["aliases"])
     except Exception as e:
         # Intentional broad boundary catch: musicbrainzngs has no single
         # exception hierarchy covering every failure mode it can raise
