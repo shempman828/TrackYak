@@ -15,22 +15,28 @@ ARTWORK_ROLE_TO_TYPE = {"front": 3, "rear": 4, "liner": 5}
 ARTWORK_TYPE_TO_ROLE = {v: k for k, v in ARTWORK_ROLE_TO_TYPE.items()}
 
 
-def find_picture_index_for_role(
+def find_picture_indices_for_role(
     items: list[Any], role: str, picture_type_for_item: Callable[[Any], int | None]
-) -> int | None:
+) -> list[int]:
     """
-    Find the index in `items` of the picture that currently represents
-    `role`, using a typed + untyped-fallback-to-front rule: a picture
-    whose type maps to `role` wins; if none do and role is "front" and
-    there's exactly one picture with no resolvable type, that one is
-    treated as the (untyped) front cover.
+    Find *every* index in `items` of a picture that represents `role`,
+    using a typed + untyped-fallback-to-front rule: pictures whose type
+    maps to `role` win; if none do and role is "front" and there's
+    exactly one picture with no resolvable type, that one is treated as
+    the (untyped) front cover.
+
+    Normally the returned list has 0 or 1 entry, but a file that a
+    third-party tagger appended a second same-type picture to (instead of
+    replacing the first) yields more than one - writers strip all of them
+    before re-embedding so the file ends up with a single picture per
+    role. Indices are returned in ascending order.
 
     `picture_type_for_item(item)` returns the item's raw picture-type
     integer, or None if `item` isn't a picture at all (or its type can't
     be parsed) - such items are ignored entirely, matching
     ArtworkExtractor.extract_artwork_by_role so readers and writers agree.
     """
-    typed_indices: dict[str, int] = {}
+    typed_indices: dict[str, list[int]] = {}
     untyped_indices = []
 
     for idx, item in enumerate(items):
@@ -39,7 +45,7 @@ def find_picture_index_for_role(
             continue
         mapped_role = ARTWORK_TYPE_TO_ROLE.get(picture_type)
         if mapped_role:
-            typed_indices.setdefault(mapped_role, idx)
+            typed_indices.setdefault(mapped_role, []).append(idx)
         else:
             untyped_indices.append(idx)
 
@@ -47,9 +53,18 @@ def find_picture_index_for_role(
         return typed_indices[role]
 
     if role == "front" and "front" not in typed_indices and len(untyped_indices) == 1:
-        return untyped_indices[0]
+        return [untyped_indices[0]]
 
-    return None
+    return []
+
+
+def find_picture_index_for_role(
+    items: list[Any], role: str, picture_type_for_item: Callable[[Any], int | None]
+) -> int | None:
+    """First index representing `role` (see find_picture_indices_for_role),
+    or None. Used by the MP3 writer, which replaces a single APIC frame."""
+    indices = find_picture_indices_for_role(items, role, picture_type_for_item)
+    return indices[0] if indices else None
 
 
 def determine_image_format(image_data: bytes, mime_type: str = "") -> str | None:

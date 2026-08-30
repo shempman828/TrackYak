@@ -3,12 +3,13 @@ metadata blocks in an existing file, for both tag and artwork writes.
 Works entirely on file paths and byte blobs - no database access.
 """
 
+from pathlib import Path
 import struct
 from typing import Any
 
 from src.core.logger_config import logger
 from src.metadata.metadata_byte_utils import syncsafe_to_int
-from src.metadata.metadata_image_utils import find_picture_index_for_role
+from src.metadata.metadata_image_utils import find_picture_indices_for_role
 from src.metadata.metadata_raw_tags import RawTagExtractor
 from src.metadata.metadata_writer_backup import atomic_write, write_artwork_with_backup
 from src.metadata.metadata_writer_flac_picture import FlacPictureWriter
@@ -35,7 +36,7 @@ class FlacFileWriter:
         the same way the original single-file implementation did.
         """
         try:
-            with open(file_path, "rb") as f:
+            with Path(file_path).open("rb") as f:
                 file_data = f.read()
 
             existing_comments = self.raw_tag_extractor.extract_raw_tags(file_data, ".flac")
@@ -56,7 +57,7 @@ class FlacFileWriter:
             if not blocks:
                 return False
 
-            with open(file_path, "rb") as f:
+            with Path(file_path).open("rb") as f:
                 file_data = f.read()
 
             audio_tail = self._audio_tail(file_data, blocks)
@@ -96,7 +97,7 @@ class FlacFileWriter:
             if not blocks:
                 return False
 
-            with open(file_path, "rb") as f:
+            with Path(file_path).open("rb") as f:
                 file_data = f.read()
 
             audio_tail = self._audio_tail(file_data, blocks)
@@ -108,12 +109,12 @@ class FlacFileWriter:
                 (block_type, file_data[pos : pos + size]) for block_type, pos, size in blocks
             ]
 
-            target_idx = self._find_picture_index_for_role(raw_blocks, role)
+            target_indices = set(self._find_picture_indices_for_role(raw_blocks, role))
 
             new_blocks = [
                 (block_type, payload)
                 for idx, (block_type, payload) in enumerate(raw_blocks)
-                if idx != target_idx
+                if idx not in target_indices
             ]
 
             if image_bytes is not None:
@@ -140,7 +141,7 @@ class FlacFileWriter:
         marker can be found at all.
         """
         try:
-            with open(file_path, "rb") as f:
+            with Path(file_path).open("rb") as f:
                 header = f.read(10)
                 if header[0:4] == b"fLaC":
                     return 0
@@ -161,7 +162,7 @@ class FlacFileWriter:
             if prefix_length < 0:
                 return blocks
 
-            with open(file_path, "rb") as f:
+            with Path(file_path).open("rb") as f:
                 f.seek(prefix_length + 4)
 
                 # Read metadata blocks
@@ -193,7 +194,7 @@ class FlacFileWriter:
         which must always be carried through untouched on any FLAC write."""
         if not blocks:
             return b""
-        last_type, last_pos, last_size = blocks[-1]
+        _, last_pos, last_size = blocks[-1]
         return file_data[last_pos + last_size :]
 
     def _serialize_blocks(
@@ -220,12 +221,17 @@ class FlacFileWriter:
         out += audio_tail
         return bytes(out)
 
-    def _find_picture_index_for_role(self, raw_blocks: list[tuple[int, bytes]], role: str):
+    def _find_picture_indices_for_role(self, raw_blocks: list[tuple[int, bytes]], role: str):
         """
-        Find the index of the existing PICTURE block that currently
-        represents `role`, using the same typed + untyped-fallback-to-front
-        rule as ArtworkExtractor.extract_artwork_by_role, so the writer and
-        reader agree on which picture "is" the front/rear/liner cover.
+        Find the indices of every existing PICTURE block that represents
+        `role`, using the same typed + untyped-fallback-to-front rule as
+        ArtworkExtractor.extract_artwork_by_role, so the writer and reader
+        agree on which picture "is" the front/rear/liner cover. Normally
+        0 or 1 block, but a file a third-party tagger appended a duplicate
+        same-type picture to has more than one - all of them are stripped
+        before the new picture is embedded, so the file ends up with a
+        single picture per role and the reader's "keep first" ambiguity
+        never bites.
         """
 
         def picture_type_for_block(item: tuple[int, bytes]):
@@ -234,4 +240,4 @@ class FlacFileWriter:
                 return None
             return struct.unpack(">I", payload[:4])[0]
 
-        return find_picture_index_for_role(raw_blocks, role, picture_type_for_block)
+        return find_picture_indices_for_role(raw_blocks, role, picture_type_for_block)
