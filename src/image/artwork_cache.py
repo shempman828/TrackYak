@@ -25,12 +25,11 @@ version into every track to fix an album that has drifted.
 """
 
 import io
-import os
+from pathlib import Path
 import sqlite3
 import struct
 import threading
 import time
-from pathlib import Path
 
 from PIL import Image
 from PySide6.QtGui import QPixmap
@@ -55,8 +54,7 @@ def _pick_representative_track(album):
         t
         for t in (getattr(album, "tracks", None) or [])
         if getattr(t, "track_file_path", None)
-        and Path(t.track_file_path).suffix.lower()
-        in ArtworkExtractor.SUPPORTED_EXTENSIONS
+        and Path(t.track_file_path).suffix.lower() in ArtworkExtractor.SUPPORTED_EXTENSIONS
     ]
     if not tracks:
         return None
@@ -102,9 +100,7 @@ class ArtworkCache:
     """Self-healing, mtime-validated thumbnail cache for embedded album art."""
 
     def __init__(self, db_path: str | None = None):
-        self.db_path = (
-            Path(db_path) if db_path else (IMAGECACHE_DIR / "artwork_cache.db")
-        )
+        self.db_path = Path(db_path) if db_path else (IMAGECACHE_DIR / "artwork_cache.db")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
@@ -171,7 +167,7 @@ class ArtworkCache:
 
     def _peek_row(self, album, role: str) -> tuple[bool, sqlite3.Row | None]:
         """Shared lookup for peek_has_art/peek_dimensions: consults only
-        the cache row and a cheap os.stat, never the audio file itself.
+        the cache row and a cheap stat, never the audio file itself.
         Returns (known, row). known=False means the answer requires a real
         _refresh() (cache miss or stale mtime) - callers should hand the
         album to a background has_art()/get_dimensions() call instead of
@@ -182,7 +178,7 @@ class ArtworkCache:
             return True, None
 
         try:
-            current_mtime = os.stat(track.track_file_path).st_mtime
+            current_mtime = Path(track.track_file_path).stat().st_mtime
         except OSError:
             return True, None
 
@@ -207,9 +203,7 @@ class ArtworkCache:
             return None
         return row is not None and row["thumb_data"] is not None
 
-    def peek_dimensions(
-        self, album, role: str = "front"
-    ) -> tuple[bool, tuple[int, int] | None]:
+    def peek_dimensions(self, album, role: str = "front") -> tuple[bool, tuple[int, int] | None]:
         """Like get_dimensions, but never reads/decodes the audio file.
         Returns (known, dims). known=False means resolving this requires a
         real get_dimensions() call off the UI thread; when known=True,
@@ -231,26 +225,16 @@ class ArtworkCache:
         if track is None:
             return
         try:
-            mtime = os.stat(track.track_file_path).st_mtime
+            mtime = Path(track.track_file_path).stat().st_mtime
         except OSError:
             return
 
         if image_bytes is None:
-            self._upsert(
-                album.album_id, role, track.track_file_path, mtime, None, None, None
-            )
+            self._upsert(album.album_id, role, track.track_file_path, mtime, None, None, None)
             return
 
         thumb_bytes, width, height = _build_thumbnail(image_bytes)
-        self._upsert(
-            album.album_id,
-            role,
-            track.track_file_path,
-            mtime,
-            width,
-            height,
-            thumb_bytes,
-        )
+        self._upsert(album.album_id, role, track.track_file_path, mtime, width, height, thumb_bytes)
 
     def pause_warmers(self) -> None:
         """Ask background cache-warming workers (ArtCacheWorker) to stop
@@ -276,9 +260,7 @@ class ArtworkCache:
     def invalidate(self, album_id: int, role: str | None = None) -> None:
         with self._lock:
             if role is None:
-                self._conn.execute(
-                    "DELETE FROM artwork_thumbnails WHERE album_id = ?", (album_id,)
-                )
+                self._conn.execute("DELETE FROM artwork_thumbnails WHERE album_id = ?", (album_id,))
             else:
                 self._conn.execute(
                     "DELETE FROM artwork_thumbnails WHERE album_id = ? AND role = ?",
@@ -300,7 +282,7 @@ class ArtworkCache:
             return None
 
         try:
-            current_mtime = os.stat(track.track_file_path).st_mtime
+            current_mtime = Path(track.track_file_path).stat().st_mtime
         except OSError:
             return None
 
@@ -314,9 +296,7 @@ class ArtworkCache:
 
         return self._refresh(album.album_id, role, track, current_mtime)
 
-    def _refresh(
-        self, album_id: int, role: str, track, mtime: float
-    ) -> sqlite3.Row | None:
+    def _refresh(self, album_id: int, role: str, track, mtime: float) -> sqlite3.Row | None:
         """
         Reads track.track_file_path once and populates the cache row for
         every role (front/rear/liner), not just the one that was asked
@@ -327,9 +307,7 @@ class ArtworkCache:
         """
         ext = Path(track.track_file_path).suffix.lower()
         try:
-            embedded = self._extractor.extract_artwork_by_role(
-                track.track_file_path, ext
-            )
+            embedded = self._extractor.extract_artwork_by_role(track.track_file_path, ext)
         except (OSError, struct.error) as e:
             logger.error(
                 f"ArtworkCache: error extracting artwork from {track.track_file_path}: {e}"
@@ -339,29 +317,23 @@ class ArtworkCache:
         for r in ArtworkExtractor.PICTURE_TYPE_ROLES.values():
             picture = embedded.get(r)
             if picture is None:
-                self._upsert(
-                    album_id, r, track.track_file_path, mtime, None, None, None
-                )
+                self._upsert(album_id, r, track.track_file_path, mtime, None, None, None)
                 continue
             try:
                 thumb_bytes, width, height = _build_thumbnail(picture["data"])
             except (OSError, Image.DecompressionBombError) as e:
                 logger.error(
-                    f"ArtworkCache: error building thumbnail for {track.track_file_path} "
-                    f"({r}): {e}"
+                    f"ArtworkCache: error building thumbnail for {track.track_file_path} ({r}): {e}"
                 )
                 continue
-            self._upsert(
-                album_id, r, track.track_file_path, mtime, width, height, thumb_bytes
-            )
+            self._upsert(album_id, r, track.track_file_path, mtime, width, height, thumb_bytes)
 
         return self._select(album_id, role)
 
     def _select(self, album_id: int, role: str) -> sqlite3.Row | None:
         with self._lock:
             cur = self._conn.execute(
-                "SELECT * FROM artwork_thumbnails WHERE album_id = ? AND role = ?",
-                (album_id, role),
+                "SELECT * FROM artwork_thumbnails WHERE album_id = ? AND role = ?", (album_id, role)
             )
             return cur.fetchone()
 
@@ -379,7 +351,8 @@ class ArtworkCache:
             self._conn.execute(
                 """
                 INSERT INTO artwork_thumbnails
-                    (album_id, role, source_track_path, source_mtime, width, height, thumb_data, updated_at)
+                    (album_id, role, source_track_path, source_mtime, width,
+                     height, thumb_data, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(album_id, role) DO UPDATE SET
                     source_track_path = excluded.source_track_path,

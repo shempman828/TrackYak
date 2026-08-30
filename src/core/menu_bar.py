@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QCursor, QDesktopServices, QIcon, QKeySequence
@@ -62,17 +62,10 @@ class MenuBar:
         # File menu
         file_menu = menu_bar.addMenu("File")
 
+        self.add_action(file_menu, "Import Directory", "import.svg", self.show_import_dialog)
+        self.add_action(file_menu, "Manage Library", "manage_library.svg", self.show_file_manager)
         self.add_action(
-            file_menu, "Import Directory", "import.svg", self.show_import_dialog
-        )
-        self.add_action(
-            file_menu, "Manage Library", "manage_library.svg", self.show_file_manager
-        )
-        self.add_action(
-            file_menu,
-            "View Library Statistics",
-            "statistics.svg",
-            self.show_statistics_dialog,
+            file_menu, "View Library Statistics", "statistics.svg", self.show_statistics_dialog
         )
         self.add_action(
             file_menu,
@@ -91,17 +84,12 @@ class MenuBar:
 
         # General Settings — opens the full ConfigDialog
         self.add_action(
-            file_menu,
-            "General Settings",
-            "settings.svg",
-            self.show_general_settings_dialog,
+            file_menu, "General Settings", "settings.svg", self.show_general_settings_dialog
         )
 
         file_menu.addSeparator()
 
-        self.add_action(
-            file_menu, "Exit", "exit.svg", self.close, shortcut="Ctrl+Q"
-        )
+        self.add_action(file_menu, "Exit", "exit.svg", self.close, shortcut="Ctrl+Q")
 
         # Audio Menu
         audio_menu = menu_bar.addMenu("Audio")
@@ -110,10 +98,7 @@ class MenuBar:
             audio_menu, "Equalizer Settings", "equalizer.svg", self.show_equalizer_dialog
         )
         self.add_action(
-            audio_menu,
-            "Audio File Analysis",
-            "audio_analysis.svg",
-            self.show_audio_properties,
+            audio_menu, "Audio File Analysis", "audio_analysis.svg", self.show_audio_properties
         )
 
         # Tools menu
@@ -162,15 +147,9 @@ class MenuBar:
         )
 
         self.add_action(
-            self.view_menu,
-            "Full Screen",
-            "fullscreen.svg",
-            self.toggle_fullscreen,
-            shortcut="F11",
+            self.view_menu, "Full Screen", "fullscreen.svg", self.toggle_fullscreen, shortcut="F11"
         )
-        self.add_action(
-            self.view_menu, "Mini Player", slot=self.open_miniplayer, shortcut="Ctrl+M"
-        )
+        self.add_action(self.view_menu, "Mini Player", slot=self.open_miniplayer, shortcut="Ctrl+M")
 
         self.view_menu.addSeparator()
         self.add_action(
@@ -224,8 +203,7 @@ class MenuBar:
     def _icon_exists(self, name: str) -> bool:
         """Safely check if an icon file exists before loading it."""
         try:
-            path = str(ASSETS_DIR / name)
-            return os.path.exists(path)
+            return Path(ASSETS_DIR / name).exists()
         except (OSError, TypeError) as e:
             logger.debug(f"Icon existence check failed for {name}: {e}")
             return False
@@ -351,9 +329,7 @@ class MenuBar:
         dialog = ConfigDialog(app_config, display_settings, player, self)
 
         if display_settings is not None:
-            display_settings.menu_bar_auto_hide_changed.connect(
-                self._apply_menu_bar_auto_hide
-            )
+            display_settings.menu_bar_auto_hide_changed.connect(self._apply_menu_bar_auto_hide)
 
         dialog.exec_()
 
@@ -363,9 +339,7 @@ class MenuBar:
                     self._apply_menu_bar_auto_hide
                 )
             except RuntimeError:
-                logger.debug(
-                    "menu_bar_auto_hide_changed signal was already disconnected"
-                )
+                logger.debug("menu_bar_auto_hide_changed signal was already disconnected")
 
     # ------------------------------------------------------------------
     # Other dialogs
@@ -400,8 +374,7 @@ class MenuBar:
     def _on_explicit_recalc_finished(self, scanned: int, flagged: int):
         show_status_message(
             self,
-            f"Explicit flags recalculated: {scanned} track(s) scanned, "
-            f"{flagged} flagged explicit",
+            f"Explicit flags recalculated: {scanned} track(s) scanned, {flagged} flagged explicit",
         )
         self._explicit_recalc_worker.wait()
         self._explicit_recalc_worker = None
@@ -434,7 +407,9 @@ class MenuBar:
         self.duplicate_finder_dialog.activateWindow()
 
     def show_about_dialog(self):
-        description = """TrackYak is a powerful application for tracking and managing your music library."""
+        description = (
+            """TrackYak is a powerful application for tracking and managing your music library."""
+        )
 
         about_box = QMessageBox(self)
         about_box.setWindowTitle("About TrackYak")
@@ -449,7 +424,7 @@ class MenuBar:
             f"<p>{description.replace(chr(10), '<br>')}</p>"
             f"<hr>"
             f"<h3>License:</h3>"
-            f"<p><a href='file:///{os.path.abspath('license.md')}'>View Full License Text</a></p>"
+            f"<p><a href='file:///{Path('license.md').resolve()}'>View Full License Text</a></p>"
         )
         about_box.setTextInteractionFlags(Qt.TextBrowserInteraction)
         about_box.setStandardButtons(QMessageBox.Ok)
@@ -515,8 +490,7 @@ class MenuBar:
         main_window_pos = self.pos()
         main_window_size = self.size()
         self._mini_player.move(
-            main_window_pos.x() + main_window_size.width() - 350,
-            main_window_pos.y() + 50,
+            main_window_pos.x() + main_window_size.width() - 350, main_window_pos.y() + 50
         )
 
         player = self.controller.mediaplayer
