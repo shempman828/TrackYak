@@ -13,6 +13,7 @@ from src.core.version import get_version
 from src.equalizer.equalizer_dialog import EqualizerDialog
 from src.file_management.file_manager_dialog import FileManager
 from src.importing.import_dialog import ImportDialog
+from src.library.artwork_consistency_dialog import ArtworkConsistencyDialog
 from src.library.duplicate_finder import DuplicateFinderDialog
 from src.library.missing_tracks import MissingTracks
 from src.lyrics.explicit_recalc_worker import ExplicitRecalcWorker
@@ -137,6 +138,13 @@ class MenuBar:
             slot=self.show_mood_autotag_dialog,
             tooltip="Auto-tag tracks with moods and known places from their "
             "lyrics, and review lyrics words not yet assigned to a mood",
+        )
+        self.add_action(
+            tools_menu,
+            "Artwork Conflicts…",
+            slot=self.show_artwork_consistency_dialog,
+            tooltip="Scan for albums whose tracks disagree on embedded artwork "
+            "and re-embed one version into every track",
         )
 
         # View menu
@@ -404,6 +412,13 @@ class MenuBar:
         self.mood_autotag_dialog.show()
         self.mood_autotag_dialog.raise_()
         self.mood_autotag_dialog.activateWindow()
+
+    def show_artwork_consistency_dialog(self):
+        if not hasattr(self, "artwork_consistency_dialog"):
+            self.artwork_consistency_dialog = ArtworkConsistencyDialog(self.controller, self)
+        self.artwork_consistency_dialog.show()
+        self.artwork_consistency_dialog.raise_()
+        self.artwork_consistency_dialog.activateWindow()
 
     def _on_explicit_recalc_error(self, message: str):
         show_status_message(self, f"Explicit flag recalculation failed: {message}")

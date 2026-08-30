@@ -601,6 +601,16 @@ Genres & Moods, Places & Credits, Audio Profile, and Lyrics.
   can edit to add more), only the more strongly-matching mood of the pair
   gets tagged when both would otherwise clear the threshold; a near-even
   match still tags both rather than guessing.
+- **Artwork Conflicts…** — scans every album for tracks that disagree on
+  their embedded cover art: some carrying a different picture than the
+  others, or having none where the rest have one. Album art displayed
+  everywhere else is read from a single track per album, so a disagreement
+  can show the wrong cover for the whole album. The scan re-reads every
+  audio file, so it takes a while and runs in the background with a
+  progress bar. Each conflict lists the distinct versions found with a
+  thumbnail and track count; **Use for all tracks** re-embeds that version
+  (or, for the "No artwork" option, strips art) into every track of the
+  album.
 
 ## View Menu
 

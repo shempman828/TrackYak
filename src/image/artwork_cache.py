@@ -17,9 +17,11 @@ explicit invalidation required for correctness.
 
 Picking "the album's representative track" (any single embeddable track
 whose embedded art speaks for the whole album) assumes every track in an
-album agrees on its embedded art per role. That assumption is currently
-unverified in code -- if it proves shaky, add a consistency check before
-this cache is relied on.
+album agrees on its embedded art per role. Nothing enforces that
+invariant here; it is checked only on demand, by the Tools -> "Artwork
+Conflicts…" tool (src/library/library_artwork_consistency.py +
+artwork_consistency_dialog.py), which also lets the user re-embed one
+version into every track to fix an album that has drifted.
 """
 
 import io
@@ -47,7 +49,8 @@ def _pick_representative_track(album):
     """Return the album's canonical embeddable track (or None), used as
     the single source of truth for that album's embedded art. Any
     embeddable track works as long as they all agree on their embedded
-    art - this just needs to be deterministic."""
+    art (verified on demand by the "Artwork Conflicts…" tool, not here) -
+    this just needs to be deterministic."""
     tracks = [
         t
         for t in (getattr(album, "tracks", None) or [])
