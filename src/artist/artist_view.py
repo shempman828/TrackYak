@@ -22,6 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
 from src.artist.artist_detail import ArtistDetailTab
+from src.artist.artist_sort import artist_sort_key
 from src.artist.artist_view_actions import ArtistActionsMixin
 from src.artist.artist_view_dedup import ArtistDedupMixin
 from src.artist.artist_view_tracks import ArtistViewTracksMixin
@@ -50,8 +51,8 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
     # Sort options: (display label, sort key function)
     # None as the sort key signals a special-case sort handled in _apply_filters.
     _SORT_OPTIONS: ClassVar = [
-        ("Name (A–Z)", lambda a: a.artist_name.lower()),
-        ("Name (Z–A)", lambda a: a.artist_name.lower()),  # reversed below
+        ("Name (A–Z)", artist_sort_key),
+        ("Name (Z–A)", artist_sort_key),  # reversed below
         ("Earliest First", lambda a: getattr(a, "begin_year", None) or 9999),
         ("Latest First", lambda a: getattr(a, "begin_year", None) or 9999),  # reversed
         ("Most Tracks", None),  # special-case: requires track-count lookup
@@ -188,7 +189,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
                 self.controller.get.get_all_entities(
                     "Artist", load_options=[selectinload(Artist.types)]
                 ),
-                key=lambda a: a.artist_name.lower(),
+                key=artist_sort_key,
             )
 
             if self.current_mode == "individuals":
@@ -285,7 +286,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
                     for label, key in self._SORT_OPTIONS
                     if label == sort_label and key is not None
                 ),
-                lambda a: a.artist_name.lower(),
+                artist_sort_key,
             )
             reverse = self._SORT_REVERSED.get(sort_label, False)
             try:

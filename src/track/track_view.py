@@ -61,6 +61,7 @@ class TrackView(
         self._lookup_thread = None
         self._lookup_worker = None
         self._artist_name_cache: dict = {}
+        self._artist_sort_cache: dict = {}
         self._album_cache: dict = {}
         self._disc_number_cache: dict = {}
 

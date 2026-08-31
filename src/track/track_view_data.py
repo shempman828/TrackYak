@@ -73,9 +73,9 @@ def _fetch_lookup_caches(session):
 
     disc_number_cache = dict(session.execute(select(Disc.disc_id, Disc.disc_number)).all())
 
-    by_track: dict[int, list[tuple[str, str]]] = {}
+    by_track: dict[int, list[tuple[str, str, str]]] = {}
     rows = session.execute(
-        select(TrackArtistRole.track_id, Artist.artist_name, Role.role_name)
+        select(TrackArtistRole.track_id, Artist.artist_name, Artist.sort_name, Role.role_name)
         .join(Artist, TrackArtistRole.artist_id == Artist.artist_id)
         .join(Role, TrackArtistRole.role_id == Role.role_id)
         # Match the (track_id, artist_id, role_id) composite PK index
@@ -83,18 +83,38 @@ def _fetch_lookup_caches(session):
         # come out in the same order as Track.primary_artist_names.
         .order_by(TrackArtistRole.track_id, TrackArtistRole.artist_id, TrackArtistRole.role_id)
     ).all()
-    for track_id, artist_name, role_name in rows:
-        by_track.setdefault(track_id, []).append((artist_name, role_name))
+    for track_id, artist_name, sort_name, role_name in rows:
+        by_track.setdefault(track_id, []).append((artist_name, sort_name, role_name))
 
     artist_name_cache = {
         track_id: _format_primary_artist_names(
-            [name for name, role_name in entries if role_name == "Primary Artist"],
-            [name for name, role_name in entries if role_name == "Featured Artist"],
+            [name for name, _sort, role_name in entries if role_name == "Primary Artist"],
+            [name for name, _sort, role_name in entries if role_name == "Featured Artist"],
         )
         for track_id, entries in by_track.items()
     }
 
-    return album_cache, disc_number_cache, artist_name_cache
+    # Parallel cache, keyed and ordered identically, but built from each
+    # artist's filing name (Artist.sort_name, falling back to the display
+    # name). Used only as the sort key for the Artist column -- never
+    # displayed. See `_field_value`.
+    artist_sort_cache = {
+        track_id: _format_primary_artist_names(
+            [
+                (sort_name or name)
+                for name, sort_name, role_name in entries
+                if role_name == "Primary Artist"
+            ],
+            [
+                (sort_name or name)
+                for name, sort_name, role_name in entries
+                if role_name == "Featured Artist"
+            ],
+        )
+        for track_id, entries in by_track.items()
+    }
+
+    return album_cache, disc_number_cache, artist_name_cache, artist_sort_cache
 
 
 class TrackLookupCacheWorker(QObject):
@@ -110,8 +130,8 @@ class TrackLookupCacheWorker(QObject):
     view) without blocking the GUI thread.
     """
 
-    # Payload: (album_cache, disc_number_cache, artist_name_cache)
-    finished = Signal(object, object, object)
+    # Payload: (album_cache, disc_number_cache, artist_name_cache, artist_sort_cache)
+    finished = Signal(object, object, object, object)
     error = Signal(str)
 
     def __init__(self, controller):
@@ -202,9 +222,12 @@ class TrackViewDataMixin:
         `_refresh_lookup_caches_async` for the background-thread version
         used when revisiting the Tracks nav item.
         """
-        self._album_cache, self._disc_number_cache, self._artist_name_cache = _fetch_lookup_caches(
-            self.controller.get.session
-        )
+        (
+            self._album_cache,
+            self._disc_number_cache,
+            self._artist_name_cache,
+            self._artist_sort_cache,
+        ) = _fetch_lookup_caches(self.controller.get.session)
 
     def _refresh_lookup_caches_async(self):
         """Rebuild the lookup caches on a background thread (nav-switch revisit path)."""
@@ -227,11 +250,14 @@ class TrackViewDataMixin:
 
         self._lookup_thread.start()
 
-    def _on_lookup_caches_loaded(self, album_cache, disc_number_cache, artist_name_cache):
+    def _on_lookup_caches_loaded(
+        self, album_cache, disc_number_cache, artist_name_cache, artist_sort_cache
+    ):
         """Called on the main thread once TrackLookupCacheWorker finishes."""
         self._album_cache = album_cache
         self._disc_number_cache = disc_number_cache
         self._artist_name_cache = artist_name_cache
+        self._artist_sort_cache = artist_sort_cache
         self._refresh_visible_rows()
 
     def _on_lookup_caches_error(self, message: str):
@@ -283,6 +309,12 @@ class TrackViewDataMixin:
         """
         if field_name == "primary_artist_names":
             return self._artist_name_cache.get(track.track_id, "Unknown Artist")
+        if field_name == "primary_artist_names__sort":
+            # Sort-only pseudo-field: order the Artist column by filing name
+            # (Artist.sort_name) while the visible cell keeps the display name.
+            return self._artist_sort_cache.get(track.track_id) or self._artist_name_cache.get(
+                track.track_id, "Unknown Artist"
+            )
         if field_name == "disc_number":
             return self._disc_number_cache.get(track.disc_id)
         if field_name in _ALBUM_DERIVED_FIELDS:
@@ -354,7 +386,12 @@ class TrackViewDataMixin:
         self.table.setEnabled(False)
         self.status_label.setText("Sorting…")
 
-        self._sort_worker = SortWorker(source, self._field_value, field_name, self._sort_ascending)
+        # The Artist column displays the plain name join but files by
+        # Artist.sort_name -- route the sort through the pseudo-field.
+        sort_field = (
+            "primary_artist_names__sort" if field_name == "primary_artist_names" else field_name
+        )
+        self._sort_worker = SortWorker(source, self._field_value, sort_field, self._sort_ascending)
         self._sort_worker.finished.connect(self._on_sort_done)
         self._sort_worker.start()
 

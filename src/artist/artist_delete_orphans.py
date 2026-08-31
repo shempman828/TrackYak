@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.artist.artist_sort import artist_sort_key
 from src.core.logger_config import logger
 
 
@@ -23,7 +24,7 @@ class OrphanArtistDialog(QDialog):
 
     def __init__(self, orphans: list[Any], parent=None):
         super().__init__(parent)
-        self.orphans = sorted(orphans, key=lambda a: a.artist_name.lower())
+        self.orphans = sorted(orphans, key=artist_sort_key)
         self.setWindowTitle("Delete Unused Artists")
         self.setMinimumSize(500, 500)
         self._checkboxes = []

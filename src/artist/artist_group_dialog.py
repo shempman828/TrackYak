@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.artist.artist_sort import artist_sort_key
 from src.core.logger_config import logger
 
 
@@ -30,8 +31,8 @@ def _populate_individual_artist_combo(combo: QComboBox, controller: Any) -> None
         artists = controller.get.get_all_entities("Artist")
         individual_artists = [a for a in artists if not getattr(a, "isgroup", 0)]
 
-        # Sort alphabetically
-        sorted_artists = sorted(individual_artists, key=lambda a: a.artist_name.lower())
+        # Sort by filing name (Artist.sort_name), falling back to display name
+        sorted_artists = sorted(individual_artists, key=artist_sort_key)
 
         combo.addItem("-- Select Artist --", None)
         for artist in sorted_artists:

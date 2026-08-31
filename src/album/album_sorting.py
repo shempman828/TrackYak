@@ -9,6 +9,7 @@ from typing import ClassVar
 
 from PySide6.QtCore import Qt
 
+from src.artist.artist_sort import artist_sort_key
 from src.core.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 
@@ -76,7 +77,7 @@ class AlbumSortingMixin:
         self._apply_filters()
 
     def _restore_sort_combo(self):
-        """Set the sort combo to match the current internal sort state, without triggering a re-sort."""
+        """Set the sort combo to match the current internal sort state, without a re-sort."""
         model = self.sort_combo.model()
         for i in range(model.rowCount()):
             data = model.item(i).data(Qt.UserRole)
@@ -106,11 +107,18 @@ class AlbumSortingMixin:
                 if artists:
                     first = artists[0]
                     if hasattr(first, "artist_name"):
-                        return first.artist_name.lower()
+                        # File by Artist.sort_name ("Beatles, The"), falling
+                        # back to the display name when it's unset.
+                        return artist_sort_key(first)
                     if isinstance(first, str):
                         return first.lower()
                     if isinstance(first, dict):
-                        return (first.get("artist_name") or first.get("name") or "").lower()
+                        return (
+                            first.get("sort_name")
+                            or first.get("artist_name")
+                            or first.get("name")
+                            or ""
+                        ).lower()
                 return ""
 
             if c == "year":
