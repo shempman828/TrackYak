@@ -29,7 +29,8 @@ from src.core.status_utility import StatusManager, show_status_message
 from src.db.db_helpers import Session
 from src.display.display_settings import apply_scaled_style
 from src.sync.device_card import DeviceCard
-from src.sync.mtp_manager import MtpManager, mtp_available
+from src.sync.mtp_list_worker import MtpListWorker
+from src.sync.mtp_manager import MtpDevice, MtpManager, mtp_available
 from src.sync.sync_execution_mixin import SyncExecutionMixin
 from src.sync.sync_manager import SyncManager
 from src.sync.sync_profile import SyncProfile, SyncProfileStore
@@ -77,9 +78,16 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.sync_worker: SyncWorker | None = None
         self.status_manager = StatusManager
 
+        # MTP device enumeration runs on a throwaway thread (MtpListWorker):
+        # `gio` can block its caller indefinitely against a wedged device, and
+        # this view scans on open and every 5 s. _known_mtp_devices caches the
+        # most recent successful scan for _refresh_device_label to read.
+        self._known_mtp_devices: list[MtpDevice] = []
+        self._mtp_list_worker: MtpListWorker | None = None
+
         # Periodic MTP poll (every 5 s) to update connection badges
         self._mtp_poll_timer = QTimer(self)
-        self._mtp_poll_timer.timeout.connect(self._poll_mtp_devices)
+        self._mtp_poll_timer.timeout.connect(self._refresh_mtp_devices)
         if mtp_available():
             self._mtp_poll_timer.start(5000)
 
@@ -414,8 +422,9 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
 
         self.card_layout.addStretch()
 
-        # Restore connection badges
-        self._poll_mtp_devices()
+        # Restore connection badges — background scan, result lands in
+        # _on_mtp_devices_listed
+        self._refresh_mtp_devices()
 
     def _on_card_clicked(self, card: DeviceCard):
         """Handle a card being clicked — select it and load its profile."""
@@ -540,9 +549,12 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         if not self.current_profile:
             return
         if self.current_profile.device_uri:
-            # Try to get a friendly name from live MTP devices
-            devices = self.mtp_manager.list_devices() if mtp_available() else []
-            match = next((d for d in devices if d.uri == self.current_profile.device_uri), None)
+            # Friendly name comes from the last background MTP scan
+            # (_known_mtp_devices) — never enumerate devices on the GUI thread.
+            match = next(
+                (d for d in self._known_mtp_devices if d.uri == self.current_profile.device_uri),
+                None,
+            )
             if match:
                 self.device_label.setText(match.display_name)
                 set_style_property(self.device_label, "linkState", "connected")
@@ -605,7 +617,8 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         )
         if folder:
             logger.info(
-                f"Sync destination folder set to '{folder}' for profile '{self.current_profile.name}'"
+                f"Sync destination folder set to '{folder}' "
+                f"for profile '{self.current_profile.name}'"
             )
             self.current_profile.path = folder
             self.folder_label.setText(folder)
@@ -619,6 +632,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
     def _link_device(self):
         """Show a picker of currently connected MTP devices."""
         devices = self.mtp_manager.list_devices()
+        self._known_mtp_devices = devices
         if not devices:
             show_status_message(
                 self,
@@ -676,6 +690,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
 
     def _do_detect(self):
         devices = self.mtp_manager.list_devices()
+        self._known_mtp_devices = devices
         logger.info(f"MTP device scan found {len(devices)} device(s)")
         self.detect_btn.setText("⟳ Detect")
         self.detect_btn.setEnabled(True)
@@ -694,7 +709,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         new_devices = [d for d in devices if d.uri not in known_uris]
 
         # Update connection badges regardless
-        self._poll_mtp_devices()
+        self._update_connection_badges({d.uri for d in devices})
 
         if not new_devices:
             show_status_message(
@@ -725,14 +740,31 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
                 if new_card:
                     self._on_card_clicked(new_card)
 
-    def _poll_mtp_devices(self):
-        """Update connection badges on all cards silently."""
+    def _refresh_mtp_devices(self):
+        """Enumerate connected MTP devices on a background thread; badges and
+        the device label update when the result arrives.
+
+        Never calls `gio` on the GUI thread — a `gio` enumeration against a
+        wedged MTP backend blocks its caller with no bounded recovery, and
+        this runs on view open and every 5 s from _mtp_poll_timer.
+        """
         if not mtp_available():
             return
-        try:
-            connected_uris = {d.uri for d in self.mtp_manager.list_devices()}
-            for card in self.cards:
-                if card.profile.device_uri:
-                    card.set_connected(card.profile.device_uri in connected_uris)
-        except RuntimeError as e:
-            logger.warning(f"Failed to poll MTP devices: {e}")
+        if self._mtp_list_worker is not None and self._mtp_list_worker.isRunning():
+            return  # a scan is already in flight — don't stack gio calls
+        worker = MtpListWorker(self.mtp_manager)
+        worker.ready.connect(self._on_mtp_devices_listed)
+        self._mtp_list_worker = worker
+        worker.start()
+
+    def _on_mtp_devices_listed(self, devices: list):
+        """Apply a background MTP scan result to the sidebar and Settings tab."""
+        self._known_mtp_devices = devices
+        self._update_connection_badges({d.uri for d in devices})
+        self._refresh_device_label()
+
+    def _update_connection_badges(self, connected_uris: set):
+        """Flip each card's USB badge to match `connected_uris`."""
+        for card in self.cards:
+            if card.profile.device_uri:
+                card.set_connected(card.profile.device_uri in connected_uris)

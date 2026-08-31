@@ -3,8 +3,8 @@ MTP back-end availability checks, MtpDevice, and MtpManager — device
 detection and file transfer for Android devices connected over USB.
 """
 
+import contextlib
 from dataclasses import dataclass
-import os
 from pathlib import Path
 import re
 import shutil
@@ -31,6 +31,45 @@ def aft_available() -> bool:
 def mtp_available() -> bool:
     """Return True if at least one MTP back-end is available."""
     return gio_available() or aft_available()
+
+
+def _run_bounded(cmd: list[str], timeout: int) -> "subprocess.CompletedProcess | None":
+    """Run `cmd`, capturing stdout/stderr as text, without ever blocking the
+    caller indefinitely.
+
+    subprocess.run(timeout=...) kills the child on TimeoutExpired and then
+    does an UNBOUNDED process.wait() (and Popen.__exit__ waits again). A
+    `gio` call against a wedged MTP backend sits in uninterruptible USB I/O,
+    ignores SIGKILL, and that wait never returns — freezing whatever thread
+    called it. Here we kill and give the child a short grace period; if it
+    still will not die we abandon it (the OS reaps the zombie whenever it
+    finally exits) rather than hang.
+
+    Returns the CompletedProcess on success, or None on spawn failure or
+    timeout — callers treat those the same as "no output / no devices".
+    """
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except OSError as e:
+        logger.warning(f"Failed to spawn '{cmd[0]}': {e}")
+        return None
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        try:
+            proc.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                f"'{' '.join(cmd)}' ignored SIGKILL after timeout — abandoning "
+                "(wedged MTP backend?)"
+            )
+            for pipe in (proc.stdout, proc.stderr):
+                if pipe is not None:
+                    with contextlib.suppress(OSError):
+                        pipe.close()
+        return None
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -128,14 +167,10 @@ class MtpManager:
 
         We collect Volume name + activation_root pairs.
         """
-        try:
-            result = subprocess.run(
-                ["gio", "mount", "-li"], capture_output=True, text=True, timeout=10
-            )
-            output = result.stdout
-        except (subprocess.SubprocessError, OSError) as e:
-            logger.warning(f"gio mount -li failed: {e}")
+        result = _run_bounded(["gio", "mount", "-li"], timeout=10)
+        if result is None:
             return []
+        output = result.stdout
 
         devices = []
         current_name = None
@@ -166,14 +201,10 @@ class MtpManager:
         Fall back to aft-mtp-cli --list-devices.
         Typical output: "Device 0: Samsung Galaxy S21"
         """
-        try:
-            result = subprocess.run(
-                ["aft-mtp-cli", "--list-devices"], capture_output=True, text=True, timeout=10
-            )
-            output = result.stdout
-        except (subprocess.SubprocessError, OSError) as e:
-            logger.warning(f"aft-mtp-cli --list-devices failed: {e}")
+        result = _run_bounded(["aft-mtp-cli", "--list-devices"], timeout=10)
+        if result is None:
             return []
+        output = result.stdout
 
         devices = []
         for line in output.splitlines():
@@ -317,7 +348,7 @@ class MtpManager:
                 tmp.write(content)
                 tmp_path = tmp.name
             result = self.copy_file(device, tmp_path, remote_uri)
-            os.unlink(tmp_path)
+            Path(tmp_path).unlink()
             return result
         except OSError as e:
             logger.error(f"copy_text_as_file failed: {e}")
