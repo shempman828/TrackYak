@@ -11,6 +11,7 @@ self.volume_level, self.equalizer, self._frames_played, self._is_advancing.
 import numpy as np
 
 from src.core.logger_config import logger
+from src.player.player_reader import BLOCKSIZE
 
 
 class PlayerCallbackMixin:
@@ -55,33 +56,60 @@ class PlayerCallbackMixin:
         # CPU/GIL-heavy (e.g. batch audio analysis) is running concurrently
         # on the main process and this thread ends up starved mid-buffer.
         try:
-            # Pop a pre-decoded chunk from the buffer
-            with self._buffer_lock:
-                if self._audio_buffer:
-                    chunk = self._audio_buffer.popleft()
-                else:
-                    # App-level buffer underrun (reader thread fell behind) —
-                    # distinct from PortAudio's own `status` flag above: this
-                    # one never reaches PortAudio late, so PortAudio never
-                    # flags it, but it's heard as the same hitch.
-                    self._pending_buffer_underrun_count += 1
-                    outdata.fill(0)
-                    if self._total_frames > 0 and self._current_frame >= self._total_frames:
-                        self._emit_track_finished_once()
-                    return
-
-            # Apply gain
+            # The reader thread pushes fixed 16384-frame decode chunks, but this
+            # callback's `frames` (STREAM_BLOCKSIZE=0) is smaller and varies per
+            # call, so a single popped chunk feeds many callbacks. Serve `frames`
+            # from the partially-consumed residual, popping (and gain/EQ-ing) a
+            # fresh chunk only when the residual runs out. A short final chunk
+            # from the reader (its EOF read) signals track-finished.
             effective_gain = self._gain_factor * (self.volume_level / 100.0)
-            chunk = chunk * effective_gain
+            written = 0
 
-            # Apply equalizer
-            if len(chunk) >= 32:
-                chunk = self.equalizer.process_audio(chunk)
+            while written < frames:
+                residual = self._callback_residual
+                if residual is None or self._callback_residual_pos >= len(residual):
+                    with self._buffer_lock:
+                        chunk = self._audio_buffer.popleft() if self._audio_buffer else None
+                    if chunk is None:
+                        # App-level buffer underrun (reader thread fell behind) —
+                        # distinct from PortAudio's own `status` flag above: this
+                        # one never reaches PortAudio late, so PortAudio never
+                        # flags it, but it's heard as the same hitch. Also the
+                        # path hit at a clean end-of-track once the buffer drains.
+                        self._pending_buffer_underrun_count += 1
+                        outdata[written:] = 0
+                        if self._callback_final_chunk_seen or (
+                            self._total_frames > 0 and self._current_frame >= self._total_frames
+                        ):
+                            self._emit_track_finished_once()
+                        return
+                    if len(chunk) == 0:
+                        # Reader's explicit EOF sentinel (unrecoverable decode).
+                        outdata[written:] = 0
+                        self._emit_track_finished_once()
+                        return
 
-            outdata[: len(chunk)] = chunk
-            self._frames_played += len(chunk)
-            if len(chunk) < frames:
-                outdata[len(chunk) :] = 0
+                    chunk = chunk * effective_gain
+                    if len(chunk) >= 32:
+                        chunk = self.equalizer.process_audio(chunk)
+                    # The reader only ever pushes a shorter-than-BLOCKSIZE chunk
+                    # as its final read of the track.
+                    if len(chunk) < BLOCKSIZE:
+                        self._callback_final_chunk_seen = True
+                    self._callback_residual = residual = chunk
+                    self._callback_residual_pos = 0
+
+                pos = self._callback_residual_pos
+                n = min(len(residual) - pos, frames - written)
+                outdata[written : written + n] = residual[pos : pos + n]
+                self._callback_residual_pos = pos + n
+                written += n
+                self._frames_played += n
+
+            residual_drained = self._callback_residual_pos >= len(self._callback_residual)
+            if not residual_drained:
+                return
+            if self._callback_final_chunk_seen:
                 self._emit_track_finished_once()
             elif self._total_frames > 0 and self._current_frame >= self._total_frames:
                 with self._buffer_lock:

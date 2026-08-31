@@ -216,6 +216,9 @@ class PlayerTransportMixin:
         self._frames_played = 0
         with self._buffer_lock:
             self._audio_buffer.clear()
+            self._callback_residual = None
+            self._callback_residual_pos = 0
+            self._callback_final_chunk_seen = False
         self._position = 0
         # Close the stream so play() opens a fresh one from frame 0
         self._close_stream()

@@ -7,6 +7,7 @@ self._resolved_file_path, self._total_frames, self._current_frame,
 self.current_channels, self.sf (soundfile module).
 """
 
+import contextlib
 import os
 from pathlib import Path
 import subprocess
@@ -110,6 +111,9 @@ class PlayerReaderMixin:
         self._reader_stop.clear()
         with self._buffer_lock:
             self._audio_buffer.clear()
+            self._callback_residual = None
+            self._callback_residual_pos = 0
+            self._callback_final_chunk_seen = False
 
         # Prime the buffer with one chunk synchronously before returning. When
         # a track change reuses the existing stream (see play()), the live
@@ -151,6 +155,9 @@ class PlayerReaderMixin:
         self._reader_thread = None
         with self._buffer_lock:
             self._audio_buffer.clear()
+            self._callback_residual = None
+            self._callback_residual_pos = 0
+            self._callback_final_chunk_seen = False
 
     def _reader_loop(self):
         """
@@ -225,10 +232,8 @@ class PlayerReaderMixin:
                                 fresh_reader = _open_soundfile(self.sf, self._resolved_file_path)
                                 chunk = fresh_reader.read(to_read, dtype="float32", always_2d=True)
                                 self._current_frame += len(chunk)
-                                try:
+                                with contextlib.suppress(OSError, self.sf.LibsndfileError):
                                     reader.close()
-                                except (OSError, self.sf.LibsndfileError):
-                                    pass
                                 reader = fresh_reader
                                 self._sf_reader = fresh_reader
                                 recovered = True

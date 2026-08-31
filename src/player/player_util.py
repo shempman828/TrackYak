@@ -107,6 +107,17 @@ class MusicPlayer(
         self._reader_lock = threading.Lock()
         self._audio_buffer: collections.deque = collections.deque()
         self._buffer_lock = threading.Lock()
+        # Partially-consumed decode chunk: the reader pushes fixed 16384-frame
+        # chunks, but the PortAudio callback block (STREAM_BLOCKSIZE=0) is
+        # smaller and variably sized, so one popped chunk feeds many callbacks.
+        # gain + EQ are applied once, when the chunk is popped. Reset (under
+        # _buffer_lock) everywhere _audio_buffer is cleared.
+        self._callback_residual = None  # np.ndarray | None, already gain/EQ'd
+        self._callback_residual_pos: int = 0
+        # Set once the reader's short final (EOF) chunk has been popped, so the
+        # callback still emits track-finished after that chunk drains even for
+        # files whose header frame count is missing/unreliable.
+        self._callback_final_chunk_seen: bool = False
         self._reader_thread: threading.Thread | None = None
         self._reader_stop = threading.Event()
 
