@@ -3,7 +3,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QFrame,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -262,24 +261,28 @@ class DiscTabView(QWidget):
             label += f": {disc.disc_title}"
         return label
 
-    def _pick_disc(self, title, prompt):
-        """Let the user choose one of self.discs. Returns the Disc or None."""
+    def _target_disc(self, action):
+        """The disc to act on: the one selected in the track list, or the sole
+        disc if the album only has one. Returns None (after nudging the user)
+        when the album has several discs and none is selected."""
+        if self.track_display is not None:
+            disc = self.track_display.selected_disc()
+            if disc is not None:
+                return disc
+
         if len(self.discs) == 1:
             return self.discs[0]
 
-        disc_labels = [self._disc_label(d) for d in self.discs]
-        choice, ok = QInputDialog.getItem(self, title, prompt, disc_labels, editable=False)
-        if not ok:
-            return None
-        return self.discs[disc_labels.index(choice)]
+        show_status_message(self, f"Select a disc in the list to {action}.")
+        return None
 
     def edit_disc(self):
-        """Pick a disc and edit its properties."""
+        """Edit the disc currently selected in the track list."""
         if not self.discs:
             show_status_message(self, "No discs to edit.")
             return
 
-        disc = self._pick_disc("Edit Disc", "Select a disc to edit:")
+        disc = self._target_disc("edit")
         if disc is None:
             return
 
@@ -302,12 +305,12 @@ class DiscTabView(QWidget):
             QMessageBox.warning(self, "Error", f"Could not update disc: {e!s}")
 
     def remove_disc(self):
-        """Remove selected disc"""
+        """Remove the disc currently selected in the track list."""
         if not self.discs:
             show_status_message(self, "No discs to remove.")
             return
 
-        disc = self._pick_disc("Remove Disc", "Select a disc to remove:")
+        disc = self._target_disc("remove")
         if disc is None:
             return
         choice = self._disc_label(disc)

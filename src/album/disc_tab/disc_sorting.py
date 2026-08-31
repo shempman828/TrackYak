@@ -330,6 +330,27 @@ class TrackSortingDisplay(QTreeWidget):
 
         self.track_deleted.emit()
 
+    def selected_disc(self):
+        """Return the Disc the user has selected in the tree, or None.
+
+        A selected disc-header row yields its Disc directly; a selected side
+        header or track row yields the Disc of the disc-header row it lives
+        under. Rows under the "Unassigned Tracks" group (no real Disc) and an
+        empty selection both yield None.
+        """
+        items = self.selectedItems()
+        if not items:
+            return None
+
+        # Walk up to the top-level disc-header row.
+        item = items[0]
+        while item.parent() is not None:
+            item = item.parent()
+
+        # Disc-header rows store their Disc object (or None for "Unassigned").
+        disc = item.data(0, Qt.UserRole)
+        return disc if not isinstance(disc, (int, str)) else None
+
     # -------------------------------------------------------------------------
     # Tree population
     # -------------------------------------------------------------------------
