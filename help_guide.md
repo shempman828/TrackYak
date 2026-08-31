@@ -193,7 +193,10 @@ that's present. **Credits** breaks down every role the artist is credited
 in, each as its own table of the tracks and albums involved; the tables are
 open by default, and each role heading can be collapsed with its toggle.
 
-**Managing an artist**: right-click for the full set of actions — Edit,
+**Managing an artist**: right-click for the full set of actions — Edit
+(the Basic tab includes a **Sort Name** field — the filing form of the
+name, like "Beatles, The" or "Davis, Miles"; it's filled automatically
+from MusicBrainz on import and can be edited by hand),
 Merge with another artist, Split into multiple artists, add them to a group
 or add a member if they're a group, credit them with an Award or a Place,
 convert between individual and group, jump to their Wikipedia page, edit

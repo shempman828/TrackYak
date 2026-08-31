@@ -31,6 +31,10 @@ class Artist(Base):
     end_day = Column(Integer)
     biography = Column(String)
     disambiguation = Column(String)
+    # MusicBrainz-style filing name ("Beatles, The", "Davis, Miles"). Display/
+    # reference metadata only -- no list ordering keys off it yet. Filled from
+    # MB import (sort-name) and the one-time scripts/backfill_artist_sort_name.py.
+    sort_name = Column(String)
     MBID = Column(String)
     profile_pic_path = Column(String)
     wikipedia_link = Column(String)

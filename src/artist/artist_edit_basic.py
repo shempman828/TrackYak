@@ -111,6 +111,10 @@ class BasicTab(QWidget):
         self.name_edit.setPlaceholderText("Artist name")
         form.addRow("Name *:", self.name_edit)
 
+        self.sort_name_edit = QLineEdit()
+        self.sort_name_edit.setPlaceholderText("e.g. Beatles, The — used for alphabetical filing")
+        form.addRow("Sort Name:", self.sort_name_edit)
+
         self.disambiguation_edit = QLineEdit()
         self.disambiguation_edit.setPlaceholderText(
             "e.g. film composer — distinguishes from other artists with this name"
@@ -315,6 +319,7 @@ class BasicTab(QWidget):
     def load(self, artist):
         self.artist = artist
         self.name_edit.setText(artist.artist_name or "")
+        self.sort_name_edit.setText(artist.sort_name or "")
         self.disambiguation_edit.setText(artist.disambiguation or "")
         self.types_widget.load(artist)
         self.religion_edit.setText(artist.religion.religion_name if artist.religion else "")
@@ -373,6 +378,7 @@ class BasicTab(QWidget):
         differs from the loaded artist — untouched fields are omitted."""
         candidates = dict(
             artist_name=self.name_edit.text().strip(),
+            sort_name=self.sort_name_edit.text().strip() or None,
             disambiguation=self.disambiguation_edit.text().strip() or None,
             isgroup=1 if self.isgroup_check.isChecked() else 0,
             gender=self.gender_combo.currentText() or None,
@@ -402,6 +408,9 @@ class BasicTab(QWidget):
         (Person/unchecked), so a deliberate manual toggle just before the
         lookup is never clobbered.
         """
+        if "sort_name" in values and not self.sort_name_edit.text().strip():
+            self.sort_name_edit.setText(values["sort_name"])
+
         if "disambiguation" in values and not self.disambiguation_edit.text().strip():
             self.disambiguation_edit.setText(values["disambiguation"])
 

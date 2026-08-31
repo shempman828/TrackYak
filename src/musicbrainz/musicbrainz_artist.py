@@ -95,6 +95,8 @@ def _extract_scalar_enrichment(a: dict[str, Any]) -> dict[str, Any]:
     artist_type = a.get("type")
     if artist_type:
         enrichment["isgroup"] = 0 if artist_type == "Person" else 1
+    if a.get("sort-name"):
+        enrichment["sort_name"] = a["sort-name"]
     if a.get("gender"):
         enrichment["gender"] = a["gender"]
     if a.get("disambiguation"):
