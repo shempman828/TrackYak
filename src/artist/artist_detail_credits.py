@@ -22,7 +22,7 @@ from src.core.logger_config import logger
 
 
 class RoleSection(QGroupBox):
-    """A role heading with its credit table, expanded by default.
+    """A role heading with its credit table, collapsed by default.
 
     The table is sized to show every row -- it never scrolls internally.
     Scrolling for the whole Credits block is handled by the article's own
@@ -49,8 +49,8 @@ class RoleSection(QGroupBox):
         # Header with toggle button and count
         header_layout = QHBoxLayout()
 
-        # Toggle button -- starts expanded
-        self.toggle_btn = QPushButton("▼")
+        # Toggle button -- starts collapsed
+        self.toggle_btn = QPushButton("▶")
         self.toggle_btn.setFixedSize(20, 20)
         self.toggle_btn.setObjectName("RoleToggle")
         self.toggle_btn.clicked.connect(self.toggle_section)
@@ -65,7 +65,8 @@ class RoleSection(QGroupBox):
 
         layout.addLayout(header_layout)
 
-        # Container for the table (visible by default)
+        # Container for the table (hidden by default -- expanded on demand
+        # via the toggle button)
         self.table_container = QWidget()
         table_layout = QVBoxLayout(self.table_container)
         table_layout.setContentsMargins(20, 8, 0, 8)
@@ -74,6 +75,7 @@ class RoleSection(QGroupBox):
         self.table_widget = None
 
         layout.addWidget(self.table_container)
+        self.table_container.setVisible(False)
 
     def showEvent(self, event):
         """Re-fit the table once real (styled) font/row metrics are known.
@@ -95,6 +97,12 @@ class RoleSection(QGroupBox):
         else:
             self.toggle_btn.setText("▼")
             self.table_container.setVisible(True)
+            # The construction-time height fit runs before the widget is
+            # polished, so under a themed stylesheet it can be a few px
+            # short and clip the last row. Re-fit now that real metrics
+            # are known and the table is finally being shown.
+            if self.table_widget is not None:
+                self._fit_table_height()
 
     def load_data(self):
         """Load the credits data for this role."""

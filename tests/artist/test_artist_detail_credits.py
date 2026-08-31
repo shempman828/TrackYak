@@ -6,10 +6,11 @@ scrollbar, and every role started collapsed -- the credits were, in
 practice, not visible.
 
 Credits must now render inline (no nested scroll area -- the article's own
-scroll area does the scrolling), with each role expanded by default and
-its table tall enough to show every row. The Year column must be
-populated from Album.release_year (the old code read a non-existent
-`year` attribute, so it was always blank).
+scroll area does the scrolling). Each role starts collapsed; expanding it
+via the toggle button reveals a table tall enough to show every row
+(with no internal vertical scrollbar). The Year column must be populated
+from Album.release_year (the old code read a non-existent `year`
+attribute, so it was always blank).
 """
 
 from PySide6.QtWidgets import QScrollArea
@@ -73,7 +74,7 @@ def test_credits_render_inline_without_nested_scroll_area(qapp, controller):
     assert widget.findChild(QScrollArea) is None
 
 
-def test_role_tables_show_every_row(qapp, controller):
+def test_role_sections_collapsed_by_default(qapp, controller):
     artist = _artist_with_credits(controller.get.session, n_track_credits=6)
     tab = ArtistDetailTab(artist, controller)
     tab.resize(1000, 900)
@@ -85,8 +86,30 @@ def test_role_tables_show_every_row(qapp, controller):
     assert set(sections) == {"Guitar", "Producer"}
 
     for section in sections.values():
-        assert section.is_loaded
-        assert section.table_container.isVisible()  # expanded by default
+        assert section.is_loaded  # data is still loaded eagerly...
+        assert not section.table_container.isVisible()  # ...but the table starts hidden
+        assert section.toggle_btn.text() == "▶"
+
+    tab.deleteLater()
+
+
+def test_role_tables_show_every_row_once_expanded(qapp, controller):
+    artist = _artist_with_credits(controller.get.session, n_track_credits=6)
+    tab = ArtistDetailTab(artist, controller)
+    tab.resize(1000, 900)
+    tab.show()
+    qapp.processEvents()
+    qapp.processEvents()
+
+    sections = {s.role_name: s for s in tab.findChildren(RoleSection)}
+    assert set(sections) == {"Guitar", "Producer"}
+
+    for section in sections.values():
+        section.toggle_section()
+        qapp.processEvents()
+
+        assert section.table_container.isVisible()
+        assert section.toggle_btn.text() == "▼"
         table = section.table_widget
         assert table is not None
         # No internal vertical scroll: the last row is fully within the viewport.
@@ -94,6 +117,11 @@ def test_role_tables_show_every_row(qapp, controller):
         bottom = table.rowViewportPosition(last) + table.rowHeight(last)
         assert bottom <= table.viewport().height() + 1
         assert not table.verticalScrollBar().isVisible()
+
+        # Toggling again collapses it.
+        section.toggle_section()
+        assert not section.table_container.isVisible()
+        assert section.toggle_btn.text() == "▶"
 
     tab.deleteLater()
 
