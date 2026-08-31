@@ -14,9 +14,11 @@ blocks on the network call.
 from __future__ import annotations
 
 from collections.abc import Callable
+import contextlib
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -49,18 +51,9 @@ def _detach_running_worker(worker: MusicBrainzWorker | None) -> None:
     """
     if worker is None or not worker.isRunning():
         return
-    try:
-        worker.finished.disconnect()
-    except RuntimeError:
-        pass
-    try:
-        worker.error.disconnect()
-    except RuntimeError:
-        pass
-    try:
-        worker.progress.disconnect()
-    except RuntimeError:
-        pass
+    for signal in (worker.finished, worker.error, worker.progress):
+        with contextlib.suppress(RuntimeError):
+            signal.disconnect()
     worker.setParent(None)
     worker.finished.connect(worker.deleteLater)
     worker.error.connect(worker.deleteLater)
@@ -169,6 +162,35 @@ class MusicBrainzMatchDialog(QDialog):
             item.setData(Qt.UserRole, candidate)
             self.list_widget.addItem(item)
         self.list_widget.setCurrentRow(0)
+        self._autosize_to_content()
+
+    def _autosize_to_content(self) -> None:
+        """Widen the dialog so the longest candidate row shows without being
+        elided, within reason.
+
+        The picker list is empty until the search comes back, so unlike
+        publisher_fuzzy_match._autosize / album_musicbrainz_review_ui._autosize
+        this can't measure at construction time -- it runs once rows exist and
+        sizes off the list's own per-column content hint. Clamped to a
+        fraction of the screen so a pathological label can't push the dialog
+        off-screen, with the configured minimum as a floor. Width only; the
+        minimum height already gives a sensible scrollable list.
+        """
+        if self.list_widget.count() == 0:
+            return
+
+        content = self.list_widget.sizeHintForColumn(0)
+        frame = 2 * self.list_widget.frameWidth()
+        scrollbar = self.list_widget.verticalScrollBar().sizeHint().width()
+        margins = self.layout().contentsMargins()
+        width = content + frame + scrollbar + margins.left() + margins.right() + 24
+
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is not None:
+            width = min(width, int(screen.availableGeometry().width() * 0.9))
+        width = max(self.minimumWidth(), width)
+
+        self.resize(width, self.height())
 
     def _on_error(self, message: str):
         self.progress_bar.hide()
