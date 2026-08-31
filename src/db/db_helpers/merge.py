@@ -21,6 +21,7 @@ from src.db.db_tables import (
 )
 from src.db.db_tables.award import AwardAssociation
 from src.db.db_tables.place import Place, PlaceAssociation
+from src.image.image_cleanup import IMAGE_PATH_COLUMNS, delete_managed_image, rename_managed_image
 
 # Model registry — safer than globals()
 _MERGE_MODEL_REGISTRY: dict = {
@@ -73,6 +74,13 @@ class MergeDB(BaseDBHelper):
         if not source_entity or not target_entity:
             logger.error(f"Source or target {model_name} not found.")
             return False
+
+        # Managed picture paths as they stand before the merge -- captured
+        # now because `session.expire`/commit below detach the source and
+        # expire the target. Reconciled against the survivor after commit.
+        image_col = IMAGE_PATH_COLUMNS.get(model_name)
+        pre_source_image = getattr(source_entity, image_col[0], None) if image_col else None
+        pre_target_image = getattr(target_entity, image_col[0], None) if image_col else None
 
         try:
             pk_columns = [col.name for col in entity_class.__table__.primary_key.columns]
@@ -253,6 +261,11 @@ class MergeDB(BaseDBHelper):
             mark_tracks_dirty(self.session, dirty_track_ids)
             self._commit()
 
+            if image_col:
+                self._reconcile_merged_image(
+                    model_name, target_id, image_col[0], pre_source_image, pre_target_image
+                )
+
             logger.info(
                 f"Merge complete: {model_name} {source_id} -> {target_id}. "
                 f"Updated tables: {sorted(updated_tables)}. "
@@ -264,6 +277,44 @@ class MergeDB(BaseDBHelper):
             logger.error(f"Error merging {model_name}: {e}")
             self.session.rollback()
             return False
+
+    def _reconcile_merged_image(
+        self, model_name, target_id, attr, pre_source_image, pre_target_image
+    ):
+        """Fix up managed picture files after an Artist/Publisher merge.
+
+        Whichever of the two pictures the merge did not keep is now
+        referenced by nobody -- unlink it. If the surviving picture is the
+        file that belonged to the merged-away source, it is still named for
+        the deleted source id, so rename it to the target's own
+        deterministic name and repoint the column.
+        """
+        entity_class = _MERGE_MODEL_REGISTRY[model_name]
+        name_attr = {"Artist": "artist_name", "Publisher": "publisher_name"}[model_name]
+        target_entity = self.session.get(entity_class, target_id)
+        if target_entity is None:
+            return
+
+        surviving = getattr(target_entity, attr, None)
+        target_name = getattr(target_entity, name_attr, "") or ""
+
+        if surviving == pre_source_image:
+            loser = pre_target_image
+        elif surviving == pre_target_image:
+            loser = pre_source_image
+        else:
+            loser = None
+        if loser and loser != surviving:
+            delete_managed_image(loser)
+
+        new_path = rename_managed_image(surviving, target_id, target_name)
+        if new_path and new_path != surviving:
+            setattr(target_entity, attr, new_path)
+            try:
+                self._commit()
+            except SQLAlchemyError as e:
+                logger.error(f"Could not repoint {model_name} {target_id}.{attr}: {e}")
+                self.session.rollback()
 
     def _preserve_alias_on_merge(
         self, model_name, source_entity, target_entity, resolved_fields=None
@@ -480,7 +531,7 @@ class MergeDB(BaseDBHelper):
         moved = 0
         dropped = 0
         for row in rows:
-            row_filter = [col == val for col, val in zip(pk_columns, row)]
+            row_filter = [col == val for col, val in zip(pk_columns, row, strict=False)]
             update_stmt = update(table).where(*row_filter).values({fk_column.name: target_id})
             rowcount = self._safe_execute(update_stmt)
             if rowcount > 0:

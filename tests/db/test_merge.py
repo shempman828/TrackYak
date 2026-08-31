@@ -46,7 +46,7 @@ def _make_artists_album_and_role(session):
 
 
 def test_merge_preserves_album_role_when_collection_preloaded(session):
-    source, target, album, role = _make_artists_album_and_role(session)
+    source, target, album, _role = _make_artists_album_and_role(session)
 
     # Simulate viewing the source artist's detail panel before merging,
     # which loads `artist.album_roles` into the session's identity map.
@@ -63,7 +63,7 @@ def test_merge_preserves_album_role_when_collection_preloaded(session):
 
 
 def test_merge_preserves_album_role_when_collection_not_preloaded(session):
-    source, target, album, role = _make_artists_album_and_role(session)
+    source, target, album, _role = _make_artists_album_and_role(session)
 
     merger = MergeDB(session)
     result = merger.merge_entities("Artist", source.artist_id, target.artist_id)
@@ -302,3 +302,94 @@ def test_merge_promotes_branch_when_target_is_descendant_of_source_rc(session):
     assert session.get(Role, sibling_id).parent_id == target_id
     assert session.get(Role, target_id).parent_id == mid_id
     assert session.get(Role, source_id) is None
+
+
+# ---- managed picture reconciliation after merge ---------------------------
+# MergeDB.merge_entities must clean up the artist_images/ (or publisher_logos/)
+# file for the merged-away entity: unlink whichever picture the merge did not
+# keep, and rename a kept source picture onto the surviving entity's id.
+
+from src.core import asset_paths  # noqa: E402
+from src.db.db_tables.publisher import Publisher  # noqa: E402
+
+
+@pytest.fixture
+def managed_dirs(tmp_path, monkeypatch):
+    artist_dir = tmp_path / "artist_images"
+    publisher_dir = tmp_path / "publisher_logos"
+    artist_dir.mkdir()
+    publisher_dir.mkdir()
+    monkeypatch.setattr(asset_paths, "ARTIST_IMAGES_DIR", artist_dir)
+    monkeypatch.setattr(asset_paths, "PUBLISHER_LOGOS_DIR", publisher_dir)
+    return artist_dir, publisher_dir
+
+
+def test_merge_keeps_source_picture_renames_it_onto_target(session, managed_dirs):
+    artist_dir, _ = managed_dirs
+    # Distinct extensions so the discarded loser file and the renamed
+    # survivor file are different paths.
+    src_pic = artist_dir / "1_Source.jpg"
+    src_pic.write_bytes(b"src")
+    tgt_pic = artist_dir / "2_Target.png"
+    tgt_pic.write_bytes(b"tgt")
+
+    source = Artist(artist_name="Source", profile_pic_path=str(src_pic))
+    target = Artist(artist_name="Target", profile_pic_path=str(tgt_pic))
+    session.add_all([source, target])
+    session.commit()
+    source_id, target_id = source.artist_id, target.artist_id
+
+    MergeDB(session).merge_entities(
+        "Artist", source_id, target_id, {"profile_pic_path": str(src_pic)}
+    )
+
+    session.expire_all()
+    survivor = session.get(Artist, target_id)
+    expected = artist_dir / f"{target_id}_Target.jpg"
+    assert survivor.profile_pic_path == str(expected)
+    assert expected.read_bytes() == b"src"
+    assert not src_pic.exists()  # renamed away
+    assert not tgt_pic.exists()  # discarded loser, unlinked
+
+
+def test_merge_keeps_target_picture_unlinks_source_file(session, managed_dirs):
+    artist_dir, _ = managed_dirs
+    src_pic = artist_dir / "1_Source.jpg"
+    src_pic.write_bytes(b"src")
+    tgt_pic = artist_dir / "2_Target.jpg"
+    tgt_pic.write_bytes(b"tgt")
+
+    source = Artist(artist_name="Source", profile_pic_path=str(src_pic))
+    target = Artist(artist_name="Target", profile_pic_path=str(tgt_pic))
+    session.add_all([source, target])
+    session.commit()
+    source_id, target_id = source.artist_id, target.artist_id
+
+    MergeDB(session).merge_entities(
+        "Artist", source_id, target_id, {"profile_pic_path": str(tgt_pic)}
+    )
+
+    session.expire_all()
+    assert session.get(Artist, target_id).profile_pic_path == str(tgt_pic)
+    assert tgt_pic.exists()
+    assert not src_pic.exists()
+
+
+def test_merge_publisher_logo_reconciled(session, managed_dirs):
+    _, publisher_dir = managed_dirs
+    src_logo = publisher_dir / "1_Src.png"
+    src_logo.write_bytes(b"s")
+
+    source = Publisher(publisher_name="Src", logo_path=str(src_logo))
+    target = Publisher(publisher_name="Dst")
+    session.add_all([source, target])
+    session.commit()
+    source_id, target_id = source.publisher_id, target.publisher_id
+
+    MergeDB(session).merge_entities("Publisher", source_id, target_id, {"logo_path": str(src_logo)})
+
+    session.expire_all()
+    expected = publisher_dir / f"{target_id}_Dst.png"
+    assert session.get(Publisher, target_id).logo_path == str(expected)
+    assert expected.exists()
+    assert not src_logo.exists()

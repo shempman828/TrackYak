@@ -1,16 +1,28 @@
 """Minimal class for deleting database entities and associated files."""
 
-import os
+from pathlib import Path
 
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
 from src.db.db_helpers.registry import MODEL_REGISTRY, BaseDBHelper
 from src.db.db_helpers.track_dirty import mark_dirty_for_rows
+from src.image.image_cleanup import IMAGE_PATH_COLUMNS, delete_managed_image
 
 
 class DeleteDB(BaseDBHelper):
     """Minimal class for deleting database entities and associated files."""
+
+    @staticmethod
+    def _managed_image_paths(model_name: str, entities) -> list[str]:
+        """Managed image paths owned by `entities` (empty unless the model
+        is one that keeps a picture on disk). Collected before deletion so
+        the files can be unlinked once the rows are committed away."""
+        col = IMAGE_PATH_COLUMNS.get(model_name)
+        if not col:
+            return []
+        attr = col[0]
+        return [p for e in entities if (p := getattr(e, attr, None))]
 
     def delete_entity(
         self,
@@ -55,11 +67,15 @@ class DeleteDB(BaseDBHelper):
                 to_delete = self.session.query(entity_class).filter(
                     getattr(entity_class, pk_col).in_(entity_ids)
                 )
-                mark_dirty_for_rows(self.session, model_name, to_delete.all())
+                rows = to_delete.all()
+                image_paths = self._managed_image_paths(model_name, rows)
+                mark_dirty_for_rows(self.session, model_name, rows)
                 to_delete.delete(synchronize_session="fetch")
                 # "fetch" tells SQLAlchemy to load the objects first so that
                 # cascade rules (e.g. deleting related join rows) fire correctly.
                 self._commit()
+                for path in image_paths:
+                    delete_managed_image(path)
                 logger.info(
                     f"Batch-deleted {len(entity_ids)} {model_name} row(s) (ids={entity_ids})"
                 )
@@ -73,9 +89,12 @@ class DeleteDB(BaseDBHelper):
                 if not entity:
                     logger.warning(f"{model_name} with ID {entity_id} not found")
                     return False
+                image_paths = self._managed_image_paths(model_name, [entity])
                 mark_dirty_for_rows(self.session, model_name, [entity])
                 self.session.delete(entity)
                 self._commit()
+                for path in image_paths:
+                    delete_managed_image(path)
                 logger.info(f"Deleted {model_name} with ID {entity_id}")
                 return True
 
@@ -94,10 +113,13 @@ class DeleteDB(BaseDBHelper):
                     else:
                         query = query.filter(column == value)
                 entities = query.all()
+                image_paths = self._managed_image_paths(model_name, entities)
                 mark_dirty_for_rows(self.session, model_name, entities)
                 for entity in entities:
                     self.session.delete(entity)
                 self._commit()
+                for path in image_paths:
+                    delete_managed_image(path)
                 logger.info(f"Deleted {len(entities)} {model_name} entities matching {filters}")
                 return True
 
@@ -124,8 +146,8 @@ class DeleteDB(BaseDBHelper):
         file_deleted = True
         if file_path:
             try:
-                if os.path.exists(file_path):
-                    os.remove(file_path)
+                if Path(file_path).exists():
+                    Path(file_path).unlink()
                     logger.info(f"Deleted file: {file_path}")
                 else:
                     logger.warning(f"File not found: {file_path}")
