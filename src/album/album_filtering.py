@@ -315,6 +315,8 @@ class AlbumFilteringMixin:
             "incomplete_mode": self.incomplete_combo.currentText(),
             "fixed_mode": self.fixed_combo.currentText(),
             "art_mode": self.art_combo.currentText(),
+            "sort_criteria": self._sort_criteria,
+            "sort_descending": self._sort_descending,
         }
 
     def _save_filter_state(self):
@@ -355,6 +357,22 @@ class AlbumFilteringMixin:
         self._set_combo_text(self.incomplete_combo, state.get("incomplete_mode"))
         self._set_combo_text(self.fixed_combo, state.get("fixed_mode"))
         self._set_combo_text(self.art_combo, state.get("art_mode"))
+
+        self._restore_sort_state(state.get("sort_criteria"), state.get("sort_descending"))
+
+    def _restore_sort_state(self, criteria, descending):
+        """Apply a persisted sort selection, ignoring values the combo
+        no longer offers (e.g. a sort option removed in a later version)."""
+        valid = {
+            (item_criteria, item_desc)
+            for _group, options in self._SORT_GROUPS
+            for _label, item_criteria, item_desc in options
+        }
+        if (criteria, bool(descending)) not in valid:
+            return
+        self._sort_criteria = criteria
+        self._sort_descending = bool(descending)
+        self._restore_sort_combo()
 
     def _update_stats(self):
         total = len(self.all_albums)

@@ -2,7 +2,7 @@
 restored on the next session and persisted whenever they change.
 """
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QWidget
 import pytest
@@ -135,6 +135,57 @@ def test_filter_change_persists_to_config(qapp, monkeypatch):
         assert saved["search"] == "beta"
         assert saved["fixed_mode"] == "Second Pass"
         assert fake_config.save_calls >= 1
+    finally:
+        view.close()
+
+
+def _select_sort_fp(view, criteria, descending):
+    """Pick a sort combo entry by its (criteria, descending) data, going
+    through the real currentIndexChanged -> _on_sort_changed path."""
+    model = view.sort_combo.model()
+    for i in range(model.rowCount()):
+        if model.item(i).data(Qt.UserRole) == (criteria, descending):
+            view.sort_combo.setCurrentIndex(i)
+            return
+    raise AssertionError(f"no sort option for {(criteria, descending)}")
+
+
+def test_restores_sort_from_previous_session(qapp, monkeypatch):
+    fake_config = FakeAppConfig({"search": "", "sort_criteria": "year", "sort_descending": True})
+    albums = [StubAlbum_fp(1, "Alpha")]
+    view = _make_view_fp(monkeypatch, albums, fake_config)
+    try:
+        assert view._sort_criteria == "year"
+        assert view._sort_descending is True
+        assert view.sort_combo.currentText().strip() == "Year (Newest First)"
+    finally:
+        view.close()
+
+
+def test_restores_sort_ignores_unknown_criteria(qapp, monkeypatch):
+    fake_config = FakeAppConfig({"sort_criteria": "bogus", "sort_descending": True})
+    albums = [StubAlbum_fp(1, "Alpha")]
+    view = _make_view_fp(monkeypatch, albums, fake_config)
+    try:
+        assert view._sort_criteria == "title"
+        assert view._sort_descending is False
+    finally:
+        view.close()
+
+
+def test_sort_change_persists_to_config(qapp, monkeypatch):
+    fake_config = FakeAppConfig()
+    albums = [StubAlbum_fp(1, "Alpha")]
+    view = _make_view_fp(monkeypatch, albums, fake_config)
+    try:
+        _select_sort_fp(view, "year", False)
+
+        view._filter_save_timer.stop()
+        view._save_filter_state()
+
+        saved = fake_config.get_album_view_filters()
+        assert saved["sort_criteria"] == "year"
+        assert saved["sort_descending"] is False
     finally:
         view.close()
 
