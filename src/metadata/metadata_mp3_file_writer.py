@@ -4,13 +4,14 @@ entirely on file paths and byte blobs - no database access.
 """
 
 import os
+from pathlib import Path
 import struct
 from typing import Any
 
 from src.core.logger_config import logger
 from src.metadata.metadata_byte_utils import syncsafe_to_int
 from src.metadata.metadata_id3_writer import ID3TagWriter
-from src.metadata.metadata_image_utils import find_picture_index_for_role
+from src.metadata.metadata_image_utils import find_picture_indices_for_role
 from src.metadata.metadata_writer_backup import (
     atomic_write,
     backup_file,
@@ -45,7 +46,7 @@ class MP3FileWriter:
             backup_path = backup_file(file_path)
 
             existing_frames = self._find_frames(file_path)
-            with open(file_path, "rb") as f:
+            with Path(file_path).open("rb") as f:
                 file_data = f.read()
 
             existing_frame_bytes = [
@@ -57,7 +58,7 @@ class MP3FileWriter:
             new_tag = self.id3_writer.build_id3_tag(all_frames)
 
             audio_start = self._find_audio_start(file_path)
-            with open(file_path, "rb") as f:
+            with Path(file_path).open("rb") as f:
                 f.seek(audio_start)
                 audio_data = f.read()
 
@@ -68,7 +69,7 @@ class MP3FileWriter:
 
         except (OSError, struct.error, TypeError) as e:
             logger.debug(f"Error writing ID3 metadata: {e}")
-            if backup_path and os.path.exists(backup_path):
+            if backup_path and Path(backup_path).exists():
                 restore_backup(file_path, backup_path)
             return False
 
@@ -82,7 +83,7 @@ class MP3FileWriter:
         """
         try:
             existing_frames = self._find_frames(file_path)
-            with open(file_path, "rb") as f:
+            with Path(file_path).open("rb") as f:
                 file_data = f.read()
 
             return {
@@ -109,7 +110,7 @@ class MP3FileWriter:
             logger.debug(f"Skipping artwork write - not writable: {file_path}")
             return False
 
-        with open(file_path, "rb") as f:
+        with Path(file_path).open("rb") as f:
             header = f.read(10)
         if len(header) < 10 or header[0:3] != b"ID3" or header[3] not in (3, 4):
             logger.debug(f"No writable ID3v2.3/2.4 tag found, cannot write artwork: {file_path}")
@@ -119,7 +120,7 @@ class MP3FileWriter:
         def mutate() -> bool:
             existing_frames = self._find_frames(file_path)
 
-            with open(file_path, "rb") as f:
+            with Path(file_path).open("rb") as f:
                 file_data = f.read()
 
             raw_frames = [
@@ -127,12 +128,14 @@ class MP3FileWriter:
                 for frame_id, pos, size in existing_frames
             ]
 
-            target_idx = self._find_picture_index_for_role(raw_frames, role, version_major)
+            target_indices = set(
+                self._find_picture_indices_for_role(raw_frames, role, version_major)
+            )
 
             new_frames = [
                 frame_bytes
                 for idx, (frame_id, frame_bytes) in enumerate(raw_frames)
-                if idx != target_idx
+                if idx not in target_indices
             ]
 
             if image_bytes is not None:
@@ -141,7 +144,7 @@ class MP3FileWriter:
             new_tag = self.id3_writer.build_id3_tag(new_frames)
 
             audio_start = self._find_audio_start(file_path)
-            with open(file_path, "rb") as f:
+            with Path(file_path).open("rb") as f:
                 f.seek(audio_start)
                 audio_data = f.read()
 
@@ -156,7 +159,7 @@ class MP3FileWriter:
     def _find_audio_start(self, file_path: str) -> int:
         """Find the start of MP3 audio data (after ID3 tag)."""
         try:
-            with open(file_path, "rb") as f:
+            with Path(file_path).open("rb") as f:
                 header = f.read(10)
                 if header.startswith(b"ID3"):
                     size = syncsafe_to_int(header[6:10])
@@ -174,7 +177,7 @@ class MP3FileWriter:
         """
         frames = []
         try:
-            with open(file_path, "rb") as f:
+            with Path(file_path).open("rb") as f:
                 header = f.read(10)
                 if len(header) < 10 or header[0:3] != b"ID3":
                     return frames
@@ -246,13 +249,17 @@ class MP3FileWriter:
         except IndexError:
             return None
 
-    def _find_picture_index_for_role(
+    def _find_picture_indices_for_role(
         self, raw_frames: list[tuple[str, bytes]], role: str, version_major: int
     ):
         """
-        Find the index of the existing APIC/PIC frame that currently
-        represents `role`, using the same typed + untyped-fallback-to-front
-        rule as ArtworkExtractor.extract_artwork_by_role.
+        Find the indices of every existing APIC/PIC frame that represents
+        `role`, using the same typed + untyped-fallback-to-front rule as
+        ArtworkExtractor.extract_artwork_by_role. Normally 0 or 1 frame,
+        but a file a third-party tagger appended a duplicate same-type
+        APIC to has more than one - all of them are dropped before the new
+        APIC is appended, so the file ends up with a single picture per
+        role and the reader's "keep first" ambiguity never bites.
         """
 
         def picture_type_for_frame(item: tuple[str, bytes]):
@@ -261,4 +268,4 @@ class MP3FileWriter:
                 return None
             return self._peek_picture_type(frame_bytes[10:], version_major)
 
-        return find_picture_index_for_role(raw_frames, role, picture_type_for_frame)
+        return find_picture_indices_for_role(raw_frames, role, picture_type_for_frame)
