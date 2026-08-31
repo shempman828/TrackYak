@@ -1,6 +1,6 @@
 """Class for updating data in the database."""
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
@@ -10,6 +10,7 @@ from src.db.db_helpers.track_dirty import (
     mark_dirty_for_entity_update,
     mark_dirty_for_rows,
 )
+from src.image.image_cleanup import IMAGE_PATH_COLUMNS, discard_replaced_image
 
 
 class UpdateDB(BaseDBHelper):
@@ -45,6 +46,18 @@ class UpdateDB(BaseDBHelper):
             )
             return False
 
+        # When an entity's managed picture column is being changed, remember
+        # the path it currently holds so the now-unreferenced file on disk
+        # can be unlinked once the new value is committed.
+        image_col = IMAGE_PATH_COLUMNS.get(model_name)
+        old_image_path = None
+        if image_col and image_col[0] in kwargs:
+            old_image_path = self.session.scalar(
+                select(getattr(entity_class, image_col[0])).where(
+                    getattr(entity_class, pk_col) == entity_id
+                )
+            )
+
         stmt = (
             update(entity_class).where(getattr(entity_class, pk_col) == entity_id).values(**kwargs)
         )
@@ -53,6 +66,10 @@ class UpdateDB(BaseDBHelper):
             mark_dirty_for_entity_update(self.session, model_name, [entity_id], kwargs)
             self.session.execute(stmt)
             self._commit()
+            if old_image_path is not None:
+                discard_replaced_image(
+                    self.session, model_name, old_image_path, kwargs[image_col[0]]
+                )
             return True
         except SQLAlchemyError as e:
             logger.error(f"Error updating {model_name} with ID {entity_id}: {e}")

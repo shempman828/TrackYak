@@ -113,6 +113,29 @@ def rename_managed_image(old_path: str | None, entity_id, entity_name: str) -> s
     return str(dest)
 
 
+def discard_replaced_image(session, model_name: str, old_path: str | None, new_path) -> bool:
+    """Unlink ``old_path`` after an entity's image column was changed to
+    ``new_path`` (cleared, or re-picked with a different extension/name).
+
+    No-ops -- returning False -- when the path is unchanged, empty,
+    unmanaged, or still referenced by some other row. Returns True only when
+    a file was actually removed.
+    """
+    if not old_path or old_path == new_path:
+        return False
+    col = IMAGE_PATH_COLUMNS.get(model_name)
+    if not col:
+        return False
+
+    from src.db.db_tables.artist import Artist
+    from src.db.db_tables.publisher import Publisher
+
+    column = getattr({"Artist": Artist, "Publisher": Publisher}[model_name], col[0])
+    if session.query(column).filter(column == old_path).first() is not None:
+        return False
+    return delete_managed_image(old_path)
+
+
 def prune_orphaned_images(session, *, dry_run: bool = False) -> dict[str, list[str]]:
     """Delete every file in the managed image dirs that no row references.
 

@@ -206,9 +206,10 @@ convert between individual and group, jump to their Wikipedia page, edit
 their influences, or add a profile picture. There's also always-available
 Add Artist, Add Group, Find Duplicate Artists, and Delete Unused Artists at
 the bottom of the menu for library upkeep. Deleting an artist also deletes
-its stored profile picture from disk, and merging two artists keeps only the
-surviving picture (renaming its file to match) — the same applies to
-publisher logos.
+its stored profile picture from disk, merging two artists keeps only the
+surviving picture (renaming its file to match), and clearing or replacing a
+picture removes the file it used to point at — the same applies to publisher
+logos.
 
 ## Playlists
 
