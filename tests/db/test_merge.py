@@ -23,7 +23,9 @@ from src.db.db_helpers.merge import MergeDB
 from src.db.db_tables.album import Album
 from src.db.db_tables.artist import Artist
 from src.db.db_tables.associations import AlbumRoleAssociation
+from src.db.db_tables.genre import Genre, GenreAlias
 from src.db.db_tables.place import Place, PlaceAssociation
+from src.db.db_tables.publisher import PublisherAlias
 from src.db.db_tables.role import Role, RoleAlias
 
 
@@ -237,6 +239,71 @@ def test_merging_roles_next_import_resolves_discarded_name_to_target(session):
     resolved = getter.resolve_entity_or_alias("Role", "role_name", "Guitar")
     assert resolved is not None
     assert resolved.role_id == target_id
+
+
+# ---- test_merge_alias_transfer.py ------------------------------------------
+# Merging an alias-bearing entity must carry the merged-away entity's
+# *existing* aliases onto the survivor (via the generic FK-scanning loop),
+# in addition to preserving the merged-away entity's own name as a new
+# alias (via _preserve_alias_on_merge). Chained merges must therefore
+# accumulate every discarded name on the final survivor:
+# rokku -> j-rock -> "Japanese Rock" leaves "Japanese Rock" holding both
+# "rokku" and "j-rock".
+def test_merge_carries_existing_genre_aliases_onto_target(session):
+    source = Genre(genre_name="j-rock")
+    target = Genre(genre_name="Japanese Rock")
+    session.add_all([source, target])
+    session.commit()
+    session.add(GenreAlias(alias_name="rokku", genre_id=source.genre_id))
+    session.commit()
+    target_id = target.genre_id
+
+    assert MergeDB(session).merge_entities("Genre", source.genre_id, target_id) is True
+
+    aliases = {(a.alias_name, a.genre_id) for a in session.query(GenreAlias).all()}
+    assert aliases == {("rokku", target_id), ("j-rock", target_id)}
+
+
+def test_chained_genre_merges_accumulate_all_discarded_names_as_aliases(session):
+    rokku = Genre(genre_name="rokku")
+    jrock = Genre(genre_name="j-rock")
+    japanese_rock = Genre(genre_name="Japanese Rock")
+    session.add_all([rokku, jrock, japanese_rock])
+    session.commit()
+    rokku_id, jrock_id, japanese_rock_id = (rokku.genre_id, jrock.genre_id, japanese_rock.genre_id)
+
+    merger = MergeDB(session)
+    assert merger.merge_entities("Genre", rokku_id, jrock_id) is True
+    assert merger.merge_entities("Genre", jrock_id, japanese_rock_id) is True
+
+    aliases = {(a.alias_name, a.genre_id) for a in session.query(GenreAlias).all()}
+    assert aliases == {("rokku", japanese_rock_id), ("j-rock", japanese_rock_id)}
+
+    from src.db.db_helpers.get import GetFromDB
+
+    getter = GetFromDB(session)
+    for name in ("rokku", "j-rock"):
+        resolved = getter.resolve_entity_or_alias("Genre", "genre_name", name)
+        assert resolved is not None
+        assert resolved.genre_id == japanese_rock_id
+
+
+def test_chained_publisher_merges_accumulate_all_discarded_names_as_aliases(session):
+    from src.db.db_tables.publisher import Publisher
+
+    a = Publisher(publisher_name="Subpop")
+    b = Publisher(publisher_name="Sub Pop")
+    c = Publisher(publisher_name="Sub Pop Records")
+    session.add_all([a, b, c])
+    session.commit()
+    a_id, b_id, c_id = a.publisher_id, b.publisher_id, c.publisher_id
+
+    merger = MergeDB(session)
+    assert merger.merge_entities("Publisher", a_id, b_id) is True
+    assert merger.merge_entities("Publisher", b_id, c_id) is True
+
+    aliases = {(p.alias_name, p.publisher_id) for p in session.query(PublisherAlias).all()}
+    assert aliases == {("Subpop", c_id), ("Sub Pop", c_id)}
 
 
 # ---- test_merge_role_children.py ---------------------------------------------
