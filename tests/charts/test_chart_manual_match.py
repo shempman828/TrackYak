@@ -403,6 +403,15 @@ def test_search_and_week_tabs_share_identical_context_menu_behavior(qapp, sessio
     assert labels_a == labels_b
 
 
+def test_manual_match_dialog_is_wide_enough_for_context_hints(qapp, session, controller):
+    # Regression: the dialog set no width and collapsed to the form's
+    # minimum, so the completer popup was too narrow for a suggestion's
+    # name plus its right-aligned dimmed context hint -- names got
+    # hard-elided to a few characters.
+    dialog = ChartManualMatchDialog(controller, "Track", "Runaround Sue", "Dion")
+    assert dialog.minimumWidth() >= 520
+
+
 def test_album_chart_menu_labels_match_to_album(qapp, session):
     chart, _album = _seed_album_chart(session)
     entry = ChartEntry(

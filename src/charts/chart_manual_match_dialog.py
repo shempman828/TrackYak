@@ -44,6 +44,12 @@ class ChartManualMatchDialog(QDialog):
 
         self.setWindowTitle(f"Match to {self._entity_type}")
         self.setModal(True)
+        # Wide enough that a suggestion's name and its right-aligned dimmed
+        # context hint (artist/album, artist/year -- see ContextItemDelegate)
+        # both fit in the completer popup without the name being hard-elided
+        # down to a few characters. The popup tracks the line edit's width,
+        # which tracks the dialog's.
+        self.setMinimumWidth(560)
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
