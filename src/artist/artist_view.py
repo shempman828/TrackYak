@@ -51,14 +51,14 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
     # Sort options: (display label, sort key function)
     # None as the sort key signals a special-case sort handled in _apply_filters.
     _SORT_OPTIONS: ClassVar = [
-        ("Name (A–Z)", artist_sort_key),
-        ("Name (Z–A)", artist_sort_key),  # reversed below
+        ("Name (A–Z)", artist_sort_key),  # noqa: RUF001
+        ("Name (Z–A)", artist_sort_key),  # noqa: RUF001  (reversed below)
         ("Earliest First", lambda a: getattr(a, "begin_year", None) or 9999),
         ("Latest First", lambda a: getattr(a, "begin_year", None) or 9999),  # reversed
         ("Most Tracks", None),  # special-case: requires track-count lookup
         ("Random", None),  # special-case: shuffled in _apply_filters
     ]
-    _SORT_REVERSED: ClassVar = {"Name (Z–A)": True, "Latest First": True}
+    _SORT_REVERSED: ClassVar = {"Name (Z–A)": True, "Latest First": True}  # noqa: RUF001
     _MODE_MAP: ClassVar = {"All": "all", "Individuals": "individuals", "Groups": "groups"}
 
     def __init__(self, controller, parent=None):
@@ -451,7 +451,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
 
             # ---- Group-specific actions ----
             if is_group:
-                add_member_action = menu.addAction("➕ Add Member")
+                add_member_action = menu.addAction("➕ Add Member")  # noqa: RUF001
                 add_member_action.triggered.connect(lambda: self._add_member(artist))
             else:
                 add_to_group_action = menu.addAction("👥 Add to Group")
@@ -497,7 +497,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
 
         # ---- Always-visible add actions ----
         menu.addSeparator()
-        add_action = menu.addAction("➕ Add Artist")
+        add_action = menu.addAction("➕ Add Artist")  # noqa: RUF001
         add_action.triggered.connect(self.add_new_artist)
 
         add_group_action = menu.addAction("👥 Add Group")

@@ -28,10 +28,10 @@ class AlbumSortingMixin:
         (
             "Name",
             [
-                ("Title (A–Z)", "title", False),
-                ("Title (Z–A)", "title", True),
-                ("Artist (A–Z)", "artist", False),
-                ("Artist (Z–A)", "artist", True),
+                ("Title (A–Z)", "title", False),  # noqa: RUF001
+                ("Title (Z–A)", "title", True),  # noqa: RUF001
+                ("Artist (A–Z)", "artist", False),  # noqa: RUF001
+                ("Artist (Z–A)", "artist", True),  # noqa: RUF001
             ],
         ),
         (
