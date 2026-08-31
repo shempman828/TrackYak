@@ -111,8 +111,7 @@ class PlayerReaderMixin:
         self._reader_stop.clear()
         with self._buffer_lock:
             self._audio_buffer.clear()
-            self._callback_residual = None
-            self._callback_residual_pos = 0
+            self._buffer_epoch += 1
             self._callback_final_chunk_seen = False
 
         # Prime the buffer with one chunk synchronously before returning. When
@@ -155,8 +154,7 @@ class PlayerReaderMixin:
         self._reader_thread = None
         with self._buffer_lock:
             self._audio_buffer.clear()
-            self._callback_residual = None
-            self._callback_residual_pos = 0
+            self._buffer_epoch += 1
             self._callback_final_chunk_seen = False
 
     def _reader_loop(self):

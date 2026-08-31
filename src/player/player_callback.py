@@ -5,7 +5,8 @@ its deferred diagnostics.
 Expects the host class to provide: self._finish_pending, self._track_finished
 (signal), self._stream_generation, self.playing, self.paused, self._buffer_lock,
 self._audio_buffer, self._total_frames, self._current_frame, self._gain_factor,
-self.volume_level, self.equalizer, self._frames_played, self._is_advancing.
+self.volume_level, self.equalizer, self._frames_played, self._is_advancing,
+self._buffer_epoch (bumped by reset sites when _audio_buffer is cleared).
 """
 
 import numpy as np
@@ -67,9 +68,14 @@ class PlayerCallbackMixin:
 
             while written < frames:
                 residual = self._callback_residual
-                if residual is None or self._callback_residual_pos >= len(residual):
+                if (
+                    residual is None
+                    or self._callback_residual_pos >= len(residual)
+                    or self._callback_residual_epoch != self._buffer_epoch
+                ):
                     with self._buffer_lock:
                         chunk = self._audio_buffer.popleft() if self._audio_buffer else None
+                        epoch = self._buffer_epoch
                     if chunk is None:
                         # App-level buffer underrun (reader thread fell behind) —
                         # distinct from PortAudio's own `status` flag above: this
@@ -92,12 +98,20 @@ class PlayerCallbackMixin:
                     chunk = chunk * effective_gain
                     if len(chunk) >= 32:
                         chunk = self.equalizer.process_audio(chunk)
+                    if epoch != self._buffer_epoch:
+                        # A reset (seek/stop) fired while we were popping/EQ-ing
+                        # this chunk — it belongs to the pre-reset buffer. Drop
+                        # it rather than serve stale audio or install it as the
+                        # residual under a now-stale epoch.
+                        outdata[written:] = 0
+                        return
                     # The reader only ever pushes a shorter-than-BLOCKSIZE chunk
                     # as its final read of the track.
                     if len(chunk) < BLOCKSIZE:
                         self._callback_final_chunk_seen = True
                     self._callback_residual = residual = chunk
                     self._callback_residual_pos = 0
+                    self._callback_residual_epoch = epoch
 
                 pos = self._callback_residual_pos
                 n = min(len(residual) - pos, frames - written)

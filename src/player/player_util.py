@@ -110,10 +110,19 @@ class MusicPlayer(
         # Partially-consumed decode chunk: the reader pushes fixed 16384-frame
         # chunks, but the PortAudio callback block (STREAM_BLOCKSIZE=0) is
         # smaller and variably sized, so one popped chunk feeds many callbacks.
-        # gain + EQ are applied once, when the chunk is popped. Reset (under
-        # _buffer_lock) everywhere _audio_buffer is cleared.
+        # gain + EQ are applied once, when the chunk is popped.
+        #
+        # These two fields are written ONLY by the audio callback (its RMW of
+        # them runs off _buffer_lock on the real-time thread). Reset sites
+        # (_start_reader_thread / _stop_reader_thread / stop() / seek()) must
+        # NOT touch them — instead they bump _buffer_epoch under _buffer_lock
+        # when they clear _audio_buffer. The callback captures the epoch when
+        # it pops a chunk and discards its residual once the epoch moves, so a
+        # seek/stop landing mid-serve-loop can't leave torn residual state.
         self._callback_residual = None  # np.ndarray | None, already gain/EQ'd
         self._callback_residual_pos: int = 0
+        self._callback_residual_epoch: int = 0  # _buffer_epoch this residual came from
+        self._buffer_epoch: int = 0  # bumped (under _buffer_lock) on every buffer clear
         # Set once the reader's short final (EOF) chunk has been popped, so the
         # callback still emits track-finished after that chunk drains even for
         # files whose header frame count is missing/unreliable.
