@@ -120,6 +120,12 @@ class PlayerCallbackMixin:
                 written += n
                 self._frames_played += n
 
+            if self._callback_residual is None:
+                # frames == 0: the write loop above never ran, so no chunk was
+                # popped and no residual installed. Nothing to drain, nothing to
+                # finish — bail before len(None). (Previously this raised a
+                # TypeError that the broad except below silently swallowed.)
+                return
             residual_drained = self._callback_residual_pos >= len(self._callback_residual)
             if not residual_drained:
                 return

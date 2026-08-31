@@ -246,6 +246,20 @@ def test_reset_during_chunk_eq_discards_the_stale_chunk():
     assert h._frames_played == 0
 
 
+def test_zero_frame_callback_before_any_chunk_does_not_error():
+    """PortAudio may call with frames == 0. With no residual installed yet the
+    empty write loop is skipped and the drain check used to do len(None), a
+    TypeError swallowed by the realtime-thread except into outdata.fill(0)."""
+    h = _Host()
+    out = np.full((0, CH), 99.0, dtype="float32")
+
+    h._audio_callback(out, 0, None, None, 1)
+
+    assert h._pending_error_count == 0, h._last_error_message
+    assert h.finished_emits == 0
+    assert h._frames_played == 0
+
+
 @pytest.mark.parametrize("gain", [0.5, 2.0])
 def test_gain_applied_once_per_chunk_not_per_block(gain):
     h = _Host()
