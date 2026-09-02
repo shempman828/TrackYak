@@ -349,6 +349,13 @@ The list itself lives in the **Skipped Roles** tab of Manage Aliases…
 (Tools menu): any credit role named there is never attached to a track on
 import, whether the credit came from file tags or MusicBrainz.
 
+**Exporting**: right-click anywhere in the tree (an item or empty space) and
+choose Export Hierarchy... to save the whole tree as a plain-text or
+Markdown file, laid out with box-drawing connectors (`├──`, `└──`) like the
+Unix `tree` command. The export always covers every role — any active search
+filter only changes what's on screen, not what gets exported — ordered
+however the tree is currently sorted (by name or by count).
+
 ## Moods
 
 A tag system for how a track feels — organized as a hierarchy, same as

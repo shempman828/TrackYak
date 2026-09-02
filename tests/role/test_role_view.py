@@ -4,6 +4,8 @@ QMessageBox.Yes does), raising AttributeError before the role could ever be
 deleted. See src/role/role_view.py delete_role().
 """
 
+from unittest.mock import patch
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox
 import pytest
@@ -339,3 +341,152 @@ def test_rename_preserves_search_filter_without_full_reload(
     # ...and the search filter must still be honored after the rebuild.
     assert _item_for(view.role_tree, piano.role_id).isHidden() is True
     assert _item_for(view.role_tree, guitar.role_id).isHidden() is False
+
+
+# ---- test_role_hierarchy_export.py -----------------------------------------
+# The role tree's right-click context menu gains an "Export Hierarchy..."
+# action that writes the full role hierarchy as a box-drawing tree to a .txt
+# or .md file, independent of any active search filter, ordered by the tree's
+# active sort mode. See src/role/role_view.py RoleView.export_hierarchy().
+class _Controller_eh:
+    def __init__(self, session):
+        self.get = GetFromDB(session)
+        self.update = UpdateDB(session)
+
+
+@pytest.fixture
+def controller_eh(session):
+    return _Controller_eh(session)
+
+
+@pytest.fixture(autouse=True)
+def _no_bg_role_load(request, monkeypatch):
+    """Keep RoleView's constructor from kicking off a background load that
+    could race with the tests' hand-set ``_all_roles``. Only applied to the
+    export-hierarchy tests (those taking ``controller_eh``)."""
+    if "controller_eh" in request.fixturenames:
+        monkeypatch.setattr(RoleView, "load_roles", lambda self: None)
+
+
+def _make_role_eh(session, name, parent=None):
+    role = Role(role_name=name, parent=parent)
+    session.add(role)
+    session.commit()
+    return role
+
+
+def test_context_menu_has_export_action_on_item_and_empty_space(session, qapp, controller_eh):
+    guitar = _make_role_eh(session, "Guitar")
+    view = RoleView(controller_eh)
+    view._all_roles = [guitar]
+    view._rebuild_tree()
+    item = view.role_tree.topLevelItem(0)
+
+    with patch("src.role.role_view.QMenu") as mock_menu_cls:
+        mock_menu = mock_menu_cls.return_value
+        with patch.object(view.role_tree, "itemAt", return_value=item):
+            view.show_context_menu(view.role_tree.visualItemRect(item).center())
+        action_labels = [c.args[0] for c in mock_menu.addAction.call_args_list]
+        assert "Export Hierarchy..." in action_labels
+
+    with patch("src.role.role_view.QMenu") as mock_menu_cls:
+        mock_menu = mock_menu_cls.return_value
+        with patch.object(view.role_tree, "itemAt", return_value=None):
+            view.show_context_menu(view.role_tree.rect().bottomRight())
+        action_labels = [c.args[0] for c in mock_menu.addAction.call_args_list]
+        assert "Export Hierarchy..." in action_labels
+
+
+def test_export_with_no_roles_shows_status_and_skips_dialog(qapp, controller_eh):
+    view = RoleView(controller_eh)
+    view._all_roles = []
+
+    with (
+        patch("src.role.role_view.QFileDialog.getSaveFileName") as mock_dialog,
+        patch("src.role.role_view.show_status_message") as mock_status,
+    ):
+        view.export_hierarchy()
+
+    mock_dialog.assert_not_called()
+    mock_status.assert_called_once()
+    assert "No roles available" in mock_status.call_args.args[1]
+
+
+def test_export_opens_save_dialog_with_txt_md_filter(session, qapp, controller_eh):
+    guitar = _make_role_eh(session, "Guitar")
+    view = RoleView(controller_eh)
+    view._all_roles = [guitar]
+
+    with patch(
+        "src.role.role_view.QFileDialog.getSaveFileName", return_value=("", "")
+    ) as mock_dialog:
+        view.export_hierarchy()
+
+    args, _kwargs = mock_dialog.call_args
+    assert args[2] == "role_hierarchy.txt"
+    assert "*.txt" in args[3]
+    assert "*.md" in args[3]
+
+
+def test_txt_export_writes_plain_box_drawing_text_ignoring_filter(
+    session, qapp, controller_eh, tmp_path
+):
+    strings = _make_role_eh(session, "Strings")
+    guitar = _make_role_eh(session, "Guitar", parent=strings)
+    view = RoleView(controller_eh)
+    view._all_roles = [strings, guitar]
+    view._rebuild_tree()
+    view.search_field.setText("nonexistent-filter")  # hides everything in the tree
+
+    out_path = tmp_path / "role_hierarchy.txt"
+    with patch(
+        "src.role.role_view.QFileDialog.getSaveFileName",
+        return_value=(str(out_path), "Text Files (*.txt)"),
+    ):
+        view.export_hierarchy()
+
+    assert out_path.read_text(encoding="utf-8") == "Strings\n└── Guitar"
+
+
+def test_md_export_wraps_content_in_code_fence(session, qapp, controller_eh, tmp_path):
+    strings = _make_role_eh(session, "Strings")
+    _make_role_eh(session, "Guitar", parent=strings)
+    view = RoleView(controller_eh)
+    view._all_roles = list(view.controller.get.session.query(Role).all())
+
+    out_path = tmp_path / "role_hierarchy.md"
+    with patch(
+        "src.role.role_view.QFileDialog.getSaveFileName",
+        return_value=(str(out_path), "Markdown Files (*.md)"),
+    ):
+        view.export_hierarchy()
+
+    assert out_path.read_text(encoding="utf-8") == "```\nStrings\n└── Guitar\n```"
+
+
+def test_sibling_order_follows_active_sort_mode(session, qapp, controller_eh, tmp_path):
+    alto = _make_role_eh(session, "Alto")
+    bass = _make_role_eh(session, "Bass")
+    view = RoleView(controller_eh)
+    view._all_roles = [alto, bass]
+
+    # Name mode -> alphabetical.
+    view.sort_mode = "name"
+    name_path = tmp_path / "by_name.txt"
+    with patch(
+        "src.role.role_view.QFileDialog.getSaveFileName",
+        return_value=(str(name_path), "Text Files (*.txt)"),
+    ):
+        view.export_hierarchy()
+    assert name_path.read_text(encoding="utf-8") == "Alto\nBass"
+
+    # Count mode -> higher recursive count first.
+    view.sort_mode = "count"
+    view._recursive_counts = {alto.role_id: 1, bass.role_id: 9}
+    count_path = tmp_path / "by_count.txt"
+    with patch(
+        "src.role.role_view.QFileDialog.getSaveFileName",
+        return_value=(str(count_path), "Text Files (*.txt)"),
+    ):
+        view.export_hierarchy()
+    assert count_path.read_text(encoding="utf-8") == "Bass\nAlto"

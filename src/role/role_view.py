@@ -1,4 +1,5 @@
 from collections import defaultdict
+from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtGui import QBrush, QColor
@@ -6,6 +7,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -28,6 +30,7 @@ from src.common.hierarchy_tree_style import (
     handle_insert_as_new_relative,
     icon_for_depth,
     is_hierarchy_descendant,
+    render_hierarchy_as_text,
     restore_expanded_ids_or_expand_all,
 )
 from src.core.logger_config import logger
@@ -797,6 +800,8 @@ class RoleView(QWidget):
         # If clicking on empty space, show "New Role" option
         if not item or not item.data(0, Qt.UserRole):
             menu.addAction("New Role", lambda: self.create_role(pos))
+            menu.addSeparator()
+            menu.addAction("Export Hierarchy...", self.export_hierarchy)
             menu.exec_(self.role_tree.viewport().mapToGlobal(pos))
             return
 
@@ -812,8 +817,60 @@ class RoleView(QWidget):
         menu.addAction("New Child Role", lambda: self.create_new_child_role(self.current_role_id))
         menu.addSeparator()
         menu.addAction("Delete", lambda: self.delete_role(self.current_role_id))
+        menu.addSeparator()
+
+        # Applies to the whole hierarchy, not the clicked item.
+        menu.addAction("Export Hierarchy...", self.export_hierarchy)
 
         menu.exec_(self.role_tree.viewport().mapToGlobal(pos))
+
+    def export_hierarchy(self):
+        """Export the full role hierarchy as a box-drawing tree to a .txt or
+        .md file, regardless of any active search filter. Sibling order
+        follows the tree's current sort mode (name / count)."""
+        if not self._all_roles:
+            show_status_message(self, "No roles available to export.")
+            return
+
+        recursive_counts = self._recursive_counts
+
+        if self.sort_mode == "count":
+
+            def sort_key(role):
+                return (-recursive_counts.get(role.role_id, 0), role.role_name.lower())
+        else:
+
+            def sort_key(role):
+                return (role.role_name.lower(),)
+
+        content = render_hierarchy_as_text(
+            self._all_roles,
+            id_attr="role_id",
+            name_attr="role_name",
+            parent_attr="parent_id",
+            sort_key=sort_key,
+        )
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Role Hierarchy",
+            "role_hierarchy.txt",
+            "Text Files (*.txt);;Markdown Files (*.md)",
+        )
+        if not file_path:
+            return
+
+        if file_path.lower().endswith(".md"):
+            content = f"```\n{content}\n```"
+
+        try:
+            with Path(file_path).open("w", encoding="utf-8") as f:
+                f.write(content)
+            show_status_message(self, f"Exported {len(self._all_roles)} role(s) to {file_path}")
+            logger.info(f"Exported {len(self._all_roles)} role(s) to {file_path}")
+        except OSError as e:
+            logger.error(f"Error exporting role hierarchy: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to export role hierarchy:\n{e!s}")
 
     def create_role(self, pos=None):
         """Create a new role."""
