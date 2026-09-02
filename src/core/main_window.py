@@ -1,6 +1,4 @@
-"""
-Main GUI application for the Music Library manager using PySide6.
-"""
+"""Main GUI application for the Music Library manager using PySide6."""
 
 from pathlib import Path
 import traceback
@@ -35,7 +33,6 @@ from src.foundation.status_utility import StatusManager
 from src.genre.genre_view import GenreView
 from src.importing.import_dialog import ImportDialog
 from src.influences.influences_view import InfluencesView
-from src.library.file_manager_dialog import FileManager
 from src.mood.mood_view import MoodView
 from src.nowplaying.nowplaying_view import NowPlayingView
 from src.place.place_view import PlaceView
@@ -54,7 +51,6 @@ class GUI(QMainWindow, MenuBar):
         self.controller = controller
 
         self.mediaplayer = self.controller.mediaplayer
-        self.file_manager = FileManager(controller)
 
         # NowPlayingView is cheap to construct and is needed immediately,
         # so we keep it as an eager view.
@@ -293,7 +289,7 @@ class GUI(QMainWindow, MenuBar):
             all_playlists = self.controller.get.get_all_entities("Playlist")
 
             # Only refresh views that have actually been built
-            for view_name, widget in self._view_cache.items():
+            for _view_name, widget in self._view_cache.items():
                 if hasattr(widget, "load_data"):
                     if isinstance(widget, TrackView):
                         widget.load_data(all_tracks)
@@ -311,9 +307,12 @@ class GUI(QMainWindow, MenuBar):
                             getattr(widget, method)()
                             break
 
-            if hasattr(self, "queue_widget") and self.queue_widget:
-                if hasattr(self.queue_widget, "refresh_queue"):
-                    self.queue_widget.refresh_queue()
+            if (
+                hasattr(self, "queue_widget")
+                and self.queue_widget
+                and hasattr(self.queue_widget, "refresh_queue")
+            ):
+                self.queue_widget.refresh_queue()
 
             logger.info("All built views refreshed successfully")
         except (SQLAlchemyError, RuntimeError) as e:
@@ -445,13 +444,13 @@ class GUI(QMainWindow, MenuBar):
             theme_file = app_config.get_theme_file()
             theme_path = app_config.get_theme_path(theme_file)
             if theme_path.exists():
-                with open(theme_path, encoding="utf-8") as f:
+                with theme_path.open(encoding="utf-8") as f:
                     QApplication.instance().setStyleSheet(resolve_theme_assets(f.read()))
                 logger.debug(f"Theme applied: {theme_file}")
             else:
                 default_theme = theme("dark_mode.qss")
                 if Path(default_theme).exists():
-                    with open(default_theme, encoding="utf-8") as f:
+                    with Path(default_theme).open(encoding="utf-8") as f:
                         QApplication.instance().setStyleSheet(resolve_theme_assets(f.read()))
                     logger.debug("Fallback theme applied")
                 else:

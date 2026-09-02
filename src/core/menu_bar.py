@@ -14,9 +14,10 @@ from src.foundation.version import get_version
 from src.importing.import_dialog import ImportDialog
 from src.library.artwork_consistency_dialog import ArtworkConsistencyDialog
 from src.library.duplicate_finder import DuplicateFinderDialog
-from src.library.file_manager_dialog import FileManager
 from src.library.missing_tracks import MissingTracks
+from src.library.organize_files_dialog import OrganizeFilesDialog
 from src.lyrics.explicit_recalc_worker import ExplicitRecalcWorker
+from src.metadata.metadata_writer_dialog import show_metadata_write_dialog
 from src.mood.mood_autotag_dialog import MoodAutoTagDialog
 from src.player.player_mini import MiniPlayerWindow
 from src.statistics.analysis_dialog import AudioAnalysisDialog
@@ -63,7 +64,6 @@ class MenuBar:
         file_menu = menu_bar.addMenu("File")
 
         self.add_action(file_menu, "Import Directory", "import.svg", self.show_import_dialog)
-        self.add_action(file_menu, "Manage Library", "manage_library.svg", self.show_file_manager)
         self.add_action(
             file_menu, "View Library Statistics", "statistics.svg", self.show_statistics_dialog
         )
@@ -103,6 +103,24 @@ class MenuBar:
 
         # Tools menu
         tools_menu = menu_bar.addMenu("Tools")
+
+        self.add_action(
+            tools_menu,
+            "Organize Files…",
+            icon_name="manage_library.svg",
+            slot=self.show_organize_files,
+            tooltip="Reorganize library files into a consistent "
+            "AlbumArtist/Album/Track folder structure",
+        )
+        self.add_action(
+            tools_menu,
+            "Write Metadata…",
+            icon_name="write.svg",
+            slot=self.show_metadata_writer,
+            tooltip="Push database metadata edits back into the audio files' embedded tags",
+        )
+
+        tools_menu.addSeparator()
 
         self.add_action(
             tools_menu,
@@ -455,13 +473,17 @@ class MenuBar:
         self.import_dialog.activateWindow()
         self.import_dialog.show()
 
-    def show_file_manager(self):
-        """Show the FileManager dialog when the 'Manage Library' action is triggered."""
-        if not hasattr(self, "file_manager"):
-            self.file_manager = FileManager(self.controller)
-            self.file_manager.library_modified.connect(self._refresh_all_views)
+    def show_organize_files(self):
+        """Show the Organize Files dialog when the Tools action is triggered."""
+        if not hasattr(self, "organize_files_dialog"):
+            self.organize_files_dialog = OrganizeFilesDialog(self.controller)
+            self.organize_files_dialog.library_modified.connect(self._refresh_all_views)
 
-        self.file_manager.show()
+        self.organize_files_dialog.show()
+
+    def show_metadata_writer(self):
+        """Open the metadata write dialog when the 'Write Metadata' action is triggered."""
+        show_metadata_write_dialog(self.controller, self)
 
     def toggle_fullscreen(self):
         """Toggle between fullscreen and normal window mode (Wayland/X11 safe)."""

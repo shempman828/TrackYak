@@ -574,12 +574,6 @@ Double-click any queued track to jump to it immediately.
   folders to a tracked list, check the ones you want included, and Start
   Import; it keeps running in the background even if you close the dialog,
   so you can keep working while a big import churns through.
-- **Manage Library** — for when your files on disk have drifted from what's
-  in the database. Analyze & Organize proposes a cleanup (renaming/moving
-  files into a consistent `Artist/Album/Track` structure) that you approve
-  before anything actually moves; Update Metadata pushes your database edits
-  back into the actual file tags, for when you want the files themselves to
-  match what you've cleaned up in TrackYak.
 - **View Library Statistics** — a dashboard of your whole collection at a
   glance: health, top artists/albums/genres, audio characteristics, and more,
   split across tabs. See [Library Statistics](#library-statistics) below for
@@ -628,6 +622,14 @@ Genres & Moods, Places & Credits, Audio Profile, and Lyrics.
 
 ## Tools Menu
 
+- **Organize Files…** — for when your files on disk have drifted from what's
+  in the database. Analyze & Organize proposes a cleanup (renaming/moving
+  files into a consistent `AlbumArtist/Album/Track` structure) that you
+  approve before anything actually moves.
+- **Write Metadata…** — pushes your database edits back into the actual file
+  tags, for when you want the files themselves to match what you've cleaned
+  up in TrackYak. Scan the library first (dirty tracks only by default, or a
+  full rescan), pick a write mode, optionally preview, then write.
 - **Manage Aliases…** — where merge/split history and alternate names live
   for Genres, Artists, Publishers, and Roles, plus a list of genre names to
   always skip during auto-tagging.

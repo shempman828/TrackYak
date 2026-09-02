@@ -1,5 +1,4 @@
 import contextlib
-from functools import partial
 from pathlib import Path
 
 from PySide6.QtCore import Signal
@@ -22,7 +21,6 @@ from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.library.file_manager import CLEANUP_PROGRESS_START, FileOrganizer
 from src.library.file_organizer_preview_dialog import OrganizationPreviewDialog
-from src.metadata.metadata_writer_dialog import show_metadata_write_dialog
 
 # --- Long HTML texts extracted for clarity ---
 _DIR_EXPLANATION = (
@@ -31,11 +29,12 @@ _DIR_EXPLANATION = (
 )
 
 
-class FileManager(QDialog):
-    """Cleaner, modular FileManager dialog with modernized structure.
+class OrganizeFilesDialog(QDialog):
+    """Dialog for organizing library files into a consistent folder structure.
 
-    Functional behavior is intentionally unchanged from the original version;
-    this refactor focuses on readability, safety, and small UX improvements.
+    Split out from the former combined "Manage Library" dialog; the metadata
+    write flow now lives in its own Tools menu action (see
+    src.metadata.metadata_writer_dialog).
     """
 
     operation_complete = Signal(bool)
@@ -49,7 +48,7 @@ class FileManager(QDialog):
         # worker reference (plain Python reference; guarded when used)
         self.organizer = None
 
-        self.setWindowTitle("Library File Management")
+        self.setWindowTitle("Organize Files")
         self.setMinimumSize(800, 520)
 
         # build UI
@@ -65,7 +64,6 @@ class FileManager(QDialog):
 
         main_layout.addWidget(self._build_card(self._build_dir_section()))
         main_layout.addWidget(self._build_card(self._build_organization_section()))
-        main_layout.addWidget(self._build_card(self._build_metadata_section()))
 
         main_layout.addStretch()
 
@@ -143,31 +141,6 @@ class FileManager(QDialog):
         layout.addWidget(structure)
         layout.addWidget(self.org_status)
         layout.addWidget(self.org_progress)
-        layout.addLayout(btn_layout)
-
-        return container
-
-    def _build_metadata_section(self) -> QFrame:
-        container = QFrame()
-        layout = QVBoxLayout(container)
-
-        header = QLabel("Metadata Management")
-        header.setAlignment(Qt.AlignCenter)
-        explanation = QLabel("Update embedded metadata (tags) to match the library database.")
-        explanation.setWordWrap(True)
-
-        btn_layout = QHBoxLayout()
-        self.btn_update_metadata = QPushButton("Update Metadata")
-        self.btn_update_metadata.setIcon(QIcon(icon("write.svg")))
-        self.btn_update_metadata.clicked.connect(
-            partial(show_metadata_write_dialog, self.controller, self)
-        )
-        self.btn_update_metadata.setProperty("class", "primary")
-
-        btn_layout.addWidget(self.btn_update_metadata)
-
-        layout.addWidget(header)
-        layout.addWidget(explanation)
         layout.addLayout(btn_layout)
 
         return container
