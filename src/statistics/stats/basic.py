@@ -17,7 +17,6 @@ from datetime import datetime
 from sqlalchemy import case, func
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
 from src.db.db_tables import (
     Album,
     Artist,
@@ -29,6 +28,7 @@ from src.db.db_tables import (
     TrackArtistRole,
     TrackGenre,
 )
+from src.foundation.logger_config import logger
 from src.statistics.stats.helpers import RATING_MAX, RATING_MIN
 
 

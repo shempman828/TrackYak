@@ -38,8 +38,8 @@ from PySide6.QtWidgets import (
 
 from src.album.album_art_worker import CoverEmbedWorker
 from src.common.cancellable_worker import CancellableWorker
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 from src.image.artwork_cache import get_artwork_cache
 from src.library.library_artwork_consistency import ArtworkConsistencyChecker
 from src.metadata.metadata_artwork import ArtworkExtractor

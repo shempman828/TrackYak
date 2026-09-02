@@ -2,8 +2,8 @@ from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, QRect, QS
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 
-from src.core.asset_paths import ASSETS_DIR
-from src.core.logger_config import logger
+from src.foundation.asset_paths import ASSETS_DIR
+from src.foundation.logger_config import logger
 
 # Matches themes/dark_mode.qss so the splash doesn't look like a different app.
 _COLOR_SURFACE = QColor("#11121a")

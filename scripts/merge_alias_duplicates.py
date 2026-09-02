@@ -24,17 +24,17 @@ db_path defaults to music_library.db; pass a scratch copy's path to dry-run
 first.
 """
 
+from datetime import datetime
 import os
 import shutil
 import sys
-from datetime import datetime
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import scoped_session, sessionmaker
 
-from src.core.logger_config import logger
 from src.db.db_helpers import AddToDB, DeleteDB, GetFromDB, MergeDB, SplitDB, UpdateDB
 from src.db.db_tables.database import MusicDatabase
+from src.foundation.logger_config import logger
 
 DB_PATH = sys.argv[1] if len(sys.argv) > 1 else "music_library.db"
 

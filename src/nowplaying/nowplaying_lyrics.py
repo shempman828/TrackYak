@@ -6,9 +6,9 @@ Lyrics/karaoke sync engine for NowPlayingView: parsing, mode switching
 "lyrics coming soon" countdown, and the sync-offset slider.
 """
 
-from src.core.censor import censor_text
-from src.core.config_setup import app_config
-from src.core.logger_config import logger
+from src.foundation.censor import censor_text
+from src.foundation.config_setup import app_config
+from src.foundation.logger_config import logger
 from src.nowplaying.nowplaying_lyrics_parser import active_index, parse_lyrics
 
 # If the next lyric line starts more than this many ms in the future, show a

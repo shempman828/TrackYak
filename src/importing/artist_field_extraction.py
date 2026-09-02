@@ -12,7 +12,7 @@ that drift risk.
 
 from typing import Any
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 # Field-name priority lists, in the order they should be checked.
 ALBUM_ARTIST_FIELDS = ["artist_album_artist", "album_artist_name"]

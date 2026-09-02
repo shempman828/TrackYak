@@ -25,8 +25,8 @@ from src.common.nullable_numeric_field import (
     nullable_field_value,
     set_nullable_field_value,
 )
-from src.core.logger_config import logger
 from src.db.db_mapping_tracks import TRACK_FIELDS
+from src.foundation.logger_config import logger
 from src.track.track_edit_basetab import _BaseTab
 
 # ---------------------------------------------------------------------------

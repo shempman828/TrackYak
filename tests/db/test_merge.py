@@ -376,8 +376,8 @@ def test_merge_promotes_branch_when_target_is_descendant_of_source_rc(session):
 # file for the merged-away entity: unlink whichever picture the merge did not
 # keep, and rename a kept source picture onto the surviving entity's id.
 
-from src.core import asset_paths  # noqa: E402
 from src.db.db_tables.publisher import Publisher  # noqa: E402
+from src.foundation import asset_paths  # noqa: E402
 
 
 @pytest.fixture

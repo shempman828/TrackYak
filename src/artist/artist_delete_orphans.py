@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.artist.artist_sort import artist_sort_key
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class OrphanArtistDialog(QDialog):

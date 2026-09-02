@@ -3,7 +3,6 @@
 from sqlalchemy import delete as sql_delete, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from src.core.logger_config import logger
 from src.db.db_helpers.registry import MODEL_REGISTRY, BaseDBHelper
 from src.db.db_tables import (
     AlbumPublisher,
@@ -25,6 +24,7 @@ from src.db.db_tables import (
     TrackArtistRole,
     TrackGenre,
 )
+from src.foundation.logger_config import logger
 
 # For these entity types, a split name that doesn't match an existing entity's
 # own name is also checked against its alias table before a new entity is

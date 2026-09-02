@@ -19,7 +19,7 @@ from src.artist.artist_detail_credits import CreditsWidget
 from src.artist.artist_detail_header import HeaderWidget
 from src.artist.artist_detail_influences import InfluencesWidget
 from src.artist.artist_detail_member import MembershipWidget
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class ArtistDetailTab(QWidget):

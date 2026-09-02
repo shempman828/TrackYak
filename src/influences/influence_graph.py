@@ -4,7 +4,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from src.core.config_setup import app_config
+from src.foundation.config_setup import app_config
 from src.influences.influence_graph_data import InfluenceGraphDataMixin
 from src.influences.influence_graph_legend import InfluenceGraphLegendMixin
 from src.influences.influence_graph_render import InfluenceGraphRenderMixin

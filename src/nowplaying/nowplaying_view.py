@@ -21,10 +21,10 @@ from PySide6.QtWidgets import (
 
 from src.album.album_art_worker import ArtCacheWorker
 from src.common.style_utils import set_style_property
-from src.core.asset_paths import asset
-from src.core.censor import censor_text
-from src.core.config_setup import app_config
-from src.core.logger_config import logger
+from src.foundation.asset_paths import asset
+from src.foundation.censor import censor_text
+from src.foundation.config_setup import app_config
+from src.foundation.logger_config import logger
 from src.nowplaying.nowplaying_art import _ArtCard
 from src.nowplaying.nowplaying_art_slideshow import _COVER_DWELL_MS, NowPlayingArtMixin
 from src.nowplaying.nowplaying_backdrop import _BlurredBackdrop

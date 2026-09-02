@@ -5,7 +5,7 @@ input - no database access of its own.
 
 from typing import Any
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.metadata.metadata_id3_writer import ID3TagWriter
 from src.metadata.metadata_mapping import (
     ID3_ALBUM_MAPPINGS,

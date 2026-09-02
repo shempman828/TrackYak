@@ -11,8 +11,8 @@ from PySide6.QtGui import QDrag, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.censor import censor_text
-from src.core.logger_config import logger
+from src.foundation.censor import censor_text
+from src.foundation.logger_config import logger
 
 
 class TrackViewActionsMixin:

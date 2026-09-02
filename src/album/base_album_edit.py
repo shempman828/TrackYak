@@ -45,9 +45,9 @@ from src.album.release_type_utils import RELEASE_TYPE_SUGGESTIONS, normalize_rel
 from src.common.edit_dirty import value_changed
 from src.common.layout_utils import clear_layout
 from src.common.nullable_numeric_field import create_nullable_int_field
-from src.core.config_setup import Config
-from src.core.logger_config import logger
 from src.db.db_mapping_albums import ALBUM_FIELDS
+from src.foundation.config_setup import Config
+from src.foundation.logger_config import logger
 from src.metadata.metadata_writer import MetadataWriter
 from src.track.track_edit_roles import RolesTab
 

@@ -9,11 +9,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 from src.album.release_type_utils import normalize_release_type
-from src.core.logger_config import logger
 from src.db.db_engine import engine as _shared_engine
 from src.db.db_tables.album import Album
 from src.db.db_tables.base import Base
 from src.db.db_tables.track import Track
+from src.foundation.logger_config import logger
 from src.statistics.album_gain_peak import compute_album_gain_peak
 
 _DEFAULT_DB_PATH = "sqlite:///music_library.db"

@@ -4,7 +4,7 @@ from urllib.error import URLError
 import lyriq
 from PySide6.QtCore import QObject, QThread, Signal
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class LyricSearch:

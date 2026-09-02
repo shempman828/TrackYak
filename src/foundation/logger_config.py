@@ -1,7 +1,7 @@
 import logging
 from logging.handlers import RotatingFileHandler
 
-from src.core.asset_paths import LOGS_DIR
+from src.foundation.asset_paths import LOGS_DIR
 
 
 def setup_logging(config=None):

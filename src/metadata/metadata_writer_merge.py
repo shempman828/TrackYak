@@ -2,7 +2,7 @@
 combining freshly-built tag data with whatever a file already has on disk.
 """
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.metadata.metadata_writer_types import WriteMode
 
 

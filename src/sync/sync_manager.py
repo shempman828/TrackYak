@@ -16,9 +16,9 @@ import shutil
 
 from sqlalchemy.orm import selectinload
 
-from src.core.logger_config import logger
 from src.db.db_helpers import GetFromDB
 from src.db.db_tables import MoodTrackAssociation, PlaylistTracks, Track, TrackArtistRole
+from src.foundation.logger_config import logger
 from src.sync.mtp_manager import MtpDevice, MtpManager
 
 # Post-copy verification retries this many times before a track is

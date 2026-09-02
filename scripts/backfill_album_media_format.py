@@ -24,9 +24,9 @@ import shutil
 import musicbrainzngs
 from sqlalchemy.orm import scoped_session, sessionmaker
 
-from src.core.logger_config import logger
 from src.db.db_helpers import AddToDB, DeleteDB, GetFromDB, MergeDB, SplitDB, UpdateDB
 from src.db.db_tables.database import MusicDatabase
+from src.foundation.logger_config import logger
 from src.musicbrainz.musicbrainz_core import MusicBrainzLookupError, configure
 from src.musicbrainz.musicbrainz_release import _media_format_str
 

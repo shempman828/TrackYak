@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import tempfile
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 # ---------------------------------------------------------------------------
 # MTP back-end availability checks

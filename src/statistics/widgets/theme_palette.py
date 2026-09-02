@@ -13,8 +13,8 @@ import configparser
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QWidget
 
-from src.core.config_setup import app_config
-from src.core.logger_config import logger
+from src.foundation.config_setup import app_config
+from src.foundation.logger_config import logger
 
 # Shared by every plain categorical/continuous bar chart (surface, bar,
 # bar_border, text, muted_text) -- BarDistributionChart and HistogramChart

@@ -4,8 +4,8 @@ import numpy as np
 from PySide6.QtCore import QObject, Signal
 from scipy import signal
 
-from src.core.config_setup import Config
-from src.core.logger_config import logger
+from src.foundation.config_setup import Config
+from src.foundation.logger_config import logger
 
 
 class EqualizerUtility(QObject):

@@ -24,7 +24,7 @@ from typing import Any
 
 import musicbrainzngs
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 # musicbrainzngs has no native request-timeout option -- it opens every
 # request via a plain urllib opener with no timeout passed (confirmed by

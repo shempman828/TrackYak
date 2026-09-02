@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-from src.core import censor
+from src.foundation import censor
 
 
 @pytest.fixture(autouse=True)

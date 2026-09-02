@@ -32,8 +32,8 @@ from src.common.entity_completer_context import (
     publisher_context_map,
 )
 from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
-from src.core.asset_paths import icon
-from src.core.logger_config import logger
+from src.foundation.asset_paths import icon
+from src.foundation.logger_config import logger
 from src.place.place_association_types import (
     fetch_association_types,
     find_or_create_association_type,

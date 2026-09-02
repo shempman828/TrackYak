@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.album.album_flowlayout import FlowLayout
 from src.artist.artist_type_manager import ArtistTypeManagerDialog
 from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class _ChipArea(QWidget):

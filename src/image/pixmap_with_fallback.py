@@ -4,7 +4,7 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
-from src.core.asset_paths import asset
+from src.foundation.asset_paths import asset
 from src.image.image_blur import load_art_pixmap
 
 _DEFAULT_PORTRAIT = asset("default_artist.svg")

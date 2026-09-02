@@ -25,8 +25,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.entity_completer_context import artist_context_map
 from src.common.entity_completer_edit import EntityCompleterEdit
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 
 # Direction constants — stored in the table's UserRole+1 slot per row.
 DIR_INFLUENCED = "influenced"  # this artist -> other artist (other was influenced by this one)

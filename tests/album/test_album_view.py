@@ -12,11 +12,11 @@ from sqlalchemy.orm import sessionmaker
 from src.album import album_filtering as album_filtering_module, album_view as album_view_module
 from src.album.album_flowlayout import FlowLayout
 from src.album.album_view import _ALBUM_LIST_LOAD_OPTIONS, AlbumView
-from src.core.config_setup import app_config
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables import Album, Artist, Role, Track
 from src.db.db_tables.associations import AlbumRoleAssociation
 from src.db.db_tables.base import Base
+from src.foundation.config_setup import app_config
 
 
 # ---- test_album_view_filter_persistence.py -----------------------------------

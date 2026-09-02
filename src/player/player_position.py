@@ -13,7 +13,7 @@ import threading
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 PLAY_COUNT_THRESHOLD = 0.90
 POSITION_INTERVAL_MS = 50  # UI position update interval (20 fps).

@@ -11,7 +11,7 @@ from PySide6.QtCore import Signal
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class ArtistStatsWorker(CancellableWorker):

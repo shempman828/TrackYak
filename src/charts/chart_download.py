@@ -14,11 +14,11 @@ import csv
 from datetime import date
 from pathlib import Path
 
-from src.core.asset_paths import chart_data_path
+from src.foundation.asset_paths import chart_data_path
 
 # chart_key -> (local filename, source URL). Filenames match the upstream
 # basenames so "does the file exist" is a plain Path.exists() check -- see
-# src/core/asset_paths.py's chart_data_path().
+# src/foundation/asset_paths.py's chart_data_path().
 CHART_FILES = {
     "hot-100": (
         "hot-100-current.csv",

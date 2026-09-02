@@ -4,9 +4,9 @@ from pathlib import Path
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
 from src.db.db_helpers.registry import MODEL_REGISTRY, BaseDBHelper
 from src.db.db_helpers.track_dirty import mark_dirty_for_rows
+from src.foundation.logger_config import logger
 from src.image.image_cleanup import IMAGE_PATH_COLUMNS, delete_managed_image
 
 

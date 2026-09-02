@@ -31,9 +31,9 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.orm import selectinload
 
-from src.core.logger_config import logger
-from src.core.status_utility import StatusManager, show_status_message
 from src.db.db_tables import Track, TrackArtistRole
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import StatusManager, show_status_message
 from src.statistics.analysis_cache import analysis_cache, track_needs_analysis
 from src.statistics.batch_analysis_scheduler import (
     BatchAnalysisScheduler,

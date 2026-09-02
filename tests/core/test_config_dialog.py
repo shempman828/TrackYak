@@ -8,12 +8,15 @@ with ConfigDialog showing a placeholder until it lands and caching the
 result at the class level so later opens skip the work entirely.
 """
 import time
-from PySide6.QtGui import QFontDatabase
-from src.core.config_dialog import ConfigDialog
-from src.core.config_setup import Config
-import src.core.font_family_worker as font_family_worker_module
+
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QDockWidget, QLabel, QMainWindow, QStackedWidget, QWidget
+
+from src.core.config_dialog import ConfigDialog
+import src.core.font_family_worker as font_family_worker_module
+from src.foundation.config_setup import Config
+
 
 # ---- test_config_dialog_font_worker_async.py ---------------------------------
 def _pump_until(condition, app, timeout=5.0):

@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QListWidget, QPushButton, QVBoxLayout
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class PlaylistSelectionDialog(QDialog):

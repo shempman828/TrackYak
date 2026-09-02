@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.place.place_edit import PlaceEditDialog
 
 

@@ -8,7 +8,7 @@ not the reader thread/buffer/stream machinery.
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 # Must match audio_calculations.py's REFERENCE_LUFS — both sides assume
 # track_gain is a ReplayGain-style adjustment relative to this reference.

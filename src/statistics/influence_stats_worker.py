@@ -15,7 +15,7 @@ uses (get_all_entities), not raw SQLAlchemy sessions.
 from PySide6.QtCore import Signal
 
 from src.common.cancellable_worker import CancellableWorker
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.influences import influence_graph_algorithms as algorithms
 
 

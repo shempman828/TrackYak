@@ -33,8 +33,8 @@ from src.common.hierarchy_tree_style import (
     render_hierarchy_as_text,
     restore_expanded_ids_or_expand_all,
 )
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 from src.role.role_detail_tab import RoleDetailTab
 from src.role.role_edit_dialog import RoleEditDialog
 from src.role.role_merge import RoleMergeDialog

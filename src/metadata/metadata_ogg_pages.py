@@ -11,7 +11,7 @@ segment ends the packet.
 from collections.abc import Iterator
 import struct
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 def iter_packets(data: bytes, max_packets: int = 8) -> Iterator[bytes]:

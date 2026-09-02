@@ -7,8 +7,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QHeaderView, QMenu, QTableView
 
-from src.core.config_setup import app_config
-from src.core.logger_config import logger
+from src.foundation.config_setup import app_config
+from src.foundation.logger_config import logger
 from src.track.track_columns import ColumnCustomizationDialog
 
 

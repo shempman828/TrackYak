@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.playlist.playlist_smart_criteria_widget import CriteriaWidget
 
 

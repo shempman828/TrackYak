@@ -2,7 +2,7 @@
 track_view_search.py — background search/filter application for TrackView.
 """
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.track.track_view_filter import FilterWorker
 
 

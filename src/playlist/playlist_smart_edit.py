@@ -11,7 +11,7 @@ import datetime
 from PySide6.QtWidgets import QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.playlist.playlist_smart_base_dialog import BaseSmartPlaylistDialog
 
 

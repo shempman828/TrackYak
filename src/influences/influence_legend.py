@@ -11,8 +11,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.layout_utils import clear_layout
-from src.core.config_setup import app_config
 from src.display.display_settings import apply_scaled_style
+from src.foundation.config_setup import app_config
 
 
 class LegendRow(QWidget):

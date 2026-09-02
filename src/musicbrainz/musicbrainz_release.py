@@ -22,7 +22,7 @@ from typing import Any
 
 import musicbrainzngs
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.musicbrainz.musicbrainz_artist import MBAlias, search_artists
 from src.musicbrainz.musicbrainz_core import (
     MBCandidate,

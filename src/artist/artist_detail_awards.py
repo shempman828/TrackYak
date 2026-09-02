@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QScrollArea, QVBoxLay
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.layout_utils import clear_layout
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class AwardBadge(QFrame):

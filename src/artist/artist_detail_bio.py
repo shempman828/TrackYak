@@ -4,7 +4,7 @@ import webbrowser
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class BioWidget(QWidget):

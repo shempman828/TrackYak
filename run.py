@@ -18,14 +18,14 @@ verify_installation()
 from PySide6.QtCore import QEventLoop, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
-from src.core.asset_paths import ensure_directories_exist
-from src.core.config_setup import Config
-from src.core.logger_config import logger
 from src.core.splash_screen import StartupSplash
 from src.core.startup_dialog import StartupDialog
 from src.db.db_defaults import Defaults
 from src.db.db_tables import MusicDatabase
 from src.display.display_settings import DisplaySettings
+from src.foundation.asset_paths import ensure_directories_exist
+from src.foundation.config_setup import Config
+from src.foundation.logger_config import logger
 from src.image.artwork_cache import ArtworkCache
 from src.musicbrainz.musicbrainz_core import configure as configure_musicbrainz
 from src.player.music_controller import MusicController

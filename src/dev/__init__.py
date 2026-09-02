@@ -9,7 +9,7 @@ Currently behind the flag: the "Primary Artist Count" album sort option.
 
 from __future__ import annotations
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 _installed = False
 

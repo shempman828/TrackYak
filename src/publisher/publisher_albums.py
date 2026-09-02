@@ -2,7 +2,7 @@ from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.base_album_widget import ScrollableAlbumFlow
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.publisher.publisher_hierarchy import get_publisher_albums
 
 

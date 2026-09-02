@@ -13,8 +13,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.core.logger_config import logger
 from src.display.display_settings import apply_scaled_style
+from src.foundation.logger_config import logger
 
 
 class ClusterNamesDialog(QDialog):

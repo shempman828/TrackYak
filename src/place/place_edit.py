@@ -12,8 +12,8 @@ from PySide6.QtWidgets import (
 
 from src.common.entity_completer_context import place_context_map
 from src.common.entity_completer_edit import EntityCompleterEdit
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 from src.place.place_search_dialog import SearchResultsDialog
 
 

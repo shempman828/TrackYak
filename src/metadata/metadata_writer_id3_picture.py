@@ -2,7 +2,7 @@
 
 import struct
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.metadata.metadata_image_utils import (
     ARTWORK_ROLE_TO_TYPE,
     ARTWORK_TYPE_TO_ROLE,

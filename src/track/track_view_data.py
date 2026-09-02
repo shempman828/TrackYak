@@ -8,8 +8,8 @@ from PySide6.QtGui import QStandardItem
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
 from src.db.db_tables import Album, Artist, Disc, Role, TrackArtistRole
+from src.foundation.logger_config import logger
 from src.track.track_view_filter import LAZY_BATCH_SIZE, SortWorker
 
 # Track fields whose value comes from a relationship rather than a plain

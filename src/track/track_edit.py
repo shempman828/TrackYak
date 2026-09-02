@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.track.track_edit_advanced import AdvancedTab
 from src.track.track_edit_album import AlbumsTab
 from src.track.track_edit_awards import AwardsTab

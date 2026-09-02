@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 def blur_pixmap(pixmap: QPixmap, strength: int = 12) -> QPixmap:

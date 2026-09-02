@@ -10,7 +10,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QComboBox
 
 from src.album.album_art_worker import ArtCacheWorker
-from src.core.config_setup import app_config
+from src.foundation.config_setup import app_config
 from src.image.artwork_cache import get_artwork_cache
 
 

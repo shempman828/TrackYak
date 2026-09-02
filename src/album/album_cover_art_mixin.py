@@ -5,7 +5,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from src.album.album_art_worker import CoverEmbedWorker
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 from src.metadata.metadata_artwork import ArtworkExtractor
 

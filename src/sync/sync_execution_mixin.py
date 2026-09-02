@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import QMessageBox
 
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 from src.sync.sync_worker import SyncWorker
 
 

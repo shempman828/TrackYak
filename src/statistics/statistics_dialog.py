@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.statistics.album_stats_worker import AlbumStatsWorker
 from src.statistics.artist_stats_worker import ArtistStatsWorker
 from src.statistics.audio_stats_worker import AudioStatsWorker

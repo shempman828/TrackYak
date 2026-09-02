@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 # Groups with more associations than this start collapsed, since an
 # expanded group this size is what makes the dialog unwieldy to scan.

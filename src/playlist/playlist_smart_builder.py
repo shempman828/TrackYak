@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.playlist.playlist_track_sync import sync_playlist_tracks
 
 

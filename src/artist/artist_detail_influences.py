@@ -8,8 +8,8 @@ from typing import Any
 from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
 from src.db.db_tables import Artist
+from src.foundation.logger_config import logger
 
 
 class InfluencesWidget(QWidget):

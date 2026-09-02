@@ -36,7 +36,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.metadata.metadata_artwork import ArtworkExtractor
 from src.metadata.metadata_mp3_file_writer import MP3FileWriter
 from src.metadata.metadata_writer_backup import atomic_write, backup_file, discard_backup

@@ -10,7 +10,7 @@ tagger derives "album" values from a batch of "track" values.
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 def compute_album_gain_peak(tracks) -> tuple[float | None, float | None]:

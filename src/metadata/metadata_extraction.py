@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 import os
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.metadata.metadata_artwork import ArtworkExtractor
 from src.metadata.metadata_properties import AudioPropertiesExtractor
 from src.metadata.metadata_raw_tags import RawTagExtractor

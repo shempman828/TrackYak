@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 
 from src.common.cancellable_worker import CancellableWorker
 from src.common.fuzzy_match_dialog import BaseFuzzyMatchDialog
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 _PUNCT_RE = re.compile(r"[^\w\s]")
 

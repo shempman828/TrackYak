@@ -13,7 +13,7 @@ import threading
 import time
 import unicodedata
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.player.player_reader import READER_LOCK_TIMEOUT, _open_soundfile
 
 SUPPORTED_FORMATS = {".wav", ".flac", ".mp3", ".aiff", ".aif", ".ogg", ".m4a"}

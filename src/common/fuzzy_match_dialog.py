@@ -18,7 +18,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QDialog, QMessageBox
 
 from src.common.cancellable_worker import CancellableWorker
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class BaseMergeWorker(CancellableWorker):

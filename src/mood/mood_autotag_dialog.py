@@ -51,9 +51,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.album_flowlayout import FlowLayout
 from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
-from src.core.asset_paths import asset
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.asset_paths import asset
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 from src.mood.mood_dialog import MoodDialog
 from src.mood.mood_tag_worker import MoodAutoTagWorker
 from src.statistics.lyrics_stats_worker import LyricsStatsWorker

@@ -1,4 +1,4 @@
-"""Unit tests for src.core.config_setup.Config accessors.
+"""Unit tests for src.foundation.config_setup.Config accessors.
 
 Covers the CSV-list config fields (excluded_genres / excluded_roles) that
 back the "Skipped …" parse-ignore lists — see
@@ -9,7 +9,7 @@ import configparser
 
 import pytest
 
-from src.core import config_setup
+from src.foundation import config_setup
 
 
 @pytest.fixture

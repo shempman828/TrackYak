@@ -9,8 +9,8 @@ the main thread to push into Cytoscape and update the legend.
 from PySide6.QtCore import Signal
 
 from src.common.cancellable_worker import CancellableWorker
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 
 
 class _GlobalGraphWorker(CancellableWorker):

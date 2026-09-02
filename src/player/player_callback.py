@@ -11,7 +11,7 @@ self._buffer_epoch (bumped by reset sites when _audio_buffer is cleared).
 
 import numpy as np
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.player.player_reader import BLOCKSIZE
 
 

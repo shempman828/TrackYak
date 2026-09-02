@@ -35,8 +35,8 @@ from PIL import Image
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication
 
-from src.core.asset_paths import IMAGECACHE_DIR
-from src.core.logger_config import logger
+from src.foundation.asset_paths import IMAGECACHE_DIR
+from src.foundation.logger_config import logger
 from src.image.image_blur import _blur_enabled, blur_pixmap
 from src.metadata.metadata_artwork import ArtworkExtractor
 

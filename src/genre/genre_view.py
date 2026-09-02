@@ -33,9 +33,9 @@ from src.common.hierarchy_tree_style import (
     render_hierarchy_as_text,
     restore_expanded_ids_or_expand_all,
 )
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
 from src.db.db_tables import TrackGenre
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 from src.genre.genre_edit import GenreEditDialog, GenreSetParentDialog
 from src.genre.genre_merge import GenreMergeDialog
 from src.genre.genre_tracks import GenreTracksWindow

@@ -3,7 +3,6 @@
 from sqlalchemy import delete as sql_delete, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from src.core.logger_config import logger
 from src.db.db_helpers.registry import BaseDBHelper
 from src.db.db_helpers.track_dirty import CASCADE_RESOLVERS, mark_tracks_dirty
 from src.db.db_tables import (
@@ -21,6 +20,7 @@ from src.db.db_tables import (
 )
 from src.db.db_tables.award import AwardAssociation
 from src.db.db_tables.place import Place, PlaceAssociation
+from src.foundation.logger_config import logger
 from src.image.image_cleanup import IMAGE_PATH_COLUMNS, delete_managed_image, rename_managed_image
 
 # Model registry — safer than globals()

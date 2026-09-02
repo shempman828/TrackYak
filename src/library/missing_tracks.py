@@ -1,7 +1,7 @@
 import os
 
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 from src.track.base_track_view import BaseTrackView
 
 

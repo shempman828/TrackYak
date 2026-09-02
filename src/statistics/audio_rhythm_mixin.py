@@ -8,7 +8,7 @@ self._segment(), self.sr, self.samples.
 import numpy as np
 from scipy import signal
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 # ----------------------------------------------------------------------
 # Time signature candidates: (label, pulses_per_measure, subdivision).

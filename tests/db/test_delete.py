@@ -7,10 +7,10 @@ in the app ever removes those files.
 
 import pytest
 
-from src.core import asset_paths
 from src.db.db_helpers.delete import DeleteDB
 from src.db.db_tables.artist import Artist
 from src.db.db_tables.publisher import Publisher
+from src.foundation import asset_paths
 
 
 @pytest.fixture

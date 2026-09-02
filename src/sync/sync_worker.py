@@ -8,8 +8,8 @@ Both paths emit identical signals so the UI is fully agnostic.
 from PySide6.QtCore import Signal
 
 from src.common.cancellable_worker import CancellableWorker
-from src.core.logger_config import logger
-from src.core.status_utility import StatusManager
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import StatusManager
 from src.sync.sync_manager import SyncManager
 from src.sync.sync_profile import SyncProfile
 

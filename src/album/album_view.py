@@ -27,9 +27,9 @@ from src.album.album_sorting import AlbumSortingMixin
 from src.album.base_album_edit import AlbumEditor
 from src.album.base_album_widget import AlbumWidget
 from src.common.layout_utils import FlowLayoutContainer, clear_layout
-from src.core.logger_config import logger
 from src.db.db_tables import Album, AlbumRoleAssociation
 from src.display.display_settings import apply_scaled_style
+from src.foundation.logger_config import logger
 
 # Relationships the search predicate (album_filtering._album_matches_filters)
 # and every non-default sort key (album_sorting._sort_key) walk for each of

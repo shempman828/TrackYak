@@ -13,7 +13,7 @@ Qt's ApplicationShortcut cannot intercept this, so we register here instead.
 
 import threading
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 try:
     import dbus

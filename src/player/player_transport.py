@@ -13,7 +13,7 @@ from pathlib import Path
 import threading
 import time
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.player.player_position import PLAY_COUNT_THRESHOLD
 from src.player.player_reader import READER_LOCK_TIMEOUT
 

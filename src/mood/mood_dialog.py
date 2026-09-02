@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.track.base_track_view import BaseTrackView  # Import the BaseTrackView
 
 

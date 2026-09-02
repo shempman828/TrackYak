@@ -7,7 +7,7 @@ by TrackDataAssembler.
 
 from typing import Any
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.metadata.metadata_mapping import (
     VORBIS_ALBUM_MAPPINGS,
     VORBIS_DISC_MAPPINGS,

@@ -30,9 +30,9 @@ import threading
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from src.core.config_setup import app_config
-from src.core.logger_config import logger
 from src.equalizer.equalizer_utility import EqualizerUtility
+from src.foundation.config_setup import app_config
+from src.foundation.logger_config import logger
 from src.player.player_callback import PlayerCallbackMixin
 from src.player.player_device import PlayerDeviceMixin
 from src.player.player_gain import PlayerGainMixin

@@ -28,8 +28,8 @@ from src.charts.chart_playlist_worker import ChartPlaylistWorker
 from src.charts.chart_recommendations_tab import ChartRecommendationsTab
 from src.charts.chart_search_tab import ChartSearchTab
 from src.charts.chart_week_browser_tab import ChartWeekBrowserTab
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 
 
 class ChartsView(QWidget):

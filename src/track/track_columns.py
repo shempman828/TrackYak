@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class ColumnCustomizationDialog(QDialog):

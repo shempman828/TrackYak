@@ -1,6 +1,6 @@
 import struct
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.metadata.metadata_byte_utils import syncsafe_to_int
 from src.metadata.metadata_mp4_atoms import find_atom, iter_atoms
 from src.metadata.metadata_ogg_pages import iter_packets

@@ -9,8 +9,8 @@ import json
 from pathlib import Path
 import threading
 
-from src.core.asset_paths import config
-from src.core.logger_config import logger
+from src.foundation.asset_paths import config
+from src.foundation.logger_config import logger
 
 CACHE_PATH = Path(config("analysis_cache.json"))
 CACHE_SAVE_INTERVAL = 25  # Save the cache file every N completed tracks

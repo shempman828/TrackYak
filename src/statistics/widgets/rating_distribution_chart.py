@@ -12,7 +12,7 @@ from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QToolTip
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.statistics.widgets.theme_palette import ThemedChartWidget
 
 RATING_MIN = 0.5

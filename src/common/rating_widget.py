@@ -4,7 +4,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class RatingStarsWidget(QWidget):

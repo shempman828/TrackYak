@@ -17,10 +17,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.core.asset_paths import config, icon
-from src.core.config_setup import app_config
-from src.core.logger_config import logger
-from src.core.status_utility import StatusManager, show_status_message
+from src.foundation.asset_paths import config, icon
+from src.foundation.config_setup import app_config
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import StatusManager, show_status_message
 from src.importing.library_import import ImportWorker
 
 CONFIG_FILE = config("import_paths.json")

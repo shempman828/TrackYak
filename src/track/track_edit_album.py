@@ -33,7 +33,7 @@ from src.common.entity_completer_edit import (
     get_cached_entities,
     register_cached_entity,
 )
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 from src.musicbrainz.musicbrainz_artist import suggest_artist_names
 from src.musicbrainz.musicbrainz_core import MusicBrainzLookupError

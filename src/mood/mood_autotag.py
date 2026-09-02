@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.lyrics.place_matching import detect_known_places
 from src.mood.mood_scoring import known_mood_names, score_moods_detailed
 from src.place.place_association_types import (

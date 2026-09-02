@@ -21,11 +21,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.core.config_setup import Config
 from src.core.font_family_worker import FontFamilyWorker
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
 from src.display.display_settings import DisplaySettings
+from src.foundation.config_setup import Config
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 
 
 class ConfigDialog(QDialog):
@@ -748,7 +748,7 @@ class ConfigDialog(QDialog):
             self.config.save()
 
             # Reconfigure logging immediately so the new level takes effect right away
-            from src.core.logger_config import reconfigure_logging
+            from src.foundation.logger_config import reconfigure_logging
 
             reconfigure_logging(self.config)
 

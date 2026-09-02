@@ -10,7 +10,7 @@ import json
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QDialog
 
-from src.core.config_setup import app_config
+from src.foundation.config_setup import app_config
 from src.influences import community_identity
 from src.influences.cluster_name_dialog import ClusterNamesDialog
 from src.influences.community_palette import generate_community_palette

@@ -16,8 +16,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_resolution import resolve_or_create_artist
 from src.common.cancellable_worker import CancellableWorker
-from src.core.config_setup import app_config
-from src.core.logger_config import logger
+from src.foundation.config_setup import app_config
+from src.foundation.logger_config import logger
 from src.importing.artist_field_extraction import (
     ALBUM_ARTIST_FIELDS,
     TRACK_ARTIST_FIELDS,

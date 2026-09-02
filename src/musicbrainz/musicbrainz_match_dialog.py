@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.musicbrainz.musicbrainz_core import MBCandidate
 from src.musicbrainz.musicbrainz_worker import MusicBrainzWorker
 

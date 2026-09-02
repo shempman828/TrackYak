@@ -4,9 +4,9 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
 from src.dates.dates_calendar import CalendarWidget, OnThisDayDialog
 from src.dates.dates_timeline import TimelineWidget
+from src.foundation.logger_config import logger
 
 
 class TimelineView(QWidget):

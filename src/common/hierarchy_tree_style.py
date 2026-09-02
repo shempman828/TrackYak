@@ -13,7 +13,7 @@ from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QMessageBox, QTreeWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 DEPTH_COLORS = [
     QColor(70, 130, 180),  # Steel Blue

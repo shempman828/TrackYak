@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class PublisherAssociationDialog(QDialog):

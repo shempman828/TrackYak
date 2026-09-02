@@ -15,9 +15,9 @@ from sqlalchemy import insert
 
 from src.charts.chart_download import CHART_FILES, parse_chart_csv
 from src.common.cancellable_worker import CancellableWorker
-from src.core.asset_paths import chart_data_path
-from src.core.logger_config import logger
 from src.db.db_tables.chart import ChartEntry
+from src.foundation.asset_paths import chart_data_path
+from src.foundation.logger_config import logger
 
 CHUNK_SIZE = 5000
 

@@ -15,9 +15,9 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.core import censor
 from src.db.db_tables.base import Base
 from src.db.db_tables.track import Track
+from src.foundation import censor
 from src.metadata.metadata_mapping import VORBIS_TRACK_MAPPINGS
 from src.track.track_edit_lyrics import LyricsTab
 

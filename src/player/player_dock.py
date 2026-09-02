@@ -7,10 +7,10 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLa
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.rating_widget import RatingStarsWidget
-from src.core.asset_paths import icon
-from src.core.config_setup import app_config
-from src.core.logger_config import logger
-from src.core.status_utility import StatusManager
+from src.foundation.asset_paths import icon
+from src.foundation.config_setup import app_config
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import StatusManager
 from src.player.player_context_menu import PlayerContextMenuMixin
 from src.player.track_display_formatter import format_track_display
 from src.player.track_info_widget import TrackInfoWidget

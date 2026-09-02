@@ -309,7 +309,7 @@ CHECKBOX_LABEL = "Also add deleted genre(s) to Excluded Genres list"
 
 
 class _StubConfig:
-    """Stands in for src.core.config_setup.Config: same accessor surface the
+    """Stands in for src.foundation.config_setup.Config: same accessor surface the
     real Skipped/Excluded Genres tab and library_import.py use, backed by a
     plain list instead of config.ini."""
 
@@ -469,7 +469,7 @@ def test_checked_delete_skips_exclusion_add_for_failed_genre(qapp, controller_de
 
 
 def test_checked_delete_persists_to_scratch_config_file(qapp, controller_de, monkeypatch, tmp_path):
-    from src.core import config_setup
+    from src.foundation import config_setup
 
     scratch_ini = tmp_path / "config.ini"
     monkeypatch.setattr(config_setup, "config", lambda name: str(scratch_ini))

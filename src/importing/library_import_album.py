@@ -2,7 +2,7 @@ from typing import Any
 
 from src.album.release_type_utils import normalize_release_type
 from src.artist.artist_resolution import resolve_or_create_artist
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.importing.artist_field_extraction import ALBUM_ARTIST_FIELDS, extract_artists_from_metadata
 
 

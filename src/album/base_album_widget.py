@@ -3,8 +3,8 @@ from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
 from PySide6.QtWidgets import QGridLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from src.common.style_utils import set_style_property
-from src.core.censor import censor_text
-from src.core.logger_config import logger
+from src.foundation.censor import censor_text
+from src.foundation.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 
 

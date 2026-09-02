@@ -12,8 +12,8 @@ auto-fill in track_edit_lyrics.py's collect_changes().
 from PySide6.QtCore import Signal
 
 from src.common.cancellable_worker import CancellableWorker
-from src.core.censor import text_contains_explicit_words
-from src.core.logger_config import logger
+from src.foundation.censor import text_contains_explicit_words
+from src.foundation.logger_config import logger
 
 # How often to emit progress while scanning.
 PROGRESS_INTERVAL = 25

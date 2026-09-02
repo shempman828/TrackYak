@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.fuzzy_match_dialog import BaseFuzzyMatchDialog
-from src.core.status_utility import show_status_message
+from src.foundation.status_utility import show_status_message
 
 # Longest a publisher name is allowed to render in the match list before
 # being elided, so one very long name can't blow out the column width

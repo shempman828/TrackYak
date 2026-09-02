@@ -24,10 +24,10 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.style_utils import set_style_property
-from src.core.logger_config import logger
-from src.core.status_utility import StatusManager, show_status_message
 from src.db.db_helpers import Session
 from src.display.display_settings import apply_scaled_style
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import StatusManager, show_status_message
 from src.sync.device_card import DeviceCard
 from src.sync.mtp_list_worker import MtpListWorker
 from src.sync.mtp_manager import MtpDevice, MtpManager, mtp_available

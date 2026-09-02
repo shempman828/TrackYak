@@ -2,8 +2,8 @@ from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.censor import censor_text
-from src.core.logger_config import logger
+from src.foundation.censor import censor_text
+from src.foundation.logger_config import logger
 
 
 class ScrollingLabel(QLabel):

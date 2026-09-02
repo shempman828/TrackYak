@@ -16,8 +16,8 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
-from src.core.status_utility import StatusManager
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import StatusManager
 from src.metadata.metadata_flac_file_writer import FlacFileWriter
 from src.metadata.metadata_id3_frame_builder import ID3FrameBuilder
 from src.metadata.metadata_mp3_file_writer import MP3FileWriter

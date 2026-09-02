@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_fuzzy_match import FuzzyMatchDialog, _blocking_keys, artist_name_similarity
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.musicbrainz.musicbrainz_artist import MBAlias, MBArtistRelations, MBGroupRelation
 from src.place.place_association_types import (
     fetch_association_types,

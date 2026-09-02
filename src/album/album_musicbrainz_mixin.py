@@ -6,7 +6,7 @@ from src.album.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDial
 from src.album.release_type_utils import normalize_release_type
 from src.award.award_series_import import fetch_award_series_relations, import_awards_for_entity
 from src.common.nullable_numeric_field import nullable_field_value, set_nullable_field_value
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.musicbrainz.musicbrainz_core import MusicBrainzLookupError
 from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzImportDialog, MusicBrainzMatchDialog
 from src.musicbrainz.musicbrainz_release import (

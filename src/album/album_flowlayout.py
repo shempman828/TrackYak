@@ -7,7 +7,7 @@ when the available width is exhausted, similar to CSS flexbox wrap.
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtWidgets import QLayout
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class FlowLayout(QLayout):

@@ -1,7 +1,7 @@
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
 from src.db.db_tables import ArtistType, Chart, Mood, Place, PlaceAssociationType, Role
+from src.foundation.logger_config import logger
 
 # Default mood taxonomy for automatic lyrics-based mood tagging (see
 # docs/specs/lyrics_mood_tagging.md). Keyword lists for each of these

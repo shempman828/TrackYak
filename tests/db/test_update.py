@@ -7,10 +7,10 @@ used to point at from images/artist_images/ or images/publisher_logos/.
 
 import pytest
 
-from src.core import asset_paths
 from src.db.db_helpers.update import UpdateDB
 from src.db.db_tables.artist import Artist
 from src.db.db_tables.publisher import Publisher
+from src.foundation import asset_paths
 
 
 @pytest.fixture

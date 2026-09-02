@@ -23,8 +23,8 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
-from src.core.logger_config import logger
-from src.core.status_utility import StatusManager, show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import StatusManager, show_status_message
 from src.metadata.metadata_writer import MetadataWriter, WriteMode
 
 

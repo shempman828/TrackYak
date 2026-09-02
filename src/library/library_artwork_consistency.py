@@ -22,7 +22,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.metadata.metadata_artwork import ArtworkExtractor
 
 

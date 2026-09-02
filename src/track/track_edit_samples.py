@@ -22,8 +22,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.entity_completer_context import track_context_map
 from src.common.entity_completer_edit import ContextItemDelegate
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 from src.track.track_edit_basetab import _BaseTab
 
 # Direction constants for the add bar's toggle.

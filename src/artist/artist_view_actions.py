@@ -18,7 +18,7 @@ from src.artist.artist_place import PlaceSelectionDialog
 from src.award.award_new import AddAwardDialog
 from src.common.base_merge_dialog import MergeDBDialog
 from src.common.base_split_dialog import SplitDBDialog
-from src.core.status_utility import show_status_message
+from src.foundation.status_utility import show_status_message
 from src.influences.influences_dialog import AddInfluenceDialog
 from src.place.place_association_types import (
     fetch_association_types,

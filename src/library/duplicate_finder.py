@@ -72,8 +72,8 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 from src.library.fingerprint_matching import score_fingerprint_batch
 from src.statistics.batch_analysis_scheduler import recommended_worker_count
 from src.track.base_track_view import BaseTrackView

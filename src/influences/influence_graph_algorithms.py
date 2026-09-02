@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 import networkx as nx
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 def extract_global_influence_graph(get_helper):

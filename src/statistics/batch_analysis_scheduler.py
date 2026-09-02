@@ -15,7 +15,7 @@ import threading
 from PySide6.QtCore import QObject, Signal
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.statistics.album_gain_peak import recompute_album_gain_peak
 from src.statistics.analysis_cache import CACHE_SAVE_INTERVAL, analysis_cache
 from src.statistics.audio_calculations import AudioCalculations

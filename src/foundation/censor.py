@@ -10,8 +10,8 @@ import re
 
 from PySide6.QtWidgets import QApplication
 
-from src.core.asset_paths import asset
-from src.core.logger_config import logger
+from src.foundation.asset_paths import asset
+from src.foundation.logger_config import logger
 
 _WORDLIST_PATH = Path(asset("explicit_words.txt"))
 

@@ -10,7 +10,7 @@ from typing import ClassVar
 from PySide6.QtCore import Qt
 
 from src.artist.artist_sort import artist_sort_key
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 
 

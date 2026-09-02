@@ -3,9 +3,9 @@
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
 from src.db.db_helpers.registry import MODEL_REGISTRY, BaseDBHelper
 from src.db.db_tables import Album, AlbumRoleAssociation
+from src.foundation.logger_config import logger
 
 
 class GetFromDB(BaseDBHelper):

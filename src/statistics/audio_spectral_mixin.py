@@ -12,7 +12,7 @@ AudiophileScoreMixin.
 import numpy as np
 from scipy import signal
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 # Must match gain_calculator.py's REPLAYGAIN_REFERENCE_LUFS — both sides
 # assume track_gain is a ReplayGain-style adjustment relative to this reference.

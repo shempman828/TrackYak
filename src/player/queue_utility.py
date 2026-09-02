@@ -8,9 +8,9 @@ import random
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.asset_paths import config as config_path
-from src.core.logger_config import logger
 from src.db.db_tables import Track
+from src.foundation.asset_paths import config as config_path
+from src.foundation.logger_config import logger
 from src.metadata.metadata_writer_backup import atomic_write
 
 # ── Persistence limits ────────────────────────────────────────────────────────

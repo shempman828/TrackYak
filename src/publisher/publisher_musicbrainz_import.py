@@ -19,7 +19,7 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.musicbrainz.musicbrainz_release import MBFounderRelation, MBLabelInfo
 from src.place.place_association_types import (
     fetch_association_types,

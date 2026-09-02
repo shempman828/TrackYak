@@ -12,7 +12,7 @@ See docs/specs/lyrics_mood_tagging.md.
 from PySide6.QtCore import Signal
 
 from src.common.cancellable_worker import CancellableWorker
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.mood.mood_autotag import auto_tag_track, build_autotag_context
 
 # How often to emit progress while scanning.

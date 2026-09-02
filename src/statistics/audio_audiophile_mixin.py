@@ -13,7 +13,7 @@ import numpy as np
 from scipy import signal
 from scipy.ndimage import uniform_filter1d
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class AudiophileScoreMixin:

@@ -5,13 +5,13 @@ from PySide6.QtGui import QAction, QCursor, QDesktopServices, QIcon, QKeySequenc
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from src.common.alias_management_dialog import AliasManagementDialog
-from src.core.asset_paths import ASSETS_DIR, icon
-from src.core.config_setup import app_config
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
-from src.core.version import get_version
 from src.equalizer.equalizer_dialog import EqualizerDialog
 from src.file_management.file_manager_dialog import FileManager
+from src.foundation.asset_paths import ASSETS_DIR, icon
+from src.foundation.config_setup import app_config
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
+from src.foundation.version import get_version
 from src.importing.import_dialog import ImportDialog
 from src.library.artwork_consistency_dialog import ArtworkConsistencyDialog
 from src.library.duplicate_finder import DuplicateFinderDialog

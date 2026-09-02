@@ -18,7 +18,7 @@ from PySide6.QtCore import Signal
 
 from src.charts.chart_recommendations import get_missing_gap_fills, get_missing_popular
 from src.common.cancellable_worker import CancellableWorker
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 MODE_POPULAR = "popular"
 MODE_GAP_FILLS = "gap_fills"

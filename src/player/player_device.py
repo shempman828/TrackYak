@@ -16,8 +16,8 @@ import subprocess
 import threading
 import time
 
-from src.core.config_setup import app_config
-from src.core.logger_config import logger
+from src.foundation.config_setup import app_config
+from src.foundation.logger_config import logger
 
 try:
     import dbus

@@ -5,7 +5,7 @@ track_view_toolbar.py — toolbar construction and column-search picker for Trac
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QMenu, QToolButton
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.track.track_view_filter import SEARCH_ALL
 
 

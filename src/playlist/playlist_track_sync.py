@@ -13,7 +13,7 @@ import datetime
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class PlaylistTrackSyncResult:

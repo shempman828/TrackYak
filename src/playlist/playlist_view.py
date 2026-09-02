@@ -25,8 +25,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
 from src.common.hierarchy_tree_style import configure_hierarchy_tree, icon_for_depth
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 from src.playlist.playlist_edit import EditPlaylist
 from src.playlist.playlist_export import PlaylistExporter
 from src.playlist.playlist_new import PlaylistCreateDialog

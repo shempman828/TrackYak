@@ -4,8 +4,8 @@ import inspect
 
 from sqlalchemy import select
 
-from src.core.logger_config import logger
 import src.db.db_tables
+from src.foundation.logger_config import logger
 
 # Maps every ORM class name in src.db.db_tables to its class object, so the
 # rest of this package can look entities up by string name (e.g. "Track")

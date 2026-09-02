@@ -13,7 +13,7 @@ them and assigns results onto the host view's instance attributes.
 
 import math
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.influences import influence_graph_algorithms as algorithms
 
 

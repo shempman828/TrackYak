@@ -32,8 +32,8 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.entity_completer_edit import build_entity_search_widget
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 
 
 class _MergeAliasEditDialog(QDialog):

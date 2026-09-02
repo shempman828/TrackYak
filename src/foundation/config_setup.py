@@ -10,8 +10,8 @@ from typing import Any
 
 from PySide6.QtCore import QByteArray, QPoint, QSize
 
-from src.core.asset_paths import config
-from src.core.logger_config import logger
+from src.foundation.asset_paths import config
+from src.foundation.logger_config import logger
 
 config_dir = config("config.ini")
 

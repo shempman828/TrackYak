@@ -83,7 +83,7 @@ def config(name: str) -> str:
 
 def ensure_directories_exist():
     """Create any missing project directories."""
-    from src.core.logger_config import logger
+    from src.foundation.logger_config import logger
 
     for path in [
         ASSETS_DIR,

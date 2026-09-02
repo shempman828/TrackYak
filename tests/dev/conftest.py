@@ -6,9 +6,9 @@ monkey-patches or a flipped config flag into the rest of the suite.
 
 import pytest
 
-from src.core.config_setup import Config
 import src.dev as dev_pkg
 from src.dev import dev_album_sort, dev_mode, dev_settings_tab
+from src.foundation.config_setup import Config
 
 
 @pytest.fixture

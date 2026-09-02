@@ -18,10 +18,10 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.layout_utils import clear_layout
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
 from src.display.display_settings import apply_scaled_style
 from src.equalizer.equalizer_utility import EqualizerUtility
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 
 
 class EqualizerDialog(QDialog):

@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.player.track_info_widget import _ElidingLabel
 from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
 

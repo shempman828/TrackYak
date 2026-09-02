@@ -13,7 +13,7 @@ tagging write path persists on each MoodTrackAssociation row, powering the
 "most representative tracks per mood" statistic
 (docs/specs/mood_representative_tracks.md).
 
-Mirrors src/core/censor.py's cached, mtime-reloaded pattern approach (one
+Mirrors src/foundation/censor.py's cached, mtime-reloaded pattern approach (one
 compiled `\\b(word1|word2|...)\\b` regex per keyword list, no restart
 needed to pick up an edited word list) but scores rather than binary-
 matches, since a single incidental keyword hit must not auto-tag a mood
@@ -27,8 +27,8 @@ import json
 from pathlib import Path
 import re
 
-from src.core.asset_paths import asset
-from src.core.logger_config import logger
+from src.foundation.asset_paths import asset
+from src.foundation.logger_config import logger
 from src.statistics.stats.lyrics import _tokenize
 
 _KEYWORDS_PATH = Path(asset("mood_keywords.json"))

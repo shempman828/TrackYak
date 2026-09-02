@@ -25,9 +25,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.core.logger_config import logger
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.db.field_spec import FieldSpec
+from src.foundation.logger_config import logger
 
 # Storage/display format for exact-moment datetime values. Must use a space
 # separator (not Qt.ISODate's "T") to match the "yyyy-MM-dd HH:MM:SS[.ffffff]"

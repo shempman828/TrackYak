@@ -47,11 +47,11 @@ import re
 import musicbrainzngs
 from sqlalchemy import select
 
-from src.core.logger_config import logger
 from src.db.db_tables.album import Album
 from src.db.db_tables.artist import Artist
 from src.db.db_tables.award import Award, AwardAssociation
 from src.db.db_tables.track import Track
+from src.foundation.logger_config import logger
 from src.musicbrainz.musicbrainz_core import configure
 
 # MB series types that can appear on the recording/release-group/artist

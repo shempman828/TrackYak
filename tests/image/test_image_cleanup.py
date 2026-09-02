@@ -7,10 +7,10 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.core import asset_paths
 from src.db.db_tables.artist import Artist
 from src.db.db_tables.base import Base
 from src.db.db_tables.publisher import Publisher
+from src.foundation import asset_paths
 from src.image import image_cleanup
 from src.image.image_cleanup import (
     delete_managed_image,

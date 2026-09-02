@@ -15,9 +15,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.core.asset_paths import icon
-from src.core.config_setup import Config
-from src.core.logger_config import logger
+from src.foundation.asset_paths import icon
+from src.foundation.config_setup import Config
+from src.foundation.logger_config import logger
 
 
 class StartupDialog(QDialog):

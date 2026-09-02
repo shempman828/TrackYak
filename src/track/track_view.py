@@ -17,8 +17,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut, QStandardItemModel
 from PySide6.QtWidgets import QTableView, QVBoxLayout, QWidget
 
-from src.core.logger_config import logger
 from src.db.db_mapping_tracks import TRACK_FIELDS
+from src.foundation.logger_config import logger
 from src.track.track_view_actions import TrackViewActionsMixin
 from src.track.track_view_columns import TrackViewColumnsMixin
 from src.track.track_view_data import TrackViewDataMixin

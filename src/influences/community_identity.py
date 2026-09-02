@@ -23,7 +23,7 @@ via the same config_path()/atomic_write() helpers queue_state.json uses.
 import json
 from pathlib import Path
 
-from src.core.asset_paths import config as config_path
+from src.foundation.asset_paths import config as config_path
 from src.metadata.metadata_writer_backup import atomic_write
 
 _MATCH_THRESHOLD = 0.5  # minimum Jaccard overlap to treat as "the same" community

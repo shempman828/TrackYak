@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from typing import Any
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 _FORMAT_TO_MIME = {"JPEG": "image/jpeg", "PNG": "image/png", "GIF": "image/gif", "BMP": "image/bmp"}
 

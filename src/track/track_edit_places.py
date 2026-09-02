@@ -23,7 +23,7 @@ from src.common.entity_completer_edit import (
     get_cached_entities,
     register_cached_entity,
 )
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.place.place_association_types import (
     fetch_association_types,
     find_or_create_association_type,

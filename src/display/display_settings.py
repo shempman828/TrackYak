@@ -7,8 +7,8 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication, QWidget
 
-from src.core.asset_paths import resolve_theme_assets
-from src.core.logger_config import logger
+from src.foundation.asset_paths import resolve_theme_assets
+from src.foundation.logger_config import logger
 
 # QSS properties whose px values should track the UI scale slider.
 _SCALABLE_QSS_PROPS = (

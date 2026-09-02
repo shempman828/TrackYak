@@ -5,8 +5,8 @@ track_view_filter.py — background search/filter worker for TrackView.
 from PySide6.QtCore import Signal
 
 from src.common.cancellable_worker import CancellableWorker
-from src.core.logger_config import logger
 from src.db.db_mapping_tracks import TRACK_FIELDS
+from src.foundation.logger_config import logger
 
 # How many rows to load into the Qt model in each batch.
 LAZY_BATCH_SIZE = 200

@@ -7,7 +7,7 @@ from pathlib import Path
 import struct
 from typing import Any
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.metadata.metadata_byte_utils import syncsafe_to_int
 from src.metadata.metadata_image_utils import find_picture_indices_for_role
 from src.metadata.metadata_raw_tags import RawTagExtractor

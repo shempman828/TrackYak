@@ -20,16 +20,16 @@ Run once, manually, from the repo root:
     python scripts/patch_place_mbid_backfill.py
 """
 
+from datetime import datetime
 import os
 import shutil
-from datetime import datetime
 
 import musicbrainzngs
 from sqlalchemy.orm import scoped_session, sessionmaker
 
-from src.core.logger_config import logger
 from src.db.db_helpers import AddToDB, DeleteDB, GetFromDB, MergeDB, SplitDB, UpdateDB
 from src.db.db_tables.database import MusicDatabase
+from src.foundation.logger_config import logger
 from src.musicbrainz.musicbrainz_core import (
     MusicBrainzLookupError,
     _resolve_place_area,

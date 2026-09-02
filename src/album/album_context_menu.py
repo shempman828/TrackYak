@@ -5,8 +5,8 @@ from src.album.album_delete_dialog import DeleteEmptyAlbumsDialog
 from src.album.album_merge import AlbumMerge
 from src.album.album_new import NewAlbumDialog
 from src.album.base_album_widget import AlbumWidget
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 
 
 class AlbumContextMenuMixin:

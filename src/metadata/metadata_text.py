@@ -1,7 +1,7 @@
 import re
 from typing import Any
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.metadata.metadata_mapping import (
     ID3_ALBUM_MAPPINGS,
     ID3_ARTIST_MAPPINGS,

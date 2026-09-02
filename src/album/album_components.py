@@ -1,7 +1,7 @@
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QSpinBox, QTextEdit
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class AlbumUIComponents:

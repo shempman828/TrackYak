@@ -12,7 +12,7 @@ from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QWidget
 import pytest
 
-from src.core.status_utility import StatusManager
+from src.foundation.status_utility import StatusManager
 from src.player.player_context_menu import PlayerContextMenuMixin
 from src.player.player_dock import PlayerUI
 

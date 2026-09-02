@@ -4,8 +4,8 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QPushButton, QWidget
 
 from src.common.style_utils import set_style_property
-from src.core.asset_paths import icon
-from src.core.logger_config import logger
+from src.foundation.asset_paths import icon
+from src.foundation.logger_config import logger
 
 
 class StatusBarWidget(QWidget):

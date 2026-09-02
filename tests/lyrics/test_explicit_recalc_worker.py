@@ -12,11 +12,11 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.core import censor
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB
 from src.db.db_tables.base import Base
 from src.db.db_tables.track import Track
+from src.foundation import censor
 from src.lyrics.explicit_recalc_worker import ExplicitRecalcWorker
 
 

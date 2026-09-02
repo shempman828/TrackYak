@@ -29,7 +29,7 @@ from src.common.entity_completer_edit import (
     get_cached_entities,
     register_cached_entity,
 )
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.track.track_edit_basetab import _BaseTab
 
 

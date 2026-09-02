@@ -3,7 +3,7 @@
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.entity_completer_edit import find_or_create_by_name
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 def fetch_association_types(controller):

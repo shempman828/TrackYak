@@ -33,8 +33,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.layout_utils import clear_layout
-from src.core.logger_config import logger
 from src.display.display_settings import apply_scaled_style
+from src.foundation.logger_config import logger
 
 # ── Palette constants (mirror dark_mode.qss) ─────────────────────────────────
 _BG_BASE = "#0b0c10"

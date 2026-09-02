@@ -27,8 +27,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 from src.metadata.metadata_writer import MetadataWriter
 from src.statistics.batch_analysis_scheduler import BatchAnalysisScheduler
 from src.track.track_edit_basetab import _BaseTab

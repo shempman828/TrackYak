@@ -22,8 +22,8 @@ from collections.abc import Callable, Iterable
 
 from sqlalchemy.orm import selectinload
 
-from src.core.logger_config import logger
 from src.db.db_tables.track import Track
+from src.foundation.logger_config import logger
 from src.playlist.playlist_track_sync import sync_playlist_tracks
 
 # Public: other views (e.g. charts_view.py) detect whether a chart-derived

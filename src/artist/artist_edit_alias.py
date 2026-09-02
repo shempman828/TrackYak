@@ -7,8 +7,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.artist.artist_alias_dialog import SUGGESTED_ALIAS_TYPES
 from src.common.base_merge_dialog import MergeDBDialog
 from src.common.entity_alias_tab import EntityAliasesTab
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 
 
 class AliasesTab(EntityAliasesTab):

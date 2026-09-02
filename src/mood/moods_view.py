@@ -27,8 +27,8 @@ from src.common.hierarchy_tree_style import (
     is_hierarchy_descendant,
     restore_expanded_ids_or_expand_all,
 )
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 from src.mood.mood_dialog import MoodDialog
 from src.mood.mood_tracks import MoodTracksWindow
 from src.track.base_track_view import BaseTrackView

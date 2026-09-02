@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QMenu, QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.delete_confirmation import confirm_delete_with_file_option
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
 
 

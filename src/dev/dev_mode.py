@@ -8,7 +8,7 @@ to ``config_setup.py``.
 
 from __future__ import annotations
 
-from src.core.config_setup import Config
+from src.foundation.config_setup import Config
 
 SECTION = "developer"
 KEY = "enabled"

@@ -11,7 +11,7 @@ from pydub import AudioSegment
 from pydub.exceptions import PydubException
 from scipy import signal
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.statistics.audio_audiophile_mixin import AudiophileScoreMixin
 from src.statistics.audio_rhythm_mixin import AudioRhythmMixin
 from src.statistics.audio_spectral_mixin import AudioSpectralMixin

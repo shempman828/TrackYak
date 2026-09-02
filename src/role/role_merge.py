@@ -1,7 +1,7 @@
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.base_merge_dialog import MergeDBDialog
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class RoleMergeDialog(MergeDBDialog):

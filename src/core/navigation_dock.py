@@ -12,8 +12,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.core.asset_paths import icon
-from src.core.logger_config import logger
+from src.foundation.asset_paths import icon
+from src.foundation.logger_config import logger
 
 
 class NavigationDock(QDockWidget):

@@ -45,7 +45,7 @@ from src.charts.chart_recommendations_worker import (
     MODE_POPULAR,
     ChartRecommendationsWorker,
 )
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 _RESULT_LIMIT = 100
 _GAP_TAB_INDEX = 1

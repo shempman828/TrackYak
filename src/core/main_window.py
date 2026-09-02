@@ -24,15 +24,15 @@ from src.album.album_view import AlbumView
 from src.artist.artist_view import ArtistView
 from src.award.award_view import AwardView
 from src.charts.charts_view import ChartsView
-from src.core.asset_paths import icon, resolve_theme_assets, theme
-from src.core.config_setup import app_config
-from src.core.logger_config import logger
 from src.core.menu_bar import MenuBar
 from src.core.navigation_dock import NavigationDock
-from src.core.status_utility import StatusManager
 from src.core.status_widget import StatusBarWidget
 from src.dates.dates_view import TimelineView
 from src.file_management.file_manager_dialog import FileManager
+from src.foundation.asset_paths import icon, resolve_theme_assets, theme
+from src.foundation.config_setup import app_config
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import StatusManager
 from src.genre.genre_view import GenreView
 from src.importing.import_dialog import ImportDialog
 from src.influences.influences_view import InfluencesView

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 from src.sync.mtp_manager import MtpManager
 
 # ---------------------------------------------------------------------------
@@ -81,7 +81,7 @@ class SyncProfileStore:
 
     def __init__(self, profiles_path: str | None = None):
         if profiles_path is None:
-            from src.core.asset_paths import config as asset_config
+            from src.foundation.asset_paths import config as asset_config
 
             profiles_path = str(Path(asset_config("config.ini")).parent / "sync_profiles.json")
         self.profiles_path = Path(profiles_path)

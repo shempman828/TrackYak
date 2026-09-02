@@ -19,8 +19,8 @@ existed.
 from pathlib import Path
 import re
 
-from src.core import asset_paths
-from src.core.logger_config import logger
+from src.foundation import asset_paths
+from src.foundation.logger_config import logger
 
 # Same set the image managers sanitize entity names against.
 _INVALID_CHARS = re.compile(r'[<>:"/\\|?*]')

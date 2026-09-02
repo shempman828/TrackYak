@@ -16,7 +16,7 @@ import threading
 
 import numpy as np
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 # Formats libsndfile (soundfile) can't decode natively and must be
 # transcoded to WAV via ffmpeg before soundfile can open them.

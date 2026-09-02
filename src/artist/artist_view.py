@@ -26,11 +26,11 @@ from src.artist.artist_sort import artist_sort_key
 from src.artist.artist_view_actions import ArtistActionsMixin
 from src.artist.artist_view_dedup import ArtistDedupMixin
 from src.artist.artist_view_tracks import ArtistViewTracksMixin
-from src.core.asset_paths import icon
-from src.core.config_setup import app_config
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
 from src.db.db_tables import Artist, TrackArtistRole
+from src.foundation.asset_paths import icon
+from src.foundation.config_setup import app_config
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 
 
 # -------------------------

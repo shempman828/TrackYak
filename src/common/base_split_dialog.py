@@ -17,9 +17,9 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import object_mapper
 
-from src.core.logger_config import logger
-from src.core.status_utility import show_status_message
 from src.db.db_helpers import SplitDB
+from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 
 # Common separators used when multiple artists/entities are combined into a
 # single name, e.g. "Simon & Garfunkel", "Paul Simon / Art Garfunkel",

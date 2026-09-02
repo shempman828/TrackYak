@@ -4,8 +4,8 @@ from pathlib import Path
 import re
 import shutil
 
-from src.core.asset_paths import PUBLISHER_LOGOS_DIR
-from src.core.logger_config import logger
+from src.foundation.asset_paths import PUBLISHER_LOGOS_DIR
+from src.foundation.logger_config import logger
 
 _INVALID_CHARS = re.compile(r'[<>:"/\\|?*]')
 

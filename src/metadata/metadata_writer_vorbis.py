@@ -9,7 +9,7 @@ This is the correct format per the Vorbis I specification and expected by Picard
 import struct
 from typing import Union
 
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 
 class VorbisCommentWriter:

@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from src.common.global_merge_alias_tab import GlobalMergeAliasTab
 from src.common.global_split_alias_tab import GlobalSplitAliasTab
-from src.core.logger_config import logger
+from src.foundation.logger_config import logger
 
 # (tab label, model name, name field, id field)
 _ENTITY_TYPES = [
