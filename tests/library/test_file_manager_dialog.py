@@ -7,7 +7,7 @@ old worker reference, its cancel/reset helpers, and the Cancel button
 rendered next to "Update Metadata" must stay gone.
 """
 
-from src.file_management.file_manager_dialog import FileManager
+from src.library.file_manager_dialog import FileManager
 
 
 def test_metadata_section_has_no_dead_update_flow(qapp):

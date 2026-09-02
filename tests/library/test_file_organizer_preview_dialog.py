@@ -12,9 +12,7 @@ fix the other two started with, so it's the plainest form of the bug.
 
 from PySide6.QtWidgets import QAbstractItemView
 
-from src.file_management.file_organizer_preview_dialog import (
-    OrganizationPreviewDialog,
-)
+from src.library.file_organizer_preview_dialog import OrganizationPreviewDialog
 
 
 def test_ops_list_wheel_step_is_fixed_not_item_height_derived(qapp):

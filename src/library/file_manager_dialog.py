@@ -16,12 +16,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.file_management.file_manager import CLEANUP_PROGRESS_START, FileOrganizer
-from src.file_management.file_organizer_preview_dialog import OrganizationPreviewDialog
 from src.foundation.asset_paths import icon
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
+from src.library.file_manager import CLEANUP_PROGRESS_START, FileOrganizer
+from src.library.file_organizer_preview_dialog import OrganizationPreviewDialog
 from src.metadata.metadata_writer_dialog import show_metadata_write_dialog
 
 # --- Long HTML texts extracted for clarity ---

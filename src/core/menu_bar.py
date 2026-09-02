@@ -6,7 +6,6 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from src.common.alias_management_dialog import AliasManagementDialog
 from src.equalizer.equalizer_dialog import EqualizerDialog
-from src.file_management.file_manager_dialog import FileManager
 from src.foundation.asset_paths import ASSETS_DIR, icon
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
@@ -15,6 +14,7 @@ from src.foundation.version import get_version
 from src.importing.import_dialog import ImportDialog
 from src.library.artwork_consistency_dialog import ArtworkConsistencyDialog
 from src.library.duplicate_finder import DuplicateFinderDialog
+from src.library.file_manager_dialog import FileManager
 from src.library.missing_tracks import MissingTracks
 from src.lyrics.explicit_recalc_worker import ExplicitRecalcWorker
 from src.mood.mood_autotag_dialog import MoodAutoTagDialog
