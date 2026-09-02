@@ -22,12 +22,12 @@ class NowPlayingLyricsMixin:
     self._lyrics_lines, self._active_idx, self._last_position_ms,
     self._sync_offset_ms, self._saved_offset_tenths, self._offset_save_timer,
     self._countdown_timer, self._next_lyric_ms, self._karaoke_lbl,
-    self._next_lyric_lbls, self._karaoke_block, self._plain_area,
-    self._plain_lbl, self._no_lyrics_lbl, self._countdown_lbl,
+    self._next_lyric_lbls, self._preview_capacity, self._karaoke_block,
+    self._plain_area, self._plain_lbl, self._no_lyrics_lbl, self._countdown_lbl,
     self._offset_row, self._offset_lbl, self._offset_slider,
-    self._toggle_mode_btn, self._sync_toggle_btn, self._set_active(),
-    self._switch_tab(), self._PAGE_LYRICS, self._PAGE_CREDITS, and to be a
-    QWidget subclass.
+    self._toggle_mode_btn, self._sync_toggle_btn, self._recalc_preview_capacity(),
+    self._set_active(), self._switch_tab(), self._PAGE_LYRICS,
+    self._PAGE_CREDITS, and to be a QWidget subclass.
     """
 
     # ── lyrics mode toggle ─────────────────────────────────────────────────
@@ -184,15 +184,18 @@ class NowPlayingLyricsMixin:
     def _update_next_lyric_lbl(self, current_idx: int):
         """Fill the upcoming-lyric preview stack below the current karaoke line.
 
-        Populates up to ``len(self._next_lyric_lbls)`` rows with the next
-        non-empty lyric lines; any rows left over are cleared and hidden.
+        Populates up to ``self._preview_capacity`` rows — fitted to the karaoke
+        block's height by ``_recalc_preview_capacity`` — with the next non-empty
+        lyric lines; any rows left over are cleared and hidden.
         """
+        self._recalc_preview_capacity()
+        cap = min(self._preview_capacity, len(self._next_lyric_lbls))
         upcoming: list[str] = []
         for i in range(current_idx + 1, len(self._lyrics_lines)):
             t = self._lyrics_lines[i][1].strip()
             if t:
                 upcoming.append(t)
-                if len(upcoming) == len(self._next_lyric_lbls):
+                if len(upcoming) == cap:
                     break
         for lbl, text in zip(self._next_lyric_lbls, upcoming, strict=False):
             lbl.setText(text)

@@ -64,6 +64,13 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
     _ARTIST_FONT = QFont("Cambria", 16, QFont.Normal)
     _ALBUM_FONT = QFont("Cambria", 13, QFont.Normal)
     _PLAIN_FONT = QFont("Cambria", 12, QFont.Normal)
+    _PREVIEW_FONT = QFont("Cambria", 14, QFont.Normal)
+
+    # Upcoming-lyric preview stack: always show at least _PREVIEW_MIN_ROWS, and
+    # up to _PREVIEW_MAX_ROWS when the karaoke block is tall enough to fit them
+    # (see _recalc_preview_capacity).
+    _PREVIEW_MIN_ROWS = 3
+    _PREVIEW_MAX_ROWS = 6
 
     _PAGE_LYRICS = 0
     _PAGE_CREDITS = 1
@@ -82,6 +89,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._lyrics_lines: list[tuple[int, str]] = []
         self._active_idx = -1
         self._last_position_ms = -1
+        self._preview_capacity = self._PREVIEW_MIN_ROWS
 
         # Load saved offset from config (stored as tenths of a second, int)
         self._saved_offset_tenths = app_config.get_lyrics_sync_offset()
@@ -315,13 +323,17 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._karaoke_lbl = _KaraokeLine()
         self._karaoke_lbl.setVisible(False)
 
-        # Upcoming lyric lines — a short preview stack shown below the current
-        # karaoke line, each row fainter than the one above it (see the
-        # npRole="nextLyric" / "nextLyric2" / "nextLyric3" rules in the QSS).
+        # Upcoming lyric lines — a preview stack shown below the current karaoke
+        # line, each row fainter than the one above it (see the npRole="nextLyric"
+        # / "nextLyric2" / "nextLyric3" rules in the QSS). The pool is built at
+        # the tallest size; how many actually show is fitted to the block height
+        # by _recalc_preview_capacity(). Rows past the third reuse the faintest
+        # role.
         self._next_lyric_lbls: list[QLabel] = []
-        for role in ("nextLyric", "nextLyric2", "nextLyric3"):
+        for i in range(self._PREVIEW_MAX_ROWS):
+            role = "nextLyric" if i == 0 else "nextLyric2" if i == 1 else "nextLyric3"
             lbl = QLabel("")
-            lbl.setFont(QFont("Cambria", 14, QFont.Normal))
+            lbl.setFont(self._PREVIEW_FONT)
             lbl.setProperty("npRole", role)
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setWordWrap(True)
@@ -437,6 +449,34 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._backdrop.setGeometry(0, 0, self.width(), self.height())
+        if (
+            self._recalc_preview_capacity()
+            and self._is_synced
+            and not self._show_all_lyrics
+            and self._active_idx >= 0
+        ):
+            self._update_next_lyric_lbl(self._active_idx)
+
+    def _recalc_preview_capacity(self) -> bool:
+        """Fit the upcoming-lyric preview stack to the karaoke block's height.
+
+        Returns True when the row count changed. Called on resize and before
+        every preview refill so a taller panel shows more upcoming lines,
+        bounded by _PREVIEW_MIN_ROWS.._PREVIEW_MAX_ROWS.
+        """
+        block_h = self._karaoke_block.height()
+        if block_h <= 0:
+            return False
+        # kb layout spacing is 6px; reserve up to two wrapped rows for the
+        # current line's larger font before dividing the rest into preview rows.
+        row_h = QFontMetrics(self._PREVIEW_FONT).lineSpacing() + 6
+        current_h = QFontMetrics(self._karaoke_lbl.font()).lineSpacing() * 2
+        fits = (block_h - current_h - 6) // row_h
+        new_cap = max(self._PREVIEW_MIN_ROWS, min(self._PREVIEW_MAX_ROWS, int(fits)))
+        if new_cap == self._preview_capacity:
+            return False
+        self._preview_capacity = new_cap
+        return True
 
     # ── public API ────────────────────────────────────────────────────────
 

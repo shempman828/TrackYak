@@ -1,7 +1,8 @@
 """Karaoke mode shows a stack of upcoming lyric lines, not just one.
 
 Exercises the real ``NowPlayingView`` widget wiring plus the
-``NowPlayingLyricsMixin`` position-sync path that fills the preview stack.
+``NowPlayingLyricsMixin`` position-sync path that fills the preview stack,
+including the space-aware row count (``_recalc_preview_capacity``).
 """
 
 from types import SimpleNamespace
@@ -11,7 +12,8 @@ import pytest
 
 from src.nowplaying.nowplaying_view import NowPlayingView
 
-PREVIEW_ROWS = 3
+MIN_ROWS = NowPlayingView._PREVIEW_MIN_ROWS
+MAX_ROWS = NowPlayingView._PREVIEW_MAX_ROWS
 
 _SYNCED_LYRICS = "\n".join(
     [
@@ -23,6 +25,8 @@ _SYNCED_LYRICS = "\n".join(
         "[00:10.00] line five",
     ]
 )
+
+_LONG_LYRICS = "\n".join(f"[00:{i:02d}.00] line {i}" for i in range(20))
 
 
 class _FakeMediaPlayer(QObject):
@@ -42,21 +46,27 @@ def _visible_previews(v):
     return [lbl.text() for lbl in v._next_lyric_lbls if not lbl.isHidden()]
 
 
-def test_three_preview_rows_exist_and_start_hidden(view):
-    """AC1: the karaoke block owns exactly 3 preview rows, all hidden at rest."""
-    assert len(view._next_lyric_lbls) == PREVIEW_ROWS
+def test_preview_pool_sized_for_the_tallest_case_and_starts_hidden(view):
+    """AC1: the pool holds MAX_ROWS rows, all hidden and empty at rest."""
+    assert len(view._next_lyric_lbls) == MAX_ROWS
     assert all(lbl.isHidden() for lbl in view._next_lyric_lbls)
     assert all(lbl.text() == "" for lbl in view._next_lyric_lbls)
 
 
-def test_preview_rows_have_distinct_roles_for_graded_dimming(view):
-    """AC2: rows carry nextLyric / nextLyric2 / nextLyric3 so QSS dims each more."""
+def test_capacity_defaults_to_the_minimum_before_any_layout(view):
+    """AC2: until a real height is known, only MIN_ROWS lines are promised."""
+    assert view._preview_capacity == MIN_ROWS
+
+
+def test_preview_rows_have_graded_roles_extra_rows_reuse_the_faintest(view):
+    """AC3: first three rows dim in steps; any beyond reuse nextLyric3."""
     roles = [lbl.property("npRole") for lbl in view._next_lyric_lbls]
-    assert roles == ["nextLyric", "nextLyric2", "nextLyric3"]
+    assert roles[:3] == ["nextLyric", "nextLyric2", "nextLyric3"]
+    assert all(r == "nextLyric3" for r in roles[3:])
 
 
-def test_position_sync_fills_all_three_upcoming_lines(view):
-    """AC3: mid-song, the next three non-empty lines show below the current one."""
+def test_position_sync_fills_the_upcoming_lines_below_the_current(view):
+    """AC4: mid-song, the remaining non-empty lines show below the current one."""
     view._update_lyrics(SimpleNamespace(lyrics=_SYNCED_LYRICS))
     view._on_position_changed(5000)  # active line == "line two" (idx 2)
 
@@ -65,20 +75,56 @@ def test_position_sync_fills_all_three_upcoming_lines(view):
 
 
 def test_near_end_only_remaining_lines_show_rest_are_cleared(view):
-    """AC4: with fewer than 3 lines left, extra rows are emptied and hidden."""
+    """AC5: with fewer lines left than capacity, extra rows are emptied/hidden."""
     view._update_lyrics(SimpleNamespace(lyrics=_SYNCED_LYRICS))
     view._on_position_changed(5000)
     view._on_position_changed(9000)  # active line == "line four" (idx 4)
 
     assert view._karaoke_lbl.text() == "line four"
     assert _visible_previews(view) == ["line five"]
-    assert [lbl.text() for lbl in view._next_lyric_lbls] == ["line five", "", ""]
-    assert view._next_lyric_lbls[1].isHidden()
-    assert view._next_lyric_lbls[2].isHidden()
+    assert [lbl.text() for lbl in view._next_lyric_lbls] == ["line five"] + [""] * (MAX_ROWS - 1)
+    assert all(lbl.isHidden() for lbl in view._next_lyric_lbls[1:])
+
+
+def test_a_tall_karaoke_block_shows_more_than_the_minimum(view):
+    """AC6: given plenty of vertical room, the stack grows past MIN_ROWS."""
+    view._update_lyrics(SimpleNamespace(lyrics=_LONG_LYRICS))
+    view._karaoke_block.resize(400, 1000)
+    changed = view._recalc_preview_capacity()
+
+    assert changed is True
+    assert MIN_ROWS < view._preview_capacity <= MAX_ROWS
+
+    view._on_position_changed(3000)  # active idx 3 -> 16 lines still ahead
+    assert len(_visible_previews(view)) == view._preview_capacity
+
+
+def test_capacity_is_clamped_between_min_and_max(view):
+    """AC7: a cramped block never drops below MIN_ROWS; a huge one never exceeds MAX_ROWS."""
+    view._karaoke_block.resize(400, 40)
+    view._recalc_preview_capacity()
+    assert view._preview_capacity == MIN_ROWS
+
+    view._karaoke_block.resize(400, 5000)
+    view._recalc_preview_capacity()
+    assert view._preview_capacity == MAX_ROWS
+
+
+def test_shrinking_the_block_refills_with_fewer_rows(view):
+    """AC8: capacity tracks height in both directions and the stack refills."""
+    view._update_lyrics(SimpleNamespace(lyrics=_LONG_LYRICS))
+    view._karaoke_block.resize(400, 1000)
+    view._on_position_changed(3000)
+    tall_count = len(_visible_previews(view))
+
+    view._karaoke_block.resize(400, 40)
+    view._on_position_changed(5000)
+    assert len(_visible_previews(view)) == MIN_ROWS
+    assert tall_count > MIN_ROWS
 
 
 def test_switching_to_show_all_hides_the_preview_stack(view):
-    """AC5: leaving karaoke mode (Show All / no lyrics) hides every preview row."""
+    """AC9: leaving karaoke mode (Show All / no lyrics) hides every preview row."""
     view._update_lyrics(SimpleNamespace(lyrics=_SYNCED_LYRICS))
     view._on_position_changed(5000)
     assert _visible_previews(view)  # populated first

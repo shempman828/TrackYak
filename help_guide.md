@@ -114,9 +114,10 @@ quick-glance details (BPM, key, release year, play count, genres) that only
 show up if the track actually has that data.
 
 Below that, two tabs: **Lyrics** shows synced, karaoke-style lyrics if the
-track has them — the current line highlights as it plays, with the next three
+track has them — the current line highlights as it plays, with the next few
 lines previewed beneath it, each fainter than the one above so you can see
-what's coming without losing the current line. If the timing feels off, click
+what's coming without losing the current line. A taller window fits more
+preview lines; a short one trims back to three. If the timing feels off, click
 the small ⏱ icon to reveal a sync-offset slider and nudge it until it lines
 up. **Credits** shows everyone credited on the track.
 
