@@ -3,7 +3,7 @@
 predating the column, per docs/specs/mood_representative_tracks.md
 (AC6/AC7).
 
-In-memory SQLite session, same shape as tests/lyrics/test_mood_tag_worker.py.
+In-memory SQLite session, same shape as tests/mood/test_mood_tag_worker.py.
 """
 
 import json
@@ -16,7 +16,7 @@ from scripts.backfill_mood_association_scores import backfill_scores
 from src.db.db_tables.base import Base
 from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.track import Track
-from src.lyrics import mood_scoring
+from src.mood import mood_scoring
 
 
 @pytest.fixture(autouse=True)

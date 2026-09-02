@@ -22,16 +22,16 @@ Run once, manually, from the repo root:
     python scripts/backfill_mood_association_scores.py
 """
 
+from datetime import datetime
 import os
 import shutil
 import sys
-from datetime import datetime
 
 from src.core.logger_config import logger
 from src.db.db_tables.database import MusicDatabase
 from src.db.db_tables.mood import MoodTrackAssociation
 from src.db.db_tables.track import Track
-from src.lyrics.mood_scoring import score_moods_detailed
+from src.mood.mood_scoring import score_moods_detailed
 
 DB_PATH = "music_library.db"
 PROGRESS_EVERY = 2000

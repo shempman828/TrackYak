@@ -9,8 +9,8 @@ the auto-tag helper at all).
 
 import json
 
-import pytest
 from PySide6.QtWidgets import QWidget
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -21,7 +21,7 @@ from src.db.db_helpers.update import UpdateDB
 from src.db.db_tables.base import Base
 from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.track import Track
-from src.lyrics import mood_scoring
+from src.mood import mood_scoring
 from src.player.player_context_menu import PlayerContextMenuMixin
 
 
@@ -160,7 +160,7 @@ def test_context_menu_mood_autotag_failure_does_not_block_lyrics_save(
     # own broad except, so the lyrics save that already happened above it
     # in _on_lyrics_ready must be unaffected.
     monkeypatch.setattr(
-        "src.lyrics.mood_autotag.build_autotag_context",
+        "src.mood.mood_autotag.build_autotag_context",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
     )
 

@@ -1,4 +1,4 @@
-"""Tests for score_moods() (src/lyrics/mood_scoring.py), the scoring
+"""Tests for score_moods() (src/mood/mood_scoring.py), the scoring
 engine from docs/specs/lyrics_mood_tagging.md. Each test maps 1:1 to a
 numbered acceptance criterion.
 
@@ -12,7 +12,7 @@ import json
 
 import pytest
 
-from src.lyrics import mood_scoring
+from src.mood import mood_scoring
 
 
 @pytest.fixture(autouse=True)

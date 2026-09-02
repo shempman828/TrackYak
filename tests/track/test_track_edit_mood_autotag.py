@@ -21,7 +21,7 @@ from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables.base import Base
 from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.track import Track
-from src.lyrics import mood_scoring
+from src.mood import mood_scoring
 from src.track.track_edit_lyrics import LyricsTab
 
 
@@ -48,7 +48,7 @@ def _isolated_keywords(tmp_path, monkeypatch):
     mood_scoring._cache["keyword_patterns"] = None
 
     # Isolate from the real assets/mood_opposites.json (see the matching
-    # comment in tests/lyrics/test_mood_scoring.py).
+    # comment in tests/mood/test_mood_scoring.py).
     monkeypatch.setattr(mood_scoring, "_OPPOSITES_PATH", tmp_path / "no_opposites.json")
     mood_scoring._opposites_cache["mtime"] = None
     mood_scoring._opposites_cache["pairs"] = None

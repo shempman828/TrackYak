@@ -11,7 +11,7 @@ from src.core.censor import text_contains_explicit_words
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
 from src.db.db_mapping_tracks import TRACK_FIELDS
-from src.lyrics.mood_autotag import auto_tag_lyrics_safe
+from src.mood.mood_autotag import auto_tag_lyrics_safe
 from src.track.track_edit_basetab import _BaseTab
 from src.track.track_edit_fieldform import (
     _coerce,

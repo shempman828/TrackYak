@@ -54,8 +54,8 @@ from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create
 from src.core.asset_paths import asset
 from src.core.logger_config import logger
 from src.core.status_utility import show_status_message
-from src.lyrics.mood_tag_worker import MoodAutoTagWorker
 from src.mood.mood_dialog import MoodDialog
+from src.mood.mood_tag_worker import MoodAutoTagWorker
 from src.statistics.lyrics_stats_worker import LyricsStatsWorker
 
 _KEYWORDS_PATH = Path(asset("mood_keywords.json"))

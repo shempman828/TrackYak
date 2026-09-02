@@ -28,8 +28,8 @@ from dataclasses import dataclass, field
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.logger_config import logger
-from src.lyrics.mood_scoring import known_mood_names, score_moods_detailed
 from src.lyrics.place_matching import detect_known_places
+from src.mood.mood_scoring import known_mood_names, score_moods_detailed
 from src.place.place_association_types import (
     fetch_association_types,
     find_or_create_association_type,

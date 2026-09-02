@@ -1,4 +1,4 @@
-"""Tests for MoodAutoTagWorker (src/lyrics/mood_tag_worker.py), the
+"""Tests for MoodAutoTagWorker (src/mood/mood_tag_worker.py), the
 library-wide half of docs/specs/lyrics_mood_tagging.md. Each test maps
 1:1 to a numbered acceptance criterion.
 
@@ -20,9 +20,8 @@ from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.place import Place, PlaceAssociation
 from src.db.db_tables.place_association_type import PlaceAssociationType
 from src.db.db_tables.track import Track
-from src.lyrics import mood_scoring
-from src.lyrics import mood_tag_worker
-from src.lyrics.mood_tag_worker import MoodAutoTagWorker
+from src.mood import mood_scoring, mood_tag_worker
+from src.mood.mood_tag_worker import MoodAutoTagWorker
 
 
 @pytest.fixture(autouse=True)
@@ -41,7 +40,7 @@ def _isolated_keywords(tmp_path, monkeypatch):
     mood_scoring._cache["keyword_patterns"] = None
 
     # Isolate from the real assets/mood_opposites.json (see the matching
-    # comment in tests/lyrics/test_mood_scoring.py).
+    # comment in tests/mood/test_mood_scoring.py).
     monkeypatch.setattr(mood_scoring, "_OPPOSITES_PATH", tmp_path / "no_opposites.json")
     mood_scoring._opposites_cache["mtime"] = None
     mood_scoring._opposites_cache["pairs"] = None

@@ -7,7 +7,7 @@ from src.album.base_album_edit import AlbumEditor
 from src.artist.artist_edit import ArtistEditor
 from src.core.logger_config import logger
 from src.core.status_utility import StatusManager, show_status_message
-from src.lyrics.mood_autotag import auto_tag_lyrics_safe
+from src.mood.mood_autotag import auto_tag_lyrics_safe
 from src.track.track_edit import TrackEditDialog
 
 
