@@ -4,7 +4,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.album.album_musicbrainz_known_entities import known_place_mbids, known_publisher_mbids
 from src.album.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
 from src.album.release_type_utils import normalize_release_type
-from src.awards.award_series_import import fetch_award_series_relations, import_awards_for_entity
+from src.award.award_series_import import fetch_award_series_relations, import_awards_for_entity
 from src.common.nullable_numeric_field import nullable_field_value, set_nullable_field_value
 from src.core.logger_config import logger
 from src.musicbrainz.musicbrainz_core import MusicBrainzLookupError

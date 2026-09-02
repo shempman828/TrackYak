@@ -2,7 +2,7 @@
 One-time backfill for awards data on entities matched to MusicBrainz before
 the awards-import feature existed. Going forward, awards import happens
 live, inline, whenever an album/artist gets newly MB-matched (see
-src/awards/award_series_import.py's module docstring) -- this script is
+src/award/award_series_import.py's module docstring) -- this script is
 only for the existing library's backlog of already-matched entities that
 never got that treatment.
 
@@ -26,13 +26,13 @@ script backs itself up first, same as the other backfill scripts):
     python scripts/backfill_awards_import.py
 """
 
+from datetime import datetime
 import os
 import shutil
-from datetime import datetime
 
 from sqlalchemy.orm import scoped_session, sessionmaker
 
-from src.awards.award_series_import import sync_awards
+from src.award.award_series_import import sync_awards
 from src.db.db_helpers import AddToDB, DeleteDB, GetFromDB, MergeDB, SplitDB, UpdateDB
 from src.db.db_tables.database import MusicDatabase
 

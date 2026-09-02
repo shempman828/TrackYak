@@ -20,7 +20,7 @@ from typing import Any
 from PySide6.QtCore import Signal
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.awards.award_series_import import import_awards_for_entity
+from src.award.award_series_import import import_awards_for_entity
 from src.common.cancellable_worker import CancellableWorker
 from src.common.entity_completer_edit import find_or_create_by_name
 from src.core.config_setup import app_config

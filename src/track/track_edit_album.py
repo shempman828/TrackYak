@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.awards.award_series_import import import_awards_for_entity
+from src.award.award_series_import import import_awards_for_entity
 from src.common.entity_completer_context import album_context_map
 from src.common.entity_completer_edit import (
     build_entity_search_widget,

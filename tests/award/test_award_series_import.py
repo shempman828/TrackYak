@@ -1,5 +1,5 @@
 """
-Tests for the reverse-lookup awards importer (src/awards/award_series_import.py)
+Tests for the reverse-lookup awards importer (src/award/award_series_import.py)
 against a scratch in-memory SQLite session -- never music_library.db.
 MusicBrainz calls are mocked; no live network access here (see
 docs/specs/awards_import.md's Phase 3 plan for the live smoke test).
@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.awards.award_series_import import (
+from src.award.award_series_import import (
     fetch_award_series_relations,
     import_awards_for_entity,
     sync_awards,
@@ -73,7 +73,7 @@ def _mock_lookups(recording=None, release_group=None, artist=None):
         return _fn
 
     return patch.multiple(
-        "src.awards.award_series_import.musicbrainzngs",
+        "src.award.award_series_import.musicbrainzngs",
         get_recording_by_id=_response("recording", recording),
         get_release_group_by_id=_response("release-group", release_group),
         get_artist_by_id=_response("artist", artist),
@@ -260,7 +260,7 @@ def test_lookup_failure_on_one_entity_does_not_lose_prior_progress(session):
         return {"recording": {"id": mbid, "series-relation-list": relations}}
 
     with patch.multiple(
-        "src.awards.award_series_import.musicbrainzngs",
+        "src.award.award_series_import.musicbrainzngs",
         get_recording_by_id=flaky_get_recording,
         get_release_group_by_id=lambda mbid, includes=None: {
             "release-group": {"series-relation-list": []}
@@ -297,7 +297,7 @@ def test_import_with_prefetched_relations_skips_network(session):
         )
     ]
     with patch.multiple(
-        "src.awards.award_series_import.musicbrainzngs",
+        "src.award.award_series_import.musicbrainzngs",
         get_recording_by_id=_explode,
         get_release_group_by_id=_explode,
         get_artist_by_id=_explode,
@@ -318,7 +318,7 @@ def test_import_with_prefetched_relations_skips_network(session):
 def test_import_with_relations_none_reports_failure_without_network(session):
     album = _add_album(session, "rg-mbid-1")
     with patch.multiple(
-        "src.awards.award_series_import.musicbrainzngs",
+        "src.award.award_series_import.musicbrainzngs",
         get_recording_by_id=_explode,
         get_release_group_by_id=_explode,
         get_artist_by_id=_explode,
@@ -345,6 +345,6 @@ def test_fetch_award_series_relations_returns_none_on_lookup_failure():
         raise RuntimeError("simulated network failure")
 
     with patch.multiple(
-        "src.awards.award_series_import.musicbrainzngs", get_release_group_by_id=boom
+        "src.award.award_series_import.musicbrainzngs", get_release_group_by_id=boom
     ):
         assert fetch_award_series_relations("Album", "rg-mbid-1") is None
