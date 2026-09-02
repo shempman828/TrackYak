@@ -10,7 +10,7 @@ from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QFont, QPainter
 from PySide6.QtWidgets import QSizePolicy
 
-from src.statistics.charts.theme_palette import STANDARD_BAR_PALETTE, ThemedChartWidget
+from src.statistics.widgets.theme_palette import STANDARD_BAR_PALETTE, ThemedChartWidget
 
 # Minimum drawable bar-area height; the chart paints its bars relative to
 # whatever vertical space it is actually given (>= this), so a taller

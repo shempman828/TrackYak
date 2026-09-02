@@ -17,7 +17,7 @@ from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QSizePolicy, QToolTip
 
-from src.statistics.charts.theme_palette import ThemedChartWidget
+from src.statistics.widgets.theme_palette import ThemedChartWidget
 
 _MIN_HEIGHT = 180
 

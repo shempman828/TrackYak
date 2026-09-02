@@ -24,19 +24,19 @@ from src.core.logger_config import logger
 from src.statistics.album_stats_worker import AlbumStatsWorker
 from src.statistics.artist_stats_worker import ArtistStatsWorker
 from src.statistics.audio_stats_worker import AudioStatsWorker
-from src.statistics.charts.bar_distribution_chart import BarDistributionChart
-from src.statistics.charts.histogram_chart import HistogramChart
-from src.statistics.charts.leaderboard_list import LeaderboardListWidget
-from src.statistics.charts.stat_tile import StatTileWidget
-from src.statistics.charts.threshold_tier_widget import ThresholdTierWidget
-from src.statistics.charts.word_cloud_widget import WordCloudWidget
-from src.statistics.charts.year_time_series_chart import YearTimeSeriesChart
 from src.statistics.genre_mood_stats_worker import GenreMoodStatsWorker
 from src.statistics.influence_stats_worker import InfluenceStatsWorker
 from src.statistics.lyrics_stats_worker import LyricsStatsWorker
 from src.statistics.places_credits_stats_worker import PlacesCreditsStatsWorker
-from src.statistics.rating_distribution_chart import RatingDistributionChart
 from src.statistics.stats.audio import DSP_COLUMNS
+from src.statistics.widgets.bar_distribution_chart import BarDistributionChart
+from src.statistics.widgets.histogram_chart import HistogramChart
+from src.statistics.widgets.leaderboard_list import LeaderboardListWidget
+from src.statistics.widgets.rating_distribution_chart import RatingDistributionChart
+from src.statistics.widgets.stat_tile import StatTileWidget
+from src.statistics.widgets.threshold_tier_widget import ThresholdTierWidget
+from src.statistics.widgets.word_cloud_widget import WordCloudWidget
+from src.statistics.widgets.year_time_series_chart import YearTimeSeriesChart
 
 # Highlight color for stat values in the HTML rich-text labels below. Qt's
 # rich-text renderer doesn't resolve QSS for inline HTML color attributes,

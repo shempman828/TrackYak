@@ -4,7 +4,7 @@ theme_palette.py
 ThemedChartWidget: base class extracting the theme-lookup boilerplate that
 was duplicated inline in rating_distribution_chart.py (the house pattern
 for hand-painted QPainter stat widgets). Every new chart/leaderboard/tile
-widget in src/statistics/charts/ subclasses this and supplies its own
+widget in src/statistics/widgets/ subclasses this and supplies its own
 _THEME_PALETTE dict keyed by the app's four display themes.
 """
 

@@ -13,7 +13,7 @@ from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import QSizePolicy, QToolTip
 
-from src.statistics.charts.theme_palette import ThemedChartWidget
+from src.statistics.widgets.theme_palette import ThemedChartWidget
 
 MIN_FONT_SIZE = 9
 MAX_FONT_SIZE = 24

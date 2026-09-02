@@ -11,7 +11,7 @@ from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import QSizePolicy
 
-from src.statistics.charts.theme_palette import ThemedChartWidget
+from src.statistics.widgets.theme_palette import ThemedChartWidget
 
 
 class StatTileWidget(ThemedChartWidget):

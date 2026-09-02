@@ -12,10 +12,10 @@ from PySide6.QtCore import QPoint
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QSizePolicy
 
-from src.statistics.charts.bar_distribution_chart import BarDistributionChart
-from src.statistics.charts.histogram_chart import HistogramChart
-from src.statistics.charts.year_time_series_chart import YearTimeSeriesChart
 from src.statistics.stats.helpers import DistributionStats
+from src.statistics.widgets.bar_distribution_chart import BarDistributionChart
+from src.statistics.widgets.histogram_chart import HistogramChart
+from src.statistics.widgets.year_time_series_chart import YearTimeSeriesChart
 
 # ---- test_distribution_chart_sizing.py ---------------------------------------
 _READABLE_MIN_HEIGHT = 190
