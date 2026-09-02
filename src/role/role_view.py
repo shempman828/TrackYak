@@ -3,6 +3,7 @@ from collections import defaultdict
 from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QHBoxLayout,
@@ -716,10 +717,7 @@ class RoleView(QWidget):
 
         # Remove everything after the first parenthesis if present
         match = re.match(r"^(.*?)(?:\s*\(.*\))?$", new_text)
-        if match:
-            new_name = match.group(1).strip()
-        else:
-            new_name = new_text
+        new_name = match.group(1).strip() if match else new_text
 
         old_text = item.text(column)  # Store old text in case we need to revert
 
@@ -977,14 +975,11 @@ class RoleView(QWidget):
                 )
                 return
 
-            reply = QMessageBox.question(
-                self,
-                "Confirm Delete",
-                f"Are you sure you want to delete '{role.role_name}'?",
-                QMessageBox.Yes | QMessageBox.No,
+            confirmed, add_to_excluded = self._confirm_delete_role(
+                f"Are you sure you want to delete '{role.role_name}'?"
             )
 
-            if reply == QMessageBox.Yes:
+            if confirmed:
                 self.controller.delete.delete_entity("Role", role_id)
                 self.role_updated.emit()
 
@@ -998,8 +993,51 @@ class RoleView(QWidget):
                 self._recursive_counts.pop(role_id, None)
                 self._rebuild_tree()
 
-                self.status_bar.setText(f"Deleted {role.role_name}")
+                status = f"Deleted {role.role_name}"
+                if add_to_excluded:
+                    added = self._add_to_excluded_roles([role.role_name])
+                    status += f", added {added} to Excluded Roles"
+                self.status_bar.setText(status)
 
         except (AttributeError, SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error deleting role: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to delete role")
+
+    def _build_role_delete_confirmation_box(self, message):
+        """Build (but don't show) the Yes/No delete confirmation box, with an
+        'Also add deleted role to Excluded Roles list' checkbox attached.
+        Mirrors GenreView._build_delete_confirmation_box -- see
+        docs/specs/role_parse_ignore_list.md."""
+        box = QMessageBox(self)
+        box.setWindowTitle("Confirm Delete")
+        box.setText(message)
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        # Keep a Python reference on the box: setCheckBox() reparents the
+        # checkbox in C++, and with no Python variable holding it the wrapper
+        # can be GC'd out from under that reparenting, segfaulting a later
+        # box.checkBox() call.
+        checkbox = QCheckBox("Also add deleted role to Excluded Roles list")
+        box.setCheckBox(checkbox)
+        box._exclusion_checkbox = checkbox
+        return box
+
+    def _confirm_delete_role(self, message):
+        """Show the delete confirmation box; return (confirmed, add_to_excluded)."""
+        box = self._build_role_delete_confirmation_box(message)
+        confirmed = box.exec_() == QMessageBox.Yes
+        return confirmed, box._exclusion_checkbox.isChecked()
+
+    def _add_to_excluded_roles(self, role_names):
+        """Add role_names to the Excluded Roles config list, case-insensitively
+        deduped against what's already there. Returns the count actually added."""
+        if not role_names:
+            return 0
+        config = self.controller.config
+        existing = config.get_excluded_roles()
+        existing_lower = {name.lower() for name in existing}
+        added = [name for name in role_names if name.lower() not in existing_lower]
+        if not added:
+            return 0
+        config.set_excluded_roles(existing + added)
+        config.save()
+        return len(added)

@@ -343,6 +343,11 @@ Rename by clicking directly into a row, or open the full Edit dialog for a
 description too. Merge and Split work like they do everywhere else in the
 app; New Parent Role / New Child Role let you build out sub-categories (e.g.
 splitting a generic "Guitar" into "Electric Guitar" and "Acoustic Guitar").
+Deleting a role offers to add its name to your Excluded Roles list so future
+imports skip that credit — the same parse-ignore idea as Excluded Genres.
+The list itself lives in the **Skipped Roles** tab of Manage Aliases…
+(Tools menu): any credit role named there is never attached to a track on
+import, whether the credit came from file tags or MusicBrainz.
 
 ## Moods
 

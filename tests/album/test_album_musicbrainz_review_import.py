@@ -5,22 +5,27 @@ name match whose row already carries a *different* MBID is not a real
 match at all -- it must be ignored and a new Artist created instead of
 merging two people MusicBrainz itself considers distinct.
 """
+
 from types import SimpleNamespace
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from src.album.album_musicbrainz_review_import import _resolve_artist
-from src.db.db_helpers.add import AddToDB
-from src.db.db_helpers.get import GetFromDB
-from src.db.db_helpers.update import UpdateDB
-from src.db.db_tables.base import Base
-from src.musicbrainz.musicbrainz_release import MBTrackCredit
+
+from src.album import album_musicbrainz_review_import
 from src.album.album_musicbrainz_review_import import (
     _plan_album_credit,
     _plan_track_credit,
+    _resolve_artist,
 )
+from src.db.db_helpers.add import AddToDB
+from src.db.db_helpers.get import GetFromDB
+from src.db.db_helpers.update import UpdateDB
 from src.db.db_tables.artist import Artist, ArtistSplitAlias
+from src.db.db_tables.base import Base
 from src.db.db_tables.role import Role, RoleSplitAlias
+from src.musicbrainz.musicbrainz_release import MBTrackCredit
+
 
 # ---- test_mb_import_artist_mbid_conflict.py ----------------------------------
 @pytest.fixture
@@ -28,12 +33,9 @@ def controller_amc():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()
-    yield SimpleNamespace(
-        get=GetFromDB(session),
-        add=AddToDB(session),
-        update=UpdateDB(session),
-    )
+    yield SimpleNamespace(get=GetFromDB(session), add=AddToDB(session), update=UpdateDB(session))
     session.close()
+
 
 def _credit_amc(artist_name="John Smith", artist_mbid="mbid-new", canonical_name=None):
     return MBTrackCredit(
@@ -42,6 +44,7 @@ def _credit_amc(artist_name="John Smith", artist_mbid="mbid-new", canonical_name
         role_name="Album Artist",
         canonical_name=canonical_name if canonical_name is not None else artist_name,
     )
+
 
 def test_mbid_match_is_used_as_is(controller_amc):
     existing = controller_amc.add.add_entity(
@@ -52,6 +55,7 @@ def test_mbid_match_is_used_as_is(controller_amc):
 
     assert artist.artist_id == existing.artist_id
 
+
 def test_name_match_with_no_mbid_backfills(controller_amc):
     existing = controller_amc.add.add_entity("Artist", artist_name="John Smith", MBID=None)
 
@@ -59,6 +63,7 @@ def test_name_match_with_no_mbid_backfills(controller_amc):
 
     assert artist.artist_id == existing.artist_id
     assert artist.MBID == "mbid-new"
+
 
 def test_name_match_with_conflicting_mbid_creates_new_artist(controller_amc):
     conflicting = controller_amc.add.add_entity(
@@ -69,12 +74,11 @@ def test_name_match_with_conflicting_mbid_creates_new_artist(controller_amc):
 
     assert artist.artist_id != conflicting.artist_id
     assert artist.MBID == "mbid-new"
-    untouched = controller_amc.get.get_entity_object(
-        "Artist", artist_id=conflicting.artist_id
-    )
+    untouched = controller_amc.get.get_entity_object("Artist", artist_id=conflicting.artist_id)
     assert untouched.MBID == "mbid-different"
     all_artists = controller_amc.get.get_all_entities("Artist")
     assert len(all_artists) == 2
+
 
 def test_canonical_name_match_with_conflicting_mbid_creates_new_artist(controller_amc):
     # As-credited name doesn't match anything locally, but the canonical
@@ -84,12 +88,12 @@ def test_canonical_name_match_with_conflicting_mbid_creates_new_artist(controlle
     )
 
     artist = _resolve_artist(
-        controller_amc,
-        _credit_amc(artist_name="J. Smith", canonical_name="John Q. Smith"),
+        controller_amc, _credit_amc(artist_name="J. Smith", canonical_name="John Q. Smith")
     )
 
     assert artist.artist_id != conflicting.artist_id
     assert artist.MBID == "mbid-new"
+
 
 # ---- test_mb_import_split_alias.py -------------------------------------------
 # Tests for split-alias awareness in the MusicBrainz import credit-planning
@@ -104,18 +108,17 @@ def controller_sa():
         conn.exec_driver_sql("PRAGMA foreign_keys=ON")
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()
-    yield SimpleNamespace(
-        get=GetFromDB(session),
-        add=AddToDB(session),
-        update=UpdateDB(session),
-    )
+    yield SimpleNamespace(get=GetFromDB(session), add=AddToDB(session), update=UpdateDB(session))
     session.close()
+
 
 def _track(track_id=1, artist_roles=None):
     return SimpleNamespace(track_id=track_id, artist_roles=artist_roles or [])
 
+
 def _album(album_id=1, album_roles=None):
     return SimpleNamespace(album_id=album_id, album_roles=album_roles or [])
+
 
 def _credit_sa(artist_name="Multi Instrumentalist", role_name="Viola & Violin"):
     return MBTrackCredit(
@@ -124,6 +127,7 @@ def _credit_sa(artist_name="Multi Instrumentalist", role_name="Viola & Violin"):
         role_name=role_name,
         canonical_name=artist_name,
     )
+
 
 class TestRoleSplitAliasExpandsTrackCredit:
     def test_matching_role_name_creates_one_row_per_target_role(self, controller_sa):
@@ -169,6 +173,7 @@ class TestRoleSplitAliasExpandsTrackCredit:
         role = session.query(Role).filter_by(role_name="Piano").one()
         assert rows[0]["role_id"] == role.role_id
 
+
 class TestArtistSplitAliasExpandsTrackCredit:
     def test_matching_artist_name_creates_one_row_per_target_artist(self, controller_sa):
         session = controller_sa.get.session
@@ -199,6 +204,7 @@ class TestArtistSplitAliasExpandsTrackCredit:
         assert len(rows) == 2
         artist_ids = {r["artist_id"] for r in rows}
         assert artist_ids == {simon.artist_id, garfunkel.artist_id}
+
 
 class TestRoleSplitAliasExpandsAlbumCredit:
     def test_matching_role_name_creates_one_row_per_target_role_with_sort_order(
@@ -231,3 +237,41 @@ class TestRoleSplitAliasExpandsAlbumCredit:
         assert role_ids == {viola.role_id, violin.role_id}
         assert all(r["album_id"] == 1 for r in rows)
         assert all(r["sort_order"] == 0 for r in rows)  # different roles, each first
+
+
+# Tests for the role parse-ignore list in the MusicBrainz review-import path
+# (docs/specs/role_parse_ignore_list.md). A credit whose role name is on
+# Config.get_excluded_roles() plans no rows -- both _plan_track_credit and
+# _plan_album_credit go through _resolve_roles_for_credit, which returns [].
+class TestExcludedRolesSkipMBCredits:
+    def test_excluded_role_plans_no_track_rows(self, controller_sa, monkeypatch):
+        monkeypatch.setattr(
+            album_musicbrainz_review_import.app_config, "get_excluded_roles", lambda: ["Engineer"]
+        )
+        rows = _plan_track_credit(
+            controller_sa,
+            _track(),
+            _credit_sa(role_name="Engineer"),
+            known_roles=[],
+            planned_by_track={},
+        )
+
+        assert rows == []
+        session = controller_sa.get.session
+        assert session.query(Role).filter_by(role_name="Engineer").first() is None
+
+    def test_non_excluded_credit_still_planned(self, controller_sa, monkeypatch):
+        monkeypatch.setattr(
+            album_musicbrainz_review_import.app_config,
+            "get_excluded_roles",
+            lambda: ["engineer"],  # case-insensitive; does not match "Piano"
+        )
+        rows = _plan_track_credit(
+            controller_sa,
+            _track(),
+            _credit_sa(role_name="Piano"),
+            known_roles=[],
+            planned_by_track={},
+        )
+
+        assert len(rows) == 1

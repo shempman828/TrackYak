@@ -23,6 +23,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.awards.award_series_import import import_awards_for_entity
 from src.common.cancellable_worker import CancellableWorker
 from src.common.entity_completer_edit import find_or_create_by_name
+from src.core.config_setup import app_config
 from src.core.logger_config import logger
 from src.musicbrainz.musicbrainz_release import MBReleaseDetail, MBReleaseTrack
 from src.place.place_association_types import (
@@ -203,7 +204,12 @@ def _resolve_roles_for_credit(controller, role_name: str, known_roles: list[Any]
     previously split into 2+ roles (see SplitDB._record_split_alias)
     resolves to that same ordered list instead of find_or_create_by_name
     recreating/reusing one combined Role -- see
-    docs/specs/split_and_merge_aliases.md."""
+    docs/specs/split_and_merge_aliases.md. A role name on the parse-ignore
+    list (docs/specs/role_parse_ignore_list.md) resolves to nothing, so
+    both callers skip the credit -- same as the file-tag import path."""
+    if role_name.strip().lower() in {r.lower() for r in app_config.get_excluded_roles()}:
+        return []
+
     split_targets = controller.get.resolve_split_alias("Role", role_name)
     if split_targets:
         for role in split_targets:

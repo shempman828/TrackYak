@@ -23,10 +23,28 @@ from src.role.role_view import RoleLoaderWorker, RoleView
 
 
 # ---- test_role_view_delete.py ------------------------------------------------
+class _StubConfig:
+    """Config accessor surface used by RoleView._add_to_excluded_roles."""
+
+    def __init__(self, roles=None):
+        self._roles = list(roles or [])
+        self.save_calls = 0
+
+    def get_excluded_roles(self):
+        return list(self._roles)
+
+    def set_excluded_roles(self, names):
+        self._roles = list(names)
+
+    def save(self):
+        self.save_calls += 1
+
+
 class _Controller_del:
-    def __init__(self, session):
+    def __init__(self, session, config=None):
         self.get = GetFromDB(session)
         self.delete = DeleteDB(session)
+        self.config = config or _StubConfig()
 
 
 @pytest.fixture
@@ -41,12 +59,28 @@ def _make_role_del(session, name):
     return role
 
 
+def _patch_confirm_delete_role(view, monkeypatch, *, confirmed, checked, captured=None):
+    """Patch view._confirm_delete_role so it builds the real confirmation box
+    (proving the checkbox is genuinely attached with the right label) but
+    returns a canned result instead of blocking on box.exec_()."""
+    real_build = view._build_role_delete_confirmation_box
+
+    def _confirm_delete_role(message):
+        box = real_build(message)
+        if captured is not None:
+            captured["checkbox_text"] = box._exclusion_checkbox.text()
+            captured["checkbox_default_checked"] = box._exclusion_checkbox.isChecked()
+        return confirmed, checked
+
+    monkeypatch.setattr(view, "_confirm_delete_role", _confirm_delete_role)
+
+
 def test_confirmed_delete_removes_role(qapp, controller_del, monkeypatch):
     monkeypatch.setattr(RoleView, "load_roles", lambda self: None)
     role = _make_role_del(controller_del.get.session, "Guitar")
     view = RoleView(controller_del)
 
-    monkeypatch.setattr("src.role.role_view.QMessageBox.question", lambda *a, **k: QMessageBox.Yes)
+    _patch_confirm_delete_role(view, monkeypatch, confirmed=True, checked=False)
 
     view.delete_role(role.role_id)
 
@@ -59,11 +93,55 @@ def test_declined_delete_keeps_role(qapp, controller_del, monkeypatch):
     role = _make_role_del(controller_del.get.session, "Guitar")
     view = RoleView(controller_del)
 
-    monkeypatch.setattr("src.role.role_view.QMessageBox.question", lambda *a, **k: QMessageBox.No)
+    _patch_confirm_delete_role(view, monkeypatch, confirmed=False, checked=False)
 
     view.delete_role(role.role_id)
 
     assert controller_del.get.get_entity_object("Role", role_id=role.role_id) is not None
+
+
+def test_delete_confirmation_box_has_excluded_roles_checkbox(qapp, controller_del, monkeypatch):
+    monkeypatch.setattr(RoleView, "load_roles", lambda self: None)
+    role = _make_role_del(controller_del.get.session, "Guitar")
+    view = RoleView(controller_del)
+
+    captured = {}
+    _patch_confirm_delete_role(view, monkeypatch, confirmed=False, checked=False, captured=captured)
+    view.delete_role(role.role_id)
+
+    assert captured["checkbox_text"] == "Also add deleted role to Excluded Roles list"
+    assert captured["checkbox_default_checked"] is False
+
+
+def test_checked_delete_adds_role_to_excluded_and_reports_count(qapp, session, monkeypatch):
+    config = _StubConfig()
+    controller = _Controller_del(session, config)
+    monkeypatch.setattr(RoleView, "load_roles", lambda self: None)
+    role = _make_role_del(session, "Guitar")
+    view = RoleView(controller)
+
+    _patch_confirm_delete_role(view, monkeypatch, confirmed=True, checked=True)
+    view.delete_role(role.role_id)
+
+    assert config.get_excluded_roles() == ["Guitar"]
+    assert config.save_calls == 1
+    assert view.status_bar.text() == "Deleted Guitar, added 1 to Excluded Roles"
+
+
+def test_unchecked_delete_leaves_excluded_roles_untouched(qapp, session, monkeypatch):
+    config = _StubConfig()
+    controller = _Controller_del(session, config)
+    monkeypatch.setattr(RoleView, "load_roles", lambda self: None)
+    role = _make_role_del(session, "Guitar")
+    view = RoleView(controller)
+
+    _patch_confirm_delete_role(view, monkeypatch, confirmed=True, checked=False)
+    view.delete_role(role.role_id)
+
+    assert config.get_excluded_roles() == []
+    assert config.save_calls == 0
+    assert view.status_bar.text() == "Deleted Guitar"
+    assert "Excluded Roles" not in view.status_bar.text()
 
 
 # ---- test_role_view_recursive_counts.py --------------------------------------

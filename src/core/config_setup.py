@@ -71,12 +71,15 @@ def _encode_base_directory(self, section, keys, *values):
     self._set_str(section, keys[0], str(values[0]))
 
 
-def _decode_excluded_genres(self, section, keys):
+def _decode_csv_list(self, section, keys):
+    """Comma-joined string -> list of trimmed, non-empty strings.
+    Shared by every "names never attached during import" list
+    (excluded_genres, excluded_roles)."""
     raw = self._get_str(section, keys[0], fallback="")
     return [g.strip() for g in raw.split(",") if g.strip()]
 
 
-def _encode_excluded_genres(self, section, keys, *values):
+def _encode_csv_list(self, section, keys, *values):
     self._set_str(section, keys[0], ",".join(g.strip() for g in values[0] if g.strip()))
 
 
@@ -288,6 +291,7 @@ class Config:
             "scan_on_startup": "true",
             "auto_refresh": "false",
             "excluded_genres": "",
+            "excluded_roles": "",
         }
 
         # Playback section
@@ -438,11 +442,10 @@ _CONFIG_FIELDS = [
     _primitive("scan_on_startup", "library", "scan_on_startup", "bool", True),
     _primitive("auto_refresh", "library", "auto_refresh", "bool", False),
     ConfigField(
-        "excluded_genres",
-        "library",
-        ("excluded_genres",),
-        _decode_excluded_genres,
-        _encode_excluded_genres,
+        "excluded_genres", "library", ("excluded_genres",), _decode_csv_list, _encode_csv_list
+    ),
+    ConfigField(
+        "excluded_roles", "library", ("excluded_roles",), _decode_csv_list, _encode_csv_list
     ),
     _primitive("volume", "playback", "volume", "int", 75),
     _primitive("shuffle", "playback", "shuffle", "bool", False),

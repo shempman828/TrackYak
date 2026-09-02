@@ -1,7 +1,8 @@
 """
 library_import.py
 
-This code handles importing audio files into a music library database and parsing very robust metadata.
+This code handles importing audio files into a music library database and
+parsing very robust metadata.
 """
 
 from datetime import UTC
@@ -324,9 +325,14 @@ class TrackImporter:
         it).
         """
         role_cache = {}  # Cache role lookups
+        excluded_roles = {r.lower() for r in app_config.get_excluded_roles()}
 
         for role_name, artists in artists_dict.items():  # role_name is already correct!
             if role_name == "Album Artist":  # Album artists handled separately
+                continue
+
+            if role_name.lower() in excluded_roles:
+                logger.debug(f"Skipping excluded role '{role_name}' for track: {track.track_name}")
                 continue
 
             for artist in artists:
@@ -355,7 +361,8 @@ class TrackImporter:
                         "TrackArtistRole", commit=False, **relationship_data
                     )
                     logger.debug(
-                        f"Created {role_name} relationship: {artist.artist_name} -> {track.track_name}"
+                        f"Created {role_name} relationship: "
+                        f"{artist.artist_name} -> {track.track_name}"
                     )
                 except SQLAlchemyError as e:
                     logger.error(
@@ -396,7 +403,8 @@ class TrackImporter:
             # ID3: stored as TXXX:PLAYLIST, multiple values joined by " ; "
             id3_playlists = metadata.get("TXXX:PLAYLIST") or metadata.get("txxx:playlist")
             if id3_playlists:
-                # id3_playlists may itself be a list (if somehow multiple TXXX:PLAYLIST frames exist)
+                # id3_playlists may itself be a list (if somehow multiple
+                # TXXX:PLAYLIST frames exist)
                 if isinstance(id3_playlists, list):
                     for entry in id3_playlists:
                         # Each entry may contain " ; "-separated names
@@ -457,7 +465,8 @@ class TrackImporter:
             )
             if existing:
                 logger.debug(
-                    f"Track '{track.track_name}' is already in playlist '{playlist_name}' — skipping"
+                    f"Track '{track.track_name}' is already in playlist "
+                    f"'{playlist_name}' — skipping"
                 )
                 return
 
@@ -481,7 +490,8 @@ class TrackImporter:
             )
 
             logger.info(
-                f"Added '{track.track_name}' to playlist '{playlist_name}' at position {next_position}"
+                f"Added '{track.track_name}' to playlist '{playlist_name}' "
+                f"at position {next_position}"
             )
 
         except SQLAlchemyError as e:

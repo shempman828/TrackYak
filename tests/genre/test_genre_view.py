@@ -58,7 +58,7 @@ def _add_tracks_with_genre_he(session, genre, n):
 
 
 def test_context_menu_has_export_action_on_item_and_empty_space(session, qapp, controller_he):
-    rock = _make_genre_he(session, "Rock")
+    _make_genre_he(session, "Rock")
     view = GenreView(controller_he)
     item = view.tree.topLevelItem(0)
 
@@ -81,9 +81,11 @@ def test_export_with_no_genres_shows_status_and_skips_dialog(qapp, controller_he
     view = GenreView(controller_he)
     assert view._all_genres == []
 
-    with patch("src.genre.genre_view.QFileDialog.getSaveFileName") as mock_dialog:
-        with patch("src.genre.genre_view.show_status_message") as mock_status:
-            view.export_hierarchy()
+    with (
+        patch("src.genre.genre_view.QFileDialog.getSaveFileName") as mock_dialog,
+        patch("src.genre.genre_view.show_status_message") as mock_status,
+    ):
+        view.export_hierarchy()
 
     mock_dialog.assert_not_called()
     mock_status.assert_called_once()
@@ -99,7 +101,7 @@ def test_export_opens_save_dialog_with_txt_md_filter(session, qapp, controller_h
     ) as mock_dialog:
         view.export_hierarchy()
 
-    args, kwargs = mock_dialog.call_args
+    args, _kwargs = mock_dialog.call_args
     assert args[2] == "genre_hierarchy.txt"
     assert "*.txt" in args[3]
     assert "*.md" in args[3]
@@ -258,10 +260,10 @@ def test_export_write_failure_shows_error_dialog(session, qapp, controller_he, t
             return_value=(str(out_path), "Text Files (*.txt)"),
         ),
         patch("builtins.open", side_effect=OSError("permission denied")),
+        patch("src.genre.genre_view.QMessageBox.critical") as mock_critical,
+        patch("src.genre.genre_view.show_status_message") as mock_status,
     ):
-        with patch("src.genre.genre_view.QMessageBox.critical") as mock_critical:
-            with patch("src.genre.genre_view.show_status_message") as mock_status:
-                view.export_hierarchy()
+        view.export_hierarchy()
 
     mock_critical.assert_called_once()
     mock_status.assert_not_called()
@@ -528,9 +530,14 @@ class _FakeDialogSelf:
     """Lets us call AliasManagementDialog._create_skipped_genres_tab as an
     unbound method against a lightweight stand-in, without constructing the
     full 9-tab dialog (which needs a much larger DB-backed controller_de).
-    Borrows the real add/remove/save methods too, since the tab's line-edit
-    wires returnPressed to self._add_excluded_genre at construction time."""
+    Borrows the real tab builder and add/remove/save machinery too, since the
+    tab's line-edit wires returnPressed to those at construction time."""
 
+    _create_exclusion_tab = AliasManagementDialog._create_exclusion_tab
+    _create_skipped_genres_tab = AliasManagementDialog._create_skipped_genres_tab
+    _add_excluded = AliasManagementDialog._add_excluded
+    _remove_excluded = AliasManagementDialog._remove_excluded
+    _save_exclusion = AliasManagementDialog._save_exclusion
     _add_excluded_genre = AliasManagementDialog._add_excluded_genre
     _remove_excluded_genre = AliasManagementDialog._remove_excluded_genre
     _save_excluded_genres = AliasManagementDialog._save_excluded_genres
