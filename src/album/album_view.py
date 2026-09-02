@@ -70,7 +70,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         self.display_count = 20
         self.load_chunk = 20
 
-        # Sorting state – defaults to "Title (A–Z)"
+        # Sorting state - defaults to "Title (A-Z)"
         self._sort_criteria = "title"
         self._sort_descending = False
         # Stable per-album random keys, used by the "Random" sort so the
@@ -208,7 +208,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         self.year_from = _AnySpinBox()
         self.year_from.valueChanged.connect(self._apply_filters)
         add(self.year_from)
-        add(QLabel("–"))
+        add(QLabel("–"))  # noqa: RUF001 (en-dash range separator)
         self.year_to = _AnySpinBox()
         self.year_to.valueChanged.connect(self._apply_filters)
         add(self.year_to)
