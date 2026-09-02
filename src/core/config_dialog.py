@@ -22,8 +22,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.font_family_worker import FontFamilyWorker
-from src.display.display_settings import DisplaySettings
 from src.foundation.config_setup import Config
+from src.foundation.display_settings import DisplaySettings
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.display.display_settings import apply_scaled_style
+from src.foundation.display_settings import apply_scaled_style
 from src.foundation.logger_config import logger
 
 

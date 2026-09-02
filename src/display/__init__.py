@@ -1,1 +1,0 @@
-"""Display/theme settings."""

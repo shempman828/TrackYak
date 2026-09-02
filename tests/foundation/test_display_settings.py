@@ -1,4 +1,4 @@
-"""Tests for scale_qss_pixel_values() (src/display/display_settings.py),
+"""Tests for scale_qss_pixel_values() (src/foundation/display_settings.py),
 the regex pass that lets the Appearance settings UI-scale slider preview
 font/padding/margin/sizing changes live against the loaded theme's QSS.
 
@@ -6,11 +6,13 @@ Scaling must always run against a theme's original, unscaled QSS text --
 these tests also guard against a caller compounding the factor by scaling
 an already-scaled stylesheet.
 """
-from PySide6.QtWidgets import QLabel
-from src.display.display_settings import DisplaySettings, scale_qss_pixel_values
 import ast
 from pathlib import Path
-from src.display.display_settings import scale_qss_pixel_values
+
+from PySide6.QtWidgets import QLabel
+
+from src.foundation.display_settings import DisplaySettings, scale_qss_pixel_values
+
 
 # ---- test_display_settings__self_base.py -------------------------------------
 def test_scales_font_size_px():
@@ -167,6 +169,6 @@ def test_no_raw_setstylesheet_with_scalable_sizing_outside_display_settings():
         "Found raw widget.setStyleSheet() calls with a scalable sizing "
         "property (font-size/padding/margin/width/height/border-radius/etc.) "
         "that won't track the UI-scale slider. Use "
-        "src.display.display_settings.apply_scaled_style(widget, qss) "
+        "src.foundation.display_settings.apply_scaled_style(widget, qss) "
         "instead:\n" + "\n".join(violations)
     )

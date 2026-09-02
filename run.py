@@ -22,9 +22,9 @@ from src.core.splash_screen import StartupSplash
 from src.core.startup_dialog import StartupDialog
 from src.db.db_defaults import Defaults
 from src.db.db_tables import MusicDatabase
-from src.display.display_settings import DisplaySettings
 from src.foundation.asset_paths import ensure_directories_exist
 from src.foundation.config_setup import Config
+from src.foundation.display_settings import DisplaySettings
 from src.foundation.logger_config import logger
 from src.image.artwork_cache import ArtworkCache
 from src.musicbrainz.musicbrainz_core import configure as configure_musicbrainz
