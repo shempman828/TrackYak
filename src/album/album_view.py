@@ -240,6 +240,23 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         self.art_combo.currentIndexChanged.connect(self._apply_filters)
         add(_shrink_combo_to_content(self.art_combo))
 
+        # Album (release) type filter -- options populated from the library in
+        # _populate_dynamic_filter_combos() once albums are loaded.
+        add(QLabel("Type:"))
+        self.type_combo = QComboBox()
+        self.type_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.type_combo.addItem("Any")
+        self.type_combo.currentIndexChanged.connect(self._apply_filters)
+        add(_shrink_combo_to_content(self.type_combo))
+
+        # Media format filter -- options populated from the library too.
+        add(QLabel("Media:"))
+        self.media_combo = QComboBox()
+        self.media_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.media_combo.addItem("Any")
+        self.media_combo.currentIndexChanged.connect(self._apply_filters)
+        add(_shrink_combo_to_content(self.media_combo))
+
         # Stats label
         self.stats_label = QLabel()
         self.stats_label.setProperty("textRole", "muted")
@@ -283,6 +300,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
                 self.controller.get.get_all_entities("Album", load_options=_ALBUM_LIST_LOAD_OPTIONS)
                 or []
             )
+            self._populate_dynamic_filter_combos()
             self._restore_sort_combo()
             self._apply_filters()
         except (SQLAlchemyError, sqlite3.Error, AttributeError) as e:

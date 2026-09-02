@@ -18,7 +18,8 @@ class AlbumFilteringMixin:
     """
     Expects the host class to provide: self.search_bar, self.year_from,
     self.year_to, self.min_tracks, self.incomplete_combo, self.fixed_combo,
-    self.art_combo, self.stats_label, self.all_albums, self.filtered_albums,
+    self.art_combo, self.type_combo, self.media_combo, self.stats_label,
+    self.all_albums, self.filtered_albums,
     self.display_count, self.load_chunk, self._sort_criteria,
     self._art_worker, self._art_filter_generation, self._art_batch,
     self._art_needs_resort, self._art_batch_timer, self._filter_save_timer,
@@ -47,6 +48,8 @@ class AlbumFilteringMixin:
             "min_tracks": self.min_tracks.value(),
             "incomplete_mode": self.incomplete_combo.currentText(),
             "fixed_mode": self.fixed_combo.currentText(),
+            "type_mode": self.type_combo.currentText(),
+            "media_mode": self.media_combo.currentText(),
             "art_mode": art_mode,
             "art_generation": self._art_filter_generation,
             "art_cache": get_artwork_cache() if needs_art_cache else None,
@@ -119,6 +122,16 @@ class AlbumFilteringMixin:
                 return False
             if fixed_mode == "Second Pass" and not second_pass:
                 return False
+
+        # ── Album (release) type filter ──────────────────────────────
+        type_mode = params["type_mode"]
+        if type_mode != "Any" and (getattr(album, "release_type", None) or "") != type_mode:
+            return False
+
+        # ── Media format filter ─────────────────────────────────────
+        media_mode = params["media_mode"]
+        if media_mode != "Any" and (getattr(album, "media_format", None) or "") != media_mode:
+            return False
 
         # ── Album Art filter ──────────────────────────────────────────
         art_mode = params["art_mode"]
@@ -300,6 +313,8 @@ class AlbumFilteringMixin:
         self.min_tracks.setValue(0)
         self.incomplete_combo.setCurrentIndex(0)
         self.fixed_combo.setCurrentIndex(0)
+        self.type_combo.setCurrentIndex(0)
+        self.media_combo.setCurrentIndex(0)
         self.art_combo.setCurrentIndex(0)
         self._sort_criteria = "title"
         self._sort_descending = False
@@ -314,6 +329,8 @@ class AlbumFilteringMixin:
             "min_tracks": self.min_tracks.value(),
             "incomplete_mode": self.incomplete_combo.currentText(),
             "fixed_mode": self.fixed_combo.currentText(),
+            "type_mode": self.type_combo.currentText(),
+            "media_mode": self.media_combo.currentText(),
             "art_mode": self.art_combo.currentText(),
             "sort_criteria": self._sort_criteria,
             "sort_descending": self._sort_descending,
@@ -358,7 +375,48 @@ class AlbumFilteringMixin:
         self._set_combo_text(self.fixed_combo, state.get("fixed_mode"))
         self._set_combo_text(self.art_combo, state.get("art_mode"))
 
+        # The Type/Media combos only hold "Any" until the library loads, so
+        # remember the persisted picks and re-apply them once the options
+        # exist (see _populate_dynamic_filter_combos).
+        self._pending_type_mode = state.get("type_mode")
+        self._pending_media_mode = state.get("media_mode")
+
         self._restore_sort_state(state.get("sort_criteria"), state.get("sort_descending"))
+
+    def _populate_dynamic_filter_combos(self):
+        """Fill the Type and Media combos with "Any" plus the sorted,
+        de-duplicated, non-blank values actually present in self.all_albums.
+
+        Preserves the current selection when it still exists; otherwise
+        falls back to a pick persisted from a previous session, then to
+        "Any". Called from load_albums() after self.all_albums is set.
+        """
+        specs = (
+            (self.type_combo, "release_type", "_pending_type_mode"),
+            (self.media_combo, "media_format", "_pending_media_mode"),
+        )
+        for combo, attr, pending_name in specs:
+            values = sorted(
+                {
+                    v.strip()
+                    for album in self.all_albums
+                    if (v := (getattr(album, attr, None) or "").strip())
+                },
+                key=str.casefold,
+            )
+            desired = combo.currentText()
+            pending = getattr(self, pending_name, None)
+            if desired in (None, "", "Any") and pending:
+                desired = pending
+            setattr(self, pending_name, None)
+
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem("Any")
+            combo.addItems(values)
+            idx = combo.findText(desired) if desired else -1
+            combo.setCurrentIndex(idx if idx >= 0 else 0)
+            combo.blockSignals(False)
 
     def _restore_sort_state(self, criteria, descending):
         """Apply a persisted sort selection, ignoring values the combo

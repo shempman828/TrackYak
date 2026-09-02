@@ -542,3 +542,127 @@ def test_without_eager_load_options_the_pass_storms(session):
 
     n = _count_sql(session.bind, lambda: _simulate_search_and_sort(albums))
     assert n > 20, f"expected an N+1 storm without eager loading, got {n} queries"
+
+
+# ---- album type / media format filters -------------------------------------
+# Feature: the Album view's filter row gains "Type:" (release_type) and
+# "Media:" (media_format) drop-downs, populated from the loaded library.
+class StubAlbum_tm:
+    def __init__(self, album_id, album_name, release_type=None, media_format=None):
+        self.album_id = album_id
+        self.album_name = album_name
+        self.release_type = release_type
+        self.media_format = media_format
+        self.release_year = None
+        self.first_pass = False
+        self.second_pass = False
+        self.possibly_incomplete = False
+
+
+def _combo_items(combo):
+    return [combo.itemText(i) for i in range(combo.count())]
+
+
+def test_type_filter_restricts_grid_to_matching_release_type(qapp, monkeypatch):
+    albums = [
+        StubAlbum_tm(1, "Live One", release_type="Live"),
+        StubAlbum_tm(2, "Studio One", release_type="Album"),
+        StubAlbum_tm(3, "Live Two", release_type="Live"),
+    ]
+    view = _make_view_fp(monkeypatch, albums, FakeAppConfig())
+    try:
+        view.type_combo.setCurrentText("Live")
+        assert sorted(a.album_id for a in view.filtered_albums) == [1, 3]
+
+        view.type_combo.setCurrentText("Any")
+        assert sorted(a.album_id for a in view.filtered_albums) == [1, 2, 3]
+    finally:
+        view.close()
+
+
+def test_media_filter_restricts_grid_to_matching_media_format(qapp, monkeypatch):
+    albums = [
+        StubAlbum_tm(1, "A", media_format="CD"),
+        StubAlbum_tm(2, "B", media_format='12" Vinyl'),
+        StubAlbum_tm(3, "C", media_format="CD"),
+    ]
+    view = _make_view_fp(monkeypatch, albums, FakeAppConfig())
+    try:
+        view.media_combo.setCurrentText("CD")
+        assert sorted(a.album_id for a in view.filtered_albums) == [1, 3]
+
+        view.media_combo.setCurrentText("Any")
+        assert sorted(a.album_id for a in view.filtered_albums) == [1, 2, 3]
+    finally:
+        view.close()
+
+
+def test_type_media_combos_populated_sorted_deduped_no_blanks(qapp, monkeypatch):
+    albums = [
+        StubAlbum_tm(1, "A", release_type="Live", media_format="CD"),
+        StubAlbum_tm(2, "B", release_type="Album", media_format="CD"),
+        StubAlbum_tm(3, "C", release_type="Live", media_format=""),
+        StubAlbum_tm(4, "D", release_type=None, media_format="Cassette"),
+    ]
+    view = _make_view_fp(monkeypatch, albums, FakeAppConfig())
+    try:
+        assert _combo_items(view.type_combo) == ["Any", "Album", "Live"]
+        assert _combo_items(view.media_combo) == ["Any", "Cassette", "CD"]
+    finally:
+        view.close()
+
+
+def test_type_media_selection_persisted_and_restored(qapp, monkeypatch):
+    fake_config = FakeAppConfig()
+    albums = [
+        StubAlbum_tm(1, "A", release_type="Live", media_format="CD"),
+        StubAlbum_tm(2, "B", release_type="Album", media_format="Cassette"),
+    ]
+    view = _make_view_fp(monkeypatch, albums, fake_config)
+    try:
+        view.type_combo.setCurrentText("Live")
+        view.media_combo.setCurrentText("Cassette")
+        view._filter_save_timer.stop()
+        view._save_filter_state()
+        saved = fake_config.get_album_view_filters()
+        assert saved["type_mode"] == "Live"
+        assert saved["media_mode"] == "Cassette"
+    finally:
+        view.close()
+
+    view2 = _make_view_fp(monkeypatch, albums, fake_config)
+    try:
+        assert view2.type_combo.currentText() == "Live"
+        assert view2.media_combo.currentText() == "Cassette"
+        assert sorted(a.album_id for a in view2.filtered_albums) == []
+    finally:
+        view2.close()
+
+
+def test_restored_type_value_absent_from_library_falls_back_to_any(qapp, monkeypatch):
+    fake_config = FakeAppConfig({"type_mode": "Bootleg", "media_mode": "8-Track"})
+    albums = [StubAlbum_tm(1, "A", release_type="Album", media_format="CD")]
+    view = _make_view_fp(monkeypatch, albums, fake_config)
+    try:
+        assert view.type_combo.currentText() == "Any"
+        assert view.media_combo.currentText() == "Any"
+        assert [a.album_id for a in view.filtered_albums] == [1]
+    finally:
+        view.close()
+
+
+def test_clear_filters_resets_type_and_media_combos(qapp, monkeypatch):
+    albums = [
+        StubAlbum_tm(1, "A", release_type="Live", media_format="CD"),
+        StubAlbum_tm(2, "B", release_type="Album", media_format="Cassette"),
+    ]
+    view = _make_view_fp(monkeypatch, albums, FakeAppConfig())
+    try:
+        view.type_combo.setCurrentText("Live")
+        view.media_combo.setCurrentText("CD")
+        view._clear_filters()
+        assert view.type_combo.currentText() == "Any"
+        assert view.media_combo.currentText() == "Any"
+        assert sorted(a.album_id for a in view.filtered_albums) == [1, 2]
+    finally:
+        view.close()

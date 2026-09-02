@@ -140,10 +140,13 @@ appears after a restart.
 
 **Narrowing down what you see**: open the filter row for more specific
 digging — a year range, a minimum track count, whether metadata review is
-done, or whether an album is missing artwork. Handy for hunting down albums
-that still need attention rather than ones you're trying to listen to. The
-sort choice, search text, and filter-row settings are all remembered and
-restored the next time you open the app.
+done, or whether an album is missing artwork. The **Type** and **Media**
+drop-downs narrow to a single release type (Album, EP, Live, Compilation…)
+or physical/digital format (CD, Vinyl, Cassette, Digital Media…); each lists
+only the values that actually occur in your library. Handy for hunting down
+albums that still need attention rather than ones you're trying to listen
+to. The sort choice, search text, and filter-row settings are all remembered
+and restored the next time you open the app.
 
 **Editing an album**: click any cover to open its editor. It's organized
 into tabs — Overview (with a "Look Up on MusicBrainz" button if you want to
