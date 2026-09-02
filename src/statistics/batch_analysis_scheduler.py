@@ -18,7 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.foundation.logger_config import logger
 from src.statistics.album_gain_peak import recompute_album_gain_peak
 from src.statistics.analysis_cache import CACHE_SAVE_INTERVAL, analysis_cache
-from src.statistics.audio_calculations import AudioCalculations
+from src.statistics.audio.calculations import AudioCalculations
 
 
 def max_worker_count() -> int:

@@ -12,7 +12,7 @@ from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables.base import Base
 from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.track import Track
-from src.mood.moods_view import MoodView
+from src.mood.mood_view import MoodView
 
 
 # ---- test_mood_view_multi_delete.py ------------------------------------------

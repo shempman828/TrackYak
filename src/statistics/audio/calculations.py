@@ -12,9 +12,9 @@ from pydub.exceptions import PydubException
 from scipy import signal
 
 from src.foundation.logger_config import logger
-from src.statistics.audio_audiophile_mixin import AudiophileScoreMixin
-from src.statistics.audio_rhythm_mixin import AudioRhythmMixin
-from src.statistics.audio_spectral_mixin import AudioSpectralMixin
+from src.statistics.audio.audiophile_mixin import AudiophileScoreMixin
+from src.statistics.audio.rhythm_mixin import AudioRhythmMixin
+from src.statistics.audio.spectral_mixin import AudioSpectralMixin
 
 warnings.filterwarnings("ignore")
 

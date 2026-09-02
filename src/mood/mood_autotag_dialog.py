@@ -56,7 +56,7 @@ from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.mood.mood_dialog import MoodDialog
 from src.mood.mood_tag_worker import MoodAutoTagWorker
-from src.statistics.lyrics_stats_worker import LyricsStatsWorker
+from src.statistics.workers.lyrics_stats_worker import LyricsStatsWorker
 
 _KEYWORDS_PATH = Path(asset("mood_keywords.json"))
 _DISMISSED_PATH = Path(asset("mood_dismissed_words.json"))

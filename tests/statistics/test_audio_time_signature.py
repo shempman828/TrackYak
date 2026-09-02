@@ -12,7 +12,7 @@ from src.db.db_tables.base import Base
 from src.db.db_tables.track import Track
 from src.metadata.metadata_mapping import VORBIS_TRACK_MAPPINGS
 from src.statistics.analysis_cache import REQUIRED_ANALYSIS_FIELDS, track_needs_analysis
-from src.statistics.audio_calculations import AudioCalculations
+from src.statistics.audio.calculations import AudioCalculations
 from src.statistics.stats.audio import AudioStats
 
 SR = 44100

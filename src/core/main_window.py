@@ -36,7 +36,7 @@ from src.genre.genre_view import GenreView
 from src.importing.import_dialog import ImportDialog
 from src.influences.influences_view import InfluencesView
 from src.library.file_manager_dialog import FileManager
-from src.mood.moods_view import MoodView
+from src.mood.mood_view import MoodView
 from src.nowplaying.nowplaying_view import NowPlayingView
 from src.place.place_view import PlaceView
 from src.player.player_dock import PlayerUI

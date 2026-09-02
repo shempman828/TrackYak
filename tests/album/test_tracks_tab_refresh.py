@@ -8,7 +8,7 @@ track membership changes aren't routed through RelationshipHelpers the way
 credit/place/award changes are.
 
 Covers:
-  - DiscTabView.refresh_view() (src/album/disc_tab/view.py) now emits a
+  - DiscTabView.refresh_view() (src/album/disc_tab/disc_view.py) now emits a
     tracks_changed signal after every local reload, regardless of what
     triggered it (track edit/delete, disc add/remove/renumber).
   - TracksTab.build() (src/album/base_album_edit_tabs.py) wires that signal
@@ -18,7 +18,7 @@ Covers:
 """
 
 from src.album.base_album_edit_tabs import TracksTab
-from src.album.disc_tab.view import DiscTabView
+from src.album.disc_tab.disc_view import DiscTabView
 
 # ---------------------------------------------------------------------------
 # Stubs

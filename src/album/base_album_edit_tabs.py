@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.album.disc_tab.view import DiscTabView
+from src.album.disc_tab.disc_view import DiscTabView
 from src.track.track_edit_genres import GenresTab as TrackGenresTab
 from src.track.track_edit_roles import RolesTab as TrackRolesTab
 

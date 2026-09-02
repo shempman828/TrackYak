@@ -4,7 +4,7 @@ Album-level ReplayGain aggregation.
 album_gain/album_peak are no longer user-editable (see ALBUM_FIELDS in
 db_mapping_albums.py) — they're derived from the per-track track_gain/
 track_peak values that AudioCalculations.run_all() already computes
-(src/statistics/audio_calculations.py), the same way a real ReplayGain
+(src/statistics/audio/calculations.py), the same way a real ReplayGain
 tagger derives "album" values from a batch of "track" values.
 """
 
