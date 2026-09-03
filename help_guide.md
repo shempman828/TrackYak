@@ -97,7 +97,9 @@ accidentally overwrite something track-specific like the title.
 **Cleaning out tracks**: the Delete key (or the context menu) gives you a
 choice — remove just the database entry and leave the file alone, or delete
 the file too. The second option asks you to confirm twice, since it's
-permanent.
+permanent. The same choice is available as a **Delete Track** button on the
+track editor's Advanced tab, for when you decide mid-edit that a track has to
+go — it removes the track and closes the editor.
 
 *Quick reference: `Delete` removes selected tracks · `Ctrl+C` copies selected
 rows · `Ctrl+A` selects everything · arrow keys move between rows.*

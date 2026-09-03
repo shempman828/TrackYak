@@ -1,7 +1,5 @@
 # track_edit.py
-"""
-Track editing dialog.
-"""
+"""Track editing dialog."""
 
 from __future__ import annotations
 
@@ -168,7 +166,7 @@ class TrackEditDialog(QDialog):
         return self.track.track_name
 
     def _make_advanced_tab(self):
-        advanced_tab = AdvancedTab(self.tracks, self.controller)
+        advanced_tab = AdvancedTab(self.tracks, self.controller, dialog=self)
         advanced_tab.tracks_analyzed.connect(self._on_tracks_analyzed)
         return advanced_tab
 

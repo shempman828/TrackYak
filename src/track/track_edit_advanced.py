@@ -1,6 +1,6 @@
 # track_edit_advanced.py
 """
-AdvancedTab — wraps FieldFormTab("Advanced") and adds three action buttons:
+AdvancedTab — wraps FieldFormTab("Advanced") and adds four action buttons:
 
   • Copy to Clipboard   — serialises current field values to the clipboard.
   • Write Metadata to File — reads each track's file tags, compares them to
@@ -11,6 +11,10 @@ AdvancedTab — wraps FieldFormTab("Advanced") and adds three action buttons:
                        to the database and mirrored onto the in-memory
                        track(s) so the form (here and on other tabs, e.g.
                        Properties) reflects them immediately.
+  • Delete Track(s)     — removes the track(s) being edited via the shared
+                       "Remove from Library / Delete File(s) Too" prompt
+                       (src.common.delete_confirmation), then closes the
+                       dialog so the parent view reloads.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.common.delete_confirmation import confirm_delete_with_file_option
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.metadata.metadata_writer import MetadataWriter
@@ -53,9 +58,12 @@ class AdvancedTab(_BaseTab):
     # refresh other tabs (e.g. Properties, which holds bpm/key/gain/peak).
     tracks_analyzed = Signal()
 
-    def __init__(self, tracks: list, controller, parent=None):
+    def __init__(self, tracks: list, controller, parent=None, dialog=None):
         super().__init__(tracks, controller, parent)
 
+        # The owning TrackEditDialog — needed so "Delete Track(s)" can close
+        # the dialog (which fires `accepted`, reloading the parent view).
+        self._dialog = dialog
         self._inner = FieldFormTab("Advanced", tracks, controller)
         self._scheduler: BatchAnalysisScheduler | None = None
         self._metadata_writer = MetadataWriter(controller)
@@ -96,10 +104,21 @@ class AdvancedTab(_BaseTab):
         self._analyze_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._analyze_btn.clicked.connect(self._on_analyze)
 
+        delete_label = "Delete Tracks" if self.is_multi else "Delete Track"
+        self._delete_btn = QPushButton(delete_label)
+        self._delete_btn.setToolTip(
+            "Remove the track(s) being edited from the library, optionally\n"
+            "deleting the audio file(s) from disk. Closes this dialog."
+        )
+        self._delete_btn.setProperty("danger", True)
+        self._delete_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._delete_btn.clicked.connect(self._on_delete)
+
         btn_row.addWidget(self._copy_btn)
         btn_row.addWidget(self._write_btn)
         btn_row.addWidget(self._analyze_btn)
         btn_row.addStretch()
+        btn_row.addWidget(self._delete_btn)
 
         # Status label — hidden until analysis starts
         self._status_label = QLabel()
@@ -184,6 +203,80 @@ class AdvancedTab(_BaseTab):
         except RuntimeError as e:
             logger.error(f"AdvancedTab write metadata failed: {e}", exc_info=True)
             QMessageBox.critical(self, "Write Metadata Error", f"Failed to write:\n{e}")
+
+    # ── Delete track(s) ──────────────────────────────────────────────────
+
+    def _on_delete(self):
+        """Delete the track(s) being edited using the shared delete prompt
+        (DB-only vs. DB + file), then close the dialog so the parent view
+        reloads. Mirrors src/track/track_view_editing.py's delete flow."""
+        count = len(self.tracks)
+        names = ", ".join(getattr(t, "track_name", f"ID {t.track_id}") for t in self.tracks[:3])
+        if count > 3:
+            names += f" … and {count - 3} more"
+
+        choice = confirm_delete_with_file_option(
+            self, "Delete Tracks", f"Delete {count} track(s)?\n\n{names}"
+        )
+        if choice is None:
+            return
+
+        delete_files = choice == "db_and_file"
+
+        # Collect file paths BEFORE the DB delete — ORM objects go stale after.
+        file_paths = []
+        if delete_files:
+            for track in self.tracks:
+                fp = getattr(track, "track_file_path", None)
+                if fp:
+                    file_paths.append(fp)
+
+        try:
+            entity_ids = [track.track_id for track in self.tracks]
+            ok = self.controller.delete.delete_entity("Track", entity_ids=entity_ids)
+        except (RuntimeError, ValueError, TypeError) as e:
+            logger.error(f"AdvancedTab delete failed: {e}", exc_info=True)
+            QMessageBox.critical(self, "Delete Error", f"Failed to delete track(s):\n{e}")
+            return
+
+        if ok:
+            logger.info(f"AdvancedTab: deleted {count} track(s) from DB")
+        else:
+            logger.error("AdvancedTab: delete_entity returned False for track(s)")
+            QMessageBox.warning(
+                self,
+                "Delete Track(s)",
+                "The track(s) could not be removed from the library. See the log for details.",
+            )
+            return
+
+        if delete_files and file_paths:
+            removed = 0
+            failed_paths = []
+            for fp in file_paths:
+                try:
+                    if self.controller.delete.delete_file(file_path=fp):
+                        removed += 1
+                    else:
+                        failed_paths.append(fp)
+                except OSError as e:
+                    logger.error(f"Error deleting file {fp}: {e}")
+                    failed_paths.append(fp)
+            logger.info(f"AdvancedTab: removed {removed}/{len(file_paths)} file(s) from disk")
+            if failed_paths:
+                QMessageBox.warning(
+                    self,
+                    "Some Files Not Deleted",
+                    f"{len(failed_paths)} of {len(file_paths)} file(s) could not be "
+                    "deleted from disk (e.g. permission denied or already removed). "
+                    "The library entries were still removed.\n\n" + "\n".join(failed_paths),
+                )
+
+        # Close the dialog; `accepted` triggers the parent view's reload.
+        if self._dialog is not None:
+            self._dialog.accept()
+        else:
+            self.window().close()
 
     # ── Audio analysis ────────────────────────────────────────────────────
 
