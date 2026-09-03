@@ -322,6 +322,9 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
         self._karaoke_lbl = _KaraokeLine()
         self._karaoke_lbl.setVisible(False)
+        # Same dark halo the title/artist/album labels get — keeps the current
+        # karaoke line readable when the backdrop art itself carries text.
+        self._apply_text_shadow(self._karaoke_lbl, blur=18, y_offset=2, alpha=230)
 
         # Upcoming lyric lines — a preview stack shown below the current karaoke
         # line, each row fainter than the one above it (see the npRole="nextLyric"
@@ -338,6 +341,9 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setWordWrap(True)
             lbl.setVisible(False)
+            # Lighter halo than the current line — enough to lift the faint
+            # preview rows off busy cover art without muddying them.
+            self._apply_text_shadow(lbl, blur=12, y_offset=1, alpha=160)
             self._next_lyric_lbls.append(lbl)
 
         self._plain_area = FadedScrollArea()

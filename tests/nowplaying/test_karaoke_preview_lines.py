@@ -8,6 +8,7 @@ including the space-aware row count (``_recalc_preview_capacity``).
 from types import SimpleNamespace
 
 from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QGraphicsDropShadowEffect
 import pytest
 
 from src.nowplaying.nowplaying_view import NowPlayingView
@@ -136,3 +137,17 @@ def test_switching_to_show_all_hides_the_preview_stack(view):
     view._update_lyrics(SimpleNamespace(lyrics=None))  # no lyrics at all
     assert all(lbl.isHidden() for lbl in view._next_lyric_lbls)
     assert all(lbl.text() == "" for lbl in view._next_lyric_lbls)
+
+
+def test_karaoke_stack_carries_a_text_shadow_over_busy_art(view):
+    """Regression: the current karaoke line and every preview row get the same
+    dark halo the metadata labels use, so lyrics stay legible when the backdrop
+    cover art itself contains text."""
+    line_effect = view._karaoke_lbl.graphicsEffect()
+    assert isinstance(line_effect, QGraphicsDropShadowEffect)
+    assert line_effect.color().alpha() > 0
+
+    for lbl in view._next_lyric_lbls:
+        effect = lbl.graphicsEffect()
+        assert isinstance(effect, QGraphicsDropShadowEffect)
+        assert effect.color().alpha() > 0
