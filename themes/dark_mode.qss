@@ -1345,6 +1345,13 @@ QPushButton[npTab="true"][active="true"] {
     color: rgba(230, 235, 255, 0.92);
 }
 
+QPushButton[npTab="true"]:disabled {
+    background: transparent;
+    border: 1px solid rgba(133, 153, 234, 0.07);
+    border-bottom: none;
+    color: rgba(133, 153, 234, 0.18);
+}
+
 /* ── "NOW PLAYING" small pill toggles (sync/mode) ────────────────────────────── */
 QPushButton[npToggle="true"] {
     background: transparent;

@@ -434,6 +434,10 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         set_style_property(button, "active", active)
 
     def _switch_tab(self, page: int):
+        # LYRICS is disabled for instrumental tracks — ignore any internal or
+        # late request to show it while the tab button is disabled.
+        if page == self._PAGE_LYRICS and not self._tab_lyrics.isEnabled():
+            return
         self._stack.setCurrentIndex(page)
         if page == self._PAGE_LYRICS:
             self._set_active(self._tab_lyrics, True)
@@ -537,6 +541,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._title_lbl.setText("No Track Playing")
         self._artist_marquee.set_text("—")
         self._album_lbl.setText("—")
+        self._tab_lyrics.setEnabled(True)
         self._set_lyrics_mode_none()
         self._credits_panel.load_credits(None)
         self._chip_row.set_chips([])

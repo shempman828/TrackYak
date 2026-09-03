@@ -119,7 +119,9 @@ lines previewed beneath it, each fainter than the one above so you can see
 what's coming without losing the current line. A taller window fits more
 preview lines; a short one trims back to three. If the timing feels off, click
 the small ⏱ icon to reveal a sync-offset slider and nudge it until it lines
-up. **Credits** shows everyone credited on the track.
+up. **Credits** shows everyone credited on the track. Tracks flagged
+instrumental have no lyrics by definition, so the **Lyrics** tab is greyed out
+for them and the view stays on **Credits**.
 
 Press `Ctrl+Shift+F` to drop into **cinema mode**, which hides the menu bar
 and every dock so this view fills the whole window — press it again to bring

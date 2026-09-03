@@ -60,7 +60,13 @@ class NowPlayingLyricsMixin:
     # ── lyrics ────────────────────────────────────────────────────────────
 
     def _update_lyrics(self, track):
-        raw = censor_text(getattr(track, "lyrics", None))
+        # Instrumental tracks have no lyrics by definition — disable the LYRICS
+        # tab entirely and pin the panel to CREDITS. Re-enable for every other
+        # track so the state tracks the current track, not history.
+        instrumental = bool(getattr(track, "is_instrumental", None))
+        self._tab_lyrics.setEnabled(not instrumental)
+
+        raw = None if instrumental else censor_text(getattr(track, "lyrics", None))
 
         # Reset state
         self._is_synced = False
