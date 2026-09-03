@@ -1407,6 +1407,11 @@ QLabel[npRole="album"] {
     color: rgba(150, 160, 210, 0.50);
 }
 
+QLabel[npRole="albumSubtitle"] {
+    color: rgba(150, 160, 210, 0.38);
+    font-style: italic;
+}
+
 QLabel[npRole="nextLyric"] {
     color: rgba(133, 153, 234, 0.38);
     font-style: italic;

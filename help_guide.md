@@ -113,7 +113,9 @@ your library.
 Album art fills the left side with a soft blurred version of it behind the
 whole view. On the right, the title, artist, and album sit above a row of
 quick-glance details (BPM, key, release year, play count, genres) that only
-show up if the track actually has that data.
+show up if the track actually has that data. If the album has a subtitle set
+(e.g. "Deluxe Edition"), it appears on its own faint line just below the album
+name; albums without one show nothing there.
 
 Below that, two tabs: **Lyrics** shows synced, karaoke-style lyrics if the
 track has them — the current line highlights as it plays, with the next few

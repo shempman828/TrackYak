@@ -63,6 +63,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
     _TITLE_FONT = QFont("Georgia", 28, QFont.Bold)
     _ARTIST_FONT = QFont("Cambria", 16, QFont.Normal)
     _ALBUM_FONT = QFont("Cambria", 13, QFont.Normal)
+    _ALBUM_SUBTITLE_FONT = QFont("Cambria", 12, QFont.Normal)
     _PLAIN_FONT = QFont("Cambria", 12, QFont.Normal)
     _PREVIEW_FONT = QFont("Cambria", 14, QFont.Normal)
 
@@ -248,6 +249,16 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._album_lbl.setWordWrap(True)
         self._apply_text_shadow(self._album_lbl, blur=10, y_offset=1, alpha=190)
         right_layout.addWidget(self._album_lbl)
+
+        # Album subtitle — optional extra line (e.g. "Deluxe Edition"); hidden
+        # entirely when the album carries no subtitle so it takes no space.
+        self._album_subtitle_lbl = QLabel("")
+        self._album_subtitle_lbl.setFont(self._ALBUM_SUBTITLE_FONT)
+        self._album_subtitle_lbl.setProperty("npRole", "albumSubtitle")
+        self._album_subtitle_lbl.setWordWrap(True)
+        self._apply_text_shadow(self._album_subtitle_lbl, blur=8, y_offset=1, alpha=170)
+        self._album_subtitle_lbl.hide()
+        right_layout.addWidget(self._album_subtitle_lbl)
 
         right_layout.addSpacing(10)
 
@@ -518,8 +529,10 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
                 name = censor_text(getattr(album, "album_name", "") or "—")
                 year = getattr(album, "release_year", None)
                 self._album_lbl.setText(f"{name}  ({year})" if year else name)
+                self._set_album_subtitle(getattr(album, "album_subtitle", None))
             else:
                 self._album_lbl.setText("—")
+                self._set_album_subtitle(None)
 
             self._update_chips(track)
             self._update_lyrics(track)
@@ -547,6 +560,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._title_lbl.setText("No Track Playing")
         self._artist_marquee.set_text("—")
         self._album_lbl.setText("—")
+        self._set_album_subtitle(None)
         self._tab_lyrics.setEnabled(True)
         self._set_lyrics_mode_none()
         self._credits_panel.load_credits(None)
@@ -555,6 +569,16 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
             self._load_art(QPixmap(self.default_art_path))
         else:
             self._load_art(None)
+
+    def _set_album_subtitle(self, subtitle):
+        """Show the optional album-subtitle line, or hide it when empty."""
+        text = censor_text(subtitle) if subtitle else ""
+        if text:
+            self._album_subtitle_lbl.setText(f"({text})")
+            self._album_subtitle_lbl.show()
+        else:
+            self._album_subtitle_lbl.clear()
+            self._album_subtitle_lbl.hide()
 
     # ── chips ─────────────────────────────────────────────────────────────
 
