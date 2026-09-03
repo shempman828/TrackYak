@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from src.album.album_art_worker import CoverEmbedWorker
 from src.foundation.logger_config import logger
-from src.image.artwork_cache import get_artwork_cache
+from src.image.artwork_cache import all_album_tracks, get_artwork_cache
 from src.metadata.metadata_artwork import ArtworkExtractor
 
 
@@ -55,7 +55,7 @@ class AlbumCoverArtMixin:
                     dims = cache.get_dimensions(self.album, cover_type) if cache else None
                     info_parts = ["Embedded in track file(s)"]
                     if dims:
-                        info_parts.append(f"{dims[0]} × {dims[1]} px")
+                        info_parts.append(f"{dims[0]} × {dims[1]} px")  # noqa: RUF001
                     path_label.setText("  |  ".join(info_parts))
                 continue
             display.setText(f"No {cover_type.title()} Cover")
@@ -124,7 +124,11 @@ class AlbumCoverArtMixin:
             return  # an embed/clear is already in flight; controls are disabled
 
         cache = get_artwork_cache()
-        tracks = list(getattr(self.album, "tracks", None) or [])
+        # Union of Album.tracks and Album.discs -> Disc.tracks: a track that
+        # was detached from the album but left on one of its discs still has
+        # this album's picture embedded, and a clear/choose that skipped it
+        # would leave that stale art to resurface elsewhere.
+        tracks = all_album_tracks(self.album)
 
         self._set_cover_controls_enabled(False)
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -176,7 +180,7 @@ class AlbumCoverArtMixin:
         if path_label:
             info_parts = ["Embedded in track file(s)"]
             if dims:
-                info_parts.append(f"{dims[0]} × {dims[1]} px")
+                info_parts.append(f"{dims[0]} × {dims[1]} px")  # noqa: RUF001
             path_label.setText("  |  ".join(info_parts))
 
         # IMPORTANT: always refresh the header thumbnail when front cover changes

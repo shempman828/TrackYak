@@ -412,6 +412,44 @@ class AlbumsTab(_BaseTab):
             register_cached_entity("Album", album)
         return album
 
+    def _disc_link_is_stale(self, track, new_album_id) -> bool:
+        """True when `track.disc_id` must be cleared as the track's primary
+        album changes to `new_album_id` (None when detaching). discs.album_id
+        is NOT NULL, so a disc belongs to exactly one album; once the track's
+        album no longer matches the disc's, the disc link is the stale half
+        that used to keep detached tracks reachable through
+        Album.discs -> Disc.tracks - which silently broke artwork clears,
+        track counts, and genre/credit trickle-down for that album."""
+        if getattr(track, "disc_id", None) is None:
+            return False
+        disc = getattr(track, "disc", None)
+        if disc is None:
+            return False
+        return disc.album_id != new_album_id
+
+    def _apply_primary_album(self, new_album_id) -> bool:
+        """Set (id given) or clear (None) the primary album on every selected
+        track, dropping any now-stale disc_id in the same write. Returns True
+        only if every write succeeded."""
+        keep_disc, drop_disc = [], []
+        for track in self.tracks:
+            bucket = drop_disc if self._disc_link_is_stale(track, new_album_id) else keep_disc
+            bucket.append(track.track_id)
+        ok = True
+        if keep_disc:
+            ok = (
+                self.controller.update.update_entities("Track", keep_disc, album_id=new_album_id)
+                and ok
+            )
+        if drop_disc:
+            ok = (
+                self.controller.update.update_entities(
+                    "Track", drop_disc, album_id=new_album_id, disc_id=None
+                )
+                and ok
+            )
+        return ok
+
     def _set_primary_album(self):
         album = self._resolve_album(self._album_search)
         if not album:
@@ -429,20 +467,10 @@ class AlbumsTab(_BaseTab):
             )
             if confirm != QMessageBox.Yes:
                 return
-            track_ids = [track.track_id for track in self.tracks]
-            if not self.controller.update.update_entities(
-                "Track", track_ids, album_id=album.album_id
-            ):
-                QMessageBox.warning(self, "Error", "Failed to set album for the selected tracks.")
-        else:
-            try:
-                self.controller.update.update_entity(
-                    "Track", self.track.track_id, album_id=album.album_id
-                )
-            except SQLAlchemyError as e:
-                logger.error(f"Failed to set primary album: {e}")
-                QMessageBox.warning(self, "Error", f"Failed to set album:\n{e}")
-                return
+
+        if not self._apply_primary_album(album.album_id):
+            QMessageBox.warning(self, "Error", "Failed to set album for the selected track(s).")
+            return
 
         self._album_search.reset()
         self._refresh_tracks()
@@ -466,19 +494,9 @@ class AlbumsTab(_BaseTab):
         if confirm != QMessageBox.Yes:
             return
 
-        if self.is_multi:
-            track_ids = [track.track_id for track in self.tracks]
-            if not self.controller.update.update_entities("Track", track_ids, album_id=None):
-                QMessageBox.warning(
-                    self, "Error", "Failed to remove album for the selected tracks."
-                )
-        else:
-            try:
-                self.controller.update.update_entity("Track", self.track.track_id, album_id=None)
-            except SQLAlchemyError as e:
-                logger.error(f"Failed to remove primary album: {e}")
-                QMessageBox.warning(self, "Error", f"Failed to remove album:\n{e}")
-                return
+        if not self._apply_primary_album(None):
+            QMessageBox.warning(self, "Error", "Failed to remove album for the selected track(s).")
+            return
 
         self._refresh_tracks()
         self.load(self.tracks)
@@ -491,7 +509,7 @@ class AlbumsTab(_BaseTab):
         session = self.controller.get.session
         updated_tracks = []
         for track in self.tracks:
-            session.expire(track, ["album"])
+            session.expire(track, ["album", "disc"])
             updated = self.controller.get.get_entity_object("Track", track_id=track.track_id)
             updated_tracks.append(updated if updated else track)
         self.tracks = updated_tracks

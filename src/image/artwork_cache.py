@@ -44,6 +44,27 @@ DEFAULT_MAX_DIMENSION = 1024
 DEFAULT_JPEG_QUALITY = 95
 
 
+def all_album_tracks(album) -> list:
+    """Every track that belongs to `album` - those linked directly via
+    Track.album_id (Album.tracks) plus any reachable only through one of
+    its discs (Album.discs -> Disc.tracks). The two sets diverge when a
+    track is detached from its album but left sitting on a disc; artwork
+    reads and the "Clear"/"Choose" embed pass must still see those files
+    or their embedded picture is silently left in place (and later bleeds
+    onto whatever album the track is next added to)."""
+    by_id: dict = {}
+    for t in getattr(album, "tracks", None) or []:
+        tid = getattr(t, "track_id", None)
+        if tid is not None:
+            by_id[tid] = t
+    for disc in getattr(album, "discs", None) or []:
+        for t in getattr(disc, "tracks", None) or []:
+            tid = getattr(t, "track_id", None)
+            if tid is not None:
+                by_id.setdefault(tid, t)
+    return list(by_id.values())
+
+
 def _pick_representative_track(album):
     """Return the album's canonical embeddable track (or None), used as
     the single source of truth for that album's embedded art. Any
@@ -52,7 +73,7 @@ def _pick_representative_track(album):
     this just needs to be deterministic."""
     tracks = [
         t
-        for t in (getattr(album, "tracks", None) or [])
+        for t in all_album_tracks(album)
         if getattr(t, "track_file_path", None)
         and Path(t.track_file_path).suffix.lower() in ArtworkExtractor.SUPPORTED_EXTENSIONS
     ]

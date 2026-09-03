@@ -170,3 +170,101 @@ def test_name_match_with_conflicting_mbid_creates_new_artist(controller_amc):
     assert jobs == [("Artist", artist.artist_id, "mbid-new")]
     untouched = controller_amc.get.get_entity_object("Artist", artist_id=conflicting.artist_id)
     assert untouched.MBID == "mbid-different"
+
+
+# ---- test_track_edit_album_disc_link.py -------------------------------------
+# Regression coverage for AlbumsTab._apply_primary_album / _disc_link_is_stale
+# (src/track/track_edit_album.py): changing a track's primary album must also
+# clear a now-stale disc_id in the same write. "Detach from primary album"
+# used to null album_id only, leaving the track reachable through
+# Album.discs -> Disc.tracks -- which made "Remove album art" skip its file
+# and let the old cover resurface on the track's next album.
+@pytest.fixture
+def controller_disc():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    yield SimpleNamespace(get=GetFromDB(session), add=AddToDB(session), update=UpdateDB(session))
+    session.close()
+
+
+def _tab_disc(controller, tracks):
+    tab = AlbumsTab.__new__(AlbumsTab)
+    tab.controller = controller
+    tab.tracks = tracks
+    tab.is_multi = len(tracks) > 1
+    return tab
+
+
+def _live_track(controller, track_id):
+    return controller.get.get_entity_object("Track", track_id=track_id)
+
+
+def test_detach_from_album_also_clears_disc_id(controller_disc):
+    c = controller_disc
+    album = c.add.add_entity("Album", album_name="Voulez-Vous")
+    disc = c.add.add_entity("Disc", album_id=album.album_id, disc_number=1)
+    track = c.add.add_entity(
+        "Track",
+        track_name="Gimme! Gimme! Gimme!",
+        album_id=album.album_id,
+        disc_id=disc.disc_id,
+        track_file_path="/m/abba/11.flac",
+    )
+    tab = _tab_disc(c, [_live_track(c, track.track_id)])
+
+    assert tab._apply_primary_album(None) is True
+
+    fresh = _live_track(c, track.track_id)
+    assert fresh.album_id is None
+    assert fresh.disc_id is None
+
+
+def test_set_new_primary_album_clears_stale_disc_id(controller_disc):
+    c = controller_disc
+    old = c.add.add_entity("Album", album_name="Old")
+    new = c.add.add_entity("Album", album_name="New")
+    disc = c.add.add_entity("Disc", album_id=old.album_id, disc_number=1)
+    track = c.add.add_entity(
+        "Track",
+        track_name="T",
+        album_id=old.album_id,
+        disc_id=disc.disc_id,
+        track_file_path="/m/t.flac",
+    )
+    tab = _tab_disc(c, [_live_track(c, track.track_id)])
+
+    assert tab._apply_primary_album(new.album_id) is True
+
+    fresh = _live_track(c, track.track_id)
+    assert fresh.album_id == new.album_id
+    assert fresh.disc_id is None
+
+
+def test_set_primary_album_keeps_disc_id_when_disc_belongs_to_target(controller_disc):
+    c = controller_disc
+    album = c.add.add_entity("Album", album_name="A")
+    disc = c.add.add_entity("Disc", album_id=album.album_id, disc_number=1)
+    track = c.add.add_entity(
+        "Track", track_name="T", album_id=None, disc_id=disc.disc_id, track_file_path="/m/t.flac"
+    )
+    tab = _tab_disc(c, [_live_track(c, track.track_id)])
+
+    assert tab._apply_primary_album(album.album_id) is True
+
+    fresh = _live_track(c, track.track_id)
+    assert fresh.album_id == album.album_id
+    assert fresh.disc_id == disc.disc_id
+
+
+def test_apply_primary_album_no_disc_is_a_plain_album_set(controller_disc):
+    c = controller_disc
+    album = c.add.add_entity("Album", album_name="A")
+    track = c.add.add_entity("Track", track_name="T", track_file_path="/m/t.flac")
+    tab = _tab_disc(c, [_live_track(c, track.track_id)])
+
+    assert tab._apply_primary_album(album.album_id) is True
+
+    fresh = _live_track(c, track.track_id)
+    assert fresh.album_id == album.album_id
+    assert fresh.disc_id is None
