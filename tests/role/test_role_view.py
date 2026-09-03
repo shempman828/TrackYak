@@ -4,13 +4,14 @@ QMessageBox.Yes does), raising AttributeError before the role could ever be
 deleted. See src/role/role_view.py delete_role().
 """
 
+import threading
 from unittest.mock import patch
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import QMessageBox
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import scoped_session, sessionmaker
 
 from src.db.db_helpers.delete import DeleteDB
 from src.db.db_helpers.get import GetFromDB
@@ -490,3 +491,84 @@ def test_sibling_order_follows_active_sort_mode(session, qapp, controller_eh, tm
     ):
         view.export_hierarchy()
     assert count_path.read_text(encoding="utf-8") == "Bass\nAlto"
+
+
+# ---- test_role_view_session_release.py -------------------------------------
+# Regression: RoleLoaderWorker.run() must release its background thread's
+# scoped_session in a finally block. load_roles() starts a fresh QThread on
+# every Roles-nav revisit; the scoped_session registry hands each new OS
+# thread its own Session, and without remove() that Session's pooled
+# connection is never returned and its WAL read transaction stays open for
+# the life of the process -- a connection leaked per revisit, which added up
+# to most of a multi-GB RSS climb over a long view-switching session.
+#
+# See src/role/role_view.py RoleLoaderWorker.run().
+class _Controller_sr:
+    def __init__(self, session_factory):
+        self.get = GetFromDB(session_factory)
+        self.SessionFactory = session_factory
+
+
+def test_role_loader_worker_releases_thread_local_session(qapp, tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'lib.db'}")
+    Base.metadata.create_all(engine)
+    factory = scoped_session(sessionmaker(bind=engine, expire_on_commit=False))
+
+    seed = factory()
+    parent = Role(role_name="Strings")
+    child = Role(role_name="Guitar", parent=parent)
+    album = Album(album_name="A")
+    artist = Artist(artist_name="X")
+    track = Track(track_name="t", album=album)
+    seed.add_all([parent, child, album, artist, track])
+    seed.commit()
+    seed.add(
+        AlbumRoleAssociation(
+            album_id=album.album_id, artist_id=artist.artist_id, role_id=parent.role_id
+        )
+    )
+    seed.add(
+        TrackArtistRole(track_id=track.track_id, artist_id=artist.artist_id, role_id=child.role_id)
+    )
+    seed.commit()
+    factory.remove()
+
+    monkeypatch.setattr("src.db.db_engine.Session", factory, raising=False)
+
+    real_remove = factory.remove
+    calls = {}
+
+    def spy_remove():
+        calls["thread"] = threading.get_ident()
+        calls["n"] = calls.get("n", 0) + 1
+        return real_remove()
+
+    monkeypatch.setattr(factory, "remove", spy_remove)
+
+    worker = RoleLoaderWorker(_Controller_sr(factory))
+    thread = QThread()
+    worker.moveToThread(thread)
+    done = {}
+    thread.started.connect(worker.run)
+    worker.finished.connect(lambda *a: done.setdefault("ok", True))
+    worker.error.connect(lambda msg: done.setdefault("err", msg))
+    worker.finished.connect(thread.quit)
+    worker.error.connect(thread.quit)
+    thread.start()
+
+    budget = 5000
+    while not thread.isFinished() and budget > 0:
+        qapp.processEvents()
+        thread.wait(50)
+        budget -= 50
+    assert thread.isFinished()
+    thread.deleteLater()
+
+    assert done.get("ok") and "err" not in done
+    assert calls.get("n", 0) >= 1, (
+        "run() never released its scoped_session — connection leaks per revisit"
+    )
+    assert calls["thread"] != threading.get_ident()
+
+    factory.remove()
+    engine.dispose()

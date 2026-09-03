@@ -150,6 +150,18 @@ class RoleLoaderWorker(QObject):
             # not let an exception kill the thread silently.
             logger.exception("Role count scan failed")
             self.error.emit(str(e))
+        finally:
+            # load_roles() starts a fresh QThread on every Roles-nav revisit,
+            # and the scoped_session registry hands each new OS thread its own
+            # Session the first time controller.get.session is touched above.
+            # Without this remove(), that Session's pooled connection is never
+            # returned and its read transaction stays open for the life of the
+            # process, leaking a connection per revisit. Mirrors
+            # GenreLoaderWorker._release_db_session / _RolesLoaderWorker in
+            # src/track/track_edit_roles.py.
+            from src.db.db_engine import Session
+
+            Session.remove()
 
 
 # ---------------------------------------------------------------------------

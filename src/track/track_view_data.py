@@ -147,6 +147,20 @@ class TrackLookupCacheWorker(QObject):
             # and must not let an exception be lost silently.
             logger.exception("Failed to load track view lookup caches")
             self.error.emit(str(e))
+        finally:
+            # _refresh_lookup_caches_async() spins up a brand-new QThread on
+            # every Tracks-nav revisit, and each new OS thread gets its own
+            # entry in the scoped_session registry the first time it's touched
+            # above. Nothing else removes that entry, so its checked-out
+            # connection is never returned to the pool and the read
+            # transaction it opened on the WAL database stays open for the
+            # life of the process. Over a long session of view-switching this
+            # leaks a connection (plus its ~2 MB SQLite page cache) per
+            # revisit. Mirrors _RolesLoaderWorker in src/track/track_edit_roles.py
+            # and CancellableWorker._release_db_session.
+            from src.db.db_engine import Session
+
+            Session.remove()
 
 
 class TrackViewDataMixin:
