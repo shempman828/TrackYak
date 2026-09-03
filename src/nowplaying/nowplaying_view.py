@@ -1,5 +1,7 @@
 """NowPlayingView module — Cinematic redesign."""
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 import time
 import traceback
@@ -25,6 +27,7 @@ from src.foundation.asset_paths import asset
 from src.foundation.censor import censor_text
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
+from src.nowplaying.nowplaying_about import _AboutPanel
 from src.nowplaying.nowplaying_art import _ArtCard
 from src.nowplaying.nowplaying_art_slideshow import _COVER_DWELL_MS, NowPlayingArtMixin
 from src.nowplaying.nowplaying_backdrop import _BlurredBackdrop
@@ -43,6 +46,26 @@ _OFFSET_DEBOUNCE_MS = 600
 
 # Tab and toggle button visuals live in themes/dark_mode.qss under the
 # [npTab="true"] / [npToggle="true"] / [active=...] selectors — see _set_active().
+
+
+@dataclass
+class _TabSpec:
+    """One entry in NowPlayingView's tab registry.
+
+    ``_switch_tab`` / ``updateUI`` / ``clearUI`` iterate ``self._tabs`` instead
+    of branching on page constants. List order is the stack/page index.
+
+    - ``on_show(track)`` runs when the tab becomes visible and, for the visible
+      tab, on every ``updateUI``; called with ``None`` from ``clearUI``.
+    - ``on_hide()`` runs when another tab is selected.
+    """
+
+    key: str
+    label: str
+    widget: QWidget
+    button: QPushButton | None = None
+    on_show: Callable[[object], None] | None = None
+    on_hide: Callable[[], None] | None = None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -73,8 +96,11 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
     _PREVIEW_MIN_ROWS = 3
     _PREVIEW_MAX_ROWS = 6
 
+    # Page indices — mirror the self._tabs registry order built in _initUI.
+    # Retained as aliases for the lyrics mixin and existing tests.
     _PAGE_LYRICS = 0
     _PAGE_CREDITS = 1
+    _PAGE_ABOUT = 2
 
     def __init__(self, controller, track=None):
         super().__init__()
@@ -276,25 +302,11 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         right_layout.addSpacing(14)
 
         # ── Tab bar ───────────────────────────────────────────────────────
+        # Tab buttons are inserted (before this stretch) once the pages and the
+        # self._tabs registry are built — see "Tab registry" below.
         tab_bar = QHBoxLayout()
         tab_bar.setContentsMargins(0, 0, 0, 0)
         tab_bar.setSpacing(0)
-
-        self._tab_lyrics = QPushButton("LYRICS")
-        self._tab_credits = QPushButton("CREDITS")
-        for btn in (self._tab_lyrics, self._tab_credits):
-            btn.setFixedHeight(28)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setProperty("npTab", True)
-
-        self._set_active(self._tab_lyrics, True)
-        self._set_active(self._tab_credits, False)
-
-        self._tab_lyrics.clicked.connect(lambda: self._switch_tab(self._PAGE_LYRICS))
-        self._tab_credits.clicked.connect(lambda: self._switch_tab(self._PAGE_CREDITS))
-
-        tab_bar.addWidget(self._tab_lyrics)
-        tab_bar.addWidget(self._tab_credits)
         tab_bar.addStretch()
 
         # Toggle to show/hide the sync-offset slider row
@@ -436,8 +448,45 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         # Page 1: CREDITS
         self._credits_panel = _CreditsPanel()
 
-        self._stack.addWidget(lyrics_page)
-        self._stack.addWidget(self._credits_panel)
+        # Page 2: ABOUT
+        self._about_panel = _AboutPanel()
+
+        # ── Tab registry ──────────────────────────────────────────────────
+        # List order IS the stack/page index and mirrors the _PAGE_* consts.
+        # _switch_tab / updateUI / clearUI iterate self._tabs; the _tab_* and
+        # _PAGE_* aliases exist only for the lyrics mixin and existing tests.
+        self._tabs: list[_TabSpec] = [
+            _TabSpec("lyrics", "LYRICS", lyrics_page),
+            _TabSpec(
+                "credits",
+                "CREDITS",
+                self._credits_panel,
+                on_show=lambda t: self._credits_panel.load_credits(t),
+                on_hide=self._credits_panel.stop,
+            ),
+            _TabSpec(
+                "about",
+                "ABOUT",
+                self._about_panel,
+                on_show=lambda t: self._about_panel.load_about(t),
+            ),
+        ]
+
+        for idx, spec in enumerate(self._tabs):
+            btn = QPushButton(spec.label)
+            btn.setFixedHeight(28)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setProperty("npTab", True)
+            self._set_active(btn, idx == 0)
+            btn.clicked.connect(lambda _checked=False, p=idx: self._switch_tab(p))
+            spec.button = btn
+            tab_bar.insertWidget(idx, btn)
+            self._stack.addWidget(spec.widget)
+
+        # Back-compat aliases (lyrics mixin + tests reference these directly).
+        self._tab_lyrics = self._tabs[self._PAGE_LYRICS].button
+        self._tab_credits = self._tabs[self._PAGE_CREDITS].button
+        self._tab_about = self._tabs[self._PAGE_ABOUT].button
 
         right_layout.addWidget(self._stack, stretch=1)
 
@@ -451,19 +500,18 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         set_style_property(button, "active", active)
 
     def _switch_tab(self, page: int):
-        # LYRICS is disabled for instrumental tracks — ignore any internal or
-        # late request to show it while the tab button is disabled.
-        if page == self._PAGE_LYRICS and not self._tab_lyrics.isEnabled():
+        spec = self._tabs[page]
+        # A disabled tab button (e.g. LYRICS for instrumental tracks) can't be
+        # shown, even by an internal or late request.
+        if not spec.button.isEnabled():
             return
         self._stack.setCurrentIndex(page)
-        if page == self._PAGE_LYRICS:
-            self._set_active(self._tab_lyrics, True)
-            self._set_active(self._tab_credits, False)
-            self._credits_panel.stop()
-        else:
-            self._set_active(self._tab_lyrics, False)
-            self._set_active(self._tab_credits, True)
-            self._credits_panel.load_credits(self.track)
+        for i, s in enumerate(self._tabs):
+            self._set_active(s.button, i == page)
+            if i != page and s.on_hide:
+                s.on_hide()
+        if spec.on_show:
+            spec.on_show(self.track)
 
     # ── resize ────────────────────────────────────────────────────────────
 
@@ -537,8 +585,11 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
             self._update_chips(track)
             self._update_lyrics(track)
 
-            if self._stack.currentIndex() == self._PAGE_CREDITS:
-                self._credits_panel.load_credits(track)
+            # Refresh whichever tab is currently visible (lyrics refreshes via
+            # _update_lyrics above and has no on_show).
+            visible = self._tabs[self._stack.currentIndex()]
+            if visible.on_show:
+                visible.on_show(track)
 
             self._load_art_from_track(track)
 
@@ -563,7 +614,9 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._set_album_subtitle(None)
         self._tab_lyrics.setEnabled(True)
         self._set_lyrics_mode_none()
-        self._credits_panel.load_credits(None)
+        for spec in self._tabs:
+            if spec.on_show:
+                spec.on_show(None)
         self._chip_row.set_chips([])
         if self.default_art_path and Path(self.default_art_path).exists():
             self._load_art(QPixmap(self.default_art_path))

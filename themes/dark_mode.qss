@@ -1465,6 +1465,38 @@ QLabel[npRole="creditsName"] {
     font-size: 13px;
 }
 
+/* ── "NOW PLAYING" about card (one per entity description) ──────────────────── */
+QWidget[npAboutCard="true"] {
+    background: rgba(133, 153, 234, 0.07);
+    border: 1px solid rgba(133, 153, 234, 0.18);
+    border-radius: 8px;
+}
+
+QLabel[npRole="aboutHeading"] {
+    color: rgba(210, 218, 255, 0.90);
+    font-size: 13px;
+    font-weight: bold;
+}
+
+QLabel[npRole="aboutKind"] {
+    color: rgba(133, 153, 234, 0.50);
+    font-size: 9px;
+    font-weight: bold;
+    letter-spacing: 2px;
+}
+
+QLabel[npRole="aboutBody"] {
+    color: rgba(200, 208, 244, 0.75);
+    font-size: 12px;
+    line-height: 1.6em;
+}
+
+QLabel[npRole="aboutPlaceholder"] {
+    color: rgba(133, 153, 234, 0.28);
+    font-size: 13px;
+    font-style: italic;
+}
+
 /* ── "NOW PLAYING" lyrics scroll area (plain-text mode) ──────────────────────── */
 QScrollArea#NowPlayingLyricsScrollArea {
     background: transparent;
