@@ -27,7 +27,9 @@ _SYNCED_LYRICS = "\n".join(
     ]
 )
 
-_LONG_LYRICS = "\n".join(f"[00:{i:02d}.00] line {i}" for i in range(20))
+# 2-second spacing, not 1s: an exact 0s,1s,2s,... run is treated as fabricated
+# placeholder timing by the parser and rendered as plain text.
+_LONG_LYRICS = "\n".join(f"[00:{i * 2:02d}.00] line {i}" for i in range(30))
 
 
 class _FakeMediaPlayer(QObject):
@@ -96,7 +98,7 @@ def test_a_tall_karaoke_block_shows_more_than_the_minimum(view):
     assert changed is True
     assert MIN_ROWS < view._preview_capacity <= MAX_ROWS
 
-    view._on_position_changed(3000)  # active idx 3 -> 16 lines still ahead
+    view._on_position_changed(3000)  # mid-song -> many lines still ahead
     assert len(_visible_previews(view)) == view._preview_capacity
 
 

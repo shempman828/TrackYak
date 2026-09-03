@@ -7,6 +7,7 @@ from src.album.base_album_edit import AlbumEditor
 from src.artist.artist_edit import ArtistEditor
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import StatusManager, show_status_message
+from src.lyrics.lyrics_format import format_lyrics_for_storage
 from src.mood.mood_autotag import auto_tag_lyrics_safe
 from src.track.track_edit import TrackEditDialog
 
@@ -498,24 +499,4 @@ class PlayerContextMenuMixin:
         except (RuntimeError, TypeError) as e:
             logger.error(f"Error reloading Now Playing view after lyrics save: {e}")
 
-    @staticmethod
-    def _format_lyrics(lyrics_obj) -> str:
-        """Convert a Lyrics object or string to a plain storable string."""
-        if isinstance(lyrics_obj, str):
-            return lyrics_obj
-
-        # Unwrap object wrapper if present (lyriq returns a Lyrics object)
-        lyrics_dict = getattr(lyrics_obj, "lyrics", lyrics_obj)
-
-        if isinstance(lyrics_dict, dict):
-            lines = []
-            for ts in sorted(lyrics_dict.keys()):
-                line = lyrics_dict[ts]
-                if str(line).strip() == "♪":
-                    lines.append("")
-                else:
-                    lines.append(f"[{ts}] {line}")
-            return "\n".join(lines)
-
-        # Fallback: stringify whatever we got
-        return str(lyrics_obj)
+    _format_lyrics = staticmethod(format_lyrics_for_storage)

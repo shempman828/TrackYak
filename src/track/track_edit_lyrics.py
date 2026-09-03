@@ -11,6 +11,7 @@ from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.foundation.censor import text_contains_explicit_words
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
+from src.lyrics.lyrics_format import format_lyrics_for_storage
 from src.mood.mood_autotag import auto_tag_lyrics_safe
 from src.track.track_edit_basetab import _BaseTab
 from src.track.track_edit_fieldform import (
@@ -161,30 +162,4 @@ class LyricsTab(_BaseTab):
     def cleanup(self) -> None:
         self._lyric_thread.stop()
 
-    @staticmethod
-    def _format_lyrics(lyrics_obj) -> str:
-        """
-        Convert lyrics to a plain string.
-        Handles three cases:
-          - already a str → return as-is
-          - object with a .lyrics dict attribute → format as [timestamp] line
-          - bare dict → format as [timestamp] line
-        """
-        if isinstance(lyrics_obj, str):
-            return lyrics_obj
-
-        # Unwrap object wrapper if present
-        lyrics_dict = getattr(lyrics_obj, "lyrics", lyrics_obj)
-
-        if isinstance(lyrics_dict, dict):
-            lines = []
-            for ts in sorted(lyrics_dict.keys()):
-                line = lyrics_dict[ts]
-                if str(line).strip() == "♪":
-                    lines.append("")
-                else:
-                    lines.append(f"[{ts}] {line}")
-            return "\n".join(lines)
-
-        # Fallback: just stringify whatever we got
-        return str(lyrics_obj)
+    _format_lyrics = staticmethod(format_lyrics_for_storage)
