@@ -20,6 +20,9 @@ LOGS_DIR = BASE_DIR / "logs"
 PLAYLISTS_DIR = BASE_DIR / "playlists"
 THEMES_DIR = BASE_DIR / "themes"
 CONFIG_DIR = BASE_DIR / "config"
+# Top-level home for regenerable on-disk caches (e.g. sync's MP3 transcode
+# cache). Safe to delete wholesale; never holds source-of-truth data.
+CACHE_DIR = BASE_DIR / "cache"
 
 # --- Subdirectories ----------------------------------------------------------
 
@@ -95,6 +98,7 @@ def ensure_directories_exist():
         IMAGECACHE_DIR,
         THEMES_DIR,
         CHARTS_DIR,
+        CACHE_DIR,
     ]:
         if not path.exists():
             logger.info(f"Creating missing directory: {path}")

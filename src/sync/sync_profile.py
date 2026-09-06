@@ -29,6 +29,8 @@ class SyncProfile:
     device_uri        MTP device URI  (empty = use folder sync).
     device_name       Friendly name for display in the UI.
     music_path        Target music folder on the device (relative path).
+    transcode_to_mp3  Convert lossless sources to MP3 on the way to the device.
+    transcode_bitrate CBR bitrate for that conversion (e.g. "320k").
     """
 
     name: str
@@ -39,6 +41,8 @@ class SyncProfile:
     device_uri: str = ""
     device_name: str = ""
     music_path: str = MtpManager.DEFAULT_MUSIC_PATH
+    transcode_to_mp3: bool = False
+    transcode_bitrate: str = "320k"
 
     @property
     def is_mtp(self) -> bool:
@@ -55,6 +59,8 @@ class SyncProfile:
             "device_uri": self.device_uri,
             "device_name": self.device_name,
             "music_path": self.music_path,
+            "transcode_to_mp3": self.transcode_to_mp3,
+            "transcode_bitrate": self.transcode_bitrate,
         }
 
     @staticmethod
@@ -68,6 +74,8 @@ class SyncProfile:
             device_uri=data.get("device_uri", ""),
             device_name=data.get("device_name", ""),
             music_path=data.get("music_path", MtpManager.DEFAULT_MUSIC_PATH),
+            transcode_to_mp3=data.get("transcode_to_mp3", False),
+            transcode_bitrate=data.get("transcode_bitrate", "320k"),
         )
 
 

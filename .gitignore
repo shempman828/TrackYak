@@ -19,6 +19,7 @@ CLAUDE.md
 *.db-wal
 *.db-shm
 scratch/
+cache/
 .ruff_cache/
 .pytest_cache/
 docs/

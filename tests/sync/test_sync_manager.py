@@ -466,3 +466,236 @@ def test_get_playlist_tracks_query_count_does_not_scale_with_track_count(session
     assert counts["large"] <= counts["small"] + 2, (
         f"query count scaled with track count: small={counts['small']} large={counts['large']}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Sync as MP3: lossless sources are transcoded to 320k MP3 on the way out,
+# lossy sources pass through, and a re-sync is a cache hit (no re-encode).
+# ---------------------------------------------------------------------------
+
+from src.sync.transcode import TranscodeCache, ffmpeg_available  # noqa: E402
+
+_transcode = pytest.mark.skipif(not ffmpeg_available(), reason="ffmpeg not installed")
+
+
+def _make_audio(path: Path, *, seconds: int = 1, title: str = "T") -> Path:
+    """Render a real audio file (format inferred from the extension)."""
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-nostdin",
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency=440:duration={seconds}",
+            "-metadata",
+            f"title={title}",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return path
+
+
+def _tracks(monkeypatch, sync_manager, *entries):
+    monkeypatch.setattr(sync_manager, "get_item_tracks", lambda pd: [dict(e) for e in entries])
+
+
+@_transcode
+def test_sync_folder_transcodes_lossless_source(tmp_path, sync_manager, monkeypatch):  # AC7
+    sync_manager.transcode_cache = TranscodeCache(cache_dir=tmp_path / "tcache")
+    src = _make_audio(tmp_path / "song.flac", title="Hello")
+    _tracks(
+        monkeypatch,
+        sync_manager,
+        {"file_path": str(src), "artist": "Band", "title": "Hello", "duration": 1.0},
+    )
+
+    result = sync_manager.sync_playlist_to_device(
+        {"kind": "playlist", "name": "PL", "playlist_id": 1},
+        str(tmp_path / "device"),
+        transcode_to_mp3=True,
+        transcode_bitrate="320k",
+    )
+
+    landed = tmp_path / "device" / "music" / "Band - Hello.mp3"
+    assert landed.exists()
+    cached = sync_manager.transcode_cache.path_for(str(src), "320k")
+    assert landed.stat().st_size == cached.stat().st_size
+    assert result["tracks_copied"] == 1
+    assert result["tracks_transcoded"] == 1
+    assert "1 to MP3" in result["message"]
+
+
+@_transcode
+def test_sync_folder_passes_lossy_source_through_untouched(
+    tmp_path, sync_manager, monkeypatch
+):  # AC8
+    sync_manager.transcode_cache = TranscodeCache(cache_dir=tmp_path / "tcache")
+    src = _make_audio(tmp_path / "song.mp3", title="AsIs")
+    _tracks(
+        monkeypatch,
+        sync_manager,
+        {"file_path": str(src), "artist": "Band", "title": "AsIs", "duration": 1.0},
+    )
+
+    result = sync_manager.sync_playlist_to_device(
+        {"kind": "playlist", "name": "PL", "playlist_id": 1},
+        str(tmp_path / "device"),
+        transcode_to_mp3=True,
+    )
+
+    landed = tmp_path / "device" / "music" / "Band - AsIs.mp3"
+    assert landed.exists()
+    assert landed.stat().st_size == src.stat().st_size  # byte-for-byte copy
+    assert result["tracks_transcoded"] == 0
+
+
+@_transcode
+def test_sync_folder_records_transcode_failure_and_keeps_going(
+    tmp_path, sync_manager, monkeypatch
+):  # AC9
+    sync_manager.transcode_cache = TranscodeCache(cache_dir=tmp_path / "tcache")
+    good = _make_audio(tmp_path / "good.flac", title="Good")
+    bad = tmp_path / "bad.flac"
+    bad.write_bytes(b"not audio at all")
+    _tracks(
+        monkeypatch,
+        sync_manager,
+        {"file_path": str(good), "artist": "A", "title": "Good", "duration": 1.0},
+        {"file_path": str(bad), "artist": "A", "title": "Bad", "duration": 1.0},
+    )
+
+    result = sync_manager.sync_playlist_to_device(
+        {"kind": "playlist", "name": "PL", "playlist_id": 1},
+        str(tmp_path / "device"),
+        transcode_to_mp3=True,
+    )
+
+    music = tmp_path / "device" / "music"
+    assert (music / "A - Good.mp3").exists()
+    assert not (music / "A - Bad.mp3").exists()
+    assert not (music / "A - Bad.flac").exists()
+    assert result["tracks_copied"] == 1
+    reasons = {f["title"]: f["reason"] for f in result["failures"]}
+    assert reasons["Bad"].startswith("could not convert to MP3")
+
+
+@_transcode
+def test_second_sync_is_a_cache_hit_no_reencode(tmp_path, sync_manager, monkeypatch):  # AC10
+    sync_manager.transcode_cache = TranscodeCache(cache_dir=tmp_path / "tcache")
+    src = _make_audio(tmp_path / "song.flac", title="Once")
+    _tracks(
+        monkeypatch,
+        sync_manager,
+        {"file_path": str(src), "artist": "B", "title": "Once", "duration": 1.0},
+    )
+    playlist = {"kind": "playlist", "name": "PL", "playlist_id": 1}
+    dest = str(tmp_path / "device")
+
+    first = sync_manager.sync_playlist_to_device(playlist, dest, transcode_to_mp3=True)
+    assert first["tracks_copied"] == 1
+
+    from src.sync import transcode as _tmod
+
+    calls = []
+    real = _tmod.transcode_to_mp3
+    monkeypatch.setattr(_tmod, "transcode_to_mp3", lambda *a, **k: calls.append(a) or real(*a, **k))
+
+    second = sync_manager.sync_playlist_to_device(playlist, dest, transcode_to_mp3=True)
+    assert second["tracks_copied"] == 0
+    assert second["tracks_skipped"] == 1
+    assert calls == []  # cache hit, ffmpeg never re-invoked
+
+
+def test_transcode_requested_without_ffmpeg_copies_originals(
+    tmp_path, sync_manager, monkeypatch
+):  # AC11
+    monkeypatch.setattr("src.sync.sync_manager.ffmpeg_available", lambda: False)
+    src = _write_file(tmp_path / "song.flac", content=b"pretend-flac-bytes")
+    _tracks(
+        monkeypatch,
+        sync_manager,
+        {"file_path": str(src), "artist": "C", "title": "Song", "duration": 1.0},
+    )
+
+    result = sync_manager.sync_playlist_to_device(
+        {"kind": "playlist", "name": "PL", "playlist_id": 1},
+        str(tmp_path / "device"),
+        transcode_to_mp3=True,
+    )
+
+    landed = tmp_path / "device" / "music" / "C - Song.flac"
+    assert landed.exists()
+    assert landed.stat().st_size == src.stat().st_size
+    assert result["tracks_transcoded"] == 0
+    assert "ffmpeg not found" in result["message"]
+
+
+@_transcode
+def test_cancel_during_transcode_stops_the_sync(tmp_path, sync_manager, monkeypatch):  # AC12
+    sync_manager.transcode_cache = TranscodeCache(cache_dir=tmp_path / "tcache")
+    a = _make_audio(tmp_path / "a.flac", title="A")
+    b = _make_audio(tmp_path / "b.flac", seconds=2, title="B")
+    _tracks(
+        monkeypatch,
+        sync_manager,
+        {"file_path": str(a), "artist": "X", "title": "A", "duration": 1.0},
+        {"file_path": str(b), "artist": "X", "title": "B", "duration": 2.0},
+    )
+
+    # Latch cancelled after the first transcode check (call #1 -> False so A
+    # encodes; every call after -> True, matching SyncWorker's sticky flag).
+    calls = {"n": 0}
+
+    def should_cancel():
+        calls["n"] += 1
+        return calls["n"] > 1
+
+    result = sync_manager.sync_playlist_to_device(
+        {"kind": "playlist", "name": "PL", "playlist_id": 1},
+        str(tmp_path / "device"),
+        should_cancel=should_cancel,
+        transcode_to_mp3=True,
+    )
+
+    assert result["tracks_copied"] == 0
+    reasons = {f["title"]: f["reason"] for f in result["failures"]}
+    assert "cancelled" in reasons["A"]
+    assert "cancelled" in reasons["B"]
+    # A was transcoded before the cancel landed, even though it never copied.
+    assert sync_manager.transcode_cache.path_for(str(a), "320k").exists()
+    assert not (tmp_path / "device" / "music" / "X - A.mp3").exists()
+
+
+@_transcode
+def test_mtp_sync_transcodes_then_reruns_as_skip(tmp_path, sync_manager, monkeypatch):  # AC15
+    sync_manager.transcode_cache = TranscodeCache(cache_dir=tmp_path / "tcache")
+    device_root = tmp_path / "device"
+    device_root.mkdir()
+    device = MtpDevice(uri=f"file://{device_root}/", name="stub", backend="gio")
+    monkeypatch.setattr(sync_manager, "_get_mtp_device", lambda uri: device)
+
+    src = _make_audio(tmp_path / "song.flac", title="Remote")
+    _tracks(
+        monkeypatch,
+        sync_manager,
+        {"file_path": str(src), "artist": "R", "title": "Remote", "duration": 1.0},
+    )
+    playlist = {"kind": "playlist", "name": "PL", "playlist_id": 1}
+
+    first = sync_manager.sync_playlist_to_mtp(playlist, device.uri, "Music", transcode_to_mp3=True)
+    assert first["tracks_copied"] == 1
+
+    remote = device_root / "Music" / "R - Remote.mp3"
+    assert remote.exists()
+    cached = sync_manager.transcode_cache.path_for(str(src), "320k")
+    assert remote.stat().st_size == cached.stat().st_size
+
+    second = sync_manager.sync_playlist_to_mtp(playlist, device.uri, "Music", transcode_to_mp3=True)
+    assert second["tracks_copied"] == 0
+    assert second["tracks_skipped"] == 1

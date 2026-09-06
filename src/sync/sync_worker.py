@@ -56,6 +56,8 @@ class SyncWorker(CancellableWorker):
                         profile.music_path,
                         self._progress_callback,
                         should_cancel=lambda: self.is_cancelled,
+                        transcode_to_mp3=profile.transcode_to_mp3,
+                        transcode_bitrate=profile.transcode_bitrate,
                     )
                 else:
                     result = self.sync_manager.sync_playlist_to_device(
@@ -63,6 +65,8 @@ class SyncWorker(CancellableWorker):
                         profile.path,
                         self._progress_callback,
                         should_cancel=lambda: self.is_cancelled,
+                        transcode_to_mp3=profile.transcode_to_mp3,
+                        transcode_bitrate=profile.transcode_bitrate,
                     )
 
                 self.results.append(result)

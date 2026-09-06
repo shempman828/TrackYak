@@ -20,6 +20,7 @@ from src.db.db_helpers import GetFromDB
 from src.db.db_tables import MoodTrackAssociation, PlaylistTracks, Track, TrackArtistRole
 from src.foundation.logger_config import logger
 from src.sync.mtp_manager import MtpDevice, MtpManager
+from src.sync.transcode import TranscodeCache, TranscodeError, ffmpeg_available, is_lossless_path
 
 # Post-copy verification retries this many times before a track is
 # reported as failed (so up to _MAX_RETRIES + 1 total copy attempts).
@@ -35,6 +36,7 @@ class SyncManager:
         self.session = db_session
         self.get_db = GetFromDB(db_session)
         self.mtp = MtpManager()
+        self.transcode_cache = TranscodeCache()
 
     # ------------------------------------------------------------------
     # Database helpers
@@ -143,6 +145,63 @@ class SyncManager:
             {"title": track.get("title", "?"), "artist": track.get("artist", "?"), "reason": reason}
         )
 
+    @staticmethod
+    def _empty_result(playlist_name: str, message: str) -> dict:
+        """A zeroed result dict (shared by the 'empty'/'no device' early exits)."""
+        return {
+            "playlist_name": playlist_name,
+            "success": False,
+            "message": message,
+            "tracks_copied": 0,
+            "tracks_skipped": 0,
+            "tracks_failed": 0,
+            "tracks_transcoded": 0,
+            "total_tracks": 0,
+            "failures": [],
+        }
+
+    @staticmethod
+    def _effective_source(track: dict) -> str:
+        """The file actually copied to the device: the transcoded MP3 if one
+        was produced for this track, otherwise the library original."""
+        return track.get("sync_source_path") or track["file_path"]
+
+    def _prepare_transcodes(
+        self,
+        tracks: list[dict],
+        failures: list[dict] | None,
+        progress_callback=None,
+        progress_total: int = 0,
+        should_cancel: Callable[[], bool] | None = None,
+        bitrate: str = "320k",
+    ) -> None:
+        """
+        Transcode every lossless track to a cached MP3 and point
+        track['sync_source_path'] at it. Lossy tracks are left untouched.
+
+        A track whose transcode fails or is cancelled is flagged
+        '_transcode_skipped' (so the diff pass ignores it) and its reason is
+        recorded in `failures` here.
+        """
+        for i, track in enumerate(tracks):
+            src = track.get("file_path")
+            if not src or not is_lossless_path(src):
+                continue
+            if self._unusable_source_reason(track):
+                continue  # the diff pass records the real "source missing" reason
+            if should_cancel and should_cancel():
+                track["_transcode_skipped"] = True
+                self._record_failure(failures, track, "cancelled before it was copied")
+                continue
+            if progress_callback:
+                progress_callback(i, progress_total, f"Converting to MP3: {track['title']}")
+            try:
+                track["sync_source_path"] = str(self.transcode_cache.get_or_create(src, bitrate))
+            except (TranscodeError, OSError) as e:
+                track["_transcode_skipped"] = True
+                logger.error(f"Transcode failed for {src}: {e}")
+                self._record_failure(failures, track, f"could not convert to MP3: {e}")
+
     def _safe_filename(self, artist: str, title: str, ext: str) -> str:
         """Build a safe 'Artist - Title.ext' filename stripping illegal chars."""
 
@@ -215,16 +274,19 @@ class SyncManager:
         md5_candidates: list[tuple[dict, str]] = []
 
         for track in tracks:
+            if track.get("_transcode_skipped"):
+                continue  # transcode failed/cancelled — already in `failures`
             reason = self._unusable_source_reason(track)
             if reason:
                 logger.warning(f"{reason}: {track.get('file_path')}")
                 self._record_failure(failures, track, reason)
                 continue
-            ext = os.path.splitext(track["file_path"])[1]
+            source = self._effective_source(track)
+            ext = os.path.splitext(source)[1]
             device_filename = self._safe_filename(track["artist"], track["title"], ext)
             track["device_filename"] = device_filename
             try:
-                source_size = os.path.getsize(track["file_path"])
+                source_size = os.path.getsize(source)
             except OSError:
                 to_copy.append(track)
                 continue
@@ -237,7 +299,7 @@ class SyncManager:
         if md5_candidates:
             with ThreadPoolExecutor(max_workers=_DUPLICATE_CHECK_WORKERS) as pool:
                 futures = {
-                    pool.submit(self._is_local_duplicate, t["file_path"], dest): t
+                    pool.submit(self._is_local_duplicate, self._effective_source(t), dest): t
                     for t, dest in md5_candidates
                 }
                 for future in as_completed(futures):
@@ -268,17 +330,20 @@ class SyncManager:
         to_skip: list[dict] = []
 
         for track in tracks:
+            if track.get("_transcode_skipped"):
+                continue  # transcode failed/cancelled — already in `failures`
             local_path = track.get("file_path", "")
             reason = self._unusable_source_reason(track)
             if reason:
                 logger.warning(f"{reason}: {local_path}")
                 self._record_failure(failures, track, reason)
                 continue
-            ext = os.path.splitext(local_path)[1]
+            source = self._effective_source(track)
+            ext = os.path.splitext(source)[1]
             device_filename = self._safe_filename(track["artist"], track["title"], ext)
             track["device_filename"] = device_filename
             try:
-                source_size = os.path.getsize(local_path)
+                source_size = os.path.getsize(source)
             except OSError:
                 to_copy.append(track)
                 continue
@@ -410,7 +475,13 @@ class SyncManager:
                 logger.info(f"Cleared folder: {target}")
 
     def sync_playlist_to_device(
-        self, playlist_data: dict, device_path: str, progress_callback=None, should_cancel=None
+        self,
+        playlist_data: dict,
+        device_path: str,
+        progress_callback=None,
+        should_cancel=None,
+        transcode_to_mp3: bool = False,
+        transcode_bitrate: str = "320k",
     ) -> dict:
         """Sync a single playlist or mood to a local folder path."""
         playlist_name = playlist_data["name"]
@@ -422,30 +493,26 @@ class SyncManager:
 
         tracks = self.get_item_tracks(playlist_data)
         if not tracks:
-            return {
-                "playlist_name": playlist_name,
-                "success": False,
-                "message": "Playlist is empty",
-                "tracks_copied": 0,
-                "tracks_skipped": 0,
-                "tracks_failed": 0,
-                "total_tracks": 0,
-                "failures": [],
-            }
+            return self._empty_result(playlist_name, "Playlist is empty")
 
         total_tracks = len(tracks)
         failures: list[dict] = []
+        ffmpeg_missing = transcode_to_mp3 and not ffmpeg_available()
+        if transcode_to_mp3 and not ffmpeg_missing:
+            self._prepare_transcodes(
+                tracks, failures, progress_callback, total_tracks, should_cancel, transcode_bitrate
+            )
         to_copy, to_skip = self._diff_local_pool(tracks, music_dir, failures)
         for track in to_skip:
             track["copied_successfully"] = True
 
         def copy_one(track: dict) -> bool:
             dest_path = os.path.join(music_dir, track["device_filename"])
-            return self.copy_track(track["file_path"], dest_path)
+            return self.copy_track(self._effective_source(track), dest_path)
 
         def expected_size(track: dict) -> int | None:
             try:
-                return os.path.getsize(track["file_path"])
+                return os.path.getsize(self._effective_source(track))
             except OSError:
                 return None
 
@@ -467,6 +534,7 @@ class SyncManager:
         tracks_copied = len(succeeded)
         tracks_skipped = len(to_skip)
         tracks_failed = len(failures)
+        tracks_transcoded = sum(1 for t in succeeded if t.get("sync_source_path"))
 
         m3u_content = self._build_m3u_content(playlist_data, processed_tracks)
         safe_name = "".join(c for c in playlist_name if c.isalnum() or c in (" ", "-", "_")).strip()
@@ -478,8 +546,12 @@ class SyncManager:
             logger.error(f"Failed to write M3U: {e}")
 
         message = f"{tracks_copied} copied, {tracks_skipped} skipped"
+        if tracks_transcoded:
+            message += f", {tracks_transcoded} to MP3"
         if tracks_failed:
             message += f", {tracks_failed} failed"
+        if ffmpeg_missing:
+            message += "  (ffmpeg not found — copied originals)"
 
         return {
             "playlist_name": playlist_name,
@@ -488,6 +560,7 @@ class SyncManager:
             "tracks_copied": tracks_copied,
             "tracks_skipped": tracks_skipped,
             "tracks_failed": tracks_failed,
+            "tracks_transcoded": tracks_transcoded,
             "total_tracks": total_tracks,
             "failures": failures,
         }
@@ -531,6 +604,8 @@ class SyncManager:
         music_path: str,
         progress_callback=None,
         should_cancel=None,
+        transcode_to_mp3: bool = False,
+        transcode_bitrate: str = "320k",
     ) -> dict:
         """
         Sync a single playlist or mood to a connected Android device via MTP.
@@ -545,16 +620,9 @@ class SyncManager:
 
         device = self._get_mtp_device(device_uri)
         if device is None:
-            return {
-                "playlist_name": playlist_name,
-                "success": False,
-                "message": "Device not found — is it plugged in with File Transfer selected?",
-                "tracks_copied": 0,
-                "tracks_skipped": 0,
-                "tracks_failed": 0,
-                "total_tracks": 0,
-                "failures": [],
-            }
+            return self._empty_result(
+                playlist_name, "Device not found — is it plugged in with File Transfer selected?"
+            )
 
         # Ensure remote directories exist
         music_dir_uri = self.mtp.build_music_uri(device, music_path)
@@ -563,30 +631,26 @@ class SyncManager:
 
         tracks = self.get_item_tracks(playlist_data)
         if not tracks:
-            return {
-                "playlist_name": playlist_name,
-                "success": False,
-                "message": "Playlist is empty",
-                "tracks_copied": 0,
-                "tracks_skipped": 0,
-                "tracks_failed": 0,
-                "total_tracks": 0,
-                "failures": [],
-            }
+            return self._empty_result(playlist_name, "Playlist is empty")
 
         total_tracks = len(tracks)
         failures: list[dict] = []
+        ffmpeg_missing = transcode_to_mp3 and not ffmpeg_available()
+        if transcode_to_mp3 and not ffmpeg_missing:
+            self._prepare_transcodes(
+                tracks, failures, progress_callback, total_tracks, should_cancel, transcode_bitrate
+            )
         to_copy, to_skip = self._diff_mtp_pool(tracks, device, music_dir_uri, failures)
         for track in to_skip:
             track["copied_successfully"] = True
 
         def copy_one(track: dict) -> bool:
             remote_uri = self.mtp.build_file_uri(device, music_path, track["device_filename"])
-            return self.mtp.copy_file(device, track["file_path"], remote_uri)
+            return self.mtp.copy_file(device, self._effective_source(track), remote_uri)
 
         def expected_size(track: dict) -> int | None:
             try:
-                return os.path.getsize(track["file_path"])
+                return os.path.getsize(self._effective_source(track))
             except OSError:
                 return None
 
@@ -608,6 +672,7 @@ class SyncManager:
         tracks_copied = len(succeeded)
         tracks_skipped = len(to_skip)
         tracks_failed = len(failures)
+        tracks_transcoded = sum(1 for t in succeeded if t.get("sync_source_path"))
 
         # Push M3U — relative path from Playlists dir back up to Music dir
         music_folder_name = music_path.strip("/").split("/")[-1]
@@ -629,8 +694,12 @@ class SyncManager:
         self.mtp.copy_text_as_file(device, m3u_content, playlist_uri)
 
         message = f"{tracks_copied} sent, {tracks_skipped} skipped"
+        if tracks_transcoded:
+            message += f", {tracks_transcoded} to MP3"
         if tracks_failed:
             message += f", {tracks_failed} failed"
+        if ffmpeg_missing:
+            message += "  (ffmpeg not found — copied originals)"
 
         return {
             "playlist_name": playlist_name,
@@ -639,6 +708,7 @@ class SyncManager:
             "tracks_copied": tracks_copied,
             "tracks_skipped": tracks_skipped,
             "tracks_failed": tracks_failed,
+            "tracks_transcoded": tracks_transcoded,
             "total_tracks": total_tracks,
             "failures": failures,
         }

@@ -98,3 +98,75 @@ def test_on_music_path_changed_persists_combo_text():
     view.profile_store.save.reset_mock()
     view._on_music_path_changed()
     view.profile_store.save.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# "Convert lossless files to MP3" — the option is gated on ffmpeg being
+# present, exposes a bitrate picker, and round-trips through the profile.
+# ---------------------------------------------------------------------------
+
+
+def test_transcode_widgets_disabled_without_ffmpeg(monkeypatch):  # AC13
+    import src.sync.sync_view as sv
+
+    monkeypatch.setattr(sv, "ffmpeg_available", lambda: False)
+    view = _view_with_settings_tab()
+
+    assert view.transcode_mp3_check.isEnabled() is False
+    assert view.transcode_mp3_check.toolTip()  # non-empty "install ffmpeg" hint
+    assert view.bitrate_combo.isEnabled() is False
+
+
+def test_transcode_checkbox_enabled_with_ffmpeg_combo_follows_checkbox(monkeypatch):  # AC13
+    import src.sync.sync_view as sv
+
+    monkeypatch.setattr(sv, "ffmpeg_available", lambda: True)
+    view = _view_with_settings_tab()
+
+    assert view.transcode_mp3_check.isEnabled() is True
+    # Bitrate picker stays disabled until the checkbox is actually ticked.
+    assert view.bitrate_combo.isEnabled() is False
+
+
+def test_toggling_transcode_options_persists_to_profile(monkeypatch):  # AC14
+    import src.sync.sync_view as sv
+
+    monkeypatch.setattr(sv, "ffmpeg_available", lambda: True)
+    view = _view_with_settings_tab()
+    prof = SyncProfile(name="P", path="")
+    view.current_profile = prof
+    view.profiles = [prof]
+    view.profile_store = Mock()
+
+    view.transcode_mp3_check.setChecked(True)
+    assert prof.transcode_to_mp3 is True
+    assert view.bitrate_combo.isEnabled() is True
+
+    view.bitrate_combo.setCurrentText("192")
+    assert prof.transcode_bitrate == "192k"
+    assert view.profile_store.save.called
+
+
+def test_load_profile_reflects_transcode_settings_without_signals(monkeypatch):  # AC14
+    import src.sync.sync_view as sv
+
+    monkeypatch.setattr(sv, "ffmpeg_available", lambda: True)
+    view = _view_with_settings_tab()
+    view.placeholder = Mock()
+    view.tabs = Mock()
+    view._apply_profile_selection = Mock()
+    view._refresh_device_label = Mock()
+    view.profile_store = Mock()
+    prof = SyncProfile(name="P", path="", transcode_to_mp3=True, transcode_bitrate="256k")
+    view.current_profile = prof
+
+    fired = []
+    view.transcode_mp3_check.toggled.connect(lambda *_: fired.append("check"))
+    view.bitrate_combo.currentTextChanged.connect(lambda *_: fired.append("combo"))
+
+    view._load_profile_into_ui()
+
+    assert view.transcode_mp3_check.isChecked() is True
+    assert view.bitrate_combo.currentText() == "256"
+    assert view.bitrate_combo.isEnabled() is True
+    assert fired == []  # signals stayed blocked during the load

@@ -52,6 +52,9 @@ class SyncExecutionMixin:
         )
         if clear:
             confirm_msg += "\n\n⚠️  Destination will be cleared first."
+        if self.current_profile.transcode_to_mp3:
+            bitrate = self.current_profile.transcode_bitrate
+            confirm_msg += f"\n\nLossless files will be converted to {bitrate} MP3."
 
         reply = QMessageBox.question(
             self, "Confirm Sync", confirm_msg, QMessageBox.Yes | QMessageBox.No
@@ -112,9 +115,12 @@ class SyncExecutionMixin:
         icon = "✅" if result["success"] else "❌"
         skipped = result.get("tracks_skipped", 0)
         failed = result.get("tracks_failed", 0)
+        transcoded = result.get("tracks_transcoded", 0)
         notes = []
         if skipped:
             notes.append(f"{skipped} duplicates skipped")
+        if transcoded:
+            notes.append(f"{transcoded} to MP3")
         if failed:
             notes.append(f"{failed} failed")
         note = f"  ({', '.join(notes)})" if notes else ""
@@ -134,20 +140,22 @@ class SyncExecutionMixin:
         total_copied = sum(r.get("tracks_copied", 0) for r in results)
         total_skipped = sum(r.get("tracks_skipped", 0) for r in results)
         total_failed = sum(r.get("tracks_failed", 0) for r in results)
+        total_transcoded = sum(r.get("tracks_transcoded", 0) for r in results)
         failed_note = f", {total_failed} failed" if total_failed else ""
+        mp3_note = f", {total_transcoded} to MP3" if total_transcoded else ""
 
         logger.info(
             f"Sync finished: {successful}/{total} playlists succeeded, "
-            f"{total_copied} tracks copied, {total_skipped} skipped{failed_note}"
+            f"{total_copied} tracks copied, {total_skipped} skipped{mp3_note}{failed_note}"
         )
 
         self.current_action.setText(
             f"Done — {successful}/{total} playlists  ·  "
-            f"{total_copied} copied, {total_skipped} skipped{failed_note}"
+            f"{total_copied} copied, {total_skipped} skipped{mp3_note}{failed_note}"
         )
         self.sync_log.append(
             f"\n=== Sync complete: {successful}/{total} playlists  |  "
-            f"{total_copied} copied, {total_skipped} skipped{failed_note} ==="
+            f"{total_copied} copied, {total_skipped} skipped{mp3_note}{failed_note} ==="
         )
 
         if successful > 0:

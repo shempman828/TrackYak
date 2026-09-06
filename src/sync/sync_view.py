@@ -37,6 +37,7 @@ from src.sync.sync_manager import SyncManager
 from src.sync.sync_profile import SyncProfile, SyncProfileStore
 from src.sync.sync_selection_mixin import SyncSelectionMixin
 from src.sync.sync_worker import SyncWorker
+from src.sync.transcode import TranscodeCache, ffmpeg_available
 
 # Common on-device music folders offered in the "Music folder on device"
 # dropdown. The field stays editable, so any custom relative path still works.
@@ -357,6 +358,46 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.clear_before_sync_check.toggled.connect(self._on_option_changed)
         options_layout.addWidget(self.clear_before_sync_check)
 
+        # ── Transcode lossless → MP3 ───────────────────────────────────────
+        ffmpeg_ok = ffmpeg_available()
+        self.transcode_mp3_check = QCheckBox("Convert lossless files to MP3")
+        self.transcode_mp3_check.setEnabled(ffmpeg_ok)
+        self.transcode_mp3_check.setToolTip(
+            "FLAC / WAV / AIFF are re-encoded to CBR MP3 as they're copied to the device."
+            if ffmpeg_ok
+            else "Requires ffmpeg on your PATH  (e.g. sudo apt install ffmpeg)"
+        )
+        self.transcode_mp3_check.toggled.connect(self._on_option_changed)
+        options_layout.addWidget(self.transcode_mp3_check)
+
+        bitrate_row = QHBoxLayout()
+        bitrate_row.addSpacing(22)
+        bitrate_row.addWidget(QLabel("Bitrate:"))
+        self.bitrate_combo = QComboBox()
+        self.bitrate_combo.addItems(["320", "256", "192", "128"])
+        self.bitrate_combo.setFixedWidth(70)
+        self.bitrate_combo.setEnabled(False)
+        self.bitrate_combo.currentTextChanged.connect(self._on_option_changed)
+        bitrate_row.addWidget(self.bitrate_combo)
+        bitrate_row.addWidget(QLabel("kbps"))
+        bitrate_row.addStretch()
+        options_layout.addLayout(bitrate_row)
+
+        transcode_caption = QLabel(
+            "Lossy files (MP3, AAC, M4A, OGG) copy unchanged. "
+            "Your library's original files are never modified."
+        )
+        transcode_caption.setProperty("textRole", "muted")
+        transcode_caption.setWordWrap(True)
+        options_layout.addWidget(transcode_caption)
+
+        cache_row = QHBoxLayout()
+        self.clear_cache_btn = QPushButton("Clear MP3 cache")
+        self.clear_cache_btn.clicked.connect(self._clear_transcode_cache)
+        cache_row.addWidget(self.clear_cache_btn)
+        cache_row.addStretch()
+        options_layout.addLayout(cache_row)
+
         layout.addWidget(options_group)
         layout.addStretch()
 
@@ -563,6 +604,18 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.clear_before_sync_check.setChecked(p.clear_before_sync)
         self.clear_before_sync_check.blockSignals(False)
 
+        ffmpeg_ok = ffmpeg_available()
+        self.transcode_mp3_check.blockSignals(True)
+        self.transcode_mp3_check.setChecked(p.transcode_to_mp3)
+        self.transcode_mp3_check.setEnabled(ffmpeg_ok)
+        self.transcode_mp3_check.blockSignals(False)
+
+        self.bitrate_combo.blockSignals(True)
+        self.bitrate_combo.setCurrentText((p.transcode_bitrate or "320k").rstrip("k"))
+        self.bitrate_combo.setEnabled(ffmpeg_ok and p.transcode_to_mp3)
+        self.bitrate_combo.blockSignals(False)
+
+        self._update_cache_button_label()
         self._refresh_device_label()
 
         # Playlists & Moods tab
@@ -631,7 +684,35 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         if not self.current_profile:
             return
         self.current_profile.clear_before_sync = self.clear_before_sync_check.isChecked()
+        self.current_profile.transcode_to_mp3 = self.transcode_mp3_check.isChecked()
+        self.current_profile.transcode_bitrate = f"{self.bitrate_combo.currentText()}k"
+        self.bitrate_combo.setEnabled(
+            self.transcode_mp3_check.isEnabled() and self.transcode_mp3_check.isChecked()
+        )
         self.profile_store.save(self.profiles)
+
+    def _update_cache_button_label(self):
+        """Show the current transcode-cache size on the Clear button."""
+        size_mb = TranscodeCache().size_bytes() / (1024 * 1024)
+        self.clear_cache_btn.setText(f"Clear MP3 cache ({size_mb:.0f} MB)")
+        self.clear_cache_btn.setEnabled(size_mb > 0)
+
+    def _clear_transcode_cache(self):
+        cache = TranscodeCache()
+        size_mb = cache.size_bytes() / (1024 * 1024)
+        reply = QMessageBox.question(
+            self,
+            "Clear MP3 cache",
+            f"Delete {size_mb:.0f} MB of cached MP3 conversions?\n\n"
+            "They are re-created automatically on the next sync that needs them.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        removed = cache.clear()
+        logger.info(f"Cleared transcode cache: {removed} file(s)")
+        show_status_message(self, f"Cleared {removed} cached MP3 file(s).")
+        self._update_cache_button_label()
 
     def _browse_folder(self):
         if not self.current_profile:
