@@ -24,6 +24,7 @@ artwork_consistency_dialog.py), which also lets the user re-embed one
 version into every track to fix an album that has drifted.
 """
 
+import contextlib
 import io
 from pathlib import Path
 import sqlite3
@@ -42,6 +43,17 @@ from src.metadata.metadata_artwork import ArtworkExtractor
 
 DEFAULT_MAX_DIMENSION = 1024
 DEFAULT_JPEG_QUALITY = 95
+
+# When a cache write fails (the SQLite file or its filesystem briefly went
+# read-only - an external `rm` of the cache db under the open handle, an
+# ext4 emergency remount, a backup/restore swap), stop attempting the
+# expensive extract+decode+write on every lookup for this long and just
+# serve whatever rows are already cached. Without this a sustained
+# read-only window turns every art lookup into a full audio-file read + PIL
+# decode that ends in a failed write, logged once per NowPlaying repaint
+# tick and once per album across the whole warmer queue - forever, with no
+# recovery short of an app restart.
+_DEGRADED_BACKOFF_SEC = 60.0
 
 
 def all_album_tracks(album) -> list:
@@ -120,6 +132,20 @@ def _build_thumbnail(
 class ArtworkCache:
     """Self-healing, mtime-validated thumbnail cache for embedded album art."""
 
+    _SCHEMA_SQL = """
+        CREATE TABLE IF NOT EXISTS artwork_thumbnails (
+            album_id INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            source_track_path TEXT,
+            source_mtime REAL,
+            width INTEGER,
+            height INTEGER,
+            thumb_data BLOB,
+            updated_at TEXT,
+            PRIMARY KEY (album_id, role)
+        )
+        """
+
     def __init__(self, db_path: str | None = None):
         self.db_path = Path(db_path) if db_path else (IMAGECACHE_DIR / "artwork_cache.db")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -127,6 +153,10 @@ class ArtworkCache:
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._extractor = ArtworkExtractor()
+        # 0.0 == healthy. Otherwise a time.monotonic() deadline: until then,
+        # writes are assumed to keep failing, so lookups skip _refresh and
+        # serve cached rows only. See _note_write_failure / _DEGRADED_BACKOFF_SEC.
+        self._degraded_until = 0.0
         # Set == background warmers may run; cleared == a foreground writer
         # (the album editor embedding freshly-picked art into every track)
         # has asked them to back off so the two threads aren't contending on
@@ -137,22 +167,13 @@ class ArtworkCache:
 
     def _init_schema(self):
         with self._lock:
-            self._conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS artwork_thumbnails (
-                    album_id INTEGER NOT NULL,
-                    role TEXT NOT NULL,
-                    source_track_path TEXT,
-                    source_mtime REAL,
-                    width INTEGER,
-                    height INTEGER,
-                    thumb_data BLOB,
-                    updated_at TEXT,
-                    PRIMARY KEY (album_id, role)
-                )
-                """
-            )
-            self._conn.commit()
+            try:
+                self._conn.execute(self._SCHEMA_SQL)
+                self._conn.commit()
+            except sqlite3.Error as exc:
+                # Constructed while the cache file/filesystem is read-only:
+                # degrade instead of crashing the app at startup.
+                self._note_write_failure(exc)
 
     # ------------------------------------------------------------------ #
     #  Public API                                                          #
@@ -185,6 +206,12 @@ class ArtworkCache:
     def has_art(self, album, role: str = "front") -> bool:
         row = self._lookup_or_refresh(album, role)
         return row is not None and row["thumb_data"] is not None
+
+    def is_degraded(self) -> bool:
+        """True while the cache is in a post-write-failure read-only window
+        (see _DEGRADED_BACKOFF_SEC). Background warmers check this to stop
+        grinding a whole album list on a database that can't be written."""
+        return time.monotonic() < self._degraded_until
 
     def _peek_row(self, album, role: str) -> tuple[bool, sqlite3.Row | None]:
         """Shared lookup for peek_has_art/peek_dimensions: consults only
@@ -280,14 +307,21 @@ class ArtworkCache:
 
     def invalidate(self, album_id: int, role: str | None = None) -> None:
         with self._lock:
-            if role is None:
-                self._conn.execute("DELETE FROM artwork_thumbnails WHERE album_id = ?", (album_id,))
-            else:
-                self._conn.execute(
-                    "DELETE FROM artwork_thumbnails WHERE album_id = ? AND role = ?",
-                    (album_id, role),
-                )
-            self._conn.commit()
+            try:
+                if role is None:
+                    self._conn.execute(
+                        "DELETE FROM artwork_thumbnails WHERE album_id = ?", (album_id,)
+                    )
+                else:
+                    self._conn.execute(
+                        "DELETE FROM artwork_thumbnails WHERE album_id = ? AND role = ?",
+                        (album_id, role),
+                    )
+                self._conn.commit()
+            except sqlite3.Error as exc:
+                # Stale rows surviving is harmless - the source_mtime check
+                # in _lookup_or_refresh catches a changed file anyway.
+                self._note_write_failure(exc)
 
     def close(self) -> None:
         with self._lock:
@@ -313,6 +347,12 @@ class ArtworkCache:
             and row["source_track_path"] == track.track_file_path
             and row["source_mtime"] == current_mtime
         ):
+            return row
+
+        if self.is_degraded():
+            # Writes are failing; _refresh would read+decode the whole audio
+            # file only to fail again at _upsert. Serve the cached row as-is
+            # (possibly stale, possibly None) until the window expires.
             return row
 
         return self._refresh(album.album_id, role, track, current_mtime)
@@ -358,6 +398,20 @@ class ArtworkCache:
             )
             return cur.fetchone()
 
+    _UPSERT_SQL = """
+        INSERT INTO artwork_thumbnails
+            (album_id, role, source_track_path, source_mtime, width,
+             height, thumb_data, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(album_id, role) DO UPDATE SET
+            source_track_path = excluded.source_track_path,
+            source_mtime = excluded.source_mtime,
+            width = excluded.width,
+            height = excluded.height,
+            thumb_data = excluded.thumb_data,
+            updated_at = excluded.updated_at
+        """
+
     def _upsert(
         self,
         album_id: int,
@@ -368,33 +422,81 @@ class ArtworkCache:
         height: int | None,
         thumb_data: bytes | None,
     ) -> None:
+        params = (
+            album_id,
+            role,
+            source_track_path,
+            source_mtime,
+            width,
+            height,
+            thumb_data,
+            time.strftime("%Y-%m-%d %H:%M:%S"),
+        )
         with self._lock:
-            self._conn.execute(
-                """
-                INSERT INTO artwork_thumbnails
-                    (album_id, role, source_track_path, source_mtime, width,
-                     height, thumb_data, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(album_id, role) DO UPDATE SET
-                    source_track_path = excluded.source_track_path,
-                    source_mtime = excluded.source_mtime,
-                    width = excluded.width,
-                    height = excluded.height,
-                    thumb_data = excluded.thumb_data,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    album_id,
-                    role,
-                    source_track_path,
-                    source_mtime,
-                    width,
-                    height,
-                    thumb_data,
-                    time.strftime("%Y-%m-%d %H:%M:%S"),
-                ),
-            )
+            if time.monotonic() < self._degraded_until:
+                # Known read-only window - don't retry per write, just per
+                # window expiry (a caller past the _lookup_or_refresh guard,
+                # e.g. store(), still lands here).
+                return
+            try:
+                self._conn.execute(self._UPSERT_SQL, params)
+                self._conn.commit()
+            except sqlite3.Error as exc:
+                # One reconnect + retry: recovers SQLITE_READONLY_DBMOVED
+                # (cache file swapped/removed under the open handle). If it
+                # still fails, drop into the read-only window instead of
+                # raising - this is called from NowPlayingView.updateUI and
+                # the whole-library warmer, both of which would otherwise
+                # spam a traceback / warning per lookup.
+                if not (self._reconnect_locked() and self._retry_write_locked(params)):
+                    self._note_write_failure(exc)
+                    return
+            self._clear_degraded_locked()
+
+    def _retry_write_locked(self, params: tuple) -> bool:
+        try:
+            self._conn.execute(self._UPSERT_SQL, params)
             self._conn.commit()
+            return True
+        except sqlite3.Error as exc:
+            logger.debug(f"ArtworkCache: write retry after reconnect failed: {exc}")
+            return False
+
+    def _reconnect_locked(self) -> bool:
+        """Close and reopen the connection. Recovers a connection latched
+        read-only because its backing file was moved/removed. Caller holds
+        self._lock. Returns True if a fresh, schema-ready connection opened."""
+        with contextlib.suppress(sqlite3.Error):
+            self._conn.close()
+        try:
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+            self._conn.execute(self._SCHEMA_SQL)
+            self._conn.commit()
+            return True
+        except sqlite3.Error as exc:
+            logger.debug(f"ArtworkCache: reconnect to {self.db_path} failed: {exc}")
+            return False
+
+    def _note_write_failure(self, exc: Exception) -> None:
+        """Enter (or extend) the read-only window after a failed write.
+        Logs once on the transition into a degraded state, not per failure.
+        Caller holds self._lock."""
+        now = time.monotonic()
+        already_degraded = now < self._degraded_until
+        self._degraded_until = now + _DEGRADED_BACKOFF_SEC
+        if not already_degraded:
+            logger.warning(
+                f"ArtworkCache: write to {self.db_path} failed ({exc}); serving "
+                f"cached art read-only, retrying in {_DEGRADED_BACKOFF_SEC:.0f}s"
+            )
+
+    def _clear_degraded_locked(self) -> None:
+        """A write just succeeded - leave the read-only window if we were in
+        one. Caller holds self._lock."""
+        if self._degraded_until:
+            self._degraded_until = 0.0
+            logger.info(f"ArtworkCache: {self.db_path} writable again, caching resumed")
 
 
 def get_artwork_cache() -> ArtworkCache | None:

@@ -45,6 +45,13 @@ class ArtCacheWorker(CancellableWorker):
         for album in self._albums:
             if self.is_cancelled:
                 break
+            # The cache db briefly went read-only (see ArtworkCache
+            # _DEGRADED_BACKOFF_SEC). Warming every remaining album now just
+            # means a failed write apiece - stop and let a later warm pass
+            # pick them up once the db is writable again.
+            if getattr(self._cache, "is_degraded", lambda: False)():
+                logger.debug("ArtCacheWorker: cache is read-only, stopping warm pass")
+                break
             # Yield to a foreground writer (album editor embedding new art)
             # rather than queue a whole-library warm ahead of its writes on
             # the cache's single connection.
