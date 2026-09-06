@@ -39,10 +39,10 @@ def _make_widget_for_field(field_name: str, field_config, on_change_cb):
     Create and return the right editable widget for a FieldSpec.
     Connects the widget's change signal to on_change_cb(field_name).
     """
-    if field_config.type == bool:
+    if field_config.type is bool:
         w = QCheckBox()
         w.toggled.connect(lambda _checked, fn=field_name: on_change_cb(fn))
-    elif field_config.type == int:
+    elif field_config.type is int:
         # Every int field on Track is nullable in the DB, so we always give
         # the user a way to clear it back to NULL rather than being stuck
         # with whatever number is left in a plain QSpinBox.
@@ -51,7 +51,7 @@ def _make_widget_for_field(field_name: str, field_config, on_change_cb):
             max_val=(int(field_config.max) if field_config.max is not None else 2_147_483_647),
         )
         w.textChanged.connect(lambda _t, fn=field_name: on_change_cb(fn))
-    elif field_config.type == float:
+    elif field_config.type is float:
         w = create_nullable_float_field(
             min_val=field_config.min if field_config.min is not None else -1e9,
             max_val=field_config.max if field_config.max is not None else 1e9,
@@ -118,11 +118,11 @@ def _coerce(value, field_config) -> Any:
     if value in (None, ""):
         return None
     try:
-        if field_config.type == int:
+        if field_config.type is int:
             return int(value)
-        if field_config.type == float:
+        if field_config.type is float:
             return float(value)
-        if field_config.type == bool:
+        if field_config.type is bool:
             return bool(value)
     except (ValueError, TypeError) as e:
         logger.warning(f"Failed to coerce value {value!r} for field '{field_config.friendly}': {e}")
@@ -134,7 +134,7 @@ def _format_readonly(value, field_config, field_name: str = "") -> str:
     """Format a value for display in a readonly QLabel."""
     if value is None or value == "":
         return "—"
-    if field_config and field_config.type == bool:
+    if field_config and field_config.type is bool:
         return "Yes" if value else "No"
     if field_name == "duration" and isinstance(value, (int, float)):
         total_s = int(value)
@@ -142,12 +142,17 @@ def _format_readonly(value, field_config, field_name: str = "") -> str:
         return f"{m}:{s:02d}"
     if field_name == "file_size" and isinstance(value, (int, float)):
         return f"{value / (1024 * 1024):.1f} MB"
-    if field_config and field_config.type == float and isinstance(value, (int, float)):
-        # 0–1 typed features (danceability, energy, etc.) read better as percentages
+    if field_config and field_config.type is float and isinstance(value, (int, float)):
+        # 0-1 typed features (danceability, energy, etc.) read better as percentages
         if field_config.min == 0.0 and field_config.max == 1.0:
             return f"{value * 100:.1f}%"
         return f"{value:,.2f}"
     text = str(value)
+    # File paths carry their identifying part (artist/album/title) at the end,
+    # so front-truncating them leaves every track showing the same useless
+    # common prefix. The display label word-wraps, so show the whole path.
+    if field_name == "track_file_path":
+        return text
     if len(text) > 80:
         return text[:77] + "..."
     return text
