@@ -251,7 +251,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
     def _build_settings_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(0, 16, 0, 0)
+        layout.setContentsMargins(0, 16, 4, 0)
         layout.setSpacing(16)
 
         # ── Profile identity ────────────────────────────────────────────────
@@ -344,7 +344,15 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         layout.addWidget(options_group)
         layout.addStretch()
 
-        return w
+        # Wrap in a scroll area so a short/narrow detail pane scrolls instead of
+        # crunching the group boxes below their sizeHint.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("background:transparent;")
+        scroll.setWidget(w)
+        return scroll
 
     def _build_log_tab(self) -> QWidget:
         w = QWidget()
