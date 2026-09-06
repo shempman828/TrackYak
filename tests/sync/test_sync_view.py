@@ -170,3 +170,43 @@ def test_load_profile_reflects_transcode_settings_without_signals(monkeypatch): 
     assert view.bitrate_combo.currentText() == "256"
     assert view.bitrate_combo.isEnabled() is True
     assert fired == []  # signals stayed blocked during the load
+
+
+# ---------------------------------------------------------------------------
+# "Remove files that are no longer in this profile" — the prune toggle
+# round-trips through the profile and is restored on load without firing.
+# ---------------------------------------------------------------------------
+
+
+def test_prune_untracked_checkbox_persists_to_profile():  # AC11
+    view = _view_with_settings_tab()
+    prof = SyncProfile(name="P", path="", prune_untracked=False)
+    view.current_profile = prof
+    view.profiles = [prof]
+    view.profile_store = Mock()
+
+    view.prune_untracked_check.setChecked(True)
+
+    assert prof.prune_untracked is True
+    assert view.profile_store.save.called
+
+
+def test_load_profile_reflects_prune_untracked_without_signals(monkeypatch):  # AC11
+    import src.sync.sync_view as sv
+
+    monkeypatch.setattr(sv, "ffmpeg_available", lambda: True)
+    view = _view_with_settings_tab()
+    view.placeholder = Mock()
+    view.tabs = Mock()
+    view._apply_profile_selection = Mock()
+    view._refresh_device_label = Mock()
+    view.profile_store = Mock()
+    view.current_profile = SyncProfile(name="P", path="", prune_untracked=False)
+
+    fired = []
+    view.prune_untracked_check.toggled.connect(lambda *_: fired.append("check"))
+
+    view._load_profile_into_ui()
+
+    assert view.prune_untracked_check.isChecked() is False
+    assert fired == []

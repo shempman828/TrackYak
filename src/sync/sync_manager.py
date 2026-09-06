@@ -12,6 +12,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import os
+from pathlib import Path
 import shutil
 
 from sqlalchemy.orm import selectinload
@@ -20,7 +21,13 @@ from src.db.db_helpers import GetFromDB
 from src.db.db_tables import MoodTrackAssociation, PlaylistTracks, Track, TrackArtistRole
 from src.foundation.logger_config import logger
 from src.sync.mtp_manager import MtpDevice, MtpManager
-from src.sync.transcode import TranscodeCache, TranscodeError, ffmpeg_available, is_lossless_path
+from src.sync.transcode import (
+    LOSSLESS_EXTENSIONS,
+    TranscodeCache,
+    TranscodeError,
+    ffmpeg_available,
+    is_lossless_path,
+)
 
 # Post-copy verification retries this many times before a track is
 # reported as failed (so up to _MAX_RETRIES + 1 total copy attempts).
@@ -29,6 +36,12 @@ _MAX_RETRIES = 2
 # Local duplicate confirmation (MD5) is disk I/O-bound, so run it across
 # a small thread pool rather than sequentially in the diff pre-pass.
 _DUPLICATE_CHECK_WORKERS = 8
+
+# Extensions the prune pass is willing to delete from a device's music/
+# folder. Anything else (a stray .zip, a folder, an extension-less file) is
+# left alone even when it isn't in the desired set — see _is_prunable_music_name.
+_LOSSY_EXTENSIONS = {".mp3", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".wma", ".mp4"}
+_PRUNABLE_AUDIO_EXTENSIONS = LOSSLESS_EXTENSIONS | _LOSSY_EXTENSIONS
 
 
 class SyncManager:
@@ -202,13 +215,41 @@ class SyncManager:
                 logger.error(f"Transcode failed for {src}: {e}")
                 self._record_failure(failures, track, f"could not convert to MP3: {e}")
 
+    @staticmethod
+    def _clean_component(s: str) -> str:
+        """Strip a string down to chars that are safe in a filename."""
+        return "".join(c for c in s if c.isalnum() or c in (" ", "-", "_")).strip()
+
     def _safe_filename(self, artist: str, title: str, ext: str) -> str:
         """Build a safe 'Artist - Title.ext' filename stripping illegal chars."""
+        return f"{self._clean_component(artist)} - {self._clean_component(title)}{ext}"
 
-        def clean(s: str) -> str:
-            return "".join(c for c in s if c.isalnum() or c in (" ", "-", "_")).strip()
+    def _safe_playlist_name(self, name: str) -> str:
+        """The on-disk stem for a playlist/mood's .m3u file."""
+        return self._clean_component(name)
 
-        return f"{clean(artist)} - {clean(title)}{ext}"
+    def _predicted_device_filename(self, track: dict, transcode_to_mp3: bool) -> str:
+        """
+        The name this track's file has (or would have) on the device, without
+        running the transcode. Mirrors the extension logic in _diff_local_pool
+        / _diff_mtp_pool: a lossless source becomes '.mp3' only when transcode
+        is actually in effect (caller has already AND-ed in ffmpeg_available).
+        """
+        src = track.get("file_path") or ""
+        ext = ".mp3" if transcode_to_mp3 and is_lossless_path(src) else Path(src).suffix
+        return self._safe_filename(track["artist"], track["title"], ext)
+
+    @staticmethod
+    def _is_m3u_name(name: str) -> bool:
+        return name.lower().endswith(".m3u")
+
+    @staticmethod
+    def _is_prunable_music_name(name: str) -> bool:
+        """
+        True only for names that match this app's 'Artist - Title.ext' output,
+        so a file the user dropped into music/ by hand is never deleted.
+        """
+        return " - " in name and Path(name).suffix.lower() in _PRUNABLE_AUDIO_EXTENSIONS
 
     def _file_md5(self, file_path: str, chunk_size: int = 65536) -> str:
         """Return MD5 hex digest of a local file."""
@@ -537,7 +578,7 @@ class SyncManager:
         tracks_transcoded = sum(1 for t in succeeded if t.get("sync_source_path"))
 
         m3u_content = self._build_m3u_content(playlist_data, processed_tracks)
-        safe_name = "".join(c for c in playlist_name if c.isalnum() or c in (" ", "-", "_")).strip()
+        safe_name = self._safe_playlist_name(playlist_name)
         m3u_path = os.path.join(playlists_dir, f"{safe_name}.m3u")
         try:
             with open(m3u_path, "w", encoding="utf-8") as f:
@@ -689,7 +730,7 @@ class SyncManager:
         m3u_content = self._build_m3u_content(
             playlist_data, processed_tracks, music_subpath=music_subpath
         )
-        safe_name = "".join(c for c in playlist_name if c.isalnum() or c in (" ", "-", "_")).strip()
+        safe_name = self._safe_playlist_name(playlist_name)
         playlist_uri = self.mtp.build_playlist_uri(device, music_path, safe_name)
         self.mtp.copy_text_as_file(device, m3u_content, playlist_uri)
 
@@ -712,3 +753,113 @@ class SyncManager:
             "total_tracks": total_tracks,
             "failures": failures,
         }
+
+    # ------------------------------------------------------------------
+    # Prune — remove destination files for no-longer-tracked items
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _empty_prune_result() -> dict:
+        return {"removed_tracks": [], "removed_playlists": [], "removed_count": 0}
+
+    def _desired_device_contents(
+        self, tracked_items: list[dict], transcode_to_mp3: bool
+    ) -> tuple[set[str], set[str]]:
+        """
+        (music filenames, m3u filenames) that SHOULD be on the device given the
+        currently-tracked playlists/moods. A track with no source file on record
+        contributes nothing (it can't have been copied).
+        """
+        desired_music: set[str] = set()
+        for item in tracked_items:
+            for track in self.get_item_tracks(item):
+                if not track.get("file_path"):
+                    continue
+                desired_music.add(self._predicted_device_filename(track, transcode_to_mp3))
+        desired_m3u = {f"{self._safe_playlist_name(it['name'])}.m3u" for it in tracked_items}
+        return desired_music, desired_m3u
+
+    def prune_device(
+        self, profile, tracked_items: list[dict], should_cancel: Callable[[], bool] | None = None
+    ) -> dict:
+        """
+        Delete files from the destination that belong to playlists/moods no
+        longer in `profile` (i.e. not represented in `tracked_items`).
+
+        Only touches music/ files whose name matches this app's
+        'Artist - Title.ext' scheme and .m3u files in playlists/ — never
+        directories or user-dropped files. No-op if the sync was cancelled
+        (stay conservative on a half-run) or on the aft MTP backend (no remote
+        listing => can't know what's there).
+
+        Returns {removed_tracks: [names], removed_playlists: [names],
+        removed_count: int}.
+        """
+        if should_cancel and should_cancel():
+            return self._empty_prune_result()
+
+        transcode = profile.transcode_to_mp3 and ffmpeg_available()
+        desired_music, desired_m3u = self._desired_device_contents(tracked_items, transcode)
+
+        if profile.is_mtp:
+            return self._prune_mtp(profile, desired_music, desired_m3u)
+        return self._prune_folder(profile, desired_music, desired_m3u)
+
+    def _prune_folder(self, profile, desired_music: set[str], desired_m3u: set[str]) -> dict:
+        base = Path(profile.path)
+        removed_tracks = self._reconcile_local_dir(
+            base / "music", desired_music, self._is_prunable_music_name
+        )
+        removed_playlists = self._reconcile_local_dir(
+            base / "playlists", desired_m3u, self._is_m3u_name
+        )
+        return {
+            "removed_tracks": removed_tracks,
+            "removed_playlists": removed_playlists,
+            "removed_count": len(removed_tracks) + len(removed_playlists),
+        }
+
+    def _reconcile_local_dir(
+        self, directory: Path, desired: set[str], name_ok: Callable[[str], bool]
+    ) -> list[str]:
+        removed: list[str] = []
+        for name in self._list_local_pool(str(directory)):
+            if name in desired or not name_ok(name):
+                continue
+            try:
+                (directory / name).unlink()
+                removed.append(name)
+                logger.info(f"Prune: removed {directory / name}")
+            except OSError as e:
+                logger.error(f"Prune failed to remove {name}: {e}")
+        return removed
+
+    def _prune_mtp(self, profile, desired_music: set[str], desired_m3u: set[str]) -> dict:
+        result = self._empty_prune_result()
+        device = self._get_mtp_device(profile.device_uri)
+        if device is None or device.backend != "gio":
+            return result
+
+        music_dir_uri = self.mtp.build_music_uri(device, profile.music_path)
+        playlists_dir_uri = self.mtp.build_playlists_dir_uri(device, profile.music_path)
+        result["removed_tracks"] = self._reconcile_mtp_dir(
+            device, music_dir_uri, desired_music, self._is_prunable_music_name
+        )
+        result["removed_playlists"] = self._reconcile_mtp_dir(
+            device, playlists_dir_uri, desired_m3u, self._is_m3u_name
+        )
+        result["removed_count"] = len(result["removed_tracks"]) + len(result["removed_playlists"])
+        return result
+
+    def _reconcile_mtp_dir(
+        self, device, dir_uri: str, desired: set[str], name_ok: Callable[[str], bool]
+    ) -> list[str]:
+        removed: list[str] = []
+        for name in self.mtp.list_remote_dir(device, dir_uri):
+            if name in desired or not name_ok(name):
+                continue
+            file_uri = dir_uri.rstrip("/") + "/" + name
+            if self.mtp.delete_remote_file(device, file_uri):
+                removed.append(name)
+                logger.info(f"Prune: removed {file_uri}")
+        return removed

@@ -52,6 +52,11 @@ class SyncExecutionMixin:
         )
         if clear:
             confirm_msg += "\n\n⚠️  Destination will be cleared first."
+        elif self.current_profile.prune_untracked:
+            confirm_msg += (
+                "\n\n⚠️  Files from playlists/moods no longer in this profile "
+                "will be removed from the destination."
+            )
         if self.current_profile.transcode_to_mp3:
             bitrate = self.current_profile.transcode_bitrate
             confirm_msg += f"\n\nLossless files will be converted to {bitrate} MP3."
@@ -77,9 +82,11 @@ class SyncExecutionMixin:
         if clear:
             self.sync_log.append("⚠️  Clearing destination first…")
 
+        self._prune_removed = 0
         self.sync_worker = SyncWorker(self.sync_manager, self.selected_items, self.current_profile)
         self.sync_worker.progress.connect(self._on_sync_progress)
         self.sync_worker.playlist_complete.connect(self._on_playlist_complete)
+        self.sync_worker.prune_complete.connect(self._on_prune_complete)
         self.sync_worker.finished.connect(self._on_sync_finished)
         self.sync_worker.start()
 
@@ -131,6 +138,16 @@ class SyncExecutionMixin:
             )
         self.sync_log.verticalScrollBar().setValue(self.sync_log.verticalScrollBar().maximum())
 
+    def _on_prune_complete(self, result: dict):
+        removed = result.get("removed_tracks", []) + result.get("removed_playlists", [])
+        self._prune_removed = len(removed)
+        if not removed:
+            return
+        self.sync_log.append(f"🗑  Removed {len(removed)} file(s) no longer in this profile")
+        for name in removed:
+            self.sync_log.append(f"      - {name}")
+        self.sync_log.verticalScrollBar().setValue(self.sync_log.verticalScrollBar().maximum())
+
     def _on_sync_finished(self, results: list[dict]):
         self._set_sync_ui_state(True)
         self.progress_bar.setVisible(False)
@@ -141,26 +158,31 @@ class SyncExecutionMixin:
         total_skipped = sum(r.get("tracks_skipped", 0) for r in results)
         total_failed = sum(r.get("tracks_failed", 0) for r in results)
         total_transcoded = sum(r.get("tracks_transcoded", 0) for r in results)
+        removed = getattr(self, "_prune_removed", 0)
         failed_note = f", {total_failed} failed" if total_failed else ""
         mp3_note = f", {total_transcoded} to MP3" if total_transcoded else ""
+        removed_note = f", {removed} removed" if removed else ""
+        extra = f"{mp3_note}{failed_note}{removed_note}"
 
         logger.info(
             f"Sync finished: {successful}/{total} playlists succeeded, "
-            f"{total_copied} tracks copied, {total_skipped} skipped{mp3_note}{failed_note}"
+            f"{total_copied} tracks copied, {total_skipped} skipped{extra}"
         )
 
         self.current_action.setText(
             f"Done — {successful}/{total} playlists  ·  "
-            f"{total_copied} copied, {total_skipped} skipped{mp3_note}{failed_note}"
+            f"{total_copied} copied, {total_skipped} skipped{extra}"
         )
         self.sync_log.append(
             f"\n=== Sync complete: {successful}/{total} playlists  |  "
-            f"{total_copied} copied, {total_skipped} skipped{mp3_note}{failed_note} ==="
+            f"{total_copied} copied, {total_skipped} skipped{extra} ==="
         )
 
         if successful > 0:
             self.status_manager.end_task(
-                f"Sync complete: {total_copied} copied, {total_skipped} skipped{failed_note}", 5000
+                f"Sync complete: {total_copied} copied, "
+                f"{total_skipped} skipped{failed_note}{removed_note}",
+                5000,
             )
             show_status_message(
                 self,

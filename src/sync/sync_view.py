@@ -358,6 +358,13 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.clear_before_sync_check.toggled.connect(self._on_option_changed)
         options_layout.addWidget(self.clear_before_sync_check)
 
+        self.prune_untracked_check = QCheckBox(
+            "Remove files that are no longer in this profile  "
+            "(delete tracks/playlists on the destination once you untrack them)"
+        )
+        self.prune_untracked_check.toggled.connect(self._on_option_changed)
+        options_layout.addWidget(self.prune_untracked_check)
+
         # ── Transcode lossless → MP3 ───────────────────────────────────────
         ffmpeg_ok = ffmpeg_available()
         self.transcode_mp3_check = QCheckBox("Convert lossless files to MP3")
@@ -604,6 +611,10 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.clear_before_sync_check.setChecked(p.clear_before_sync)
         self.clear_before_sync_check.blockSignals(False)
 
+        self.prune_untracked_check.blockSignals(True)
+        self.prune_untracked_check.setChecked(p.prune_untracked)
+        self.prune_untracked_check.blockSignals(False)
+
         ffmpeg_ok = ffmpeg_available()
         self.transcode_mp3_check.blockSignals(True)
         self.transcode_mp3_check.setChecked(p.transcode_to_mp3)
@@ -684,6 +695,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         if not self.current_profile:
             return
         self.current_profile.clear_before_sync = self.clear_before_sync_check.isChecked()
+        self.current_profile.prune_untracked = self.prune_untracked_check.isChecked()
         self.current_profile.transcode_to_mp3 = self.transcode_mp3_check.isChecked()
         self.current_profile.transcode_bitrate = f"{self.bitrate_combo.currentText()}k"
         self.bitrate_combo.setEnabled(

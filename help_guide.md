@@ -501,9 +501,21 @@ Settings tab to point it at a destination — either Link Device for something
 connected over USB (click ⟳ Detect first if it's not showing up), or Browse
 for a folder. For a linked device, "Music folder on device" is a dropdown of
 the usual spots (Music, Internal storage/Music, SD card/Music) — pick one, or
-type your own relative path if your phone puts music somewhere else. There's
-also an option to wipe the destination clean before each sync, if you want it
-to exactly mirror your selection rather than accumulate old files.
+type your own relative path if your phone puts music somewhere else.
+
+Two Options control what happens to files that are already on the destination.
+**Remove files that are no longer in this profile** (on by default for new
+profiles) makes each sync reconcile: after copying, it deletes tracks and
+`.m3u` files that belong to playlists or moods you've since unticked, so the
+destination keeps matching your selection instead of hoarding old tracks
+forever. It only touches files it recognises as its own (the
+`Artist - Title.ext` it writes) and `.m3u` files — anything you dropped into
+the folder by hand is left alone. Profiles created before this option existed
+start with it **off**, so an update never deletes anything off your device
+without you ticking the box first. **Clear destination before syncing** is the
+heavier hammer: it wipes the whole music and playlist folders before every
+sync. Turn that on only if you want a guaranteed-exact mirror and don't mind
+re-copying everything each time.
 
 **Convert lossless files to MP3**: another option in Settings — when it's on,
 lossless sources (FLAC, WAV, AIFF) are re-encoded to a constant-bitrate MP3
@@ -524,13 +536,16 @@ count and size update live as you check things off.
 
 **Syncing**: once a profile has both a selection and a destination, Start
 Sync becomes available. It'll confirm the destination and track count before
-it starts, then switch you to the Log tab to watch progress — worth checking
-afterward if anything got skipped or retried. Any track that couldn't be
-copied is listed under its playlist in the log with the artist, title, and
-the reason (source file missing, transport error, couldn't be converted to
-MP3, or copied but not verified on the device). Cancel stops the run once the
-file currently copying finishes; anything already on the destination stays
-there.
+it starts (including a note when the "remove files no longer in this profile"
+option will delete something), then switch you to the Log tab to watch
+progress — worth checking afterward if anything got skipped or retried. Any
+track that couldn't be copied is listed under its playlist in the log with the
+artist, title, and the reason (source file missing, transport error, couldn't
+be converted to MP3, or copied but not verified on the device). Files removed
+by the reconcile step are listed too, under a 🗑 line. Cancel stops the run
+once the file currently copying finishes; anything already on the destination
+stays there, and the reconcile/remove step is skipped entirely on a cancelled
+run.
 
 ## Timeline
 

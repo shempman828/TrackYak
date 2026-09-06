@@ -17,6 +17,7 @@ from src.sync.sync_profile import SyncProfile
 class SyncWorker(CancellableWorker):
     progress = Signal(int, int, str)  # current, total, message
     playlist_complete = Signal(dict)  # one playlist result
+    prune_complete = Signal(dict)  # prune result (only if profile.prune_untracked)
     finished = Signal(list)  # all results
 
     def __init__(self, sync_manager: SyncManager, playlists: list[dict], profile: SyncProfile):
@@ -25,6 +26,7 @@ class SyncWorker(CancellableWorker):
         self.playlists = playlists
         self.profile = profile
         self.results = []
+        self.prune_result: dict | None = None
 
     def run(self):
         try:
@@ -71,6 +73,17 @@ class SyncWorker(CancellableWorker):
 
                 self.results.append(result)
                 self.playlist_complete.emit(result)
+
+            # ── Prune files for playlists/moods no longer tracked ───────────
+            # Skipped on cancel: self.playlists is still the full tracked set,
+            # so the desired set would be sound, but a half-finished run is not
+            # the moment to start deleting.
+            if profile.prune_untracked and not self.is_cancelled:
+                self.progress.emit(0, 1, "Removing files no longer in this profile…")
+                self.prune_result = self.sync_manager.prune_device(
+                    profile, self.playlists, should_cancel=lambda: self.is_cancelled
+                )
+                self.prune_complete.emit(self.prune_result)
 
             self.finished.emit(self.results)
 

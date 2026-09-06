@@ -699,3 +699,214 @@ def test_mtp_sync_transcodes_then_reruns_as_skip(tmp_path, sync_manager, monkeyp
     second = sync_manager.sync_playlist_to_mtp(playlist, device.uri, "Music", transcode_to_mp3=True)
     assert second["tracks_copied"] == 0
     assert second["tracks_skipped"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Prune: after a sync, destination files for no-longer-tracked playlists/moods
+# are removed. Folder assertions use real files under tmp_path; MTP assertions
+# drive the real `gio` binary against a file:// stand-in for the device.
+# ---------------------------------------------------------------------------
+
+from src.sync.sync_profile import SyncProfile  # noqa: E402
+
+
+def _prune_track(src_dir: Path, title: str, *, artist: str = "Artist", ext: str = ".mp3") -> dict:
+    path = src_dir / f"{title}{ext}"
+    path.write_bytes(b"bytes-" + title.encode())
+    return {"file_path": str(path), "artist": artist, "title": title, "duration": 1.0}
+
+
+def _folder_profile(dest: Path, **kw) -> SyncProfile:
+    return SyncProfile(name="dev", path=str(dest), prune_untracked=True, **kw)
+
+
+def _sync_all(sync_manager, items, dest, **kw):
+    for it in items:
+        sync_manager.sync_playlist_to_device(it, str(dest), **kw)
+
+
+def test_prune_removes_files_and_m3u_for_untracked_playlist(  # AC1
+    tmp_path, sync_manager, monkeypatch
+):
+    dest, src = tmp_path / "dev", tmp_path / "src"
+    src.mkdir()
+    by_name = {
+        "P": [_prune_track(src, "A"), _prune_track(src, "B"), _prune_track(src, "C")],
+        "Q": [_prune_track(src, "Z")],
+    }
+    monkeypatch.setattr(sync_manager, "get_item_tracks", lambda it: by_name[it["name"]])
+    P = {"kind": "playlist", "name": "P", "playlist_id": 1}
+    Q = {"kind": "playlist", "name": "Q", "playlist_id": 2}
+    _sync_all(sync_manager, [P, Q], dest)
+
+    music, playlists = dest / "music", dest / "playlists"
+    assert (music / "Artist - A.mp3").exists()
+    assert (playlists / "P.m3u").exists()
+
+    res = sync_manager.prune_device(_folder_profile(dest), [Q])
+
+    assert not (music / "Artist - A.mp3").exists()
+    assert not (music / "Artist - B.mp3").exists()
+    assert not (music / "Artist - C.mp3").exists()
+    assert not (playlists / "P.m3u").exists()
+    assert (music / "Artist - Z.mp3").exists()
+    assert (playlists / "Q.m3u").exists()
+    assert set(res["removed_tracks"]) == {"Artist - A.mp3", "Artist - B.mp3", "Artist - C.mp3"}
+    assert res["removed_playlists"] == ["P.m3u"]
+    assert res["removed_count"] == 4
+
+
+def test_prune_keeps_track_shared_with_a_still_tracked_playlist(  # AC2
+    tmp_path, sync_manager, monkeypatch
+):
+    dest, src = tmp_path / "dev", tmp_path / "src"
+    src.mkdir()
+    shared = _prune_track(src, "Shared")
+    by_name = {"P": [shared, _prune_track(src, "Ponly")], "Q": [shared]}
+    monkeypatch.setattr(sync_manager, "get_item_tracks", lambda it: by_name[it["name"]])
+    P = {"kind": "playlist", "name": "P", "playlist_id": 1}
+    Q = {"kind": "playlist", "name": "Q", "playlist_id": 2}
+    _sync_all(sync_manager, [P, Q], dest)
+
+    res = sync_manager.prune_device(_folder_profile(dest), [Q])
+
+    assert (dest / "music" / "Artist - Shared.mp3").exists()
+    assert not (dest / "music" / "Artist - Ponly.mp3").exists()
+    assert res["removed_tracks"] == ["Artist - Ponly.mp3"]
+
+
+def test_prune_removes_nothing_when_every_playlist_still_tracked(  # AC3
+    tmp_path, sync_manager, monkeypatch
+):
+    dest, src = tmp_path / "dev", tmp_path / "src"
+    src.mkdir()
+    by_name = {"P": [_prune_track(src, "A")], "Q": [_prune_track(src, "Z")]}
+    monkeypatch.setattr(sync_manager, "get_item_tracks", lambda it: by_name[it["name"]])
+    P = {"kind": "playlist", "name": "P", "playlist_id": 1}
+    Q = {"kind": "playlist", "name": "Q", "playlist_id": 2}
+    _sync_all(sync_manager, [P, Q], dest)
+
+    res = sync_manager.prune_device(_folder_profile(dest), [P, Q])
+
+    assert res["removed_count"] == 0
+    assert (dest / "music" / "Artist - A.mp3").exists()
+    assert (dest / "music" / "Artist - Z.mp3").exists()
+    assert (dest / "playlists" / "P.m3u").exists()
+    assert (dest / "playlists" / "Q.m3u").exists()
+
+
+def test_prune_leaves_user_dropped_files_alone(tmp_path, sync_manager, monkeypatch):  # AC4
+    dest, src = tmp_path / "dev", tmp_path / "src"
+    src.mkdir()
+    monkeypatch.setattr(sync_manager, "get_item_tracks", lambda it: [_prune_track(src, "A")])
+    P = {"kind": "playlist", "name": "P", "playlist_id": 1}
+    _sync_all(sync_manager, [P], dest)
+
+    music = dest / "music"
+    (music / "roadtrip.zip").write_bytes(b"zip")
+    (music / "mixtape").write_bytes(b"no ext")
+    (music / "not audio.txt").write_bytes(b"text")
+
+    res = sync_manager.prune_device(_folder_profile(dest), [])  # nothing tracked anymore
+
+    assert (music / "roadtrip.zip").exists()
+    assert (music / "mixtape").exists()
+    assert (music / "not audio.txt").exists()
+    assert not (music / "Artist - A.mp3").exists()
+    assert res["removed_tracks"] == ["Artist - A.mp3"]
+
+
+def test_prune_device_is_a_noop_when_cancelled(tmp_path, sync_manager, monkeypatch):  # AC7
+    dest, src = tmp_path / "dev", tmp_path / "src"
+    src.mkdir()
+    monkeypatch.setattr(sync_manager, "get_item_tracks", lambda it: [_prune_track(src, "A")])
+    P = {"kind": "playlist", "name": "P", "playlist_id": 1}
+    _sync_all(sync_manager, [P], dest)
+
+    res = sync_manager.prune_device(_folder_profile(dest), [], should_cancel=lambda: True)
+
+    assert res["removed_count"] == 0
+    assert (dest / "music" / "Artist - A.mp3").exists()
+
+
+def test_prune_predicts_mp3_names_when_transcode_in_effect(  # AC8
+    tmp_path, sync_manager, monkeypatch
+):
+    dest, src = tmp_path / "dev", tmp_path / "src"
+    src.mkdir()
+    flac = _prune_track(src, "Loss", ext=".flac")
+    monkeypatch.setattr(sync_manager, "get_item_tracks", lambda it: [flac])
+    monkeypatch.setattr("src.sync.sync_manager.ffmpeg_available", lambda: True)
+    music = dest / "music"
+    music.mkdir(parents=True)
+    (music / "Artist - Loss.mp3").write_bytes(b"mp3")  # still-tracked transcoded output
+    (music / "Artist - Loss.flac").write_bytes(b"flac")  # stale pre-transcode copy
+
+    profile = _folder_profile(dest, transcode_to_mp3=True)
+    P = {"kind": "playlist", "name": "P", "playlist_id": 1}
+    res = sync_manager.prune_device(profile, [P])
+
+    assert (music / "Artist - Loss.mp3").exists()
+    assert not (music / "Artist - Loss.flac").exists()
+    assert res["removed_tracks"] == ["Artist - Loss.flac"]
+
+
+def test_prune_removes_stale_mp3_when_transcode_turned_off(  # AC8
+    tmp_path, sync_manager, monkeypatch
+):
+    dest, src = tmp_path / "dev", tmp_path / "src"
+    src.mkdir()
+    flac = _prune_track(src, "Loss", ext=".flac")
+    monkeypatch.setattr(sync_manager, "get_item_tracks", lambda it: [flac])
+    music = dest / "music"
+    music.mkdir(parents=True)
+    (music / "Artist - Loss.flac").write_bytes(b"flac")  # what a no-transcode sync writes
+    (music / "Artist - Loss.mp3").write_bytes(b"mp3")  # left over from when transcode was on
+
+    profile = _folder_profile(dest, transcode_to_mp3=False)
+    P = {"kind": "playlist", "name": "P", "playlist_id": 1}
+    res = sync_manager.prune_device(profile, [P])
+
+    assert (music / "Artist - Loss.flac").exists()
+    assert not (music / "Artist - Loss.mp3").exists()
+    assert res["removed_tracks"] == ["Artist - Loss.mp3"]
+
+
+def test_prune_mtp_removes_orphans_via_gio(tmp_path, monkeypatch):  # AC9
+    device_root = tmp_path / "device"
+    music, playlists = device_root / "Music", device_root / "Playlists"
+    music.mkdir(parents=True)
+    playlists.mkdir()
+    for n in ("Artist - Keep.mp3", "Artist - Drop.mp3", "user thing.txt"):
+        (music / n).write_bytes(b"x")
+    (playlists / "Keep.m3u").write_text("#EXTM3U\n")
+    (playlists / "Gone.m3u").write_text("#EXTM3U\n")
+
+    mgr = SyncManager.__new__(SyncManager)
+    mgr.mtp = MtpManager()
+    device = MtpDevice(uri=f"file://{device_root}/", name="d", backend="gio")
+    monkeypatch.setattr(mgr, "_get_mtp_device", lambda uri: device)
+    monkeypatch.setattr(
+        mgr,
+        "get_item_tracks",
+        lambda it: [
+            {"file_path": "/x/Keep.mp3", "artist": "Artist", "title": "Keep", "duration": 1}
+        ],
+    )
+
+    profile = SyncProfile(
+        name="d",
+        path="",
+        device_uri=f"file://{device_root}/",
+        music_path="Music",
+        prune_untracked=True,
+    )
+    res = mgr.prune_device(profile, [{"kind": "playlist", "name": "Keep", "playlist_id": 1}])
+
+    assert (music / "Artist - Keep.mp3").exists()
+    assert not (music / "Artist - Drop.mp3").exists()
+    assert (music / "user thing.txt").exists()
+    assert (playlists / "Keep.m3u").exists()
+    assert not (playlists / "Gone.m3u").exists()
+    assert res["removed_tracks"] == ["Artist - Drop.mp3"]
+    assert res["removed_playlists"] == ["Gone.m3u"]

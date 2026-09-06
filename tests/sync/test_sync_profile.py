@@ -15,3 +15,19 @@ def test_legacy_dict_without_transcode_keys_defaults():  # AC6
     p = SyncProfile.from_dict(legacy)
     assert p.transcode_to_mp3 is False
     assert p.transcode_bitrate == "320k"
+
+
+def test_prune_untracked_new_profile_defaults_on():  # AC5
+    assert SyncProfile(name="Phone", path="/x").prune_untracked is True
+
+
+def test_prune_untracked_round_trips():  # AC5
+    p = SyncProfile(name="Phone", path="/x", prune_untracked=False)
+    assert SyncProfile.from_dict(p.to_dict()).prune_untracked is False
+    p2 = SyncProfile(name="Phone", path="/x", prune_untracked=True)
+    assert SyncProfile.from_dict(p2.to_dict()).prune_untracked is True
+
+
+def test_legacy_dict_without_prune_key_loads_off():  # AC5
+    legacy = {"name": "Old", "path": "/x", "playlist_ids": [1, 2]}
+    assert SyncProfile.from_dict(legacy).prune_untracked is False

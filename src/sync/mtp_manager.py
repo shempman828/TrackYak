@@ -384,6 +384,25 @@ class MtpManager:
             logger.error(f"gio remove failed ({remote_uri}): {e}")
             return False
 
+    def delete_remote_file(self, device: MtpDevice, remote_uri: str) -> bool:
+        """
+        Delete a single remote file. Only supported on the gio backend (aft
+        has no listing, so the prune pass never reaches here for it).
+        """
+        if device.backend != "gio":
+            return False
+        try:
+            result = subprocess.run(
+                ["gio", "remove", remote_uri], capture_output=True, text=True, timeout=self._TIMEOUT
+            )
+            if result.returncode != 0:
+                logger.error(f"gio remove failed ({remote_uri}): {result.stderr.strip()}")
+                return False
+            return True
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.error(f"gio remove error ({remote_uri}): {e}")
+            return False
+
     # ---------------------------------------------------------------------------
     # URI construction helpers
     # ---------------------------------------------------------------------------

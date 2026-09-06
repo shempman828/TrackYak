@@ -31,6 +31,10 @@ class SyncProfile:
     music_path        Target music folder on the device (relative path).
     transcode_to_mp3  Convert lossless sources to MP3 on the way to the device.
     transcode_bitrate CBR bitrate for that conversion (e.g. "320k").
+    prune_untracked   After syncing, delete destination files that belong to
+                      playlists/moods no longer tracked by this profile. New
+                      profiles default this on; legacy profiles saved before
+                      this field existed load it off (see from_dict).
     """
 
     name: str
@@ -43,6 +47,7 @@ class SyncProfile:
     music_path: str = MtpManager.DEFAULT_MUSIC_PATH
     transcode_to_mp3: bool = False
     transcode_bitrate: str = "320k"
+    prune_untracked: bool = True
 
     @property
     def is_mtp(self) -> bool:
@@ -61,6 +66,7 @@ class SyncProfile:
             "music_path": self.music_path,
             "transcode_to_mp3": self.transcode_to_mp3,
             "transcode_bitrate": self.transcode_bitrate,
+            "prune_untracked": self.prune_untracked,
         }
 
     @staticmethod
@@ -76,6 +82,10 @@ class SyncProfile:
             music_path=data.get("music_path", MtpManager.DEFAULT_MUSIC_PATH),
             transcode_to_mp3=data.get("transcode_to_mp3", False),
             transcode_bitrate=data.get("transcode_bitrate", "320k"),
+            # Key absent => a profile saved before this feature; keep its old
+            # additive behaviour (off) rather than silently deleting files on
+            # the next sync. New profiles get the dataclass default (on).
+            prune_untracked=data.get("prune_untracked", False),
         )
 
 
