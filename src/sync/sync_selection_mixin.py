@@ -153,22 +153,26 @@ class SyncSelectionMixin:
     def _update_selected_items(self):
         """Rebuild self.selected_items and update the track count label."""
         self.selected_items = []
-        total_tracks = 0
-        total_size = 0
-        total_lossless_size = 0
-        total_lossless_duration = 0.0
+        playlist_ids = []
+        mood_ids = []
         for item in self._iter_sync_items():
             if item.checkState(0) == Qt.Checked:
                 data = item.data(0, Qt.UserRole)
                 self.selected_items.append(data)
-                total_tracks += data.get("track_count", 0)
-                total_size += data.get("size", 0) or 0
-                total_lossless_size += data.get("lossless_size", 0) or 0
-                total_lossless_duration += data.get("lossless_duration", 0) or 0
+                if data["kind"] == "mood":
+                    mood_ids.append(data["mood_id"])
+                else:
+                    playlist_ids.append(data["playlist_id"])
 
         if self.selected_items:
-            n_playlists = sum(1 for it in self.selected_items if it["kind"] == "playlist")
-            n_moods = sum(1 for it in self.selected_items if it["kind"] == "mood")
+            # One deduped query, not a sum of per-item aggregates: a track in
+            # two selected playlists (or a playlist and a mood) must count once,
+            # the same way it lands on the device only once.
+            total_tracks, total_size, total_lossless_size, total_lossless_duration = (
+                self.sync_manager.selection_totals(playlist_ids, mood_ids)
+            )
+            n_playlists = len(playlist_ids)
+            n_moods = len(mood_ids)
             parts = []
             if n_playlists:
                 parts.append(f"{n_playlists} playlist(s)")

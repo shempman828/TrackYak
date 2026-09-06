@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import shutil
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, union
 from sqlalchemy.orm import selectinload
 
 from src.db.db_helpers import GetFromDB
@@ -91,6 +91,46 @@ class SyncManager:
             .group_by(id_column)
         ).all()
         return {r[0]: (int(r[1]), r[2], r[3], float(r[4])) for r in rows}
+
+    def selection_totals(
+        self, playlist_ids: list[int], mood_ids: list[int]
+    ) -> tuple[int, int, int, float]:
+        """
+        `(track_count, size_bytes, lossless_bytes, lossless_seconds)` for the
+        UNION of the given playlists and moods -- a track shared by several
+        selected playlists/moods (or by both a playlist and a mood) is counted
+        exactly once, matching what actually lands on the device (files are
+        keyed by 'Artist - Title.ext' under music/, so duplicates collapse).
+
+        Same lossless bucketing as `_selection_aggregates`. Smart playlists
+        have no `playlist_tracks` rows and so contribute nothing here.
+        """
+        if not playlist_ids and not mood_ids:
+            return (0, 0, 0, 0.0)
+        track_id_queries = []
+        if playlist_ids:
+            track_id_queries.append(
+                select(PlaylistTracks.track_id).where(PlaylistTracks.playlist_id.in_(playlist_ids))
+            )
+        if mood_ids:
+            track_id_queries.append(
+                select(MoodTrackAssociation.track_id).where(
+                    MoodTrackAssociation.mood_id.in_(mood_ids)
+                )
+            )
+        distinct_track_ids = union(*track_id_queries).subquery()
+        lossless = func.lower(func.coalesce(Track.file_extension, "")).in_(
+            _LOSSLESS_EXTS_LOWER
+        ) & Track.duration.isnot(None)
+        row = self.session.execute(
+            select(
+                func.count(),
+                func.coalesce(func.sum(Track.file_size), 0),
+                func.coalesce(func.sum(case((lossless, Track.file_size), else_=0)), 0),
+                func.coalesce(func.sum(case((lossless, Track.duration), else_=0.0)), 0.0),
+            ).where(Track.track_id.in_(select(distinct_track_ids.c.track_id)))
+        ).one()
+        return (int(row[0]), row[1], row[2], float(row[3]))
 
     def get_playlists(self) -> list[dict]:
         aggregates = self._selection_aggregates(PlaylistTracks, PlaylistTracks.playlist_id)

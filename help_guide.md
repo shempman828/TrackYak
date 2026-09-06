@@ -532,7 +532,9 @@ and says so in the log.
 
 **Choosing what goes**: the Playlists & Moods tab is a checklist — tick
 whichever playlists and moods you want on this device. The estimated track
-count and size update live as you check things off. With **Convert lossless
+count and size update live as you check things off, and a track that sits in
+more than one ticked playlist or mood is counted once — the same way it only
+lands on the device once. With **Convert lossless
 files to MP3** on, that size becomes a post-conversion estimate
 (`~… after conversion`) — lossless tracks sized as they'd land at the chosen
 bitrate, already-lossy tracks counted as-is — and it re-estimates when you

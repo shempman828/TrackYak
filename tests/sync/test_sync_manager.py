@@ -24,6 +24,7 @@ from sqlalchemy.orm import sessionmaker
 from src.db.db_tables.artist import Artist
 from src.db.db_tables.associations import TrackArtistRole
 from src.db.db_tables.base import Base
+from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.playlist import Playlist, PlaylistTracks
 from src.db.db_tables.role import Role
 from src.db.db_tables.track import Track
@@ -465,6 +466,81 @@ def test_get_playlist_tracks_query_count_does_not_scale_with_track_count(session
     assert counts["large"] <= counts["small"] + 2, (
         f"query count scaled with track count: small={counts['small']} large={counts['large']}"
     )
+
+
+# ---------------------------------------------------------------------------
+# selection_totals: deduped aggregates over the checked playlists + moods
+# ---------------------------------------------------------------------------
+
+
+def _mk_track(session, name, *, size, ext="mp3", duration=180.0):
+    track = Track(
+        track_name=name,
+        track_file_path=f"/music/{name}.{ext}",
+        file_size=size,
+        file_extension=ext,
+        duration=duration,
+    )
+    session.add(track)
+    session.flush()
+    return track
+
+
+def test_selection_totals_counts_a_track_shared_by_two_playlists_once(session, sync_manager):
+    p1 = Playlist(playlist_name="P1")
+    p2 = Playlist(playlist_name="P2")
+    session.add_all([p1, p2])
+    session.flush()
+
+    shared = _mk_track(session, "shared", size=1_000_000)
+    only1 = _mk_track(session, "only1", size=2_000_000)
+    only2 = _mk_track(session, "only2", size=4_000_000)
+    session.add_all(
+        [
+            PlaylistTracks(playlist_id=p1.playlist_id, track_id=shared.track_id, position=0),
+            PlaylistTracks(playlist_id=p1.playlist_id, track_id=only1.track_id, position=1),
+            PlaylistTracks(playlist_id=p2.playlist_id, track_id=shared.track_id, position=0),
+            PlaylistTracks(playlist_id=p2.playlist_id, track_id=only2.track_id, position=1),
+        ]
+    )
+    session.commit()
+
+    count, size, lossless_size, lossless_dur = sync_manager.selection_totals(
+        [p1.playlist_id, p2.playlist_id], []
+    )
+    # A per-playlist sum would give 4 tracks / 8_000_000 bytes.
+    assert count == 3
+    assert size == 7_000_000
+    assert lossless_size == 0  # every track is .mp3
+    assert lossless_dur == 0.0
+
+
+def test_selection_totals_dedupes_a_track_shared_by_a_playlist_and_a_mood(session, sync_manager):
+    pl = Playlist(playlist_name="P")
+    mood = Mood(mood_name="M")
+    session.add_all([pl, mood])
+    session.flush()
+
+    shared = _mk_track(session, "shared", size=1_000_000, ext="flac")
+    session.add_all(
+        [
+            PlaylistTracks(playlist_id=pl.playlist_id, track_id=shared.track_id, position=0),
+            MoodTrackAssociation(mood_id=mood.mood_id, track_id=shared.track_id),
+        ]
+    )
+    session.commit()
+
+    count, size, lossless_size, lossless_dur = sync_manager.selection_totals(
+        [pl.playlist_id], [mood.mood_id]
+    )
+    assert count == 1
+    assert size == 1_000_000
+    assert lossless_size == 1_000_000  # .flac with a known duration
+    assert lossless_dur == 180.0
+
+
+def test_selection_totals_empty_selection_is_zeroes(sync_manager):
+    assert sync_manager.selection_totals([], []) == (0, 0, 0, 0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -917,7 +993,6 @@ def test_prune_mtp_removes_orphans_via_gio(tmp_path, monkeypatch):  # AC9
 # size estimate -- all from one grouped query per kind, not a per-entity walk.
 # ---------------------------------------------------------------------------
 
-from src.db.db_tables.mood import Mood, MoodTrackAssociation  # noqa: E402
 
 
 def _add_track(session, path, *, file_size, duration):

@@ -23,11 +23,35 @@ from src.sync.sync_selection_mixin import SyncSelectionMixin
 pytestmark = pytest.mark.usefixtures("qapp")
 
 
+class _SummingManager:
+    """
+    Stand-in for `SyncManager.selection_totals`: plain per-item sum off the
+    tree, no dedup -- these hosts never put a track in two playlists, so the
+    dedup itself is covered in test_sync_manager.py against a real DB.
+    """
+
+    def __init__(self, host):
+        self._host = host
+
+    def selection_totals(self, playlist_ids, mood_ids):
+        tracks = size = lossless = 0
+        duration = 0.0
+        for it in self._host._iter_sync_items():
+            if it.checkState(0) == Qt.Checked:
+                d = it.data(0, Qt.UserRole)
+                tracks += d.get("track_count", 0)
+                size += d.get("size", 0) or 0
+                lossless += d.get("lossless_size", 0) or 0
+                duration += d.get("lossless_duration", 0) or 0
+        return (tracks, size, lossless, duration)
+
+
 class _Host(SyncSelectionMixin):
     """Minimal carrier for the mixin: real widgets, no full SyncView."""
 
     def __init__(self, *, checked=False, enabled=True, bitrate="320"):
         self.sync_tree = QTreeWidget()
+        self.sync_manager = _SummingManager(self)
         self.track_count_label = QLabel()
         self.transcode_mp3_check = QCheckBox()
         self.transcode_mp3_check.setEnabled(enabled)
@@ -42,6 +66,8 @@ class _Host(SyncSelectionMixin):
     def add_item(self, **data):
         data.setdefault("kind", "playlist")
         data.setdefault("track_count", 1)
+        seq = self.sync_tree.topLevelItemCount() + 1
+        data.setdefault("mood_id" if data["kind"] == "mood" else "playlist_id", seq)
         item = QTreeWidgetItem(self.sync_tree, ["x"])
         item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
         item.setCheckState(0, Qt.Checked)
@@ -140,6 +166,7 @@ class _TreeHost(SyncSelectionMixin):
         self.bitrate_combo = QComboBox()
         self.bitrate_combo.addItems(["320"])
         self.sync_manager = Mock()
+        self.sync_manager.selection_totals.return_value = (0, 0, 0, 0.0)
         self.current_profile = SimpleNamespace(playlist_ids=[], mood_ids=[])
 
     def _update_sync_button_state(self):
@@ -212,6 +239,45 @@ def test_selection_reapplied_after_async_load(stub_loader):  # perf-AC12
     ]
     assert checked == [7]
     assert "1 playlist(s)" in host.track_count_label.text()  # _update_selected_items ran
+
+
+def test_selection_summary_uses_deduped_manager_totals_not_a_per_item_sum(stub_loader):
+    """
+    Regression: the summary must reflect one deduped query over the checked
+    playlist/mood ids, not the sum of each item's own aggregates (which
+    double-counts a track shared by several selected items).
+    """
+    host = _TreeHost()
+    host.sync_manager.selection_totals.return_value = (3, 7_000_000, 0, 0.0)
+    host._refresh_sync_items()
+    host._sync_items_loader.finish(
+        [
+            {
+                "kind": "playlist",
+                "playlist_id": 7,
+                "name": "A",
+                "track_count": 2,
+                "size": 5_000_000,
+            },
+            {
+                "kind": "playlist",
+                "playlist_id": 8,
+                "name": "B",
+                "track_count": 2,
+                "size": 5_000_000,
+            },
+        ],
+        [{"kind": "mood", "mood_id": 3, "name": "M", "track_count": 2, "size": 5_000_000}],
+    )
+    for it in host._iter_sync_items():
+        it.setCheckState(0, Qt.Checked)
+    host._update_selected_items()
+
+    host.sync_manager.selection_totals.assert_called_with([7, 8], [3])
+    text = host.track_count_label.text()
+    assert "3 tracks" in text  # from the manager, not the 6 a per-item sum gives
+    assert text.endswith(format_file_size(7_000_000))  # not 15 MB
+    assert "2 playlist(s)" in text and "1 mood(s)" in text
 
 
 def test_failed_load_keeps_existing_tree(stub_loader):  # perf-AC14
