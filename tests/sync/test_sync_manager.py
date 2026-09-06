@@ -909,3 +909,72 @@ def test_prune_mtp_removes_orphans_via_gio(tmp_path, monkeypatch):  # AC9
     assert not (playlists / "Gone.m3u").exists()
     assert res["removed_tracks"] == ["Artist - Drop.mp3"]
     assert res["removed_playlists"] == ["Gone.m3u"]
+
+
+# ---------------------------------------------------------------------------
+# Selection aggregates: get_playlists / get_moods expose the lossless bytes
+# and lossless seconds the Sync view needs for a post-conversion size
+# estimate. Only lossless tracks with a known duration count.
+# ---------------------------------------------------------------------------
+
+from src.db.db_tables.mood import Mood, MoodTrackAssociation  # noqa: E402
+
+
+def _add_track(session, path, *, file_size, duration):
+    track = Track(
+        track_name=Path(path).stem, track_file_path=path, file_size=file_size, duration=duration
+    )
+    session.add(track)
+    session.flush()
+    return track
+
+
+def test_get_playlists_reports_lossless_size_and_duration(session, sync_manager):  # AC1
+    pl = Playlist(playlist_name="Mixed")
+    session.add(pl)
+    session.flush()
+    flac = _add_track(session, "/music/song.flac", file_size=40_000_000, duration=180.0)
+    mp3 = _add_track(session, "/music/song.mp3", file_size=7_000_000, duration=200.0)
+    session.add_all(
+        [
+            PlaylistTracks(playlist_id=pl.playlist_id, track_id=flac.track_id, position=0),
+            PlaylistTracks(playlist_id=pl.playlist_id, track_id=mp3.track_id, position=1),
+        ]
+    )
+    session.commit()
+
+    (data,) = sync_manager.get_playlists()
+    assert data["size"] == 47_000_000
+    assert data["lossless_size"] == 40_000_000
+    assert data["lossless_duration"] == 180.0
+
+
+def test_get_moods_reports_lossless_size_and_duration(session, sync_manager):  # AC2
+    mood = Mood(mood_name="Calm")
+    session.add(mood)
+    session.flush()
+    wav = _add_track(session, "/music/a.wav", file_size=50_000_000, duration=120.0)
+    aiff = _add_track(session, "/music/b.aiff", file_size=30_000_000, duration=90.0)
+    ogg = _add_track(session, "/music/c.ogg", file_size=4_000_000, duration=210.0)
+    for t in (wav, aiff, ogg):
+        session.add(MoodTrackAssociation(mood_id=mood.mood_id, track_id=t.track_id))
+    session.commit()
+
+    (data,) = sync_manager.get_moods()
+    assert data["size"] == 84_000_000
+    assert data["lossless_size"] == 80_000_000
+    assert data["lossless_duration"] == 210.0
+
+
+def test_lossless_track_without_duration_excluded_from_aggregates(session, sync_manager):  # AC3
+    pl = Playlist(playlist_name="NoDuration")
+    session.add(pl)
+    session.flush()
+    flac = _add_track(session, "/music/nodur.flac", file_size=25_000_000, duration=None)
+    session.add(PlaylistTracks(playlist_id=pl.playlist_id, track_id=flac.track_id, position=0))
+    session.commit()
+
+    (data,) = sync_manager.get_playlists()
+    assert data["size"] == 25_000_000
+    assert data["lossless_size"] == 0
+    assert data["lossless_duration"] == 0.0

@@ -532,7 +532,11 @@ and says so in the log.
 
 **Choosing what goes**: the Playlists & Moods tab is a checklist — tick
 whichever playlists and moods you want on this device. The estimated track
-count and size update live as you check things off.
+count and size update live as you check things off. With **Convert lossless
+files to MP3** on, that size becomes a post-conversion estimate
+(`~… after conversion`) — lossless tracks sized as they'd land at the chosen
+bitrate, already-lossy tracks counted as-is — and it re-estimates when you
+change the bitrate.
 
 **Syncing**: once a profile has both a selection and a destination, Start
 Sync becomes available. It'll confirm the destination and track count before

@@ -702,6 +702,10 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
             self.transcode_mp3_check.isEnabled() and self.transcode_mp3_check.isChecked()
         )
         self.profile_store.save(self.profiles)
+        # The selection summary shows a post-conversion size estimate while
+        # transcoding is on, so it has to re-render when the toggle or the
+        # bitrate changes.
+        self._update_selected_items()
 
     def _update_cache_button_label(self):
         """Show the current transcode-cache size on the Clear button."""

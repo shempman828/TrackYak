@@ -172,6 +172,25 @@ def test_load_profile_reflects_transcode_settings_without_signals(monkeypatch): 
     assert fired == []  # signals stayed blocked during the load
 
 
+def test_option_change_refreshes_selection_summary(monkeypatch):  # AC7
+    import src.sync.sync_view as sv
+
+    monkeypatch.setattr(sv, "ffmpeg_available", lambda: True)
+    view = _view_with_settings_tab()
+    prof = SyncProfile(name="P", path="")
+    view.current_profile = prof
+    view.profiles = [prof]
+    view.profile_store = Mock()
+    view._update_selected_items = Mock()
+
+    # Toggling the transcode checkbox / bitrate must re-render the summary,
+    # since its size figure depends on both.
+    view.transcode_mp3_check.setChecked(True)
+    view.bitrate_combo.setCurrentText("192")
+
+    assert view._update_selected_items.call_count >= 2
+
+
 # ---------------------------------------------------------------------------
 # "Remove files that are no longer in this profile" — the prune toggle
 # round-trips through the profile and is restored on load without firing.

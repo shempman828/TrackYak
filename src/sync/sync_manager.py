@@ -55,36 +55,64 @@ class SyncManager:
     # Database helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _lossless_aggregates(tracks) -> tuple[int, float]:
+        """
+        (original bytes, seconds) for the lossless tracks in `tracks` that
+        have a known duration — the inputs for a transcoded-size estimate.
+        A lossless track with no duration can't be estimated, so it is left
+        out of both sums and stays counted at its original size elsewhere.
+        """
+        size = 0
+        seconds = 0.0
+        for t in tracks:
+            if t.duration and is_lossless_path(t.track_file_path or ""):
+                size += t.file_size or 0
+                seconds += t.duration
+        return size, seconds
+
     def get_playlists(self) -> list[dict]:
         playlists = self.get_db.get_all_entities("Playlist")
-        return [
-            {
-                "kind": "playlist",
-                "playlist_id": pl.playlist_id,
-                "name": pl.playlist_name,
-                "description": pl.playlist_description,
-                "track_count": pl.track_count,
-                "size": pl.playlist_size,
-                "is_smart": pl.is_smart,
-                "parent_id": pl.parent_id,
-            }
-            for pl in playlists
-        ]
+        result = []
+        for pl in playlists:
+            lossless_size, lossless_duration = self._lossless_aggregates(
+                pt.track for pt in pl.tracks
+            )
+            result.append(
+                {
+                    "kind": "playlist",
+                    "playlist_id": pl.playlist_id,
+                    "name": pl.playlist_name,
+                    "description": pl.playlist_description,
+                    "track_count": pl.track_count,
+                    "size": pl.playlist_size,
+                    "lossless_size": lossless_size,
+                    "lossless_duration": lossless_duration,
+                    "is_smart": pl.is_smart,
+                    "parent_id": pl.parent_id,
+                }
+            )
+        return result
 
     def get_moods(self) -> list[dict]:
         moods = self.get_db.get_all_entities("Mood")
-        return [
-            {
-                "kind": "mood",
-                "mood_id": mood.mood_id,
-                "name": mood.mood_name,
-                "description": mood.mood_description,
-                "track_count": mood.track_count,
-                "size": mood.mood_size,
-                "parent_id": mood.parent_id,
-            }
-            for mood in moods
-        ]
+        result = []
+        for mood in moods:
+            lossless_size, lossless_duration = self._lossless_aggregates(mood.tracks)
+            result.append(
+                {
+                    "kind": "mood",
+                    "mood_id": mood.mood_id,
+                    "name": mood.mood_name,
+                    "description": mood.mood_description,
+                    "track_count": mood.track_count,
+                    "size": mood.mood_size,
+                    "lossless_size": lossless_size,
+                    "lossless_duration": lossless_duration,
+                    "parent_id": mood.parent_id,
+                }
+            )
+        return result
 
     def _track_to_dict(self, track) -> dict:
         artists = track.primary_artists

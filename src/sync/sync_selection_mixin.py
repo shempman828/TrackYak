@@ -12,7 +12,8 @@ class SyncSelectionMixin:
 
     Expects the host class to provide: self.sync_tree, self.sync_manager,
     self.current_profile, self.profiles, self.profile_store,
-    self.clear_before_sync_check, self.track_count_label, self.sync_btn.
+    self.clear_before_sync_check, self.track_count_label, self.sync_btn,
+    self.transcode_mp3_check, self.bitrate_combo.
     """
 
     # -----------------------------------------------------------------------
@@ -116,12 +117,16 @@ class SyncSelectionMixin:
         self.selected_items = []
         total_tracks = 0
         total_size = 0
+        total_lossless_size = 0
+        total_lossless_duration = 0.0
         for item in self._iter_sync_items():
             if item.checkState(0) == Qt.Checked:
                 data = item.data(0, Qt.UserRole)
                 self.selected_items.append(data)
                 total_tracks += data.get("track_count", 0)
                 total_size += data.get("size", 0) or 0
+                total_lossless_size += data.get("lossless_size", 0) or 0
+                total_lossless_duration += data.get("lossless_duration", 0) or 0
 
         if self.selected_items:
             n_playlists = sum(1 for it in self.selected_items if it["kind"] == "playlist")
@@ -131,13 +136,31 @@ class SyncSelectionMixin:
                 parts.append(f"{n_playlists} playlist(s)")
             if n_moods:
                 parts.append(f"{n_moods} mood(s)")
+            size_text = self._selection_size_text(
+                total_size, total_lossless_size, total_lossless_duration
+            )
             self.track_count_label.setText(
-                f"{' + '.join(parts)}  ·  {total_tracks} tracks  ·  {format_file_size(total_size)}"
+                f"{' + '.join(parts)}  ·  {total_tracks} tracks  ·  {size_text}"
             )
         else:
             self.track_count_label.setText("")
 
         self._update_sync_button_state()
+
+    def _selection_size_text(self, total_size, lossless_size, lossless_duration):
+        """
+        Human-readable size for the selection summary. When "Convert lossless
+        files to MP3" is on and the selection actually contains lossless audio,
+        show a post-conversion estimate (lossy tracks unchanged, lossless
+        tracks re-sized as CBR MP3 at the chosen bitrate) instead of the raw
+        library footprint.
+        """
+        check = getattr(self, "transcode_mp3_check", None)
+        if check is not None and check.isEnabled() and check.isChecked() and lossless_duration > 0:
+            kbps = int(self.bitrate_combo.currentText())
+            estimated = (total_size - lossless_size) + lossless_duration * kbps * 1000 / 8
+            return f"~{format_file_size(estimated)} after conversion"
+        return format_file_size(total_size)
 
     def _on_sync_item_changed(self, item: QTreeWidgetItem, column: int):
         if item.data(0, Qt.UserRole) is None:
