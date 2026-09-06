@@ -2,7 +2,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QTreeWidgetItem
 
+from src.foundation.logger_config import logger
 from src.sync.device_card import format_file_size
+from src.sync.sync_items_loader import SyncItemsLoader
 
 
 class SyncSelectionMixin:
@@ -52,20 +54,56 @@ class SyncSelectionMixin:
         yield from walk(self.sync_tree.invisibleRootItem())
 
     def _refresh_sync_items(self):
-        """Reload playlists and moods from the database into the sync tree."""
+        """
+        Reload playlists and moods into the sync tree, off the GUI thread.
+
+        Called on view construction and on every `showEvent`, so calls that
+        land while a load is already in flight are coalesced into a single
+        trailing reload rather than stacking a worker per call. The existing
+        tree stays on screen until the new data arrives.
+
+        The in-flight guard is our own flag, cleared by the result slots --
+        not `loader.isRunning()`, which can still read True in the slot that
+        the just-finished worker triggered (thread not yet torn down).
+        """
+        if getattr(self, "_sync_items_loading", False):
+            self._sync_items_reload_pending = True
+            return
+        self._sync_items_reload_pending = False
+        self._sync_items_loading = True
+        loader = SyncItemsLoader(self.sync_manager)
+        loader.loaded.connect(self._on_sync_items_loaded)
+        loader.failed.connect(self._on_sync_items_failed)
+        self._sync_items_loader = loader
+        loader.start()
+
+    def _on_sync_items_loaded(self, playlists: list, moods: list):
+        self._sync_items_loading = False
+        self._populate_sync_tree(playlists, moods)
+        if getattr(self, "_sync_items_reload_pending", False):
+            self._refresh_sync_items()
+
+    def _on_sync_items_failed(self, message: str):
+        # Keep whatever is already in the tree; a transient DB error must not
+        # blank the selection out from under the user. The next showEvent
+        # retries -- we don't loop on a persistent failure here.
+        self._sync_items_loading = False
+        self._sync_items_reload_pending = False
+        logger.warning(f"Sync items failed to load, keeping current tree: {message}")
+
+    def _populate_sync_tree(self, playlists: list, moods: list):
+        """Rebuild the tree from a loader result (runs on the GUI thread)."""
         self.sync_tree.blockSignals(True)
         self.sync_tree.clear()
 
         header_font = QFont()
         header_font.setBold(True)
 
-        playlists = self.sync_manager.get_playlists()
         playlists_header = QTreeWidgetItem(self.sync_tree, [f"PLAYLISTS  ({len(playlists)})"])
         playlists_header.setFlags(Qt.ItemIsEnabled)
         playlists_header.setFont(0, header_font)
         self._add_hierarchy(playlists_header, playlists, "playlist_id")
 
-        moods = self.sync_manager.get_moods()
         moods_header = QTreeWidgetItem(self.sync_tree, [f"MOODS  ({len(moods)})"])
         moods_header.setFlags(Qt.ItemIsEnabled)
         moods_header.setFont(0, header_font)

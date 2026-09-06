@@ -912,9 +912,9 @@ def test_prune_mtp_removes_orphans_via_gio(tmp_path, monkeypatch):  # AC9
 
 
 # ---------------------------------------------------------------------------
-# Selection aggregates: get_playlists / get_moods expose the lossless bytes
-# and lossless seconds the Sync view needs for a post-conversion size
-# estimate. Only lossless tracks with a known duration count.
+# Selection aggregates: get_playlists / get_moods expose track_count, size,
+# and the lossless bytes/seconds the Sync view needs for a post-conversion
+# size estimate -- all from one grouped query per kind, not a per-entity walk.
 # ---------------------------------------------------------------------------
 
 from src.db.db_tables.mood import Mood, MoodTrackAssociation  # noqa: E402
@@ -922,34 +922,40 @@ from src.db.db_tables.mood import Mood, MoodTrackAssociation  # noqa: E402
 
 def _add_track(session, path, *, file_size, duration):
     track = Track(
-        track_name=Path(path).stem, track_file_path=path, file_size=file_size, duration=duration
+        track_name=Path(path).stem,
+        track_file_path=path,
+        file_extension=Path(path).suffix.lstrip("."),
+        file_size=file_size,
+        duration=duration,
     )
     session.add(track)
     session.flush()
     return track
 
 
-def test_get_playlists_reports_lossless_size_and_duration(session, sync_manager):  # AC1
-    pl = Playlist(playlist_name="Mixed")
+def _playlist_with(session, name, tracks):
+    pl = Playlist(playlist_name=name)
     session.add(pl)
     session.flush()
+    for pos, t in enumerate(tracks):
+        session.add(PlaylistTracks(playlist_id=pl.playlist_id, track_id=t.track_id, position=pos))
+    session.commit()
+    return pl
+
+
+def test_get_playlists_reports_size_and_lossless_aggregates(session, sync_manager):  # perf-AC4
     flac = _add_track(session, "/music/song.flac", file_size=40_000_000, duration=180.0)
     mp3 = _add_track(session, "/music/song.mp3", file_size=7_000_000, duration=200.0)
-    session.add_all(
-        [
-            PlaylistTracks(playlist_id=pl.playlist_id, track_id=flac.track_id, position=0),
-            PlaylistTracks(playlist_id=pl.playlist_id, track_id=mp3.track_id, position=1),
-        ]
-    )
-    session.commit()
+    _playlist_with(session, "Mixed", [flac, mp3])
 
     (data,) = sync_manager.get_playlists()
+    assert data["track_count"] == 2
     assert data["size"] == 47_000_000
     assert data["lossless_size"] == 40_000_000
     assert data["lossless_duration"] == 180.0
 
 
-def test_get_moods_reports_lossless_size_and_duration(session, sync_manager):  # AC2
+def test_get_moods_reports_size_and_lossless_aggregates(session, sync_manager):  # perf-AC8
     mood = Mood(mood_name="Calm")
     session.add(mood)
     session.flush()
@@ -961,20 +967,77 @@ def test_get_moods_reports_lossless_size_and_duration(session, sync_manager):  #
     session.commit()
 
     (data,) = sync_manager.get_moods()
+    assert data["track_count"] == 3
     assert data["size"] == 84_000_000
     assert data["lossless_size"] == 80_000_000
     assert data["lossless_duration"] == 210.0
 
 
-def test_lossless_track_without_duration_excluded_from_aggregates(session, sync_manager):  # AC3
-    pl = Playlist(playlist_name="NoDuration")
-    session.add(pl)
-    session.flush()
+def test_lossless_track_without_duration_excluded_from_aggregates(
+    session, sync_manager
+):  # perf-AC6
     flac = _add_track(session, "/music/nodur.flac", file_size=25_000_000, duration=None)
-    session.add(PlaylistTracks(playlist_id=pl.playlist_id, track_id=flac.track_id, position=0))
-    session.commit()
+    _playlist_with(session, "NoDuration", [flac])
 
     (data,) = sync_manager.get_playlists()
+    assert data["track_count"] == 1
     assert data["size"] == 25_000_000
     assert data["lossless_size"] == 0
     assert data["lossless_duration"] == 0.0
+
+
+def test_empty_playlist_reports_zero_aggregates(session, sync_manager):  # perf-AC5
+    _playlist_with(session, "Empty", [])
+
+    (data,) = sync_manager.get_playlists()
+    assert (
+        data["track_count"],
+        data["size"],
+        data["lossless_size"],
+        data["lossless_duration"],
+    ) == (0, 0, 0, 0.0)
+
+
+def test_lossy_only_playlist_has_zero_lossless_aggregates(session, sync_manager):  # perf-AC7
+    mp3 = _add_track(session, "/music/x.mp3", file_size=6_000_000, duration=200.0)
+    m4a = _add_track(session, "/music/y.m4a", file_size=5_000_000, duration=150.0)
+    _playlist_with(session, "AllLossy", [mp3, m4a])
+
+    (data,) = sync_manager.get_playlists()
+    assert data["size"] == 11_000_000
+    assert data["lossless_size"] == 0
+    assert data["lossless_duration"] == 0.0
+
+
+def test_get_playlists_query_count_is_bounded(session, sync_manager):  # perf-AC3
+    # One fat playlist (22 tracks) plus a thin one: a per-entity/per-track
+    # walk would scale with either count; the grouped query must not.
+    fat = _playlist_with(
+        session,
+        "Fat",
+        [
+            _add_track(session, f"/music/f{i}.flac", file_size=1_000, duration=1.0)
+            for i in range(22)
+        ],
+    )
+    _playlist_with(
+        session, "Thin", [_add_track(session, "/music/t.flac", file_size=1_000, duration=1.0)]
+    )
+    assert fat.playlist_id  # touch so the flush above is real
+    session.expire_all()
+
+    engine = session.get_bind()
+    statements = []
+
+    def _rec(conn, cursor, statement, *a, **k):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _rec)
+    try:
+        result = sync_manager.get_playlists()
+    finally:
+        event.remove(engine, "before_cursor_execute", _rec)
+
+    assert len(result) == 2
+    selects = [s for s in statements if s.lstrip().lower().startswith("select")]
+    assert len(selects) <= 3, "expected a bounded query count, got:\n" + "\n".join(selects)

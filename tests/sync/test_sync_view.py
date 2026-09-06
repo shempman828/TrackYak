@@ -172,6 +172,20 @@ def test_load_profile_reflects_transcode_settings_without_signals(monkeypatch): 
     assert fired == []  # signals stayed blocked during the load
 
 
+def test_close_event_cancels_and_joins_sync_items_loader():  # perf-AC13
+    from PySide6.QtGui import QCloseEvent
+
+    view = _view_with_settings_tab()
+    loader = Mock()
+    loader.isRunning.return_value = True
+    view._sync_items_loader = loader
+
+    view.closeEvent(QCloseEvent())
+
+    loader.request_cancel.assert_called_once()
+    loader.wait.assert_called_once()
+
+
 def test_option_change_refreshes_selection_summary(monkeypatch):  # AC7
     import src.sync.sync_view as sv
 

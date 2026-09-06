@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import shutil
 
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import selectinload
 
 from src.db.db_helpers import GetFromDB
@@ -43,6 +44,14 @@ _DUPLICATE_CHECK_WORKERS = 8
 _LOSSY_EXTENSIONS = {".mp3", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".wma", ".mp4"}
 _PRUNABLE_AUDIO_EXTENSIONS = LOSSLESS_EXTENSIONS | _LOSSY_EXTENSIONS
 
+# Lowercase Track.file_extension values that count as lossless, with and
+# without a leading dot (the column is stored without one, but be lenient).
+# Same set as transcode.LOSSLESS_EXTENSIONS / is_lossless_path, just matched
+# in SQL against a column instead of a path suffix.
+_LOSSLESS_EXTS_LOWER = {e.lower() for e in LOSSLESS_EXTENSIONS} | {
+    e.lower().lstrip(".") for e in LOSSLESS_EXTENSIONS
+}
+
 
 class SyncManager:
     def __init__(self, db_session):
@@ -55,28 +64,41 @@ class SyncManager:
     # Database helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _lossless_aggregates(tracks) -> tuple[int, float]:
+    def _selection_aggregates(self, membership_model, id_column) -> dict:
         """
-        (original bytes, seconds) for the lossless tracks in `tracks` that
-        have a known duration — the inputs for a transcoded-size estimate.
-        A lossless track with no duration can't be estimated, so it is left
-        out of both sums and stays counted at its original size elsewhere.
+        `{entity_id: (track_count, size_bytes, lossless_bytes, lossless_seconds)}`
+        for a membership table (playlist_tracks or mood_track_association) in
+        one grouped query — no per-entity ORM walk.
+
+        `lossless_bytes` / `lossless_seconds` cover only lossless tracks with a
+        known duration (a null-duration track can't be size-estimated, so it
+        stays counted at its original bytes in `size_bytes` only). Entities
+        with no track rows are absent from the map; callers default them to
+        zeros.
         """
-        size = 0
-        seconds = 0.0
-        for t in tracks:
-            if t.duration and is_lossless_path(t.track_file_path or ""):
-                size += t.file_size or 0
-                seconds += t.duration
-        return size, seconds
+        lossless = func.lower(func.coalesce(Track.file_extension, "")).in_(
+            _LOSSLESS_EXTS_LOWER
+        ) & Track.duration.isnot(None)
+        rows = self.session.execute(
+            select(
+                id_column,
+                func.count(),
+                func.coalesce(func.sum(Track.file_size), 0),
+                func.coalesce(func.sum(case((lossless, Track.file_size), else_=0)), 0),
+                func.coalesce(func.sum(case((lossless, Track.duration), else_=0.0)), 0.0),
+            )
+            .join(Track, Track.track_id == membership_model.track_id)
+            .group_by(id_column)
+        ).all()
+        return {r[0]: (int(r[1]), r[2], r[3], float(r[4])) for r in rows}
 
     def get_playlists(self) -> list[dict]:
+        aggregates = self._selection_aggregates(PlaylistTracks, PlaylistTracks.playlist_id)
         playlists = self.get_db.get_all_entities("Playlist")
         result = []
         for pl in playlists:
-            lossless_size, lossless_duration = self._lossless_aggregates(
-                pt.track for pt in pl.tracks
+            track_count, size, lossless_size, lossless_duration = aggregates.get(
+                pl.playlist_id, (0, 0, 0, 0.0)
             )
             result.append(
                 {
@@ -84,8 +106,8 @@ class SyncManager:
                     "playlist_id": pl.playlist_id,
                     "name": pl.playlist_name,
                     "description": pl.playlist_description,
-                    "track_count": pl.track_count,
-                    "size": pl.playlist_size,
+                    "track_count": track_count,
+                    "size": size,
                     "lossless_size": lossless_size,
                     "lossless_duration": lossless_duration,
                     "is_smart": pl.is_smart,
@@ -95,18 +117,21 @@ class SyncManager:
         return result
 
     def get_moods(self) -> list[dict]:
+        aggregates = self._selection_aggregates(MoodTrackAssociation, MoodTrackAssociation.mood_id)
         moods = self.get_db.get_all_entities("Mood")
         result = []
         for mood in moods:
-            lossless_size, lossless_duration = self._lossless_aggregates(mood.tracks)
+            track_count, size, lossless_size, lossless_duration = aggregates.get(
+                mood.mood_id, (0, 0, 0, 0.0)
+            )
             result.append(
                 {
                     "kind": "mood",
                     "mood_id": mood.mood_id,
                     "name": mood.mood_name,
                     "description": mood.mood_description,
-                    "track_count": mood.track_count,
-                    "size": mood.mood_size,
+                    "track_count": track_count,
+                    "size": size,
                     "lossless_size": lossless_size,
                     "lossless_duration": lossless_duration,
                     "parent_id": mood.parent_id,

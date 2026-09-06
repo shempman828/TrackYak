@@ -110,6 +110,14 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         super().showEvent(event)
         self._refresh_sync_items()
 
+    def closeEvent(self, event):
+        """Cancel and join the background sync-items load before teardown."""
+        loader = getattr(self, "_sync_items_loader", None)
+        if loader is not None and loader.isRunning():
+            loader.request_cancel()
+            loader.wait()
+        super().closeEvent(event)
+
     # -----------------------------------------------------------------------
     # UI construction
     # -----------------------------------------------------------------------
