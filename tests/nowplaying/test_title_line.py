@@ -1,9 +1,9 @@
-"""The Now Playing title line pans long titles instead of wrapping.
+"""The Now Playing title line wraps short titles and only pans long ones.
 
-The track title uses the same ``MarqueeLabel`` as the artist line directly
-below it, so an over-long title scrolls horizontally rather than word-wrapping
-onto a second line. Text updates go through ``set_text`` and are routed through
-``censor_text``; clearing resets the placeholder.
+The track title word-wraps up to three lines like a normal label; a title that
+would need a fourth line falls back to the horizontally-panning ``MarqueeLabel``
+used by the artist line directly below it. Text updates go through ``set_text``
+and are routed through ``censor_text``; clearing resets the placeholder.
 """
 
 from types import SimpleNamespace
@@ -12,8 +12,7 @@ from PySide6.QtCore import QObject, Signal
 import pytest
 
 from src.nowplaying import nowplaying_view as npv
-from src.nowplaying.nowplaying_marquee import MarqueeLabel
-from src.nowplaying.nowplaying_view import NowPlayingView
+from src.nowplaying.nowplaying_view import NowPlayingView, _AdaptiveTitle
 
 
 class _FakeMediaPlayer(QObject):
@@ -28,6 +27,14 @@ def view(qapp):
     v.deleteLater()
 
 
+@pytest.fixture
+def title(qapp):
+    w = _AdaptiveTitle("x", NowPlayingView._TITLE_FONT, "rgba(230,235,255,0.94)")
+    w.resize(420, 300)
+    yield w
+    w.deleteLater()
+
+
 def _track(**kw):
     base = {
         "track_name": "So What",
@@ -40,9 +47,64 @@ def _track(**kw):
     return SimpleNamespace(**base)
 
 
-def test_title_uses_same_marquee_widget_as_artist(view):
-    assert isinstance(view._title_lbl, MarqueeLabel)
-    assert isinstance(view._artist_marquee, MarqueeLabel)
+# ── widget wiring ────────────────────────────────────────────────────────────
+
+
+def test_title_widget_is_adaptive(view):
+    assert isinstance(view._title_lbl, _AdaptiveTitle)
+
+
+# ── wrap vs. marquee decision ────────────────────────────────────────────────
+
+
+def test_short_title_wraps_no_marquee(title):
+    title.set_text("So What")
+    assert not title._wrap.isHidden()
+    assert title._marquee.isHidden()
+    assert title._wrap.text() == "So What"
+
+
+def test_long_title_falls_back_to_marquee(title):
+    long = "supercalifragilisticexpialidocious " * 40
+    assert title._line_count(long, title._avail_width()) > 3
+    title.set_text(long)
+    assert not title._marquee.isHidden()
+    assert title._wrap.isHidden()
+    assert title._marquee._text == long
+
+
+def test_three_lines_still_wraps(title, monkeypatch):
+    monkeypatch.setattr(title, "_line_count", lambda *a: 3)
+    title.set_text("whatever")
+    assert title._marquee.isHidden()
+    assert not title._wrap.isHidden()
+
+
+def test_four_lines_switches_to_marquee(title, monkeypatch):
+    monkeypatch.setattr(title, "_line_count", lambda *a: 4)
+    title.set_text("whatever")
+    assert not title._marquee.isHidden()
+    assert title._wrap.isHidden()
+    assert title._marquee._text == "whatever"
+
+
+def test_line_count_single_word_is_one(title):
+    assert title._line_count("Hi", 400) == 1
+
+
+def test_switching_back_to_short_title_restores_wrap(title, monkeypatch):
+    monkeypatch.setattr(title, "_line_count", lambda *a: 5)
+    title.set_text("way too long")
+    assert not title._marquee.isHidden()
+
+    monkeypatch.setattr(title, "_line_count", lambda *a: 1)
+    title.set_text("short")
+    assert title._marquee.isHidden()
+    assert not title._wrap.isHidden()
+    assert title._wrap.text() == "short"
+
+
+# ── update path / censoring / clear ──────────────────────────────────────────
 
 
 def test_title_text_updates_via_set_text(view):

@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 import traceback
 
-from PySide6.QtCore import QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import QPropertyAnimation, QRect, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
@@ -69,6 +69,94 @@ class _TabSpec:
     button: QPushButton | None = None
     on_show: Callable[[object], None] | None = None
     on_hide: Callable[[], None] | None = None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Title line
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class _AdaptiveTitle(QWidget):
+    """Track-title line that word-wraps like a normal label and only falls back
+    to a horizontally-panning :class:`MarqueeLabel` when the wrapped title would
+    need more than ``_MAX_LINES`` lines.
+
+    ``set_text`` is the single update path. The choice is re-evaluated on every
+    resize because the column width drives the wrapped line count; the first
+    evaluation is retried briefly until real geometry is available (same
+    deferred-geometry problem ``MarqueeLabel`` solves with a singleShot).
+    """
+
+    _MAX_LINES = 3
+    _MAX_RETRIES = 10
+
+    def __init__(self, text: str, font: QFont, color: str, parent=None):
+        super().__init__(parent)
+        self._font = font
+        self._text = text
+        self._retries = 0
+        self.setProperty("bgTransparent", True)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        self._wrap = QLabel(text)
+        self._wrap.setFont(font)
+        self._wrap.setWordWrap(True)
+        self._wrap.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self._wrap.setStyleSheet(f"color: {color}; background: transparent;")
+        self._wrap.setProperty("bgTransparent", True)
+        lay.addWidget(self._wrap)
+
+        self._marquee = MarqueeLabel(text, font, color)
+        self._marquee.setFixedHeight(QFontMetrics(font).height())
+        self._marquee.hide()
+        lay.addWidget(self._marquee)
+
+        self._apply_layout()
+
+    # ── public API ────────────────────────────────────────────────────────
+    def set_text(self, text: str):
+        self._text = text
+        self._retries = 0
+        self._apply_layout()
+
+    # ── internals ─────────────────────────────────────────────────────────
+    def _avail_width(self) -> int:
+        w = self.contentsRect().width()
+        if w <= 0:
+            w = self._wrap.contentsRect().width()
+        return w
+
+    def _line_count(self, text: str, width: int) -> int:
+        if width <= 0:
+            return 1
+        fm = QFontMetrics(self._font)
+        rect = fm.boundingRect(QRect(0, 0, width, 100_000), Qt.TextWordWrap, text)
+        return max(1, round(rect.height() / fm.lineSpacing()))
+
+    def _apply_layout(self):
+        width = self._avail_width()
+        if width <= 0 and self._retries < self._MAX_RETRIES:
+            self._retries += 1
+            QTimer.singleShot(50, self._apply_layout)
+            return
+
+        lines = self._line_count(self._text, width)
+        if lines > self._MAX_LINES:
+            self._wrap.hide()
+            self._marquee.show()
+            self._marquee.set_text(self._text)
+        else:
+            self._marquee.hide()
+            self._wrap.setText(self._text)
+            self._wrap.setFixedHeight(lines * QFontMetrics(self._font).lineSpacing())
+            self._wrap.show()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_layout()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -303,13 +391,13 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         right_layout.setContentsMargins(16, 36, 32, 24)
         right_layout.setSpacing(4)
 
-        # Title — scrolling marquee so long titles pan rather than wrap,
-        # matching the artist line below. Colour mirrors the QSS
+        # Title — word-wraps up to three lines like a normal label; only a
+        # title that would need a fourth line falls back to the panning
+        # marquee used by the artist line below. Colour mirrors the QSS
         # QLabel[npRole="title"] rule (which no longer applies to a QWidget).
-        self._title_lbl = MarqueeLabel(
+        self._title_lbl = _AdaptiveTitle(
             "No Track Playing", self._TITLE_FONT, "rgba(230,235,255,0.94)"
         )
-        self._title_lbl.setFixedHeight(QFontMetrics(self._TITLE_FONT).height())
         self._apply_text_shadow(self._title_lbl, blur=16, y_offset=2, alpha=225)
         right_layout.addWidget(self._title_lbl)
 
