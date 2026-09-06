@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QFrame,
     QGroupBox,
@@ -36,6 +37,14 @@ from src.sync.sync_manager import SyncManager
 from src.sync.sync_profile import SyncProfile, SyncProfileStore
 from src.sync.sync_selection_mixin import SyncSelectionMixin
 from src.sync.sync_worker import SyncWorker
+
+# Common on-device music folders offered in the "Music folder on device"
+# dropdown. The field stays editable, so any custom relative path still works.
+COMMON_DEVICE_MUSIC_PATHS = [
+    MtpManager.DEFAULT_MUSIC_PATH,  # "Music" — internal storage default
+    "Internal storage/Music",
+    "SD card/Music",
+]
 
 # ---------------------------------------------------------------------------
 # SyncView — main view
@@ -308,9 +317,16 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         # Music path on device
         path_row = QHBoxLayout()
         path_row.addWidget(QLabel("Music folder on device:"))
-        self.music_path_edit = QLineEdit()
-        self.music_path_edit.setPlaceholderText("/storage/emulated/0/Music")
-        self.music_path_edit.editingFinished.connect(self._on_music_path_changed)
+        self.music_path_edit = QComboBox()
+        self.music_path_edit.setEditable(True)
+        self.music_path_edit.setInsertPolicy(QComboBox.NoInsert)
+        self.music_path_edit.addItems(COMMON_DEVICE_MUSIC_PATHS)
+        self.music_path_edit.lineEdit().setPlaceholderText("/storage/emulated/0/Music")
+        self.music_path_edit.setToolTip(
+            "Pick a common location or type a custom relative path on the device"
+        )
+        self.music_path_edit.textActivated.connect(self._on_music_path_changed)
+        self.music_path_edit.lineEdit().editingFinished.connect(self._on_music_path_changed)
         path_row.addWidget(self.music_path_edit, 1)
         android_layout.addLayout(path_row)
 
@@ -537,7 +553,7 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.device_nickname_edit.blockSignals(False)
 
         self.music_path_edit.blockSignals(True)
-        self.music_path_edit.setText(p.music_path)
+        self.music_path_edit.setCurrentText(p.music_path)
         self.music_path_edit.blockSignals(False)
 
         self.folder_label.setText(p.path or "No folder set")
@@ -602,10 +618,13 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.profile_store.save(self.profiles)
         self._refresh_device_label()
 
-    def _on_music_path_changed(self):
+    def _on_music_path_changed(self, *_):
         if not self.current_profile:
             return
-        self.current_profile.music_path = self.music_path_edit.text().strip()
+        new_path = self.music_path_edit.currentText().strip()
+        if new_path == self.current_profile.music_path:
+            return
+        self.current_profile.music_path = new_path
         self.profile_store.save(self.profiles)
 
     def _on_option_changed(self):

@@ -499,9 +499,11 @@ Push curated playlists and moods out to an Android device or a plain folder
 **Setting up a profile**: click + New, give it a name, then head to the
 Settings tab to point it at a destination — either Link Device for something
 connected over USB (click ⟳ Detect first if it's not showing up), or Browse
-for a folder. There's also an option to wipe the destination clean before
-each sync, if you want it to exactly mirror your selection rather than
-accumulate old files.
+for a folder. For a linked device, "Music folder on device" is a dropdown of
+the usual spots (Music, Internal storage/Music, SD card/Music) — pick one, or
+type your own relative path if your phone puts music somewhere else. There's
+also an option to wipe the destination clean before each sync, if you want it
+to exactly mirror your selection rather than accumulate old files.
 
 **Choosing what goes**: the Playlists & Moods tab is a checklist — tick
 whichever playlists and moods you want on this device. The estimated track
