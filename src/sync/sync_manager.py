@@ -19,7 +19,14 @@ from sqlalchemy import case, func, select, union
 from sqlalchemy.orm import selectinload
 
 from src.db.db_helpers import GetFromDB
-from src.db.db_tables import MoodTrackAssociation, PlaylistTracks, Track, TrackArtistRole
+from src.db.db_tables import (
+    Album,
+    AlbumRoleAssociation,
+    MoodTrackAssociation,
+    PlaylistTracks,
+    Track,
+    TrackArtistRole,
+)
 from src.foundation.logger_config import logger
 from src.sync.mtp_manager import MtpDevice, MtpManager
 from src.sync.transcode import (
@@ -37,6 +44,12 @@ _MAX_RETRIES = 2
 # Local duplicate confirmation (MD5) is disk I/O-bound, so run it across
 # a small thread pool rather than sequentially in the diff pre-pass.
 _DUPLICATE_CHECK_WORKERS = 8
+
+# NAME_MAX is 255 bytes on ext4 and on Linux vfat/exFAT long names; a track
+# with many primary artists otherwise builds an "Artist - Title.ext" name
+# past that and every copy fails with ENAMETOOLONG. Leave headroom for
+# transient suffixes some backends append (".part", MTP temp names).
+_MAX_FILENAME_BYTES = 240
 
 # Extensions the prune pass is willing to delete from a device's music/
 # folder. Anything else (a stray .zip, a folder, an extension-less file) is
@@ -179,31 +192,75 @@ class SyncManager:
             )
         return result
 
+    @staticmethod
+    def _filename_artist(track) -> str:
+        """The artist string used to build the on-device filename.
+
+        Prefer the album artist -- usually a single name even when the track
+        itself credits a dozen primary artists, which keeps the filename well
+        clear of NAME_MAX -- and fall back to the joined primary artists, then
+        to "Various Artists".
+        """
+        album = getattr(track, "album", None)
+        if album is not None:
+            album_names = [
+                assoc.credited_name.strip()
+                for assoc in album.album_roles
+                if assoc.role
+                and assoc.role.role_name == "Album Artist"
+                and assoc.credited_name
+                and assoc.credited_name.strip()
+            ]
+            if album_names:
+                return " & ".join(album_names)
+        primary = track.primary_artists
+        if primary:
+            return " & ".join(a.artist_name for a in primary)
+        return "Various Artists"
+
     def _track_to_dict(self, track) -> dict:
-        artists = track.primary_artists
-        artist_name = "Various Artists"
-        if artists:
-            artist_name = " & ".join([a.artist_name for a in artists])
         return {
             "track_id": track.track_id,
             "file_path": track.track_file_path,
             "title": track.track_name,
-            "artist": artist_name,
+            "artist": self._filename_artist(track),
             "duration": track.duration,
         }
+
+    @staticmethod
+    def _track_load_options(track_rel):
+        """Eager-load every relationship `_track_to_dict` / `_filename_artist`
+        touch, off `track_rel` (PlaylistTracks.track or MoodTrackAssociation.
+        track), so listing a playlist stays a small constant number of queries
+        rather than one round trip per track.
+        """
+        return [
+            selectinload(track_rel)
+            .selectinload(Track.artist_roles)
+            .selectinload(TrackArtistRole.artist),
+            selectinload(track_rel)
+            .selectinload(Track.artist_roles)
+            .selectinload(TrackArtistRole.role),
+            selectinload(track_rel)
+            .selectinload(Track.album)
+            .selectinload(Album.album_roles)
+            .selectinload(AlbumRoleAssociation.artist),
+            selectinload(track_rel)
+            .selectinload(Track.album)
+            .selectinload(Album.album_roles)
+            .selectinload(AlbumRoleAssociation.role),
+            # credited_name reads this alias relationship when set
+            selectinload(track_rel)
+            .selectinload(Track.album)
+            .selectinload(Album.album_roles)
+            .selectinload(AlbumRoleAssociation.credited_alias),
+        ]
 
     def get_playlist_tracks(self, playlist_id: int) -> list[dict]:
         playlist_tracks = self.get_db.get_all_entities(
             "PlaylistTracks",
             playlist_id=playlist_id,
-            load_options=[
-                selectinload(PlaylistTracks.track)
-                .selectinload(Track.artist_roles)
-                .selectinload(TrackArtistRole.artist),
-                selectinload(PlaylistTracks.track)
-                .selectinload(Track.artist_roles)
-                .selectinload(TrackArtistRole.role),
-            ],
+            load_options=self._track_load_options(PlaylistTracks.track),
         )
         return [self._track_to_dict(pt.track) for pt in playlist_tracks]
 
@@ -211,14 +268,7 @@ class SyncManager:
         associations = self.get_db.get_all_entities(
             "MoodTrackAssociation",
             mood_id=mood_id,
-            load_options=[
-                selectinload(MoodTrackAssociation.track)
-                .selectinload(Track.artist_roles)
-                .selectinload(TrackArtistRole.artist),
-                selectinload(MoodTrackAssociation.track)
-                .selectinload(Track.artist_roles)
-                .selectinload(TrackArtistRole.role),
-            ],
+            load_options=self._track_load_options(MoodTrackAssociation.track),
         )
         return [self._track_to_dict(assoc.track) for assoc in associations]
 
@@ -313,9 +363,30 @@ class SyncManager:
         """Strip a string down to chars that are safe in a filename."""
         return "".join(c for c in s if c.isalnum() or c in (" ", "-", "_")).strip()
 
+    @staticmethod
+    def _clamp_stem(stem: str, ext: str) -> str:
+        """Clamp `stem` so `stem + ext` fits in `_MAX_FILENAME_BYTES` (UTF-8),
+        which every target filesystem accepts. When truncation is needed, an
+        8-hex tag derived from the full stem is appended so two different long
+        names never collapse onto the same file (one silently overwriting or
+        dedup-skipping the other) -- and so the prune pass, which predicts the
+        name the same way, still matches what was written.
+        """
+        budget = _MAX_FILENAME_BYTES - len(ext.encode("utf-8"))
+        if len(stem.encode("utf-8")) <= budget:
+            return f"{stem}{ext}"
+        tag = f" ~{hashlib.md5(stem.encode('utf-8')).hexdigest()[:8]}"
+        keep = budget - len(tag)
+        truncated = stem.encode("utf-8")[:keep].decode("utf-8", "ignore").rstrip()
+        return f"{truncated}{tag}{ext}"
+
     def _safe_filename(self, artist: str, title: str, ext: str) -> str:
-        """Build a safe 'Artist - Title.ext' filename stripping illegal chars."""
-        return f"{self._clean_component(artist)} - {self._clean_component(title)}{ext}"
+        """Build a safe 'Artist - Title.ext' filename: illegal chars stripped,
+        and the result clamped to a length every filesystem accepts (a track
+        with many primary artists otherwise blows past NAME_MAX and the copy
+        fails with ENAMETOOLONG)."""
+        stem = f"{self._clean_component(artist)} - {self._clean_component(title)}"
+        return self._clamp_stem(stem, ext)
 
     def _safe_playlist_name(self, name: str) -> str:
         """The on-disk stem for a playlist/mood's .m3u file."""

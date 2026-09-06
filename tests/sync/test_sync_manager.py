@@ -994,7 +994,6 @@ def test_prune_mtp_removes_orphans_via_gio(tmp_path, monkeypatch):  # AC9
 # ---------------------------------------------------------------------------
 
 
-
 def _add_track(session, path, *, file_size, duration):
     track = Track(
         track_name=Path(path).stem,
@@ -1116,3 +1115,124 @@ def test_get_playlists_query_count_is_bounded(session, sync_manager):  # perf-AC
     assert len(result) == 2
     selects = [s for s in statements if s.lstrip().lower().startswith("select")]
     assert len(selects) <= 3, "expected a bounded query count, got:\n" + "\n".join(selects)
+
+
+# ---------------------------------------------------------------------------
+# Long filenames (too many primary artists) must not blow past NAME_MAX,
+# and the on-device name is derived from the album artist when there is one
+# ---------------------------------------------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+from src.db.db_tables.album import Album  # noqa: E402
+from src.db.db_tables.associations import AlbumRoleAssociation  # noqa: E402
+from src.sync.sync_manager import _MAX_FILENAME_BYTES  # noqa: E402
+
+
+def test_safe_filename_clamps_pathological_artist_list(sync_manager):
+    artist = " & ".join(f"Artist Number {i}" for i in range(60))
+    name = sync_manager._safe_filename(artist, "A Perfectly Normal Title", ".mp3")
+    assert len(name.encode("utf-8")) <= _MAX_FILENAME_BYTES
+    assert name.endswith(".mp3")
+
+
+def test_safe_filename_leaves_short_names_untouched(sync_manager):
+    assert (
+        sync_manager._safe_filename("The Band", "The Song", ".flac") == "The Band - The Song.flac"
+    )
+
+
+def test_safe_filename_is_deterministic(sync_manager):
+    artist = " & ".join(f"Artist {i}" for i in range(60))
+    a = sync_manager._safe_filename(artist, "Title", ".mp3")
+    b = sync_manager._safe_filename(artist, "Title", ".mp3")
+    assert a == b
+
+
+def test_safe_filename_distinct_long_names_do_not_collide(sync_manager):
+    base = " & ".join(f"Artist {i}" for i in range(60))
+    a = sync_manager._safe_filename(base + " Foo", "Same Title", ".mp3")
+    b = sync_manager._safe_filename(base + " Bar", "Same Title", ".mp3")
+    assert a != b
+    assert len(a.encode("utf-8")) <= _MAX_FILENAME_BYTES
+    assert len(b.encode("utf-8")) <= _MAX_FILENAME_BYTES
+
+
+def _fake_track(*, album_artists, primary):
+    """album_artists=None => track has no album at all."""
+    album = None
+    if album_artists is not None:
+        album = SimpleNamespace(
+            album_roles=[
+                SimpleNamespace(credited_name=n, role=SimpleNamespace(role_name="Album Artist"))
+                for n in album_artists
+            ]
+        )
+    return SimpleNamespace(
+        track_id=1,
+        track_file_path="/x.mp3",
+        track_name="T",
+        duration=1.0,
+        album=album,
+        primary_artists=[SimpleNamespace(artist_name=n) for n in primary],
+    )
+
+
+def test_filename_artist_prefers_album_artist(sync_manager):
+    track = _fake_track(
+        album_artists=["Single Album Artist"], primary=[f"Primary {i}" for i in range(12)]
+    )
+    assert sync_manager._filename_artist(track) == "Single Album Artist"
+    assert sync_manager._track_to_dict(track)["artist"] == "Single Album Artist"
+
+
+def test_filename_artist_falls_back_to_primary_without_album_artist(sync_manager):
+    assert (
+        sync_manager._filename_artist(_fake_track(album_artists=[], primary=["A", "B"])) == "A & B"
+    )
+    assert (
+        sync_manager._filename_artist(_fake_track(album_artists=None, primary=["Solo"])) == "Solo"
+    )
+
+
+def test_filename_artist_various_artists_when_nothing_credited(sync_manager):
+    assert (
+        sync_manager._filename_artist(_fake_track(album_artists=[], primary=[]))
+        == "Various Artists"
+    )
+
+
+def test_get_playlist_tracks_uses_album_artist_for_the_filename(session, sync_manager):
+    playlist = Playlist(playlist_name="PL")
+    primary_role = Role(role_name="Primary Artist")
+    album_artist_role = Role(role_name="Album Artist")
+    album = Album(album_name="A Collab Record")
+    session.add_all([playlist, primary_role, album_artist_role, album])
+    session.flush()
+
+    aa = Artist(artist_name="The Headliner")
+    p1 = Artist(artist_name="Guest One")
+    p2 = Artist(artist_name="Guest Two")
+    track = Track(
+        track_name="Big Posse Cut", track_file_path="/music/x.flac", album_id=album.album_id
+    )
+    session.add_all([aa, p1, p2, track])
+    session.flush()
+    session.add_all(
+        [
+            AlbumRoleAssociation(
+                album_id=album.album_id, artist_id=aa.artist_id, role_id=album_artist_role.role_id
+            ),
+            TrackArtistRole(
+                track_id=track.track_id, artist_id=p1.artist_id, role_id=primary_role.role_id
+            ),
+            TrackArtistRole(
+                track_id=track.track_id, artist_id=p2.artist_id, role_id=primary_role.role_id
+            ),
+            PlaylistTracks(playlist_id=playlist.playlist_id, track_id=track.track_id, position=0),
+        ]
+    )
+    session.commit()
+
+    (row,) = sync_manager.get_playlist_tracks(playlist.playlist_id)
+    assert row["artist"] == "The Headliner"

@@ -524,6 +524,15 @@ heavier hammer: it wipes the whole music and playlist folders before every
 sync. Turn that on only if you want a guaranteed-exact mirror and don't mind
 re-copying everything each time.
 
+**How synced files are named**: each copied track lands as `Artist - Title.ext`.
+The "Artist" is the release's **album artist** when it has one (so a track that
+credits a dozen guests still files under the headliner), otherwise the track's
+own primary artists joined with `&`, otherwise `Various Artists`. If that name
+would be too long for the destination filesystem it's trimmed and given a short
+` ~xxxxxxxx` tag so two different long names can't collide — the same trimming is
+applied when the reconcile step decides what to keep, so nothing is needlessly
+re-copied.
+
 **Convert lossless files to MP3**: another option in Settings — when it's on,
 lossless sources (FLAC, WAV, AIFF) are re-encoded to a constant-bitrate MP3
 (pick 320 / 256 / 192 / 128 kbps) as they're copied, so a phone or player
