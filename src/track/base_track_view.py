@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.delete_confirmation import confirm_delete_with_file_option
+from src.common.entity_submenu import populate_entity_submenu
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.foundation.censor import censor_text
 from src.foundation.logger_config import logger
@@ -29,7 +30,10 @@ from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
 
 
 class BaseTrackView(QDialog):
-    """Base reusable view for listing tracks. Takes in any number of track objects for table list display."""
+    """Base reusable view for listing tracks.
+
+    Takes in any number of track objects for table list display.
+    """
 
     LAZY_BATCH_SIZE = 100
     track_deleted = Signal(int)
@@ -179,8 +183,8 @@ class BaseTrackView(QDialog):
         self.context_menu = QMenu(self)
 
         # Initialize submenus FIRST
-        self.add_to_playlist_menu = QMenu("Add to Playlist", self)
-        self.add_to_mood_menu = QMenu("Add to Mood", self)  # Initialize here
+        self.add_to_playlist_menu = QMenu("➕  Add to Playlist", self)  # noqa: RUF001
+        self.add_to_mood_menu = QMenu("🎭  Add to Mood", self)  # Initialize here
 
         # Add to Queue actions
         self.add_to_queue_action = QAction("Add to Queue", self)
@@ -234,10 +238,10 @@ class BaseTrackView(QDialog):
         self.add_to_mood_menu.clear()
 
         # Load playlists into submenu
-        self._populate_playlist_menu(track_ids)
+        self._populate_playlist_menu(selected_tracks, track_ids)
 
         # Load moods into submenu
-        self._populate_mood_menu(track_ids)
+        self._populate_mood_menu(selected_tracks, track_ids)
 
         self.context_menu.exec_(self.table.mapToGlobal(position))
 
@@ -467,7 +471,7 @@ class BaseTrackView(QDialog):
                 logger.error(f"Error starting playback: {e}")
 
     def export_tracks_to_csv(self):
-        """Export the currently displayed track list (respecting any active filter) to a CSV file."""
+        """Export the currently displayed track list (respecting any active filter) to CSV."""
         tracks_to_export = self._filtered_tracks if self._filter_active else self._all_tracks
 
         if not tracks_to_export:
@@ -481,7 +485,9 @@ class BaseTrackView(QDialog):
             return
 
         try:
-            with open(file_path, "w", newline="", encoding="utf-8") as csv_file:
+            from pathlib import Path
+
+            with Path(file_path).open("w", newline="", encoding="utf-8") as csv_file:
                 writer = csv.writer(csv_file)
                 writer.writerow(self.columns.values())
                 for track in tracks_to_export:
@@ -569,41 +575,52 @@ class BaseTrackView(QDialog):
         event.acceptProposedAction()
         logger.warning("dropEvent should be overridden by subclass")
 
-    def _populate_playlist_menu(self, track_ids):
-        """Populate the playlist submenu with available playlists."""
+    @staticmethod
+    def _membership_split(selected_tracks, relation_attr, id_attr):
+        """Split entity ids by how much of the current selection already belongs.
+
+        Returns ``(full, partial)``: ``full`` are ids every selected track is in
+        (rendered checked), ``partial`` are ids only some are in (rendered with a
+        " (partial)" suffix).
+        """
         try:
-            playlists = self.controller.get.get_all_entities("Playlist")
-            if not playlists:
-                self.add_to_playlist_menu.addAction("No playlists available").setEnabled(False)
-                return
+            per_track = [
+                {getattr(link, id_attr) for link in getattr(track, relation_attr, [])}
+                for track in selected_tracks
+            ]
+        except SQLAlchemyError as e:
+            logger.error(f"Error reading {relation_attr} membership for context menu: {e!s}")
+            return set(), set()
+        if not per_track:
+            return set(), set()
+        full = set.intersection(*per_track)
+        return full, set.union(*per_track) - full
 
-            for playlist in playlists:
-                action = self.add_to_playlist_menu.addAction(playlist.playlist_name)
-                # Store playlist ID and all selected track IDs
-                action.setData((playlist.playlist_id, track_ids))
-                action.triggered.connect(self._add_to_playlist_from_menu)
+    def _populate_playlist_menu(self, selected_tracks, track_ids):
+        """Populate the playlist submenu (shared hierarchical builder)."""
+        full, partial = self._membership_split(selected_tracks, "playlists", "playlist_id")
+        populate_entity_submenu(
+            self.add_to_playlist_menu,
+            controller=self.controller,
+            entity_type="Playlist",
+            on_trigger=self._add_to_playlist_from_menu,
+            member_ids=full,
+            partial_ids=partial,
+            make_action_data=lambda entity_id: (entity_id, track_ids),
+        )
 
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error loading playlists for context menu: {e!s}")
-            self.add_to_playlist_menu.addAction("Error loading playlists").setEnabled(False)
-
-    def _populate_mood_menu(self, track_ids):
-        """Populate the mood submenu with available moods."""
-        try:
-            moods = self.controller.get.get_all_entities("Mood")
-            if not moods:
-                self.add_to_mood_menu.addAction("No moods available").setEnabled(False)
-                return
-
-            for mood in moods:
-                action = self.add_to_mood_menu.addAction(mood.mood_name)
-                # Store mood ID and all selected track IDs
-                action.setData((mood.mood_id, track_ids))
-                action.triggered.connect(self._add_to_mood_from_menu)
-
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Error loading moods for context menu: {e!s}")
-            self.add_to_mood_menu.addAction("Error loading moods").setEnabled(False)
+    def _populate_mood_menu(self, selected_tracks, track_ids):
+        """Populate the mood submenu (shared hierarchical builder)."""
+        full, partial = self._membership_split(selected_tracks, "moods", "mood_id")
+        populate_entity_submenu(
+            self.add_to_mood_menu,
+            controller=self.controller,
+            entity_type="Mood",
+            on_trigger=self._add_to_mood_from_menu,
+            member_ids=full,
+            partial_ids=partial,
+            make_action_data=lambda entity_id: (entity_id, track_ids),
+        )
 
     def _add_to_playlist_from_menu(self):
         """Handle adding multiple tracks to a playlist from the context menu."""
@@ -653,7 +670,8 @@ class BaseTrackView(QDialog):
                 QMessageBox.warning(
                     self,
                     "Partial Success",
-                    f"{success_count} of {len(track_ids)} track(s) added (some might already be in the playlist).",
+                    f"{success_count} of {len(track_ids)} track(s) added "
+                    "(some might already be in the playlist).",
                 )
             else:
                 show_status_message(
