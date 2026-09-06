@@ -108,7 +108,7 @@ class SyncProfileStore:
         if not self.profiles_path.exists():
             return []
         try:
-            with open(self.profiles_path, encoding="utf-8") as f:
+            with self.profiles_path.open(encoding="utf-8") as f:
                 data = json.load(f)
             return [SyncProfile.from_dict(d) for d in data]
         except (OSError, json.JSONDecodeError) as e:
@@ -118,7 +118,7 @@ class SyncProfileStore:
     def save(self, profiles: list[SyncProfile]):
         try:
             self.profiles_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.profiles_path, "w", encoding="utf-8") as f:
+            with self.profiles_path.open("w", encoding="utf-8") as f:
                 json.dump([p.to_dict() for p in profiles], f, indent=2)
         except OSError as e:
             logger.error(f"Failed to save sync profiles: {e}")

@@ -145,7 +145,7 @@ class SyncManager:
         path = track.get("file_path")
         if not path:
             return "no source file on record"
-        if not os.path.exists(path):
+        if not Path(path).exists():
             return "source file not found"
         return None
 
@@ -255,7 +255,7 @@ class SyncManager:
         """Return MD5 hex digest of a local file."""
         md5 = hashlib.md5()
         try:
-            with open(file_path, "rb") as f:
+            with Path(file_path).open("rb") as f:
                 while True:
                     chunk = f.read(chunk_size)
                     if not chunk:
@@ -271,10 +271,10 @@ class SyncManager:
         True if dest_path already contains an identical copy of source_path.
         Fast size check first, then MD5 confirmation.
         """
-        if not os.path.exists(dest_path):
+        if not Path(dest_path).exists():
             return False
         try:
-            if os.path.getsize(source_path) != os.path.getsize(dest_path):
+            if Path(source_path).stat().st_size != Path(dest_path).stat().st_size:
                 return False
             return self._file_md5(source_path) == self._file_md5(dest_path)
         except OSError:
@@ -323,16 +323,16 @@ class SyncManager:
                 self._record_failure(failures, track, reason)
                 continue
             source = self._effective_source(track)
-            ext = os.path.splitext(source)[1]
+            ext = Path(source).suffix
             device_filename = self._safe_filename(track["artist"], track["title"], ext)
             track["device_filename"] = device_filename
             try:
-                source_size = os.path.getsize(source)
+                source_size = Path(source).stat().st_size
             except OSError:
                 to_copy.append(track)
                 continue
             if existing.get(device_filename) == source_size:
-                md5_candidates.append((track, os.path.join(music_dir, device_filename)))
+                md5_candidates.append((track, str(Path(music_dir) / device_filename)))
             else:
                 to_copy.append(track)
 
@@ -380,11 +380,11 @@ class SyncManager:
                 self._record_failure(failures, track, reason)
                 continue
             source = self._effective_source(track)
-            ext = os.path.splitext(source)[1]
+            ext = Path(source).suffix
             device_filename = self._safe_filename(track["artist"], track["title"], ext)
             track["device_filename"] = device_filename
             try:
-                source_size = os.path.getsize(source)
+                source_size = Path(source).stat().st_size
             except OSError:
                 to_copy.append(track)
                 continue
@@ -496,10 +496,10 @@ class SyncManager:
         filtered out duplicates via _diff_local_pool.
         """
         try:
-            if not os.path.exists(source_path):
+            if not Path(source_path).exists():
                 logger.error(f"Source file not found: {source_path}")
                 return False
-            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_path, dest_path)
             logger.debug(f"Copied: {source_path} → {dest_path}")
             return True
@@ -510,8 +510,8 @@ class SyncManager:
     def clear_device_folder(self, device_path: str):
         """Remove music/ and playlists/ subdirectories before a fresh folder sync."""
         for subdir in ("music", "playlists"):
-            target = os.path.join(device_path, subdir)
-            if os.path.exists(target):
+            target = Path(device_path) / subdir
+            if target.exists():
                 shutil.rmtree(target)
                 logger.info(f"Cleared folder: {target}")
 
@@ -527,10 +527,10 @@ class SyncManager:
         """Sync a single playlist or mood to a local folder path."""
         playlist_name = playlist_data["name"]
 
-        music_dir = os.path.join(device_path, "music")
-        playlists_dir = os.path.join(device_path, "playlists")
-        os.makedirs(music_dir, exist_ok=True)
-        os.makedirs(playlists_dir, exist_ok=True)
+        music_dir = Path(device_path) / "music"
+        playlists_dir = Path(device_path) / "playlists"
+        music_dir.mkdir(parents=True, exist_ok=True)
+        playlists_dir.mkdir(parents=True, exist_ok=True)
 
         tracks = self.get_item_tracks(playlist_data)
         if not tracks:
@@ -548,19 +548,19 @@ class SyncManager:
             track["copied_successfully"] = True
 
         def copy_one(track: dict) -> bool:
-            dest_path = os.path.join(music_dir, track["device_filename"])
+            dest_path = music_dir / track["device_filename"]
             return self.copy_track(self._effective_source(track), dest_path)
 
         def expected_size(track: dict) -> int | None:
             try:
-                return os.path.getsize(self._effective_source(track))
+                return Path(self._effective_source(track)).stat().st_size
             except OSError:
                 return None
 
         succeeded, failed = self._copy_with_retry(
             to_copy,
             copy_one,
-            lambda: self._list_local_pool(music_dir),
+            lambda: self._list_local_pool(str(music_dir)),
             expected_size,
             progress_callback,
             progress_total=total_tracks,
@@ -579,9 +579,9 @@ class SyncManager:
 
         m3u_content = self._build_m3u_content(playlist_data, processed_tracks)
         safe_name = self._safe_playlist_name(playlist_name)
-        m3u_path = os.path.join(playlists_dir, f"{safe_name}.m3u")
+        m3u_path = playlists_dir / f"{safe_name}.m3u"
         try:
-            with open(m3u_path, "w", encoding="utf-8") as f:
+            with m3u_path.open("w", encoding="utf-8") as f:
                 f.write(m3u_content)
         except OSError as e:
             logger.error(f"Failed to write M3U: {e}")
@@ -691,7 +691,7 @@ class SyncManager:
 
         def expected_size(track: dict) -> int | None:
             try:
-                return os.path.getsize(self._effective_source(track))
+                return Path(self._effective_source(track)).stat().st_size
             except OSError:
                 return None
 

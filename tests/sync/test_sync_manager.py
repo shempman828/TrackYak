@@ -51,8 +51,7 @@ def sync_manager(session):
 
 
 def _write_file(path, content=b"track-bytes"):
-    with open(path, "wb") as f:
-        f.write(content)
+    Path(path).write_bytes(content)
     return path
 
 
@@ -131,7 +130,7 @@ def test_diff_mtp_pool_uses_one_subprocess_call_regardless_of_track_count(tmp_pa
     # Pre-place a few as real duplicates on the "device".
     for t in tracks[:5]:
         filename = mgr._safe_filename(t["artist"], t["title"], ".mp3")
-        _write_file(device_dir / filename, content=open(t["file_path"], "rb").read())
+        _write_file(device_dir / filename, content=Path(t["file_path"]).read_bytes())
 
     real_run = subprocess.run
     calls = {"n": 0}
@@ -169,14 +168,14 @@ def test_copy_with_retry_recovers_from_a_transient_failure(tmp_path, sync_manage
         if attempts["n"] == 1:
             return False  # simulates a dropped MTP transfer on the first try
         dest = music_dir / t["device_filename"]
-        _write_file(dest, content=open(t["file_path"], "rb").read())
+        _write_file(dest, content=Path(t["file_path"]).read_bytes())
         return True
 
     succeeded, failed = sync_manager._copy_with_retry(
         [track],
         flaky_copy_one,
         lambda: sync_manager._list_local_pool(str(music_dir)),
-        lambda t: os.path.getsize(t["file_path"]),
+        lambda t: Path(t["file_path"]).stat().st_size,
     )
 
     assert attempts["n"] == 2
@@ -201,7 +200,7 @@ def test_copy_with_retry_reports_persistent_failure_after_max_retries(tmp_path, 
         [track],
         never_lands,
         lambda: sync_manager._list_local_pool(str(music_dir)),
-        lambda t: os.path.getsize(t["file_path"]),
+        lambda t: Path(t["file_path"]).stat().st_size,
     )
 
     from src.sync.sync_manager import _MAX_RETRIES
