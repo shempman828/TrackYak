@@ -532,7 +532,10 @@ ffmpeg` on Debian/Ubuntu) — without it the checkbox is disabled, and if
 and says so in the log.
 
 **Choosing what goes**: the Playlists & Moods tab is a checklist — tick
-whichever playlists and moods you want on this device. The estimated track
+whichever playlists and moods you want on this device. It's grouped into
+collapsible folders under PLAYLISTS and MOODS headers; **Expand All** /
+**Collapse All** in the toolbar open or close every folder at once, alongside
+**Select All** / **Select None**. The estimated track
 count and size update live as you check things off, and a track that sits in
 more than one ticked playlist or mood is counted once — the same way it only
 lands on the device once. With **Convert lossless

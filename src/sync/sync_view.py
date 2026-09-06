@@ -247,11 +247,21 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         self.select_none_btn.setFixedWidth(90)
         self.select_none_btn.clicked.connect(self._select_no_items)
 
+        self.expand_all_btn = QPushButton("Expand All")
+        self.expand_all_btn.setFixedWidth(90)
+        self.expand_all_btn.clicked.connect(self._expand_all_items)
+
+        self.collapse_all_btn = QPushButton("Collapse All")
+        self.collapse_all_btn.setFixedWidth(90)
+        self.collapse_all_btn.clicked.connect(self._collapse_all_items)
+
         self.track_count_label = QLabel("")
         apply_scaled_style(self.track_count_label, "color:#555e7a; font-size:11px;")
 
         toolbar.addWidget(self.select_all_btn)
         toolbar.addWidget(self.select_none_btn)
+        toolbar.addWidget(self.expand_all_btn)
+        toolbar.addWidget(self.collapse_all_btn)
         toolbar.addStretch()
         toolbar.addWidget(self.track_count_label)
         layout.addLayout(toolbar)

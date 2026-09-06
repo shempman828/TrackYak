@@ -243,3 +243,64 @@ def test_load_profile_reflects_prune_untracked_without_signals(monkeypatch):  # 
 
     assert view.prune_untracked_check.isChecked() is False
     assert fired == []
+
+
+# ---------------------------------------------------------------------------
+# Expand All / Collapse All for the playlist+mood selection tree.
+# ---------------------------------------------------------------------------
+
+
+def _selection_tab_view():
+    view = SyncView.__new__(SyncView)
+    QWidget.__init__(view)
+    view._selection_tab = view._build_selection_tab()  # keep widgets alive
+    return view
+
+
+def _nest_tree(tree):
+    from PySide6.QtWidgets import QTreeWidgetItem
+
+    header = QTreeWidgetItem(tree, ["PLAYLISTS  (1)"])
+    folder = QTreeWidgetItem(header, ["Folder"])
+    QTreeWidgetItem(folder, ["Leaf"])
+    return header, folder
+
+
+def test_selection_toolbar_has_expand_collapse_buttons():  # AC1
+    view = _selection_tab_view()
+
+    assert view.expand_all_btn.text() == "Expand All"
+    assert view.collapse_all_btn.text() == "Collapse All"
+
+
+def test_collapse_all_button_collapses_every_node():  # AC2
+    view = _selection_tab_view()
+    header, folder = _nest_tree(view.sync_tree)
+    view.sync_tree.expandAll()
+    assert header.isExpanded() and folder.isExpanded()
+
+    view.collapse_all_btn.click()
+
+    assert not header.isExpanded()
+    assert not folder.isExpanded()
+
+
+def test_expand_all_button_expands_every_node():  # AC2
+    view = _selection_tab_view()
+    header, folder = _nest_tree(view.sync_tree)
+    view.sync_tree.collapseAll()
+    assert not header.isExpanded()
+
+    view.expand_all_btn.click()
+
+    assert header.isExpanded()
+    assert folder.isExpanded()
+
+
+def test_expand_collapse_no_crash_on_empty_tree():  # AC3
+    view = _selection_tab_view()
+
+    view.collapse_all_btn.click()
+    view.expand_all_btn.click()
+
+    assert view.sync_tree.topLevelItemCount() == 0

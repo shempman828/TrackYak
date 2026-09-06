@@ -226,6 +226,12 @@ class SyncSelectionMixin:
         self._update_selected_items()
         self._save_current_profile_selections()
 
+    def _expand_all_items(self):
+        self.sync_tree.expandAll()
+
+    def _collapse_all_items(self):
+        self.sync_tree.collapseAll()
+
     # -----------------------------------------------------------------------
     # Sync button state
     # -----------------------------------------------------------------------
