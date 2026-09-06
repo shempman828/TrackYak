@@ -252,11 +252,13 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         right_layout.setContentsMargins(16, 36, 32, 24)
         right_layout.setSpacing(4)
 
-        # Title
-        self._title_lbl = QLabel("No Track Playing")
-        self._title_lbl.setFont(self._TITLE_FONT)
-        self._title_lbl.setProperty("npRole", "title")
-        self._title_lbl.setWordWrap(True)
+        # Title — scrolling marquee so long titles pan rather than wrap,
+        # matching the artist line below. Colour mirrors the QSS
+        # QLabel[npRole="title"] rule (which no longer applies to a QWidget).
+        self._title_lbl = MarqueeLabel(
+            "No Track Playing", self._TITLE_FONT, "rgba(230,235,255,0.94)"
+        )
+        self._title_lbl.setFixedHeight(QFontMetrics(self._TITLE_FONT).height())
         self._apply_text_shadow(self._title_lbl, blur=16, y_offset=2, alpha=225)
         right_layout.addWidget(self._title_lbl)
 
@@ -560,7 +562,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
             self.track = track
 
-            self._title_lbl.setText(
+            self._title_lbl.set_text(
                 censor_text(getattr(track, "track_name", None) or "Unknown Title")
             )
 
@@ -608,7 +610,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
     def clearUI(self):
         self._cancel_art_worker()
         self.track = None
-        self._title_lbl.setText("No Track Playing")
+        self._title_lbl.set_text("No Track Playing")
         self._artist_marquee.set_text("—")
         self._album_lbl.setText("—")
         self._set_album_subtitle(None)

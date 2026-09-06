@@ -1399,10 +1399,8 @@ QWidget[npCreditCard="true"] {
 }
 
 /* ── "NOW PLAYING" labels — color/style variants keyed by role ──────────────── */
-QLabel[npRole="title"] {
-    color: rgba(230, 235, 255, 0.94);
-}
-
+/* Title/artist are painted MarqueeLabel widgets, not QLabels — their colour is
+   passed in code (see NowPlayingView._initUI). */
 QLabel[npRole="album"] {
     color: rgba(150, 160, 210, 0.50);
 }
