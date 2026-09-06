@@ -29,9 +29,15 @@ from src.metadata.metadata_artwork import ArtworkExtractor
 class ArtworkConsistencyChecker:
     """Finds albums where tracks disagree on embedded art per role."""
 
-    def __init__(self, controller, limit: int | None = None):
+    def __init__(
+        self, controller, limit: int | None = None, album_ids: "set[int] | list[int] | None" = None
+    ):
         self.controller = controller
         self.limit = limit
+        # When given, the scan is restricted to these album ids (used by the
+        # end-of-import reconciliation step, which only cares about albums
+        # the import just added tracks to). None => scan every album.
+        self.album_ids: set[int] | None = set(album_ids) if album_ids is not None else None
         self.extractor = ArtworkExtractor()
         self.conflicts: list[dict[str, Any]] = []
 
@@ -57,6 +63,9 @@ class ArtworkConsistencyChecker:
         if not albums:
             logger.warning("ArtworkConsistencyChecker: no albums found in database.")
             return summary
+
+        if self.album_ids is not None:
+            albums = [a for a in albums if a.album_id in self.album_ids]
 
         if self.limit is not None:
             albums = albums[: self.limit]

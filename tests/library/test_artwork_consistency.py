@@ -165,5 +165,43 @@ def test_rear_consistency_judged_independently_of_front(tmp_path):
     assert {c["role"] for c in checker.conflicts} == {"front"}
 
 
+# -- album_ids filter (import-reconciliation AC1) ----------------------—-
+def test_album_ids_filter_restricts_scan_to_given_albums(tmp_path):
+    # Both albums have a front conflict; the scan is scoped to album A only.
+    a_tracks = [
+        _track(1, _make_flac(tmp_path / "a1.flac", art=IMG_A)),
+        _track(2, _make_flac(tmp_path / "a2.flac", art=IMG_B)),
+    ]
+    b_tracks = [
+        _track(3, _make_flac(tmp_path / "b1.flac", art=IMG_A)),
+        _track(4, _make_flac(tmp_path / "b2.flac", art=IMG_B)),
+    ]
+    albums = [_album(100, "A", a_tracks), _album(200, "B", b_tracks)]
+
+    checker = ArtworkConsistencyChecker(_controller(albums), album_ids={100})
+    summary = checker.run()
+
+    assert summary["albums_scanned"] == 1
+    assert [c["album_id"] for c in checker.conflicts] == [100]
+
+
+# -- album_ids default (import-reconciliation AC2) ---------------------—-
+def test_no_album_ids_scans_every_album(tmp_path):
+    a_tracks = [
+        _track(1, _make_flac(tmp_path / "a1.flac", art=IMG_A)),
+        _track(2, _make_flac(tmp_path / "a2.flac", art=IMG_B)),
+    ]
+    b_tracks = [
+        _track(3, _make_flac(tmp_path / "b1.flac", art=IMG_A)),
+        _track(4, _make_flac(tmp_path / "b2.flac", art=IMG_B)),
+    ]
+    albums = [_album(100, "A", a_tracks), _album(200, "B", b_tracks)]
+
+    checker, summary = _run(albums)  # no album_ids
+
+    assert summary["albums_scanned"] == 2
+    assert {c["album_id"] for c in checker.conflicts} == {100, 200}
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

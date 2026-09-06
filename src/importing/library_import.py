@@ -24,6 +24,7 @@ from src.importing.artist_field_extraction import (
     extract_artists_from_metadata,
 )
 from src.importing.library_import_album import AlbumImporter
+from src.library.library_artwork_consistency import ArtworkConsistencyChecker
 from src.metadata.metadata_extraction import MetadataExtractor
 
 
@@ -50,6 +51,11 @@ class TrackImporter:
 
     def __init__(self, controller):
         self.controller = controller
+        # album_id resolved by the most recent add_track() call that
+        # returned IMPORTED; None after a SKIPPED/FAILED call. ImportWorker
+        # reads this to build the set of albums the import touched, which
+        # the end-of-import artwork reconciliation step scans.
+        self.last_imported_album_id: int | None = None
 
     def add_track(self, file_path: str) -> ImportResult:
         """
@@ -67,6 +73,7 @@ class TrackImporter:
         Returns:
             ImportResult: IMPORTED, SKIPPED (already in the library), or FAILED.
         """
+        self.last_imported_album_id = None
         try:
             # Normalize once so the dedup check and the stored
             # track_file_path always agree, regardless of how the caller
@@ -118,6 +125,7 @@ class TrackImporter:
                 session.rollback()
                 raise
 
+            self.last_imported_album_id = album.album_id
             logger.info(f"Successfully imported track: {track.track_name}")
             return ImportResult.IMPORTED
 
@@ -652,6 +660,7 @@ class ImportWorker(CancellableWorker):
     finished = Signal(int)  # successful_imports
     error_occurred = Signal(str)  # error_message
     resource_warning = Signal(str, float)  # warning_type, value
+    art_conflicts = Signal(list)  # end-of-import artwork reconciliation conflicts
 
     def __init__(self, controller, paths: list[str]):
         super().__init__()
@@ -662,12 +671,16 @@ class ImportWorker(CancellableWorker):
         self._resource_check_interval = 50
         self._memory_warning_threshold_mb = 500
         self._clear_cache_interval = 20
+        # album_ids the import added at least one track to; scanned for
+        # embedded-art disagreement once the file loop finishes.
+        self.touched_album_ids: set[int] = set()
 
     def run(self):
         """Process all paths in the background with comprehensive monitoring."""
         try:
             successful_imports = self._process_all_files()
             logger.info(f"Import completed: {successful_imports} successful imports")
+            self._emit_art_conflicts()
             self.finished.emit(successful_imports)
         except Exception as e:
             error_msg = f"Import worker failed: {e!s}"
@@ -675,6 +688,22 @@ class ImportWorker(CancellableWorker):
             self.error_occurred.emit(error_msg)
         finally:
             self._release_db_session()
+
+    def _emit_art_conflicts(self):
+        """Scan the albums this import touched for tracks that disagree on
+        embedded cover art and emit the conflict list. Runs even when the
+        import was cancelled (it reconciles what was touched before the
+        cancel); best-effort - a failure here must not stop `finished`."""
+        if not self.touched_album_ids:
+            self.art_conflicts.emit([])
+            return
+        try:
+            checker = ArtworkConsistencyChecker(self.controller, album_ids=self.touched_album_ids)
+            checker.run()
+            self.art_conflicts.emit(checker.conflicts)
+        except Exception:
+            logger.exception("Post-import artwork reconciliation scan failed")
+            self.art_conflicts.emit([])
 
     def _process_all_files(self) -> int:
         """Collect and process all audio files, returning successful import count."""
@@ -717,6 +746,8 @@ class ImportWorker(CancellableWorker):
         """Process a single file and return 1 if newly imported, 0 otherwise."""
         try:
             result = self.importer.add_track(str(file_path))
+            if result is ImportResult.IMPORTED and self.importer.last_imported_album_id is not None:
+                self.touched_album_ids.add(self.importer.last_imported_album_id)
             self.progress.emit(index + 1, total)
 
             # Periodically detach committed entities from the SQLAlchemy

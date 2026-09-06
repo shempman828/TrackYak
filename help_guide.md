@@ -630,7 +630,13 @@ Double-click any queued track to jump to it immediately.
 - **Import Directory** — the way new music gets into your library. Add
   folders to a tracked list, check the ones you want included, and Start
   Import; it keeps running in the background even if you close the dialog,
-  so you can keep working while a big import churns through.
+  so you can keep working while a big import churns through. When an import
+  finishes (or is cancelled), if any album it added tracks to has tracks
+  that disagree on their embedded cover art — including a disagreement with
+  tracks that album already had — a reconciliation window opens listing
+  those albums so you can pick which version to embed into every track. It
+  covers only the albums from that import; the full-library equivalent is
+  Tools → [Artwork Conflicts…](#tools-menu).
 - **View Library Statistics** — a dashboard of your whole collection at a
   glance: health, top artists/albums/genres, audio characteristics, and more,
   split across tabs. See [Library Statistics](#library-statistics) below for

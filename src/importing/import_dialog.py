@@ -22,6 +22,7 @@ from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import StatusManager, show_status_message
 from src.importing.library_import import ImportWorker
+from src.library.artwork_consistency_dialog import ArtworkConsistencyDialog
 
 CONFIG_FILE = config("import_paths.json")
 
@@ -39,6 +40,10 @@ class ImportDialog(QDialog):
         self.setMinimumSize(800, 420)
         self.setWindowTitle("Import Music Files")
         self.import_worker = None
+        # Artwork-disagreement conflicts found by the worker's end-of-import
+        # scan, awaiting the reconciliation dialog (shown from
+        # _import_complete).
+        self._pending_art_conflicts: list = []
         self._init_ui()
         self.load_saved_directories()
 
@@ -157,9 +162,11 @@ class ImportDialog(QDialog):
             if not selected_paths:
                 raise ValueError("No directories selected")
 
+            self._pending_art_conflicts = []
             self.import_worker = ImportWorker(self.controller, selected_paths)
             # Connect signals directly to handlers
             self.import_worker.progress.connect(self._handle_progress_update)
+            self.import_worker.art_conflicts.connect(self._on_art_conflicts)
             self.import_worker.finished.connect(self._import_complete)
             self.import_worker.start()
 
@@ -169,6 +176,12 @@ class ImportDialog(QDialog):
             self.btn_cancel.setEnabled(False)
             self.status_note.hide()
 
+    def _on_art_conflicts(self, conflicts: list):
+        """Stash the end-of-import artwork-disagreement conflicts; the
+        reconciliation dialog is opened from _import_complete (which fires
+        right after this, on both the normal and cancelled paths)."""
+        self._pending_art_conflicts = list(conflicts)
+
     def _import_complete(self, success_count: int):
         """Handle import completion."""
         StatusManager.end_task(f"Import complete: {success_count} files processed", 3000)
@@ -177,20 +190,33 @@ class ImportDialog(QDialog):
         self.status_note.hide()
         self.import_completed.emit(success_count)
 
-        # If import completed and user had requested close, close now
         if self._close_requested:
             logger.info("Import completed, closing dialog as requested")
-            super().accept()
-            return
-
-        # Show completion message only if dialog is visible
-        if self.isVisible():
+        elif self.isVisible():
             show_status_message(self, f"Import completed. Processed {success_count} files")
         else:
             # Dialog was hidden, show notification and keep hidden
-            # Optionally, you could automatically show the dialog here
             logger.info(f"Import completed in background: {success_count} files")
             StatusManager.show_message(f"Import completed: {success_count} files", 5000)
+
+        # Reconcile any albums whose embedded art the import found in
+        # disagreement — fires whether or not this dialog is visible, and
+        # on the cancelled path too (for albums touched before the cancel).
+        self._maybe_show_art_reconciliation()
+
+        if self._close_requested:
+            super().accept()
+
+    def _maybe_show_art_reconciliation(self):
+        """Open the reconciliation dialog if the import turned up artwork
+        conflicts. Parented to this dialog when it's on screen, otherwise a
+        standalone top-level window (background import)."""
+        conflicts = self._pending_art_conflicts
+        self._pending_art_conflicts = []
+        if not conflicts:
+            return
+        parent = self if self.isVisible() else None
+        ArtworkConsistencyDialog(self.controller, parent=parent, initial_conflicts=conflicts).exec()
 
     def cancel_import(self):
         """Cancel ongoing import operation"""
@@ -206,7 +232,7 @@ class ImportDialog(QDialog):
         """Load directories from config but respect current UI state"""
         try:
             if Path(CONFIG_FILE).exists():
-                with open(CONFIG_FILE) as f:
+                with Path(CONFIG_FILE).open() as f:
                     saved = json.load(f)
                     if not self.directories:
                         self.directories = [(Path(p), s) for p, s in saved]
@@ -225,7 +251,7 @@ class ImportDialog(QDialog):
                 for i in range(self.dir_list.count())
             ]
             temp_file = Path(CONFIG_FILE).with_suffix(".tmp")
-            with open(temp_file, "w") as f:
+            with temp_file.open("w") as f:
                 json.dump(data, f, indent=4)
             temp_file.replace(CONFIG_FILE)
             self.directories = [(Path(p), s) for p, s in data]

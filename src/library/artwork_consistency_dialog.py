@@ -94,30 +94,52 @@ def _group_tracks_by_variant(tracks: list) -> "OrderedDict[str | None, list]":
 
 
 class ArtworkConsistencyDialog(QDialog):
-    def __init__(self, controller, parent=None):
+    def __init__(self, controller, parent=None, initial_conflicts: list | None = None):
         super().__init__(parent)
         self.controller = controller
         self._scan_worker: ArtworkConsistencyScanWorker | None = None
         self._embed_worker: CoverEmbedWorker | None = None
         self._scan_start_time: float | None = None
         self._conflicts: list = []
-        self.setWindowTitle("Artwork Conflicts")
+        # Import-reconciliation mode: the caller (ImportDialog) has already
+        # computed the conflicts for the albums an import just touched, so
+        # the library-scan controls are hidden and the tree is populated
+        # directly. `None` => the normal Tools-menu full-library scan.
+        self._import_mode = initial_conflicts is not None
+        self.setWindowTitle(
+            "Reconcile Imported Artwork" if self._import_mode else "Artwork Conflicts"
+        )
         self.setMinimumSize(720, 520)
         self._build_ui()
+        if self._import_mode:
+            self._conflicts = list(initial_conflicts)
+            self._populate_tree(self._conflicts)
 
     # ------------------------------------------------------------------ UI
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        intro = QLabel(
-            "Scan every album for tracks that disagree on their embedded "
-            "artwork - some tracks carrying a different picture than "
-            "others, or having one where others have none. The thumbnail "
-            "cache trusts a single track per album, so a disagreement can "
-            "cache the wrong image for the whole album. Pick a version "
-            "below to re-embed it into every track of that album."
-        )
+        if self._import_mode:
+            intro_text = (
+                "The import just added tracks to these albums, and their "
+                "embedded artwork disagrees - some tracks carry a different "
+                "picture than others, or have one where others have none. "
+                "Album art is read from a single track per album, so a "
+                "disagreement can show the wrong image for the whole album. "
+                "Pick a version below to re-embed it into every track of "
+                "that album."
+            )
+        else:
+            intro_text = (
+                "Scan every album for tracks that disagree on their embedded "
+                "artwork - some tracks carrying a different picture than "
+                "others, or having one where others have none. The thumbnail "
+                "cache trusts a single track per album, so a disagreement can "
+                "cache the wrong image for the whole album. Pick a version "
+                "below to re-embed it into every track of that album."
+            )
+        intro = QLabel(intro_text)
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
@@ -137,6 +159,11 @@ class ArtworkConsistencyDialog(QDialog):
         self._progress_bar = QProgressBar()
         self._progress_bar.setVisible(False)
         layout.addWidget(self._progress_bar)
+
+        if self._import_mode:
+            # Nothing to scan - the conflicts were handed in by the caller.
+            for widget in (self._scan_btn, self._cancel_btn, self._status_label):
+                widget.setVisible(False)
 
         self._tree = QTreeWidget()
         self._tree.setHeaderLabels(["Album / artwork version", "Tracks"])
