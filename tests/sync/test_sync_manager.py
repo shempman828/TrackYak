@@ -292,6 +292,120 @@ def test_sync_playlist_to_device_reports_failed_tracks_instead_of_dropping_them(
 
 
 # ---------------------------------------------------------------------------
+# Failed tracks are surfaced with which track / why, not just a count
+# ---------------------------------------------------------------------------
+
+
+def test_copy_with_retry_tags_each_failed_track_with_a_reason(tmp_path, sync_manager):
+    music_dir = tmp_path / "music"
+    music_dir.mkdir()
+
+    never_lands = _make_track_dict(tmp_path, "NeverLands")
+    never_lands["device_filename"] = sync_manager._safe_filename("Artist", "NeverLands", ".mp3")
+    lies = _make_track_dict(tmp_path, "Lies")
+    lies["device_filename"] = sync_manager._safe_filename("Artist", "Lies", ".mp3")
+
+    def copy_one(t):
+        # "Lies" reports success every time but nothing ever lands on disk;
+        # "NeverLands" reports failure every time.
+        return t["title"] == "Lies"
+
+    succeeded, failed = sync_manager._copy_with_retry(
+        [never_lands, lies],
+        copy_one,
+        lambda: sync_manager._list_local_pool(str(music_dir)),
+        lambda t: Path(t["file_path"]).stat().st_size,
+    )
+
+    assert succeeded == []
+    reasons = {t["title"]: t["failure_reason"] for t in failed}
+    assert "transport error" in reasons["NeverLands"]
+    assert "never verified" in reasons["Lies"]
+
+
+def test_sync_playlist_to_device_lists_failed_tracks_with_artist_title_reason(
+    tmp_path, sync_manager, monkeypatch
+):
+    dest = tmp_path / "device"
+    good = _write_file(tmp_path / "good.mp3")
+    bad = _write_file(tmp_path / "bad.mp3")
+
+    playlist_data = {"kind": "playlist", "name": "PL", "playlist_id": 1}
+    monkeypatch.setattr(
+        sync_manager,
+        "get_item_tracks",
+        lambda pd: [
+            {"file_path": str(good), "artist": "Good Artist", "title": "Good", "duration": 1.0},
+            {"file_path": str(bad), "artist": "Bad Artist", "title": "Bad", "duration": 1.0},
+        ],
+    )
+    real_copy_track = sync_manager.copy_track
+    monkeypatch.setattr(
+        sync_manager, "copy_track", lambda s, d: False if s == str(bad) else real_copy_track(s, d)
+    )
+
+    result = sync_manager.sync_playlist_to_device(playlist_data, str(dest))
+
+    assert result["tracks_failed"] == 1
+    assert len(result["failures"]) == 1
+    failure = result["failures"][0]
+    assert failure["title"] == "Bad"
+    assert failure["artist"] == "Bad Artist"
+    assert failure["reason"]  # non-empty explanation
+
+
+def test_sync_playlist_to_device_reports_missing_source_files_instead_of_dropping_them(
+    tmp_path, sync_manager, monkeypatch
+):
+    """A track whose source file is gone must land in `failures` and count
+    toward tracks_failed -- previously it was silently skipped entirely."""
+    dest = tmp_path / "device"
+    present = _write_file(tmp_path / "present.mp3")
+
+    playlist_data = {"kind": "playlist", "name": "PL", "playlist_id": 1}
+    monkeypatch.setattr(
+        sync_manager,
+        "get_item_tracks",
+        lambda pd: [
+            {"file_path": str(present), "artist": "A", "title": "Present", "duration": 1.0},
+            {"file_path": "/no/such/file.mp3", "artist": "A", "title": "Gone", "duration": 1.0},
+            {"file_path": "", "artist": "A", "title": "NoPath", "duration": 1.0},
+        ],
+    )
+
+    result = sync_manager.sync_playlist_to_device(playlist_data, str(dest))
+
+    assert result["tracks_copied"] == 1
+    assert result["tracks_failed"] == 2
+    reasons = {f["title"]: f["reason"] for f in result["failures"]}
+    assert "not found" in reasons["Gone"]
+    assert "no source file" in reasons["NoPath"]
+    # One track still copied, so the playlist as a whole is a partial success.
+    assert result["success"] is True
+
+
+def test_sync_playlist_to_device_fails_when_every_source_is_missing(
+    tmp_path, sync_manager, monkeypatch
+):
+    dest = tmp_path / "device"
+    playlist_data = {"kind": "playlist", "name": "PL", "playlist_id": 1}
+    monkeypatch.setattr(
+        sync_manager,
+        "get_item_tracks",
+        lambda pd: [
+            {"file_path": "/gone/1.mp3", "artist": "A", "title": "One", "duration": 1.0},
+            {"file_path": "/gone/2.mp3", "artist": "A", "title": "Two", "duration": 1.0},
+        ],
+    )
+
+    result = sync_manager.sync_playlist_to_device(playlist_data, str(dest))
+
+    assert result["success"] is False
+    assert result["tracks_failed"] == 2
+    assert len(result["failures"]) == 2
+
+
+# ---------------------------------------------------------------------------
 # N+1 fix: artist relationships are eager-loaded, not one query per track
 # ---------------------------------------------------------------------------
 

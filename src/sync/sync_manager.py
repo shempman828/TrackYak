@@ -124,6 +124,25 @@ class SyncManager:
     # Shared helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _unusable_source_reason(track: dict) -> str | None:
+        """Why this track's source file can't be read, or None if it's fine."""
+        path = track.get("file_path")
+        if not path:
+            return "no source file on record"
+        if not os.path.exists(path):
+            return "source file not found"
+        return None
+
+    @staticmethod
+    def _record_failure(failures: list[dict] | None, track: dict, reason: str) -> None:
+        """Append a {title, artist, reason} entry for the sync Log tab."""
+        if failures is None:
+            return
+        failures.append(
+            {"title": track.get("title", "?"), "artist": track.get("artist", "?"), "reason": reason}
+        )
+
     def _safe_filename(self, artist: str, title: str, ext: str) -> str:
         """Build a safe 'Artist - Title.ext' filename stripping illegal chars."""
 
@@ -178,20 +197,28 @@ class SyncManager:
             pass
         return existing
 
-    def _diff_local_pool(self, tracks: list[dict], music_dir: str) -> tuple[list[dict], list[dict]]:
+    def _diff_local_pool(
+        self, tracks: list[dict], music_dir: str, failures: list[dict] | None = None
+    ) -> tuple[list[dict], list[dict]]:
         """
         Partition tracks into (to_copy, to_skip) using ONE directory listing
         instead of a per-track existence check. Name+size matches are
         confirmed with MD5 in parallel (I/O-bound); everything else is
         scheduled to copy. Sets device_filename on every track it accepts.
+
+        Tracks whose source file is missing or unreadable are appended to
+        `failures` (if given) as {title, artist, reason} instead of being
+        silently dropped.
         """
         existing = self._list_local_pool(music_dir)
         to_copy: list[dict] = []
         md5_candidates: list[tuple[dict, str]] = []
 
         for track in tracks:
-            if not track["file_path"] or not os.path.exists(track["file_path"]):
-                logger.warning(f"Source file not found: {track['file_path']}")
+            reason = self._unusable_source_reason(track)
+            if reason:
+                logger.warning(f"{reason}: {track.get('file_path')}")
+                self._record_failure(failures, track, reason)
                 continue
             ext = os.path.splitext(track["file_path"])[1]
             device_filename = self._safe_filename(track["artist"], track["title"], ext)
@@ -220,13 +247,21 @@ class SyncManager:
         return to_copy, to_skip
 
     def _diff_mtp_pool(
-        self, tracks: list[dict], device: MtpDevice, music_dir_uri: str
+        self,
+        tracks: list[dict],
+        device: MtpDevice,
+        music_dir_uri: str,
+        failures: list[dict] | None = None,
     ) -> tuple[list[dict], list[dict]]:
         """
         Partition tracks into (to_copy, to_skip) using ONE remote directory
         listing (one `gio list`) instead of a `gio info` round trip per
         track. Same size-only comparison the per-file check used — only the
         number of subprocess calls changes (N -> 1).
+
+        Tracks whose source file is missing or unreadable are appended to
+        `failures` (if given) as {title, artist, reason} instead of being
+        silently dropped.
         """
         existing = self.mtp.list_remote_dir(device, music_dir_uri)
         to_copy: list[dict] = []
@@ -234,8 +269,10 @@ class SyncManager:
 
         for track in tracks:
             local_path = track.get("file_path", "")
-            if not local_path or not os.path.exists(local_path):
-                logger.warning(f"Source file not found: {local_path}")
+            reason = self._unusable_source_reason(track)
+            if reason:
+                logger.warning(f"{reason}: {local_path}")
+                self._record_failure(failures, track, reason)
                 continue
             ext = os.path.splitext(local_path)[1]
             device_filename = self._safe_filename(track["artist"], track["title"], ext)
@@ -292,7 +329,7 @@ class SyncManager:
                     break
                 if progress_callback:
                     progress_callback(i, progress_total, f"{label}: {track['title']}")
-                copy_one(track)
+                track["_last_copy_ok"] = copy_one(track)
 
             existing = list_existing()
             still_failed = []
@@ -315,8 +352,18 @@ class SyncManager:
             track["copied_successfully"] = False
             if cancelled:
                 logger.info(f"Sync cancelled before copying: {track.get('device_filename')}")
+                track["failure_reason"] = "cancelled before it was copied"
+            elif track.get("_last_copy_ok"):
+                logger.error(f"Failed to sync after retries: {track.get('device_filename')}")
+                track["failure_reason"] = (
+                    f"copied but never verified on the destination after {_MAX_RETRIES + 1} "
+                    "attempts (truncated or rejected by the device)"
+                )
             else:
                 logger.error(f"Failed to sync after retries: {track.get('device_filename')}")
+                track["failure_reason"] = (
+                    f"copy failed after {_MAX_RETRIES + 1} attempts (transport error)"
+                )
 
         return succeeded, remaining
 
@@ -383,10 +430,12 @@ class SyncManager:
                 "tracks_skipped": 0,
                 "tracks_failed": 0,
                 "total_tracks": 0,
+                "failures": [],
             }
 
         total_tracks = len(tracks)
-        to_copy, to_skip = self._diff_local_pool(tracks, music_dir)
+        failures: list[dict] = []
+        to_copy, to_skip = self._diff_local_pool(tracks, music_dir, failures)
         for track in to_skip:
             track["copied_successfully"] = True
 
@@ -411,10 +460,13 @@ class SyncManager:
             should_cancel=should_cancel,
         )
 
+        for track in failed:
+            self._record_failure(failures, track, track.get("failure_reason", "unknown error"))
+
         processed_tracks = to_skip + succeeded + failed
         tracks_copied = len(succeeded)
         tracks_skipped = len(to_skip)
-        tracks_failed = len(failed)
+        tracks_failed = len(failures)
 
         m3u_content = self._build_m3u_content(playlist_data, processed_tracks)
         safe_name = "".join(c for c in playlist_name if c.isalnum() or c in (" ", "-", "_")).strip()
@@ -437,6 +489,7 @@ class SyncManager:
             "tracks_skipped": tracks_skipped,
             "tracks_failed": tracks_failed,
             "total_tracks": total_tracks,
+            "failures": failures,
         }
 
     # ------------------------------------------------------------------
@@ -500,6 +553,7 @@ class SyncManager:
                 "tracks_skipped": 0,
                 "tracks_failed": 0,
                 "total_tracks": 0,
+                "failures": [],
             }
 
         # Ensure remote directories exist
@@ -517,10 +571,12 @@ class SyncManager:
                 "tracks_skipped": 0,
                 "tracks_failed": 0,
                 "total_tracks": 0,
+                "failures": [],
             }
 
         total_tracks = len(tracks)
-        to_copy, to_skip = self._diff_mtp_pool(tracks, device, music_dir_uri)
+        failures: list[dict] = []
+        to_copy, to_skip = self._diff_mtp_pool(tracks, device, music_dir_uri, failures)
         for track in to_skip:
             track["copied_successfully"] = True
 
@@ -545,10 +601,13 @@ class SyncManager:
             should_cancel=should_cancel,
         )
 
+        for track in failed:
+            self._record_failure(failures, track, track.get("failure_reason", "unknown error"))
+
         processed_tracks = to_skip + succeeded + failed
         tracks_copied = len(succeeded)
         tracks_skipped = len(to_skip)
-        tracks_failed = len(failed)
+        tracks_failed = len(failures)
 
         # Push M3U — relative path from Playlists dir back up to Music dir
         music_folder_name = music_path.strip("/").split("/")[-1]
@@ -581,4 +640,5 @@ class SyncManager:
             "tracks_skipped": tracks_skipped,
             "tracks_failed": tracks_failed,
             "total_tracks": total_tracks,
+            "failures": failures,
         }

@@ -116,9 +116,13 @@ class SyncExecutionMixin:
         if skipped:
             notes.append(f"{skipped} duplicates skipped")
         if failed:
-            notes.append(f"{failed} failed after retries")
+            notes.append(f"{failed} failed")
         note = f"  ({', '.join(notes)})" if notes else ""
         self.sync_log.append(f"{icon} {result['playlist_name']}: {result['message']}{note}")
+        for failure in result.get("failures", []):
+            self.sync_log.append(
+                f"      ✗ {failure['artist']} — {failure['title']}: {failure['reason']}"
+            )
         self.sync_log.verticalScrollBar().setValue(self.sync_log.verticalScrollBar().maximum())
 
     def _on_sync_finished(self, results: list[dict]):

@@ -512,9 +512,11 @@ count and size update live as you check things off.
 **Syncing**: once a profile has both a selection and a destination, Start
 Sync becomes available. It'll confirm the destination and track count before
 it starts, then switch you to the Log tab to watch progress — worth checking
-afterward if anything got skipped or retried. Cancel stops the run once the
-file currently copying finishes; anything already on the destination stays
-there.
+afterward if anything got skipped or retried. Any track that couldn't be
+copied is listed under its playlist in the log with the artist, title, and
+the reason (source file missing, transport error, or copied but not verified
+on the device). Cancel stops the run once the file currently copying
+finishes; anything already on the destination stays there.
 
 ## Timeline
 
