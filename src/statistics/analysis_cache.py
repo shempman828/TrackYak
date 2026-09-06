@@ -1,5 +1,5 @@
 """
-Thin JSON wrapper at config/analysis_cache.json.
+Thin JSON wrapper at cache/analysis_cache.json.
 
 Tracks which track_ids are fully analysed so the analysis dialog doesn't
 have to re-inspect every DB field on every open.
@@ -9,10 +9,10 @@ import json
 from pathlib import Path
 import threading
 
-from src.foundation.asset_paths import config
+from src.foundation.asset_paths import cache
 from src.foundation.logger_config import logger
 
-CACHE_PATH = Path(config("analysis_cache.json"))
+CACHE_PATH = Path(cache("analysis_cache.json"))
 CACHE_SAVE_INTERVAL = 25  # Save the cache file every N completed tracks
 
 

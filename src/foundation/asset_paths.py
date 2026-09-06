@@ -1,5 +1,6 @@
 # paths.py
 from pathlib import Path
+import shutil
 import sys
 
 from PySide6.QtGui import QIcon
@@ -28,7 +29,7 @@ CACHE_DIR = BASE_DIR / "cache"
 
 ARTIST_IMAGES_DIR = IMAGES_DIR / "artist_images"
 PUBLISHER_LOGOS_DIR = IMAGES_DIR / "publisher_logos"
-IMAGECACHE_DIR = IMAGES_DIR / "imagecache"
+IMAGECACHE_DIR = CACHE_DIR / "imagecache"
 CHARTS_DIR = ASSETS_DIR / "charts"
 
 # --- Helpers -----------------------------------------------------------------
@@ -84,9 +85,44 @@ def config(name: str) -> str:
     return str(CONFIG_DIR / name)
 
 
+def cache(name: str) -> str:
+    """Return absolute path to a regenerable cache file inside /cache."""
+    return str(CACHE_DIR / name)
+
+
+def _migrate_legacy_cache_locations():
+    """One-time relocate of regenerable caches that predate CACHE_DIR.
+
+    ``analysis_cache.json`` used to live in ``config/`` and the artwork
+    thumbnail cache in ``images/imagecache/``; both now belong under
+    ``cache/``. Every entry here is fully regenerable, so any failure is
+    logged and ignored — the cache just rebuilds in its new home. Runs
+    before the mkdir loop so ``shutil.move`` of the old ``imagecache/``
+    directory renames cleanly instead of nesting inside a fresh target.
+    """
+    from src.foundation.logger_config import logger
+
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    legacy_moves = [
+        (CONFIG_DIR / "analysis_cache.json", CACHE_DIR / "analysis_cache.json"),
+        (IMAGES_DIR / "imagecache", IMAGECACHE_DIR),
+    ]
+    for old_path, new_path in legacy_moves:
+        if not old_path.exists() or new_path.exists():
+            continue
+        try:
+            shutil.move(str(old_path), str(new_path))
+            logger.info(f"Relocated legacy cache {old_path} -> {new_path}")
+        except OSError as e:
+            logger.warning(f"Could not relocate legacy cache {old_path}: {e}")
+
+
 def ensure_directories_exist():
     """Create any missing project directories."""
     from src.foundation.logger_config import logger
+
+    _migrate_legacy_cache_locations()
 
     for path in [
         ASSETS_DIR,

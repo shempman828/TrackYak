@@ -7,7 +7,7 @@ expensive - it reads the whole file into memory just to reach the tag -
 so every UI surface that shows album art goes through this cache instead
 of touching audio files directly on every repaint.
 
-Storage is a single SQLite file (images/imagecache/artwork_cache.db), not
+Storage is a single SQLite file (cache/imagecache/artwork_cache.db), not
 a directory of loose thumbnails - it's fully disposable/regenerable, so
 "reset the cache" is just deleting one file. A row is valid as long as
 its source_track_path/source_mtime still match the album's current
