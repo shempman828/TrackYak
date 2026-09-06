@@ -161,6 +161,7 @@ class AlbumsTab(_BaseTab):
             "album_id",
             "Search albums…",
             context_builder=album_context_map,
+            allow_create_new=True,
         )
         self._album_search.textChanged.connect(self._on_album_search_changed)
         self._album_search.returnPressed.connect(self._set_primary_album)
@@ -201,6 +202,7 @@ class AlbumsTab(_BaseTab):
             "album_id",
             "Search albums…",
             context_builder=album_context_map,
+            allow_create_new=True,
         )
         self._virt_search.textChanged.connect(self._on_virt_search_changed)
         self._virt_search.returnPressed.connect(self._add_virtual)
@@ -390,10 +392,13 @@ class AlbumsTab(_BaseTab):
 
     def _resolve_album(self, widget):
         """Resolve the album named in `widget` to an ORM object: the
-        completer's locked pick if there is one, else find-or-create by the
-        typed name (an existing album always wins over a same-named
-        duplicate -- see find_or_create_by_name). A freshly created album is
-        hot-registered into the completer index and shared cache."""
+        completer's locked pick if there is one; else, if the user picked
+        the popup's "Create new X" row, a brand-new album with the typed
+        name (same-name duplicates are legitimate for albums -- reissues,
+        split releases, different artists); else find-or-create by the typed
+        name (an existing album wins over a same-named duplicate -- see
+        find_or_create_by_name). A freshly created album is hot-registered
+        into the completer index and shared cache."""
         matched_id = widget.matched_id()
         if matched_id is not None:
             return self.controller.get.get_entity_object("Album", album_id=matched_id)
@@ -401,7 +406,10 @@ class AlbumsTab(_BaseTab):
         if not name:
             return None
         known = self._known_albums(widget)
-        album = find_or_create_by_name(self.controller, "Album", "album_name", name, known)
+        if widget.wants_new_entity():
+            album = self.controller.add.add_entity("Album", album_name=name)
+        else:
+            album = find_or_create_by_name(self.controller, "Album", "album_name", name, known)
         if album is not None and album not in known:
             # Deferred: this can run nested inside the completer's own
             # keyPressEvent (Enter -> returnPressed), and add_to_index()

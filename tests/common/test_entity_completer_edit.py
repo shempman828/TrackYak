@@ -210,6 +210,68 @@ def test_build_entity_search_widget_applies_context_builder_preloaded(qapp):
     assert widget._display_to_context == {"Rock": "ctx-Rock", "Jazz": "ctx-Jazz"}
 
 
+# ── opt-in "Create new X" popup row ────────────────────────────────────────
+
+
+def test_no_create_new_row_without_the_flag(qapp):
+    widget = EntityCompleterEdit()
+    widget.set_index({"Rock": 1, "Rockabilly": 2})
+    QTest.keyClicks(widget, "Roc")
+    assert not any(r.startswith("Create new ") for r in widget._completer.model().stringList())
+    assert widget.wants_new_entity() is False
+
+
+def test_entity_completer_edit_offers_and_flags_create_new(qapp):
+    widget = EntityCompleterEdit(allow_create_new=True)
+    widget.set_index({"Kind of Blue": 1})
+
+    QTest.keyClicks(widget, "Kind of Blue")
+    rows = widget._completer.model().stringList()
+    assert rows[-1] == 'Create new "Kind of Blue"'  # always last, even on exact hit
+
+    widget._completer.activated.emit('Create new "Kind of Blue"')
+    assert widget.wants_new_entity() is True
+    assert widget.matched_id() is None
+    assert widget.text() == "Kind of Blue"  # typed name kept, sentinel not inserted
+
+
+def test_create_new_flag_clears_on_further_edit_and_reset(qapp):
+    widget = EntityCompleterEdit(allow_create_new=True)
+    widget.set_index({"Foo": 1})
+    QTest.keyClicks(widget, "Foo")
+    widget._completer.activated.emit('Create new "Foo"')
+    assert widget.wants_new_entity() is True
+
+    QTest.keyClicks(widget, "!")  # any manual edit cancels the intent
+    assert widget.wants_new_entity() is False
+
+    widget._completer.activated.emit('Create new "Foo!"')
+    assert widget.wants_new_entity() is True
+    widget.reset()
+    assert widget.wants_new_entity() is False
+
+
+def test_bounded_search_edit_offers_and_flags_create_new(qapp):
+    widget = BoundedSearchEdit(
+        _ContextController([_StubEntity(1, "Greatest Hits")]),
+        "Album",
+        "genre_name",
+        "genre_id",
+        allow_create_new=True,
+    )
+    QTest.keyClicks(widget, "Greatest Hits")
+    rows = widget._model.stringList()
+    assert rows[-1] == 'Create new "Greatest Hits"'
+
+    widget._on_completion_picked('Create new "Greatest Hits"')
+    assert widget.wants_new_entity() is True
+    assert widget.matched_id() is None
+    assert widget.text() == "Greatest Hits"
+
+    widget.reset()
+    assert widget.wants_new_entity() is False
+
+
 def test_bounded_search_edit_applies_context_builder(qapp):
     """AC8: context shows for on-demand results and known_matches() is
     unaffected."""

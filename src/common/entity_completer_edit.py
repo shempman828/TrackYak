@@ -40,6 +40,16 @@ def _rank_by_query(text: str, keys) -> list[str]:
 _MULTI_ENTITY_DELIMITER = ";"
 
 
+# Opt-in synthetic popup row (see build_entity_search_widget's
+# allow_create_new): a trailing "Create new <segment>" entry that lets the
+# user force-create an entity with the typed name instead of the completer
+# folding it onto an existing same-named row. Used by album fields, where
+# same-name duplicates (reissues, split releases, different artists) are
+# legitimate; left off everywhere else.
+def _create_new_label(segment: str) -> str:
+    return f'Create new "{segment.strip()}"'
+
+
 def _apply_highlighted_completion(completer, on_pick: Callable[[str], None]) -> bool:
     """If `completer`'s popup is open with a suggestion highlighted, apply it
     via `on_pick` and report success -- used to resolve Enter against the
@@ -152,7 +162,7 @@ class EntityCompleterEdit(QLineEdit):
     # matched_id() is set) would never see the pick.
     picked = Signal()
 
-    def __init__(self, placeholder_text: str = "", parent=None):
+    def __init__(self, placeholder_text: str = "", parent=None, *, allow_create_new: bool = False):
         super().__init__(parent)
         if placeholder_text:
             self.setPlaceholderText(placeholder_text)
@@ -164,6 +174,12 @@ class EntityCompleterEdit(QLineEdit):
         self._context_by_id: dict = {}
         self._display_to_context: dict = {}
         self._matched_id = None
+        # See _create_new_label. _create_new_row is the exact synthetic
+        # string currently in the model (or None); _create_new_requested is
+        # set once the user picks it and cleared by any later edit/reset.
+        self._allow_create_new = allow_create_new
+        self._create_new_row: str | None = None
+        self._create_new_requested = False
         self._completer: QCompleter | None = None
         self.textEdited.connect(self._on_manual_edit)
         self.textEdited.connect(self._update_completions)
@@ -222,11 +238,11 @@ class EntityCompleterEdit(QLineEdit):
         if context_by_id is not None:
             self._context_by_id = dict(context_by_id)
         self._rebuild_context_lookup()
-        ranked_keys = _rank_by_query(_current_segment(self.text()), self._display_to_id.keys())
+        rows = self._model_rows(_current_segment(self.text()))
         if self._completer is not None and isinstance(self._completer.model(), QStringListModel):
-            self._completer.model().setStringList(ranked_keys)
+            self._completer.model().setStringList(rows)
             return
-        model = QStringListModel(ranked_keys, self)
+        model = QStringListModel(rows, self)
         completer = QCompleter(model, self)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
         completer.setFilterMode(Qt.MatchContains)
@@ -245,6 +261,19 @@ class EntityCompleterEdit(QLineEdit):
             for display, entity_id in self._display_to_id.items()
         }
 
+    def _model_rows(self, segment: str) -> list[str]:
+        """Ranked completion rows for `segment`, plus a trailing synthetic
+        "Create new <segment>" row when allow_create_new is on and the
+        segment isn't blank. The synthetic row is always offered -- even on
+        an exact name hit -- since that is the case it exists for."""
+        rows = _rank_by_query(segment, self._display_to_id.keys())
+        if self._allow_create_new and segment.strip():
+            self._create_new_row = _create_new_label(segment)
+            rows.append(self._create_new_row)
+        else:
+            self._create_new_row = None
+        return rows
+
     def add_to_index(self, display: str, entity_id, context: str = "") -> None:
         """Hot-register a newly created entity into the completer index
         without a full re-fetch round-trip -- rebuilds the completer model
@@ -261,11 +290,22 @@ class EntityCompleterEdit(QLineEdit):
         text = self.text()
         idx = text.rfind(_MULTI_ENTITY_DELIMITER)
         prefix = text[: idx + 1] if idx != -1 else ""
+        # The synthetic "Create new X" row: keep the typed name in the
+        # field, just flag the intent so _resolve_*'s find-or-create is
+        # skipped in favour of a fresh row.
+        if self._allow_create_new and candidate == self._create_new_row:
+            self._matched_id = None
+            self._create_new_requested = True
+            if self._completer is not None:
+                self._completer.popup().hide()
+            self.picked.emit()
+            return
         # Set _matched_id before setText(): setText() emits textChanged
         # synchronously, and listeners (e.g. a dialog's OK-button-enable
         # check) read matched_id() from inside that signal -- so it must
         # already reflect the pick by the time setText() fires it.
         self._matched_id = self._display_to_id.get(candidate)
+        self._create_new_requested = False
         self.setText(prefix + candidate)
         if self._completer is not None:
             self._completer.popup().hide()
@@ -273,13 +313,14 @@ class EntityCompleterEdit(QLineEdit):
 
     def _on_manual_edit(self, _text: str) -> None:
         self._matched_id = None
+        self._create_new_requested = False
 
     def _update_completions(self, text: str) -> None:
         completer = self._completer
         if completer is None or not isinstance(completer.model(), QStringListModel):
             return
         segment = _current_segment(text)
-        completer.model().setStringList(_rank_by_query(segment, self._display_to_id.keys()))
+        completer.model().setStringList(self._model_rows(segment))
         completer.setCompletionPrefix(segment)
         if completer.completionCount() > 0:
             completer.complete()
@@ -288,6 +329,12 @@ class EntityCompleterEdit(QLineEdit):
 
     def matched_id(self):
         return self._matched_id
+
+    def wants_new_entity(self) -> bool:
+        """True when the user picked the synthetic "Create new X" row and
+        hasn't edited the field since -- callers should create a new entity
+        from text() rather than resolving it against existing rows."""
+        return self._create_new_requested
 
     def split_names(self) -> list[str]:
         """Every entity name currently typed into the field, split on the
@@ -300,6 +347,8 @@ class EntityCompleterEdit(QLineEdit):
         # it or a textChanged listener reading matched_id() mid-call sees
         # the stale pre-reset id.
         self._matched_id = None
+        self._create_new_requested = False
+        self._create_new_row = None
         self.clear()
 
 
@@ -393,6 +442,7 @@ def build_entity_search_widget(
     parent=None,
     index_builder: Callable[[list], dict] | None = None,
     context_builder: Callable[[list], dict] | None = None,
+    allow_create_new: bool = False,
 ):
     """
     Returns an EntityCompleterEdit preloaded with the full `model_name`
@@ -400,6 +450,12 @@ def build_entity_search_widget(
     BoundedSearchEdit doing on-demand queries when it's not. Either way the
     caller wires up the same textChanged/returnPressed/text()/matched_id()/
     add_to_index()/reset() surface without needing to know which it got.
+
+    `allow_create_new` adds a trailing "Create new <typed name>" row to the
+    suggestion popup; picking it makes wants_new_entity() true so the caller
+    can force-create rather than fold the name onto an existing same-named
+    row. Meant for fields where same-name duplicates are valid (album
+    fields) -- off by default.
 
     `index_builder`, if given, replaces the default plain
     {name_field value: id_field value} dict -- e.g. to disambiguate
@@ -422,7 +478,7 @@ def build_entity_search_widget(
                 for e in entities
                 if getattr(e, name_field, None)
             }
-        widget = EntityCompleterEdit(placeholder_text, parent)
+        widget = EntityCompleterEdit(placeholder_text, parent, allow_create_new=allow_create_new)
         widget.set_index(index, context_builder(entities) if context_builder else None)
         return widget
     return BoundedSearchEdit(
@@ -433,6 +489,7 @@ def build_entity_search_widget(
         placeholder_text,
         parent,
         context_builder=context_builder,
+        allow_create_new=allow_create_new,
     )
 
 
@@ -466,6 +523,7 @@ class BoundedSearchEdit(QLineEdit):
         placeholder_text: str = "",
         parent=None,
         context_builder: Callable[[list], dict] | None = None,
+        allow_create_new: bool = False,
     ):
         super().__init__(parent)
         self._controller = controller
@@ -477,6 +535,11 @@ class BoundedSearchEdit(QLineEdit):
         self._last_matches: list = []
         self._display_to_id: dict = {}
         self._display_to_context: dict = {}
+        # See _create_new_label / EntityCompleterEdit -- same opt-in
+        # synthetic "Create new X" popup row and force-create flag.
+        self._allow_create_new = allow_create_new
+        self._create_new_row: str | None = None
+        self._create_new_requested = False
 
         if placeholder_text:
             self.setPlaceholderText(f"{placeholder_text} (min {self._MIN_CHARS} chars)")
@@ -512,6 +575,7 @@ class BoundedSearchEdit(QLineEdit):
 
     def _on_text_edited(self, text: str) -> None:
         self._matched_id = None
+        self._create_new_requested = False
         segment = _current_segment(text)
         if len(segment) >= self._MIN_CHARS:
             self._last_matches = (
@@ -536,9 +600,15 @@ class BoundedSearchEdit(QLineEdit):
             self._last_matches = []
             self._display_to_id = {}
             self._display_to_context = {}
-        self._model.setStringList(_rank_by_query(segment, self._display_to_id.keys()))
+        rows = _rank_by_query(segment, self._display_to_id.keys())
+        if self._allow_create_new and segment.strip():
+            self._create_new_row = _create_new_label(segment)
+            rows.append(self._create_new_row)
+        else:
+            self._create_new_row = None
+        self._model.setStringList(rows)
         self._completer.setCompletionPrefix(segment)
-        if self._display_to_id:
+        if self._display_to_id or self._create_new_row:
             self._completer.complete()
         elif self._completer.popup() is not None:
             self._completer.popup().hide()
@@ -547,15 +617,27 @@ class BoundedSearchEdit(QLineEdit):
         text = self.text()
         idx = text.rfind(_MULTI_ENTITY_DELIMITER)
         prefix = text[: idx + 1] if idx != -1 else ""
-        # See EntityCompleterEdit._on_completion_picked: matched_id must be
-        # set before setText() so textChanged listeners see it.
+        # See EntityCompleterEdit._on_completion_picked for both branches --
+        # the synthetic "Create new X" row keeps the typed name and just
+        # flags intent; a real pick records its id before setText().
+        if self._allow_create_new and candidate == self._create_new_row:
+            self._matched_id = None
+            self._create_new_requested = True
+            self._completer.popup().hide()
+            self.picked.emit()
+            return
         self._matched_id = self._display_to_id.get(candidate)
+        self._create_new_requested = False
         self.setText(prefix + candidate)
         self._completer.popup().hide()
         self.picked.emit()
 
     def matched_id(self):
         return self._matched_id
+
+    def wants_new_entity(self) -> bool:
+        """See EntityCompleterEdit.wants_new_entity."""
+        return self._create_new_requested
 
     def known_matches(self) -> list:
         """Entities matched by the current segment's last on-demand query --
@@ -578,6 +660,8 @@ class BoundedSearchEdit(QLineEdit):
         # clear() (== setText("")), since that emits textChanged
         # synchronously.
         self._matched_id = None
+        self._create_new_requested = False
+        self._create_new_row = None
         self._last_matches = []
         self._display_to_id = {}
         self._model.setStringList([])

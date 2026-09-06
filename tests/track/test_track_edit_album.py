@@ -1,10 +1,12 @@
 """Regression coverage for AlbumsTab._resolve_album
 (src/track/track_edit_album.py): the Album / Virtual-Appearance search
-fields use the shared entity completer (build_entity_search_widget), so
-resolution now goes: the completer's locked pick (matched_id) first, else
-find-or-create by the typed name -- an existing same-named album (any case)
-always wins over creating a duplicate, and a genuinely new name creates one
-and hot-registers it into the completer index + shared cache.
+fields use the shared entity completer (build_entity_search_widget) with
+allow_create_new=True, so resolution goes: the completer's locked pick
+(matched_id) first; else, if the user picked the popup's "Create new X"
+row (widget.wants_new_entity()), a brand-new album with the typed name --
+same-name duplicates are valid for albums; else find-or-create by the typed
+name, where an existing same-named album still wins. A genuinely new name
+creates one and hot-registers it into the completer index + shared cache.
 """
 
 from types import SimpleNamespace
@@ -50,9 +52,10 @@ class _FakeSearch:
     """Stands in for EntityCompleterEdit/BoundedSearchEdit -- only the
     surface _resolve_album() touches."""
 
-    def __init__(self, text: str = "", matched_id=None):
+    def __init__(self, text: str = "", matched_id=None, wants_new=False):
         self._text = text
         self._matched_id = matched_id
+        self._wants_new = wants_new
         self.added: list[tuple[str, int]] = []
 
     def text(self) -> str:
@@ -60,6 +63,9 @@ class _FakeSearch:
 
     def matched_id(self):
         return self._matched_id
+
+    def wants_new_entity(self) -> bool:
+        return self._wants_new
 
     def known_matches(self) -> list:
         return []
@@ -81,12 +87,29 @@ def test_locked_pick_is_used_without_creating(controller_ra):
 def test_name_match_reuses_existing_case_insensitively(controller_ra):
     existing = controller_ra.add.add_entity("Album", album_name="Kind of Blue")
 
+    # Typed, not picked from the "Create new" row -> existing still wins.
     widget = _FakeSearch(text="  kind of BLUE ", matched_id=None)
     album = _tab_ra(controller_ra)._resolve_album(widget)
 
     assert album.album_id == existing.album_id
     assert controller_ra.get.count_entities("Album") == 1
     assert widget.added == []  # not a new row -- nothing to hot-register
+
+
+def test_create_new_row_forces_a_same_named_duplicate(controller_ra, qapp):
+    existing = controller_ra.add.add_entity("Album", album_name="Greatest Hits")
+
+    # wants_new_entity() true == user picked the popup's "Create new X" row.
+    widget = _FakeSearch(text="Greatest Hits", matched_id=None, wants_new=True)
+    album = _tab_ra(controller_ra)._resolve_album(widget)
+
+    assert album.album_id != existing.album_id
+    assert album.album_name == "Greatest Hits"
+    assert controller_ra.get.count_entities("Album") == 2
+
+    # A freshly created album is still hot-registered into the completer.
+    qapp.processEvents()
+    assert widget.added == [("Greatest Hits", album.album_id)]
 
 
 def test_new_name_creates_and_hot_registers(controller_ra, qapp):

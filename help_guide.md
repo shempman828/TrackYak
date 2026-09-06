@@ -63,6 +63,15 @@ suggestions.
 Picking a suggestion drops only the name into the field — the context is
 just there to help you choose.
 
+Most of these fields reuse an existing entity when you type a name that
+already exists rather than making a duplicate. The track editor's Albums tab
+is the exception: because reissues, split releases, and same-titled records
+by different artists are all real, its album fields add a **Create new
+"…"** row at the bottom of the suggestion list — pick it to make a brand-new
+album with the typed name even when one by that name already exists. Typing
+the name and confirming without picking that row still reuses the existing
+album.
+
 ---
 
 # Navigation Views
