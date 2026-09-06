@@ -261,6 +261,7 @@ class SyncManager:
         progress_callback=None,
         progress_total: int = 0,
         progress_label: str = "Copying",
+        should_cancel: Callable[[], bool] | None = None,
     ) -> tuple[list[dict], list[dict]]:
         """
         Copy `tracks` via copy_one(), then verify each one actually landed
@@ -270,17 +271,25 @@ class SyncManager:
         doesn't verify is retried, up to _MAX_RETRIES extra rounds.
         Returns (succeeded, failed); succeeded tracks are marked
         copied_successfully=True.
+
+        If `should_cancel` returns True, the copy loop stops before the next
+        track (an in-flight copy_one still finishes -- it's a blocking
+        subprocess) and everything not yet verified is returned as failed.
         """
         remaining = tracks
         succeeded: list[dict] = []
+        cancelled = False
 
         for attempt in range(_MAX_RETRIES + 1):
-            if not remaining:
+            if not remaining or cancelled:
                 break
             label = (
                 progress_label if attempt == 0 else f"Retrying ({attempt + 1}/{_MAX_RETRIES + 1})"
             )
             for i, track in enumerate(remaining):
+                if should_cancel and should_cancel():
+                    cancelled = True
+                    break
                 if progress_callback:
                     progress_callback(i, progress_total, f"{label}: {track['title']}")
                 copy_one(track)
@@ -296,7 +305,7 @@ class SyncManager:
                 else:
                     still_failed.append(track)
             remaining = still_failed
-            if remaining and attempt < _MAX_RETRIES:
+            if remaining and not cancelled and attempt < _MAX_RETRIES:
                 logger.warning(
                     f"{len(remaining)} track(s) failed verification, "
                     f"retrying (attempt {attempt + 2}/{_MAX_RETRIES + 1})"
@@ -304,7 +313,10 @@ class SyncManager:
 
         for track in remaining:
             track["copied_successfully"] = False
-            logger.error(f"Failed to sync after retries: {track.get('device_filename')}")
+            if cancelled:
+                logger.info(f"Sync cancelled before copying: {track.get('device_filename')}")
+            else:
+                logger.error(f"Failed to sync after retries: {track.get('device_filename')}")
 
         return succeeded, remaining
 
@@ -351,7 +363,7 @@ class SyncManager:
                 logger.info(f"Cleared folder: {target}")
 
     def sync_playlist_to_device(
-        self, playlist_data: dict, device_path: str, progress_callback=None
+        self, playlist_data: dict, device_path: str, progress_callback=None, should_cancel=None
     ) -> dict:
         """Sync a single playlist or mood to a local folder path."""
         playlist_name = playlist_data["name"]
@@ -396,6 +408,7 @@ class SyncManager:
             progress_callback,
             progress_total=total_tracks,
             progress_label="Copying",
+            should_cancel=should_cancel,
         )
 
         processed_tracks = to_skip + succeeded + failed
@@ -459,7 +472,12 @@ class SyncManager:
             logger.info(f"Cleared MTP folder: {uri}")
 
     def sync_playlist_to_mtp(
-        self, playlist_data: dict, device_uri: str, music_path: str, progress_callback=None
+        self,
+        playlist_data: dict,
+        device_uri: str,
+        music_path: str,
+        progress_callback=None,
+        should_cancel=None,
     ) -> dict:
         """
         Sync a single playlist or mood to a connected Android device via MTP.
@@ -524,6 +542,7 @@ class SyncManager:
             progress_callback,
             progress_total=total_tracks,
             progress_label="Sending",
+            should_cancel=should_cancel,
         )
 
         processed_tracks = to_skip + succeeded + failed

@@ -14,6 +14,7 @@ parsing path exercised is identical to the real mtp:// backend.
 """
 
 import os
+from pathlib import Path
 import subprocess
 
 import pytest
@@ -65,9 +66,7 @@ def _make_track_dict(tmp_path, name, content=b"track-bytes"):
 # ---------------------------------------------------------------------------
 
 
-def test_diff_local_pool_uses_one_directory_scan_regardless_of_track_count(
-    tmp_path, sync_manager
-):
+def test_diff_local_pool_uses_one_directory_scan_regardless_of_track_count(tmp_path, sync_manager):
     music_dir = tmp_path / "music"
     music_dir.mkdir()
     tracks = [_make_track_dict(tmp_path, f"Track {i}") for i in range(20)]
@@ -213,6 +212,43 @@ def test_copy_with_retry_reports_persistent_failure_after_max_retries(tmp_path, 
     assert track["copied_successfully"] is False
 
 
+def test_copy_with_retry_stops_at_the_next_track_when_cancelled(tmp_path, sync_manager):
+    """Regression: cancelling a running sync must stop the copy loop mid
+    playlist -- previously `should_cancel` was only checked between
+    playlists, so every remaining track in the current playlist kept
+    copying (and got retried) after the user hit Cancel."""
+    music_dir = tmp_path / "music"
+    music_dir.mkdir()
+
+    tracks = []
+    for i in range(5):
+        t = _make_track_dict(tmp_path, f"Track {i}")
+        t["device_filename"] = sync_manager._safe_filename("Artist", f"Track {i}", ".mp3")
+        tracks.append(t)
+
+    attempts = {"n": 0}
+
+    def copy_one(t):
+        attempts["n"] += 1
+        dest = music_dir / t["device_filename"]
+        _write_file(dest, content=Path(t["file_path"]).read_bytes())
+        return True
+
+    # User "cancels" once two tracks have been handed to the transport.
+    succeeded, failed = sync_manager._copy_with_retry(
+        tracks,
+        copy_one,
+        lambda: sync_manager._list_local_pool(str(music_dir)),
+        lambda t: Path(t["file_path"]).stat().st_size,
+        should_cancel=lambda: attempts["n"] >= 2,
+    )
+
+    assert attempts["n"] == 2  # stopped before track 3, no retry rounds
+    assert {t["title"] for t in succeeded} == {"Track 0", "Track 1"}
+    assert {t["title"] for t in failed} == {"Track 2", "Track 3", "Track 4"}
+    assert all(t["copied_successfully"] is False for t in failed)
+
+
 def test_sync_playlist_to_device_reports_failed_tracks_instead_of_dropping_them(
     tmp_path, sync_manager, monkeypatch
 ):
@@ -224,11 +260,7 @@ def test_sync_playlist_to_device_reports_failed_tracks_instead_of_dropping_them(
     good = _write_file(tmp_path / "good.mp3")
     bad = _write_file(tmp_path / "bad.mp3")
 
-    playlist_data = {
-        "kind": "playlist",
-        "name": "Test Playlist",
-        "playlist_id": 1,
-    }
+    playlist_data = {"kind": "playlist", "name": "Test Playlist", "playlist_id": 1}
     monkeypatch.setattr(
         sync_manager,
         "get_item_tracks",
@@ -275,7 +307,11 @@ def _seed_playlist_with_tracks(session, n, tag=""):
         track = Track(track_name=f"Track {i}", track_file_path=f"/music/{tag}-{i}.mp3")
         session.add_all([artist, track])
         session.flush()
-        session.add(TrackArtistRole(track_id=track.track_id, artist_id=artist.artist_id, role_id=role.role_id))
+        session.add(
+            TrackArtistRole(
+                track_id=track.track_id, artist_id=artist.artist_id, role_id=role.role_id
+            )
+        )
         session.add(
             PlaylistTracks(playlist_id=playlist.playlist_id, track_id=track.track_id, position=i)
         )

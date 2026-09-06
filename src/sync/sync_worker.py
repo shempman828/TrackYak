@@ -51,11 +51,18 @@ class SyncWorker(CancellableWorker):
 
                 if profile.is_mtp:
                     result = self.sync_manager.sync_playlist_to_mtp(
-                        playlist, profile.device_uri, profile.music_path, self._progress_callback
+                        playlist,
+                        profile.device_uri,
+                        profile.music_path,
+                        self._progress_callback,
+                        should_cancel=lambda: self.is_cancelled,
                     )
                 else:
                     result = self.sync_manager.sync_playlist_to_device(
-                        playlist, profile.path, self._progress_callback
+                        playlist,
+                        profile.path,
+                        self._progress_callback,
+                        should_cancel=lambda: self.is_cancelled,
                     )
 
                 self.results.append(result)
