@@ -1,10 +1,10 @@
 """Tests for the shared Add-to-Playlist / Add-to-Mood submenu builder.
 
-The player dock and the base track view both feed their right-click
-"Add to Playlist" / "Add to Mood" submenus through
-``src.common.entity_submenu.populate_entity_submenu``. Previously each hand-rolled
-its own copy and the base track view's had drifted into a flat, unsorted list
-with no hierarchy and no membership checkmarks.
+The player dock, the base track view and the main library Tracks tab all feed
+their right-click "Add to Playlist" / "Add to Mood" submenus through
+``src.common.entity_submenu``. Previously each hand-rolled its own copy and they
+drifted (the base track view's was a flat unsorted list; the Tracks tab keyed
+nesting off a ``parent_mood_id`` attribute that does not exist).
 """
 
 from PySide6.QtWidgets import QMenu
@@ -12,11 +12,12 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.common.entity_submenu import populate_entity_submenu
+from src.common.entity_submenu import populate_entity_submenu, selection_membership
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables.base import Base
-from src.db.db_tables.mood import Mood
-from src.db.db_tables.playlist import Playlist
+from src.db.db_tables.mood import Mood, MoodTrackAssociation
+from src.db.db_tables.playlist import Playlist, PlaylistTracks
+from src.db.db_tables.track import Track
 
 
 @pytest.fixture
@@ -155,3 +156,60 @@ def test_empty_and_moods(qapp, session):
         mood_menu, controller=_Controller(session), entity_type="Mood", on_trigger=lambda *_: None
     )
     assert [text for text, *_ in _rows(mood_menu)] == ["Angry", "Wistful"]
+
+
+def test_nesting_uses_parent_id_not_parent_mood_id(qapp, session):
+    """The Tracks tab's old copy looked for ``parent_mood_id`` (nonexistent), so
+    it never nested. The shared builder must nest off the real ``parent_id``."""
+    calm = Mood(mood_name="Calm")
+    session.add(calm)
+    session.flush()
+    session.add(Mood(mood_name="Serene", parent_id=calm.mood_id))
+    session.commit()
+
+    menu = QMenu()
+    populate_entity_submenu(
+        menu, controller=_Controller(session), entity_type="Mood", on_trigger=lambda *_: None
+    )
+    calm_menu = _submenu(menu, "Calm")
+    assert [text for text, *_ in _rows(calm_menu)] == ["Serene", "Add to 'Calm'"]
+
+
+def test_selection_membership_intersection_and_union(qapp, session):
+    m_all = Mood(mood_name="All")
+    m_some = Mood(mood_name="Some")
+    session.add_all([m_all, m_some])
+    t1 = Track(track_name="T1")
+    t2 = Track(track_name="T2")
+    session.add_all([t1, t2])
+    session.flush()
+    session.add_all(
+        [
+            MoodTrackAssociation(mood_id=m_all.mood_id, track_id=t1.track_id),
+            MoodTrackAssociation(mood_id=m_all.mood_id, track_id=t2.track_id),
+            MoodTrackAssociation(mood_id=m_some.mood_id, track_id=t1.track_id),
+        ]
+    )
+    session.commit()
+
+    full, partial = selection_membership([t1, t2], "moods", "mood_id")
+    assert full == {m_all.mood_id}
+    assert partial == {m_some.mood_id}
+
+    # Empty selection -> empty sets, no crash.
+    assert selection_membership([], "playlists", "playlist_id") == (set(), set())
+
+
+def test_selection_membership_playlists(qapp, session):
+    p = Playlist(playlist_name="P")
+    session.add(p)
+    t1 = Track(track_name="T1")
+    t2 = Track(track_name="T2")
+    session.add_all([t1, t2])
+    session.flush()
+    session.add(PlaylistTracks(playlist_id=p.playlist_id, track_id=t1.track_id, position=1))
+    session.commit()
+
+    full, partial = selection_membership([t1, t2], "playlists", "playlist_id")
+    assert full == set()
+    assert partial == {p.playlist_id}

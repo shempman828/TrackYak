@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.delete_confirmation import confirm_delete_with_file_option
-from src.common.entity_submenu import populate_entity_submenu
+from src.common.entity_submenu import populate_entity_submenu, selection_membership
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.foundation.censor import censor_text
 from src.foundation.logger_config import logger
@@ -575,30 +575,9 @@ class BaseTrackView(QDialog):
         event.acceptProposedAction()
         logger.warning("dropEvent should be overridden by subclass")
 
-    @staticmethod
-    def _membership_split(selected_tracks, relation_attr, id_attr):
-        """Split entity ids by how much of the current selection already belongs.
-
-        Returns ``(full, partial)``: ``full`` are ids every selected track is in
-        (rendered checked), ``partial`` are ids only some are in (rendered with a
-        " (partial)" suffix).
-        """
-        try:
-            per_track = [
-                {getattr(link, id_attr) for link in getattr(track, relation_attr, [])}
-                for track in selected_tracks
-            ]
-        except SQLAlchemyError as e:
-            logger.error(f"Error reading {relation_attr} membership for context menu: {e!s}")
-            return set(), set()
-        if not per_track:
-            return set(), set()
-        full = set.intersection(*per_track)
-        return full, set.union(*per_track) - full
-
     def _populate_playlist_menu(self, selected_tracks, track_ids):
         """Populate the playlist submenu (shared hierarchical builder)."""
-        full, partial = self._membership_split(selected_tracks, "playlists", "playlist_id")
+        full, partial = selection_membership(selected_tracks, "playlists", "playlist_id")
         populate_entity_submenu(
             self.add_to_playlist_menu,
             controller=self.controller,
@@ -611,7 +590,7 @@ class BaseTrackView(QDialog):
 
     def _populate_mood_menu(self, selected_tracks, track_ids):
         """Populate the mood submenu (shared hierarchical builder)."""
-        full, partial = self._membership_split(selected_tracks, "moods", "mood_id")
+        full, partial = selection_membership(selected_tracks, "moods", "mood_id")
         populate_entity_submenu(
             self.add_to_mood_menu,
             controller=self.controller,

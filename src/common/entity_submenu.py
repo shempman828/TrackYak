@@ -1,12 +1,14 @@
 """Shared builder for the "Add to Playlist" / "Add to Mood" context submenus.
 
-Both the player dock (:mod:`src.player.player_context_menu`) and the base track
-view (:mod:`src.track.base_track_view`) offer a right-click submenu that lists
+The player dock (:mod:`src.player.player_context_menu`), the base track view
+(:mod:`src.track.base_track_view`) and the main library Tracks tab
+(:mod:`src.track.track_view_editing`) all offer a right-click submenu that lists
 every playlist or mood, nested by ``parent_id``, alphabetised per level, with a
 checkmark on the ones the track(s) already belong to. Historically each call
 site hand-rolled its own version and they drifted (the base track view menu was
-a flat, unsorted list with no hierarchy or checkmarks). This module is the one
-implementation both call sites share.
+a flat, unsorted list with no hierarchy or checkmarks; the Tracks tab looked for
+a ``parent_mood_id`` attribute that does not exist, so it never nested either).
+This module is the one implementation they all share.
 """
 
 from PySide6.QtCore import Qt
@@ -24,6 +26,29 @@ _ENTITY_META = {
     "Playlist": ("playlist_id", "playlist_name", "playlists"),
     "Mood": ("mood_id", "mood_name", "moods"),
 }
+
+
+def selection_membership(tracks, relation_attr: str, id_attr: str):
+    """Split entity ids by how much of a track selection already belongs.
+
+    Returns ``(full, partial)``: ``full`` are ids every track in *tracks* is
+    linked to (render checked), ``partial`` are ids only some of them are linked
+    to (render with a " (partial)" suffix). ``relation_attr`` is the ``Track``
+    relationship to walk (``"playlists"`` / ``"moods"``); ``id_attr`` is the id
+    read off each link row (``"playlist_id"`` / ``"mood_id"``).
+    """
+    try:
+        per_track = [
+            {getattr(link, id_attr) for link in getattr(track, relation_attr, [])}
+            for track in tracks
+        ]
+    except SQLAlchemyError as e:
+        logger.error(f"Error reading {relation_attr} membership for context menu: {e}")
+        return set(), set()
+    if not per_track:
+        return set(), set()
+    full = set.intersection(*per_track)
+    return full, set.union(*per_track) - full
 
 
 def populate_entity_submenu(

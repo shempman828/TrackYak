@@ -14,7 +14,6 @@ from sqlalchemy.orm import sessionmaker
 
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables.base import Base
-from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.playlist import Playlist, PlaylistTracks
 from src.db.db_tables.track import Track
 from src.track.base_track_view import BaseTrackView
@@ -84,25 +83,3 @@ def test_checkmark_reflects_selection_membership(qapp, session):
 
     # Action payload still carries (entity_id, [track_id strings]) for the handler.
     assert by_text["Both"].data() == (both.playlist_id, [str(t1.track_id), str(t2.track_id)])
-
-
-def test_membership_split_intersection_and_union(qapp, session):
-    m_all = Mood(mood_name="All")
-    m_some = Mood(mood_name="Some")
-    session.add_all([m_all, m_some])
-    t1 = Track(track_name="T1")
-    t2 = Track(track_name="T2")
-    session.add_all([t1, t2])
-    session.flush()
-    session.add_all(
-        [
-            MoodTrackAssociation(mood_id=m_all.mood_id, track_id=t1.track_id),
-            MoodTrackAssociation(mood_id=m_all.mood_id, track_id=t2.track_id),
-            MoodTrackAssociation(mood_id=m_some.mood_id, track_id=t1.track_id),
-        ]
-    )
-    session.commit()
-
-    full, partial = BaseTrackView._membership_split([t1, t2], "moods", "mood_id")
-    assert full == {m_all.mood_id}
-    assert partial == {m_some.mood_id}

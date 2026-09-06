@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QMenu, QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.delete_confirmation import confirm_delete_with_file_option
+from src.common.entity_submenu import populate_entity_submenu, selection_membership
 from src.foundation.logger_config import logger
 from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
 
@@ -127,7 +128,7 @@ class TrackViewEditingMixin:
         play_next_action.triggered.connect(lambda: self.add_selected_to_queue(insert_next=True))
         menu.addAction(play_next_action)
 
-        add_queue_action = QAction("➕  Add to Queue", self)
+        add_queue_action = QAction("➕  Add to Queue", self)  # noqa: RUF001
         add_queue_action.triggered.connect(lambda: self.add_selected_to_queue(False))
         menu.addAction(add_queue_action)
 
@@ -141,9 +142,13 @@ class TrackViewEditingMixin:
 
         menu.addSeparator()
 
-        # ── Moods submenu ─────────────────────────────────────────────────
+        # ── Add to Playlist / Add to Mood submenus ───────────────────────
+        playlist_menu = QMenu("➕  Add to Playlist", menu)  # noqa: RUF001
+        self._populate_playlist_submenu(playlist_menu, tracks, track_ids)
+        menu.addMenu(playlist_menu)
+
         mood_menu = QMenu("🎭  Add to Mood", menu)
-        self._populate_mood_submenu(mood_menu, track_ids)
+        self._populate_mood_submenu(mood_menu, tracks, track_ids)
         menu.addMenu(mood_menu)
 
         menu.addSeparator()
@@ -157,47 +162,60 @@ class TrackViewEditingMixin:
         menu.exec_(self.table.viewport().mapToGlobal(pos))
 
     # =========================================================================
-    #  Mood helpers (unchanged logic, extracted to keep context menu tidy)
+    #  Playlist / mood submenu helpers (shared hierarchical builder)
     # =========================================================================
 
-    def _populate_mood_submenu(self, parent_menu: QMenu, track_ids: list):
+    def _populate_playlist_submenu(self, parent_menu: QMenu, tracks: list, track_ids: list):
+        full, partial = selection_membership(tracks, "playlists", "playlist_id")
+        populate_entity_submenu(
+            parent_menu,
+            controller=self.controller,
+            entity_type="Playlist",
+            on_trigger=self.add_to_playlist,
+            member_ids=full,
+            partial_ids=partial,
+            make_action_data=lambda entity_id: (entity_id, track_ids),
+        )
+
+    def _populate_mood_submenu(self, parent_menu: QMenu, tracks: list, track_ids: list):
+        full, partial = selection_membership(tracks, "moods", "mood_id")
+        populate_entity_submenu(
+            parent_menu,
+            controller=self.controller,
+            entity_type="Mood",
+            on_trigger=self.add_to_mood,
+            member_ids=full,
+            partial_ids=partial,
+            make_action_data=lambda entity_id: (entity_id, track_ids),
+        )
+
+    def add_to_playlist(self):
+        action = self.sender()
+        if not action:
+            return
+        playlist_id, track_ids = action.data()
         try:
-            moods = self.controller.get.get_all_entities("Mood")
-            if not moods:
-                parent_menu.addAction("No moods found").setEnabled(False)
-                return
-
-            member_ids = set()
-            if len(track_ids) == 1:
-                links = self.controller.get.get_entity_links(
-                    "MoodTrackAssociation", track_id=int(track_ids[0])
-                )
-                if links:
-                    member_ids = {lnk.mood_id for lnk in links}
-
-            for mood in moods:
-                children = [m for m in moods if getattr(m, "parent_mood_id", None) == mood.mood_id]
-                if children:
-                    sub = QMenu(mood.mood_name, parent_menu)
-                    for child in children:
-                        act = QAction(child.mood_name, sub)
-                        act.setData((child.mood_id, track_ids))
-                        if child.mood_id in member_ids:
-                            act.setCheckable(True)
-                            act.setChecked(True)
-                        act.triggered.connect(self.add_to_mood)
-                        sub.addAction(act)
-                    parent_menu.addMenu(sub)
-                else:
-                    act = QAction(mood.mood_name, parent_menu)
-                    act.setData((mood.mood_id, track_ids))
-                    if mood.mood_id in member_ids:
-                        act.setCheckable(True)
-                        act.setChecked(True)
-                    act.triggered.connect(self.add_to_mood)
-                    parent_menu.addAction(act)
-        except (SQLAlchemyError, ValueError, RuntimeError) as e:
-            logger.error(f"Error populating mood submenu: {e}")
+            existing = self.controller.get.get_entity_links(
+                "PlaylistTracks", playlist_id=playlist_id
+            )
+            next_position = max((t.position for t in existing), default=0) + 1
+            added = 0
+            for track_id in track_ids:
+                if self.controller.get.get_entity_links(
+                    "PlaylistTracks", playlist_id=playlist_id, track_id=int(track_id)
+                ):
+                    continue
+                if self.controller.add.add_entity_link(
+                    "PlaylistTracks",
+                    playlist_id=playlist_id,
+                    track_id=int(track_id),
+                    position=next_position,
+                ):
+                    added += 1
+                    next_position += 1
+            logger.info(f"Added {added} track(s) to playlist {playlist_id}")
+        except (SQLAlchemyError, ValueError) as e:
+            logger.error(f"Error adding tracks to playlist: {e}")
 
     def add_to_mood(self):
         action = self.sender()
