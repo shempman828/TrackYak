@@ -118,7 +118,7 @@ fit slowly pans back and forth rather than wrapping or getting clipped. If
 the album has a subtitle set (e.g. "Deluxe Edition"), it appears on its own
 faint line just below the album name; albums without one show nothing there.
 
-Below that, two tabs: **Lyrics** shows synced, karaoke-style lyrics if the
+Below that, three tabs: **Lyrics** shows synced, karaoke-style lyrics if the
 track has them — the current line highlights as it plays, with the next few
 lines previewed beneath it, each fainter than the one above so you can see
 what's coming without losing the current line. A taller window fits more
@@ -136,6 +136,12 @@ on **Credits**.
 Press `Ctrl+Shift+F` to drop into **cinema mode**, which hides the menu bar
 and every dock so this view fills the whole window — press it again to bring
 everything back exactly how it was.
+
+Press `Ctrl+Shift++` to toggle **auto-cycle**, which rotates the tab pane
+(Lyrics → Credits → About → repeat) on its own every few seconds so you can
+leave the view running hands-off — pair it with cinema mode for a full-screen
+display. Disabled tabs (e.g. Lyrics on an instrumental track) are skipped, and
+pressing it again stops the rotation on whatever tab is showing.
 
 ## Albums
 

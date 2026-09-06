@@ -44,6 +44,9 @@ from src.nowplaying.nowplaying_marquee import FadedScrollArea, MarqueeLabel
 # Debounce delay (ms) before persisting the sync-offset slider to config.
 _OFFSET_DEBOUNCE_MS = 600
 
+# Dwell time (ms) per tab when auto-cycle mode is running (Ctrl+Shift++).
+_AUTO_CYCLE_DWELL_MS = 8000
+
 # Tab and toggle button visuals live in themes/dark_mode.qss under the
 # [npTab="true"] / [npToggle="true"] / [active=...] selectors — see _set_active().
 
@@ -137,6 +140,12 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         # Cinema mode state
         self._cinema_mode = False
 
+        # Auto-cycle mode state — rotates the right-hand tab stack on a timer.
+        self._auto_cycle = False
+        self._auto_cycle_timer = QTimer(self)
+        self._auto_cycle_timer.setInterval(_AUTO_CYCLE_DWELL_MS)
+        self._auto_cycle_timer.timeout.connect(self._advance_auto_cycle)
+
         # Art slideshow state
         self._art_images: list[tuple[QPixmap, bool, str | None]] = []
         self._art_has_front: bool = False
@@ -152,6 +161,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
         self._initUI()
         self._setup_cinema_shortcut()
+        self._setup_auto_cycle_shortcut()
 
         try:
             self.controller.mediaplayer.position_changed.connect(self._on_position_changed)
@@ -205,6 +215,47 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
                     main_win.set_queue_visible(getattr(self, "_pre_cinema_queue_visible", False))
         except RuntimeError as exc:
             logger.warning(f"toggle_cinema_mode: {exc}")
+
+    # ── auto-cycle mode ──────────────────────────────────────────────────
+
+    @property
+    def auto_cycle(self) -> bool:
+        return self._auto_cycle
+
+    def _setup_auto_cycle_shortcut(self):
+        """Register Ctrl+Shift++ to toggle auto-cycling of the tab stack."""
+        self._auto_cycle_shortcut = QShortcut(QKeySequence("Ctrl+Shift++"), self)
+        self._auto_cycle_shortcut.setContext(Qt.ApplicationShortcut)
+        self._auto_cycle_shortcut.activated.connect(self.toggle_auto_cycle)
+
+    def toggle_auto_cycle(self):
+        """Start/stop rotating the right-hand tab stack on a timer.
+
+        Turning it off leaves the current tab in place — it only stops the
+        rotation, it doesn't snap back.
+        """
+        self._auto_cycle = not self._auto_cycle
+        if self._auto_cycle:
+            self._auto_cycle_timer.start()
+        else:
+            self._auto_cycle_timer.stop()
+        logger.info(f"NowPlayingView auto-cycle: {'on' if self._auto_cycle else 'off'}")
+
+    def _advance_auto_cycle(self):
+        """Switch to the next enabled tab, wrapping past the last one.
+
+        No-op when fewer than two tabs are enabled (e.g. only CREDITS on an
+        instrumental track), so the view doesn't thrash a single pane.
+        """
+        count = len(self._tabs)
+        start = self._stack.currentIndex()
+        for step in range(1, count + 1):
+            nxt = (start + step) % count
+            if nxt == start:
+                break
+            if self._tabs[nxt].button.isEnabled():
+                self._switch_tab(nxt)
+                return
 
     # ── build UI ──────────────────────────────────────────────────────────
 
