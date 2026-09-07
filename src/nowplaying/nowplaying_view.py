@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 import traceback
 
-from PySide6.QtCore import QPropertyAnimation, QRect, Qt, QTimer
+from PySide6.QtCore import QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
@@ -132,9 +132,17 @@ class _AdaptiveTitle(QWidget):
     def _line_count(self, text: str, width: int) -> int:
         if width <= 0:
             return 1
-        fm = QFontMetrics(self._font)
-        rect = fm.boundingRect(QRect(0, 0, width, 100_000), Qt.TextWordWrap, text)
-        return max(1, round(rect.height() / fm.lineSpacing()))
+        # Measure with the label that will actually paint the title. Its
+        # QTextLayout-based word-wrap can pick a different break point than
+        # QFontMetrics.boundingRect's predictor, and whenever the predictor came
+        # out one line pessimistic ``_apply_layout`` reserved a blank trailing
+        # row. ``heightForWidth`` is the real render path, so it cannot disagree
+        # with what gets drawn.
+        self._wrap.setText(text)
+        h = self._wrap.heightForWidth(width)
+        if h <= 0:
+            return 1
+        return max(1, round(h / QFontMetrics(self._font).lineSpacing()))
 
     def _apply_layout(self):
         width = self._avail_width()

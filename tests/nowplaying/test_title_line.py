@@ -92,6 +92,39 @@ def test_line_count_single_word_is_one(title):
     assert title._line_count("Hi", 400) == 1
 
 
+def test_wrap_reserves_no_blank_row(title):
+    """Regression: the wrapped title must reserve exactly the rows it renders.
+
+    ``_line_count`` used to predict wrapping with ``QFontMetrics.boundingRect``,
+    whose break points can drift a line past what the ``QLabel`` actually draws;
+    ``_apply_layout`` then pinned ``_wrap`` a whole line too tall, leaving a
+    blank row under short titles.
+    """
+    from PySide6.QtGui import QFontMetrics
+
+    ls = QFontMetrics(NowPlayingView._TITLE_FONT).lineSpacing()
+    titles = [
+        "So What",
+        "A Love Supreme, Pt. I - Acknowledgement",
+        "Concerto for Group and Orchestra: Third Movement",
+        "While My Guitar Gently Weeps",
+        "Sing, Sing, Sing (With a Swing)",
+        "Blue in Green",
+    ]
+    for text in titles:
+        for width in range(280, 640, 8):
+            title.resize(width, 300)
+            title.set_text(text)
+            if title._wrap.isHidden():
+                continue
+            reserved = title._wrap.height()
+            rendered = title._wrap.heightForWidth(title._avail_width())
+            assert abs(reserved - rendered) < ls * 0.5, (
+                f"{text!r} @ {width}px: reserved {reserved}px for a title that "
+                f"renders in {rendered}px"
+            )
+
+
 def test_switching_back_to_short_title_restores_wrap(title, monkeypatch):
     monkeypatch.setattr(title, "_line_count", lambda *a: 5)
     title.set_text("way too long")
