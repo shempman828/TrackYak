@@ -39,17 +39,20 @@ class PublisherFuzzyMatchDialog(BaseFuzzyMatchDialog):
     @staticmethod
     def _display_name(name: str) -> str:
         """Elide overly long publisher names so one long name can't blow out
-        the column width every row's radio buttons align to."""
-        if len(name) <= _MAX_NAME_CHARS:
-            return name
-        return name[: _MAX_NAME_CHARS - 1].rstrip() + "…"
+        the column width every row's radio buttons align to, and escape '&'
+        so Qt doesn't eat it as a mnemonic prefix in the radio-button text."""
+        name = name or ""
+        if len(name) > _MAX_NAME_CHARS:
+            name = name[: _MAX_NAME_CHARS - 1].rstrip() + "…"
+        return name.replace("&", "&&")
 
     def init_ui(self) -> None:
         layout = QVBoxLayout(self)
 
         # Instructions
         lbl_instructions = QLabel(
-            "✔ Check pairs to merge | 🅐🅑 Select which publisher to keep | ✖ Leave unchecked to ignore"
+            "✔ Check pairs to merge | 🅐🅑 Select which publisher to keep "
+            "| ✖ Leave unchecked to ignore"
         )
         layout.addWidget(lbl_instructions)
 

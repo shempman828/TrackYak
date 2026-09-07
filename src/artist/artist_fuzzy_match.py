@@ -25,6 +25,11 @@ from src.foundation.logger_config import logger
 _PUNCT_RE = re.compile(r"[^\w\s]")
 
 
+def _esc_amp(text: str) -> str:
+    """Escape '&' so Qt doesn't treat it as a mnemonic prefix in button text."""
+    return (text or "").replace("&", "&&")
+
+
 def _normalise(text: str) -> str:
     """Lowercase, strip punctuation, collapse whitespace."""
     text = (text or "").lower()
@@ -59,7 +64,7 @@ def _tokens_match_with_initials(tokens_a: list, tokens_b: list) -> bool:
     initial that the other side starts with (e.g. "j" vs "john")."""
     if not tokens_a or len(tokens_a) != len(tokens_b):
         return False
-    for a, b in zip(tokens_a, tokens_b):
+    for a, b in zip(tokens_a, tokens_b, strict=True):
         if a == b:
             continue
         if len(a) == 1 and b.startswith(a):
@@ -243,9 +248,13 @@ class FuzzyMatchDialog(BaseFuzzyMatchDialog):
             # credits) is shown alongside each name since it's the strongest
             # signal for which spelling is the canonical one -- e.g. "Lew"
             # with 63 credits vs. "Lewis" with 2 suggests "Lewis" is the typo.
-            radio_a = QRadioButton(f"{artist_a.artist_name} ({artist_a.role_count} roles)")
+            radio_a = QRadioButton(
+                f"{_esc_amp(artist_a.artist_name)} ({artist_a.role_count} roles)"
+            )
             radio_a.entity = artist_a
-            radio_b = QRadioButton(f"{artist_b.artist_name} ({artist_b.role_count} roles)")
+            radio_b = QRadioButton(
+                f"{_esc_amp(artist_b.artist_name)} ({artist_b.role_count} roles)"
+            )
             radio_b.entity = artist_b
             radio_a.setChecked(True)  # Default to first artist
 
