@@ -800,6 +800,64 @@ def _sync_all(sync_manager, items, dest, **kw):
         sync_manager.sync_playlist_to_device(it, str(dest), **kw)
 
 
+# ---------------------------------------------------------------------------
+# Cross-playlist dedup: a track shared by several selected playlists/moods is
+# copied once per sync run (begin_sync_run), not once per playlist.
+# ---------------------------------------------------------------------------
+
+
+def test_track_shared_by_two_playlists_is_copied_once_per_run(tmp_path, sync_manager, monkeypatch):
+    src = tmp_path / "src"
+    src.mkdir()
+    shared = _prune_track(src, "Shared")
+    by_name = {"P": [shared, _prune_track(src, "OnlyP")], "Q": [shared, _prune_track(src, "OnlyQ")]}
+    monkeypatch.setattr(
+        sync_manager, "get_item_tracks", lambda it: [dict(t) for t in by_name[it["name"]]]
+    )
+
+    copies: list[str] = []
+    real_copy = sync_manager.copy_track
+    monkeypatch.setattr(
+        sync_manager, "copy_track", lambda s, d: copies.append(Path(d).name) or real_copy(s, d)
+    )
+
+    dest = tmp_path / "dev"
+    P = {"kind": "playlist", "name": "P", "playlist_id": 1}
+    Q = {"kind": "playlist", "name": "Q", "playlist_id": 2}
+
+    sync_manager.begin_sync_run()
+    sync_manager.sync_playlist_to_device(P, str(dest))
+    res_q = sync_manager.sync_playlist_to_device(Q, str(dest))
+
+    # The shared file is copied exactly once across the whole run.
+    assert copies.count("Artist - Shared.mp3") == 1
+    assert res_q["tracks_copied"] == 1  # only OnlyQ
+    assert res_q["tracks_skipped"] == 1  # Shared, recognised from playlist P
+    # Both playlists still list the shared track in their own M3U.
+    for name in ("P", "Q"):
+        assert "Artist - Shared.mp3" in (dest / "playlists" / f"{name}.m3u").read_text()
+
+
+def test_begin_sync_run_resets_cross_playlist_dedup(tmp_path, sync_manager, monkeypatch):
+    src = tmp_path / "src"
+    src.mkdir()
+    shared = _prune_track(src, "Shared")
+    monkeypatch.setattr(sync_manager, "get_item_tracks", lambda it: [dict(shared)])
+    dest = tmp_path / "dev"
+    pl = {"kind": "playlist", "name": "P", "playlist_id": 1}
+    landed = dest / "music" / "Artist - Shared.mp3"
+
+    sync_manager.begin_sync_run()
+    sync_manager.sync_playlist_to_device(pl, str(dest))
+    assert landed.exists()
+    landed.unlink()  # device wiped between runs
+
+    sync_manager.begin_sync_run()
+    res = sync_manager.sync_playlist_to_device(pl, str(dest))
+    assert landed.exists()  # re-copied because the run set was reset
+    assert res["tracks_copied"] == 1
+
+
 def test_prune_removes_files_and_m3u_for_untracked_playlist(  # AC1
     tmp_path, sync_manager, monkeypatch
 ):

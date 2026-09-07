@@ -42,6 +42,9 @@ class SyncWorker(CancellableWorker):
                     self.sync_manager.clear_device_folder(profile.path)
 
             # ── Sync each playlist ──────────────────────────────────────────
+            # Reset cross-playlist dedup so a track shared by several selected
+            # playlists/moods is transcoded and copied once per run.
+            self.sync_manager.begin_sync_run()
             total = len(self.playlists)
             for i, playlist in enumerate(self.playlists):
                 if self.is_cancelled:

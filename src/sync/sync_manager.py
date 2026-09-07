@@ -72,6 +72,45 @@ class SyncManager:
         self.get_db = GetFromDB(db_session)
         self.mtp = MtpManager()
         self.transcode_cache = TranscodeCache()
+        # Device filenames copied (or confirmed already present) so far in the
+        # current sync run. A track shared by several selected playlists/moods
+        # is transcoded, diffed and copied for the first playlist that carries
+        # it; every later playlist recognises it here and drops straight into
+        # its M3U. Reset per run by begin_sync_run().
+        self._run_synced_names: set[str] = set()
+
+    def begin_sync_run(self) -> None:
+        """Clear per-run cross-playlist dedup state. SyncWorker calls this once
+        before the first playlist, so a fresh run still re-checks what is
+        physically on the device while a track shared across the selected
+        playlists is only processed once within the run."""
+        self._run_synced_names = set()
+
+    def _split_run_duplicates(
+        self, tracks: list[dict], transcode_active: bool
+    ) -> tuple[list[dict], list[dict]]:
+        """Partition `tracks` into (already_synced, fresh): a track whose
+        predicted on-device filename was already handled earlier in this run
+        goes to `already_synced` with device_filename / copied_successfully
+        set, and skips the transcode + diff + copy passes entirely."""
+        already_synced: list[dict] = []
+        fresh: list[dict] = []
+        for track in tracks:
+            name = self._predicted_device_filename(track, transcode_active)
+            if name in self._run_synced_names:
+                track["device_filename"] = name
+                track["copied_successfully"] = True
+                already_synced.append(track)
+            else:
+                fresh.append(track)
+        return already_synced, fresh
+
+    def _remember_synced(self, tracks: list[dict]) -> None:
+        """Record the device filenames confirmed on the device this run."""
+        for track in tracks:
+            name = track.get("device_filename")
+            if name:
+                self._run_synced_names.add(name)
 
     # ------------------------------------------------------------------
     # Database helpers
@@ -703,11 +742,13 @@ class SyncManager:
         total_tracks = len(tracks)
         failures: list[dict] = []
         ffmpeg_missing = transcode_to_mp3 and not ffmpeg_available()
-        if transcode_to_mp3 and not ffmpeg_missing:
+        transcode_active = transcode_to_mp3 and not ffmpeg_missing
+        already_synced, fresh = self._split_run_duplicates(tracks, transcode_active)
+        if transcode_active:
             self._prepare_transcodes(
-                tracks, failures, progress_callback, total_tracks, should_cancel, transcode_bitrate
+                fresh, failures, progress_callback, total_tracks, should_cancel, transcode_bitrate
             )
-        to_copy, to_skip = self._diff_local_pool(tracks, music_dir, failures)
+        to_copy, to_skip = self._diff_local_pool(fresh, music_dir, failures)
         for track in to_skip:
             track["copied_successfully"] = True
 
@@ -735,9 +776,11 @@ class SyncManager:
         for track in failed:
             self._record_failure(failures, track, track.get("failure_reason", "unknown error"))
 
-        processed_tracks = to_skip + succeeded + failed
+        self._remember_synced(to_skip + succeeded)
+
+        processed_tracks = already_synced + to_skip + succeeded + failed
         tracks_copied = len(succeeded)
-        tracks_skipped = len(to_skip)
+        tracks_skipped = len(to_skip) + len(already_synced)
         tracks_failed = len(failures)
         tracks_transcoded = sum(1 for t in succeeded if t.get("sync_source_path"))
 
@@ -841,11 +884,13 @@ class SyncManager:
         total_tracks = len(tracks)
         failures: list[dict] = []
         ffmpeg_missing = transcode_to_mp3 and not ffmpeg_available()
-        if transcode_to_mp3 and not ffmpeg_missing:
+        transcode_active = transcode_to_mp3 and not ffmpeg_missing
+        already_synced, fresh = self._split_run_duplicates(tracks, transcode_active)
+        if transcode_active:
             self._prepare_transcodes(
-                tracks, failures, progress_callback, total_tracks, should_cancel, transcode_bitrate
+                fresh, failures, progress_callback, total_tracks, should_cancel, transcode_bitrate
             )
-        to_copy, to_skip = self._diff_mtp_pool(tracks, device, music_dir_uri, failures)
+        to_copy, to_skip = self._diff_mtp_pool(fresh, device, music_dir_uri, failures)
         for track in to_skip:
             track["copied_successfully"] = True
 
@@ -873,9 +918,11 @@ class SyncManager:
         for track in failed:
             self._record_failure(failures, track, track.get("failure_reason", "unknown error"))
 
-        processed_tracks = to_skip + succeeded + failed
+        self._remember_synced(to_skip + succeeded)
+
+        processed_tracks = already_synced + to_skip + succeeded + failed
         tracks_copied = len(succeeded)
-        tracks_skipped = len(to_skip)
+        tracks_skipped = len(to_skip) + len(already_synced)
         tracks_failed = len(failures)
         tracks_transcoded = sum(1 for t in succeeded if t.get("sync_source_path"))
 
