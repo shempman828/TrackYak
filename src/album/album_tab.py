@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 from src.album.album_flowlayout import FlowLayout
 from src.common.entity_completer_context import artist_context_map
 from src.common.entity_completer_edit import build_entity_search_widget
+from src.common.qt_text import esc_amp
 from src.foundation.display_settings import apply_scaled_style
 from src.foundation.logger_config import logger
 from src.track.track_edit_places import PlacesTab as TrackPlacesTab
@@ -432,7 +433,7 @@ class AlbumTabBuilder:
 
         for role_name in ordered_role_names:
             artist_tuples = roles_by_type[role_name]
-            role_group = QGroupBox(role_name)
+            role_group = QGroupBox(esc_amp(role_name))
             role_group.setFont(small_font)  # ← shrinks the group title
             # QVBoxLayout stretches child widgets to the full available width
             # by default, so with only a couple of roles each QGroupBox was

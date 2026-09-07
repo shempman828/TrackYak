@@ -16,6 +16,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.qt_text import esc_amp
 from src.foundation.logger_config import logger
 
 # Guard against a self-referential parent_id chain sending us infinitely deep.
@@ -129,13 +130,16 @@ def populate_entity_submenu(
         for entity in children_map.get(parent_id, []):
             entity_id = getattr(entity, id_attr)
             name = getattr(entity, name_attr, "") or ""
+            # Escape for display: QMenu titles and QAction text treat a lone
+            # '&' as a mnemonic prefix and would otherwise eat it.
+            disp = esc_amp(name)
             if children_map.get(entity_id):
-                branch = QMenu(name, parent_menu)
+                branch = QMenu(disp, parent_menu)
                 build_level(branch, entity_id, depth + 1)
                 branch.addSeparator()
-                branch.addAction(make_action(branch, entity, label=f"Add to '{name}'"))
+                branch.addAction(make_action(branch, entity, label=f"Add to '{disp}'"))
                 parent_menu.addMenu(branch)
             else:
-                parent_menu.addAction(make_action(parent_menu, entity, label=name))
+                parent_menu.addAction(make_action(parent_menu, entity, label=disp))
 
     build_level(submenu, None)

@@ -88,3 +88,16 @@ def test_resolve_artist_with_matched_id_bypasses_name_lookup(controller):
     artist = RolesTab._resolve_artist(tab, "irrelevant text", matched_id=existing.artist_id)
 
     assert artist.artist_id == existing.artist_id
+
+
+def test_role_chip_label_escapes_ampersand(qapp):
+    """A role name like "R&B" goes straight into a QPushButton chip; Qt would
+    eat the lone '&' as a mnemonic prefix, so it must be doubled."""
+    from PySide6.QtWidgets import QPushButton
+
+    tab = SimpleNamespace(_sorted_roles=RolesTab._sorted_roles, _on_convert_to_album=None)
+    cell = RolesTab._build_roles_cell(tab, artist_id=1, artist_name="Nina Simone", roles={7: "R&B"})
+
+    chips = [w.text() for w in cell.findChildren(QPushButton)]
+    assert any(t.startswith("R&&B") for t in chips)
+    assert not any(t.startswith("R&B ") or t == "R&B" for t in chips)

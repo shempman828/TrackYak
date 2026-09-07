@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.fuzzy_match_dialog import BaseFuzzyMatchDialog
+from src.common.qt_text import esc_amp
 from src.foundation.status_utility import show_status_message
 
 # Longest a publisher name is allowed to render in the match list before
@@ -44,7 +45,7 @@ class PublisherFuzzyMatchDialog(BaseFuzzyMatchDialog):
         name = name or ""
         if len(name) > _MAX_NAME_CHARS:
             name = name[: _MAX_NAME_CHARS - 1].rstrip() + "…"
-        return name.replace("&", "&&")
+        return esc_amp(name)
 
     def init_ui(self) -> None:
         layout = QVBoxLayout(self)

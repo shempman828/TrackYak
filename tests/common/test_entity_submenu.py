@@ -213,3 +213,32 @@ def test_selection_membership_playlists(qapp, session):
     full, partial = selection_membership([t1, t2], "playlists", "playlist_id")
     assert full == set()
     assert partial == {p.playlist_id}
+
+
+def test_ampersand_in_entity_name_is_not_eaten_as_a_mnemonic(qapp, session):
+    """A '&' in a playlist/mood name is a Qt mnemonic prefix in QMenu titles
+    and QAction text -- the builder must double it so "Rhythm & Blues" and
+    "R&B" render intact both as a leaf action and as a nested submenu."""
+    parent = Playlist(playlist_name="Rhythm & Blues")
+    session.add(parent)
+    session.flush()
+    session.add_all(
+        [
+            Playlist(playlist_name="R&B", parent_id=parent.playlist_id),
+            Playlist(playlist_name="Doo & Wop", parent_id=parent.playlist_id),
+        ]
+    )
+    session.commit()
+
+    menu = QMenu()
+    populate_entity_submenu(
+        menu, controller=_Controller(session), entity_type="Playlist", on_trigger=lambda *_: None
+    )
+
+    # Nested submenu title keeps the ampersand (doubled form in .text()).
+    branch = _submenu(menu, "Rhythm && Blues")
+    assert [text for text, *_ in _rows(branch)] == [
+        "Doo && Wop",
+        "R&&B",
+        "Add to 'Rhythm && Blues'",
+    ]

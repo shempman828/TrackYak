@@ -25,6 +25,7 @@ from src.artist.artist_resolution import resolve_or_create_artist
 from src.common.credited_as_dialog import CreditedAsDialog
 from src.common.entity_completer_context import artist_context_map
 from src.common.entity_completer_edit import build_entity_search_widget, register_cached_entity
+from src.common.qt_text import esc_amp
 from src.db.db_tables import Artist, ArtistAlias, Role, TrackArtistRole
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
@@ -591,7 +592,7 @@ class RolesTab(_BaseTab):
         row_layout = _FlowLayout(cell, margin=4, h_spacing=6, v_spacing=4)
 
         for role_id, role_name in self._sorted_roles(roles):
-            chip = QPushButton(f"{role_name}  \u00d7")
+            chip = QPushButton(f"{esc_amp(role_name)}  \u00d7")
             chip.setFlat(True)
             chip.setProperty("class", "roleChip")
             chip.setToolTip(f"Remove '{role_name}' from {artist_name}")

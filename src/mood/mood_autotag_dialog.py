@@ -51,6 +51,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.album_flowlayout import FlowLayout
 from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
+from src.common.qt_text import esc_amp
 from src.foundation.asset_paths import asset
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
@@ -522,7 +523,7 @@ class MoodAutoTagDialog(QDialog):
         flow = FlowLayout(cell, margin=4, h_spacing=6, v_spacing=4)
 
         for mood_name in moods:
-            chip = QPushButton(f"{mood_name}  x")
+            chip = QPushButton(f"{esc_amp(mood_name)}  x")
             chip.setFlat(True)
             chip.setProperty("class", "moodChip")
             chip.setToolTip(f"Remove '{mood_name}' from '{word}'")

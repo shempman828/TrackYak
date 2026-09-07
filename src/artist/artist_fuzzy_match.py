@@ -20,14 +20,10 @@ from PySide6.QtWidgets import (
 
 from src.common.cancellable_worker import CancellableWorker
 from src.common.fuzzy_match_dialog import BaseFuzzyMatchDialog
+from src.common.qt_text import esc_amp as _esc_amp
 from src.foundation.logger_config import logger
 
 _PUNCT_RE = re.compile(r"[^\w\s]")
-
-
-def _esc_amp(text: str) -> str:
-    """Escape '&' so Qt doesn't treat it as a mnemonic prefix in button text."""
-    return (text or "").replace("&", "&&")
 
 
 def _normalise(text: str) -> str:

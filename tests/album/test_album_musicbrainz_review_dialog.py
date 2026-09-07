@@ -20,6 +20,7 @@ from src.musicbrainz.musicbrainz_release import (
     MBLabelInfo,
     MBReleaseDetail,
     MBReleaseTrack,
+    MBTrackCredit,
 )
 
 
@@ -204,11 +205,7 @@ def test_unmatched_table_marks_error_row_confidence_text(qapp):
 
     assert dialog._guaranteed_missing == 1
 
-    table = next(
-        w
-        for w in dialog.findChildren(object)
-        if w.__class__.__name__ == "QTableWidget"
-    )
+    table = next(w for w in dialog.findChildren(object) if w.__class__.__name__ == "QTableWidget")
     conf_item = table.item(0, 2)
     assert "ERROR" in conf_item.text()
 
@@ -223,10 +220,7 @@ def test_publisher_section_shown_for_new_label(qapp):
     detail.labels = [_label()]
 
     dialog = AlbumMusicBrainzReviewDialog(
-        controller=SimpleNamespace(),
-        album=_album(local_tracks),
-        detail=detail,
-        aliases=[],
+        controller=SimpleNamespace(), album=_album(local_tracks), detail=detail, aliases=[]
     )
 
     assert len(dialog._label_checks) == 1
@@ -238,15 +232,10 @@ def test_publisher_section_shown_for_new_label(qapp):
 def test_publisher_section_shows_founders(qapp):
     local_tracks = [_local_track(1, 1, "Track 1")]
     detail = _detail([_mb_track(1, "Track 1")])
-    detail.labels = [
-        _label(founders=[MBFounderRelation(mbid="a-1", name="Ahmet Ertegun")])
-    ]
+    detail.labels = [_label(founders=[MBFounderRelation(mbid="a-1", name="Ahmet Ertegun")])]
 
     dialog = AlbumMusicBrainzReviewDialog(
-        controller=SimpleNamespace(),
-        album=_album(local_tracks),
-        detail=detail,
-        aliases=[],
+        controller=SimpleNamespace(), album=_album(local_tracks), detail=detail, aliases=[]
     )
 
     cb, _label_obj = dialog._label_checks[0]
@@ -270,3 +259,21 @@ def test_publisher_already_linked_by_mbid_is_not_shown_again(qapp):
     )
 
     assert dialog._label_checks == []
+
+
+def test_ampersand_in_credit_is_not_eaten_as_a_mnemonic(qapp):
+    """Album-credit checkboxes take raw MB artist/role names; a '&' there is
+    a Qt mnemonic prefix and must be doubled so "Simon & Garfunkel" / "R&B"
+    render intact rather than as "Simon  Garfunkel" / "RB"."""
+    local_tracks = [_local_track(1, 1, "Track 1")]
+    detail = _detail([_mb_track(1, "Track 1")])
+    detail.credits = [
+        MBTrackCredit(artist_mbid="a-1", artist_name="Simon & Garfunkel", role_name="R&B")
+    ]
+
+    dialog = AlbumMusicBrainzReviewDialog(
+        controller=SimpleNamespace(), album=_album(local_tracks), detail=detail, aliases=[]
+    )
+
+    cb, _credit = dialog._album_credit_checks[0]
+    assert cb.text() == "Simon && Garfunkel — R&&B"

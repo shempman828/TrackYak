@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.album.album_flowlayout import FlowLayout
 from src.artist.artist_type_manager import ArtistTypeManagerDialog
 from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
+from src.common.qt_text import esc_amp
 from src.foundation.logger_config import logger
 
 
@@ -179,7 +180,7 @@ class ArtistTypesWidget(QWidget):
         QTimer.singleShot(0, QApplication.processEvents)
 
     def _add_chip(self, artist_type_id, type_name):
-        chip = QPushButton(f"{type_name}  ×")
+        chip = QPushButton(f"{esc_amp(type_name)}  \u00d7")
         chip.setFlat(True)
         chip.setProperty("class", "typeChip")
         chip.setToolTip(f"Remove '{type_name}'")

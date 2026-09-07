@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_fuzzy_match import FuzzyMatchDialog, _blocking_keys, artist_name_similarity
+from src.common.qt_text import esc_amp
 from src.foundation.logger_config import logger
 from src.musicbrainz.musicbrainz_artist import MBAlias, MBArtistRelations, MBGroupRelation
 from src.place.place_association_types import (
@@ -95,7 +96,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
         """Fuzzy-match each usable alias against every *other* local artist
         name, to catch near-duplicates (punctuation, spelling, spacing)
         that `_usable_aliases()`'s exact-match check lets through -- e.g. an
-        alias of "Guns N´ Roses" wouldn't exact-match a local "Guns N Roses"
+        alias of "Guns N' Roses" wouldn't exact-match a local "Guns N Roses"
         but is almost certainly the same artist. Uses the same blocking
         strategy as ArtistFuzzyMatchWorker (`_blocking_keys`) so this stays
         cheap even with tens of thousands of local artists.
@@ -209,7 +210,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
             box_layout = QVBoxLayout(box)
             for alias in aliases:
                 label = f"{alias.name} ({alias.type})" if alias.type else alias.name
-                cb = QCheckBox(label)
+                cb = QCheckBox(esc_amp(label))
                 cb.setChecked(True)
                 box_layout.addWidget(cb)
                 self._alias_checks.append((cb, alias))
@@ -227,7 +228,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
                     box_layout.addWidget(warning)
 
                     merge_btn = QPushButton(
-                        f"Review possible merge with '{match_artist.artist_name}'…"
+                        f"Review possible merge with '{esc_amp(match_artist.artist_name)}'…"
                     )
                     merge_btn.setObjectName("MergeCandidateButton")
                     merge_btn.clicked.connect(
@@ -253,7 +254,7 @@ class ArtistEnrichmentReviewDialog(QDialog):
             box = QGroupBox("Places")
             box_layout = QVBoxLayout(box)
             for assoc_type, place_name, chain in place_rows:
-                cb = QCheckBox(f"{assoc_type}: {place_name}")
+                cb = QCheckBox(f"{assoc_type}: {esc_amp(place_name)}")
                 cb.setChecked(True)
                 box_layout.addWidget(cb)
                 if assoc_type == self._birth_assoc_type:
@@ -272,9 +273,9 @@ class ArtistEnrichmentReviewDialog(QDialog):
                 span = ""
                 if rel.begin_year or rel.end_year:
                     end = "present" if rel.is_current else (rel.end_year or "?")
-                    span = f" ({rel.begin_year or '?'}–{end})"
-                role_bit = f" — {rel.role}" if rel.role else ""
-                cb = QCheckBox(f"{counterpart.artist_name}{role_bit}{span}")
+                    span = f" ({rel.begin_year or '?'}\u2013{end})"
+                role_bit = f" — {esc_amp(rel.role)}" if rel.role else ""
+                cb = QCheckBox(f"{esc_amp(counterpart.artist_name)}{role_bit}{span}")
                 cb.setChecked(True)
                 box_layout.addWidget(cb)
                 self._member_checks.append((cb, rel, counterpart))

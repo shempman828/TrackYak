@@ -11,7 +11,6 @@ from src.artist.artist_fuzzy_match import (
     ArtistFuzzyMatchWorker,
     FuzzyMatchDialog,
     _blocking_keys,
-    _esc_amp,
     _tokens_match_with_initials,
     artist_name_similarity,
 )
@@ -107,17 +106,10 @@ def test_identical_mbid_pair_is_still_suggested(qapp):
 # ---- test_artist_fuzzy_match_ampersand.py ----------------------------------
 # Regression test: the "Merge Artists" dialog put raw artist names straight
 # into QRadioButton text, so Qt consumed the '&' as a mnemonic prefix and a
-# name like "Simon & Garfunkel" rendered as "Simon  Garfunkel".
+# name like "Simon & Garfunkel" rendered as "Simon  Garfunkel". (The esc_amp
+# helper itself is unit-tested in tests/common/test_qt_text.py.)
 def _named_artist(artist_id, name):
     return SimpleNamespace(artist_id=artist_id, artist_name=name, role_count=1, MBID=None)
-
-
-def test_esc_amp_doubles_ampersands():
-    assert _esc_amp("Simon & Garfunkel") == "Simon && Garfunkel"
-
-
-def test_esc_amp_handles_none():
-    assert _esc_amp(None) == ""
 
 
 def test_merge_dialog_radio_text_keeps_ampersand(qapp):

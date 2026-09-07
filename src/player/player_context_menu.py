@@ -6,6 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.album.base_album_edit import AlbumEditor
 from src.artist.artist_edit import ArtistEditor
 from src.common.entity_submenu import populate_entity_submenu
+from src.common.qt_text import esc_amp
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import StatusManager, show_status_message
 from src.lyrics.lyrics_format import format_lyrics_for_storage
@@ -271,7 +272,7 @@ class PlayerContextMenuMixin:
 
             for artist in primary_artists:
                 artist_name = getattr(artist, "artist_name", "Unknown Artist")
-                action = QAction(artist_name, submenu)
+                action = QAction(esc_amp(artist_name), submenu)
                 action.setData(getattr(artist, "artist_id", None))
                 action.triggered.connect(self._context_edit_artist)
                 submenu.addAction(action)

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.common.layout_utils import clear_layout
+from src.common.qt_text import esc_amp
 
 # Cap the dropdown's collapsed-button width so it stays compact in a filter
 # bar instead of stretching to fill all available horizontal space.
@@ -117,7 +118,7 @@ class MultiSelectWidget(QWidget):
 
         # Add checkboxes for each item
         for item in items:
-            checkbox = QCheckBox(item)
+            checkbox = QCheckBox(esc_amp(item))
             checkbox.setChecked(default_selected)
             checkbox.stateChanged.connect(lambda state, i=item: self.on_checkbox_changed(i, state))
             self.popup.content_layout.addWidget(checkbox)

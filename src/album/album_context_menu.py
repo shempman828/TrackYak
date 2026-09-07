@@ -5,6 +5,7 @@ from src.album.album_delete_dialog import DeleteEmptyAlbumsDialog
 from src.album.album_merge import AlbumMerge
 from src.album.album_new import NewAlbumDialog
 from src.album.base_album_widget import AlbumWidget
+from src.common.qt_text import esc_amp
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 
@@ -26,7 +27,7 @@ class AlbumContextMenuMixin:
     def _show_context_menu(self, position):
         menu = QMenu(self)
 
-        new_action = menu.addAction("➕ New Album…")
+        new_action = menu.addAction("➕ New Album…")  # noqa: RUF001
         new_action.triggered.connect(self._create_new_album)
 
         menu.addSeparator()
@@ -46,13 +47,15 @@ class AlbumContextMenuMixin:
             menu.addSeparator()
 
             # --- Merge submenu ---
-            merge_menu = menu.addMenu(f"🔀 Merge {getattr(album, 'album_name', 'Album')}…")
+            merge_menu = menu.addMenu(f"🔀 Merge {esc_amp(getattr(album, 'album_name', 'Album'))}…")
             merge_this_action = merge_menu.addAction("Merge this album into another…")
             merge_this_action.triggered.connect(lambda: self._merge_album(album))
 
             menu.addSeparator()
 
-            delete_action = menu.addAction(f"🗑 Delete {getattr(album, 'album_name', 'Album')}")
+            delete_action = menu.addAction(
+                f"🗑 Delete {esc_amp(getattr(album, 'album_name', 'Album'))}"
+            )
             delete_action.triggered.connect(lambda: self._delete_album(album))
             menu.addSeparator()
 

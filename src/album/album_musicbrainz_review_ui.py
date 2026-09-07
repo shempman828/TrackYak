@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 from src.album.album_musicbrainz_review_import import _format_mb_track_label
 from src.album.album_musicbrainz_track_matching import _SKIP
 from src.common.match_confidence import confidence_color, confidence_label
+from src.common.qt_text import esc_amp
 from src.musicbrainz.musicbrainz_artist import MBAlias
 from src.musicbrainz.musicbrainz_release import MBLabelInfo
 
@@ -125,7 +126,8 @@ class AlbumMusicBrainzReviewUIMixin:
                 for local in self._remaining_local_options:
                     local_side = f", side {local.side}" if local.side else ""
                     combo.addItem(
-                        f"{local.track_name} (currently track {local.track_number or '?'}{local_side})",
+                        f"{local.track_name} (currently track "
+                        f"{local.track_number or '?'}{local_side})",
                         local,
                     )
                 guess = self._guesses.get(id(mbt))
@@ -176,7 +178,7 @@ class AlbumMusicBrainzReviewUIMixin:
             box_layout = QVBoxLayout(box)
             for alias in aliases:
                 label = f"{alias.name} ({alias.type})" if alias.type else alias.name
-                cb = QCheckBox(label)
+                cb = QCheckBox(esc_amp(label))
                 cb.setChecked(True)
                 box_layout.addWidget(cb)
                 self._alias_checks.append((cb, alias))
@@ -187,7 +189,7 @@ class AlbumMusicBrainzReviewUIMixin:
             box = QGroupBox("Album Credits")
             box_layout = QVBoxLayout(box)
             for credit in self.detail.credits:
-                cb = QCheckBox(f"{credit.artist_name} — {credit.role_name}")
+                cb = QCheckBox(f"{esc_amp(credit.artist_name)} — {esc_amp(credit.role_name)}")
                 cb.setChecked(True)
                 box_layout.addWidget(cb)
                 self._album_credit_checks.append((cb, credit))
@@ -203,7 +205,7 @@ class AlbumMusicBrainzReviewUIMixin:
                 if label.founders:
                     founder_names = ", ".join(f.name for f in label.founders)
                     text += f" — founded by {founder_names}"
-                cb = QCheckBox(text)
+                cb = QCheckBox(esc_amp(text))
                 cb.setChecked(True)
                 box_layout.addWidget(cb)
                 self._label_checks.append((cb, label))
@@ -213,10 +215,10 @@ class AlbumMusicBrainzReviewUIMixin:
             if not mbt.credits:
                 continue
             self.has_content = True
-            box = QGroupBox(_format_mb_track_label(mbt))
+            box = QGroupBox(esc_amp(_format_mb_track_label(mbt)))
             box_layout = QVBoxLayout(box)
             for credit in mbt.credits:
-                cb = QCheckBox(f"{credit.artist_name} — {credit.role_name}")
+                cb = QCheckBox(f"{esc_amp(credit.artist_name)} — {esc_amp(credit.role_name)}")
                 cb.setChecked(True)
                 box_layout.addWidget(cb)
                 self._credit_checks.append((cb, mbt, credit))
@@ -234,7 +236,7 @@ class AlbumMusicBrainzReviewUIMixin:
                     continue
                 chain_label = ", ".join(node["name"] for node in chain if node.get("name"))
                 track_titles = ", ".join(mbt.title for mbt in tracks_here)
-                cb = QCheckBox(f"{chain_label}\n  → {track_titles}")
+                cb = QCheckBox(f"{esc_amp(chain_label)}\n  → {esc_amp(track_titles)}")
                 cb.setChecked(True)
                 box_layout.addWidget(cb)
                 self._location_checks.append((cb, place_mbid, tracks_here))

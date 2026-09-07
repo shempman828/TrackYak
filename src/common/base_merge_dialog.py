@@ -21,12 +21,8 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.qt_text import esc_amp as _esc_amp
 from src.foundation.logger_config import logger
-
-
-def _esc_amp(text):
-    """Escape '&' so it doesn't act as a Qt mnemonic prefix in button/label text."""
-    return (text or "").replace("&", "&&")
 
 
 class MergeDBDialog(QDialog):
@@ -209,8 +205,7 @@ class MergeDBDialog(QDialog):
             return ""
         name = str(name).lower().strip()
         # Remove common punctuation but keep meaningful characters
-        name = re.sub(r"[^\w\s&]", "", name)
-        return name
+        return re.sub(r"[^\w\s&]", "", name)
 
     def _calculate_name_similarity(self, base_name, compare_name):
         """Calculate multiple similarity scores between two names."""
@@ -630,10 +625,7 @@ class MergeDBDialog(QDialog):
         if isinstance(value, list):
             return True
         plain_types = (str, int, float, bool, type(None))
-        if not isinstance(value, plain_types):
-            return True
-
-        return False
+        return not isinstance(value, plain_types)
 
     def _get_conflicts(self):
         """Detect differences between source and target, excluding non-mergeable fields."""
