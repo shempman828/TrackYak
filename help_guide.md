@@ -549,10 +549,11 @@ lossless sources (FLAC, WAV, AIFF) are re-encoded to a constant-bitrate MP3
 (pick 320 / 256 / 192 / 128 kbps) as they're copied, so a phone or player
 holds a fraction of the size. Already-lossy files (MP3, AAC, M4A, OGG) are
 copied through untouched, and the originals in your library are never
-modified — tags and embedded cover art carry over to the MP3. The converted
-files are kept in a local `cache/` folder so a re-sync of the same tracks
-doesn't re-encode anything; "Clear MP3 cache" empties it and shows how much
-space it's using. This option needs `ffmpeg` on your PATH (`sudo apt install
+modified — tags and embedded cover art carry over to the MP3. Several files
+are converted in parallel, so a first-time sync of a large lossless library
+isn't one encode after another. The converted files are kept in a local
+`cache/` folder so a re-sync of the same tracks doesn't re-encode anything;
+"Clear MP3 cache" empties it and shows how much space it's using. This option needs `ffmpeg` on your PATH (`sudo apt install
 ffmpeg` on Debian/Ubuntu) — without it the checkbox is disabled, and if
 `ffmpeg` goes missing at sync time the run falls back to copying originals
 and says so in the log.

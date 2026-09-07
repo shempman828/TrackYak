@@ -16,6 +16,8 @@ parsing path exercised is identical to the real mtp:// backend.
 import os
 from pathlib import Path
 import subprocess
+import threading
+import time
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -660,6 +662,56 @@ def test_sync_folder_records_transcode_failure_and_keeps_going(
     assert reasons["Bad"].startswith("could not convert to MP3")
 
 
+def test_transcode_pass_runs_encodes_concurrently(tmp_path, sync_manager, monkeypatch):
+    """The lossless→MP3 pass fans its ffmpeg calls across a thread pool, so a
+    batch of N tracks does not cost N serial encodes. No real ffmpeg: the
+    cache's get_or_create is stubbed with a concurrency probe."""
+    monkeypatch.setattr("src.sync.sync_manager.ffmpeg_available", lambda: True)
+
+    entries = [
+        {
+            "file_path": str(tmp_path / f"s{i}.flac"),
+            "artist": "A",
+            "title": f"T{i}",
+            "duration": 1.0,
+        }
+        for i in range(6)
+    ]
+    for e in entries:
+        Path(e["file_path"]).write_bytes(b"flac-ish")
+    _tracks(monkeypatch, sync_manager, *entries)
+
+    live = 0
+    peak = 0
+    lock = threading.Lock()
+
+    def fake_get_or_create(src, bitrate="320k"):
+        nonlocal live, peak
+        with lock:
+            live += 1
+            peak = max(peak, live)
+        time.sleep(0.05)
+        with lock:
+            live -= 1
+        out = tmp_path / "cache" / (Path(src).stem + ".mp3")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"encoded-bytes")
+        return out
+
+    monkeypatch.setattr(sync_manager.transcode_cache, "get_or_create", fake_get_or_create)
+
+    result = sync_manager.sync_playlist_to_device(
+        {"kind": "playlist", "name": "PL", "playlist_id": 1},
+        str(tmp_path / "device"),
+        transcode_to_mp3=True,
+    )
+
+    assert peak > 1  # encodes actually overlapped
+    assert result["tracks_transcoded"] == 6
+    for i in range(6):
+        assert (tmp_path / "device" / "music" / f"A - T{i}.mp3").exists()
+
+
 @_transcode
 def test_second_sync_is_a_cache_hit_no_reencode(tmp_path, sync_manager, monkeypatch):  # AC10
     sync_manager.transcode_cache = TranscodeCache(cache_dir=tmp_path / "tcache")
@@ -723,13 +775,17 @@ def test_cancel_during_transcode_stops_the_sync(tmp_path, sync_manager, monkeypa
         {"file_path": str(b), "artist": "X", "title": "B", "duration": 2.0},
     )
 
-    # Latch cancelled after the first transcode check (call #1 -> False so A
-    # encodes; every call after -> True, matching SyncWorker's sticky flag).
+    # Latch cancelled after the first transcode check (call #1 -> False so one
+    # encode is allowed through; every call after -> True, matching
+    # SyncWorker's sticky flag). The lock keeps the count sane now that the
+    # transcode pass polls should_cancel from several worker threads.
+    lock = threading.Lock()
     calls = {"n": 0}
 
     def should_cancel():
-        calls["n"] += 1
-        return calls["n"] > 1
+        with lock:
+            calls["n"] += 1
+            return calls["n"] > 1
 
     result = sync_manager.sync_playlist_to_device(
         {"kind": "playlist", "name": "PL", "playlist_id": 1},
@@ -742,9 +798,13 @@ def test_cancel_during_transcode_stops_the_sync(tmp_path, sync_manager, monkeypa
     reasons = {f["title"]: f["reason"] for f in result["failures"]}
     assert "cancelled" in reasons["A"]
     assert "cancelled" in reasons["B"]
-    # A was transcoded before the cancel landed, even though it never copied.
-    assert sync_manager.transcode_cache.path_for(str(a), "320k").exists()
+    # Exactly one track got through its encode before the cancel latched; the
+    # other short-circuited. Neither one was ever copied to the device.
+    a_cached = sync_manager.transcode_cache.path_for(str(a), "320k").exists()
+    b_cached = sync_manager.transcode_cache.path_for(str(b), "320k").exists()
+    assert a_cached != b_cached
     assert not (tmp_path / "device" / "music" / "X - A.mp3").exists()
+    assert not (tmp_path / "device" / "music" / "X - B.mp3").exists()
 
 
 @_transcode

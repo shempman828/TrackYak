@@ -15,6 +15,7 @@ import hashlib
 from pathlib import Path
 import shutil
 import subprocess
+import uuid
 
 from src.foundation.asset_paths import CACHE_DIR
 from src.foundation.logger_config import logger
@@ -57,7 +58,11 @@ def transcode_to_mp3(
     temp file behind.
     """
     dest = Path(dest)
-    tmp = dest.with_name(dest.name + ".part")
+    # Unique temp name: parallel syncs can transcode two tracks that resolve
+    # to the same cache dest concurrently — a shared "<name>.part" would have
+    # them clobbering each other's in-progress encode. Each writes its own
+    # temp and then atomically replaces dest (last writer wins, same bytes).
+    tmp = dest.with_name(f"{dest.name}.{uuid.uuid4().hex}.part")
     cmd = [
         "ffmpeg",
         "-nostdin",

@@ -117,7 +117,8 @@ def test_transcode_bad_input_raises_and_leaves_nothing(tmp_path):
 
     assert str(exc.value)  # carries ffmpeg's stderr tail
     assert not dest.exists()
-    assert not dest.with_name(dest.name + ".part").exists()
+    # the (now uniquely-named) temp file is cleaned up too
+    assert not list(tmp_path.glob("*.part"))
 
 
 def test_transcode_missing_ffmpeg_raises_transcode_error(tmp_path, monkeypatch):

@@ -45,6 +45,13 @@ _MAX_RETRIES = 2
 # a small thread pool rather than sequentially in the diff pre-pass.
 _DUPLICATE_CHECK_WORKERS = 8
 
+# Lossless→MP3 conversion shells out to one single-threaded ffmpeg per
+# track; run a small pool of them so a first-time sync of a big library
+# isn't one serial encode after another. Capped low so a background sync
+# doesn't monopolise every core; floored at 2 so the pass always overlaps
+# at least a pair of encodes even on a single-core host.
+_TRANSCODE_WORKERS = max(2, min(4, os.cpu_count() or 2))
+
 # NAME_MAX is 255 bytes on ext4 and on Linux vfat/exFAT long names; a track
 # with many primary artists otherwise builds an "Artist - Title.ext" name
 # past that and every copy fails with ENAMETOOLONG. Leave headroom for
@@ -377,25 +384,55 @@ class SyncManager:
         A track whose transcode fails or is cancelled is flagged
         '_transcode_skipped' (so the diff pass ignores it) and its reason is
         recorded in `failures` here.
+
+        Encodes run across a small thread pool (`_TRANSCODE_WORKERS`): each is
+        an independent ffmpeg subprocess, so this is where a first-time sync
+        of a big lossless library actually spends its wall time. Result
+        bookkeeping (progress, `failures`, the per-track flags) is applied on
+        this thread as each future lands, so only the ffmpeg calls overlap.
         """
-        for i, track in enumerate(tracks):
-            src = track.get("file_path")
-            if not src or not is_lossless_path(src):
-                continue
-            if self._unusable_source_reason(track):
-                continue  # the diff pass records the real "source missing" reason
+        pending = [
+            t
+            for t in tracks
+            if t.get("file_path")
+            and is_lossless_path(t["file_path"])
+            and not self._unusable_source_reason(t)
+            # a genuinely missing/unreadable source is left for the diff pass
+            # to record with the real "source missing" reason
+        ]
+        if not pending:
+            return
+
+        def _encode(track: dict) -> tuple[dict, str, str | None]:
+            """Run one encode off-thread. Returns (track, outcome, detail)
+            where outcome is 'ok' (detail = cache path), 'cancelled', or
+            'failed' (detail = error text)."""
             if should_cancel and should_cancel():
-                track["_transcode_skipped"] = True
-                self._record_failure(failures, track, "cancelled before it was copied")
-                continue
-            if progress_callback:
-                progress_callback(i, progress_total, f"Converting to MP3: {track['title']}")
+                return track, "cancelled", None
             try:
-                track["sync_source_path"] = str(self.transcode_cache.get_or_create(src, bitrate))
+                path = str(self.transcode_cache.get_or_create(track["file_path"], bitrate))
+                return track, "ok", path
             except (TranscodeError, OSError) as e:
-                track["_transcode_skipped"] = True
-                logger.error(f"Transcode failed for {src}: {e}")
-                self._record_failure(failures, track, f"could not convert to MP3: {e}")
+                return track, "failed", str(e)
+
+        workers = min(_TRANSCODE_WORKERS, len(pending))
+        done = 0
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_encode, t) for t in pending]
+            for future in as_completed(futures):
+                track, outcome, detail = future.result()
+                done += 1
+                if progress_callback:
+                    progress_callback(done, progress_total, f"Converting to MP3: {track['title']}")
+                if outcome == "ok":
+                    track["sync_source_path"] = detail
+                elif outcome == "cancelled":
+                    track["_transcode_skipped"] = True
+                    self._record_failure(failures, track, "cancelled before it was copied")
+                else:  # failed
+                    track["_transcode_skipped"] = True
+                    logger.error(f"Transcode failed for {track['file_path']}: {detail}")
+                    self._record_failure(failures, track, f"could not convert to MP3: {detail}")
 
     @staticmethod
     def _clean_component(s: str) -> str:
