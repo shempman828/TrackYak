@@ -120,7 +120,11 @@ you want to actually look at what you're listening to rather than manage
 your library.
 
 Album art fills the left side with a soft blurred version of it behind the
-whole view. On the right, the title, artist, and album sit above a row of
+whole view. If the track has more than one image — front/back/liner covers,
+plus photos of any non-album-artist contributors — it slowly cycles through
+them; each contributor photo is captioned with that person's name and
+instrument, and a caption too long for the card pans across so you can read
+all of it. On the right, the title, artist, and album sit above a row of
 quick-glance details (BPM, key, release year, play count, genres) that only
 show up if the track actually has that data. A title just wraps onto more
 lines as it gets longer; only once it would need more than three does it

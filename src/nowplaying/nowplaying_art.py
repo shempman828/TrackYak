@@ -1,5 +1,14 @@
-from PySide6.QtCore import Property, QRect, Qt
-from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPixmap, QRegion
+from PySide6.QtCore import Property, QRect, Qt, QTimer
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontMetrics,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPixmap,
+    QRegion,
+)
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -25,6 +34,16 @@ class _ArtCard(QWidget):
     # the transition reads as motion rather than a flat opacity dissolve.
     _ZOOM_AMOUNT = 0.035
 
+    # The artist-photo caption pans horizontally when the credit line is too
+    # long for the card. It scrolls noticeably faster than the metadata
+    # column's MarqueeLabel because an artist photo is only on screen for a
+    # few seconds (see _ARTIST_DWELL_MS) — the standard 1px/30ms pan would
+    # never reach the end of a long "Name (Instrument, Instrument)" credit.
+    _LABEL_SCROLL_STEP_PX = 2
+    _LABEL_SCROLL_INTERVAL_MS = 16  # ~60 fps
+    _LABEL_PAUSE_TICKS = 45  # ticks held at each end (~0.7 s)
+    _LABEL_END_PAD = 8  # extra px so the last glyph fully clears the clip
+
     def __init__(self, parent=None, backdrop: QWidget | None = None):
         super().__init__(parent)
         self._pixmap: QPixmap | None = None
@@ -40,6 +59,16 @@ class _ArtCard(QWidget):
         self._backdrop = backdrop
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
+        # Caption pan state (see _tick_label_scroll / _check_label_scroll).
+        self._label_offset = 0
+        self._label_scroll_dir = 1  # 1 = panning toward the end, -1 = back
+        self._label_pause = 0
+        self._label_text_w = 0
+        self._label_avail_w = 0
+        self._label_timer = QTimer(self)
+        self._label_timer.setInterval(self._LABEL_SCROLL_INTERVAL_MS)
+        self._label_timer.timeout.connect(self._tick_label_scroll)
+
     def set_art(self, pixmap: QPixmap | None, is_artist: bool = False, label: str | None = None):
         # Remember the outgoing image so paintEvent can crossfade into the
         # new one instead of popping straight to it.
@@ -51,6 +80,15 @@ class _ArtCard(QWidget):
         self._is_artist = is_artist
         self._label = label
         self._transition = 0.0
+
+        # Reset the caption pan; real geometry/font aren't known until the
+        # first paint, so defer the overflow test the way MarqueeLabel does.
+        self._label_offset = 0
+        self._label_scroll_dir = 1
+        self._label_pause = self._LABEL_PAUSE_TICKS
+        self._label_timer.stop()
+        QTimer.singleShot(200, self._check_label_scroll)
+
         self.update()
 
     def _get_transition(self) -> float:
@@ -96,7 +134,16 @@ class _ArtCard(QWidget):
 
         if t > 0.0:
             zoom = 1.0 - self._ZOOM_AMOUNT * (1.0 - t)
-            self._paint_layer(painter, self._pixmap, self._is_artist, self._label, frame, t, zoom)
+            self._paint_layer(
+                painter,
+                self._pixmap,
+                self._is_artist,
+                self._label,
+                frame,
+                t,
+                zoom,
+                self._label_offset,
+            )
             content_rect = content_rect.united(self._scale_rect_about_center(frame, zoom))
 
         # Pixels left over from a previous, larger/differently shaped paint
@@ -129,6 +176,7 @@ class _ArtCard(QWidget):
         rect: QRect,
         opacity: float,
         zoom: float,
+        label_offset: float = 0,
     ):
         painter.save()
         painter.setOpacity(opacity)
@@ -142,7 +190,7 @@ class _ArtCard(QWidget):
         else:
             self._paint_placeholder_in_rect(painter, rect)
         painter.restore()
-        self._draw_label(painter, rect, label if is_artist else None, opacity)
+        self._draw_label(painter, rect, label if is_artist else None, opacity, label_offset)
 
     @staticmethod
     def _lerp_rect(a: QRect, b: QRect, t: float) -> QRect:
@@ -198,9 +246,64 @@ class _ArtCard(QWidget):
         painter.setPen(QColor(100, 120, 200, 80))
         painter.drawText(x, y, rw, rh, Qt.AlignCenter, "♪")
 
-    def _draw_label(self, painter: QPainter, rect: QRect, text: str | None, opacity: float):
+    def _label_geometry(self, rect: QRect) -> tuple[QFont, QRect, int]:
+        """Caption font, text box, and gradient-bar height for an artist
+        photo occupying `rect` — shared by _draw_label (painting) and
+        _check_label_scroll (the overflow test that drives the pan)."""
+        bar_h = max(44, int(rect.height() * 0.18))
+        font = QFont("Cambria", max(13, min(20, rect.width() // 20)), QFont.Bold)
+        text_rect = QRect(rect.x() + 18, rect.bottom() - bar_h, rect.width() - 36, bar_h - 8)
+        return font, text_rect, bar_h
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._check_label_scroll()
+
+    def _check_label_scroll(self):
+        """(Re)start or stop the caption pan depending on whether the current
+        artist-photo caption actually overflows its text box at this size."""
+        text = self._label
+        if not text or not self._is_artist:
+            self._label_timer.stop()
+            self._label_offset = 0
+            return
+        rect = self._layout_rect(self._pixmap, self._is_artist, self.width(), self.height())
+        if not rect.isValid():
+            return
+        font, text_rect, _ = self._label_geometry(rect)
+        self._label_text_w = QFontMetrics(font).horizontalAdvance(text)
+        self._label_avail_w = text_rect.width()
+        if self._label_text_w > self._label_avail_w:
+            if not self._label_timer.isActive():
+                self._label_timer.start()
+        else:
+            self._label_timer.stop()
+            self._label_offset = 0
+            self.update()
+
+    def _tick_label_scroll(self):
+        if self._label_pause > 0:
+            self._label_pause -= 1
+            return
+        max_off = self._label_text_w - self._label_avail_w + self._LABEL_END_PAD
+        self._label_offset += self._LABEL_SCROLL_STEP_PX * self._label_scroll_dir
+        if self._label_offset >= max_off:
+            self._label_offset = max_off
+            self._label_scroll_dir = -1
+            self._label_pause = self._LABEL_PAUSE_TICKS
+        elif self._label_offset <= 0:
+            self._label_offset = 0
+            self._label_scroll_dir = 1
+            self._label_pause = self._LABEL_PAUSE_TICKS
+        self.update()
+
+    def _draw_label(
+        self, painter: QPainter, rect: QRect, text: str | None, opacity: float, offset: float = 0
+    ):
         """Caption an artist photo with the artist's name, faded in/out in
-        step with the photo's own crossfade opacity."""
+        step with the photo's own crossfade opacity. A credit line too wide
+        for the card is panned horizontally by `offset` px and hard-clipped
+        to the text box so it doesn't spill past the art's edge."""
         if not text or opacity <= 0.0 or not rect.isValid():
             return
 
@@ -213,18 +316,27 @@ class _ArtCard(QWidget):
         )
         painter.setClipPath(clip)
 
-        bar_h = max(44, int(rect.height() * 0.18))
+        font, text_rect, bar_h = self._label_geometry(rect)
         grad = QLinearGradient(rect.x(), rect.bottom() - bar_h, rect.x(), rect.bottom())
         grad.setColorAt(0.0, QColor(0, 0, 0, 0))
         grad.setColorAt(1.0, QColor(0, 0, 0, 170))
         painter.fillRect(rect.x(), rect.bottom() - bar_h, rect.width(), bar_h, grad)
 
-        painter.setClipping(False)
-        font = QFont("Cambria", max(13, min(20, rect.width() // 20)), QFont.Bold)
         painter.setFont(font)
         painter.setPen(QColor(255, 255, 255, 235))
-        text_rect = QRect(rect.x() + 18, rect.bottom() - bar_h, rect.width() - 36, bar_h - 8)
-        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignBottom, text)
+        text_w = painter.fontMetrics().horizontalAdvance(text)
+        if text_w > text_rect.width():
+            painter.setClipRect(text_rect)
+            shifted = QRect(
+                round(text_rect.x() - offset),
+                text_rect.y(),
+                text_w + self._LABEL_END_PAD,
+                text_rect.height(),
+            )
+            painter.drawText(shifted, Qt.AlignLeft | Qt.AlignBottom | Qt.TextDontClip, text)
+        else:
+            painter.setClipping(False)
+            painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignBottom, text)
 
         painter.restore()
 
