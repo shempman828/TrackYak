@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import contextlib
+import warnings
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -34,6 +35,24 @@ from src.foundation.logger_config import logger
 from src.musicbrainz.musicbrainz_core import MBCandidate
 from src.musicbrainz.musicbrainz_worker import MusicBrainzWorker
 
+# Detached workers whose owning dialog is already gone. Reparenting a
+# still-running QThread to None hands its lifetime back to Python, so
+# without a strong reference here the wrapper is garbage-collected the
+# moment the dialog (its last referrer) is destroyed -- taking the C++
+# QThread with it mid-run and aborting with "QThread: Destroyed while
+# thread is still running". Membership is dropped in _forget_worker once
+# the thread has actually returned.
+_DETACHED_WORKERS: set[MusicBrainzWorker] = set()
+
+
+def _forget_worker(worker: MusicBrainzWorker) -> None:
+    # discard() returns nothing, so check membership first: guards against
+    # a second finished/error emission (or the post-connect isFinished
+    # fallback below) calling deleteLater twice.
+    if worker in _DETACHED_WORKERS:
+        _DETACHED_WORKERS.discard(worker)
+        worker.deleteLater()
+
 
 def _detach_running_worker(worker: MusicBrainzWorker | None) -> None:
     """Let a still-running MusicBrainzWorker finish on its own instead of
@@ -44,19 +63,30 @@ def _detach_running_worker(worker: MusicBrainzWorker | None) -> None:
     network call itself can't be interrupted), so synchronously wait()-ing
     here would just freeze the UI for as long as that call takes. Instead,
     detach it from the dialog (so its finished/error signals can't call
-    back into now-dead widgets) and let it clean itself up when done.
-    Undetached, a still-running QThread destroyed along with its parent
-    dialog triggers "QThread: Destroyed while thread is still running" --
-    undefined behavior in Qt that can crash the app.
+    back into now-dead widgets), park a strong reference in
+    _DETACHED_WORKERS so it outlives the dialog, and let it clean itself
+    up when done. Undetached, a still-running QThread destroyed along with
+    its parent dialog triggers "QThread: Destroyed while thread is still
+    running" -- undefined behavior in Qt that can crash the app.
     """
     if worker is None or not worker.isRunning():
         return
-    for signal in (worker.finished, worker.error, worker.progress):
-        with contextlib.suppress(RuntimeError):
-            signal.disconnect()
+    # A signal with no current receivers both warns and raises here, so
+    # mute the warning and swallow the RuntimeError per signal.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        for signal in (worker.finished, worker.error, worker.progress):
+            with contextlib.suppress(RuntimeError):
+                signal.disconnect()
     worker.setParent(None)
-    worker.finished.connect(worker.deleteLater)
-    worker.error.connect(worker.deleteLater)
+    _DETACHED_WORKERS.add(worker)
+    worker.finished.connect(lambda *_: _forget_worker(worker))
+    worker.error.connect(lambda *_: _forget_worker(worker))
+    # run() may have returned between the isRunning() check above and the
+    # connects, in which case finished/error already fired into the void --
+    # release the parked reference now rather than leaking it forever.
+    if worker.isFinished():
+        _forget_worker(worker)
 
 
 class MusicBrainzMatchDialog(QDialog):

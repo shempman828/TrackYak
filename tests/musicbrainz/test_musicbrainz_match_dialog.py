@@ -7,10 +7,13 @@ matter how long the candidate labels were, so canonical-release rows
 elided instead of the dialog widening to fit them.
 """
 
+import gc
+import time
+
 from PySide6.QtWidgets import QApplication
 
 from src.musicbrainz.musicbrainz_core import MBCandidate
-from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzMatchDialog
+from src.musicbrainz.musicbrainz_match_dialog import _DETACHED_WORKERS, MusicBrainzMatchDialog
 
 
 def _dialog_with_candidates(qapp, candidates):
@@ -48,3 +51,44 @@ def test_clamped_to_available_screen_width(qapp):
 
     screen = dialog.screen() or QApplication.primaryScreen()
     assert dialog.width() <= int(screen.availableGeometry().width() * 0.9) + 1
+
+
+# ---------------------------------------------------------------------------
+# Regression: dismissing the dialog while its search worker is still running.
+#
+# The dialog detaches the running worker (setParent(None)) so a late
+# finished/error signal can't call back into dead widgets. That also hands
+# the QThread's lifetime to Python -- without a strong reference held
+# somewhere, the wrapper was garbage-collected the moment the dialog (its
+# last referrer) went away, destroying the still-running C++ QThread and
+# aborting the process with "QThread: Destroyed while thread is still
+# running". _detach_running_worker now parks the worker in _DETACHED_WORKERS
+# until its run() actually returns.
+# ---------------------------------------------------------------------------
+
+
+def test_detached_running_worker_survives_dialog_destruction(qapp):
+    _DETACHED_WORKERS.clear()
+
+    def slow_search():
+        time.sleep(0.5)
+        return []
+
+    dialog = MusicBrainzMatchDialog("artist 'x'", search_call=slow_search, parent=None)
+    worker = dialog._worker
+    assert worker is not None and worker.isRunning()
+
+    dialog.reject()
+    dialog.deleteLater()
+    del dialog
+    gc.collect()
+
+    # Strong ref parked while the thread is still in flight, and the C++
+    # parent link severed.
+    assert worker in _DETACHED_WORKERS
+    assert worker.parent() is None
+
+    # Once run() returns, the parked reference is released.
+    assert worker.wait(3000)
+    qapp.processEvents()
+    assert worker not in _DETACHED_WORKERS
