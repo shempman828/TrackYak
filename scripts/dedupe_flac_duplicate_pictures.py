@@ -166,7 +166,10 @@ def dedupe_pictures_in_flac(path: str, *, apply: bool, keep_backup: bool = True)
     new_blocks = [rb for i, rb in enumerate(raw_blocks) if i not in drop_set]
     new_data = writer._serialize_blocks(new_blocks, audio_tail, prefix)
 
-    backup_path = backup_file(path)
+    try:
+        backup_path = backup_file(path)
+    except FileExistsError as e:
+        return {"status": "error", "error": f"backup failed: {e}"}
     try:
         atomic_write(path, new_data)
     except (OSError, struct.error) as e:

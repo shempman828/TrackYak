@@ -184,7 +184,10 @@ def dedupe_pictures_in_mp3(path: str, *, apply: bool, keep_backup: bool = True) 
         f.seek(audio_start)
         audio_data = f.read()
 
-    backup_path = backup_file(path)
+    try:
+        backup_path = backup_file(path)
+    except FileExistsError as e:
+        return {"status": "error", "error": f"backup failed: {e}"}
     try:
         atomic_write(path, new_tag + audio_data)
     except (OSError, struct.error) as e:

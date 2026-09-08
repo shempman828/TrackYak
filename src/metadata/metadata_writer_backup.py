@@ -50,8 +50,24 @@ def atomic_write(file_path: str, data: bytes) -> None:
 
 
 def backup_file(file_path: str) -> str:
-    """Copy file_path to a sibling .bak file and return its path."""
+    """Copy file_path to a sibling .bak file and return its path.
+
+    Refuses (FileExistsError) to overwrite an existing <file>.bak. A
+    leftover backup means an earlier tag/artwork write died after
+    backup_file but before restore_backup/discard_backup ran - so that .bak
+    is the only untouched copy of the original, and file_path itself may
+    already be half-written. Blindly re-copying would replace the pristine
+    backup with the modified file and destroy the last good copy. Callers
+    catch this as "back up failed - abort the write", leaving the stale
+    backup in place for manual recovery.
+    """
     backup_path = file_path + ".bak"
+    if os.path.exists(backup_path):
+        raise FileExistsError(
+            f"Refusing to overwrite existing backup {backup_path}: a prior write "
+            f"likely failed without restoring. Confirm {file_path} is intact, then "
+            f"move or remove the backup."
+        )
     shutil.copy2(file_path, backup_path)
     return backup_path
 
