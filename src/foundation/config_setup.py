@@ -336,6 +336,10 @@ class Config:
         # transcode cache dir (cache/transcode/) is shared across every profile,
         # so its size cap lives here. 0 disables eviction (unlimited).
         self.config["sync"] = {"transcode_cache_max_mb": "2048"}
+        # Player section — playback UI options that aren't per-device. The
+        # waveform seek bar's per-track peak cache (cache/waveforms/) is
+        # capped here; 0 disables eviction (unlimited).
+        self.config["player"] = {"waveform_cache_max_mb": "256"}
         self.config["track_view"] = {
             "visible_columns": "track_file_name,artist_name,album_name,title,genre,duration,year",
             "column_order": "track_file_name,artist_name,album_name,title,genre,duration,year",
@@ -493,6 +497,7 @@ _CONFIG_FIELDS = [
     _primitive("censor_explicit_words", "display", "censor_explicit_words", "bool", False),
     _primitive("persist_queue", "queue", "persist_queue", "bool", True),
     _primitive("transcode_cache_max_mb", "sync", "transcode_cache_max_mb", "int", 2048),
+    _primitive("waveform_cache_max_mb", "player", "waveform_cache_max_mb", "int", 256),
     _primitive("track_view_visible_columns", "track_view", "visible_columns", "list", ""),
     _primitive("track_view_column_order", "track_view", "column_order", "list", ""),
     _primitive("track_view_column_widths", "track_view", "column_widths", "int_list", ""),

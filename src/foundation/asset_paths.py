@@ -30,6 +30,10 @@ CACHE_DIR = BASE_DIR / "cache"
 ARTIST_IMAGES_DIR = IMAGES_DIR / "artist_images"
 PUBLISHER_LOGOS_DIR = IMAGES_DIR / "publisher_logos"
 IMAGECACHE_DIR = CACHE_DIR / "imagecache"
+# Downsampled per-track amplitude envelopes for the Player Dock's waveform
+# seek bar. One tiny .npy per track identity; fully regenerable from the
+# audio file, so safe to wipe wholesale.
+WAVEFORMCACHE_DIR = CACHE_DIR / "waveforms"
 CHARTS_DIR = ASSETS_DIR / "charts"
 
 # --- Helpers -----------------------------------------------------------------
@@ -132,6 +136,7 @@ def ensure_directories_exist():
         ARTIST_IMAGES_DIR,
         PUBLISHER_LOGOS_DIR,
         IMAGECACHE_DIR,
+        WAVEFORMCACHE_DIR,
         THEMES_DIR,
         CHARTS_DIR,
         CACHE_DIR,

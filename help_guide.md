@@ -636,9 +636,16 @@ The transport bar along the bottom, always present so you're never far from
 play/pause no matter what view you're in.
 
 It shows the standard playback controls (previous, play/pause, stop, next),
-a seek bar you can drag to jump around in the current track, volume, a
-star rating for whatever's playing, and a repeat toggle that cycles through
-off, repeat-one, and repeat-all. Right-click it for quick access to editing
+a waveform seek bar showing the current track's loudness envelope that you
+can click or drag to jump around, volume, a star rating for whatever's
+playing, and a repeat toggle that cycles through off, repeat-one, and
+repeat-all. The first time you play a track its waveform is built from the
+audio and cached under `cache/` (a few KB per track), so it draws instantly
+on every later play; until it's ready — or if the file can't be read — the
+bar falls back to a plain progress fill and stays seekable. The cache is
+capped (default 256 MB, `[player] waveform_cache_max_mb` in `config.ini`,
+`0` disables the cap) and the least-recently-played entries are dropped once
+it's over. Right-click it for quick access to editing
 the current track/album/artist, searching for lyrics, or adding the track to
 a playlist or mood without leaving whatever view you're in. A found lyrics
 search is saved automatically and scanned for [moods](#moods) on the spot,

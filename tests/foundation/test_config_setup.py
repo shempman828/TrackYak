@@ -83,3 +83,25 @@ def test_transcode_cache_max_mb_round_trips_through_config_file(fresh_config):
     raw = configparser.ConfigParser()
     raw.read(scratch_ini)
     assert raw["sync"]["transcode_cache_max_mb"] == "512"
+
+
+# --- waveform peak cache size cap (idea 58) ------------------------------- AC12
+
+
+def test_waveform_cache_max_mb_defaults_to_256(fresh_config):
+    cfg, _ = fresh_config
+    assert cfg.get_waveform_cache_max_mb() == 256
+
+
+def test_waveform_cache_max_mb_round_trips_through_config_file(fresh_config):
+    cfg, scratch_ini = fresh_config
+
+    cfg.set_waveform_cache_max_mb(512)
+    cfg.save()
+
+    reloaded = _reload(scratch_ini)
+    assert reloaded.get_waveform_cache_max_mb() == 512
+
+    raw = configparser.ConfigParser()
+    raw.read(scratch_ini)
+    assert raw["player"]["waveform_cache_max_mb"] == "512"

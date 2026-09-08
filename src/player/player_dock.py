@@ -1,7 +1,7 @@
 from contextlib import suppress
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QSize, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
@@ -14,6 +14,8 @@ from src.foundation.status_utility import StatusManager
 from src.player.player_context_menu import PlayerContextMenuMixin
 from src.player.track_display_formatter import format_track_display
 from src.player.track_info_widget import TrackInfoWidget
+from src.player.waveform_cache import WaveformWorker, waveform_cache
+from src.player.waveform_seekbar import WaveformSeekBar
 
 
 class PlayerUI(PlayerContextMenuMixin, QWidget):
@@ -29,6 +31,10 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
         self.player = controller.mediaplayer
         self.parent_window = parent
         self.current_track = None
+
+        # Bumped on every track change; a waveform worker's result is dropped
+        # unless its generation still matches (track changed mid-decode).
+        self._wf_generation = 0
 
         # Dragging support for mini-player
         self.drag_enabled = False
@@ -102,11 +108,10 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
         self.volume_slider.setFixedWidth(80)
         self.volume_slider.setSingleStep(5)
 
-        # Position slider
-        self.position_slider = QSlider(Qt.Horizontal)
-        self.position_slider.setRange(0, 100)
-        self.position_slider.setEnabled(False)
-        self.position_slider.setMinimumWidth(200)
+        # Waveform seek bar — draws the track's amplitude envelope and seeks
+        # on click/drag. Falls back to a plain progress bar until peaks load.
+        self.waveform = WaveformSeekBar()
+        self.waveform.setEnabled(False)
 
         # Position label
         self.position_label = QLabel("0:00 / 0:00")
@@ -144,7 +149,7 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
 
         # Progress row
         progress_row = QHBoxLayout()
-        progress_row.addWidget(self.position_slider)
+        progress_row.addWidget(self.waveform)
         progress_row.addWidget(self.position_label)
 
         center_layout.addLayout(info_row)
@@ -264,9 +269,7 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
         Uses robust formatting for classical and non-classical tracks.
         """
         # Reset position display immediately on every track change
-        self.position_slider.blockSignals(True)
-        self.position_slider.setValue(0)
-        self.position_slider.blockSignals(False)
+        self.waveform.set_position(0)
         self.position_label.setText("0:00 / 0:00")
 
         try:
@@ -405,8 +408,8 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
             # Connect volume and seek
             self.volume_slider.valueChanged.connect(self.controller.mediaplayer.set_volume)
             self.volume_slider.valueChanged.connect(self._update_volume_tooltip)
-            self.position_slider.sliderPressed.connect(self._on_seek_pressed)
-            self.position_slider.sliderReleased.connect(self._on_seek_released)
+            self.waveform.scrub_started.connect(self._on_seek_pressed)
+            self.waveform.seek_requested.connect(self._on_seek_released)
             self.repeat_button.clicked.connect(self._on_repeat_clicked)
 
             # Connect PLAYER signals to UI updates
@@ -415,6 +418,7 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
             self.player.state_changed.connect(self.handle_state_change)
             self.player.volume_changed.connect(self.update_volume_slider)
             self.player.track_changed.connect(self._update_track_display)
+            self.player.track_changed.connect(self._start_waveform_load)
 
             self.repeat_mode_change_requested.connect(self.player.set_repeat_mode)
             self.seek_requested.connect(self.player.seek)
@@ -427,15 +431,39 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
         """Remember which track was playing when the drag started."""
         self._seek_track_file = self.player.current_file
 
-    def _on_seek_released(self):
-        """Handle seek slider release."""
-        # If the track changed (auto-advance/skip) while the slider was
-        # held down, the slider's value belongs to the old track — discard it
+    def _on_seek_released(self, position_ms: int):
+        """Handle a completed scrub from the waveform bar."""
+        # If the track changed (auto-advance/skip) while the bar was held
+        # down, the scrub position belongs to the old track — discard it
         # instead of applying a stale position to the new one.
         if self.player.current_file != getattr(self, "_seek_track_file", None):
             return
         if self.player.duration > 0:
-            self.seek_requested.emit(self.position_slider.value())
+            self.seek_requested.emit(int(position_ms))
+
+    def _start_waveform_load(self, file_path: Path):
+        """Reset the waveform bar for the new track and kick a background
+        worker to load (or build + cache) its peak envelope."""
+        self._wf_generation += 1
+        self.waveform.clear()
+        self.waveform.setEnabled(self.player.duration > 0)
+        self.waveform.set_duration(self.player.duration)
+
+        resolved = getattr(self.player, "_resolved_file_path", None) or file_path
+        worker = WaveformWorker(waveform_cache, resolved, self._wf_generation)
+        worker.signals.ready.connect(self._on_waveform_ready)
+        worker.signals.failed.connect(self._on_waveform_failed)
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_waveform_ready(self, generation: int, src, peaks):
+        """Apply a freshly loaded envelope, unless the track moved on."""
+        if generation != self._wf_generation:
+            return
+        self.waveform.set_peaks(peaks)
+
+    def _on_waveform_failed(self, generation: int, src, error: str):
+        if generation == self._wf_generation:
+            logger.debug(f"Waveform generation failed for {src}: {error}")
 
     def _on_repeat_clicked(self):
         """Handle repeat button click."""
@@ -460,22 +488,21 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
         if position is None:
             position = mediaplayer.position
 
-        if mediaplayer.duration > 0 and not self.position_slider.isSliderDown():
-            self.position_slider.blockSignals(True)
-            self.position_slider.setValue(position)
-            self.position_slider.blockSignals(False)
+        if mediaplayer.duration > 0 and not self.waveform.is_dragging:
+            self.waveform.set_position(position)
         self.position_label.setText(
             f"{self.format_time(position)} / {self.format_time(mediaplayer.duration)}"
         )
 
     def update_duration(self, duration: int):
-        """Update duration label and enable slider."""
+        """Update duration label and enable the waveform bar."""
         if duration > 0:
-            self.position_slider.setEnabled(True)
-            self.position_slider.setRange(0, duration)
+            self.waveform.setEnabled(True)
+            self.waveform.set_duration(duration)
             self.position_label.setText(f"0:00 / {self.format_time(duration)}")
         else:
-            self.position_slider.setEnabled(False)
+            self.waveform.setEnabled(False)
+            self.waveform.set_duration(0)
             self.position_label.setText("0:00 / 0:00")
 
     @staticmethod
@@ -500,3 +527,6 @@ class PlayerUI(PlayerContextMenuMixin, QWidget):
     def cleanup(self):
         """Stop any in-flight background work before the app closes."""
         self._lyric_thread.stop()
+        # Invalidate any waveform worker still running in the thread pool so
+        # its queued result is a no-op by the time it lands.
+        self._wf_generation += 1

@@ -34,6 +34,20 @@ def test_cache_helper_points_into_cache_dir():
     assert Path(asset_paths.cache("x.json")) == asset_paths.CACHE_DIR / "x.json"
 
 
+def test_waveformcache_dir_lives_under_cache_dir():
+    assert asset_paths.WAVEFORMCACHE_DIR.parent == asset_paths.CACHE_DIR
+
+
+def test_ensure_directories_exist_creates_waveform_cache(monkeypatch, tmp_path):
+    wf_dir = tmp_path / "cache" / "waveforms"
+    monkeypatch.setattr(asset_paths, "WAVEFORMCACHE_DIR", wf_dir)
+    monkeypatch.setattr(asset_paths, "_migrate_legacy_cache_locations", lambda: None)
+
+    asset_paths.ensure_directories_exist()
+
+    assert wf_dir.is_dir()
+
+
 def test_relocates_legacy_analysis_cache_and_imagecache(monkeypatch, tmp_path):
     config_dir, images_dir, cache_dir, imagecache_dir = _wire_dirs(monkeypatch, tmp_path)
     (config_dir / "analysis_cache.json").write_text('{"analysed_ids": [1, 2]}')
