@@ -109,6 +109,17 @@ class _AdaptiveTitle(QWidget):
         self._wrap.setProperty("bgTransparent", True)
         lay.addWidget(self._wrap)
 
+        # Off-screen twin used only to measure wrapped height. ``_wrap`` itself
+        # can't be measured: ``_apply_layout`` pins it with ``setFixedHeight``
+        # and ``QLabel.heightForWidth`` clamps to the widget's max height, so
+        # measuring ``_wrap`` just reads back the previous title's pinned height
+        # and the title could only ever grow, never shrink.
+        self._probe = QLabel()
+        self._probe.setFont(font)
+        self._probe.setWordWrap(True)
+        self._probe.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self._probe.hide()
+
         self._marquee = MarqueeLabel(text, font, color)
         self._marquee.setFixedHeight(QFontMetrics(font).height())
         self._marquee.hide()
@@ -132,14 +143,16 @@ class _AdaptiveTitle(QWidget):
     def _line_count(self, text: str, width: int) -> int:
         if width <= 0:
             return 1
-        # Measure with the label that will actually paint the title. Its
-        # QTextLayout-based word-wrap can pick a different break point than
-        # QFontMetrics.boundingRect's predictor, and whenever the predictor came
-        # out one line pessimistic ``_apply_layout`` reserved a blank trailing
-        # row. ``heightForWidth`` is the real render path, so it cannot disagree
-        # with what gets drawn.
-        self._wrap.setText(text)
-        h = self._wrap.heightForWidth(width)
+        # Measure with a QLabel configured exactly like the one that paints the
+        # title. Its QTextLayout-based word-wrap can pick a different break point
+        # than QFontMetrics.boundingRect's predictor, and whenever the predictor
+        # came out one line pessimistic ``_apply_layout`` reserved a blank
+        # trailing row. ``heightForWidth`` is the real render path, so it cannot
+        # disagree with what gets drawn -- but it has to be read off an
+        # unconstrained label (see ``self._probe``), never off ``_wrap`` which
+        # ``_apply_layout`` pins with ``setFixedHeight``.
+        self._probe.setText(text)
+        h = self._probe.heightForWidth(width)
         if h <= 0:
             return 1
         return max(1, round(h / QFontMetrics(self._font).lineSpacing()))

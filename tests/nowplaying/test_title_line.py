@@ -118,11 +118,38 @@ def test_wrap_reserves_no_blank_row(title):
             if title._wrap.isHidden():
                 continue
             reserved = title._wrap.height()
-            rendered = title._wrap.heightForWidth(title._avail_width())
+            # Measure the true render height off the unconstrained probe --
+            # _wrap is pinned with setFixedHeight so its own heightForWidth
+            # just echoes `reserved` back.
+            rendered = title._probe.heightForWidth(title._avail_width())
             assert abs(reserved - rendered) < ls * 0.5, (
                 f"{text!r} @ {width}px: reserved {reserved}px for a title that "
                 f"renders in {rendered}px"
             )
+
+
+def test_title_shrinks_after_a_taller_title(title):
+    """Regression: a wrapped title must not pin the row height for the session.
+
+    ``_line_count`` used to measure ``_wrap`` itself, but ``_apply_layout`` pins
+    ``_wrap`` with ``setFixedHeight`` and ``QLabel.heightForWidth`` clamps to the
+    widget's maximum height -- so once a multi-line title set the height every
+    later measurement floored there and short titles kept the tall row.
+    """
+    from PySide6.QtGui import QFontMetrics
+
+    ls = QFontMetrics(NowPlayingView._TITLE_FONT).lineSpacing()
+
+    tall = "Concerto for Group and Orchestra: Third Movement"
+    title.set_text(tall)
+    assert not title._wrap.isHidden()
+    tall_h = title._wrap.height()
+    assert tall_h > ls * 1.5, "fixture title did not wrap to multiple lines"
+
+    title.set_text("So What")
+    assert not title._wrap.isHidden()
+    assert title._wrap.height() < tall_h
+    assert abs(title._wrap.height() - ls) < ls * 0.5, "short title not back to one line"
 
 
 def test_switching_back_to_short_title_restores_wrap(title, monkeypatch):
