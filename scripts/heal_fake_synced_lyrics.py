@@ -23,7 +23,7 @@ removed from every line; nothing else is touched. Rows with genuine synced
 lyrics are left alone.
 
 Dry run by default (reports, touches nothing). Pass --apply to write; a
-timestamped copy of the DB is made next to it first.
+timestamped copy of the DB is made under backups/ first (last 3 kept).
 
 Run from the repo root:
 
@@ -32,10 +32,8 @@ Run from the repo root:
 """
 
 import argparse
-from datetime import datetime
 from pathlib import Path
 import re
-import shutil
 import sys
 
 from sqlalchemy import create_engine, text
@@ -43,6 +41,7 @@ from sqlalchemy.orm import scoped_session, sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from scripts._db_backup import backup_db
 from src.db.db_helpers import AddToDB, DeleteDB, GetFromDB, MergeDB, SplitDB, UpdateDB
 from src.db.db_tables import Base  # noqa: F401  (registers every ORM model / mapper)
 from src.foundation.logger_config import logger
@@ -116,13 +115,6 @@ class _MinimalController:
         self.merge = MergeDB(self.SessionFactory)
 
 
-def _backup_db(db_path: str) -> str:
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    dest = f"{db_path}.pre-fake-lyrics-{stamp}.bak"
-    shutil.copy2(db_path, dest)
-    return dest
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="write changes (default: dry run)")
@@ -164,7 +156,7 @@ def main() -> int:
         print("Dry run - no changes written. Re-run with --apply to strip these prefixes.")
         return 0
 
-    backup = _backup_db(args.db)
+    backup = backup_db(args.db, tag="pre-fake-lyrics")
     print(f"DB backed up to {backup}")
 
     failed = []

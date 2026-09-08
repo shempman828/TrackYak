@@ -23,7 +23,7 @@ link is just leftover).
 Albums / discs left with zero tracks afterwards are reported, not deleted.
 
 Dry run by default (reports, touches nothing). Pass --apply to write; a
-timestamped copy of the DB is made next to it first.
+timestamped copy of the DB is made under backups/ first (last 3 kept).
 
 Run from the repo root:
 
@@ -33,9 +33,7 @@ Run from the repo root:
 
 import argparse
 from collections import defaultdict
-from datetime import datetime
 from pathlib import Path
-import shutil
 import sys
 
 from sqlalchemy import create_engine, text
@@ -43,6 +41,7 @@ from sqlalchemy.orm import scoped_session, sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from scripts._db_backup import backup_db
 from src.db.db_helpers import AddToDB, DeleteDB, GetFromDB, MergeDB, SplitDB, UpdateDB
 from src.db.db_tables import Base  # noqa: F401  (registers every ORM model / mapper)
 from src.foundation.logger_config import logger
@@ -78,13 +77,6 @@ class _MinimalController:
         self.delete = DeleteDB(self.SessionFactory)
         self.split = SplitDB(self.SessionFactory)
         self.merge = MergeDB(self.SessionFactory)
-
-
-def _backup_db(db_path: str) -> str:
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    dest = f"{db_path}.pre-orphan-disc-{stamp}.bak"
-    shutil.copy2(db_path, dest)
-    return dest
 
 
 def main() -> int:
@@ -126,7 +118,7 @@ def main() -> int:
         print("Dry run - no changes written. Re-run with --apply to clear these disc_id values.")
         return 0
 
-    backup = _backup_db(args.db)
+    backup = backup_db(args.db, tag="pre-orphan-disc")
     print(f"DB backed up to {backup}")
 
     track_ids = [r.track_id for r in rows]
