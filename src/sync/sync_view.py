@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QSplitter,
     QTabWidget,
     QTextEdit,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from src.common.style_utils import set_style_property
 from src.db.db_helpers import Session
+from src.foundation.config_setup import app_config
 from src.foundation.display_settings import apply_scaled_style
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import StatusManager, show_status_message
@@ -423,6 +425,26 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         cache_row.addStretch()
         options_layout.addLayout(cache_row)
 
+        # Cache size cap — global (the cache dir is shared across profiles), so
+        # this is seeded from app_config here and never touched by
+        # _load_profile_into_ui.
+        cache_max_row = QHBoxLayout()
+        cache_max_row.addWidget(QLabel("Max cache size:"))
+        self.cache_max_spin = QSpinBox()
+        self.cache_max_spin.setRange(0, 102400)
+        self.cache_max_spin.setSingleStep(256)
+        self.cache_max_spin.setSuffix(" MB")
+        self.cache_max_spin.setSpecialValueText("Unlimited")
+        self.cache_max_spin.setValue(app_config.get_transcode_cache_max_mb())
+        self.cache_max_spin.setToolTip(
+            "After a sync that converts to MP3, the oldest unused conversions are "
+            "deleted until the cache is back under this size. 0 = no limit."
+        )
+        self.cache_max_spin.valueChanged.connect(self._on_cache_max_changed)
+        cache_max_row.addWidget(self.cache_max_spin)
+        cache_max_row.addStretch()
+        options_layout.addLayout(cache_max_row)
+
         layout.addWidget(options_group)
         layout.addStretch()
 
@@ -730,6 +752,11 @@ class SyncView(SyncSelectionMixin, SyncExecutionMixin, QWidget):
         size_mb = TranscodeCache().size_bytes() / (1024 * 1024)
         self.clear_cache_btn.setText(f"Clear MP3 cache ({size_mb:.0f} MB)")
         self.clear_cache_btn.setEnabled(size_mb > 0)
+
+    def _on_cache_max_changed(self, value_mb: int):
+        """Persist the transcode-cache size cap (global, not per-profile)."""
+        app_config.set_transcode_cache_max_mb(value_mb)
+        app_config.save()
 
     def _clear_transcode_cache(self):
         cache = TranscodeCache()

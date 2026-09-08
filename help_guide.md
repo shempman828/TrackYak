@@ -564,10 +564,14 @@ modified — tags and embedded cover art carry over to the MP3. Several files
 are converted in parallel, so a first-time sync of a large lossless library
 isn't one encode after another. The converted files are kept in a local
 `cache/` folder so a re-sync of the same tracks doesn't re-encode anything;
-"Clear MP3 cache" empties it and shows how much space it's using. This option needs `ffmpeg` on your PATH (`sudo apt install
-ffmpeg` on Debian/Ubuntu) — without it the checkbox is disabled, and if
-`ffmpeg` goes missing at sync time the run falls back to copying originals
-and says so in the log.
+"Clear MP3 cache" empties it and shows how much space it's using. **Max cache
+size** caps that folder: after a sync that converts to MP3, the least recently
+used conversions are deleted until the cache is back under the limit, so a
+one-off library re-tag can't quietly pile up stale copies. Set it to `0`
+(shown as "Unlimited") to turn eviction off. This option needs `ffmpeg` on your
+PATH (`sudo apt install ffmpeg` on Debian/Ubuntu) — without it the checkbox is
+disabled, and if `ffmpeg` goes missing at sync time the run falls back to
+copying originals and says so in the log.
 
 **Choosing what goes**: the Playlists & Moods tab is a checklist — tick
 whichever playlists and moods you want on this device. It's grouped into

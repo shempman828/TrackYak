@@ -172,6 +172,46 @@ def test_load_profile_reflects_transcode_settings_without_signals(monkeypatch): 
     assert fired == []  # signals stayed blocked during the load
 
 
+# ---------------------------------------------------------------------------
+# Transcode cache size row: a "Max cache size" spinbox (global, persisted to
+# app_config) plus the existing "Clear MP3 cache (NN MB)" button.
+# ---------------------------------------------------------------------------
+
+
+def test_cache_max_spinbox_seeds_from_config_and_persists_on_change(monkeypatch):  # AC11
+    import src.sync.sync_view as sv
+
+    fake_cfg = Mock()
+    fake_cfg.get_transcode_cache_max_mb.return_value = 1024
+    monkeypatch.setattr(sv, "app_config", fake_cfg)
+
+    view = _view_with_settings_tab()
+    assert view.cache_max_spin.value() == 1024
+    assert view.cache_max_spin.specialValueText()  # 0 renders as "Unlimited"
+
+    view.cache_max_spin.setValue(2048)
+    fake_cfg.set_transcode_cache_max_mb.assert_called_with(2048)
+    assert fake_cfg.save.called
+
+
+def test_clear_cache_button_shows_size_and_disables_when_empty(monkeypatch):  # AC12
+    import src.sync.sync_view as sv
+
+    view = _view_with_settings_tab()
+    fake_cache = Mock()
+    monkeypatch.setattr(sv, "TranscodeCache", lambda: fake_cache)
+
+    fake_cache.size_bytes.return_value = 0
+    view._update_cache_button_label()
+    assert "0 MB" in view.clear_cache_btn.text()
+    assert view.clear_cache_btn.isEnabled() is False
+
+    fake_cache.size_bytes.return_value = 5 * 1024 * 1024
+    view._update_cache_button_label()
+    assert "5 MB" in view.clear_cache_btn.text()
+    assert view.clear_cache_btn.isEnabled() is True
+
+
 def test_close_event_cancels_and_joins_sync_items_loader():  # perf-AC13
     from PySide6.QtGui import QCloseEvent
 

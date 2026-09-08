@@ -61,3 +61,25 @@ def test_excluded_roles_and_genres_are_independent(fresh_config):
     reloaded = _reload(scratch_ini)
     assert reloaded.get_excluded_genres() == ["Noise"]
     assert reloaded.get_excluded_roles() == ["Engineer"]
+
+
+# --- transcode cache size cap (idea 57) ------------------------------------ AC9
+
+
+def test_transcode_cache_max_mb_defaults_to_2048(fresh_config):
+    cfg, _ = fresh_config
+    assert cfg.get_transcode_cache_max_mb() == 2048
+
+
+def test_transcode_cache_max_mb_round_trips_through_config_file(fresh_config):
+    cfg, scratch_ini = fresh_config
+
+    cfg.set_transcode_cache_max_mb(512)
+    cfg.save()
+
+    reloaded = _reload(scratch_ini)
+    assert reloaded.get_transcode_cache_max_mb() == 512
+
+    raw = configparser.ConfigParser()
+    raw.read(scratch_ini)
+    assert raw["sync"]["transcode_cache_max_mb"] == "512"

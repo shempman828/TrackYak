@@ -78,3 +78,43 @@ def test_prune_skipped_when_sync_cancelled():  # AC7
 
     mgr.prune_device.assert_not_called()
     assert worker.prune_result is None
+
+
+# -- transcode cache eviction (idea 57) ------------------------------------ AC10
+
+
+def test_transcode_cache_evicted_after_run_when_transcoding_on(monkeypatch):
+    from src.sync import sync_worker
+
+    monkeypatch.setattr(sync_worker.app_config, "get_transcode_cache_max_mb", lambda: 3)
+    mgr = _manager()
+    mgr.transcode_cache.enforce_limit.return_value = {
+        "evicted": 0,
+        "freed_bytes": 0,
+        "swept_parts": 0,
+    }
+    profile = SyncProfile(name="x", path="/dest", transcode_to_mp3=True)
+    worker = SyncWorker(mgr, _ITEMS, profile)
+
+    worker.run()
+
+    mgr.transcode_cache.enforce_limit.assert_called_once_with(3 * 1024 * 1024)
+
+
+def test_transcode_cache_not_evicted_when_transcoding_off():  # AC10
+    mgr = _manager()
+    worker = SyncWorker(mgr, _ITEMS, SyncProfile(name="x", path="/dest", transcode_to_mp3=False))
+
+    worker.run()
+
+    mgr.transcode_cache.enforce_limit.assert_not_called()
+
+
+def test_transcode_cache_not_evicted_when_run_cancelled():  # AC10
+    mgr = _manager()
+    worker = SyncWorker(mgr, _ITEMS, SyncProfile(name="x", path="/dest", transcode_to_mp3=True))
+    worker.request_cancel()
+
+    worker.run()
+
+    mgr.transcode_cache.enforce_limit.assert_not_called()

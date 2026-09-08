@@ -8,6 +8,7 @@ Both paths emit identical signals so the UI is fully agnostic.
 from PySide6.QtCore import Signal
 
 from src.common.cancellable_worker import CancellableWorker
+from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import StatusManager
 from src.sync.sync_manager import SyncManager
@@ -77,6 +78,13 @@ class SyncWorker(CancellableWorker):
                 self.results.append(result)
                 self.playlist_complete.emit(result)
 
+            # ── Trim the transcode cache back under its size cap ────────────
+            # Only after a run that actually encoded (and wasn't cancelled
+            # mid-way) — the fresh entries need their post-hit mtimes settled
+            # before we pick LRU victims.
+            if profile.transcode_to_mp3 and not self.is_cancelled:
+                self._enforce_transcode_cache_limit()
+
             # ── Prune files for playlists/moods no longer tracked ───────────
             # Skipped on cancel: self.playlists is still the full tracked set,
             # so the desired set would be sound, but a half-finished run is not
@@ -103,6 +111,21 @@ class SyncWorker(CancellableWorker):
             # (get_item_tracks, called from sync_playlist_to_*) registered a
             # fresh Session here that nothing else releases.
             self._release_db_session()
+
+    def _enforce_transcode_cache_limit(self):
+        """LRU-evict the transcode cache down to `sync.transcode_cache_max_mb`."""
+        max_bytes = app_config.get_transcode_cache_max_mb() * 1024 * 1024
+        try:
+            outcome = self.sync_manager.transcode_cache.enforce_limit(max_bytes)
+        except OSError:
+            logger.exception("Transcode cache cleanup failed")
+            return
+        if outcome["evicted"] or outcome["swept_parts"]:
+            logger.info(
+                f"Transcode cache trimmed: {outcome['evicted']} evicted "
+                f"({outcome['freed_bytes'] / (1024 * 1024):.0f} MB), "
+                f"{outcome['swept_parts']} stale temp(s) swept"
+            )
 
     def _progress_callback(self, current: int, total: int, message: str):
         self.progress.emit(current, total, message)
