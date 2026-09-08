@@ -15,9 +15,18 @@ with the already-modified file, destroying the last good copy.
        False) and the pristine backup still holds the ORIGINAL bytes.
 """
 
+import os
+import time
+
 import pytest
 
-from src.metadata.metadata_writer_backup import backup_file, write_artwork_with_backup
+from src.metadata import metadata_writer_backup
+from src.metadata.metadata_writer_backup import (
+    atomic_write,
+    backup_file,
+    sweep_stale_temp_files,
+    write_artwork_with_backup,
+)
 
 
 def test_backup_file_creates_sibling_bak(tmp_path):
@@ -72,3 +81,98 @@ def test_retry_after_crash_preserves_original_backup(tmp_path):
 
     assert result is False
     assert bak.read_bytes() == b"ORIGINAL"
+
+
+# --- atomic_write: stranded temp sweep + fs-metadata preservation -------------
+#
+# Bug: a SIGKILL between mkstemp and os.replace strands a `.tmp-XXXXXX` file
+# next to the target with no cleanup path, and shutil.copymode restored only
+# permission bits -- owner/group and xattrs (e.g. `user.*` rating tags) were
+# dropped on the swapped-in inode. Timestamps must still NOT be carried over,
+# or mtime-keyed caches downstream stop invalidating.
+
+
+@pytest.fixture(autouse=True)
+def _reset_swept_dirs():
+    metadata_writer_backup._swept_dirs.clear()
+    yield
+    metadata_writer_backup._swept_dirs.clear()
+
+
+def _can_set_user_xattr(path: str) -> bool:
+    try:
+        os.setxattr(path, "user.__probe__", b"1")
+        os.removexattr(path, "user.__probe__")
+        return True
+    except OSError:
+        return False
+
+
+def test_sweep_removes_only_aged_temp_files(tmp_path):
+    stale = tmp_path / ".tmp-abc123.flac"
+    stale.write_bytes(b"orphan")
+    old = time.time() - 3600
+    os.utime(stale, (old, old))
+
+    fresh = tmp_path / ".tmp-def456.flac"
+    fresh.write_bytes(b"in-flight")
+
+    real = tmp_path / "song.flac"
+    real.write_bytes(b"AUDIO")
+
+    sweep_stale_temp_files(str(tmp_path))
+
+    assert not stale.exists()  # aged orphan reaped
+    assert fresh.exists()  # concurrent in-flight write left alone
+    assert real.exists()  # non-temp file untouched
+
+
+def test_atomic_write_sweeps_stale_temp_on_first_write_to_dir(tmp_path):
+    stale = tmp_path / ".tmp-deadbeef.flac"
+    stale.write_bytes(b"orphan")
+    old = time.time() - 3600
+    os.utime(stale, (old, old))
+
+    target = tmp_path / "song.flac"
+    target.write_bytes(b"OLD")
+
+    atomic_write(str(target), b"NEW")
+
+    assert target.read_bytes() == b"NEW"
+    assert not stale.exists()
+
+
+def test_atomic_write_preserves_xattrs(tmp_path):
+    target = tmp_path / "song.flac"
+    target.write_bytes(b"OLD")
+    if not _can_set_user_xattr(str(target)):
+        pytest.skip("filesystem does not support user xattrs")
+    os.setxattr(str(target), "user.rating", b"5")
+
+    atomic_write(str(target), b"NEW")
+
+    assert target.read_bytes() == b"NEW"
+    assert os.getxattr(str(target), "user.rating") == b"5"
+
+
+def test_atomic_write_does_not_freeze_mtime(tmp_path):
+    target = tmp_path / "song.flac"
+    target.write_bytes(b"OLD")
+    old = time.time() - 86400
+    os.utime(target, (old, old))
+
+    atomic_write(str(target), b"NEW")
+
+    # The replacement inode keeps its own fresh mtime; carrying the old one
+    # over would stop artwork_cache / transcode caches from invalidating.
+    assert target.stat().st_mtime > old + 60
+
+
+def test_atomic_write_preserves_mode(tmp_path):
+    target = tmp_path / "song.flac"
+    target.write_bytes(b"OLD")
+    target.chmod(0o640)
+
+    atomic_write(str(target), b"NEW")
+
+    assert oct(target.stat().st_mode & 0o777) == oct(0o640)
