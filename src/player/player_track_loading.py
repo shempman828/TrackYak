@@ -15,9 +15,18 @@ import time
 import unicodedata
 
 from src.foundation.logger_config import logger
-from src.player.player_reader import READER_LOCK_TIMEOUT, _open_soundfile
+from src.player.player_reader import (
+    _PLAYABLE_EXTENSIONS,
+    READER_LOCK_TIMEOUT,
+    TranscodeUnavailableError,
+    _open_soundfile,
+)
 
-SUPPORTED_FORMATS = {".wav", ".flac", ".mp3", ".aiff", ".aif", ".ogg", ".m4a"}
+# Formats the player will open. Sourced from player_reader so the load gate,
+# the transcode routing, and the importer's SUPPORTED_EXTENSIONS can't drift
+# apart -- .aac/.opus used to be missing here, so those files were rejected
+# at the gate below before the ffmpeg path could ever see them.
+SUPPORTED_FORMATS = _PLAYABLE_EXTENSIONS
 
 
 class PlayerTrackLoadingMixin:
@@ -151,6 +160,12 @@ class PlayerTrackLoadingMixin:
 
             return True
 
+        except TranscodeUnavailableError as exc:
+            # File needs ffmpeg to decode (.aac/.opus/.m4a on this libsndfile)
+            # and ffmpeg isn't available -- surface the actionable message.
+            self.error_occurred.emit(str(exc))
+            logger.error(f"load_track: {exc}")
+            return False
         except (OSError, RuntimeError) as exc:
             self.error_occurred.emit(f"Failed to open audio: {exc}")
             logger.error(f"load_track error: {exc}")

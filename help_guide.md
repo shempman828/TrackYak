@@ -668,6 +668,11 @@ Double-click any queued track to jump to it immediately.
   those albums so you can pick which version to embed into every track. It
   covers only the albums from that import; the full-library equivalent is
   Tools → [Artwork Conflicts…](#tools-menu).
+  Supported file types are MP3, FLAC, WAV, M4A, AAC, OGG and Opus. M4A and
+  AAC (and, on older Linux audio libraries, Opus/OGG) are decoded through
+  `ffmpeg` at playback time — if it isn't on your PATH (`sudo apt install
+  ffmpeg` on Debian/Ubuntu) those tracks still import, but pressing play
+  shows a message telling you to install it.
 - **View Library Statistics** — a dashboard of your whole collection at a
   glance: health, top artists/albums/genres, audio characteristics, and more,
   split across tabs. See [Library Statistics](#library-statistics) below for

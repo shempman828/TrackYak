@@ -10,24 +10,79 @@ self.current_channels, self.sf (soundfile module).
 import contextlib
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import threading
 
 import numpy as np
+import soundfile as _soundfile
 
 from src.foundation.logger_config import logger
 
-# Formats libsndfile (soundfile) can't decode natively and must be
-# transcoded to WAV via ffmpeg before soundfile can open them.
-_FFMPEG_TRANSCODE_FORMATS = {".m4a"}
+# Every audio container the player will open for playback. Anything in here
+# that the linked libsndfile can't decode natively is transcoded to WAV via
+# ffmpeg first (see _open_soundfile). Kept a superset of
+# importing.library_import.TrackImporter.SUPPORTED_EXTENSIONS -- guarded by
+# tests/player/test_player_reader_transcode.py.
+_PLAYABLE_EXTENSIONS = {".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a", ".aac", ".ogg", ".opus"}
+
+
+def _libsndfile_decodable_extensions() -> set[str]:
+    """Container extensions the *linked* libsndfile build can open directly.
+
+    MP3 (libsndfile 1.1.0) and Ogg/Opus (1.2.0) support arrived recently and
+    are both build-time options, so probe the running library instead of
+    assuming. Ogg/Vorbis needs the OGG container plus the VORBIS subtype;
+    .opus is Ogg framing with the OPUS subtype. .m4a/.aac (MPEG-4 / raw
+    ADTS) have never been decodable by libsndfile.
+    """
+    try:
+        formats = {name.upper() for name in _soundfile.available_formats()}
+        subtypes = {name.upper() for name in _soundfile.available_subtypes()}
+    except Exception:  # pragma: no cover - available_* is stable; defensive only
+        return set()
+    decodable = set()
+    for fmt, exts in {"WAV": {".wav"}, "AIFF": {".aiff", ".aif"}, "FLAC": {".flac"}}.items():
+        if fmt in formats:
+            decodable |= exts
+    if "MPEG" in formats or "MP3" in formats:
+        decodable.add(".mp3")
+    if "OGG" in formats and "VORBIS" in subtypes:
+        decodable.add(".ogg")
+    if "OGG" in formats and "OPUS" in subtypes:
+        decodable.add(".opus")
+    return decodable
+
+
+# Decided once, from the linked library's actual capabilities.
+_LIBSNDFILE_FORMATS = _libsndfile_decodable_extensions() & _PLAYABLE_EXTENSIONS
+# Formats this system's libsndfile can't decode and that must be transcoded
+# to WAV via ffmpeg before soundfile can open them. Always includes .m4a/.aac;
+# .opus/.ogg only land here on an older/stripped-down libsndfile build.
+_FFMPEG_TRANSCODE_FORMATS = _PLAYABLE_EXTENSIONS - _LIBSNDFILE_FORMATS
+
+
+_FFMPEG_MISSING_MESSAGE = (
+    "Can't play {ext} files without ffmpeg -- install it "
+    "(e.g. `sudo apt install ffmpeg`) and try again."
+)
+
+
+class TranscodeUnavailableError(OSError):
+    """A file needs ffmpeg to be decoded but ffmpeg isn't on PATH (or
+    vanished mid-run). Subclasses OSError so existing open-failure handlers
+    still catch it; carries a user-facing, actionable message."""
 
 
 def _transcode_to_wav(file_path: Path) -> Path:
     """Decode file_path to a temp float32 WAV via ffmpeg so the rest of the
     reader pipeline (SoundFile-based read/seek/resync) can treat it like any
-    other format. Raises OSError on failure. Caller is responsible for
-    unlinking the returned path once it has opened it."""
+    other format. Raises TranscodeUnavailableError if ffmpeg isn't available,
+    OSError on any other failure. Caller is responsible for unlinking the
+    returned path once it has opened it."""
+    if shutil.which("ffmpeg") is None:
+        raise TranscodeUnavailableError(_FFMPEG_MISSING_MESSAGE.format(ext=file_path.suffix))
     fd, tmp_name = tempfile.mkstemp(suffix=".wav")
     os.close(fd)
     tmp_path = Path(tmp_name)
@@ -51,7 +106,13 @@ def _transcode_to_wav(file_path: Path) -> Path:
             stdin=subprocess.DEVNULL,
             timeout=30,
         )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
+    except FileNotFoundError as exc:
+        # ffmpeg disappeared between the which() check and the run.
+        tmp_path.unlink(missing_ok=True)
+        raise TranscodeUnavailableError(
+            _FFMPEG_MISSING_MESSAGE.format(ext=file_path.suffix)
+        ) from exc
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         tmp_path.unlink(missing_ok=True)
         raise OSError(f"ffmpeg transcode failed: {exc}") from exc
     return tmp_path
