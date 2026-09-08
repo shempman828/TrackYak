@@ -1,7 +1,4 @@
-"""
-playlist_view.py
-
-"""
+"""playlist_view.py"""
 
 from collections import defaultdict
 import datetime
@@ -714,6 +711,14 @@ class PlaylistView(QWidget):
 
             self.playlist_updated.emit()
             logger.debug(f"Moved playlist {dragged_id} to parent {new_parent_id}")
+
+            # We've already re-parented the item ourselves. The tree runs in
+            # InternalMove mode, so if we let this drop resolve as a MoveAction
+            # QAbstractItemView.startDrag() would then run its own
+            # clearOrRemove() on the selected row - deleting the item we just
+            # moved out from under its new parent. Report IgnoreAction so Qt
+            # leaves the tree alone.
+            event.setDropAction(Qt.IgnoreAction)
             event.accept()
 
         except (SQLAlchemyError, RuntimeError) as e:
