@@ -24,6 +24,7 @@ from src.track.track_edit_advanced import AdvancedTab
 from src.track.track_edit_album import AlbumsTab
 from src.track.track_edit_awards import AwardsTab
 from src.track.track_edit_basetab import _BaseTab
+from src.track.track_edit_classical import ClassicalTab
 from src.track.track_edit_fieldform import FieldFormTab
 from src.track.track_edit_genres import GenresTab
 from src.track.track_edit_identity import IdentificationTab
@@ -128,7 +129,7 @@ class TrackEditDialog(QDialog):
             "Description", lambda: FieldFormTab("Description", self.tracks, self.controller)
         )
         self._add_tab("Lyrics", lambda: LyricsTab(self.tracks, self.controller))
-        self._add_tab("Classical", lambda: FieldFormTab("Classical", self.tracks, self.controller))
+        self._add_tab("Classical", lambda: ClassicalTab(self.tracks, self.controller, dialog=self))
         self._add_tab(
             "Properties", lambda: FieldFormTab("Properties", self.tracks, self.controller)
         )
@@ -164,6 +165,17 @@ class TrackEditDialog(QDialog):
             if value:
                 return value
         return self.track.track_name
+
+    def set_live_track_name(self, value: str) -> bool:
+        """Write `value` into the Basic tab's track-title field and mark it
+        dirty, so it's saved along with everything else on Save. Basic is
+        tab 0 and built eagerly on open, so this is always available.
+        Mirrors get_live_track_name(); used by the Classical tab's
+        parse-from-title action."""
+        basic_tab = self._tabs[0]
+        if isinstance(basic_tab, FieldFormTab):
+            return basic_tab.set_field_value("track_name", value)
+        return False
 
     def _make_advanced_tab(self):
         advanced_tab = AdvancedTab(self.tracks, self.controller, dialog=self)

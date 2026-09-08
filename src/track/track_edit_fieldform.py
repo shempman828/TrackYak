@@ -345,6 +345,19 @@ class FieldFormTab(_BaseTab):
         widget = self._widgets.get(field_name)
         return _read_widget(widget) if widget is not None else None
 
+    def set_field_value(self, field_name: str, value: Any) -> bool:
+        """Write `value` into one editable widget on this tab and mark it
+        dirty so collect_changes() persists it on Save -- the inverse of
+        get_field_value(). Returns False if the field isn't an editable
+        widget on this tab (e.g. read-only, or filtered out in multi-track
+        mode)."""
+        widget = self._widgets.get(field_name)
+        if widget is None:
+            return False
+        _write_widget(widget, value)
+        self._mark_dirty(field_name)
+        return True
+
     def collect_all_values(self) -> dict[str, Any]:
         """Return every currently displayed field with a value, editable or
         read-only -- unlike collect_changes(), this isn't limited to fields

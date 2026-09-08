@@ -103,6 +103,17 @@ field. Select several and edit them together — only fields safe to apply to
 a whole batch (like genre) show up in the multi-edit form, so you won't
 accidentally overwrite something track-specific like the title.
 
+**Classical tracks from a messy title**: on a single track, the editor's
+Classical tab has a **Parse Title for Classical Data** button. It reads the
+work, key, catalogue number (Op., BWV, K., RV, …), movement number and tempo
+marking straight out of a title like *"Symphony No. 5 in C minor, Op. 67:
+I. Allegro con brio"*, fills in whichever Classical fields are still blank
+(it never touches ones you've already filled), ticks **Classical**, and
+trims the title down to the bare movement name (*"Allegro con brio"*) — the
+player and track views rebuild the full description from the structured
+fields anyway. It shows a preview of every change first; nothing is written
+until you click Save.
+
 **Cleaning out tracks**: the Delete key (or the context menu) gives you a
 choice — remove just the database entry and leave the file alone, or delete
 the file too. The second option asks you to confirm twice, since it's
