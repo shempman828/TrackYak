@@ -11,6 +11,7 @@ self.stop()/self.seek()/self.play() (transport controls).
 
 import gc
 import json
+import os
 import re
 import subprocess
 import threading
@@ -53,6 +54,27 @@ REALTIME_PROMOTION_POLL_TIMEOUT = 0.5  # seconds to wait for the feeder to start
 # roughly half of it -- not perceptible, and far better than a 300 ms drone
 # after hitting pause.
 OUTPUT_LATENCY = 0.3
+
+
+def demote_thread_from_realtime(native_tid: int) -> bool:
+    """Undo an RTKit real-time promotion: move `native_tid` back to the
+    normal SCHED_OTHER scheduler.
+
+    RTKit has no "make this thread normal again" call and needs none -- the
+    kernel lets any thread move a same-uid thread *out* of a real-time
+    policy without privilege (unlike moving one *into* it), even with
+    RLIMIT_RTPRIO at 0. So this goes straight through sched_setscheduler
+    rather than back through D-Bus. Best-effort: a dead/unknown tid, or a
+    platform without sched_setscheduler (non-Linux), is a silent no-op.
+    """
+    if not hasattr(os, "sched_setscheduler"):
+        return False
+    try:
+        os.sched_setscheduler(native_tid, os.SCHED_OTHER, os.sched_param(0))
+        return True
+    except OSError as exc:
+        logger.debug(f"Real-time demotion of tid {native_tid} failed: {exc}")
+        return False
 
 
 class PlayerDeviceMixin:
@@ -298,15 +320,32 @@ class PlayerDeviceMixin:
         Runs in a background thread: play() shouldn't block on this, and the
         feeder thread's native id isn't set until the feeder starts running
         (see _feeder_loop in player_feeder.py).
+
+        The promotion is bound to one stream generation. _feeder_native_tid
+        is *not* cleared when a feeder exits, so a bare "wait for it to be
+        non-None" would happily promote the previous (dead, possibly
+        TID-recycled) feeder, or the replacement feeder from a rapid
+        exclusive-mode off-toggle -- leaving a real-time thread on the
+        normal PipeWire path. So wait for the feeder started for *this*
+        generation, and bail if the stream turned over or exclusive mode
+        went away while we waited. The matching demotion happens in the
+        feeder's own teardown (see _feeder_loop's finally in player_feeder.py).
         """
+
+        generation = self._stream_generation
 
         def _worker():
             deadline = time.monotonic() + REALTIME_PROMOTION_POLL_TIMEOUT
-            while self._feeder_native_tid is None and time.monotonic() < deadline:
+            while time.monotonic() < deadline:
+                if self._feeder_generation == generation and self._feeder_native_tid is not None:
+                    break
                 time.sleep(0.01)
             tid = self._feeder_native_tid
-            if tid is None:
-                logger.debug("Realtime promotion: audio feeder never started in time")
+            if self._feeder_generation != generation or tid is None:
+                logger.debug("Realtime promotion: feeder for this stream never started in time")
+                return
+            if self._stream_generation != generation or not self.exclusive_mode:
+                logger.debug("Realtime promotion: stream/exclusive state changed, skipping")
                 return
             if self._promote_callback_to_realtime(tid, REALTIME_PROMOTION_PRIORITY):
                 logger.info("Exclusive-mode audio feeder promoted to real-time priority")

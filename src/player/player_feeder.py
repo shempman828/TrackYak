@@ -34,6 +34,7 @@ import threading
 import numpy as np
 
 from src.foundation.logger_config import logger
+from src.player.player_device import demote_thread_from_realtime
 from src.player.player_reader import BLOCKSIZE
 
 # Frames handed to a single stream.write() call. One decode chunk (BLOCKSIZE,
@@ -195,6 +196,19 @@ class PlayerFeederMixin:
             self._pending_error_count += 1
             self._last_error_message = str(exc)
         finally:
+            # Exclusive mode may have promoted this thread to real-time
+            # (SCHED_RR) via RTKit (_request_exclusive_realtime_priority).
+            # That promotion is bound to this exact thread and the feeder is
+            # torn down and recreated whenever exclusive mode is toggled or
+            # the stream format changes -- so undo it here, on the way out,
+            # or a real-time thread is left running on the normal PipeWire
+            # path. Clear the shared tid too (unless a newer feeder already
+            # claimed it -- possible if our stop-join timed out) so a stale
+            # value can't be promoted later. No-op if we were never promoted.
+            own_tid = threading.get_native_id()
+            demote_thread_from_realtime(own_tid)
+            if self._feeder_native_tid == own_tid:
+                self._feeder_native_tid = None
             with contextlib.suppress(Exception):
                 if stream.active:
                     stream.stop()

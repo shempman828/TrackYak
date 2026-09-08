@@ -211,5 +211,32 @@ def test_feeder_counts_underrun_only_while_not_finishing():
     assert h._pending_buffer_underrun_count == 0
 
 
+def test_feeder_demotes_realtime_priority_and_clears_tid_on_exit(monkeypatch):
+    # Exclusive mode promotes this thread to SCHED_RR via RTKit; the feeder
+    # is the only thing that knows when its (reused-across-tracks) thread is
+    # actually going away, so it must undo the promotion on the way out and
+    # clear the shared tid so a later promote worker can't reuse a dead one.
+    calls = []
+    monkeypatch.setattr(
+        "src.player.player_feeder.demote_thread_from_realtime",
+        lambda tid: calls.append(tid) or True,
+    )
+    h = _Host()
+    h._audio_buffer.append(_chunk(1000))
+
+    seen = {}
+
+    def _ready():
+        if h._feeder_native_tid is not None:
+            seen["tid"] = h._feeder_native_tid
+        return h.audio_stream.frames_written() >= 1000
+
+    h.run_feeder_until(_ready)
+
+    assert isinstance(seen["tid"], int) and seen["tid"] > 0
+    assert calls == [seen["tid"]]  # demoted exactly its own thread, once
+    assert h._feeder_native_tid is None
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
