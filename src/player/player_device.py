@@ -35,13 +35,24 @@ RTKIT_OBJECT_PATH = "/org/freedesktop/RealtimeKit1"
 # priority 50 (the DRM display driver's per-CRTC vblank workers, card1-crtc0..5,
 # plus a couple of IRQ threads) -- any of those preempting our audio thread
 # during display activity (e.g. compositing while browsing) was enough to
-# starve the callback and produce a real paOutputUnderflow, logged via
-# player_callback.py's `status` handling. 20 doesn't out-prioritize those
-# SCHED_FIFO-50 threads either (RTKit won't grant more), but it does put us
-# ahead of all ordinary SCHED_OTHER contention, which is the most RTKit will
+# starve it and produce a real device-level underrun. 20 doesn't out-prioritize
+# those SCHED_FIFO-50 threads either (RTKit won't grant more), but it does put
+# us ahead of all ordinary SCHED_OTHER contention, which is the most RTKit will
 # ever hand out to an unprivileged desktop app here.
 REALTIME_PROMOTION_PRIORITY = 20
-REALTIME_PROMOTION_POLL_TIMEOUT = 0.5  # seconds to wait for the callback to fire
+REALTIME_PROMOTION_POLL_TIMEOUT = 0.5  # seconds to wait for the feeder to start
+
+# Requested PortAudio internal buffer, in seconds. This is the headroom the
+# feeder thread (player_feeder.py) has to ride out a GIL stall: PortAudio's own
+# C thread keeps draining this buffer to the DAC while the feeder waits for the
+# GIL to run its next write(). Measured on this codebase: at "high" (~35 ms)
+# two permanently GIL-pinned threads still forced ~55-60 output underflows /
+# 12 s; by ~0.3 s that is down to 0-1 even under that pathological load, and
+# real (bursty) GIL contention or plain CPU load never comes close. The cost is
+# that pause aborts up to this much already-buffered audio and resume replays
+# roughly half of it -- not perceptible, and far better than a 300 ms drone
+# after hitting pause.
+OUTPUT_LATENCY = 0.3
 
 
 class PlayerDeviceMixin:
@@ -277,29 +288,28 @@ class PlayerDeviceMixin:
 
     def _request_exclusive_realtime_priority(self):
         """Exclusive mode talks to the raw ALSA hw: device directly, with no
-        PipeWire mixing layer underneath to absorb scheduling jitter -- so
-        the PortAudio callback thread (ordinary SCHED_OTHER by default) can
-        miss its hardware deadline under any system CPU pressure (confirmed:
-        opening a browser tab is enough to cause an audible dropout).
-        PortAudio's ALSA backend doesn't request real-time scheduling for
-        this thread itself, so we do it here via RTKit -- the same service
-        PipeWire's own real-time thread already gets its priority from.
+        PipeWire mixing layer underneath to absorb scheduling jitter. The
+        feeder thread is normally parked inside a blocking write() (GIL
+        released), but a GC pause or heavy CPU pressure can still delay its
+        next wake past the hw: device's shallow buffer -- so promote it to
+        real-time (SCHED_RR) via RTKit, the same service PipeWire's own
+        real-time thread gets its priority from.
 
-        Runs in a background thread: play() shouldn't block on this, and
-        the callback thread's native id isn't known until it has fired at
-        least once (see `_stamped_callback` in player_transport.py).
+        Runs in a background thread: play() shouldn't block on this, and the
+        feeder thread's native id isn't set until the feeder starts running
+        (see _feeder_loop in player_feeder.py).
         """
 
         def _worker():
             deadline = time.monotonic() + REALTIME_PROMOTION_POLL_TIMEOUT
-            while self._callback_native_tid is None and time.monotonic() < deadline:
+            while self._feeder_native_tid is None and time.monotonic() < deadline:
                 time.sleep(0.01)
-            tid = self._callback_native_tid
+            tid = self._feeder_native_tid
             if tid is None:
-                logger.debug("Realtime promotion: audio callback never fired in time")
+                logger.debug("Realtime promotion: audio feeder never started in time")
                 return
             if self._promote_callback_to_realtime(tid, REALTIME_PROMOTION_PRIORITY):
-                logger.info("Exclusive-mode audio callback promoted to real-time priority")
+                logger.info("Exclusive-mode audio feeder promoted to real-time priority")
 
         threading.Thread(target=_worker, daemon=True, name="RTKitPromote").start()
 
@@ -317,17 +327,14 @@ class PlayerDeviceMixin:
             if self.exclusive_mode and self.current_device is not None:
                 # Bit-perfect output is about grabbing the raw hw: node so
                 # PipeWire/PulseAudio can't resample or mix it — it has nothing
-                # to do with minimizing latency. Requesting "low" here gave
-                # PortAudio very little internal buffer to absorb scheduling
-                # jitter from the Python-side reader thread, which surfaced as
-                # frequent underrun hitches once a hw: device was actually
-                # grabbed. "high" keeps the same bit-perfect path with margin.
-                return {"device": self.current_device, "latency": "high"}
+                # to do with minimizing latency. A generous internal buffer
+                # (OUTPUT_LATENCY) is what lets the feeder ride out GIL stalls.
+                return {"device": self.current_device, "latency": OUTPUT_LATENCY}
 
-            return {"device": self.current_device, "latency": "high", "clip_off": True}
+            return {"device": self.current_device, "latency": OUTPUT_LATENCY, "clip_off": True}
         except (OSError, self.sd.PortAudioError, IndexError, TypeError) as exc:
             logger.warning(f"Could not determine device config: {exc}")
-            return {"device": None, "latency": "high"}
+            return {"device": None, "latency": OUTPUT_LATENCY}
 
     def _suspend_gc_during_playback(self):
         """Turn off automatic cyclic garbage collection while an output stream
@@ -357,6 +364,9 @@ class PlayerDeviceMixin:
             logger.debug("Automatic GC re-enabled after playback")
 
     def _close_stream(self):
+        # The feeder thread owns start/stop/write on the stream — it must be
+        # gone before we close the stream object out from under it.
+        self._stop_feeder_thread()
         if self.audio_stream is not None:
             stream_exceptions = (OSError, RuntimeError)
             if hasattr(self, "sd") and hasattr(self.sd, "PortAudioError"):

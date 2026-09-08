@@ -1,12 +1,11 @@
 """Regression: the PortAudio output stream must not be opened with a large
 fixed block size.
 
-It used to pass blocksize=BLOCKSIZE (16384, the reader thread's decode-chunk
-size). At 44.1kHz that is one ~371ms callback period, so any callback that ran
-even slightly late — a main- or worker-thread allocation burst holding the GIL,
-or a stop-the-world GC pause — dropped a full 371ms of audio at once, heard as
-a hitch, while the app-level ring buffer stayed completely full. blocksize=0
-lets PortAudio pick a small block and ride short stalls out of its own queue.
+blocksize=0 lets PortAudio pick its own period for the blocking-write path the
+feeder thread uses. It must not be pinned to the reader's decode-chunk size
+(BLOCKSIZE, 16384): the feeder already slices its writes down to
+FEEDER_WRITE_BLOCKSIZE so stop/pause/seek stay responsive, and a large
+PortAudio period would only add output latency.
 """
 
 from src.player.player_reader import BLOCKSIZE

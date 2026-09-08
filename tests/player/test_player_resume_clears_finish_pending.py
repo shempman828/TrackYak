@@ -39,7 +39,11 @@ class _Timer:
 class _ResumeHost(PlayerTransportMixin):
     """Minimal self for PlayerTransportMixin.play()'s resume fast-path."""
 
+    def wake_feeder(self):  # provided by PlayerFeederMixin on the real class
+        self.feeder_woken = True
+
     def __init__(self):
+        self.feeder_woken = False
         self.sd = object()  # non-None: skip backend init
         self.current_file = object()  # non-None: skip queue load
         self._sf_reader = object()  # non-None: skip queue load

@@ -11,16 +11,14 @@ one former section of this file):
     player_reader.py          — background decode thread + ring buffer
     player_track_loading.py   — opening files, next-track pre-load
     player_transport.py       — play/pause/stop/seek/next/previous
-    player_callback.py        — the real-time PortAudio callback + its
-                                deferred diagnostics logging
+    player_feeder.py          — the thread that writes decoded audio into the
+                                output stream + its deferred diagnostics
     player_position.py        — position-timer tick, play-count recording
     player_gain.py             — volume + ReplayGain/normalization
 
-Diagnostics note: the audio callback (player_callback.py) must never log
-directly — it runs on PortAudio's real-time thread, and a blocking disk
-write there can itself cause the next underrun. It only counts events;
-_flush_callback_diagnostics (called from the position timer each tick)
-does the actual logging from the main thread.
+Diagnostics note: the feeder thread (player_feeder.py) must not do logging
+I/O itself — it only counts events; _flush_playback_diagnostics (called from
+the position timer each tick) does the actual logging from the main thread.
 """
 
 import collections
@@ -33,8 +31,8 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from src.equalizer.equalizer_utility import EqualizerUtility
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
-from src.player.player_callback import PlayerCallbackMixin
 from src.player.player_device import PlayerDeviceMixin
+from src.player.player_feeder import PlayerFeederMixin
 from src.player.player_gain import PlayerGainMixin
 from src.player.player_position import POSITION_INTERVAL_MS, PlayerPositionMixin
 from src.player.player_reader import PlayerReaderMixin
@@ -49,7 +47,7 @@ class MusicPlayer(
     PlayerReaderMixin,
     PlayerTrackLoadingMixin,
     PlayerTransportMixin,
-    PlayerCallbackMixin,
+    PlayerFeederMixin,
     PlayerPositionMixin,
     PlayerGainMixin,
 ):
@@ -70,7 +68,7 @@ class MusicPlayer(
     playback_mode_changed = Signal(str)
     track_metadata_loaded = Signal(Path, dict)  # Path and metadata dict
 
-    # Cross-thread signal: audio callback → main thread track advancement.
+    # Cross-thread signal: feeder thread → main thread track advancement.
     # Must use QueuedConnection (see __init__).
     _track_finished = Signal()
 
@@ -100,35 +98,36 @@ class MusicPlayer(
 
         self._total_frames: int = 0  # total frames in the file
         self._current_frame: int = 0  # how many frames we have read so far
-        self._frames_played: int = 0  # how many frames the audio callback has output
+        self._frames_played: int = 0  # how many frames the feeder has written out
 
         # Lock protecting _sf_reader and _current_frame from concurrent access
-        # between the audio callback thread and the main thread (seek).
+        # between the feeder thread and the main thread (seek).
         self._reader_lock = threading.Lock()
         self._audio_buffer: collections.deque = collections.deque()
         self._buffer_lock = threading.Lock()
-        # Partially-consumed decode chunk: the reader pushes fixed 16384-frame
-        # chunks, but the PortAudio callback block (STREAM_BLOCKSIZE=0) is
-        # smaller and variably sized, so one popped chunk feeds many callbacks.
-        # gain + EQ are applied once, when the chunk is popped.
-        #
-        # These two fields are written ONLY by the audio callback (its RMW of
-        # them runs off _buffer_lock on the real-time thread). Reset sites
-        # (_start_reader_thread / _stop_reader_thread / stop() / seek()) must
-        # NOT touch them — instead they bump _buffer_epoch under _buffer_lock
-        # when they clear _audio_buffer. The callback captures the epoch when
-        # it pops a chunk and discards its residual once the epoch moves, so a
-        # seek/stop landing mid-serve-loop can't leave torn residual state.
-        self._callback_residual = None  # np.ndarray | None, already gain/EQ'd
-        self._callback_residual_pos: int = 0
-        self._callback_residual_epoch: int = 0  # _buffer_epoch this residual came from
-        self._buffer_epoch: int = 0  # bumped (under _buffer_lock) on every buffer clear
+        # _buffer_epoch is bumped (under _buffer_lock) by every site that clears
+        # _audio_buffer (_start_reader_thread / _stop_reader_thread / stop() /
+        # seek()). The feeder captures the epoch when it pops a chunk and
+        # discards that chunk if the epoch has since moved, so a seek/stop
+        # landing mid-processing can't push stale audio.
+        self._buffer_epoch: int = 0
         # Set once the reader's short final (EOF) chunk has been popped, so the
-        # callback still emits track-finished after that chunk drains even for
+        # feeder still emits track-finished after that chunk drains even for
         # files whose header frame count is missing/unreliable.
-        self._callback_final_chunk_seen: bool = False
+        self._final_chunk_seen: bool = False
         self._reader_thread: threading.Thread | None = None
         self._reader_stop = threading.Event()
+
+        # ── Feeder thread ─────────────────────────────────────────────────────
+        # Owns the output stream's start/stop/write for the stream's lifetime;
+        # the main thread only builds the stream and closes it after the feeder
+        # has been joined. See player_feeder.py.
+        self._feeder_thread: threading.Thread | None = None
+        self._feeder_stop = threading.Event()
+        self._feeder_wake = threading.Event()  # nudges it out of a paused wait
+        self._feeder_flush = threading.Event()  # ask it to drop PortAudio's buffer
+        self._feeder_native_tid: int | None = None  # set by the feeder on entry
+        self._feeder_generation: int = 0
 
         # ── Pre-load: next track ──────────────────────────────────────────────
         # We open the *next* track's SoundFile in a background thread so it is
@@ -154,7 +153,6 @@ class MusicPlayer(
 
         self._is_advancing: bool = False
         self._stream_generation: int = 0
-        self._callback_native_tid: int | None = None  # set by _stamped_callback on first fire
         self._finish_pending = threading.Event()  # thread-safe flag for end-of-stream
         self._stream_close_event = threading.Event()  # set when async close completes
         self._stream_close_event.set()  # starts "set" (no close in progress)
@@ -169,19 +167,17 @@ class MusicPlayer(
         self._has_reached_threshold: bool = False
         self._play_count_recorded: bool = False
 
-        # ── Deferred callback diagnostics ───────────────────────────────────────
-        # The audio callback runs on PortAudio's realtime thread, so it must never
-        # log directly (a blocking disk write there can itself cause the next
-        # underrun, cascading into the very hitches it's reporting). It just
-        # counts occurrences here; _update_position flushes them to the log from
-        # the main thread instead.
-        self._pending_status_count: int = 0
-        self._last_status_value = None
+        # ── Deferred feeder diagnostics ──────────────────────────────────────
+        # The feeder thread only counts events here; _update_position flushes
+        # them to the log from the main thread so the feeder never does I/O.
         self._pending_error_count: int = 0
         self._last_error_message: str | None = None
-        # App-level buffer underrun (reader thread fell behind) — distinct from
-        # PortAudio's own `status` flag above: this one never reaches PortAudio
-        # late, so PortAudio never flags it, but it's heard as the same hitch.
+        # PortAudio inserted silence because the feeder thread missed the
+        # device deadline (GC pause / CPU starvation) -- from stream.write()'s
+        # `underflowed` return.
+        self._pending_output_underflow_count: int = 0
+        # App-level buffer underrun: the ring buffer was empty when the feeder
+        # went to pop, i.e. the reader thread genuinely fell behind.
         self._pending_buffer_underrun_count: int = 0
 
         # ── Normalization ─────────────────────────────────────────────────────

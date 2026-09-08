@@ -73,10 +73,9 @@ def _open_soundfile(sf_module, file_path: Path):
 
 
 BLOCKSIZE = 16384  # Frames per decode chunk the reader thread pushes into the
-# ring buffer. NOT the audio-callback/PortAudio block size -- that is
-# STREAM_BLOCKSIZE in player_transport.py, deliberately left at 0 (let PortAudio
-# pick). Coupling the two used to force a 16384-frame callback, turning any
-# brief scheduling/GIL stall into a full ~371ms gap of silence.
+# ring buffer. The feeder thread (player_feeder.py) slices these back down to
+# FEEDER_WRITE_BLOCKSIZE for its stream.write() calls; this size is just for
+# efficient disk reads and has nothing to do with the PortAudio period.
 # How long UI-thread callers (seek/stop/load_track) will wait to acquire
 # _reader_lock before giving up. The reader thread can be blocked inside a
 # stalled disk read (flaky external/network storage) while holding this
@@ -87,13 +86,13 @@ READER_LOCK_TIMEOUT = 2.0
 # ~37s of lookahead (100 * 16384 / 44100) -- deliberately generous so the
 # reader thread has enough banked audio to absorb OS scheduling stalls
 # (e.g. a CPU-heavy game elsewhere on the system delaying this process)
-# without the callback ever seeing an empty buffer.
+# without the feeder ever seeing an empty buffer.
 READ_AHEAD_BLOCKS = 100
 
 
 class PlayerReaderMixin:
     """Decodes audio from disk in the background and feeds the ring buffer
-    that the real-time audio callback (see PlayerCallbackMixin) drains."""
+    that the audio feeder thread (see PlayerFeederMixin) drains."""
 
     def _start_reader_thread(self):
         """Start background thread that decodes audio into the buffer.
@@ -112,7 +111,7 @@ class PlayerReaderMixin:
         with self._buffer_lock:
             self._audio_buffer.clear()
             self._buffer_epoch += 1
-            self._callback_final_chunk_seen = False
+            self._final_chunk_seen = False
 
         # Prime the buffer with one chunk synchronously before returning. When
         # a track change reuses the existing stream (see play()), the live
@@ -155,7 +154,7 @@ class PlayerReaderMixin:
         with self._buffer_lock:
             self._audio_buffer.clear()
             self._buffer_epoch += 1
-            self._callback_final_chunk_seen = False
+            self._final_chunk_seen = False
 
     def _reader_loop(self):
         """

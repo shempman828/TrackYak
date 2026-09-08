@@ -205,10 +205,10 @@ class EqualizerUtility(QObject):
             return processed_data
 
         except Exception:
-            # Intentional broad boundary catch: this is invoked from the
-            # real-time audio callback (see player_callback.py) on every
-            # buffer — it must fall back to a safe default rather than
-            # propagate, or one bad buffer aborts the audio stream.
+            # Intentional broad boundary catch: this is invoked from the audio
+            # feeder thread (see player_feeder.py) on every buffer — it must
+            # fall back to a safe default rather than propagate, or one bad
+            # buffer takes down playback.
             logger.exception("Equalizer processing error")
             # Return original audio to prevent playback issues
             return audio_data

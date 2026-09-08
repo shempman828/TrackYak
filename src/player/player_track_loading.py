@@ -8,6 +8,7 @@ self.queue_manager, self.equalizer, self.current_* track state, and the
 track_changed/duration_changed/position_changed signals.
 """
 
+import contextlib
 from pathlib import Path
 import threading
 import time
@@ -38,7 +39,8 @@ class PlayerTrackLoadingMixin:
         Open an audio file for streaming playback.
 
         This is fast — it only opens the file and reads its metadata header.
-        No audio data is decoded until the audio callback starts pulling chunks.
+        No audio data is decoded until the reader thread starts filling the
+        ring buffer.
         Returns True on success, False on failure.
         """
         logger.debug(f"load_track ENTER {time.time()}")
@@ -113,10 +115,8 @@ class PlayerTrackLoadingMixin:
                 self._reader_lock.release()
 
             if old_reader is not None:
-                try:
+                with contextlib.suppress(OSError, self.sf.LibsndfileError):
                     old_reader.close()
-                except (OSError, self.sf.LibsndfileError):
-                    pass
 
             logger.debug(f"file opened at {time.time()}")
             self.current_file = original_path

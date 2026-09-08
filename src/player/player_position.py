@@ -5,7 +5,7 @@ MusicPlayer, ticked by the position timer.
 Expects the host class to provide: self.playing, self.paused, self._sf_reader,
 self._frames_played, self.current_sample_rate, self.position_changed signal,
 self._duration, self.current_file, self.controller, and
-self._flush_callback_diagnostics (see PlayerCallbackMixin).
+self._flush_playback_diagnostics (see PlayerFeederMixin).
 """
 
 from datetime import datetime
@@ -30,7 +30,7 @@ class PlayerPositionMixin:
         self._position = int(self._frames_played / self.current_sample_rate * 1000)
         self.position_changed.emit(self._position)
 
-        self._flush_callback_diagnostics()
+        self._flush_playback_diagnostics()
 
         if (
             self._duration > 0

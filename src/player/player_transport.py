@@ -10,21 +10,20 @@ state_changed/error_occurred signals.
 """
 
 from pathlib import Path
-import threading
 import time
 
 from src.foundation.logger_config import logger
+from src.player.player_device import OUTPUT_LATENCY
 from src.player.player_position import PLAY_COUNT_THRESHOLD
 from src.player.player_reader import READER_LOCK_TIMEOUT
 
 RESTART_THRESHOLD_MS = 10_000
 
-# PortAudio callback block size. 0 = let PortAudio choose a small block and keep
-# a deep buffer sized by latency="high". Do NOT set this to the reader's decode
-# chunk size (16384): a large fixed block means every callback that runs even
-# slightly late -- because a main- or worker-thread alloc burst is holding the
-# GIL, or triggered a GC pause -- drops a full ~371ms of audio at once instead
-# of a ~10-40ms blip PortAudio's own queue can ride through.
+# PortAudio stream block size. 0 = let PortAudio choose its own period for the
+# blocking write() path. Do NOT pin it to the reader's decode chunk size
+# (16384): the feeder already slices its writes (FEEDER_WRITE_BLOCKSIZE) so
+# stop/pause/seek stay responsive, and a large PortAudio period only adds
+# latency with no benefit here.
 STREAM_BLOCKSIZE = 0
 
 
@@ -63,6 +62,7 @@ class PlayerTransportMixin:
                 self._finish_pending.clear()
                 self.paused = False
                 self.playing = True
+                self.wake_feeder()
                 self.state_changed.emit("playing")
                 self._position_timer.start()
                 logger.info("Playback resumed")
@@ -76,10 +76,13 @@ class PlayerTransportMixin:
             ):
                 # Stream already open and compatible — clear finish flag and go.
                 # The reader thread was already started by load_track(), so the
-                # buffer is being filled. We just need to let the callback run.
+                # buffer is being filled; the feeder thread is still running
+                # from when this stream was opened and follows the ring buffer
+                # through the track change on its own.
                 self._finish_pending.clear()
                 self.playing = True
                 self.paused = False
+                self.wake_feeder()
                 self.state_changed.emit("playing")
                 self._position_timer.start()
                 logger.info(f"Playback continued on existing stream: {self.current_file.name}")
@@ -89,26 +92,21 @@ class PlayerTransportMixin:
             # ── Open a new stream (first play, or sample rate/channel count changed) ─
             self._close_stream()
             self._stream_generation += 1
-            my_generation = self._stream_generation
-            self._callback_native_tid = None
             self._finish_pending.clear()
 
             device_config = self._get_device_config()
 
-            def _stamped_callback(outdata, frames, time, status, _gen=my_generation):
-                if self._callback_native_tid is None:
-                    self._callback_native_tid = threading.get_native_id()
-                self._audio_callback(outdata, frames, time, status, _gen)
-
             def _open_stream(device):
+                # No callback: the feeder thread (player_feeder.py) drives this
+                # stream with blocking write() calls, keeping all Python off
+                # PortAudio's real-time thread.
                 stream = self.sd.OutputStream(
                     samplerate=self.current_sample_rate,
                     channels=self.current_channels,
                     dtype="float32",
                     device=device,
-                    latency=device_config.get("latency", "high"),
+                    latency=device_config.get("latency", OUTPUT_LATENCY),
                     blocksize=STREAM_BLOCKSIZE,
-                    callback=_stamped_callback,
                 )
                 stream.start()
                 return stream
@@ -169,12 +167,13 @@ class PlayerTransportMixin:
                     raise
             if opened_exclusive_device:
                 self._request_exclusive_realtime_priority()
-            # A live output stream means a real-time callback thread with a hard
-            # deadline. Automatic cyclic GC is stop-the-world (freezes that
-            # thread too), so hold it off until the stream closes -- see
-            # _suspend_gc_during_playback().
+            # Automatic cyclic GC is stop-the-world -- it freezes the feeder
+            # thread (and PortAudio's own thread) for the whole sweep, which
+            # can still blow a write() deadline. Hold it off until the stream
+            # closes -- see _suspend_gc_during_playback().
             self._suspend_gc_during_playback()
             self._start_reader_thread()
+            self._start_feeder_thread()
 
             self.playing = True
             self.paused = False
@@ -190,8 +189,10 @@ class PlayerTransportMixin:
             self.playing = False
 
     def pause(self):
-        """Pause playback.
-        Stream stays open; callback outputs silence."""
+        """Pause playback. The feeder thread sees self.paused, stops the output
+        stream (draining PortAudio's short internal buffer, no sample loss) and
+        parks until play() wakes it. self._frames_played stops advancing on its
+        own, so the position freezes."""
         if self.playing and not self.paused:
             self.paused = True
             self.state_changed.emit("paused")
@@ -206,6 +207,8 @@ class PlayerTransportMixin:
         self._position_timer.stop()
         self._has_reached_threshold = False
         self._play_count_recorded = False
+        # Stop the feeder before touching the reader/buffer/stream it draws on.
+        self._stop_feeder_thread()
         # Reset the reader cursor to the beginning of the track
         self._stop_reader_thread()
         if self._reader_lock.acquire(timeout=READER_LOCK_TIMEOUT):
@@ -227,7 +230,7 @@ class PlayerTransportMixin:
         with self._buffer_lock:
             self._audio_buffer.clear()
             self._buffer_epoch += 1
-            self._callback_final_chunk_seen = False
+            self._final_chunk_seen = False
         self._position = 0
         # Close the stream so play() opens a fresh one from frame 0
         self._close_stream()
@@ -333,6 +336,9 @@ class PlayerTransportMixin:
 
             # Restart the reader thread so the buffer refills from the new position.
             self._start_reader_thread()
+            # Drop whatever pre-seek audio PortAudio has already buffered so the
+            # jump is heard now, not after the tail plays out.
+            self.request_feeder_flush()
 
             logger.debug(f"Seek to {position_ms}ms (frame {target_frame})")
         except (OSError, TypeError, ValueError, RuntimeError) as exc:
