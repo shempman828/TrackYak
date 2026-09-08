@@ -75,7 +75,7 @@ def _detach_running_worker(worker: MusicBrainzWorker | None) -> None:
     # mute the warning and swallow the RuntimeError per signal.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
-        for signal in (worker.finished, worker.error, worker.progress):
+        for signal in (worker.finished, worker.error, worker.progress, worker.status):
             with contextlib.suppress(RuntimeError):
                 signal.disconnect()
     worker.setParent(None)
@@ -334,17 +334,19 @@ class MusicBrainzImportDialog(QDialog):
     payload for callers reusing this dialog for a different fetch shape),
     or None if the fetch failed or the user cancelled.
 
-    Pass `supports_progress=True` for a `fetch_call` that accepts a single
-    `progress_callback(current, total)` positional argument (e.g.
-    `fetch_release_detail`'s recording-location resolution) -- the dialog
-    then switches its progress bar from an indeterminate spinner to a
-    determinate "(n of total)" counter once more than 5 steps are queued,
-    so a long-running fetch doesn't look hung. Callers that don't need this
-    can leave it False and keep passing a plain zero-arg `fetch_call`.
+    Pass `supports_progress=True` for a `fetch_call` that accepts two
+    positional callbacks, `(progress_callback(current, total),
+    status_callback(message))` (e.g. `fetch_release_detail`) -- the dialog
+    shows each `status_callback` message live while the fetch works through
+    its sub-steps, and switches the progress bar from an indeterminate
+    spinner to a determinate "(n of total)" counter once `progress_callback`
+    reports a total worth showing. Callers that don't need this can leave it
+    False and keep passing a plain zero-arg `fetch_call`.
     """
 
     # Below this many queued steps, the determinate counter isn't worth
-    # showing -- a couple of quick lookups just keep the plain spinner.
+    # showing -- a couple of quick lookups just keep the plain spinner and
+    # whatever status text the fetch last sent.
     _PROGRESS_DISPLAY_THRESHOLD = 5
 
     def __init__(
@@ -385,8 +387,11 @@ class MusicBrainzImportDialog(QDialog):
         # to exist before that closure can reference it.
         self._worker = MusicBrainzWorker(lambda: None, self)
         if supports_progress:
-            self._worker._call = lambda: fetch_call(self._worker.progress.emit)
+            self._worker._call = lambda: fetch_call(
+                self._worker.progress.emit, self._worker.status.emit
+            )
             self._worker.progress.connect(self._on_progress)
+            self._worker.status.connect(self._on_status)
         else:
             self._worker._call = lambda: fetch_call()
         self._worker.finished.connect(self._on_finished)
@@ -396,12 +401,12 @@ class MusicBrainzImportDialog(QDialog):
     def _on_progress(self, current: int, total: int):
         if total <= self._PROGRESS_DISPLAY_THRESHOLD:
             return
-        if self.progress_bar.maximum() == 0:
+        if self.progress_bar.maximum() != total:
             self.progress_bar.setRange(0, total)
         self.progress_bar.setValue(current)
-        self.status_label.setText(
-            f"Resolving recording locations for {self._entity_label}… ({current} of {total})"
-        )
+
+    def _on_status(self, message: str):
+        self.status_label.setText(f"{message} — {self._entity_label}")
 
     def _on_finished(self, candidate):
         self._result_candidate = candidate

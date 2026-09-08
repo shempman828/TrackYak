@@ -20,11 +20,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import re
 import socket
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import musicbrainzngs
 
 from src.foundation.logger_config import logger
+
+if TYPE_CHECKING:
+    # Only for the MBCandidate.relations annotation below -- a real import
+    # would be circular (musicbrainz_artist imports from this module).
+    from src.musicbrainz.musicbrainz_artist import MBArtistRelations
 
 # musicbrainzngs has no native request-timeout option -- it opens every
 # request via a plain urllib opener with no timeout passed (confirmed by
@@ -37,7 +42,19 @@ from src.foundation.logger_config import logger
 # with an empty send/recv queue. socket.setdefaulttimeout() is the standard
 # workaround for this exact gap; it applies globally to every socket opened
 # without its own explicit timeout, which covers musicbrainzngs's requests.
-_REQUEST_TIMEOUT_SECONDS = 30
+#
+# 60, not 30: musicbrainzngs's _safe_read treats a socket.timeout as a
+# transient error and blindly re-issues the *identical* request up to 8
+# times, with an escalating time.sleep(retry_num * 2) between tries (56s of
+# backoff on top of the request time), and the @_rate_limit decorator wraps
+# that whole ladder -- so the global 1-req/sec lock stays held the entire
+# time and every other MusicBrainz call in the app is frozen behind it. A
+# 30s ceiling was tight enough that a healthy-but-slow response to a big
+# get_release_by_id (10 includes, every recording carrying its full
+# relation lists) regularly tripped it, turning one slow fetch into a
+# multi-minute retry storm that returned nothing. 60s clears a genuinely
+# slow response on the first try while still bounding a true hang.
+_REQUEST_TIMEOUT_SECONDS = 60
 
 _APP_NAME = "TrackYak"
 _APP_VERSION = "0.5"
@@ -147,7 +164,7 @@ def _parse_partial_date(date_str: str | None, prefix: str) -> dict[str, int]:
     if not date_str:
         return result
     suffixes = ("year", "month", "day")
-    for suffix, part in zip(suffixes, date_str.split("-")):
+    for suffix, part in zip(suffixes, date_str.split("-"), strict=False):
         try:
             result[f"{prefix}_{suffix}"] = int(part)
         except (TypeError, ValueError):

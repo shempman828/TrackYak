@@ -484,9 +484,12 @@ class TestFetchReleaseDetailLabels:
             patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=_release_lbl()),
             patch.object(mc.musicbrainzngs, "get_label_by_id", side_effect=RuntimeError("boom")),
         ):
-            detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b")
+            detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b", retry_pause=0)
 
         assert detail.labels == []
+        # Failed twice (attempt + retry) and skipped, but recorded so the
+        # caller can tell the user a re-import is worth trying.
+        assert any("label" in desc for desc in detail.partial_failures)
 
     def test_known_label_mbid_skips_network_fetch(self):
         """A label MBID already on file locally (see
@@ -792,9 +795,10 @@ class TestFetchReleaseDetailWorkCredits:
             patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=_release_wc()),
             patch.object(mc.musicbrainzngs, "get_work_by_id", side_effect=RuntimeError("boom")),
         ):
-            detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b")
+            detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b", retry_pause=0)
 
         assert detail.tracks[0].credits == []
+        assert any("work" in desc for desc in detail.partial_failures)
 
 
 # ---- test_relation_role_names.py ---------------------------------------------

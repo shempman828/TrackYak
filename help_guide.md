@@ -197,6 +197,13 @@ Media Format in from the matched release when the field is still blank, and
 it has a completer offering the common carriers plus whatever's already used
 elsewhere in your library.
 
+When you pick a release, the "importing details" step shows what it's
+fetching (track relationships, writing credits, record labels, location
+hierarchy) rather than an unlabelled spinner. If MusicBrainz is slow or
+flaky, individual lookups are retried once and then skipped rather than
+stalling the whole import — you'll get everything that came back plus a note
+listing what was missed, and re-running the lookup later picks up the gaps.
+
 The Genres and Track Credits tabs show what's common to *every* track on the
 album, and editing them there applies the change to all of the album's
 tracks. The Publishers & Places tab works the same way for places: below the

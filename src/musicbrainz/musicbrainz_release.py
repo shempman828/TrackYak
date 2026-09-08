@@ -18,6 +18,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import re
+import time
 from typing import Any
 
 import musicbrainzngs
@@ -250,6 +251,13 @@ class MBReleaseDetail:
     # `format` strings, sorted and "/"-joined (e.g. "CD", '12" Vinyl',
     # "CD/DVD-Video"). None when no medium carries a format on MusicBrainz.
     media_format: str | None = None
+    # Human-readable descriptions of follow-up lookups that failed twice (a
+    # first attempt plus one retry) and were skipped so the rest of the
+    # import could proceed -- e.g. "writing credits for 'Bohemian Rhapsody'".
+    # Empty on a fully successful fetch. The caller surfaces this as a
+    # non-fatal "some details couldn't be fetched, re-import later" notice;
+    # nothing here blocks applying everything that did come back.
+    partial_failures: list[str] = field(default_factory=list)
 
 
 def _media_format_str(medium_list: list[dict[str, Any]] | None) -> str | None:
@@ -813,11 +821,83 @@ def search_canonical_releases(
     return candidates
 
 
+# get_release_by_id include sets, split into two calls (see
+# fetch_release_detail). The core set carries release-level scalars, the
+# tracklist skeleton, labels, album credits, media format and the Discogs
+# link -- its size is roughly fixed regardless of how many relations the
+# release carries. The recording-relation set carries only the per-recording
+# relation lists (performers, works, recording locations), which is the part
+# that actually balloons a heavily-credited release's response and, on a
+# slow link, trips the 30->60s socket timeout into musicbrainzngs's blind
+# 8x retry ladder. Isolating it means a failure there degrades to "album
+# imported, no per-track credits" (recorded in detail.partial_failures)
+# instead of aborting the whole fetch.
+_RELEASE_CORE_INCLUDES = [
+    "artist-credits",
+    "recordings",
+    "media",
+    "labels",
+    "release-groups",
+    "url-rels",
+    "artist-rels",
+]
+_RELEASE_RECORDING_REL_INCLUDES = [
+    "recordings",
+    "recording-level-rels",
+    "artist-rels",
+    "work-rels",
+    "place-rels",
+]
+
+# Seconds to wait before the single end-of-pass retry of follow-up lookups
+# that failed (see _retry_deferred). One beat is enough for a transient
+# blip to clear; the rate limiter already spaces the actual requests.
+_RETRY_PAUSE_SECONDS = 2.0
+
+
+def _get_release(release_mbid: str, includes: list[str]) -> dict[str, Any]:
+    """One get_release_by_id call, wrapping every musicbrainzngs failure mode
+    into MusicBrainzLookupError (see the boundary-catch note on
+    resolve_area_chain for why the catch is deliberately broad)."""
+    configure()
+    try:
+        result = musicbrainzngs.get_release_by_id(release_mbid, includes=includes)
+    except Exception as e:
+        raise MusicBrainzLookupError(str(e)) from e
+    return result.get("release", {})
+
+
+def _retry_deferred(
+    deferred: list[tuple[str, Callable[[], None]]], status_fn: Callable[[str], None], pause: float
+) -> list[str]:
+    """Re-run each parked (description, redo) unit once, after a short pause,
+    and return the descriptions of the ones that failed again. `redo`
+    re-issues exactly one MusicBrainz lookup and applies its result, raising
+    MusicBrainzLookupError on failure -- the same best-effort contract as the
+    first attempt. The returned descriptions go into
+    MBReleaseDetail.partial_failures for the caller to surface."""
+    if not deferred:
+        return []
+    status_fn(f"Retrying {len(deferred)} lookup(s) that failed")
+    if pause > 0:
+        time.sleep(pause)
+    still_failed: list[str] = []
+    for describe, redo in deferred:
+        try:
+            redo()
+        except MusicBrainzLookupError as e:
+            logger.warning(f"{describe} (retry): {e}")
+            still_failed.append(describe)
+    return still_failed
+
+
 def fetch_release_detail(
     release_mbid: str,
     progress_callback: Callable[[int, int], None] | None = None,
+    status_callback: Callable[[str], None] | None = None,
     known_label_mbids: frozenset[str] = frozenset(),
     known_place_mbids: frozenset[str] = frozenset(),
+    retry_pause: float = _RETRY_PAUSE_SECONDS,
 ) -> MBReleaseDetail:
     """Fetch every rich per-pressing detail this feature imports for one
     release: album-level scalars, album-level credits, Discogs master link,
@@ -825,10 +905,26 @@ def fetch_release_detail(
     full Place parent chain, cached so a studio shared across many tracks is
     only walked once).
 
-    `progress_callback(current, total)`, if given, is called once per
-    unique recording-location area resolved -- lets the UI switch from an
-    indeterminate spinner to a determinate counter when there's enough
-    location data to make that worthwhile (see album_musicbrainz_mixin.py).
+    The release is fetched in two calls (see _RELEASE_CORE_INCLUDES): a
+    mandatory core call for scalars/tracklist/labels/credits, then an
+    optional call for the per-recording relation lists. If the second call
+    fails twice it's skipped -- the album still imports, just without
+    per-track performer/writer/location credits -- and that's noted in
+    `MBReleaseDetail.partial_failures`. Every other follow-up lookup (per
+    work, per label, per area chain) is likewise best-effort: a failure is
+    collected, retried once at the end of its pass, and if it still fails
+    recorded in `partial_failures` rather than aborting the whole fetch.
+
+    `progress_callback(current, total)`, if given, is called as each
+    follow-up lookup (work / label / recording-location place) completes;
+    `total` is known once the relation call has been parsed. `status_callback
+    (message)`, if given, gets a short human-readable description of the step
+    currently in flight ("Resolving writing credits (3 of 12)", "Retrying 2
+    lookup(s) that failed", ...) -- useful before `total` is known and for
+    steps the counter doesn't cover (the release calls themselves, area
+    hierarchy walks). See MusicBrainzImportDialog in musicbrainz_match_dialog.
+
+    `retry_pause` is the delay before the end-of-pass retry; tests pass 0.
 
     `known_label_mbids`/`known_place_mbids`, if given (see
     album_musicbrainz_known_entities.py), are plain sets of MBIDs the local
@@ -845,32 +941,21 @@ def fetch_release_detail(
     that would just be discarded once the write layer matches on MBID.
     """
     configure()
-    try:
-        result = musicbrainzngs.get_release_by_id(
-            release_mbid,
-            includes=[
-                "artist-credits",
-                "recordings",
-                "recording-level-rels",
-                "artist-rels",
-                "place-rels",
-                "work-rels",
-                "labels",
-                "release-groups",
-                "media",
-                "url-rels",
-            ],
-        )
-    except Exception as e:
-        # Intentional broad boundary catch: musicbrainzngs has no single
-        # exception hierarchy covering every failure mode it can raise
-        # (network errors, XML parse errors, HTTP errors, auth/rate-limit
-        # errors) — wrap all of them into this module's MusicBrainzLookupError
-        # so every caller elsewhere in the codebase only ever has to catch
-        # one type.
-        raise MusicBrainzLookupError(str(e)) from e
 
-    release = result.get("release", {})
+    def _status(message: str) -> None:
+        if status_callback:
+            status_callback(message)
+
+    progress_state = {"done": 0, "total": 0}
+
+    def _tick() -> None:
+        progress_state["done"] += 1
+        if progress_callback:
+            progress_callback(progress_state["done"], progress_state["total"])
+
+    # --- Mandatory core call: scalars, tracklist skeleton, labels, credits.
+    _status("Fetching release data")
+    release = _get_release(release_mbid, _RELEASE_CORE_INCLUDES)
 
     catalog_number = next(
         (
@@ -911,16 +996,12 @@ def fetch_release_detail(
         media_format=_media_format_str(release.get("medium-list")),
     )
 
-    # First pass: parse every track, collecting each unique recording-location
-    # place, before resolving any of their areas -- this is what lets
-    # progress_callback report a real total up front instead of an
-    # ever-growing one.
-    raw_locations: dict[str, dict[str, Any]] = {}  # place_mbid -> raw location dict
-    # (mb_track, [work_mbid, ...]) for every track whose recording is a
-    # performance of at least one work -- resolved into writing credits
-    # below, once per unique work, same dedup approach as labels/locations.
-    track_work_mbids: list[tuple[MBReleaseTrack, list[str]]] = []
-
+    # Tracklist skeleton from the core call: number/side/title/recording MBID
+    # and the recording's own artist-credit byline. The per-recording
+    # relation lists (performers, works, recording locations) aren't in this
+    # response -- they come from the relation call below and get merged in by
+    # recording MBID.
+    tracks_by_recording: dict[str, list[MBReleaseTrack]] = {}
     for medium in release.get("medium-list", []) or []:
         disc_number = int(medium.get("position") or 0)
         disc_title = medium.get("title")
@@ -940,57 +1021,85 @@ def fetch_release_detail(
                 side=side,
                 title=recording.get("title") or track.get("title") or "",
                 recording_mbid=recording.get("id") or "",
-                credits=_parse_recording_artist_credit(recording)
-                + _parse_artist_credits(recording),
+                credits=_parse_recording_artist_credit(recording),
                 absolute_position=absolute_position,
             )
-            location = _parse_recording_location(recording)
-            if location:
-                mb_track.location_place_mbid = location["place_mbid"]
-                raw_locations[location["place_mbid"]] = location
-            work_mbids = _recording_work_mbids(recording)
-            if work_mbids:
-                track_work_mbids.append((mb_track, work_mbids))
             detail.tracks.append(mb_track)
+            rid = recording.get("id")
+            if rid:
+                tracks_by_recording.setdefault(rid, []).append(mb_track)
 
-    # Each unique work referenced above needs its own direct lookup (see
-    # _fetch_work_by_id) -- the release response's embedded work stub is
-    # missing the artist-relation-list where composer/lyricist/writer/...
-    # credits live. Done once per unique work mbid, same dedup approach as
-    # labels below (a work can be the target of more than one recording on
-    # the same release, e.g. a reprise or alternate take).
+    # --- Optional relation call: per-recording relation lists. One inline
+    # retry (it gates every work lookup, so deferring it to the end would
+    # just reorder the whole rest of the fetch); a second failure downgrades
+    # to a scalar-only import.
+    raw_locations: dict[str, dict[str, Any]] = {}  # place_mbid -> raw location dict
+    track_work_mbids: list[tuple[MBReleaseTrack, list[str]]] = []
+    _status("Fetching track relationships")
+    rel_release: dict[str, Any] | None
+    try:
+        rel_release = _get_release(release_mbid, _RELEASE_RECORDING_REL_INCLUDES)
+    except MusicBrainzLookupError as first_err:
+        logger.warning(f"Track-relationship fetch failed for release {release_mbid}: {first_err}")
+        _status("Retrying track relationships")
+        if retry_pause > 0:
+            time.sleep(retry_pause)
+        try:
+            rel_release = _get_release(release_mbid, _RELEASE_RECORDING_REL_INCLUDES)
+        except MusicBrainzLookupError as retry_err:
+            logger.warning(
+                f"Track-relationship retry failed for release {release_mbid}: {retry_err}"
+            )
+            rel_release = None
+            detail.partial_failures.append(
+                "track relationships (performers, writers, recording locations)"
+            )
+
+    if rel_release is not None:
+        for medium in rel_release.get("medium-list", []) or []:
+            for track in medium.get("track-list", []) or []:
+                rec = track.get("recording") or {}
+                targets = tracks_by_recording.get(rec.get("id") or "", [])
+                if not targets:
+                    continue
+                extra_credits = _parse_artist_credits(rec)
+                location = _parse_recording_location(rec)
+                work_mbids = _recording_work_mbids(rec)
+                for mb_track in targets:
+                    if extra_credits:
+                        mb_track.credits.extend(extra_credits)
+                    if location:
+                        mb_track.location_place_mbid = location["place_mbid"]
+                        raw_locations[location["place_mbid"]] = location
+                    if work_mbids:
+                        track_work_mbids.append((mb_track, work_mbids))
+
+    # Unique works, in first-seen order -- each needs its own get_work_by_id
+    # for the artist-relation-list where composer/lyricist/... credits live
+    # (the embedded work stub carries only id/title/type).
     raw_work_credits: dict[str, list[MBTrackCredit]] = {}
+    unique_work_mbids: list[str] = []
+    seen_work_mbids: set[str] = set()
     for _mb_track, work_mbids in track_work_mbids:
         for work_mbid in work_mbids:
-            if work_mbid in raw_work_credits:
-                continue
-            try:
-                full_work = _fetch_work_by_id(work_mbid)
-            except MusicBrainzLookupError as e:
-                logger.warning(f"Could not resolve work {work_mbid}: {e}")
-                continue
-            raw_work_credits[work_mbid] = _parse_work_credits(full_work)
-    for mb_track, work_mbids in track_work_mbids:
-        for work_mbid in work_mbids:
-            mb_track.credits.extend(raw_work_credits.get(work_mbid, []))
+            if work_mbid not in seen_work_mbids:
+                seen_work_mbids.add(work_mbid)
+                unique_work_mbids.append(work_mbid)
 
-    # Each unique label attached to this release needs its own direct
-    # lookup (see _fetch_label_by_id) -- the release response's embedded
-    # label is only a stub, missing annotation/founder relations. Done
-    # once per unique label mbid, same dedup approach as recording
-    # locations below (a release can list the same label against several
-    # tracks/media, e.g. one catalog number per format).
+    # Unique labels needing a get_label_by_id follow-up (the embedded label
+    # is only a stub, missing annotation/founder relations). A label already
+    # on file locally is left as a bare stub -- the write layer matches on
+    # MBID and only fills blanks.
     raw_labels: dict[str, tuple[MBLabelInfo, str | None]] = {}  # label_mbid -> (info, area_mbid)
+    labels_to_fetch: list[tuple[str, str | None]] = []  # (label_mbid, catalog_number)
+    seen_label_mbids: set[str] = set()
     for li in release.get("label-info-list", []) or []:
         label_stub = li.get("label") or {}
         label_mbid = label_stub.get("id")
-        if not label_mbid or label_mbid in raw_labels:
+        if not label_mbid or label_mbid in seen_label_mbids:
             continue
+        seen_label_mbids.add(label_mbid)
         if label_mbid in known_label_mbids:
-            # Already have a Publisher for this MBID locally, founders and
-            # headquarters included from whenever it was first imported --
-            # the write layer (resolve_or_create_publisher) matches on
-            # MBID and only fills in blanks, so a bare stub is enough.
             raw_labels[label_mbid] = (
                 MBLabelInfo(
                     mbid=label_mbid,
@@ -1000,50 +1109,97 @@ def fetch_release_detail(
                 None,
             )
             continue
+        labels_to_fetch.append((label_mbid, li.get("catalog-number")))
+
+    places_to_resolve = [pm for pm in raw_locations if pm not in known_place_mbids]
+    for place_mbid in known_place_mbids & raw_locations.keys():
+        # Already have this exact Place locally, ancestry included --
+        # resolve_place_chain matches on MBID and trusts its existing chain.
+        raw_locations[place_mbid]["area_mbid"] = None
+        raw_locations[place_mbid]["area_name"] = None
+
+    progress_state["total"] = len(unique_work_mbids) + len(labels_to_fetch) + len(places_to_resolve)
+    if progress_callback:
+        progress_callback(0, progress_state["total"])
+
+    # --- Pass 1 over the per-entity follow-ups; failures are parked in
+    # `deferred` and retried once, together, at the end of the pass.
+    deferred: list[tuple[str, Callable[[], None]]] = []
+
+    for i, work_mbid in enumerate(unique_work_mbids, start=1):
+        _status(f"Resolving writing credits ({i} of {len(unique_work_mbids)})")
+
+        def _do_work(wm: str = work_mbid) -> None:
+            raw_work_credits[wm] = _parse_work_credits(_fetch_work_by_id(wm))
+
         try:
-            full_label = _fetch_label_by_id(label_mbid)
+            _do_work()
+        except MusicBrainzLookupError as e:
+            logger.warning(f"Could not resolve work {work_mbid}: {e}")
+            deferred.append((f"writing credits for work {work_mbid}", _do_work))
+        _tick()
+
+    for i, (label_mbid, catalog) in enumerate(labels_to_fetch, start=1):
+        _status(f"Resolving record label ({i} of {len(labels_to_fetch)})")
+
+        def _do_label(lm: str = label_mbid, cat: str | None = catalog) -> None:
+            raw_labels[lm] = _parse_label(lm, cat, _fetch_label_by_id(lm))
+
+        try:
+            _do_label()
         except MusicBrainzLookupError as e:
             logger.warning(f"Could not resolve label {label_mbid}: {e}")
-            continue
-        raw_labels[label_mbid] = _parse_label(label_mbid, li.get("catalog-number"), full_label)
+            deferred.append((f"record label {label_mbid}", _do_label))
+        _tick()
 
-    # Each unique place needs its own direct lookup to find its containing
-    # area (see _resolve_place_area) before that area's parent chain can be
-    # walked -- done once per unique place, same as area chains are only
-    # ever walked once per unique area below.
-    pending_areas: dict[str, None] = {}  # ordered set of area MBIDs to resolve
-    for place_mbid, location in raw_locations.items():
-        if place_mbid in known_place_mbids:
-            # Already have this exact Place locally, ancestry included --
-            # resolve_place_chain matches on MBID and trusts its existing
-            # parent chain, so there's nothing to walk for it here.
-            location["area_mbid"] = None
-            location["area_name"] = None
-            continue
+    # _resolve_place_area is already internally best-effort (a failed lookup
+    # returns (None, None), indistinguishable from "place has no area"), so
+    # it isn't a retry unit -- just a progress step.
+    for i, place_mbid in enumerate(places_to_resolve, start=1):
+        _status(f"Resolving recording location ({i} of {len(places_to_resolve)})")
         area_mbid, area_name = _resolve_place_area(place_mbid)
-        location["area_mbid"] = area_mbid
-        location["area_name"] = area_name
-        if area_mbid:
-            pending_areas.setdefault(area_mbid, None)
+        raw_locations[place_mbid]["area_mbid"] = area_mbid
+        raw_locations[place_mbid]["area_name"] = area_name
+        _tick()
+
+    detail.partial_failures.extend(_retry_deferred(deferred, _status, retry_pause))
+
+    for mb_track, work_mbids in track_work_mbids:
+        for work_mbid in work_mbids:
+            mb_track.credits.extend(raw_work_credits.get(work_mbid, []))
+
+    # --- Pass 2: area hierarchy walks, now that every place/label has (or
+    # hasn't) yielded an area MBID. Same collect-then-retry-once contract.
+    pending_areas: dict[str, None] = {}  # ordered set of area MBIDs to resolve
+    for location in raw_locations.values():
+        if location.get("area_mbid"):
+            pending_areas.setdefault(location["area_mbid"], None)
     for _label_info, area_mbid in raw_labels.values():
         if area_mbid:
             pending_areas.setdefault(area_mbid, None)
 
-    total_areas = len(pending_areas)
-    if progress_callback:
-        progress_callback(0, total_areas)
     area_cache: dict[str, list[dict[str, Any]]] = {}
-    for idx, area_mbid in enumerate(pending_areas, start=1):
+    area_deferred: list[tuple[str, Callable[[], None]]] = []
+    area_list = list(pending_areas)
+    for idx, area_mbid in enumerate(area_list, start=1):
+        _status(f"Resolving location hierarchy ({idx} of {len(area_list)})")
         if area_mbid in known_place_mbids:
             # Same reasoning as the recording-location skip above -- this
             # area already exists locally with its own ancestry intact.
             area_cache[area_mbid] = [
                 {"mbid": area_mbid, "name": None, "type": None, "latitude": None, "longitude": None}
             ]
-        else:
-            resolve_area_chain(area_mbid, area_cache)
-        if progress_callback:
-            progress_callback(idx, total_areas)
+            continue
+
+        def _do_area(am: str = area_mbid) -> None:
+            resolve_area_chain(am, area_cache)
+
+        try:
+            _do_area()
+        except MusicBrainzLookupError as e:
+            logger.warning(f"Could not resolve area chain {area_mbid}: {e}")
+            area_deferred.append((f"location hierarchy for area {area_mbid}", _do_area))
+    detail.partial_failures.extend(_retry_deferred(area_deferred, _status, retry_pause))
 
     for place_mbid, location in raw_locations.items():
         place_node = {

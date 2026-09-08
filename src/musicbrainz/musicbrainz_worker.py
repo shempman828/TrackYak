@@ -30,15 +30,21 @@ class MusicBrainzWorker(CancellableWorker):
         progress(current, total) - emitted by calls that accept a
             `progress_callback` kwarg (e.g. fetch_release_detail resolving
             recording-location area chains); not every call reports this.
+        status(message) - a short human-readable description of the step
+            currently in flight (e.g. "Resolving work 3 of 12…"), for calls
+            that accept a `status_callback` kwarg; lets a fetch with many
+            sub-steps show what it's doing before its total is even known.
 
     `call` may be a placeholder (e.g. `lambda: None`) at construction time
     and reassigned via `worker._call = ...` before `start()` if it needs to
-    reference `worker.progress.emit` as its own progress_callback.
+    reference `worker.progress.emit`/`worker.status.emit` as its own
+    progress/status callbacks.
     """
 
     finished = Signal(object)
     error = Signal(str)
     progress = Signal(int, int)
+    status = Signal(str)
 
     def __init__(self, call: Callable[[], Any], parent=None):
         super().__init__(parent)

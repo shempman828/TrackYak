@@ -142,26 +142,35 @@ class AlbumMusicBrainzMixin:
         # thread; nothing writes MBID between now and _apply_release_detail().
         fetch_awards = not getattr(self.album, "MBID", None)
 
-        def _fetch_all(progress):
+        def _fetch_all(progress, status):
             detail = fetch_release_detail(
                 release_mbid,
                 progress_callback=progress,
+                status_callback=status,
                 known_label_mbids=known_publisher_mbids(self.controller),
                 known_place_mbids=known_place_mbids(self.controller),
             )
             aliases = []
             if detail.release_group_mbid:
                 try:
+                    status("Fetching alternate album titles")
                     aliases = fetch_release_group_aliases(detail.release_group_mbid)
                 except MusicBrainzLookupError as e:
                     logger.warning(f"Could not fetch album aliases for {album_name}: {e}")
+                    detail.partial_failures.append("alternate album titles")
             # Fetch the award series-rels here, on the worker thread:
             # musicbrainzngs retries a stuck request up to 8x at 30s each,
             # so doing this inline on the UI thread in _apply_release_detail()
             # froze the app for minutes with no progress or cancel.
             award_relations = None
             if fetch_awards and detail.release_group_mbid:
+                status("Fetching award data")
                 award_relations = fetch_award_series_relations("Album", detail.release_group_mbid)
+                if award_relations is None:
+                    # fetch_award_series_relations returns None (not []) only
+                    # when the lookup itself failed -- surface it like any
+                    # other partial fetch failure.
+                    detail.partial_failures.append("award data")
             return detail, aliases, award_relations
 
         dialog = MusicBrainzImportDialog(
@@ -259,6 +268,22 @@ class AlbumMusicBrainzMixin:
                 )
             except SQLAlchemyError as e:
                 logger.warning(f"Could not save Discogs master link: {e}")
+
+        if detail.partial_failures:
+            # Some follow-up MusicBrainz lookups failed twice and were
+            # skipped so the rest of the import could proceed. Everything
+            # that did come back has already been applied; the user can
+            # re-import later to pick up the gaps.
+            items = "\n".join(f"  • {desc}" for desc in detail.partial_failures)
+            QMessageBox.information(
+                self,
+                "MusicBrainz",
+                "Some details couldn't be fetched from MusicBrainz and were "
+                "skipped:\n\n"
+                f"{items}\n\n"
+                "Everything else was imported. Re-import this album later to "
+                "try again for the missing pieces.",
+            )
 
         self.refresh_view()
 

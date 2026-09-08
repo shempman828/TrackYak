@@ -13,7 +13,11 @@ import time
 from PySide6.QtWidgets import QApplication
 
 from src.musicbrainz.musicbrainz_core import MBCandidate
-from src.musicbrainz.musicbrainz_match_dialog import _DETACHED_WORKERS, MusicBrainzMatchDialog
+from src.musicbrainz.musicbrainz_match_dialog import (
+    _DETACHED_WORKERS,
+    MusicBrainzImportDialog,
+    MusicBrainzMatchDialog,
+)
 
 
 def _dialog_with_candidates(qapp, candidates):
@@ -92,3 +96,53 @@ def test_detached_running_worker_survives_dialog_destruction(qapp):
     assert worker.wait(3000)
     qapp.processEvents()
     assert worker not in _DETACHED_WORKERS
+
+
+# ---------------------------------------------------------------------------
+# MusicBrainzImportDialog: the detail-fetch progress surface. supports_progress
+# now hands the fetch two callbacks -- progress(current, total) and
+# status(message) -- so a long release-detail fetch shows what step it's on
+# and switches the bar to a determinate counter instead of an endless spinner.
+# ---------------------------------------------------------------------------
+
+
+def test_import_dialog_wires_progress_and_status_callbacks(qapp):
+    seen = {}
+
+    def fake_fetch(progress, status):
+        seen["callables"] = (callable(progress), callable(status))
+        status("Resolving writing credits (2 of 5)")
+        progress(2, 6)  # above the display threshold -> determinate
+        return "payload"
+
+    dialog = MusicBrainzImportDialog(
+        "release 'x'", fetch_call=fake_fetch, supports_progress=True, parent=None
+    )
+    if dialog._worker is not None:
+        dialog._worker.wait(2000)
+    for _ in range(3):
+        qapp.processEvents()
+
+    assert seen["callables"] == (True, True)
+    assert "Resolving writing credits (2 of 5)" in dialog.status_label.text()
+    assert dialog.progress_bar.maximum() == 6
+    assert dialog.progress_bar.value() == 2
+    assert dialog.result_candidate() == "payload"
+
+
+def test_import_dialog_keeps_spinner_below_progress_threshold(qapp):
+    def fake_fetch(progress, status):
+        status("Fetching release data")
+        progress(1, 3)  # small total -> stay indeterminate
+        return
+
+    dialog = MusicBrainzImportDialog(
+        "release 'x'", fetch_call=fake_fetch, supports_progress=True, parent=None
+    )
+    if dialog._worker is not None:
+        dialog._worker.wait(2000)
+    for _ in range(3):
+        qapp.processEvents()
+
+    assert dialog.progress_bar.maximum() == 0  # still the indeterminate spinner
+    assert "Fetching release data" in dialog.status_label.text()
