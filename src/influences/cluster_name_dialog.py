@@ -55,7 +55,9 @@ class ClusterNamesDialog(QDialog):
             self._level_group = QButtonGroup(self)
             self._level_group.setExclusive(True)
             for level in self._levels:
-                button = QPushButton(f"Level {level}")
+                # Match the legend panel's granularity buttons: label by the
+                # number of clusters at this level, not a raw dendrogram index.
+                button = QPushButton(f"{len(rows_by_level[level])} groups")
                 button.setCheckable(True)
                 button.setChecked(level == active_level)
                 button.setCursor(Qt.PointingHandCursor)

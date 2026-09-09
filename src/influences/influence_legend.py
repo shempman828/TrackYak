@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -51,7 +53,7 @@ class LegendPanel(QFrame):
     _MAX_HEIGHT = 640
     _EDGE_MARGIN = 8
 
-    _CURSOR_BY_MODE = {
+    _CURSOR_BY_MODE: ClassVar[dict] = {
         "left": Qt.SizeHorCursor,
         "right": Qt.SizeHorCursor,
         "top": Qt.SizeVerCursor,
@@ -89,6 +91,10 @@ class LegendPanel(QFrame):
 
         self._level_row = QHBoxLayout()
         self._level_row.setSpacing(4)
+        self._level_caption = QLabel("Detail:")
+        apply_scaled_style(self._level_caption, "font-size: 11px;")
+        self._level_caption.hide()
+        self._level_row.addWidget(self._level_caption)
         self._level_group = QButtonGroup(self)
         self._level_group.setExclusive(True)
         self._level_group.idClicked.connect(self._on_level_button_clicked)
@@ -143,28 +149,37 @@ class LegendPanel(QFrame):
         max_y = max(0, parent.height() - self.height())
         return QPoint(self._clamp(point.x(), 0, max_x), self._clamp(point.y(), 0, max_y))
 
-    def set_level_count(self, count, active_level):
-        """Show a level-toggle button per eligible dendrogram level (level 0
-        = finest/most granular). Hidden entirely when there's only one
-        eligible level -- nothing to toggle between."""
+    def set_level_count(self, level_sizes, active_level):
+        """Show one granularity-toggle button per eligible dendrogram level,
+        labeled by how many colored groups that level splits the graph into
+        (e.g. "12 groups") rather than a raw dendrogram index -- the finest
+        level, most groups, comes first. Hidden entirely when there's only
+        one eligible level -- nothing to toggle between.
+
+        `level_sizes` is the community count for each level, finest first.
+        """
         for button in self._level_group.buttons():
             self._level_group.removeButton(button)
         while self._level_row.count():
             item = self._level_row.takeAt(0)
             widget = item.widget()
-            if widget is not None:
+            if widget is not None and widget is not self._level_caption:
                 widget.deleteLater()
 
-        if count <= 1:
+        if len(level_sizes) <= 1:
+            self._level_caption.hide()
             return
 
-        for level in range(count):
-            button = QPushButton(f"L{level}")
+        self._level_caption.show()
+        self._level_row.addWidget(self._level_caption)
+        for level, size in enumerate(level_sizes):
+            button = QPushButton(f"{size} groups")
             button.setCheckable(True)
             button.setChecked(level == active_level)
             button.setCursor(Qt.PointingHandCursor)
             button.setFlat(True)
             button.setFixedHeight(20)
+            button.setToolTip(f"Color the graph by {size} artist groups")
             self._level_group.addButton(button, level)
             self._level_row.addWidget(button)
         self._level_row.addStretch()

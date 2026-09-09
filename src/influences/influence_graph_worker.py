@@ -55,7 +55,8 @@ class InfluenceGraphWorkerMixin:
     self.influence_scores, self.extract_global_graph(),
     self._update_node_mass(), self.assign_louvain_communities(),
     self.calculate_influence_scores(), self._resolve_community_names(),
-    self._update_legend(), self._push_graph(), self.debug_size_distribution(),
+    self._run_js(), self._update_legend(), self._push_graph(),
+    self.debug_size_distribution(),
     and to be a QWidget subclass.
     """
 
@@ -72,6 +73,11 @@ class InfluenceGraphWorkerMixin:
         """
         if self._graph_worker is not None and self._graph_worker.isRunning():
             return
+
+        # Extraction + Louvain + scoring runs off-thread and the subsequent
+        # fcose layout settles async in the web process, so show the scrim
+        # now; graph.js drops it on the first layoutstop.
+        self._run_js("showLoading()")
 
         self.node_names = {}
         self.edges = []
@@ -101,7 +107,7 @@ class InfluenceGraphWorkerMixin:
 
         node_ids = [n[0] for n in nodes]
         node_id_set = set(node_ids)
-        self.node_names = {node_id: name for node_id, name in nodes}
+        self.node_names = dict(nodes)
 
         deduped_edges = []
         seen = set()
@@ -123,9 +129,12 @@ class InfluenceGraphWorkerMixin:
         touch Qt widgets (legend, Cytoscape push)."""
         self._graph_worker = None
         if not has_graph:
+            # No _push_graph()/layout will run, so drop the scrim here.
+            self._run_js("hideLoading()")
             show_status_message(
                 self,
-                "No artists with influence relationships found. Add some influence relationships first.",
+                "No artists with influence relationships found. "
+                "Add some influence relationships first.",
             )
             return
         self._resolve_community_names()
@@ -135,4 +144,5 @@ class InfluenceGraphWorkerMixin:
 
     def _on_global_graph_error(self, message):
         self._graph_worker = None
+        self._run_js("hideLoading()")
         show_status_message(self, f"Failed to build influence graph: {message}")

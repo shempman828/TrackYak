@@ -439,8 +439,10 @@ and zoom around.
 **Reading the graph**: bigger nodes influenced more other artists; nodes are
 colored by cluster, using automatic community detection that groups related
 artists together. The legend panel (toggle it with "Show Cluster Legend")
-lets you switch between looser and tighter clustering, and you can rename a
-cluster to something meaningful via its Rename button. Hover any node to see
+lets you switch between looser and tighter clustering — the "Detail" buttons
+are labeled by how many groups each option splits the graph into — and you
+can rename a cluster to something meaningful via its Rename button. A spinner
+covers the graph while it is being built or re-grouped. Hover any node to see
 its full name, even when the label on the graph itself is abbreviated to
 fit.
 

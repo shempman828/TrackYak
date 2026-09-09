@@ -107,6 +107,36 @@ def test_level_change_to_same_level_is_noop(isolated_app_config, isolated_identi
     assert host.push_graph_calls == 0
 
 
+def test_level_change_shows_loading_scrim_before_relayout(
+    isolated_app_config, isolated_identity_path
+):
+    # Switching granularity re-runs fcose in the web process; the scrim must
+    # go up before _push_graph so the stall isn't silent.
+    levels = _fine_and_coarse_levels()
+    host = _Host(levels, active_level=0)
+
+    host._on_level_changed(1)
+
+    assert "showLoading()" in host.js_calls
+
+
+def test_set_level_count_labels_buttons_by_group_count(qapp):
+    from src.influences.influence_legend import LegendPanel
+
+    panel = LegendPanel()
+
+    panel.set_level_count([12, 5, 3], active_level=1)
+    labels = [b.text() for b in panel._level_group.buttons()]
+    assert labels == ["12 groups", "5 groups", "3 groups"]
+    assert panel._level_group.button(1).isChecked()
+    assert panel._level_caption.isVisibleTo(panel)
+
+    # A single eligible level: nothing to toggle, row stays hidden.
+    panel.set_level_count([4], active_level=0)
+    assert panel._level_group.buttons() == []
+    assert not panel._level_caption.isVisibleTo(panel)
+
+
 def test_rename_persists_and_survives_new_session(isolated_app_config, isolated_identity_path):
     levels = _fine_and_coarse_levels()
     host = _Host(levels, active_level=0)
@@ -161,9 +191,7 @@ def test_dialog_preserves_edits_across_level_toggle(qapp):
     assert names[1][0] == "Rock"
 
 
-def test_dialog_multi_level_rename_persists_both(
-    qapp, isolated_app_config, isolated_identity_path
-):
+def test_dialog_multi_level_rename_persists_both(qapp, isolated_app_config, isolated_identity_path):
     levels = _fine_and_coarse_levels()
     host = _Host(levels, active_level=0)
     host._resolve_community_names()
@@ -182,12 +210,8 @@ def test_dialog_multi_level_rename_persists_both(
     host.rename_communities(dialog.cluster_names())
 
     data = json.loads(isolated_identity_path.read_text())
-    assert data["0"]["Bebop"] == sorted(
-        nid for nid, idx in levels[0].items() if idx == 0
-    )
-    assert data["1"]["Rock"] == sorted(
-        nid for nid, idx in levels[1].items() if idx == 0
-    )
+    assert data["0"]["Bebop"] == sorted(nid for nid, idx in levels[0].items() if idx == 0)
+    assert data["1"]["Rock"] == sorted(nid for nid, idx in levels[1].items() if idx == 0)
 
 
 def _fake_color():

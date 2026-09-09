@@ -6,6 +6,35 @@
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #0b0c10; overflow: hidden; }
   #cy { width: 100%; height: 100%; display: block; }
+  /* Loading scrim over the canvas: shown while Python computes the graph
+     off-thread and while a fresh fcose layout settles (initial load and
+     every level switch). Visible by default so opening the tab shows it
+     immediately, before the first runJavaScript() call lands; graph.js
+     hides it once the first layout stops. */
+  #loading-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(11, 12, 16, 0.55);
+    color: #f2f3f7;
+    font: 600 13px Helvetica Neue, Helvetica, Arial, sans-serif;
+    letter-spacing: 0.02em;
+  }
+  #loading-overlay.hidden { display: none; }
+  #loading-overlay .spinner {
+    width: 34px;
+    height: 34px;
+    border: 3px solid rgba(133, 153, 234, 0.25);
+    border-top-color: #8599ea;
+    border-radius: 50%;
+    animation: influence-spin 0.8s linear infinite;
+  }
+  @keyframes influence-spin { to { transform: rotate(360deg); } }
   #node-tooltip {
     position: absolute;
     display: none;
@@ -25,6 +54,7 @@
 <body>
 <div id="cy"></div>
 <div id="node-tooltip"></div>
+<div id="loading-overlay"><div class="spinner"></div><div>Loading graph…</div></div>
 <script src="vendor/cytoscape.min.js"></script>
 <script src="vendor/layout-base.js"></script>
 <script src="vendor/cose-base.js"></script>

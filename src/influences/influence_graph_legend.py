@@ -115,6 +115,10 @@ class InfluenceGraphLegendMixin:
         self.active_level = level
         self.community_id = self.community_levels[level]
         self.community_names = self.community_names_by_level.get(level, {})
+        # _push_graph re-runs fcose in the web process (2500 iterations plus
+        # the overlap-resolve pass), which visibly stalls on a large graph;
+        # graph.js clears the scrim on the resulting layoutstop.
+        self._run_js("showLoading()")
         self._update_legend()
         self._push_graph()
 
@@ -177,7 +181,10 @@ class InfluenceGraphLegendMixin:
     def _update_legend(self):
         rows = self._legend_rows()
         if self.legend_enabled:
-            self._legend.set_level_count(len(self.community_levels), self.active_level)
+            level_sizes = [
+                len(set(community_id.values())) for community_id in self.community_levels
+            ]
+            self._legend.set_level_count(level_sizes, self.active_level)
             self._legend.set_communities(rows)
         else:
             self._legend.hide()

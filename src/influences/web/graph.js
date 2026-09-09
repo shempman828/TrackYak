@@ -6,6 +6,19 @@
   let currentLayoutOptions = null;
 
   const tooltipEl = document.getElementById("node-tooltip");
+  const loadingEl = document.getElementById("loading-overlay");
+
+  // Loading scrim, driven one-directionally from Python: showLoading() is
+  // called when display_global_network kicks off its background worker and
+  // when a level toggle triggers a relayout; hideLoading() runs from the
+  // layoutstop handler below once the fresh layout settles, and from
+  // Python's error/empty-graph branches where no layout ever runs.
+  window.showLoading = function () {
+    if (loadingEl) loadingEl.classList.remove("hidden");
+  };
+  window.hideLoading = function () {
+    if (loadingEl) loadingEl.classList.add("hidden");
+  };
 
   // Progressively shorter display candidates for a name, from most to
   // least informative: the real name; initials for every word but the
@@ -195,7 +208,10 @@
       autoungrabify: true,
     });
     applyFitNodeLabel(cy.nodes("[parent]"));
-    cy.on("layoutstop", resolveOverlaps);
+    cy.on("layoutstop", () => {
+      resolveOverlaps();
+      window.hideLoading();
+    });
     attachInteractionHandlers();
     cy.layout(layoutOptions).run();
   };
