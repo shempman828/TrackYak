@@ -622,6 +622,10 @@ Days with something on them are highlighted, with small chips showing what
 kind of event it is — click a day to see the full list. If a single event
 type is what you're after, use the filter dropdown to show only that type.
 
+Each entry in a day's list shows the name, what happened (release, recording,
+band formed, and so on), and the credited artist; album releases also show
+the album artist and the cover art when it's cached.
+
 **A fun one**: click On This Day to see everything that ever happened on
 today's date across every year in your library at once — a quick way to
 notice coincidences, like two albums that happen to share a release day a

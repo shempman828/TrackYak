@@ -208,7 +208,11 @@ class TimelineView(QWidget):
                         "entity": "Album",
                         "entity_id": album.album_id,
                         "entity_name": album.album_name,
-                        "description": f"Album released: {album.album_name}",
+                        # Carried for the "On This Day" / day-detail rows: the
+                        # album artist is shown on the meta line and the ORM
+                        # object drives the cover-art thumbnail lookup.
+                        "artist": album.album_artist_names,
+                        "album": album,
                     }
                 )
 
@@ -220,6 +224,8 @@ class TimelineView(QWidget):
         tracks = self.controller.get.get_all_entities("Track")
 
         for track in tracks:
+            artist_name = track.primary_artist_names
+
             # Recorded date
             if track.recorded_year:
                 dates.append(
@@ -231,7 +237,7 @@ class TimelineView(QWidget):
                         "entity": "Track",
                         "entity_id": track.track_id,
                         "entity_name": track.track_name,
-                        "description": f"Track recorded: {track.track_name}",
+                        "artist": artist_name,
                     }
                 )
 
@@ -246,7 +252,7 @@ class TimelineView(QWidget):
                         "entity": "Track",
                         "entity_id": track.track_id,
                         "entity_name": track.track_name,
-                        "description": f"Track composed: {track.track_name}",
+                        "artist": artist_name,
                     }
                 )
 
@@ -261,7 +267,7 @@ class TimelineView(QWidget):
                         "entity": "Track",
                         "entity_id": track.track_id,
                         "entity_name": track.track_name,
-                        "description": f"Track first performed: {track.track_name}",
+                        "artist": artist_name,
                     }
                 )
 
@@ -276,7 +282,7 @@ class TimelineView(QWidget):
                         "entity": "Track",
                         "entity_id": track.track_id,
                         "entity_name": track.track_name,
-                        "description": f"Track remastered: {track.track_name}",
+                        "artist": artist_name,
                     }
                 )
 
@@ -288,33 +294,33 @@ class TimelineView(QWidget):
         artists = self.controller.get.get_all_entities("Artist")
 
         for artist in artists:
-            # Begin date (birth/formation)
+            is_group = bool(getattr(artist, "isgroup", False))
+
+            # Begin date (person born / band formed)
             if artist.begin_year:
                 dates.append(
                     {
                         "year": artist.begin_year,
                         "month": artist.begin_month if hasattr(artist, "begin_month") else None,
                         "day": artist.begin_day if hasattr(artist, "begin_day") else None,
-                        "type": "artist_begin",
+                        "type": "band_formed" if is_group else "artist_born",
                         "entity": "Artist",
                         "entity_id": artist.artist_id,
                         "entity_name": artist.artist_name,
-                        "description": f"Artist started: {artist.artist_name}",
                     }
                 )
 
-            # End date (death/disbandment)
+            # End date (person died / band broke up)
             if artist.end_year:
                 dates.append(
                     {
                         "year": artist.end_year,
                         "month": artist.end_month if hasattr(artist, "end_month") else None,
                         "day": artist.end_day if hasattr(artist, "end_day") else None,
-                        "type": "artist_end",
+                        "type": "band_dissolved" if is_group else "artist_died",
                         "entity": "Artist",
                         "entity_id": artist.artist_id,
                         "entity_name": artist.artist_name,
-                        "description": f"Artist ended: {artist.artist_name}",
                     }
                 )
 
@@ -337,7 +343,6 @@ class TimelineView(QWidget):
                         "entity": "Publisher",
                         "entity_id": publisher.publisher_id,
                         "entity_name": publisher.publisher_name,
-                        "description": f"Publisher started: {publisher.publisher_name}",
                     }
                 )
 
@@ -352,7 +357,6 @@ class TimelineView(QWidget):
                         "entity": "Publisher",
                         "entity_id": publisher.publisher_id,
                         "entity_name": publisher.publisher_name,
-                        "description": f"Publisher ended: {publisher.publisher_name}",
                     }
                 )
 
@@ -374,7 +378,6 @@ class TimelineView(QWidget):
                         "entity": "Award",
                         "entity_id": award.award_id,
                         "entity_name": award.award_name,
-                        "description": f"Award given: {award.award_name}",
                     }
                 )
 
@@ -395,9 +398,12 @@ class TimelineView(QWidget):
         filtered = []
 
         for d in self.all_dates:
-            if d["year"] and d["year"] == year:
-                if (month and d["month"] and d["month"] == month) or not month:
-                    filtered.append(d)
+            if (
+                d["year"]
+                and d["year"] == year
+                and (not month or (d["month"] and d["month"] == month))
+            ):
+                filtered.append(d)
 
         logger.info(f"Filtered to {len(filtered)} dates from year {year}, month {month}")
         return filtered

@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 from src.common.layout_utils import clear_layout
 from src.foundation.display_settings import apply_scaled_style
 from src.foundation.logger_config import logger
+from src.image.artwork_cache import get_artwork_cache
 
 # ── Palette constants (mirror dark_mode.qss) ─────────────────────────────────
 _BG_BASE = "#0b0c10"
@@ -71,8 +72,10 @@ _MONTH_NAMES = [
 # Maps an event's "type" field to a human-readable (singular, plural) label pair.
 _TYPE_LABELS = {
     "album_release": ("Album Release", "Album Releases"),
-    "artist_begin": ("Artist Born", "Artists Born"),
-    "artist_end": ("Artist Died", "Artists Died"),
+    "artist_born": ("Artist Born", "Artists Born"),
+    "artist_died": ("Artist Died", "Artists Died"),
+    "band_formed": ("Band Formed", "Bands Formed"),
+    "band_dissolved": ("Band Broke Up", "Bands Broken Up"),
     "track_recorded": ("Track Recorded", "Tracks Recorded"),
     "track_composed": ("Track Composed", "Tracks Composed"),
     "track_first_performed": ("Track First Performed", "Tracks First Performed"),
@@ -108,6 +111,44 @@ def _group_events_by_type(events: list) -> dict:
     return groups
 
 
+def _event_thumbnail(event: dict, size: int = 48) -> QLabel | None:
+    """A small cover-art square for album-release events, or None when there
+    is no cached art (or the event isn't an album release)."""
+    if event.get("type") != "album_release":
+        return None
+    album = event.get("album")
+    if album is None:
+        return None
+
+    try:
+        cache = get_artwork_cache()
+        is_explicit = bool(getattr(album, "art_is_explicit", False))
+        pixmap = cache.get_pixmap(album, "front", is_explicit) if cache else None
+    except Exception:
+        logger.exception("On This Day: failed to load album art")
+        pixmap = None
+
+    if pixmap is None or pixmap.isNull():
+        return None
+
+    label = QLabel()
+    label.setFixedSize(size, size)
+    label.setPixmap(pixmap.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+    apply_scaled_style(label, "background: transparent;")
+    return label
+
+
+def _event_meta_line(event: dict) -> str:
+    """Second line of an event row: the type label, plus the credited artist
+    when we have one that isn't just the row's own title again."""
+    type_text = _type_label(event.get("type", ""))
+    artist = (event.get("artist") or "").strip()
+    name = (event.get("entity_name") or "").strip()
+    if artist and artist.casefold() != name.casefold():
+        return f"{type_text} · {artist}"
+    return type_text
+
+
 def _build_event_row(event: dict) -> QFrame:
     frame = QFrame()
     apply_scaled_style(
@@ -120,9 +161,16 @@ def _build_event_row(event: dict) -> QFrame:
         }}
     """,
     )
-    row_layout = QVBoxLayout(frame)
+    row_layout = QHBoxLayout(frame)
     row_layout.setContentsMargins(8, 6, 8, 6)
-    row_layout.setSpacing(2)
+    row_layout.setSpacing(8)
+
+    thumbnail = _event_thumbnail(event)
+    if thumbnail is not None:
+        row_layout.addWidget(thumbnail, 0, Qt.AlignTop)
+
+    text_column = QVBoxLayout()
+    text_column.setSpacing(2)
 
     color = _entity_color(event.get("entity", ""))
 
@@ -130,18 +178,16 @@ def _build_event_row(event: dict) -> QFrame:
     name_font = QFont("Cambria", 11)
     name_font.setBold(True)
     name_label.setFont(name_font)
+    name_label.setWordWrap(True)
     name_label.setStyleSheet(f"color: {color}; background: transparent;")
-    row_layout.addWidget(name_label)
+    text_column.addWidget(name_label)
 
-    type_label = QLabel(_type_label(event.get("type", "")))
-    apply_scaled_style(type_label, f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
-    row_layout.addWidget(type_label)
+    meta_label = QLabel(_event_meta_line(event))
+    meta_label.setWordWrap(True)
+    apply_scaled_style(meta_label, f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
+    text_column.addWidget(meta_label)
 
-    if event.get("description"):
-        desc_label = QLabel(event["description"])
-        desc_label.setWordWrap(True)
-        apply_scaled_style(desc_label, f"color: {_TEXT}; font-size: 10px; background: transparent;")
-        row_layout.addWidget(desc_label)
+    row_layout.addLayout(text_column, 1)
 
     return frame
 
@@ -354,9 +400,9 @@ class OnThisDayDialog(QDialog):
         layout.addWidget(header)
 
         years_count = len({e.get("year") for e in events if e.get("year")})
-        count_label = QLabel(
-            f"{len(events)} event{'s' if len(events) != 1 else ''} across {years_count} year{'s' if years_count != 1 else ''}"
-        )
+        event_word = "event" if len(events) == 1 else "events"
+        year_word = "year" if years_count == 1 else "years"
+        count_label = QLabel(f"{len(events)} {event_word} across {years_count} {year_word}")
         apply_scaled_style(count_label, f"color: {_TEXT_DIM}; font-size: 11px;")
         layout.addWidget(count_label)
 
@@ -411,7 +457,7 @@ class CalendarWidget(QWidget):
 
     on_this_day_requested = Signal()
 
-    def __init__(self, year: int, events_data: list = None, parent=None):
+    def __init__(self, year: int, events_data: list | None = None, parent=None):
         super().__init__(parent)
         self.year = year
         self.all_events = events_data or []
@@ -442,7 +488,7 @@ class CalendarWidget(QWidget):
         self.update_calendar()
 
     def go_to_month(self, month: int):
-        """Navigate to a specific month (1–12) without rebuilding everything."""
+        """Navigate to a specific month (1-12) without rebuilding everything."""
         if 1 <= month <= 12:
             self.current_month = month
             self.month_combo.blockSignals(True)
@@ -686,8 +732,9 @@ class CalendarWidget(QWidget):
         events_this_month = sum(1 for e in self.events_data if e.get("month") == self.current_month)
         month_name = self.month_combo.currentText()
         if events_this_month:
+            event_word = "event" if events_this_month == 1 else "events"
             self.summary_label.setText(
-                f"{month_name} {self.year} — {events_this_month} event{'s' if events_this_month != 1 else ''}"
+                f"{month_name} {self.year} — {events_this_month} {event_word}"
             )
         else:
             self.summary_label.setText(f"{month_name} {self.year} — no events")
