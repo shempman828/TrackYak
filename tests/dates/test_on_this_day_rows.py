@@ -19,9 +19,22 @@ def _fake_view(entities: dict) -> SimpleNamespace:
     QWidget machinery)."""
     return SimpleNamespace(
         controller=SimpleNamespace(
-            get=SimpleNamespace(get_all_entities=lambda name: entities.get(name, []))
+            get=SimpleNamespace(get_all_entities=lambda name, **_: entities.get(name, []))
         )
     )
+
+
+class _ExplodingArtistNames:
+    """A fake track whose primary_artist_names access raises -- used to prove
+    the dateless fast-path never triggers the relationship walk that froze the
+    Timeline view on open."""
+
+    def __init__(self, **fields):
+        self.__dict__.update(fields)
+
+    @property
+    def primary_artist_names(self):
+        raise AssertionError("primary_artist_names accessed for a dateless track")
 
 
 # ── wording ──────────────────────────────────────────────────────────────────
@@ -89,6 +102,67 @@ def test_album_dates_carry_artist_and_orm_ref_not_a_description():
     assert entry["artist"] == "The Beatles"
     assert entry["album"] is album
     assert "description" not in entry
+
+
+# ── Timeline-load thread lock: track date extraction ────────────────────────
+
+
+def test_track_dates_query_is_filtered_to_rows_with_a_year():
+    """The GUI-thread freeze on Timeline open was a full tracks scan that then
+    walked artist_roles per row. The query must push the year filter into SQL."""
+    captured = {}
+
+    def fake_get_all_entities(name, **kwargs):
+        captured["name"] = name
+        captured["kwargs"] = kwargs
+        return []
+
+    view = SimpleNamespace(
+        controller=SimpleNamespace(get=SimpleNamespace(get_all_entities=fake_get_all_entities))
+    )
+
+    TimelineView.get_track_dates(view)
+
+    assert captured["name"] == "Track"
+    rendered = str(captured["kwargs"]["filter_expression"])
+    for column in ("recorded_year", "composed_year", "first_performed_year", "remaster_year"):
+        assert column in rendered
+
+
+def test_track_dates_skip_relationship_walk_for_dateless_rows():
+    """Even if a dateless row slips past the SQL filter, the per-row artist
+    lookup (the expensive part) must not run for it."""
+    dateless = _ExplodingArtistNames(
+        recorded_year=None,
+        composed_year=None,
+        first_performed_year=None,
+        remaster_year=None,
+        track_id=1,
+        track_name="untitled",
+    )
+
+    assert TimelineView.get_track_dates(_fake_view({"Track": [dateless]})) == []
+
+
+def test_track_dates_emit_one_entry_per_populated_year_field():
+    track = SimpleNamespace(
+        recorded_year=1971,
+        recorded_month=11,
+        recorded_day=8,
+        composed_year=1970,
+        composed_month=None,
+        composed_day=None,
+        first_performed_year=None,
+        remaster_year=2011,
+        track_id=7,
+        track_name="Stairway to Heaven",
+        primary_artist_names="Led Zeppelin",
+    )
+
+    entries = TimelineView.get_track_dates(_fake_view({"Track": [track]}))
+
+    assert {e["type"] for e in entries} == {"track_recorded", "track_composed", "track_remastered"}
+    assert all(e["artist"] == "Led Zeppelin" for e in entries)
 
 
 @pytest.mark.parametrize(

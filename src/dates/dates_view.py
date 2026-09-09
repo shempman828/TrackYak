@@ -2,10 +2,12 @@ from datetime import date
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
+from sqlalchemy import or_
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.dates.dates_calendar import CalendarWidget, OnThisDayDialog
 from src.dates.dates_timeline import TimelineWidget
+from src.db.db_tables import Track
 from src.foundation.logger_config import logger
 
 
@@ -221,9 +223,34 @@ class TimelineView(QWidget):
     def get_track_dates(self):
         """Extract dates from Track table."""
         dates = []
-        tracks = self.controller.get.get_all_entities("Track")
+
+        # Only tracks that carry at least one year produce timeline events.
+        # Filter in SQL rather than pulling every row (50k+) and computing
+        # primary_artist_names for each -- that property walks the
+        # artist_roles/role relationships per track, so the unfiltered scan
+        # fired ~65k lazy-load queries on the GUI thread and froze the
+        # Timeline view for ~15s on open.
+        tracks = self.controller.get.get_all_entities(
+            "Track",
+            filter_expression=or_(
+                Track.recorded_year.isnot(None),
+                Track.composed_year.isnot(None),
+                Track.first_performed_year.isnot(None),
+                Track.remaster_year.isnot(None),
+            ),
+        )
 
         for track in tracks:
+            # Belt and suspenders: skip the relationship walk for any dateless
+            # row that slips through (e.g. a caller stubbing the query).
+            if not (
+                track.recorded_year
+                or track.composed_year
+                or track.first_performed_year
+                or track.remaster_year
+            ):
+                continue
+
             artist_name = track.primary_artist_names
 
             # Recorded date
