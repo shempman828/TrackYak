@@ -175,12 +175,12 @@ class PlayerReaderMixin:
             self._final_chunk_seen = False
 
         # Prime the buffer with one chunk synchronously before returning. When
-        # a track change reuses the existing stream (see play()), the live
-        # callback keeps firing on its own real-time thread the whole time —
-        # handing the very first decode off to a background thread leaves a
-        # window (up to one callback period, ~BLOCKSIZE/samplerate) where the
-        # callback sees an empty buffer and outputs silence, heard as a hitch.
-        # This is most likely to bite on a cold-cache read of a large file.
+        # a track change reuses the existing stream (see play()), the feeder
+        # thread keeps draining the ring buffer into stream.write() the whole
+        # time — handing the very first decode off to a background thread leaves
+        # a window (up to one feeder write, ~FEEDER_WRITE_BLOCKSIZE/samplerate)
+        # where the feeder finds an empty buffer and writes silence, heard as a
+        # hitch. This is most likely to bite on a cold-cache read of a large file.
         # Errors here are swallowed; the reader loop below retries from
         # scratch with its full resync/reopen handling.
         try:
@@ -311,7 +311,7 @@ class PlayerReaderMixin:
                                     f"Reader thread could not resync after decode error, "
                                     f"ending track: {seek_exc}"
                                 )
-                                # Can't recover — push an empty chunk so the callback's
+                                # Can't recover — push an empty chunk so the feeder's
                                 # short-read check signals track-finished once the
                                 # buffer drains, instead of hanging silently forever.
                                 if known_length:

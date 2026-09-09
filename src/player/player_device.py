@@ -380,15 +380,15 @@ class PlayerDeviceMixin:
         is live.
 
         CPython's GC is stop-the-world: a collection freezes every Python
-        thread -- including PortAudio's real-time callback thread -- for the
-        full duration of the sweep. A large allocation/free burst anywhere in
-        the process (opening a heavy view on the main thread, an artist merge
+        thread -- including the feeder thread parked in stream.write() -- for
+        the full duration of the sweep. A large allocation/free burst anywhere
+        in the process (opening a heavy view on the main thread, an artist merge
         or smart-playlist rebuild on a worker thread) trips a gen-2 collection
-        long enough to blow a callback deadline, heard as a hitch even though
-        the audio ring buffer is full. Reference-count reclamation is
-        unaffected, so this only defers reclaiming reference cycles until
-        _resume_gc() runs at stream close. gc.freeze() at startup (run.py)
-        keeps that deferred sweep cheap.
+        long enough to delay the next write past the device buffer, heard as a
+        hitch even though the audio ring buffer is full. Reference-count
+        reclamation is unaffected, so this only defers reclaiming reference
+        cycles until _resume_gc() runs at stream close. gc.freeze() at startup
+        (run.py) keeps that deferred sweep cheap.
         """
         if gc.isenabled():
             gc.disable()

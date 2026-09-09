@@ -52,11 +52,11 @@ class PlayerTransportMixin:
             if self.paused and self.audio_stream is not None:
                 # Clear the end-of-stream flag, exactly like the two branches
                 # below. load_track() sets _finish_pending (to stop the old
-                # track's callback double-firing track-finished); loading a new
+                # track's feeder double-firing track-finished); loading a new
                 # track while the player is paused and then hitting play lands
                 # here, and without this clear the flag stays set for the whole
                 # new track -- so _emit_track_finished_once() is suppressed when
-                # it ends, auto-advance never fires, and the callback just feeds
+                # it ends, auto-advance never fires, and the feeder just writes
                 # silence (logged as a storm of "buffer underrun" warnings)
                 # until the user manually skips.
                 self._finish_pending.clear()

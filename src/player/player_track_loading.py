@@ -152,7 +152,8 @@ class PlayerTrackLoadingMixin:
 
             # Start the reader thread so the buffer begins filling immediately.
             # play() will reuse the existing stream if SR/channels match, so
-            # audio data needs to be ready before the callback fires.
+            # audio data needs to be ready before the feeder thread pulls its
+            # next chunk out of the ring buffer.
             self._start_reader_thread()
 
             # Kick off background pre-load of the next queued track
