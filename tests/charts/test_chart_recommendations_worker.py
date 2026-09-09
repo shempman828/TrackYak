@@ -17,7 +17,11 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.charts.chart_recommendations import get_missing_popular
+from src.charts.chart_recommendations import (
+    chart_week_years,
+    get_missing_gap_fills,
+    get_missing_popular,
+)
 from src.charts.chart_recommendations_tab import ChartRecommendationsTab
 from src.charts.chart_recommendations_worker import (
     MODE_GAP_FILLS,
@@ -114,10 +118,68 @@ def _seed_gap_week(session, chart):
     session.commit()
 
 
-def _run_worker(controller, mode, chart_ids=None, min_gap=4, limit=100, cancel=False):
+def _seed_song_in_year(session, chart, year, raw_title, raw_performer="Someone", position=1):
+    """One unmatched ChartEntry for `raw_title` in a fixed week of `year`."""
+    session.add(
+        ChartEntry(
+            chart_id=chart.chart_id,
+            chart_week=datetime.date(year, 6, 15),
+            position=position,
+            peak_position=1,
+            weeks_on_chart=1,
+            raw_title=raw_title,
+            raw_performer=raw_performer,
+        )
+    )
+    session.commit()
+
+
+def _seed_gap_week_in_year(session, chart, year, gap_title):
+    """One chart week in `year`: positions 1-2 owned, 3 unmatched (`gap_title`),
+    4-5 owned -- a combined owned run of 4 around the gap."""
+    week = datetime.date(year, 6, 15)
+    for pos in (1, 2, 4, 5):
+        session.add(
+            ChartEntry(
+                chart_id=chart.chart_id,
+                chart_week=week,
+                position=pos,
+                raw_title=f"{gap_title} owned {pos}",
+                raw_performer="Someone",
+                entity_type="Track",
+                entity_id=1000 + pos,
+                match_score=1.0,
+            )
+        )
+    session.add(
+        ChartEntry(
+            chart_id=chart.chart_id,
+            chart_week=week,
+            position=3,
+            peak_position=3,
+            weeks_on_chart=5,
+            raw_title=gap_title,
+            raw_performer="Gap Artist",
+        )
+    )
+    session.commit()
+
+
+def _run_worker(
+    controller,
+    mode,
+    chart_ids=None,
+    min_gap=4,
+    limit=100,
+    cancel=False,
+    week_from=None,
+    week_to=None,
+):
     """Run the worker synchronously (no QThread), capturing its emissions --
     the same call-run()-directly approach as test_chart_import_worker.py."""
-    worker = ChartRecommendationsWorker(controller, mode, chart_ids, min_gap, limit)
+    worker = ChartRecommendationsWorker(
+        controller, mode, chart_ids, min_gap, limit, week_from, week_to
+    )
     finished, errors = [], []
     worker.finished.connect(lambda m, items: finished.append((m, items)))
     worker.error.connect(errors.append)
@@ -174,6 +236,82 @@ def test_cancelled_worker_emits_nothing(qapp, session, controller):
 
     assert finished == []
     assert errors == []
+
+
+# --- year/decade filter: query layer --------------------------------------
+
+
+def test_missing_popular_respects_week_bound(qapp, session, controller):
+    # AC1
+    chart = _make_chart(session)
+    _seed_song_in_year(session, chart, 1994, "Nineties Hit", position=1)
+    _seed_song_in_year(session, chart, 2001, "Aughts Hit", position=2)
+
+    items = get_missing_popular(
+        session, week_from=datetime.date(1994, 1, 1), week_to=datetime.date(1994, 12, 31)
+    )
+
+    assert [i.raw_title for i in items] == ["Nineties Hit"]
+
+
+def test_missing_popular_no_bound_considers_every_year(qapp, session, controller):
+    # AC2 -- regression guard: default (None, None) is unchanged
+    chart = _make_chart(session)
+    _seed_song_in_year(session, chart, 1994, "Nineties Hit", position=1)
+    _seed_song_in_year(session, chart, 2001, "Aughts Hit", position=2)
+
+    items = get_missing_popular(session)
+
+    assert {i.raw_title for i in items} == {"Nineties Hit", "Aughts Hit"}
+
+
+def test_gap_fills_respects_week_bound(qapp, session, controller):
+    # AC3 -- a qualifying gap outside the window does not surface
+    chart = _make_chart(session)
+    _seed_gap_week_in_year(session, chart, 1994, "Nineties Gap")
+    _seed_gap_week_in_year(session, chart, 2001, "Aughts Gap")
+
+    items = get_missing_gap_fills(
+        session, min_gap=4, week_from=datetime.date(1994, 1, 1), week_to=datetime.date(1994, 12, 31)
+    )
+
+    assert [i.raw_title for i in items] == ["Nineties Gap"]
+    assert items[0].gap_run_length == 4
+
+
+def test_worker_forwards_week_bound(qapp, session, controller):
+    # AC4
+    chart = _make_chart(session)
+    _seed_song_in_year(session, chart, 1994, "Nineties Hit")
+
+    excluded, _ = _run_worker(
+        controller,
+        MODE_POPULAR,
+        week_from=datetime.date(2000, 1, 1),
+        week_to=datetime.date(2000, 12, 31),
+    )
+    assert excluded[0][1] == []
+
+    included, _ = _run_worker(
+        controller,
+        MODE_POPULAR,
+        week_from=datetime.date(1994, 1, 1),
+        week_to=datetime.date(1994, 12, 31),
+    )
+    assert [i.raw_title for i in included[0][1]] == ["Nineties Hit"]
+
+
+def test_chart_week_years_distinct_sorted(qapp, session, controller):
+    chart = _make_chart(session)
+    for pos, year in enumerate((2024, 1958, 1994, 1958, 1990), start=1):
+        _seed_song_in_year(session, chart, year, f"Song {pos}", position=pos)
+
+    assert chart_week_years(session) == [1958, 1990, 1994, 2024]
+
+
+def test_chart_week_years_empty(qapp, session, controller):
+    # AC10 (query half)
+    assert chart_week_years(session) == []
 
 
 # --- tab plumbing -----------------------------------------------------------
@@ -248,3 +386,120 @@ def test_tab_coalesces_reload_while_worker_running(qapp, session, controller):
     tab._worker = _StillRunning()
     tab._reload()
     assert tab._reload_pending is True
+
+
+# --- year/decade filter: tab menu ----------------------------------------
+
+
+def _top_level_labels(menu):
+    return [a.text() for a in menu.actions() if not a.isSeparator()]
+
+
+def _submenu(menu, label):
+    return next(a.menu() for a in menu.actions() if a.text() == label)
+
+
+def _trigger(menu, label):
+    next(a for a in menu.actions() if a.text() == label).trigger()
+
+
+def _seed_years(session, chart, years):
+    for pos, year in enumerate(years, start=1):
+        _seed_song_in_year(session, chart, year, f"Song {year}", position=pos)
+
+
+def test_tab_builds_decade_submenus_from_populated_years(qapp, session, controller):
+    # AC5
+    chart = _make_chart(session)
+    _seed_years(session, chart, [1958, 1959, 1990, 1991, 1994, 2024])
+
+    tab = ChartRecommendationsTab(controller)
+    tab.set_charts([chart])
+
+    assert _top_level_labels(tab._year_menu) == ["All Years", "1950s", "1990s", "2020s"]
+    assert _top_level_labels(_submenu(tab._year_menu, "1990s")) == [
+        "Entire decade",
+        "1990",
+        "1991",
+        "1994",
+    ]
+
+
+def test_tab_select_specific_year_sets_bound_and_reloads(qapp, session, controller, sync_worker):
+    # AC6
+    chart = _make_chart(session)
+    _seed_song_in_year(session, chart, 1994, "Nineties Hit", position=1)
+    _seed_song_in_year(session, chart, 2001, "Aughts Hit", position=2)
+
+    tab = ChartRecommendationsTab(controller)
+    tab._ever_shown = True
+    tab.set_charts([chart])
+    assert tab.popular_table.topLevelItemCount() == 2
+
+    _trigger(_submenu(tab._year_menu, "1990s"), "1994")
+
+    assert tab._week_from == datetime.date(1994, 1, 1)
+    assert tab._week_to == datetime.date(1994, 12, 31)
+    assert tab.year_button.text() == "1994"
+    assert tab.popular_table.topLevelItemCount() == 1
+    assert tab.popular_table.topLevelItem(0).text(0) == "Nineties Hit"
+
+
+def test_tab_select_entire_decade(qapp, session, controller, sync_worker):
+    # AC7
+    chart = _make_chart(session)
+    _seed_years(session, chart, [1991, 1996])
+
+    tab = ChartRecommendationsTab(controller)
+    tab._ever_shown = True
+    tab.set_charts([chart])
+
+    _trigger(_submenu(tab._year_menu, "1990s"), "Entire decade")
+
+    assert tab._week_from == datetime.date(1990, 1, 1)
+    assert tab._week_to == datetime.date(1999, 12, 31)
+    assert tab.year_button.text() == "1990s"
+
+
+def test_tab_select_all_years_clears_bound(qapp, session, controller, sync_worker):
+    # AC8
+    chart = _make_chart(session)
+    _seed_song_in_year(session, chart, 1994, "Nineties Hit", position=1)
+    _seed_song_in_year(session, chart, 2001, "Aughts Hit", position=2)
+
+    tab = ChartRecommendationsTab(controller)
+    tab._ever_shown = True
+    tab.set_charts([chart])
+    _trigger(_submenu(tab._year_menu, "1990s"), "1994")
+    assert tab.popular_table.topLevelItemCount() == 1
+
+    _trigger(tab._year_menu, "All Years")
+
+    assert tab._week_from is None and tab._week_to is None
+    assert tab.year_button.text() == "All Years"
+    assert tab.popular_table.topLevelItemCount() == 2
+
+
+def test_tab_year_selection_survives_set_charts(qapp, session, controller, sync_worker):
+    # AC9
+    chart = _make_chart(session)
+    _seed_song_in_year(session, chart, 1994, "Nineties Hit", position=1)
+    _seed_song_in_year(session, chart, 2001, "Aughts Hit", position=2)
+
+    tab = ChartRecommendationsTab(controller)
+    tab._ever_shown = True
+    tab.set_charts([chart])
+    _trigger(_submenu(tab._year_menu, "1990s"), "1994")
+
+    tab.set_charts([chart])  # revisit-refresh rebuilds the menu
+
+    assert tab._week_from == datetime.date(1994, 1, 1)
+    assert tab._week_to == datetime.date(1994, 12, 31)
+    assert tab.year_button.text() == "1994"
+    assert tab.popular_table.topLevelItemCount() == 1
+
+
+def test_tab_year_menu_empty_data(qapp, session, controller):
+    # AC10 (tab half)
+    tab = ChartRecommendationsTab(controller)
+    assert _top_level_labels(tab._year_menu) == ["All Years"]

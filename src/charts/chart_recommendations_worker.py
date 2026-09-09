@@ -37,23 +37,38 @@ class ChartRecommendationsWorker(CancellableWorker):
     finished = Signal(str, object)
     error = Signal(str)
 
-    def __init__(self, controller, mode, chart_ids, min_gap, limit, parent=None):
+    def __init__(
+        self, controller, mode, chart_ids, min_gap, limit, week_from=None, week_to=None, parent=None
+    ):
         super().__init__(parent)
         self.controller = controller
         self.mode = mode
         self.chart_ids = chart_ids
         self.min_gap = min_gap
         self.limit = limit
+        self.week_from = week_from
+        self.week_to = week_to
 
     def run(self):
         try:
             session = self.controller.get.session
             if self.mode == MODE_GAP_FILLS:
                 items = get_missing_gap_fills(
-                    session, chart_ids=self.chart_ids, min_gap=self.min_gap, limit=self.limit
+                    session,
+                    chart_ids=self.chart_ids,
+                    min_gap=self.min_gap,
+                    limit=self.limit,
+                    week_from=self.week_from,
+                    week_to=self.week_to,
                 )
             else:
-                items = get_missing_popular(session, chart_ids=self.chart_ids, limit=self.limit)
+                items = get_missing_popular(
+                    session,
+                    chart_ids=self.chart_ids,
+                    limit=self.limit,
+                    week_from=self.week_from,
+                    week_to=self.week_to,
+                )
             if not self.is_cancelled:
                 self.finished.emit(self.mode, items)
         except Exception as e:

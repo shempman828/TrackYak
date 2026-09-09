@@ -27,6 +27,7 @@ latest week's row.
 """
 
 from dataclasses import dataclass
+import datetime
 
 from sqlalchemy import func, select
 
@@ -53,7 +54,33 @@ def _popularity_key(item: MissingChartItem) -> tuple:
     return (peak, -weeks)
 
 
-def _aggregate_missing(session, chart_ids: list | None = None) -> list:
+def _apply_week_bound(stmt, week_from, week_to):
+    """Add the [week_from, week_to] chart_week filter (either bound optional)
+    -- the year/decade filter in ChartRecommendationsTab. Both bounds are
+    inclusive `datetime.date`s."""
+    if week_from is not None:
+        stmt = stmt.where(ChartEntry.chart_week >= week_from)
+    if week_to is not None:
+        stmt = stmt.where(ChartEntry.chart_week <= week_to)
+    return stmt
+
+
+def chart_week_years(session) -> list[int]:
+    """Sorted distinct calendar years any ChartEntry charts in (empty when
+    there are no rows). Drives the year/decade menu in
+    ChartRecommendationsTab -- not scoped to a chart. `func.extract` matches
+    the year-bucketing already used in src/statistics/stats/dates.py."""
+    year_expr = func.extract("year", ChartEntry.chart_week)
+    rows = session.execute(select(year_expr).distinct().order_by(year_expr)).all()
+    return [int(year) for (year,) in rows if year is not None]
+
+
+def _aggregate_missing(
+    session,
+    chart_ids: list | None = None,
+    week_from: datetime.date | None = None,
+    week_to: datetime.date | None = None,
+) -> list:
     stmt = (
         select(
             ChartEntry.chart_id,
@@ -76,6 +103,7 @@ def _aggregate_missing(session, chart_ids: list | None = None) -> list:
     )
     if chart_ids:
         stmt = stmt.where(ChartEntry.chart_id.in_(chart_ids))
+    stmt = _apply_week_bound(stmt, week_from, week_to)
 
     return [
         MissingChartItem(
@@ -91,22 +119,38 @@ def _aggregate_missing(session, chart_ids: list | None = None) -> list:
     ]
 
 
-def get_missing_popular(session, chart_ids: list | None = None, limit: int = 100) -> list:
+def get_missing_popular(
+    session,
+    chart_ids: list | None = None,
+    limit: int = 100,
+    week_from: datetime.date | None = None,
+    week_to: datetime.date | None = None,
+) -> list:
     """Missing entries ranked by chart performance alone (best peak
-    position, then most weeks on chart as a tiebreaker)."""
-    items = _aggregate_missing(session, chart_ids)
+    position, then most weeks on chart as a tiebreaker). `week_from` /
+    `week_to` (inclusive) restrict which chart weeks count -- so peak /
+    tenure become the best the item did *within the window*."""
+    items = _aggregate_missing(session, chart_ids, week_from, week_to)
     items.sort(key=_popularity_key)
     return items[:limit]
 
 
 def get_missing_gap_fills(
-    session, chart_ids: list | None = None, min_gap: int = 4, limit: int = 100
+    session,
+    chart_ids: list | None = None,
+    min_gap: int = 4,
+    limit: int = 100,
+    week_from: datetime.date | None = None,
+    week_to: datetime.date | None = None,
 ) -> list:
     """Missing entries that would connect two runs of already-owned chart
     positions in the same week -- see module docstring. `min_gap` is the
     minimum combined owned-run length (before + after) required to
     surface a candidate, so an isolated miss with nothing owned on either
     side doesn't show up as noise.
+
+    `week_from` / `week_to` (inclusive) restrict which chart weeks are
+    scanned for runs, so a gap only surfaces if its week is in range.
 
     Reads every row of the selected chart(s) (not just unmatched ones) --
     computing a run length needs the full owned/unowned sequence for each
@@ -131,6 +175,7 @@ def get_missing_gap_fills(
     )
     if chart_ids:
         stmt = stmt.where(ChartEntry.chart_id.in_(chart_ids))
+    stmt = _apply_week_bound(stmt, week_from, week_to)
 
     rows = session.execute(stmt).all()
 
@@ -184,5 +229,5 @@ def get_missing_gap_fills(
         _flush_week(week_rows)
 
     items = list(best.values())
-    items.sort(key=lambda i: (-i.gap_run_length,) + _popularity_key(i))
+    items.sort(key=lambda i: (-i.gap_run_length, *_popularity_key(i)))
     return items[:limit]
