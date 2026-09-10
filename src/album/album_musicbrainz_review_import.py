@@ -204,9 +204,12 @@ def _resolve_roles_for_credit(controller, role_name: str, known_roles: list[Any]
     previously split into 2+ roles (see SplitDB._record_split_alias)
     resolves to that same ordered list instead of find_or_create_by_name
     recreating/reusing one combined Role -- see
-    docs/specs/split_and_merge_aliases.md. A role name on the parse-ignore
-    list (docs/specs/role_parse_ignore_list.md) resolves to nothing, so
-    both callers skip the credit -- same as the file-tag import path."""
+    docs/specs/split_and_merge_aliases.md. A name recorded in the RoleAlias
+    table (from a merge, or added by hand) resolves to its canonical role
+    rather than spawning a duplicate -- same alias-aware path the artist
+    credit resolution above uses. A role name on the parse-ignore list
+    (docs/specs/role_parse_ignore_list.md) resolves to nothing, so both
+    callers skip the credit -- same as the file-tag import path."""
     if role_name.strip().lower() in {r.lower() for r in app_config.get_excluded_roles()}:
         return []
 
@@ -217,7 +220,14 @@ def _resolve_roles_for_credit(controller, role_name: str, known_roles: list[Any]
                 known_roles.append(role)
         return split_targets
 
-    role = find_or_create_by_name(controller, "Role", "role_name", role_name, known_roles)
+    role = find_or_create_by_name(
+        controller,
+        "Role",
+        "role_name",
+        role_name,
+        known_roles,
+        extra_lookup=lambda: controller.get.resolve_entity_or_alias("Role", "role_name", role_name),
+    )
     if role is None:
         return []
     if role not in known_roles:

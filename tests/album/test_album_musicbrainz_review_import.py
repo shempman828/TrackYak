@@ -23,7 +23,7 @@ from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB
 from src.db.db_tables.artist import Artist, ArtistSplitAlias
 from src.db.db_tables.base import Base
-from src.db.db_tables.role import Role, RoleSplitAlias
+from src.db.db_tables.role import Role, RoleAlias, RoleSplitAlias
 from src.musicbrainz.musicbrainz_release import MBTrackCredit
 
 
@@ -237,6 +237,55 @@ class TestRoleSplitAliasExpandsAlbumCredit:
         assert role_ids == {viola.role_id, violin.role_id}
         assert all(r["album_id"] == 1 for r in rows)
         assert all(r["sort_order"] == 0 for r in rows)  # different roles, each first
+
+
+# Tests for RoleAlias awareness in the MusicBrainz review-import credit path.
+# A credit whose role name is recorded in the RoleAlias table (from a merge,
+# or added by hand) must resolve to that canonical Role instead of
+# find_or_create_by_name spawning a duplicate -- the same alias-aware path
+# _resolve_artist already uses for artist names.
+class TestRoleAliasResolvesMBCredit:
+    def test_aliased_role_name_resolves_to_canonical_role(self, controller_sa):
+        session = controller_sa.get.session
+        mixing = Role(role_name="Mixing")
+        session.add(mixing)
+        session.commit()
+        session.add(RoleAlias(alias_name="mix", role_id=mixing.role_id))
+        session.commit()
+
+        rows = _plan_track_credit(
+            controller_sa,
+            _track(),
+            _credit_sa(role_name="mix"),
+            known_roles=[],
+            planned_by_track={},
+        )
+
+        assert len(rows) == 1
+        assert rows[0]["role_id"] == mixing.role_id
+        # No duplicate "mix" Role was created.
+        assert session.query(Role).filter_by(role_name="mix").first() is None
+
+    def test_aliased_role_name_resolves_for_album_credit(self, controller_sa):
+        session = controller_sa.get.session
+        mixing = Role(role_name="Mixing")
+        session.add(mixing)
+        session.commit()
+        session.add(RoleAlias(alias_name="mix", role_id=mixing.role_id))
+        session.commit()
+
+        rows = _plan_album_credit(
+            controller_sa,
+            _album(),
+            _credit_sa(role_name="mix"),
+            known_roles=[],
+            next_sort_order_by_role={},
+            planned_pairs=set(),
+        )
+
+        assert len(rows) == 1
+        assert rows[0]["role_id"] == mixing.role_id
+        assert session.query(Role).filter_by(role_name="mix").first() is None
 
 
 # Tests for the role parse-ignore list in the MusicBrainz review-import path
