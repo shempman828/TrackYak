@@ -349,35 +349,41 @@ class TrackImporter:
 
                 try:
                     if role_name not in role_cache:
-                        # Check aliases first so a role name merged/aliased
-                        # to a canonical role resolves to it instead of
-                        # recreating the duplicate -- same as the genre path
-                        # below and the MusicBrainz import credit path.
-                        role = self.controller.get.resolve_entity_or_alias(
-                            "Role", "role_name", role_name
-                        )
-                        if not role:
-                            role = self.controller.add.add_entity(
-                                "Role", commit=False, role_name=role_name, role_type="credits"
+                        # A name previously split into 2+ roles (see
+                        # SplitDB._record_split_alias) resolves to that
+                        # same ordered list instead of recreating/reusing
+                        # one combined role. Otherwise resolve the role,
+                        # checking aliases first so a name merged/aliased
+                        # to a canonical role doesn't recreate it -- same
+                        # as the genre path below and the MusicBrainz
+                        # import credit path.
+                        roles = self.controller.get.resolve_split_alias("Role", role_name)
+                        if not roles:
+                            role = self.controller.get.resolve_entity_or_alias(
+                                "Role", "role_name", role_name
                             )
-                        role_cache[role_name] = role
+                            if not role:
+                                role = self.controller.add.add_entity(
+                                    "Role", commit=False, role_name=role_name, role_type="credits"
+                                )
+                            roles = [role]
+                        role_cache[role_name] = roles
                     else:
-                        role = role_cache[role_name]
+                        roles = role_cache[role_name]
 
-                    # Create relationship
-                    relationship_data = {
-                        "track_id": track.track_id,
-                        "artist_id": artist.artist_id,
-                        "role_id": role.role_id,
-                    }
-
-                    self.controller.add.add_entity(
-                        "TrackArtistRole", commit=False, **relationship_data
-                    )
-                    logger.debug(
-                        f"Created {role_name} relationship: "
-                        f"{artist.artist_name} -> {track.track_name}"
-                    )
+                    for role in roles:
+                        relationship_data = {
+                            "track_id": track.track_id,
+                            "artist_id": artist.artist_id,
+                            "role_id": role.role_id,
+                        }
+                        self.controller.add.add_entity(
+                            "TrackArtistRole", commit=False, **relationship_data
+                        )
+                        logger.debug(
+                            f"Created {role.role_name} relationship: "
+                            f"{artist.artist_name} -> {track.track_name}"
+                        )
                 except SQLAlchemyError as e:
                     logger.error(
                         f"Error creating {role_name} relationship for {artist.artist_name}: {e}"
