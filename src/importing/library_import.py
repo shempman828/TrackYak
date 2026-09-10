@@ -349,7 +349,13 @@ class TrackImporter:
 
                 try:
                     if role_name not in role_cache:
-                        role = self.controller.get.get_entity_object("Role", role_name=role_name)
+                        # Check aliases first so a role name merged/aliased
+                        # to a canonical role resolves to it instead of
+                        # recreating the duplicate -- same as the genre path
+                        # below and the MusicBrainz import credit path.
+                        role = self.controller.get.resolve_entity_or_alias(
+                            "Role", "role_name", role_name
+                        )
                         if not role:
                             role = self.controller.add.add_entity(
                                 "Role", commit=False, role_name=role_name, role_type="credits"
