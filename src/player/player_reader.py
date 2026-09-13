@@ -183,8 +183,17 @@ class PlayerReaderMixin:
         # hitch. This is most likely to bite on a cold-cache read of a large file.
         # Errors here are swallowed; the reader loop below retries from
         # scratch with its full resync/reopen handling.
-        try:
-            with self._reader_lock:
+        #
+        # Acquire with a timeout, not a bare `with` -- this runs on whatever
+        # thread called load_track()/play() (usually the UI thread), and a
+        # stale reader thread that _stop_reader_thread()'s join(timeout=2.0)
+        # gave up on (e.g. stuck on a slow read) can still be holding this
+        # same lock. A bare acquire here would block the caller indefinitely
+        # -- the exact "Python is not responding" failure mode described above
+        # READER_LOCK_TIMEOUT -- instead of just skipping priming and letting
+        # the reader loop below pick it up once the lock frees.
+        if self._reader_lock.acquire(timeout=READER_LOCK_TIMEOUT):
+            try:
                 reader = self._sf_reader
                 if reader is not None:
                     known_length = self._total_frames > 0
@@ -198,8 +207,15 @@ class PlayerReaderMixin:
                         if len(chunk):
                             with self._buffer_lock:
                                 self._audio_buffer.append(chunk)
-        except (OSError, self.sf.LibsndfileError) as exc:
-            logger.warning(f"Buffer priming failed, deferring to reader thread: {exc}")
+            except (OSError, self.sf.LibsndfileError) as exc:
+                logger.warning(f"Buffer priming failed, deferring to reader thread: {exc}")
+            finally:
+                self._reader_lock.release()
+        else:
+            logger.warning(
+                "Buffer priming skipped: reader lock busy (stale reader thread "
+                "likely still stuck on slow I/O); deferring to reader thread"
+            )
 
         self._reader_thread = threading.Thread(
             target=self._reader_loop, daemon=True, name="AudioReader"

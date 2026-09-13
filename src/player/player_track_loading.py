@@ -214,7 +214,7 @@ class PlayerTrackLoadingMixin:
                     self._next_channels = reader.channels
                     self._next_total_frames = len(reader)
                 logger.debug(f"Pre-loaded next track: {next_path.name}")
-            except OSError as exc:
+            except (OSError, self.sf.LibsndfileError) as exc:
                 logger.warning(f"Pre-load failed for {next_path.name}: {exc}")
 
         self._preload_thread = threading.Thread(target=_preload, daemon=True, name="TrackPreload")
