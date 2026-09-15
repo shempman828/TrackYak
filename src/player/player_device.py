@@ -402,10 +402,45 @@ class PlayerDeviceMixin:
             gc.collect()
             logger.debug("Automatic GC re-enabled after playback")
 
-    def _close_stream(self):
-        # The feeder thread owns start/stop/write on the stream — it must be
-        # gone before we close the stream object out from under it.
+    def _collect_gc_if_paused(self):
+        """Run one explicit GC sweep while paused, without re-enabling
+        automatic collection.
+
+        _suspend_gc_during_playback() disables cyclic GC for as long as an
+        output stream is open, and play()'s same-format track changes reuse
+        that stream indefinitely -- _resume_gc() is only reached via
+        _close_stream() (stop/format change/exit), so an uninterrupted
+        listening session can run for hours without a single collection.
+        Reference cycles (e.g. the nowplaying art-slideshow's per-slide
+        QPropertyAnimation, recreated every few seconds during playback) only
+        get reclaimed by the cyclic collector, so they simply pile up for the
+        whole session. Pausing already aborts the stream and parks the feeder
+        thread, so a sweep here is free -- it can't cause the audible hitch
+        _suspend_gc_during_playback() exists to avoid.
+        """
+        if not gc.isenabled():
+            gc.collect()
+            logger.debug("GC swept during pause (automatic collection still off)")
+
+    def _close_stream(self) -> bool:
+        """Tear down the audio stream. Returns False (and leaves
+        self.audio_stream untouched) if the feeder thread is still stuck and
+        alive -- it owns start/stop/write/abort on that stream for as long as
+        it's running (see player_feeder.py), so stopping/closing the stream
+        out from under it here would race a real thread that may still be
+        calling into PortAudio, which is not safe to do concurrently and can
+        crash the process. The stuck feeder's own teardown (its `finally`
+        block) will stop the stream itself once it finally unblocks and sees
+        _feeder_stop set; the next call to _close_stream() (next play()/stop()/
+        cleanup()) will then find it no longer alive and finish the job.
+        """
         self._stop_feeder_thread()
+        if self._feeder_thread is not None and self._feeder_thread.is_alive():
+            logger.warning(
+                "_close_stream(): feeder thread still stuck; leaving the stream "
+                "in place instead of closing it out from under it"
+            )
+            return False
         if self.audio_stream is not None:
             stream_exceptions = (OSError, RuntimeError)
             if hasattr(self, "sd") and hasattr(self.sd, "PortAudioError"):
@@ -421,6 +456,7 @@ class PlayerDeviceMixin:
         if self._suspended_sink_name is not None:
             self._suspend_sink(self._suspended_sink_name, False)
             self._suspended_sink_name = None
+        return True
 
     def _restart_playback_if_active(self):
         if self.current_file and (self.playing or self.paused):

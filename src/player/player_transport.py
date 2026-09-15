@@ -90,7 +90,16 @@ class PlayerTransportMixin:
                 return
 
             # ── Open a new stream (first play, or sample rate/channel count changed) ─
-            self._close_stream()
+            if not self._close_stream():
+                # Old feeder thread is still stuck holding the previous stream
+                # (see _close_stream()) -- opening a second one now would leave
+                # it unfed (silence) at best and race the stuck feeder's own
+                # teardown at worst. Bail out; the caller can retry play().
+                self.error_occurred.emit(
+                    "Audio device busy (previous stream still shutting down); "
+                    "try again in a moment."
+                )
+                return
             self._stream_generation += 1
             self._finish_pending.clear()
 
@@ -197,6 +206,7 @@ class PlayerTransportMixin:
             self.paused = True
             self.state_changed.emit("paused")
             self._position_timer.stop()
+            self._collect_gc_if_paused()
             logger.debug("Playback paused")
 
     def stop(self):
@@ -232,8 +242,12 @@ class PlayerTransportMixin:
             self._buffer_epoch += 1
             self._final_chunk_seen = False
         self._position = 0
-        # Close the stream so play() opens a fresh one from frame 0
-        self._close_stream()
+        # Close the stream so play() opens a fresh one from frame 0. If the
+        # feeder is still stuck, _close_stream() leaves it in place rather
+        # than closing it out from under that thread -- its own teardown will
+        # finish the job once it unblocks.
+        if not self._close_stream():
+            logger.warning("stop(): feeder thread still stuck; stream will close once it unblocks")
         self.state_changed.emit("stopped")
         logger.debug("Playback stopped")
 
