@@ -16,6 +16,7 @@ import time
 import numpy as np
 import pytest
 
+from src.player import player_feeder
 from src.player.player_feeder import FEEDER_WRITE_BLOCKSIZE, PlayerFeederMixin
 from src.player.player_reader import BLOCKSIZE
 
@@ -236,6 +237,62 @@ def test_feeder_demotes_realtime_priority_and_clears_tid_on_exit(monkeypatch):
     assert isinstance(seen["tid"], int) and seen["tid"] > 0
     assert calls == [seen["tid"]]  # demoted exactly its own thread, once
     assert h._feeder_native_tid is None
+
+
+class _StuckStream(_FakeStream):
+    """A stream whose first write() blocks until released, simulating a
+    wedged output device that stream.write() can genuinely hang on."""
+
+    def __init__(self):
+        super().__init__()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self._stalled_once = False
+
+    def write(self, data):
+        if not self._stalled_once:
+            self._stalled_once = True
+            self.entered.set()
+            self.release.wait(timeout=5)
+        return super().write(data)
+
+
+def test_stop_feeder_thread_does_not_orphan_a_still_stuck_thread(monkeypatch):
+    """Regression for bug 531 (playback very rarely incredibly sped up).
+
+    Mirrors the reader-thread version of this bug: a feeder thread that
+    outlives _stop_feeder_thread()'s join() (stuck inside a slow/wedged
+    stream.write()) must not be forgotten. The old code set
+    self._feeder_thread = None unconditionally, which blinded
+    _start_feeder_thread()'s "already running" guard -- the next start
+    spawned a second AudioFeeder thread that would run concurrently with the
+    first, both writing to the same PortAudio stream.
+    """
+    monkeypatch.setattr(player_feeder, "FEEDER_JOIN_TIMEOUT", 0.1)
+    h = _Host()
+    h.audio_stream = _StuckStream()
+    h._audio_buffer.append(_chunk(1000))
+
+    h._start_feeder_thread()
+    first_thread = h._feeder_thread
+    assert h.audio_stream.entered.wait(timeout=2), "feeder thread never reached its write"
+
+    h._stop_feeder_thread()  # join times out -- thread is still stuck
+    assert first_thread.is_alive(), "test setup: thread should still be stuck"
+
+    h._start_feeder_thread()
+    second_thread = h._feeder_thread
+
+    assert second_thread is first_thread, (
+        "a second feeder thread was spawned while the first was still alive "
+        "and stuck writing to the stream -- they would write concurrently"
+    )
+
+    h.audio_stream.release.set()
+    h._feeder_stop.set()
+    h._feeder_wake.set()
+    first_thread.join(timeout=2)
+    assert not first_thread.is_alive()
 
 
 if __name__ == "__main__":

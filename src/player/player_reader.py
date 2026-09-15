@@ -143,6 +143,9 @@ BLOCKSIZE = 16384  # Frames per decode chunk the reader thread pushes into the
 # lock; without a timeout, acquiring it from the UI thread blocks the Qt
 # event loop indefinitely -- observed as "Python is not responding."
 READER_LOCK_TIMEOUT = 2.0
+# How long _stop_reader_thread() waits for the reader thread to notice
+# _reader_stop and exit before giving up on it as still stuck.
+READER_JOIN_TIMEOUT = 2.0
 # How many blocks to read ahead into the ring buffer. At 44.1kHz this is
 # ~37s of lookahead (100 * 16384 / 44100) -- deliberately generous so the
 # reader thread has enough banked audio to absorb OS scheduling stalls
@@ -223,10 +226,31 @@ class PlayerReaderMixin:
         self._reader_thread.start()
 
     def _stop_reader_thread(self):
-        """Signal the reader thread to stop and wait briefly."""
+        """Signal the reader thread to stop and wait briefly.
+
+        If join() times out, the thread is still alive -- almost always
+        blocked inside a slow reader.read() while holding _reader_lock (see
+        READER_LOCK_TIMEOUT above). Do NOT clear self._reader_thread or the
+        buffer in that case: clearing the reference would blind
+        _start_reader_thread()'s "already running" guard, letting it spawn a
+        second thread against the same reader while leaving this one alive
+        -- and clearing _reader_stop right after (as that guard's caller
+        does) would erase the very signal this still-running thread is
+        waiting to see, turning it into a permanent, unstoppable zombie
+        that keeps decoding into a buffer nothing is meant to be filling.
+        Leaving everything in place means the thread will see
+        _reader_stop still set and exit cleanly once it finally unblocks.
+        """
         self._reader_stop.set()
-        if self._reader_thread and self._reader_thread.is_alive():
-            self._reader_thread.join(timeout=2.0)
+        thread = self._reader_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=READER_JOIN_TIMEOUT)
+            if thread.is_alive():
+                logger.warning(
+                    "_stop_reader_thread(): reader thread still stuck on slow "
+                    "I/O after 2s; leaving it in place instead of orphaning it"
+                )
+                return
         self._reader_thread = None
         with self._buffer_lock:
             self._audio_buffer.clear()

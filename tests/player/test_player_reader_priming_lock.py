@@ -16,6 +16,7 @@ from pathlib import Path
 import threading
 import time
 
+import numpy as np
 import soundfile as sf
 
 from src.player import player_reader
@@ -57,3 +58,64 @@ def test_start_reader_thread_does_not_hang_when_lock_is_busy(monkeypatch):
     player._reader_stop.set()
     player._reader_thread.join(timeout=2)
     assert not player._reader_thread.is_alive()
+
+
+class _SlowReader:
+    """A reader.read() double that blocks the *background* AudioReader
+    thread's first call until released, simulating a reader thread genuinely
+    stuck on slow/flaky disk I/O while holding _reader_lock -- the scenario
+    READER_LOCK_TIMEOUT/join(timeout=...) exist for, but that the
+    priming-lock test above never lets run long enough to actually outlive
+    _stop_reader_thread()'s join. Only the AudioReader thread's call stalls
+    -- not _start_reader_thread()'s own synchronous priming read, which runs
+    on the calling (here: main test) thread."""
+
+    def __init__(self):
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.stalled_once = False
+
+    def read(self, n, dtype="float32", always_2d=True):
+        if not self.stalled_once and threading.current_thread().name == "AudioReader":
+            self.stalled_once = True
+            self.entered.set()
+            self.release.wait(timeout=5)
+        return np.zeros((0, 2), dtype="float32")
+
+
+def test_stop_reader_thread_does_not_orphan_a_still_stuck_thread(monkeypatch):
+    """Regression for bug 531 (playback very rarely incredibly sped up).
+
+    A reader thread that outlives _stop_reader_thread()'s join() must not be
+    forgotten. The old code set self._reader_thread = None unconditionally,
+    which blinded _start_reader_thread()'s "already running" guard and also
+    let it clear _reader_stop -- the exact flag the still-alive thread needed
+    to see to exit. The next start spawned a second AudioReader thread that
+    ran concurrently with the first, both decoding the same file and racing
+    to append into _audio_buffer out of order.
+    """
+    monkeypatch.setattr(player_reader, "READER_JOIN_TIMEOUT", 0.1)
+    player = _Bare()
+    slow = _SlowReader()
+    player._sf_reader = slow
+
+    player._start_reader_thread()
+    first_thread = player._reader_thread
+    assert slow.entered.wait(timeout=2), "reader thread never reached its read"
+    assert player._reader_lock.locked()
+
+    player._stop_reader_thread()  # join times out -- thread is still stuck
+    assert first_thread.is_alive(), "test setup: thread should still be stuck"
+
+    player._start_reader_thread()
+    second_thread = player._reader_thread
+
+    assert second_thread is first_thread, (
+        "a second reader thread was spawned while the first was still alive "
+        "and stuck holding _reader_lock -- they will race to decode the same "
+        "file and can append chunks into _audio_buffer out of order"
+    )
+
+    slow.release.set()
+    first_thread.join(timeout=2)
+    assert not first_thread.is_alive()

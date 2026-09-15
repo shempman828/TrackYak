@@ -43,6 +43,10 @@ from src.player.player_reader import BLOCKSIZE
 # (~46 ms at 44.1 kHz) instead of being stuck in one ~370 ms write.
 FEEDER_WRITE_BLOCKSIZE = 2048
 
+# How long _stop_feeder_thread() waits for the feeder thread to notice
+# _feeder_stop and exit before giving up on it as still stuck.
+FEEDER_JOIN_TIMEOUT = 2.0
+
 
 class PlayerFeederMixin:
     """The feeder thread and its lifecycle. Nothing here runs on PortAudio's
@@ -77,12 +81,27 @@ class PlayerFeederMixin:
 
     def _stop_feeder_thread(self):
         """Signal the feeder thread to exit and wait briefly. Safe to call
-        more than once and when no feeder is running."""
+        more than once and when no feeder is running.
+
+        If join() times out, the thread is still alive -- most likely stuck
+        inside a slow stream.write() (a wedged device). Do NOT clear
+        self._feeder_thread in that case: clearing it would blind
+        _start_feeder_thread()'s "already running" guard, letting it spawn a
+        second feeder that writes to the stream alongside the first one
+        instead of leaving the stuck thread to exit on its own once
+        self._feeder_stop (already set above) lets it out of its loop.
+        """
         self._feeder_stop.set()
         self._feeder_wake.set()
         thread = self._feeder_thread
         if thread is not None and thread.is_alive() and thread is not threading.current_thread():
-            thread.join(timeout=2.0)
+            thread.join(timeout=FEEDER_JOIN_TIMEOUT)
+            if thread.is_alive():
+                logger.warning(
+                    "_stop_feeder_thread(): feeder thread still stuck after 2s; "
+                    "leaving it in place instead of orphaning it"
+                )
+                return
         self._feeder_thread = None
 
     def request_feeder_flush(self):
