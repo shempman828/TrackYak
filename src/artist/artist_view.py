@@ -350,6 +350,9 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
 
     def _populate_list(self, artists):
         """Fill the list widget from a filtered/sorted list of artist objects."""
+        current = self.artist_list.currentItem()
+        previously_selected_id = current.data(Qt.UserRole) if current else None
+
         self.artist_list.clear()
 
         for artist in artists:
@@ -371,6 +374,9 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
             if getattr(artist, "MBID", None):
                 item.setToolTip("Linked to MusicBrainz")
             self.artist_list.addItem(item)
+
+            if previously_selected_id is not None and artist.artist_id == previously_selected_id:
+                self.artist_list.setCurrentItem(item)
 
         # Update count label
         total = len(self.all_artists)
