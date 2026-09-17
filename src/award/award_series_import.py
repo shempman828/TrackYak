@@ -162,7 +162,9 @@ def _find_or_create_association(
     association_type in place if MusicBrainz's winner/nominee status for
     this pairing changed since a prior sync (e.g. a late correction),
     without creating a duplicate row."""
-    association_type = "winner" if is_winner else "nominee"
+    # "recipient" (not "winner") to match the marker every other read site
+    # checks for -- see Award.recipients and award_detail's recipient display.
+    association_type = "recipient" if is_winner else "nominee"
     existing = session.scalar(
         select(AwardAssociation).where(
             AwardAssociation.award_id == award.award_id,

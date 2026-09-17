@@ -80,7 +80,7 @@ def _mock_lookups(recording=None, release_group=None, artist=None):
     )
 
 
-def test_genuine_award_series_creates_award_and_winner_association(session):
+def test_genuine_award_series_creates_award_and_recipient_association(session):
     _add_track(session, "rec-mbid-1")
     relations = [
         _relation(
@@ -104,8 +104,35 @@ def test_genuine_award_series_creates_award_and_winner_association(session):
 
     assoc = session.query(AwardAssociation).one()
     assert assoc.entity_type == "Track"
-    assert assoc.association_type == "winner"
+    assert assoc.association_type == "recipient"
     assert assoc.mb_target_mbid == "rec-mbid-1"
+
+
+def test_stale_winner_association_type_is_corrected_to_recipient_on_resync(session):
+    """Pre-fix syncs wrote "winner" instead of "recipient" (the marker every
+    read site checks for -- see Award.recipients). A plain resync must heal
+    those old rows in place, with no separate data migration."""
+    _add_track(session, "rec-mbid-1")
+    relations = [
+        _relation(
+            "series-1",
+            "Recording award",
+            "Grammy Award: Record of the Year nominees",
+            "2023 winner",
+        )
+    ]
+    with _mock_lookups(recording=relations, release_group=[], artist=[]):
+        sync_awards(session)
+
+    stale_assoc = session.query(AwardAssociation).one()
+    stale_assoc.association_type = "winner"
+    session.commit()
+
+    with _mock_lookups(recording=relations, release_group=[], artist=[]):
+        sync_awards(session)
+
+    session.refresh(stale_assoc)
+    assert stale_assoc.association_type == "recipient"
 
 
 def test_nominee_without_winner_suffix_is_recorded_as_nominee(session):
@@ -311,7 +338,7 @@ def test_import_with_prefetched_relations_skips_network(session):
     assert result.associations_created == 1
     assoc = session.query(AwardAssociation).one()
     assert assoc.entity_type == "Album"
-    assert assoc.association_type == "winner"
+    assert assoc.association_type == "recipient"
     assert assoc.mb_target_mbid == "rg-mbid-1"
 
 
