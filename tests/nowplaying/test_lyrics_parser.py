@@ -3,7 +3,7 @@
 Focus: fabricated / placeholder timing must not be treated as real sync.
 """
 
-from src.nowplaying.nowplaying_lyrics_parser import parse_lyrics
+from src.nowplaying.nowplaying_lyrics_parser import build_lrc, format_timestamp_ms, parse_lyrics
 
 
 def test_real_synced_lyrics_parse_as_synced():
@@ -50,3 +50,23 @@ def test_plain_lyrics_unchanged():
 
     assert is_synced is False
     assert [t for _, t in lines] == ["just some", "plain lyrics", "no timing"]
+
+
+def test_format_timestamp_ms_renders_mm_ss_centiseconds():
+    assert format_timestamp_ms(0) == "00:00.00"
+    assert format_timestamp_ms(8330) == "00:08.33"
+    assert format_timestamp_ms(65_005) == "01:05.00"
+
+
+def test_format_timestamp_ms_clamps_negative_to_zero():
+    assert format_timestamp_ms(-500) == "00:00.00"
+
+
+def test_build_lrc_is_the_inverse_of_parse_lyrics():
+    lines = [(8330, "one"), (14010, "two"), (19000, "three"), (24390, "four")]
+
+    lrc = build_lrc(lines)
+    is_synced, parsed = parse_lyrics(lrc)
+
+    assert is_synced is True
+    assert parsed == lines

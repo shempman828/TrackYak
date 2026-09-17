@@ -53,6 +53,20 @@ def _is_fake_timing(stamps: list[int]) -> bool:
     return all(ms == i * 1000 for i, ms in enumerate(sorted(stamps)))
 
 
+def format_timestamp_ms(ms: int) -> str:
+    """Render milliseconds as an LRC timestamp: ``mm:ss.xx`` (centiseconds)."""
+    ms = max(0, int(ms))
+    minutes, rem_ms = divmod(ms, 60_000)
+    seconds, rem_ms = divmod(rem_ms, 1000)
+    centiseconds = rem_ms // 10
+    return f"{minutes:02d}:{seconds:02d}.{centiseconds:02d}"
+
+
+def build_lrc(lines: list[tuple[int, str]]) -> str:
+    """Inverse of ``parse_lyrics``: render ``(timestamp_ms, text)`` pairs as an LRC block."""
+    return "\n".join(f"[{format_timestamp_ms(ts)}] {text}" for ts, text in lines)
+
+
 def active_index(lines: list[tuple[int, str]], position_ms: int) -> int:
     """Return the index of the line that should be shown at position_ms."""
     idx = 0

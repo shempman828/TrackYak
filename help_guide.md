@@ -150,7 +150,16 @@ lines previewed beneath it, each fainter than the one above so you can see
 what's coming without losing the current line. A taller window fits more
 preview lines; a short one trims back to three. If the timing feels off, click
 the small ⏱ icon to reveal a sync-offset slider and nudge it until it lines
-up. **Credits** shows everyone credited on the track. **About** collects the
+up. If the lyrics have no timing at all, or the timing has drifted too far for
+the offset slider to fix, click **SYNC** to open the tap-to-sync tool: it
+walks through the lyrics one line at a time, and pressing `Enter` each time
+the next line starts stamps that line with the current playback position
+(minus a small, adjustable reaction-time offset, since your keypress always
+lands a beat after you actually hear the line start). `Backspace` undoes the
+last tap if you miss the timing, and `Esc` (or **Cancel**) abandons the
+session with no changes saved. Once every line has been tapped, **Save**
+writes the new timing back to the track. **Credits** shows everyone credited
+on the track. **About** collects the
 description and bio text already entered elsewhere — the artist bio editor, the
 album, genre, label, and mood editors — for the track, its album, its artists,
 its label(s), genre(s), and mood(s), shown read-only as a scrolling stack of

@@ -348,7 +348,8 @@ class Config:
         self.config["album_view"] = {"filters": ""}
         self.config["artist_view"] = {"filters": ""}
         self.config["nowplaying"] = {
-            "lyrics_sync_offset": "-5"  # stored as tenths of a second (int)
+            "lyrics_sync_offset": "-5",  # stored as tenths of a second (int)
+            "manual_sync_reaction_ms": "200",
         }
         self.config["influences"] = {"legend_visible": "true", "cluster_names": ""}
 
@@ -508,6 +509,7 @@ _CONFIG_FIELDS = [
         _decode_lyrics_offset,
         _encode_lyrics_offset,
     ),
+    _primitive("manual_sync_reaction_ms", "nowplaying", "manual_sync_reaction_ms", "int", 200),
     _primitive("influence_legend_visible", "influences", "legend_visible", "bool", True),
     ConfigField(
         "influence_legend_size",

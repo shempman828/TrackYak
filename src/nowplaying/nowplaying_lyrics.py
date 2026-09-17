@@ -10,6 +10,7 @@ from src.foundation.censor import censor_text
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
 from src.nowplaying.nowplaying_lyrics_parser import active_index, parse_lyrics
+from src.nowplaying.nowplaying_lyrics_sync_dialog import LyricSyncDialog
 
 # If the next lyric line starts more than this many ms in the future, show a
 # countdown timer instead of a blank karaoke display.
@@ -25,9 +26,10 @@ class NowPlayingLyricsMixin:
     self._next_lyric_lbls, self._preview_capacity, self._karaoke_block,
     self._plain_area, self._plain_lbl, self._no_lyrics_lbl, self._countdown_lbl,
     self._offset_row, self._offset_lbl, self._offset_slider,
-    self._toggle_mode_btn, self._sync_toggle_btn, self._recalc_preview_capacity(),
-    self._set_active(), self._switch_tab(), self._PAGE_LYRICS,
-    self._PAGE_CREDITS, and to be a QWidget subclass.
+    self._toggle_mode_btn, self._sync_toggle_btn, self._manual_sync_btn,
+    self._sync_dialog, self._recalc_preview_capacity(), self._set_active(),
+    self._switch_tab(), self._PAGE_LYRICS, self._PAGE_CREDITS, self.controller,
+    self.track, and to be a QWidget subclass.
     """
 
     # ── lyrics mode toggle ─────────────────────────────────────────────────
@@ -76,6 +78,7 @@ class NowPlayingLyricsMixin:
         self._last_position_ms = -1
         self._countdown_timer.stop()
         self._next_lyric_ms = -1
+        self._manual_sync_btn.setEnabled(False)
 
         if not raw or not raw.strip():
             self._set_lyrics_mode_none()
@@ -84,6 +87,7 @@ class NowPlayingLyricsMixin:
         is_synced, lines = parse_lyrics(raw)
         self._lyrics_lines = lines
         self._is_synced = is_synced
+        self._manual_sync_btn.setEnabled(bool(lines))
 
         if is_synced:
             self._set_lyrics_mode_karaoke()
@@ -273,6 +277,36 @@ class NowPlayingLyricsMixin:
         self._last_position_ms = -1
         # Restart debounce timer
         self._offset_save_timer.start()
+
+    # ── manual sync dialog ───────────────────────────────────────────────
+
+    def _on_open_sync_dialog(self):
+        """Launch the tap-to-sync dialog for the current track's raw lyrics.
+
+        Reads from the track's raw ``lyrics`` field, not ``self._lyrics_lines``
+        — the latter is built from the censor-filtered display copy, and
+        syncing off it would permanently bake censored placeholders into the
+        saved lyrics for tracks with explicit content.
+        """
+        if not self.track or not self._lyrics_lines:
+            return
+        raw = getattr(self.track, "lyrics", None) or ""
+        _, lines = parse_lyrics(raw)
+        plain_lines = [text for _, text in lines]
+        if not plain_lines:
+            return
+
+        dlg = LyricSyncDialog(self.controller, self.track, plain_lines, self)
+        dlg.saved.connect(lambda: self._update_lyrics(self.track))
+        dlg.finished.connect(lambda _=None: setattr(self, "_sync_dialog", None))
+        self._sync_dialog = dlg
+        dlg.show()
+
+    def _close_sync_dialog(self):
+        """Discard any in-progress manual-sync session (e.g. on track change)."""
+        dlg = getattr(self, "_sync_dialog", None)
+        if dlg is not None:
+            dlg.close()
 
     def _save_offset_to_config(self):
         """Persist the current offset value to config."""

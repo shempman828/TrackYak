@@ -223,6 +223,8 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._fade_anim: QPropertyAnimation | None = None
         self._art_transition_anim: QPropertyAnimation | None = None
 
+        self._sync_dialog = None  # LyricSyncDialog, while a manual-sync session is open
+
         self._is_synced = False
         self._show_all_lyrics = False  # Toggle: karaoke vs full plain view
         self._lyrics_lines: list[tuple[int, str]] = []
@@ -484,6 +486,17 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._sync_toggle_btn.clicked.connect(self._on_toggle_sync_slider)
         tab_bar.addWidget(self._sync_toggle_btn)
 
+        # Opens the manual tap-to-sync dialog (disabled until lyrics load).
+        self._manual_sync_btn = QPushButton("SYNC")
+        self._manual_sync_btn.setFixedHeight(24)
+        self._manual_sync_btn.setCursor(Qt.PointingHandCursor)
+        self._manual_sync_btn.setToolTip("Manually sync lyrics line-by-line")
+        self._manual_sync_btn.setProperty("npToggle", True)
+        self._set_active(self._manual_sync_btn, False)
+        self._manual_sync_btn.setEnabled(False)
+        self._manual_sync_btn.clicked.connect(self._on_open_sync_dialog)
+        tab_bar.addWidget(self._manual_sync_btn)
+
         right_layout.addLayout(tab_bar)
 
         tab_rule = QFrame()
@@ -713,6 +726,8 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
     def updateUI(self, track):
         try:
+            self._close_sync_dialog()
+
             if not track:
                 self.clearUI()
                 return
@@ -768,6 +783,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
             self.clearUI()
 
     def clearUI(self):
+        self._close_sync_dialog()
         self._cancel_art_worker()
         self.track = None
         self._title_lbl.set_text("No Track Playing")
