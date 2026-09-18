@@ -2,7 +2,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal
-from PySide6.QtGui import QBrush, QColor
+from PySide6.QtGui import QAction, QBrush, QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.base_split_dialog import SplitDBDialog
+from src.common.entity_submenu import populate_entity_submenu
 from src.common.hierarchy_tree_style import (
     collect_expanded_ids,
     configure_hierarchy_tree,
@@ -825,6 +826,10 @@ class RoleView(QWidget):
         menu.addAction("Merge…", lambda: self.merge_role(self.current_role_id))
         menu.addAction("Split…", lambda: self.split_role(self.current_role_id))
         menu.addSeparator()
+        change_parent_menu = QMenu("Change Parent", menu)
+        self._populate_change_parent_submenu(change_parent_menu)
+        menu.addMenu(change_parent_menu)
+        menu.addSeparator()
         menu.addAction("New Parent Role", lambda: self.create_new_parent_role(self.current_role_id))
         menu.addAction("New Child Role", lambda: self.create_new_child_role(self.current_role_id))
         menu.addSeparator()
@@ -835,6 +840,59 @@ class RoleView(QWidget):
         menu.addAction("Export Hierarchy...", self.export_hierarchy)
 
         menu.exec_(self.role_tree.viewport().mapToGlobal(pos))
+
+    def _populate_change_parent_submenu(self, submenu: QMenu):
+        """Fill the "Change Parent" submenu with every role except the clicked
+        role and its own descendants (picking either would create a cycle)."""
+        role_id = self.current_role_id
+        eligible = [
+            role
+            for role in self._all_roles
+            if role.role_id != role_id
+            and not is_hierarchy_descendant(
+                role_id, role.role_id, self._all_roles, id_attr="role_id"
+            )
+        ]
+
+        # Parented to self (not submenu): a QAction with no living Python
+        # reference and no Qt parent gets garbage-collected -- and removed
+        # from any menu it was added to -- as soon as this method returns.
+        top_level_action = QAction("Top Level (No Parent)", self)
+        top_level_action.setData(None)
+        top_level_action.triggered.connect(self._context_change_role_parent)
+        submenu.addAction(top_level_action)
+        submenu.addSeparator()
+
+        populate_entity_submenu(
+            submenu,
+            controller=self.controller,
+            entity_type="Role",
+            on_trigger=self._context_change_role_parent,
+            entities_override=eligible,
+            # Default label ("Add to 'X'") is Playlist/Mood wording; here the
+            # action means "make this role itself the new parent."
+            branch_self_label=lambda disp: disp,
+        )
+
+    def _context_change_role_parent(self):
+        """Set the clicked role's parent to the chosen role (or top-level)."""
+        action = self.sender()
+        if not action:
+            return
+        new_parent_id = action.data()
+        role_id = self.current_role_id
+        try:
+            success = self.controller.update.update_entity("Role", role_id, parent_id=new_parent_id)
+        except RuntimeError as e:
+            logger.error(f"Error changing role parent: {e!s}")
+            success = False
+
+        if not success:
+            QMessageBox.critical(self, "Error", "Failed to change role's parent.")
+            return
+
+        self.load_roles()
+        self.role_updated.emit()
 
     def export_hierarchy(self):
         """Export the full role hierarchy as a box-drawing tree to a .txt or

@@ -5,10 +5,10 @@ deleted. See src/role/role_view.py delete_role().
 """
 
 import threading
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import Qt, QThread
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QMenu, QMessageBox
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
@@ -572,3 +572,168 @@ def test_role_loader_worker_releases_thread_local_session(qapp, tmp_path, monkey
 
     factory.remove()
     engine.dispose()
+
+
+# ---- test_role_view_change_parent.py ----------------------------------------
+# "Change Parent" context-menu submenu: lets the user re-parent a role
+# without drag-and-drop, built on the same shared populate_entity_submenu
+# used by the player dock's cascading "Add to Playlist" / "Add to Mood"
+# submenus. The clicked role and its own descendants must never appear as
+# choices, since picking either would create a cycle in the hierarchy.
+# See src/role/role_view.py show_context_menu / _populate_change_parent_submenu.
+
+
+def _leaf_texts(menu):
+    """Non-separator action texts, in order, for a real QMenu."""
+    return [a.text() for a in menu.actions() if not a.isSeparator()]
+
+
+def test_change_parent_submenu_placed_after_split_before_new_parent_role(
+    session, qapp, controller_eh
+):
+    guitar = _make_role_eh(session, "Guitar")
+    view = RoleView(controller_eh)
+    view._all_roles = [guitar]
+    view._rebuild_tree()
+    item = view.role_tree.topLevelItem(0)
+
+    created = []
+
+    def _new_menu(*args, **kwargs):
+        m = MagicMock()
+        created.append(m)
+        return m
+
+    with (
+        patch("src.role.role_view.QMenu", side_effect=_new_menu),
+        # The submenu's own content is exercised by the tests below; this
+        # test only cares where it's inserted among the top menu's actions,
+        # and a real QAction can't be parented to a MagicMock submenu.
+        patch.object(view, "_populate_change_parent_submenu"),
+        patch.object(view.role_tree, "itemAt", return_value=item),
+    ):
+        view.show_context_menu(view.role_tree.visualItemRect(item).center())
+
+    top_menu = created[0]
+    change_parent_menu = created[1]
+    calls = [(call[0], call[1][0] if call[1] else None) for call in top_menu.method_calls]
+    split_idx = calls.index(("addAction", "Split…"))
+    change_parent_idx = calls.index(("addMenu", change_parent_menu))
+    new_parent_idx = calls.index(("addAction", "New Parent Role"))
+    assert split_idx < change_parent_idx < new_parent_idx
+
+
+def test_change_parent_submenu_excludes_clicked_role_and_descendants(session, qapp, controller_eh):
+    parent = _make_role_eh(session, "Strings")
+    child = _make_role_eh(session, "Guitar", parent=parent)
+    sibling = _make_role_eh(session, "Percussion")
+    view = RoleView(controller_eh)
+    view._all_roles = [parent, child, sibling]
+    view.current_role_id = parent.role_id
+
+    submenu = QMenu()
+    view._populate_change_parent_submenu(submenu)
+
+    assert _leaf_texts(submenu) == ["Top Level (No Parent)", "Percussion"]
+    assert submenu.actions()[1].isSeparator()
+
+
+def test_change_parent_top_level_action_sets_parent_to_none(session, qapp, controller_eh):
+    parent = _make_role_eh(session, "Strings")
+    child = _make_role_eh(session, "Guitar", parent=parent)
+    view = RoleView(controller_eh)
+    view._all_roles = [parent, child]
+    view.current_role_id = child.role_id
+    view.load_roles = MagicMock()
+    fired = []
+    view.role_updated.connect(lambda: fired.append(True))
+
+    submenu = QMenu()
+    view._populate_change_parent_submenu(submenu)
+    top_level_action = next(a for a in submenu.actions() if a.text() == "Top Level (No Parent)")
+    top_level_action.trigger()
+
+    session.refresh(child)
+    assert child.parent_id is None
+    view.load_roles.assert_called_once()
+    assert fired == [True]
+
+
+def test_change_parent_role_action_sets_new_parent(session, qapp, controller_eh):
+    strings = _make_role_eh(session, "Strings")
+    percussion = _make_role_eh(session, "Percussion")
+    view = RoleView(controller_eh)
+    view._all_roles = [strings, percussion]
+    view.current_role_id = strings.role_id
+    view.load_roles = MagicMock()
+    fired = []
+    view.role_updated.connect(lambda: fired.append(True))
+
+    submenu = QMenu()
+    view._populate_change_parent_submenu(submenu)
+    percussion_action = next(a for a in submenu.actions() if a.text() == "Percussion")
+    percussion_action.trigger()
+
+    session.refresh(strings)
+    assert strings.parent_id == percussion.role_id
+    view.load_roles.assert_called_once()
+    assert fired == [True]
+
+
+def test_change_parent_branch_own_action_sets_new_parent(session, qapp, controller_eh):
+    """A role with its own children renders as a submenu branch, not a plain
+    leaf action -- picking the branch role itself (not one of its children)
+    must still set it as the new parent, using the "Percussion" (not
+    "Add to 'Percussion'") wording since this isn't an "add to" action."""
+    guitar = _make_role_eh(session, "Guitar")
+    percussion = _make_role_eh(session, "Percussion")
+    drums = _make_role_eh(session, "Drums", parent=percussion)
+    view = RoleView(controller_eh)
+    view._all_roles = [guitar, percussion, drums]
+    view.current_role_id = guitar.role_id
+    view.load_roles = MagicMock()
+    fired = []
+    view.role_updated.connect(lambda: fired.append(True))
+
+    submenu = QMenu()
+    view._populate_change_parent_submenu(submenu)
+    percussion_branch = next(a for a in submenu.actions() if a.text() == "Percussion")
+    assert percussion_branch.menu() is not None, "Percussion has a child, so it must be a submenu"
+    branch_self_action = next(
+        a for a in percussion_branch.menu().actions() if a.text() == "Percussion"
+    )
+    branch_self_action.trigger()
+
+    session.refresh(guitar)
+    assert guitar.parent_id == percussion.role_id
+    view.load_roles.assert_called_once()
+    assert fired == [True]
+
+
+def test_change_parent_failed_update_shows_critical_and_does_not_reload(
+    session, qapp, controller_eh
+):
+    strings = _make_role_eh(session, "Strings")
+    percussion = _make_role_eh(session, "Percussion")
+    view = RoleView(controller_eh)
+    view._all_roles = [strings, percussion]
+    view.current_role_id = strings.role_id
+    view.load_roles = MagicMock()
+    fired = []
+    view.role_updated.connect(lambda: fired.append(True))
+
+    submenu = QMenu()
+    view._populate_change_parent_submenu(submenu)
+    percussion_action = next(a for a in submenu.actions() if a.text() == "Percussion")
+
+    with (
+        patch.object(view.controller.update, "update_entity", return_value=False),
+        patch("src.role.role_view.QMessageBox.critical") as mock_critical,
+    ):
+        percussion_action.trigger()
+
+    mock_critical.assert_called_once()
+    view.load_roles.assert_not_called()
+    assert fired == []
+    session.refresh(strings)
+    assert strings.parent_id is None

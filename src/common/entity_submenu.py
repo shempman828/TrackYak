@@ -26,6 +26,7 @@ _MAX_DEPTH = 8
 _ENTITY_META = {
     "Playlist": ("playlist_id", "playlist_name", "playlists"),
     "Mood": ("mood_id", "mood_name", "moods"),
+    "Role": ("role_id", "role_name", "roles"),
 }
 
 
@@ -62,6 +63,8 @@ def populate_entity_submenu(
     partial_ids=frozenset(),
     make_action_data=None,
     connection_type=Qt.AutoConnection,
+    entities_override=None,
+    branch_self_label=None,
 ):
     """Fill *submenu* with a nested, alphabetically sorted tree of playlists/moods.
 
@@ -69,7 +72,7 @@ def populate_entity_submenu(
         submenu: the ``QMenu`` to populate. The caller owns it and should have
             cleared it first.
         controller: app controller, used for ``controller.get.get_all_entities``.
-        entity_type: ``"Playlist"`` or ``"Mood"``.
+        entity_type: ``"Playlist"``, ``"Mood"``, or ``"Role"``.
         on_trigger: slot connected to every action's ``triggered`` signal. It
             gets no useful argument; it should read ``self.sender().data()`` for
             the payload.
@@ -84,6 +87,18 @@ def populate_entity_submenu(
             returning ``(entity_id, track_ids)``.
         connection_type: Qt connection type for the ``triggered`` -> *on_trigger*
             link. The player dock needs ``Qt.QueuedConnection``.
+        entities_override: optional pre-fetched/pre-filtered list of entity
+            rows. When given, skips ``controller.get.get_all_entities``
+            entirely -- e.g. the Role "Change Parent" submenu passes a list
+            with the clicked role and its descendants already removed, so
+            re-parenting can't create a cycle.
+        branch_self_label: optional ``callable(display_name) -> str`` for the
+            label of a branch entity's own action (the one that picks the
+            branch node itself, not one of its children). Defaults to
+            ``"Add to '{name}'"``, which reads correctly for Playlist/Mood;
+            the Role "Change Parent" submenu passes a lambda returning the
+            bare name instead, since "Add to 'Percussion'" doesn't make sense
+            when the action means "make this role the new parent".
     """
     id_attr, name_attr, plural = _ENTITY_META[entity_type]
     if make_action_data is None:
@@ -91,12 +106,20 @@ def populate_entity_submenu(
         def make_action_data(entity_id):
             return entity_id
 
-    try:
-        entities = controller.get.get_all_entities(entity_type) or []
-    except (SQLAlchemyError, RuntimeError) as e:
-        logger.error(f"Error loading {plural} for context menu: {e}")
-        submenu.addAction(f"Error loading {plural}").setEnabled(False)
-        return
+    if branch_self_label is None:
+
+        def branch_self_label(disp):
+            return f"Add to '{disp}'"
+
+    if entities_override is not None:
+        entities = entities_override
+    else:
+        try:
+            entities = controller.get.get_all_entities(entity_type) or []
+        except (SQLAlchemyError, RuntimeError) as e:
+            logger.error(f"Error loading {plural} for context menu: {e}")
+            submenu.addAction(f"Error loading {plural}").setEnabled(False)
+            return
 
     if entity_type == "Playlist":
         # Smart playlists are rule-based; you can't drop a track into one by hand.
@@ -137,7 +160,7 @@ def populate_entity_submenu(
                 branch = QMenu(disp, parent_menu)
                 build_level(branch, entity_id, depth + 1)
                 branch.addSeparator()
-                branch.addAction(make_action(branch, entity, label=f"Add to '{disp}'"))
+                branch.addAction(make_action(branch, entity, label=branch_self_label(disp)))
                 parent_menu.addMenu(branch)
             else:
                 parent_menu.addAction(make_action(parent_menu, entity, label=disp))

@@ -404,6 +404,13 @@ Rename by clicking directly into a row, or open the full Edit dialog for a
 description too. Merge and Split work like they do everywhere else in the
 app; New Parent Role / New Child Role let you build out sub-categories (e.g.
 splitting a generic "Guitar" into "Electric Guitar" and "Acoustic Guitar").
+To move a role somewhere else in the tree, either drag it onto its new
+parent, or right-click it and use Change Parent, which cascades into a
+submenu of every other role (nested the same way the tree is) plus a
+Top Level (No Parent) option at the top — the role's own sub-roles are left
+out of that submenu since moving a role under one of its own children isn't
+possible.
+
 Deleting a role offers to add its name to your Excluded Roles list so future
 imports skip that credit — the same parse-ignore idea as Excluded Genres.
 The list itself lives in the **Skipped Roles** tab of Manage Aliases…

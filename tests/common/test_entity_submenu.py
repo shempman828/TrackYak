@@ -17,6 +17,7 @@ from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables.base import Base
 from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.playlist import Playlist, PlaylistTracks
+from src.db.db_tables.role import Role
 from src.db.db_tables.track import Track
 
 
@@ -242,3 +243,67 @@ def test_ampersand_in_entity_name_is_not_eaten_as_a_mnemonic(qapp, session):
         "R&&B",
         "Add to 'Rhythm && Blues'",
     ]
+
+
+def test_entities_override_skips_db_fetch_and_uses_given_list(qapp, session):
+    """The Role "Change Parent" submenu passes a pre-filtered list (clicked
+    role + descendants already removed) instead of the full DB table."""
+    session.add(Role(role_name="Vocalist"))
+    session.commit()
+
+    called = []
+    controller = _Controller(session)
+    original_get_all = controller.get.get_all_entities
+    controller.get.get_all_entities = lambda *a, **k: (
+        called.append((a, k)) or original_get_all(*a, **k)
+    )
+
+    other = Role(role_name="Guitarist")
+    menu = QMenu()
+    populate_entity_submenu(
+        menu,
+        controller=controller,
+        entity_type="Role",
+        on_trigger=lambda *_: None,
+        entities_override=[other],
+    )
+
+    assert called == []
+    assert [text for text, *_ in _rows(menu)] == ["Guitarist"]
+
+
+def test_role_hierarchy_nests_by_parent_id(qapp, session):
+    band = Role(role_name="Band")
+    session.add(band)
+    session.flush()
+    session.add(Role(role_name="Drummer", parent_id=band.role_id))
+    session.commit()
+
+    menu = QMenu()
+    populate_entity_submenu(
+        menu, controller=_Controller(session), entity_type="Role", on_trigger=lambda *_: None
+    )
+    band_menu = _submenu(menu, "Band")
+    assert [text for text, *_ in _rows(band_menu)] == ["Drummer", "Add to 'Band'"]
+
+
+def test_branch_self_label_override_replaces_add_to_wording(qapp, session):
+    """The default "Add to 'X'" wording is Playlist/Mood-specific. A caller
+    with different action semantics (e.g. Role's "Change Parent") must be
+    able to relabel the branch node's own action instead."""
+    band = Role(role_name="Band")
+    session.add(band)
+    session.flush()
+    session.add(Role(role_name="Drummer", parent_id=band.role_id))
+    session.commit()
+
+    menu = QMenu()
+    populate_entity_submenu(
+        menu,
+        controller=_Controller(session),
+        entity_type="Role",
+        on_trigger=lambda *_: None,
+        branch_self_label=lambda disp: disp,
+    )
+    band_menu = _submenu(menu, "Band")
+    assert [text for text, *_ in _rows(band_menu)] == ["Drummer", "Band"]
