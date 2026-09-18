@@ -1,18 +1,4 @@
-"""
-dates_calendar.py
-
-A modern calendar widget that is fully compatible with dark_mode.qss.
-All inline styles use the theme palette so empty cells never look stark or broken.
-
-Palette reference (dark_mode.qss):
-  Base bg:    #0b0c10
-  Slightly lighter bg: #11121a / #1a1b26
-  Accent:     #8599ea
-  Gold:       #EAD685
-  Pink:       #EA8599
-  Green:      #99EA85
-  Text:       #b8c0f0
-"""
+"""A monthly calendar widget themed for dark_mode.qss."""
 
 from datetime import date
 
@@ -193,10 +179,7 @@ def _build_event_row(event: dict) -> QFrame:
 
 
 class CalendarDayWidget(QFrame):
-    """
-    Represents a single day cell in the calendar grid.
-    Styled entirely within the dark_mode.qss palette.
-    """
+    """A single day cell in the calendar grid, styled to match dark_mode.qss."""
 
     day_clicked = Signal(int, list)  # day_number, events
 
@@ -450,16 +433,13 @@ class OnThisDayDialog(QDialog):
 
 
 class CalendarWidget(QWidget):
-    """
-    A full monthly calendar view.
-    Accepts a year and a list of event dicts; refreshes automatically when either changes.
-    """
+    """A full monthly calendar view for a year's worth of event dicts."""
 
     on_this_day_requested = Signal()
 
     def __init__(self, year: int, events_data: list | None = None, parent=None):
         super().__init__(parent)
-        self.year = year
+        self.year = self._clamp_year(year)
         self.all_events = events_data or []
         self.events_data = list(self.all_events)
         self.current_month = 1
@@ -480,6 +460,7 @@ class CalendarWidget(QWidget):
 
     def set_year(self, year: int):
         """Change the year and redraw."""
+        year = self._clamp_year(year)
         logger.debug(f"Calendar year changed to {year}")
         self.year = year
         self._year_label.setText(str(year))
@@ -498,12 +479,25 @@ class CalendarWidget(QWidget):
 
     # ── Internal helpers ────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _clamp_year(year: int) -> int:
+        """Keep year within the range `datetime.date` can represent."""
+        return min(max(year, date.min.year), date.max.year)
+
     def _organize_events_by_date(self) -> dict:
         organized = {}
         for event in self.events_data:
-            key = (event.get("month"), event.get("day"))
-            if None not in key:
-                organized.setdefault(key, []).append(event)
+            month, day = event.get("month"), event.get("day")
+            if month is None or day is None or not (1 <= month <= 12):
+                continue
+            year = event.get("year") or self.year
+            if not (1 <= day <= self._days_in_month(year, month)):
+                logger.warning(
+                    f"Calendar: dropping event with invalid day {day} for "
+                    f"{year}-{month:02d} ({event.get('entity_name', '?')})"
+                )
+                continue
+            organized.setdefault((month, day), []).append(event)
         return organized
 
     def _days_in_month(self, year: int, month: int) -> int:

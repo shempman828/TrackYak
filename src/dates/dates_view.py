@@ -3,7 +3,6 @@ from datetime import date
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 from sqlalchemy import or_
-from sqlalchemy.exc import SQLAlchemyError
 
 from src.dates.dates_calendar import CalendarWidget, OnThisDayDialog
 from src.dates.dates_timeline import TimelineWidget
@@ -106,8 +105,8 @@ class TimelineView(QWidget):
             self.months_loaded.emit(months)
             self.dates_loaded.emit(self.all_dates)
 
-        except SQLAlchemyError as e:
-            logger.error(f"Error loading dates from database: {e}")
+        except Exception as e:
+            logger.exception(f"Error loading dates from database: {e}")
 
     def show_on_this_day(self):
         """Show every event that ever happened on today's month/day, across all years."""
@@ -161,16 +160,8 @@ class TimelineView(QWidget):
                 self.current_month = best_month
 
     def update_calendar_for_month(self, month):
-        """Handle month selection from calendar dropdown."""
+        """Track the month selected in the calendar dropdown."""
         self.current_month = month
-        if self.current_year:
-            # Get events for this specific month
-            month_events = self.filter_dates_by_year_and_month(self.current_year, month)
-            calendar_events = [event for event in month_events if event.get("day") is not None]
-
-            # Update just the current month display (calendar handles this internally)
-            # We don't need to call set_events here as the calendar already has all year data
-            logger.info(f"Viewing month {month} with {len(calendar_events)} events")
 
     def collect_all_dates(self):
         """Collect ALL date integers from various database tables."""
@@ -364,8 +355,8 @@ class TimelineView(QWidget):
                 dates.append(
                     {
                         "year": publisher.begin_year,
-                        "month": None,  # Not in schema
-                        "day": None,  # Not in schema
+                        "month": publisher.begin_month,
+                        "day": publisher.begin_day,
                         "type": "publisher_begin",
                         "entity": "Publisher",
                         "entity_id": publisher.publisher_id,
@@ -378,8 +369,8 @@ class TimelineView(QWidget):
                 dates.append(
                     {
                         "year": publisher.end_year,
-                        "month": None,  # Not in schema
-                        "day": None,  # Not in schema
+                        "month": publisher.end_month,
+                        "day": publisher.end_day,
                         "type": "publisher_end",
                         "entity": "Publisher",
                         "entity_id": publisher.publisher_id,
@@ -415,31 +406,16 @@ class TimelineView(QWidget):
         if not year:
             filtered = self.all_dates
         else:
-            filtered = [d for d in self.all_dates if d["year"] and d["year"] == year]
+            filtered = [d for d in self.all_dates if d.get("year") == year]
 
         logger.info(f"Filtered to {len(filtered)} dates from year {year}")
-        return filtered
-
-    def filter_dates_by_year_and_month(self, year, month):
-        """Filter dates to show only those from the specified year and month."""
-        filtered = []
-
-        for d in self.all_dates:
-            if (
-                d["year"]
-                and d["year"] == year
-                and (not month or (d["month"] and d["month"] == month))
-            ):
-                filtered.append(d)
-
-        logger.info(f"Filtered to {len(filtered)} dates from year {year}, month {month}")
         return filtered
 
     def extract_unique_years(self):
         """Extract unique years from all dates, excluding implausible values."""
         years = set()
         for date_item in self.all_dates:
-            year = date_item["year"]
+            year = date_item.get("year")
             if year and 1000 <= year <= 2999:
                 years.add(year)
         return sorted(years)
@@ -448,6 +424,7 @@ class TimelineView(QWidget):
         """Extract unique months from all dates."""
         months = set()
         for date_item in self.all_dates:
-            if date_item["month"] and 1 <= date_item["month"] <= 12:
-                months.add(date_item["month"])
+            month = date_item.get("month")
+            if month and 1 <= month <= 12:
+                months.add(month)
         return sorted(months)

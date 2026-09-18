@@ -186,3 +186,61 @@ def test_artist_dates_pick_type_by_isgroup(isgroup, begin_type, end_type):
     assert begin["type"] == begin_type
     assert end["type"] == end_type
     assert "description" not in begin and "description" not in end
+
+
+def test_publisher_dates_carry_month_and_day():
+    """Publisher.begin_month/day and end_month/day are real columns, so the
+    calendar/day-grid must receive them instead of a hardcoded None."""
+    publisher = SimpleNamespace(
+        begin_year=1958,
+        begin_month=1,
+        begin_day=17,
+        end_year=2012,
+        end_month=6,
+        end_day=4,
+        publisher_id=1,
+        publisher_name="Motown",
+    )
+    begin, end = TimelineView.get_publisher_dates(_fake_view({"Publisher": [publisher]}))
+
+    assert (begin["month"], begin["day"]) == (1, 17)
+    assert (end["month"], end["day"]) == (6, 4)
+
+
+# ── filtering / extraction robustness ───────────────────────────────────────
+
+
+def test_filter_dates_by_year_ignores_dicts_missing_year_key():
+    view = SimpleNamespace(all_dates=[{"year": 1970}, {"other": "no year key"}])
+    assert TimelineView.filter_dates_by_year(view, 1970) == [{"year": 1970}]
+
+
+def test_extract_unique_years_ignores_dicts_missing_year_key():
+    view = SimpleNamespace(all_dates=[{"year": 1970}, {"other": "no year key"}])
+    assert TimelineView.extract_unique_years(view) == [1970]
+
+
+def test_extract_unique_months_ignores_dicts_missing_month_key():
+    view = SimpleNamespace(all_dates=[{"month": 5}, {"other": "no month key"}])
+    assert TimelineView.extract_unique_months(view) == [5]
+
+
+def test_update_calendar_for_month_only_tracks_current_month():
+    view = SimpleNamespace(current_month=None)
+    TimelineView.update_calendar_for_month(view, 7)
+    assert view.current_month == 7
+
+
+# ── load_dates_from_db error handling ───────────────────────────────────────
+
+
+def test_load_dates_from_db_logs_and_survives_non_sqlalchemy_errors():
+    """A non-SQLAlchemy error (e.g. bad ORM data) must be logged, not crash
+    view construction."""
+
+    def boom():
+        raise AttributeError("bad ORM data")
+
+    view = SimpleNamespace(controller=object(), collect_all_dates=boom, all_dates=[])
+
+    TimelineView.load_dates_from_db(view)  # must not raise
