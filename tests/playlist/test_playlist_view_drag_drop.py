@@ -42,12 +42,19 @@ class _FakeController:
         self.updates = []
 
         self.get = SimpleNamespace(
-            get_all_entities=lambda entity: list(self._by_id.values()),
+            get_all_entities=self._get_all_entities,
             get_entity_object=lambda entity, playlist_id: self._by_id.get(playlist_id),
         )
         self.update = SimpleNamespace(update_entity=self._update_entity)
         self.add = SimpleNamespace()
         self.delete = SimpleNamespace()
+
+    def _get_all_entities(self, entity, **kwargs):
+        # PlaylistView also queries SmartPlaylist (auto-refresh-on-start
+        # check) -- these tests only care about Playlist listing.
+        if entity != "Playlist":
+            return []
+        return list(self._by_id.values())
 
     def _update_entity(self, entity, entity_id, **fields):
         self.updates.append((entity, entity_id, fields))

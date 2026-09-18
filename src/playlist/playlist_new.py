@@ -1,4 +1,11 @@
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QTextEdit
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QLineEdit,
+    QMessageBox,
+    QTextEdit,
+)
 
 
 class PlaylistCreateDialog(QDialog):
@@ -17,11 +24,20 @@ class PlaylistCreateDialog(QDialog):
         layout.addRow("Playlist Name:", self.name_input)
         layout.addRow("Description:", self.desc_input)
 
-        # OK and Cancel buttons
+        # Create and Cancel buttons
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        self.buttons.accepted.connect(self.accept)
+        self.buttons.button(QDialogButtonBox.Ok).setText("Create")
+        self.buttons.accepted.connect(self._validate_and_accept)
         self.buttons.rejected.connect(self.reject)
         layout.addRow(self.buttons)
+
+    def _validate_and_accept(self):
+        """Block accept on a blank name so typed text is never silently lost."""
+        if not self.name_input.text().strip():
+            QMessageBox.warning(self, "Input Error", "Playlist name cannot be empty.")
+            self.name_input.setFocus()
+            return
+        self.accept()
 
     def get_data(self):
         return self.name_input.text().strip(), self.desc_input.toPlainText().strip()

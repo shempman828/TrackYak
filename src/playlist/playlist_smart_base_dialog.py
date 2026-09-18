@@ -1,21 +1,14 @@
-"""
-playlist_smart_base_dialog.py
-
-Shared UI scaffold for the smart-playlist create/edit dialogs: name/description
-fields, the AND/OR logic combo, and the scrollable criteria-row section. The
-create and edit dialogs differ in their persistence contract (create returns
-raw form data for the caller to save; edit saves directly to the database), so
-that part stays in each subclass — only the widget construction and
-criteria-row bookkeeping are shared here.
-"""
+"""Shared UI scaffold for the smart-playlist create/edit dialogs."""
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QTextEdit,
@@ -24,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.foundation.logger_config import logger
-from src.playlist.playlist_smart_criteria_widget import CriteriaWidget
+from src.playlist.playlist_smart_criteria_widget import NO_VALUE_OPERATORS, CriteriaWidget
 
 
 class BaseSmartPlaylistDialog(QDialog):
@@ -75,6 +68,10 @@ class BaseSmartPlaylistDialog(QDialog):
         logic_layout.addStretch()
         layout.addLayout(logic_layout)
 
+        # --- Auto-refresh toggle ---
+        self.auto_refresh_check = QCheckBox("Refresh automatically when the app starts")
+        layout.addWidget(self.auto_refresh_check)
+
         # --- Criteria section ---
         layout.addWidget(QLabel("<b>Criteria:</b>"))
 
@@ -113,7 +110,7 @@ class BaseSmartPlaylistDialog(QDialog):
     # Criteria row management
     # ------------------------------------------------------------------
 
-    def add_criteria_widget(self, criteria_dict: dict = None):
+    def add_criteria_widget(self, criteria_dict: dict | None = None):
         """
         Add a criteria row to the dialog.
 
@@ -150,13 +147,28 @@ class BaseSmartPlaylistDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _collect_form_data(self):
-        """Return (name, description, logic, criteria_list) from the current form."""
+        """Return (name, description, logic, criteria_list, auto_refresh) from the current form."""
         name = self.name_edit.text().strip()
         description = self.desc_edit.toPlainText().strip()
         logic = self.logic_combo.currentData()  # "AND" or "OR"
         criteria_list = [w.get_criteria() for w in self.criteria_widgets]
-        return name, description, logic, criteria_list
+        auto_refresh = self.auto_refresh_check.isChecked()
+        return name, description, logic, criteria_list, auto_refresh
+
+    def _validate_criteria(self) -> bool:
+        """Reject rows whose operator needs a value but has none, so a typo
+        can't silently turn into a playlist that matches nothing."""
+        for row, widget in enumerate(self.criteria_widgets, start=1):
+            criteria = widget.get_criteria()
+            if criteria["comparison"] in NO_VALUE_OPERATORS:
+                continue
+            value = criteria["value"]
+            if value is None or value == "" or value == []:
+                QMessageBox.warning(self, "Input Error", f"Criteria row {row} needs a value.")
+                return False
+        return True
 
     def _on_ok_clicked(self):
-        """Subclasses override to validate/save/accept."""
+        # Create returns raw form data for the caller to save; edit saves
+        # directly to the database -- each subclass overrides this instead.
         raise NotImplementedError

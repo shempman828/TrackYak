@@ -1,9 +1,4 @@
-"""
-playlist_smart_builder.py
-
-Builds and refreshes smart playlists by evaluating stored criteria and
-updating which tracks belong in the playlist.
-"""
+"""Builds and refreshes smart playlists by evaluating stored criteria."""
 
 import datetime
 from typing import Any
@@ -25,16 +20,7 @@ class SmartPlaylistBuilder:
     # ------------------------------------------------------------------
 
     def refresh_playlist(self, playlist_id: int) -> bool:
-        """
-        Re-evaluate a smart playlist's criteria and update its tracks.
-
-        Steps:
-          - Load criteria rows from the database
-          - Find tracks that match
-          - Replace the playlist's track list
-
-        Returns True on success, False on any error.
-        """
+        """Re-evaluate a smart playlist's criteria and update its tracks; True on success."""
         try:
             # 1. Get the SmartPlaylist record (for logic = AND / OR)
             smart_playlist = self.controller.get.get_entity_object(
@@ -88,10 +74,7 @@ class SmartPlaylistBuilder:
     # ------------------------------------------------------------------
 
     def _row_to_condition(self, row) -> dict[str, Any]:
-        """
-        Convert a SmartPlaylistCriteria ORM row into a plain dict like:
-            {"field": "user_rating", "comparison": "gt", "value": "5.5", "type": "Float"}
-        """
+        """Convert a SmartPlaylistCriteria ORM row into a plain field/comparison/value/type dict."""
         return {
             "field": getattr(row, "field_name", ""),
             "comparison": getattr(row, "comparison", "eq"),
@@ -100,12 +83,7 @@ class SmartPlaylistBuilder:
         }
 
     def _get_matching_track_ids(self, conditions: list[dict], logic: str) -> list[int]:
-        """
-        Query the Track table using the given conditions.
-
-        AND logic: one query with all conditions combined (faster).
-        OR logic:  one query per condition, results merged.
-        """
+        """Query the Track table using the given conditions, combined by AND/OR logic."""
         if not conditions:
             return []
 
@@ -141,18 +119,7 @@ class SmartPlaylistBuilder:
         return list(seen)
 
     def _condition_to_kwargs(self, condition: dict[str, Any]) -> dict[str, Any] | None:
-        """
-        Turn one condition dict into a **kwargs dict for get_all_entities.
-
-        Returns None if the condition is invalid/unusable — callers must
-        NOT treat that the same as an empty-but-valid kwargs dict, since
-        an empty dict passed to get_all_entities means "no filter" and
-        would match every track.
-
-        Example:
-            {"field": "user_rating", "comparison": "gt", "value": "5.5"}
-            → {"user_rating__gt": 5.5}
-        """
+        """Turn one condition dict into kwargs for get_all_entities, or None if unusable."""
         field = condition.get("field", "")
         comparison = condition.get("comparison", "eq")
         value = condition.get("value")
@@ -191,23 +158,7 @@ class SmartPlaylistBuilder:
     def _datetime_condition_to_kwargs(
         self, field: str, comparison: str, value: Any
     ) -> dict[str, Any] | None:
-        """
-        Translate a Datetime condition into query kwargs.
-
-        - "range": value is "start|end" (already whole-day-widened by the
-          widget) → a single between() filter.
-        - "last_n_days": value is an integer day count → a rolling "on or
-          after (now - N days)" filter, recomputed each refresh.
-        - "eq" ("on this day"): value is a "yyyy-MM-dd" date → widened to a
-          [start of day, start of next day) range, since comparing against
-          an exact stored timestamp would almost never match.
-        - everything else (gt/lt/gte/lte): plain string comparison against
-          the stored value.
-
-        Returns None (not {}) when the value fails validation — an empty
-        dict would be interpreted by the caller as "no filter", which
-        matches every track instead of rejecting the bad criterion.
-        """
+        """Translate a Datetime condition into query kwargs, or None if invalid."""
         if value is None or value == "":
             logger.warning(f"Skipping datetime condition with no value: {field}")
             return None
@@ -229,6 +180,9 @@ class SmartPlaylistBuilder:
             return {f"{field}__gte": cutoff.strftime(self._DATETIME_FORMAT)}
 
         if comparison == "eq":
+            # "On this day" — widen to [start of day, start of next day),
+            # since comparing against an exact stored timestamp would
+            # almost never match.
             day_text = str(value).strip().split(" ")[0].split("T")[0]
             try:
                 day_start = datetime.datetime.strptime(day_text, "%Y-%m-%d")
@@ -244,12 +198,7 @@ class SmartPlaylistBuilder:
         return {f"{field}__{comparison}": str(value)}
 
     def _cast_value(self, value: Any, data_type: str, comparison: str) -> Any:
-        """
-        Cast the stored string value to the appropriate Python type.
-
-        Values are stored as strings in the database, so we need to convert
-        them back before querying (e.g. "5.5" → 5.5 for a Float field).
-        """
+        """Cast the stored string value to the type its field needs for querying."""
         if value is None:
             return None
 
@@ -258,6 +207,18 @@ class SmartPlaylistBuilder:
                 return int(float(str(value)))  # handles "5.0" → 5
             if data_type == "Float":
                 return float(value)
+            if data_type == "Bool":
+                # Stored as a Python bool, or as "true"/"1"/"false"/"0" text --
+                # a bare str(value) cast here would compare text against the
+                # track's actual boolean/int column and never match.
+                if isinstance(value, bool):
+                    return value
+                text = str(value).strip().lower()
+                if text in ("true", "1", "yes"):
+                    return True
+                if text in ("false", "0", "no"):
+                    return False
+                return None
             if data_type == "List":
                 # Could be a Python list already, or a comma-separated string
                 if isinstance(value, list):
@@ -271,14 +232,7 @@ class SmartPlaylistBuilder:
             return None
 
     def _update_playlist_tracks(self, playlist_id: int, track_ids: list[int]) -> bool:
-        """
-        Bulk-diff the playlist's tracks against `track_ids` via the shared
-        sync_playlist_tracks() helper (src/playlist/playlist_track_sync.py),
-        which also underlies ChartPlaylistBuilder.
-
-        Returns:
-            True if successful, False if an error occurred
-        """
+        """Bulk-diff the playlist's tracks against `track_ids` via sync_playlist_tracks()."""
         try:
             result = sync_playlist_tracks(self.controller, playlist_id, track_ids)
         except (ImportError, TypeError) as e:

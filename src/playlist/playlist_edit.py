@@ -51,7 +51,7 @@ class EditPlaylist(QDialog):
         desc_layout.addWidget(QLabel("Description:"))
         self.desc_edit = QTextEdit()
         self.desc_edit.setMaximumHeight(100)
-        self.desc_edit.setPlainText(getattr(self.playlist, "description", "") or "")
+        self.desc_edit.setPlainText(getattr(self.playlist, "playlist_description", "") or "")
         desc_layout.addWidget(self.desc_edit)
         layout.addLayout(desc_layout)
 

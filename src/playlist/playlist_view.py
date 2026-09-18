@@ -35,10 +35,7 @@ from src.track.base_track_view import BaseTrackView
 
 
 class _SmartPlaylistRefreshWorker(CancellableWorker):
-    """Runs SmartPlaylistBuilder.refresh_playlist() off the UI thread so
-    re-evaluating criteria against a large library can't block the UI or
-    starve other threads (e.g. audio playback's reader thread) while it
-    queries and rewrites the track list."""
+    """Runs SmartPlaylistBuilder.refresh_playlist() off the UI thread."""
 
     finished = Signal(bool, int)  # success, playlist_id
 
@@ -48,8 +45,15 @@ class _SmartPlaylistRefreshWorker(CancellableWorker):
         self._playlist_id = playlist_id
 
     def run(self) -> None:
+        # Must always emit `finished`, even on an unexpected error -- the
+        # caller keys an in-flight-refresh guard off this signal, and a
+        # worker that dies silently would leave that playlist_id stuck
+        # "refreshing" forever.
         try:
             success = self._builder.refresh_playlist(self._playlist_id)
+        except Exception:
+            logger.exception(f"Unexpected error refreshing playlist {self._playlist_id}")
+            success = False
         finally:
             self._release_db_session()
         self.finished.emit(success, self._playlist_id)
@@ -79,6 +83,28 @@ class PlaylistView(QWidget):
         # Keep references to in-flight refresh workers so they aren't
         # garbage-collected mid-run; keyed by playlist_id.
         self._refresh_workers: dict[int, _SmartPlaylistRefreshWorker] = {}
+        self._refresh_auto_refresh_playlists()
+
+    def _refresh_auto_refresh_playlists(self) -> None:
+        """Refresh every smart playlist flagged auto_refresh on startup."""
+        try:
+            smart_playlists = self.controller.get.get_all_entities("SmartPlaylist", auto_refresh=1)
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to load auto-refresh smart playlists: {e}")
+            return
+        for smart_playlist in smart_playlists or []:
+            self._start_smart_playlist_refresh(
+                smart_playlist.playlist_id, self._on_startup_playlist_refreshed
+            )
+
+    def _on_startup_playlist_refreshed(self, success: bool, playlist_id: int) -> None:
+        # Quiet on success/failure -- a popup for a background startup
+        # refresh the user didn't ask for would just be noise.
+        if success:
+            self.load_playlists()
+            self.playlist_updated.emit()
+        else:
+            logger.error(f"Auto-refresh failed for smart playlist {playlist_id}")
 
     def init_ui(self) -> None:
         """Initialize UI components with a modern layout and styling."""
@@ -128,6 +154,9 @@ class PlaylistView(QWidget):
         # Context menu for additional actions
         self.tree.customContextMenuRequested.connect(self.show_context_menu)
 
+        # Persist in-place renames (the tree items are editable via double-click/F2)
+        self.tree.itemChanged.connect(self._on_item_renamed)
+
         main_layout.addWidget(self.tree)
         self.setLayout(main_layout)
 
@@ -160,6 +189,10 @@ class PlaylistView(QWidget):
 
     def load_playlists(self) -> None:
         """Load hierarchical playlists from the database."""
+        # Block signals for the whole rebuild -- item.setText() below would
+        # otherwise re-trigger _on_item_renamed as though the user had
+        # edited each row by hand.
+        self.tree.blockSignals(True)
         try:
             # Save which playlists were expanded before clearing the tree
             expanded_ids = self._get_expanded_ids()
@@ -168,6 +201,10 @@ class PlaylistView(QWidget):
 
             # Fetch all playlists with their relationships
             playlists = self.controller.get.get_all_entities("Playlist") or []
+
+            if not playlists:
+                self._add_empty_state_item()
+                return
 
             # Build hierarchy
             children_map = defaultdict(list)
@@ -190,6 +227,17 @@ class PlaylistView(QWidget):
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error loading playlists: {e!s}")
             QMessageBox.critical(self, "Loading Error", "Failed to load playlist hierarchy")
+        finally:
+            self.tree.blockSignals(False)
+
+    def _add_empty_state_item(self) -> None:
+        """Show placeholder text instead of leaving the tree looking broken/blank."""
+        item = QTreeWidgetItem(['No playlists yet — click "New Playlist" to create one.', ""])
+        item.setFlags(Qt.ItemIsEnabled)
+        font = item.font(0)
+        font.setItalic(True)
+        item.setFont(0, font)
+        self.tree.addTopLevelItem(item)
 
     def export_selected_playlist(self) -> None:
         """Export the currently selected playlist."""
@@ -261,9 +309,9 @@ class PlaylistView(QWidget):
         if item_type == "playlist":
             if is_smart_playlist:
                 # Smart playlist options
-                menu.addAction("✏️ Edit Smart Playlist", lambda: self.edit_smart_playlist(item_id))
-                menu.addAction("🔄 Refresh Playlist", lambda: self._refresh_smart_playlist(item_id))
-                menu.addAction("👁 View Tracks", lambda: self.open_playlist_editor(item_id))
+                menu.addAction("Edit Smart Playlist", lambda: self.edit_smart_playlist(item_id))
+                menu.addAction("Refresh Playlist", lambda: self._refresh_smart_playlist(item_id))
+                menu.addAction("View Tracks", lambda: self.open_playlist_editor(item_id))
             else:
                 # Normal playlist options
                 menu.addAction("Edit Playlist Metadata", self.edit_playlist)
@@ -431,6 +479,38 @@ class PlaylistView(QWidget):
         if "·" in item.text(1):
             item.setToolTip(1, "Own tracks · total including sub-playlists")
 
+    def _on_item_renamed(self, item: QTreeWidgetItem, column: int) -> None:
+        """Save an in-place tree rename (double-click/F2) back to the database."""
+        if column != 0:
+            return
+        item_data = item.data(0, Qt.UserRole)
+        if not item_data or len(item_data) != 2 or item_data[0] != "playlist":
+            return
+
+        playlist_id = item_data[1]
+        new_name = item.text(0).strip()
+        if new_name.startswith("🔍"):
+            # Strip the smart-playlist marker -- it's a display-only prefix,
+            # not part of the stored name.
+            new_name = new_name[1:].strip()
+
+        if not new_name:
+            show_status_message(self, "Playlist name cannot be empty.")
+            self._refresh_item_display(item)
+            return
+
+        try:
+            self.controller.update.update_entity("Playlist", playlist_id, playlist_name=new_name)
+            logger.info(f"Renamed playlist {playlist_id} to {new_name!r}")
+            self.playlist_updated.emit()
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to rename playlist {playlist_id}: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to rename playlist:\n{e!s}")
+
+        # Reformat to the canonical display form either way (re-adds the
+        # smart-playlist marker, or restores the stored name on failure).
+        self._refresh_item_display(item)
+
     def toggle_flat_view(self) -> None:
         """Toggle between the nested hierarchy and a flat alphabetical list."""
         self.flat_view = self.flat_view_button.isChecked()
@@ -475,6 +555,14 @@ class PlaylistView(QWidget):
             # Recursively add children
             if depth < self.MAX_HIERARCHY_DEPTH:
                 self._build_tree(item, children_map, depth + 1)
+            elif children_map.get(child.playlist_id):
+                # Deeper descendants exist but the tree stops here -- warn
+                # instead of silently hiding them with no way to reach them.
+                logger.warning(
+                    f"Playlist '{child.playlist_name}' (id={child.playlist_id}) has "
+                    f"sub-playlists beyond the max hierarchy depth "
+                    f"({self.MAX_HIERARCHY_DEPTH}); they are not shown in the tree."
+                )
 
     def _build_flat(self, playlists) -> None:
         """Populate the tree as a single alphabetical list with no nesting."""
@@ -511,13 +599,13 @@ class PlaylistView(QWidget):
         """Open dialog for creating a smart playlist."""
         dialog = SmartPlaylistCreateDialog(self)
         if dialog.exec_() == QDialog.Accepted:
-            # NOTE: get_data() now returns 4 values — logic is new
-            name, description, logic, criteria = dialog.get_data()
+            name, description, logic, criteria, auto_refresh = dialog.get_data()
 
             if not name:
                 show_status_message(self, "Playlist name cannot be empty.")
                 return
 
+            playlist = None
             try:
                 # Create the Playlist record
                 playlist = self.controller.add.add_entity(
@@ -529,6 +617,7 @@ class PlaylistView(QWidget):
                     "SmartPlaylist",
                     playlist_id=playlist.playlist_id,
                     logic=logic,
+                    auto_refresh=int(auto_refresh),
                     last_refreshed=datetime.datetime.now(),
                 )
 
@@ -553,6 +642,18 @@ class PlaylistView(QWidget):
 
             except (SQLAlchemyError, RuntimeError) as e:
                 logger.error(f"Failed to create smart playlist: {e!s}")
+                # The Playlist row (if it made it in) has no usable
+                # SmartPlaylist/criteria behind it yet -- remove it instead
+                # of leaving a broken is_smart=1 playlist the user can see
+                # but that will never refresh correctly.
+                if playlist is not None:
+                    try:
+                        self.controller.delete.delete_entity("Playlist", playlist.playlist_id)
+                        self.load_playlists()
+                    except SQLAlchemyError as cleanup_exc:
+                        logger.error(
+                            f"Failed to remove orphaned playlist after error: {cleanup_exc}"
+                        )
                 QMessageBox.critical(self, "Error", f"Could not create smart playlist: {e}")
 
     def _on_created_playlist_refreshed(self, success: bool, playlist_id: int, name: str) -> None:
@@ -644,8 +745,14 @@ class PlaylistView(QWidget):
             return
 
         raw_name = self._format_playlist_name(playlist_obj)
-        item.setText(0, raw_name)
-        item.setText(1, self._format_track_count(playlist_obj))
+        # Block signals -- setText() below would otherwise re-trigger
+        # _on_item_renamed as though the user had edited this row by hand.
+        self.tree.blockSignals(True)
+        try:
+            item.setText(0, raw_name)
+            item.setText(1, self._format_track_count(playlist_obj))
+        finally:
+            self.tree.blockSignals(False)
         self._style_count_cell(item)
 
     def handle_drop(self, event: Any) -> None:
@@ -807,6 +914,10 @@ class PlaylistView(QWidget):
             # A refresh for this playlist is already running — let it finish
             # rather than starting a second one against the same rows.
             return
+
+        # Large libraries can make this take a moment -- tell the user
+        # something is happening instead of leaving the UI looking idle.
+        show_status_message(self, "Refreshing playlist…")
 
         worker = _SmartPlaylistRefreshWorker(self.builder, playlist_id, parent=self)
 

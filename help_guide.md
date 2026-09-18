@@ -292,12 +292,15 @@ criteria rows — e.g. "Genre contains Jazz" and "Rating is greater than 4."
 The value control adapts to whatever field you pick, so a date field gives
 you a date picker, a rating field gives you a number range, and so on. Once
 saved, the playlist keeps itself up to date — use Refresh Playlist any time
-you want to force a recheck. You can't drag tracks into a smart playlist by
-hand; its membership is always computed from the rules.
+you want to force a recheck, or tick "Refresh automatically when the app
+starts" so it re-checks itself every time you open the Playlists view. You
+can't drag tracks into a smart playlist by hand; its membership is always
+computed from the rules.
 
 **Organizing your playlists**: drag one onto another to nest it underneath,
 or onto empty space to pull it back to the top level. Toggle Flat View if you
-just want an alphabetical list instead of the hierarchy.
+just want an alphabetical list instead of the hierarchy. Double-click (or
+press F2 on) a playlist's name to rename it in place.
 
 **Getting tracks out**: right-click a playlist for Open Track Editor (or
 View Tracks for a smart one) to see everything in it, or Export to write it

@@ -10,9 +10,7 @@ from src.foundation.status_utility import show_status_message
 
 
 class PlaylistExporter:
-    """
-    Handles exporting a single Playlist ORM object to an M3U file.
-    """
+    """Handles exporting a single Playlist ORM object to an M3U file."""
 
     def __init__(self, controller, show_messages: bool = True, parent_widget=None):
         """
@@ -34,12 +32,12 @@ class PlaylistExporter:
         """
         playlist = self.controller.get.get_entity_object("Playlist", playlist_id=playlist_id)
         if not playlist:
-            self._show_message("Export Error", "Playlist not found.")
+            self._show_error("Export Error", "Playlist not found.")
             return False
 
         tracks = self.controller.get.get_all_entities("PlaylistTracks", playlist_id=playlist_id)
         if not tracks:
-            self._show_message(
+            self._show_error(
                 "Export Error", f"No tracks found in playlist '{playlist.playlist_name}'."
             )
             return False
@@ -52,13 +50,13 @@ class PlaylistExporter:
             Path(file_path).parent.mkdir(parents=True, exist_ok=True)
         except OSError as e:
             logger.error(f"Could not resolve playlist save path: {e}")
-            self._show_message("Export Error", f"Invalid save path for '{playlist.playlist_name}'.")
+            self._show_error("Export Error", f"Invalid save path for '{playlist.playlist_name}'.")
             return False
 
         failed = []
 
         try:
-            with open(file_path, "w", encoding="utf-8") as f:
+            with Path(file_path).open("w", encoding="utf-8") as f:
                 f.write("#EXTM3U\n")
                 f.write(f"#PLAYLIST:{playlist.playlist_name}\n")
                 if playlist.playlist_description:
@@ -100,24 +98,30 @@ class PlaylistExporter:
                 # doesn't miss that some tracks were skipped.
                 msg = f"Exported playlist to:\n{file_path}"
                 msg += f"\n\n{len(failed)} tracks were skipped."
-                self._show_message("Export Complete", msg)
+                self._show_warning("Export Complete", msg)
             else:
                 self._show_success(f"Export complete: playlist exported to {file_path}")
 
             logger.info(
-                f"Playlist '{playlist.playlist_name}' exported to {file_path} ({len(failed)} failed)"
+                f"Playlist '{playlist.playlist_name}' exported to {file_path} "
+                f"({len(failed)} failed)"
             )
             return True
 
         except (OSError, SQLAlchemyError) as e:
             logger.exception(f"Failed to export playlist: {e}")
-            self._show_message("Export Error", f"Export failed:\n{e}")
+            self._show_error("Export Error", f"Export failed:\n{e}")
             return False
 
-    def _show_message(self, title: str, text: str):
-        """Helper for showing blocking user feedback (errors/partial failures) if enabled."""
+    def _show_error(self, title: str, text: str):
+        """Helper for showing a blocking error notice if enabled."""
         if self.show_messages:
-            QMessageBox.information(None, title, text)
+            QMessageBox.critical(None, title, text)
+
+    def _show_warning(self, title: str, text: str):
+        """Helper for showing a blocking partial-failure notice if enabled."""
+        if self.show_messages:
+            QMessageBox.warning(None, title, text)
 
     def _show_success(self, text: str):
         """Helper for showing a non-blocking success toast if enabled.

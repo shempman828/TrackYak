@@ -49,6 +49,8 @@ class SmartPlaylistEditDialog(BaseSmartPlaylistDialog):
                 if index >= 0:
                     self.logic_combo.setCurrentIndex(index)
 
+                self.auto_refresh_check.setChecked(bool(getattr(smart_playlist, "auto_refresh", 0)))
+
                 # Load criteria rows
                 criteria_rows = self.controller.get.get_all_entities(
                     "SmartPlaylistCriteria", smart_playlist_id=smart_playlist.playlist_id
@@ -82,9 +84,11 @@ class SmartPlaylistEditDialog(BaseSmartPlaylistDialog):
 
     def _on_ok_clicked(self):
         """Validate input, then update the database records and close."""
-        name, description, logic, criteria_list = self._collect_form_data()
+        name, description, logic, criteria_list, auto_refresh = self._collect_form_data()
         if not name:
             QMessageBox.warning(self, "Input Error", "Playlist name cannot be empty.")
+            return
+        if not self._validate_criteria():
             return
 
         try:
@@ -102,6 +106,7 @@ class SmartPlaylistEditDialog(BaseSmartPlaylistDialog):
                 "SmartPlaylist",
                 self.playlist_id,
                 logic=logic,
+                auto_refresh=int(auto_refresh),
                 last_refreshed=datetime.datetime.now(),
             )
 

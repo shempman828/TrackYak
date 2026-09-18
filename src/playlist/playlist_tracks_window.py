@@ -111,8 +111,9 @@ class PlaylistTracksWindow(QMainWindow):
             self.tracks_view.load_data(tracks)
 
             # Update info label
+            last_updated = datetime.now().strftime("%H:%M:%S")
             self.tracks_view.info_label.setText(
-                f"Showing {len(tracks)} tracks in playlist (Last updated: {datetime.now().strftime('%H:%M:%S')})"
+                f"Showing {len(tracks)} tracks in playlist (Last updated: {last_updated})"
             )
 
             logger.info(f"Loaded {len(tracks)} tracks for playlist {self.playlist_name}")
@@ -136,20 +137,18 @@ class PlaylistTracksWindow(QMainWindow):
                 success_count = 0
                 existing_tracks = 0
 
-                # Get current tracks to determine next positions
+                # Get current tracks once -- both to determine the next
+                # position and to check for duplicates without a query per
+                # dropped track.
                 playlist_tracks = self.controller.get.get_all_entities(
                     "PlaylistTracks", playlist_id=self.playlist_id
                 )
                 current_positions = [getattr(pt, "position", 0) for pt in playlist_tracks]
                 next_position = max(current_positions) + 1 if current_positions else 1
+                existing_track_ids = {pt.track_id for pt in playlist_tracks}
 
                 for track_id in track_ids:
-                    # Check if track already exists in playlist
-                    existing = self.controller.get.get_all_entities(
-                        "PlaylistTracks", playlist_id=self.playlist_id, track_id=track_id
-                    )
-
-                    if existing:
+                    if track_id in existing_track_ids:
                         existing_tracks += 1
                         continue
 
@@ -165,6 +164,7 @@ class PlaylistTracksWindow(QMainWindow):
                     if success:
                         success_count += 1
                         next_position += 1
+                        existing_track_ids.add(track_id)
 
                 # Refresh the view if any tracks were added
                 if success_count > 0:
@@ -188,7 +188,8 @@ class PlaylistTracksWindow(QMainWindow):
         if self.is_smart_playlist:
             show_status_message(
                 self,
-                "Cannot remove tracks from smart playlists. Tracks are automatically managed based on criteria.",
+                "Cannot remove tracks from smart playlists. "
+                "Tracks are automatically managed based on criteria.",
             )
             return
 

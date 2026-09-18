@@ -236,8 +236,14 @@ class _DateRangeEdit(QWidget):
 
     def get_value(self) -> str:
         """Return 'start|end' with the range widened to whole-day bounds."""
-        start = self.start_edit.date().toString("yyyy-MM-dd") + " 00:00:00"
-        end = self.end_edit.date().toString("yyyy-MM-dd") + " 23:59:59"
+        start_date = self.start_edit.date()
+        end_date = self.end_edit.date()
+        if start_date > end_date:
+            # An inverted range would otherwise silently match nothing --
+            # swap rather than leave the user to guess why.
+            start_date, end_date = end_date, start_date
+        start = start_date.toString("yyyy-MM-dd") + " 00:00:00"
+        end = end_date.toString("yyyy-MM-dd") + " 23:59:59"
         return f"{start}|{end}"
 
     def set_value(self, value):
@@ -262,12 +268,7 @@ class _DateRangeEdit(QWidget):
 
 
 class CriteriaWidget(QWidget):
-    """
-    A single criteria row: [Field ▾] [Operator ▾] [Value input] [✕]
-
-    The operator list and value widget update automatically when the field
-    changes, ensuring only valid combinations are ever possible.
-    """
+    """A single criteria row: field selector, operator selector, value input, delete button."""
 
     delete_requested = Signal(QWidget)
 
@@ -296,7 +297,7 @@ class CriteriaWidget(QWidget):
         current_category = None
         submenu = None
         first_field_name = first_display = None
-        for field_name, op_group, display, tooltip, mn, mx, category in CRITERIA_FIELDS:
+        for field_name, _op_group, display, tooltip, _mn, _mx, category in CRITERIA_FIELDS:
             if category != current_category:
                 submenu = self.field_menu.addMenu(category)
                 current_category = category
@@ -385,7 +386,7 @@ class CriteriaWidget(QWidget):
             lo = float(field_min) if field_min is not None else -999_999.0
             hi = float(field_max) if field_max is not None else 999_999.0
             widget.setRange(lo, hi)
-            # Finer steps for 0–1 range fields (audio analysis); coarser for ratings
+            # Finer steps for 0-1 range fields (audio analysis); coarser for ratings
             if hi <= 1.0:
                 widget.setDecimals(4)
                 widget.setSingleStep(0.01)
@@ -445,6 +446,9 @@ class CriteriaWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _on_field_selected(self, field_name, display):
+        # Rebuilding here keeps the operator list and value widget always
+        # matched to the selected field's type, so an invalid combination
+        # (e.g. a text operator against a date field) can never be picked.
         self._field_name = field_name
         self.field_button.setText(display)
         self._rebuild_operator_combo()
@@ -464,10 +468,7 @@ class CriteriaWidget(QWidget):
     # ------------------------------------------------------------------
 
     def get_criteria(self) -> dict:
-        """
-        Return this row as a dict, e.g.:
-            {"field": "user_rating", "comparison": "gt", "value": 5.5, "type": "Float"}
-        """
+        """Return this row as a field/comparison/value/type dict."""
         field_name = self._current_field_name()
         op_group = self._current_meta()[0]
         operator = self.operator_combo.currentData()
@@ -497,9 +498,7 @@ class CriteriaWidget(QWidget):
         return {"field": field_name, "comparison": operator, "value": value, "type": op_group}
 
     def set_criteria(self, criteria_dict: dict):
-        """
-        Pre-fill this row from a saved criteria dict (used when editing a playlist).
-        """
+        """Pre-fill this row from a saved criteria dict (used when editing a playlist)."""
         # Set field first — this triggers operator + value widget rebuild
         field = criteria_dict.get("field")
         if field and field in self._field_meta:
