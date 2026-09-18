@@ -70,7 +70,7 @@ class EqualizerDialog(QDialog):
         control_layout.addWidget(QLabel("Preset:"))
         self.preset_combo = QComboBox()
         self.preset_combo.setMinimumWidth(120)
-        self.preset_combo.addItems(["Custom"] + list(self.equalizer.presets.keys()))
+        self.preset_combo.addItems(["Custom", *list(self.equalizer.presets.keys())])
         self.preset_combo.currentTextChanged.connect(self.on_preset_changed)
         control_layout.addWidget(self.preset_combo)
 
