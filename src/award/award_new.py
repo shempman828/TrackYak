@@ -1,6 +1,4 @@
-"""
-Dialog for adding a new award to an entity (Artist, Album, Track, Publisher).
-"""
+"""Dialog for adding a new award to an entity (Artist, Album, Track, Publisher)."""
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
