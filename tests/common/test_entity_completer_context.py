@@ -90,7 +90,15 @@ def test_place_context_type_and_country_from_parent_chain():
     country = _Place(10, "United Kingdom", "Country")
     region = _Place(11, "England", "Subdivision", parent=country)
     city = _Place(12, "Liverpool", "City", parent=region)
-    assert place_context_map([city]) == {12: "City · United Kingdom"}
+    assert place_context_map([city]) == {12: "City · England, United Kingdom"}
+
+
+def test_place_context_includes_every_ancestor_level():
+    country = _Place(13, "United States", "Country")
+    subdivision = _Place(14, "Missouri", "Subdivision", parent=country)
+    county = _Place(15, "Greene County", "County", parent=subdivision)
+    city = _Place(16, "Springfield", "City", parent=county)
+    assert place_context_map([city]) == {16: "City · Greene County, Missouri, United States"}
 
 
 def test_place_context_degrades_to_type_or_country_or_empty():
@@ -103,10 +111,9 @@ def test_place_context_degrades_to_type_or_country_or_empty():
 
 def test_place_context_survives_parent_cycle():
     a = _Place(30, "A", "City")
-    b = _Place(31, "B", "City", parent=a)
-    a.parent = b  # self-referential FK gone wrong -- must not hang
-    # No country in the chain; the walk terminates on the visited-set guard
-    # and degrades to just the type rather than spinning forever.
+    a.parent = a  # self-referential FK gone wrong -- must not hang
+    # The lone chain entry is a's own name, filtered out, so the walk
+    # degrades to just the type rather than spinning forever.
     assert place_context_map([a]) == {30: "City"}
 
 

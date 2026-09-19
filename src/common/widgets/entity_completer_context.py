@@ -68,29 +68,32 @@ def place_context_map(places) -> dict:
 
 def _place_context(place) -> str:
     place_type = _clean(getattr(place, "place_type", None))
-    country = _country_of(place)
-    if country and country.lower() == _clean(getattr(place, "place_name", None)).lower():
-        country = ""
-    if place_type and country:
-        return f"{place_type}{_SEP}{country}"
-    return place_type or country or ""
+    own_name = _clean(getattr(place, "place_name", None)).lower()
+    chain = [name for name in _ancestor_chain(place) if name.lower() != own_name]
+    location = ", ".join(chain)
+    if place_type and location:
+        return f"{place_type}{_SEP}{location}"
+    return place_type or location or ""
 
 
-def _country_of(place) -> str:
-    """Name of the nearest ancestor whose ``place_type`` is 'Country', else
-    the topmost ancestor's name, walking ``parent``. '' when the place has
-    no parent chain. The visited set guards the self-referential FK against
-    a cycle."""
+def _ancestor_chain(place) -> list:
+    """Ancestor names from nearest to farthest, walking ``parent``, up to and
+    including the nearest ancestor whose ``place_type`` is 'Country'. Without
+    a 'Country' ancestor, walks to the topmost ancestor instead. [] when the
+    place has no parent chain. The visited set guards the self-referential FK
+    against a cycle."""
     seen: set = set()
     current = getattr(place, "parent", None)
-    topmost = ""
+    chain: list = []
     while current is not None and getattr(current, "place_id", None) not in seen:
         seen.add(current.place_id)
+        name = _clean(getattr(current, "place_name", None))
+        if name:
+            chain.append(name)
         if _clean(getattr(current, "place_type", None)).lower() == "country":
-            return _clean(getattr(current, "place_name", None))
-        topmost = _clean(getattr(current, "place_name", None)) or topmost
+            break
         current = getattr(current, "parent", None)
-    return topmost
+    return chain
 
 
 # ── Track ─────────────────────────────────────────────────────────────────
