@@ -24,6 +24,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.award.award_detail import AwardDetailTab
 from src.common.widgets.hierarchy_tree_style import is_hierarchy_descendant
+from src.common.widgets.multi_select_filter_button import MultiSelectFilterButton
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 
@@ -71,10 +72,15 @@ class AwardView(QWidget):
         self.category_filter.addItem("All Categories")
         self.category_filter.currentTextChanged.connect(self._filter_awards)
 
+        self.name_filter = MultiSelectFilterButton()
+        self.name_filter.selection_changed.connect(self._filter_awards)
+
         filter_layout.addWidget(QLabel("Year:"))
         filter_layout.addWidget(self.year_filter)
         filter_layout.addWidget(QLabel("Category:"))
         filter_layout.addWidget(self.category_filter)
+        filter_layout.addWidget(QLabel("Award Name:"))
+        filter_layout.addWidget(self.name_filter)
 
         search_layout.addLayout(filter_layout)
         left_panel.addWidget(search_group)
@@ -193,6 +199,9 @@ class AwardView(QWidget):
             for category in categories:
                 self.category_filter.addItem(category)
 
+            # Update the award-name multi-select filter
+            self.name_filter.set_values(sorted({a.award_name for a in awards}))
+
             # Restore selections if possible
             if current_year in [
                 self.year_filter.itemText(i) for i in range(self.year_filter.count())
@@ -295,6 +304,11 @@ class AwardView(QWidget):
         # Apply category filter
         if category_filter != "All Categories":
             filtered = [a for a in filtered if a.award_category == category_filter]
+
+        # Apply award-name filter (empty selection means "all names")
+        selected_names = self.name_filter.committed_selection()
+        if selected_names:
+            filtered = [a for a in filtered if a.award_name in selected_names]
 
         self._populate_award_list(filtered)
 

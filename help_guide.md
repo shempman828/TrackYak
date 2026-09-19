@@ -495,9 +495,12 @@ Tracks which artists, albums, or other entities won or were nominated for
 what, organized under a hierarchy of awards and categories (a specific
 Grammy category nested under "Grammy Awards," for instance).
 
-**Browsing**: search plus Year and Category filters narrow the tree; click
-an award to open its details on the right. Selecting another award replaces
-that panel — only one award's details are shown at a time.
+**Browsing**: search plus Year, Category, and Award Name filters narrow the
+tree; click an award to open its details on the right. Selecting another
+award replaces that panel — only one award's details are shown at a time.
+The Award Name filter opens a popup where you can type to search the list of
+names and tick one or more to show; leaving everything ticked (or nothing
+ticked) shows all names.
 
 **Adding an award**: New Award needs just a name — category, year, and a
 parent award are optional, for slotting it into an existing hierarchy.
