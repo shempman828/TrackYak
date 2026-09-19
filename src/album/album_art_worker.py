@@ -19,20 +19,16 @@ from src.metadata.metadata_artwork import ArtworkExtractor
 
 
 class ArtCacheWorker(CancellableWorker):
-    """
-    Warms the ArtworkCache row for albums whose entry is missing or stale,
-    by calling ArtworkCache.get_dimensions() - which internally reads and
-    decodes the embedded image and populates the row for every role in one
-    pass - off the UI thread. AlbumView only hands it albums that
-    ArtworkCache.peek_has_art()/peek_dimensions() couldn't answer
-    synchronously.
+    """Warms the ArtworkCache row for albums whose entry is missing or stale, off the UI thread."""
 
-    Emits `resolved` once per album as its cache row becomes warm, so the
-    view can re-peek it (now a cheap, confirmed cache hit) to decide
-    whether it belongs in the filtered/sorted grid, instead of blocking
-    until every pending album has been processed.
-    """
-
+    # Emits once per album as its cache row becomes warm, so the view can
+    # re-peek it (now a cheap, confirmed cache hit) to decide whether it
+    # belongs in the filtered/sorted grid, instead of blocking until every
+    # pending album has been processed. Only emitted on a successful
+    # get_dimensions() call (a hit or a confirmed miss) -- not after a
+    # sqlite3.Error, since that leaves the cache row's state unknown rather
+    # than confirmed, and emitting anyway would misclassify the album's
+    # "has art" status with no retry.
     resolved = Signal(int)  # album_id
 
     def __init__(self, albums: list, cache, role: str = "front"):
@@ -65,22 +61,17 @@ class ArtCacheWorker(CancellableWorker):
                     f"ArtCacheWorker: get_dimensions failed for album "
                     f"{getattr(album, 'album_id', '?')}: {e}"
                 )
+                continue
             self.resolved.emit(album.album_id)
 
 
 class CoverEmbedWorker(CancellableWorker):
-    """
-    Runs the expensive half of picking/clearing a cover off the UI thread:
-    rewriting the embedded picture into every embeddable track of an album
-    (mutagen rewrites the whole file when the new image won't fit existing
-    padding) and then building + storing the cache thumbnail.
+    """Rewrites the embedded cover into every embeddable track of an album, off the UI thread."""
 
-    `completed` fires on success with (failed_paths, dims) - dims is the
-    (w, h) of the stored image or None (e.g. on clear). `error` fires with
-    a message string if the embed/store raised.
-    """
-
+    # completed: fires on success with (failed_paths, dims) -- dims is the
+    # (w, h) of the stored image, or None (e.g. on clear).
     completed = Signal(list, object)  # failed_paths, dims-or-None
+    # error: fires with a message string if the embed/store raised.
     error = Signal(str)
 
     _EMBEDDABLE_EXTENSIONS = ArtworkExtractor.SUPPORTED_EXTENSIONS
@@ -132,7 +123,12 @@ class CoverEmbedWorker(CancellableWorker):
                 success = self._writer.write_artwork_to_file(
                     file_path, self._role, self._image_bytes
                 )
-            except ValueError as e:
+            except (ValueError, OSError) as e:
+                # Writers open/rewrite the file mid-call, so a locked,
+                # permission-denied, vanished, or disk-full file raises
+                # OSError here, not just ValueError -- catch both so one
+                # bad track is recorded as failed instead of aborting the
+                # whole album's embed pass via run()'s broad except.
                 logger.error(f"Error embedding {self._role} cover into {file_path}: {e}")
                 success = False
             if not success:

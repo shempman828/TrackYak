@@ -45,6 +45,7 @@ from src.musicbrainz.musicbrainz_release import MBLabelInfo
 
 class AlbumMusicBrainzReviewUIMixin:
     def _usable_aliases(self) -> list[MBAlias]:
+        """Return album aliases not already attached to this album or matching its own name."""
         existing = {(a.alias_name or "").strip().lower() for a in (self.album.album_aliases or [])}
         own_name = (self.album.album_name or "").strip().lower()
         out = []
@@ -56,6 +57,7 @@ class AlbumMusicBrainzReviewUIMixin:
         return out
 
     def _usable_labels(self) -> list[MBLabelInfo]:
+        """Return MusicBrainz labels not already attached to this album."""
         existing_mbids = {p.MBID for p in (self.album.publishers or []) if p.MBID}
         existing_names = {
             (p.publisher_name or "").strip().lower() for p in (self.album.publishers or [])
@@ -70,6 +72,7 @@ class AlbumMusicBrainzReviewUIMixin:
         return out
 
     def _build_ui(self):
+        """Construct the review dialog's scrollable content and OK/Cancel buttons."""
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(self._match_summary))
 
@@ -81,7 +84,7 @@ class AlbumMusicBrainzReviewUIMixin:
                 "matched to anything -- your album may be missing tracks."
             )
             warning.setWordWrap(True)
-            warning.setStyleSheet("color: darkred; font-weight: bold;")
+            warning.setProperty("danger", True)
             layout.addWidget(warning)
 
         scroll = QScrollArea()
@@ -116,12 +119,15 @@ class AlbumMusicBrainzReviewUIMixin:
                 mb_item = QTableWidgetItem(_format_mb_track_label(mbt))
                 if no_local_candidates:
                     mb_item.setBackground(QColor(255, 224, 224))
+                    mb_item.setForeground(QColor(Qt.black))
                     bold_font = QFont()
                     bold_font.setBold(True)
                     mb_item.setFont(bold_font)
                 table.setItem(row, 0, mb_item)
 
                 combo = QComboBox()
+                if no_local_candidates:
+                    combo.setStyleSheet("background-color: rgb(255, 224, 224);")
                 combo.addItem(_SKIP, None)
                 for local in self._remaining_local_options:
                     local_side = f", side {local.side}" if local.side else ""
@@ -146,13 +152,17 @@ class AlbumMusicBrainzReviewUIMixin:
                     conf_text = confidence_label(score)
                     conf_color = confidence_color(score)
                 else:
+                    # Neutral gray, not confidence_color(0.0)'s dark red --
+                    # "nothing to report" isn't the same as "needs attention"
+                    # like a genuine weak match is.
                     conf_text = "No suggestion"
-                    conf_color = confidence_color(0.0)
+                    conf_color = QColor(Qt.gray)
                 conf_item = QTableWidgetItem(conf_text)
                 conf_item.setForeground(conf_color)
                 conf_item.setTextAlignment(Qt.AlignCenter)
                 if no_local_candidates:
                     conf_item.setBackground(QColor(255, 224, 224))
+                    conf_item.setForeground(QColor(Qt.black))
                     bold_font = QFont()
                     bold_font.setBold(True)
                     conf_item.setFont(bold_font)
@@ -265,16 +275,12 @@ class AlbumMusicBrainzReviewUIMixin:
         self._autosize(inner)
 
     def _autosize(self, content: QWidget) -> None:
-        """Grow the dialog to fit the review content, within reason.
-
-        QScrollArea's own sizeHint() doesn't grow with its child widget, so
-        left alone the dialog stays pinned to setMinimumSize() no matter how
-        wide the credit/alias/track rows actually are. Match the sizing
-        convention used by publisher_fuzzy_match._autosize: measure the
-        scrolled widget directly, clamp to a fraction of the screen so a
-        long review can't blow past it, with the configured minimum as a
-        floor.
-        """
+        """Resize the dialog to fit the review content, clamped to a fraction of the screen."""
+        # QScrollArea's own sizeHint() doesn't grow with its child widget, so
+        # left alone the dialog stays pinned to setMinimumSize() no matter how
+        # wide the credit/alias/track rows actually are -- measure the
+        # scrolled widget directly instead (same convention as
+        # publisher_fuzzy_match._autosize).
         hint = content.sizeHint()
 
         screen = self.screen() or QApplication.primaryScreen()

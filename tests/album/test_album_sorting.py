@@ -14,6 +14,9 @@ class _SortHost(AlbumSortingMixin):
         self._sort_descending = False
         self._random_keys = {}
 
+    def _get_track_count(self, album):
+        return getattr(album, "track_count", 0)
+
 
 class StubArtist:
     def __init__(self, artist_name, sort_name=None):
@@ -59,3 +62,27 @@ def test_no_artists_sorts_as_empty_string_without_crashing():
     empty = StubAlbum("EmptyAlbum", [])
     named = StubAlbum("NamedAlbum", [StubArtist("Beatles", "Beatles")])
     assert _order([named, empty]) == ["EmptyAlbum", "NamedAlbum"]
+
+
+def test_numeric_criteria_fallback_is_numeric_not_string():
+    # One album's _get_track_count raises; the fallback used to always be
+    # "", which mixed a str key into a column of ints and raised TypeError
+    # mid-sort. The fallback must match the criteria's own type instead.
+    good_low = StubAlbum("Low", [])
+    good_low.track_count = 1
+    good_high = StubAlbum("High", [])
+    good_high.track_count = 5
+
+    class Bad:
+        track_count = property(lambda self: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    bad = Bad()
+    bad.album_name = "Bad"
+
+    host = _SortHost([good_high, bad, good_low])
+    host._sort_criteria = "track_count"
+    host._sort_filtered()
+    # No TypeError raised, and the two well-formed albums still land in
+    # numeric order around the failed one.
+    names = [getattr(a, "album_name") for a in host.filtered_albums]
+    assert names.index("Low") < names.index("High")

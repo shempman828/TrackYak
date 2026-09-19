@@ -112,11 +112,11 @@ class TracksTab:
 
 
 class ArtworkTab:
-    """Front cover, rear cover, and liner art — each with a pick + clear button.
+    """Front cover, rear cover, and liner art -- each with a pick + clear button."""
 
-    After any cover change the parent editor's header thumbnail is refreshed
-    immediately so the two stay in sync.
-    """
+    # After any cover change the parent editor's header thumbnail is
+    # refreshed immediately (see AlbumCoverArtMixin._on_cover_embed_done)
+    # so the two stay in sync.
 
     def __init__(self, editor: AlbumEditor):
         self.editor = editor
@@ -171,6 +171,14 @@ class ArtworkTab:
             layout.addWidget(group)
 
         self.editor._load_artwork_previews()
+
+        # A rebuild (e.g. refresh_view() while this tab is active) replaces
+        # _cover_buttons with a fresh, enabled set -- if a background embed
+        # is still running, re-disable them immediately instead of letting
+        # pick/clear briefly become clickable mid-embed.
+        if getattr(self.editor, "_cover_embed_worker", None) is not None:
+            self.editor._set_cover_controls_enabled(False)
+
         return tab
 
 
@@ -228,14 +236,12 @@ class AliasesTab:
 
 
 class GenresTab:
-    """Genres common to every track on the album.
+    """Genres common to every track on the album; edits trickle down to every track."""
 
-    Reuses the track editor's association-tab widget with the full set of
-    the album's tracks: adding/removing a genre here writes it to every
-    track, so the widget's existing common-items intersection and
-    write-to-all-tracks behavior double as the album-level view and the
-    trickle-down edit mechanism.
-    """
+    # Reuses the track editor's association-tab widget with the full set of
+    # the album's tracks: its existing common-items intersection and
+    # write-to-all-tracks behavior double as the album-level view and the
+    # trickle-down edit mechanism.
 
     def __init__(self, editor: AlbumEditor):
         self.editor = editor
@@ -268,19 +274,15 @@ class GenresTab:
 
 
 class TrackCreditsTab:
-    """Artist/role credits common to every track on the album.
+    """Artist/role credits common to every track on the album; can convert to album-level."""
 
-    Reuses the track editor's RolesTab with the full set of the album's
-    tracks, the same way GenresTab reuses TrackGenresTab: adding, removing,
-    or editing a role here writes it to every track, so RolesTab's existing
-    multi-track intersection and batch write-to-all-tracks behavior double
-    as the album-level view and the trickle-down edit mechanism.
-
-    Also passes an on_convert_to_album hook so each role chip gets a
-    "→ Album" button that turns a credit shared by every track into a
-    single album-level credit instead (the inverse of the "→ Track" button
-    on the Album credit tab).
-    """
+    # Reuses the track editor's RolesTab with the full set of the album's
+    # tracks, the same way GenresTab reuses TrackGenresTab -- edits trickle
+    # down via RolesTab's own multi-track intersection/batch-write behavior.
+    # Also passes an on_convert_to_album hook so each role chip gets a
+    # "→ Album" button that turns a credit shared by every track into a
+    # single album-level credit instead (the inverse of the "→ Track"
+    # button on the Album credit tab).
 
     def __init__(self, editor: AlbumEditor):
         self.editor = editor
@@ -350,16 +352,6 @@ class AdvancedTab:
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
 
-        def _row(label_text, field_name):
-            row = QHBoxLayout()
-            lbl = QLabel(label_text)
-            lbl.setFixedWidth(160)
-            row.addWidget(lbl)
-            w = self.editor.field_widgets.get(field_name)
-            if w:
-                row.addWidget(w, 1)
-            layout.addLayout(row)
-
         for field_name in ("first_pass", "second_pass"):
             field_widget = self.editor.field_widgets.get(field_name)
             if field_widget:
@@ -381,9 +373,24 @@ class AdvancedTab:
         rg_label.setProperty("title", True)
         layout.addWidget(rg_label)
         album_gain = getattr(album, "album_gain", None)
-        _read_only_row("Album Gain (dB):", f"{album_gain:.2f}" if album_gain is not None else "—")
+        if album_gain is not None:
+            try:
+                gain_text = f"{float(album_gain):.2f}"
+            except (TypeError, ValueError):
+                gain_text = str(album_gain)
+        else:
+            gain_text = "—"
+        _read_only_row("Album Gain (dB):", gain_text)
+
         album_peak = getattr(album, "album_peak", None)
-        _read_only_row("Album Peak:", f"{album_peak:.4f}" if album_peak is not None else "—")
+        if album_peak is not None:
+            try:
+                peak_text = f"{float(album_peak):.4f}"
+            except (TypeError, ValueError):
+                peak_text = str(album_peak)
+        else:
+            peak_text = "—"
+        _read_only_row("Album Peak:", peak_text)
 
         stats_label = QLabel("Library Stats")
         stats_label.setProperty("title", True)

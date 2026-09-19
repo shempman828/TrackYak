@@ -277,3 +277,21 @@ def test_ampersand_in_credit_is_not_eaten_as_a_mnemonic(qapp):
 
     cb, _credit = dialog._album_credit_checks[0]
     assert cb.text() == "Simon && Garfunkel — R&&B"
+
+
+def test_progress_with_zero_total_stays_indeterminate(qapp):
+    """A progress(0, 0) signal (nothing to process yet) must not flip the
+    bar out of indeterminate mode or show a confusing "(0 of 0)" label."""
+    local_tracks = [_local_track(1, 1, "Track 1")]
+    detail = _detail([_mb_track(1, "Track 1")])
+
+    dialog = AlbumMusicBrainzReviewDialog(
+        controller=SimpleNamespace(), album=_album(local_tracks), detail=detail, aliases=[]
+    )
+    dialog._set_busy(True)
+    assert dialog.progress_bar.maximum() == 0
+
+    dialog._on_accept_progress(0, 0)
+
+    assert dialog.progress_bar.maximum() == 0
+    assert "(0 of 0)" not in dialog.progress_status_label.text()

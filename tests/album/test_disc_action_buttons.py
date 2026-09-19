@@ -30,9 +30,18 @@ class _StubDisc:
         self.disc_title = disc_title
 
 
+class _StubSession:
+    def __init__(self):
+        self.expire_all_calls = 0
+
+    def expire_all(self):
+        self.expire_all_calls += 1
+
+
 class _StubGet:
     def __init__(self, discs):
         self._discs = discs
+        self.session = _StubSession()
 
     def get_all_entities(self, model_name, **kwargs):
         if model_name == "Disc":
@@ -154,3 +163,29 @@ def test_edit_disc_multi_disc_without_selection_is_a_no_op(qapp, monkeypatch):
     view.edit_disc()
 
     assert controller.update.calls == []
+
+
+def test_remove_disc_expires_session_so_stale_track_disc_ids_refresh(qapp):
+    """The DB's FK cascade (ON DELETE SET NULL) happens outside SQLAlchemy's
+    unit of work, so already-loaded Track objects must be expired or the
+    Tracks tab keeps showing them under the deleted disc."""
+    discs = [_StubDisc(disc_id=1, disc_number=1), _StubDisc(disc_id=2, disc_number=2)]
+    controller = _StubController(discs=discs)
+    view = DiscTabView(_StubAlbum(), controller)
+
+    _select_disc_row(view, disc_id=2)
+    view.remove_disc()
+
+    assert controller.get.session.expire_all_calls == 1
+
+
+def test_create_track_display_does_not_stack_empty_placeholder(qapp):
+    """Calling create_track_display() twice on an empty album must not leave
+    two "No tracks found" labels in the layout -- just the track display
+    widget plus a single placeholder."""
+    view = DiscTabView(_StubAlbum(), _StubController(discs=[]))
+
+    view.create_track_display()
+    view.create_track_display()
+
+    assert view.track_layout.count() == 2

@@ -1,17 +1,14 @@
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
+from PySide6.QtGui import QFont, QFontMetrics, QPainter, QPixmap
 from PySide6.QtWidgets import QGridLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
-from src.common.style_utils import set_style_property
 from src.foundation.censor import censor_text
 from src.foundation.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 
 
 class AlbumWidget(QWidget):
-    """
-    Individual widget representing a single album.
-    """
+    """Individual widget representing a single album."""
 
     clicked = Signal(object)
     doubleClicked = Signal(object)
@@ -19,9 +16,11 @@ class AlbumWidget(QWidget):
     def __init__(self, album, size=200, parent=None):
         super().__init__(parent)
         self.album = album
-        self.size = size
-        self.is_selected = False
-        self.click_timer = None
+        self.art_size = size
+        self.click_timer = QTimer(self)
+        self.click_timer.setSingleShot(True)
+        self.click_timer.setInterval(250)
+        self.click_timer.timeout.connect(lambda: self.clicked.emit(self.album))
 
         # UI Components
         self.art_label = QLabel()
@@ -64,12 +63,12 @@ class AlbumWidget(QWidget):
         # 1. Load Art
         pixmap = self._load_art()
         scaled_pixmap = pixmap.scaled(
-            self.size, self.size, Qt.KeepAspectRatio, Qt.SmoothTransformation
+            self.art_size, self.art_size, Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         self.art_label.setPixmap(scaled_pixmap)
 
         # 2. Set Text
-        album_name = censor_text(str(getattr(self.album, "album_name", "Unknown Album")))
+        album_name = censor_text(str(getattr(self.album, "album_name", None) or "Unknown Album"))
         release_year = getattr(self.album, "release_year", "")
         year_str = f" ({release_year})" if release_year else ""
 
@@ -94,7 +93,7 @@ class AlbumWidget(QWidget):
         mb_line = "\nLinked to MusicBrainz" if getattr(self.album, "MBID", None) else ""
         self.setToolTip(f"{album_name}{year_str}{subtitle_line}\n{artist_text}{mb_line}")
         extra_height = 20 if subtitle else 0
-        self.setFixedSize(self.size + 20, self.size + 90 + extra_height)
+        self.setFixedSize(self.art_size + 20, self.art_size + 90 + extra_height)
 
     def _load_art(self):
         is_explicit = bool(getattr(self.album, "art_is_explicit", False))
@@ -107,12 +106,12 @@ class AlbumWidget(QWidget):
     def _create_placeholder(self):
         canvas_size = 256
         pixmap = QPixmap(canvas_size, canvas_size)
-        pixmap.fill(QColor(240, 240, 240))
+        pixmap.fill(self.palette().color(self.backgroundRole()))
 
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QColor(180, 180, 180))
-        painter.setFont(QFont("Arial", 12))
+        painter.setPen(self.palette().color(self.foregroundRole()))
+        painter.setFont(QFont())
 
         rect = QFontMetrics(painter.font()).boundingRect("No Art")
         painter.drawText(
@@ -121,12 +120,8 @@ class AlbumWidget(QWidget):
         painter.end()
         return pixmap
 
-    def set_selected(self, selected):
-        self.is_selected = selected
-        set_style_property(self, "selected", selected)
-
     def update_size(self, new_size):
-        self.size = new_size
+        self.art_size = new_size
         self.refresh_display()
 
     def refresh_album(self, album):
@@ -138,11 +133,11 @@ class AlbumWidget(QWidget):
     # --- Mouse Events ---
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            if self.click_timer and self.click_timer.isActive():
+            if self.click_timer.isActive():
                 self.click_timer.stop()
                 self.doubleClicked.emit(self.album)
             else:
-                self.click_timer = QTimer.singleShot(250, lambda: self.clicked.emit(self.album))
+                self.click_timer.start()
         super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event):
@@ -232,7 +227,7 @@ class AlbumFlowWidget(QWidget):
 
 
 class ScrollableAlbumFlow(QScrollArea):
-    """The complete 'Best Version' component for use in UIs."""
+    """Scrollable, resizable grid of AlbumWidgets -- the ready-to-embed album-grid component."""
 
     def __init__(self, albums=None, album_size=200, parent=None):
         super().__init__(parent)

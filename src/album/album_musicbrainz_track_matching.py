@@ -1,16 +1,4 @@
-"""
-album_musicbrainz_track_matching.py
-
-Track matching (no DB writes) for AlbumMusicBrainzReviewDialog --
-title-dominant combined score across every disc-compatible (MB track,
-local track) pair, blind-matching the best-scoring pairs first; then a
-title-similarity guess for a single-medium release covers whatever's
-left; then a manual QComboBox for anything still unresolved.
-
-Mixed into AlbumMusicBrainzReviewDialog. Expects the host class to
-provide: self.detail, self.album, self._manual_combos, and to be a
-QWidget subclass (for QComboBox signal handling).
-"""
+"""Title-dominant track matching (no DB writes) for AlbumMusicBrainzReviewDialog."""
 
 from __future__ import annotations
 
@@ -44,35 +32,44 @@ class AlbumMusicBrainzTrackMatchingMixin:
 
     @staticmethod
     def _position_agreement(mb_pos: int | None, local_pos: int | None) -> float:
-        """1.0 for an exact position match, decaying with distance. Neither
-        side having a usable position is a lack of signal, not disagreement,
-        so it scores neutrally rather than dragging the combined score down."""
+        """1.0 for an exact position match, decaying with distance."""
         if mb_pos is None or local_pos is None:
+            # Neither side having a usable position is a lack of signal,
+            # not disagreement, so it scores neutrally rather than
+            # dragging the combined score down.
             return 0.5
         return 1.0 / (1.0 + abs(mb_pos - local_pos))
 
     @classmethod
     def _combined_score(cls, mbt: MBReleaseTrack, local) -> float:
-        """Track name is the primary matching signal -- position is a minor
-        factor, not a filter, so a same-numbered-but-wrong-song candidate
-        doesn't beat the actual best title match sitting at another
-        position. A local track with no name yet has nothing to compare
-        textually, so position is the only signal available for it."""
+        """Score a (MB track, local track) pair; title-dominant, position is a minor factor."""
         mb_pos = mbt.absolute_position if mbt.absolute_position is not None else mbt.track_number
         pos_agreement = cls._position_agreement(mb_pos, local.track_number)
         if not local.track_name:
+            # A local track with no name yet has nothing to compare
+            # textually, so position is the only signal available for it.
             return pos_agreement
         title_sim = cls._title_similarity(mbt.title, local.track_name)
+        # Track name is the primary matching signal -- position is a minor
+        # factor, not a filter, so a same-numbered-but-wrong-song candidate
+        # doesn't beat the actual best title match sitting at another
+        # position.
         return _TITLE_WEIGHT * title_sim + _POSITION_WEIGHT * pos_agreement
 
     @staticmethod
     def _discs_compatible(local_disc_num: int | None, mb_disc_num: int | None) -> bool:
-        """A missing disc number on either side isn't a real conflict --
-        only two present, differing disc numbers mean the track actually
-        belongs to a different medium."""
+        """Whether a local track's disc and an MB track's disc could be the same medium."""
+        # A missing disc number on either side isn't a real conflict --
+        # only two present, differing disc numbers mean the track actually
+        # belongs to a different medium.
         return local_disc_num is None or mb_disc_num is None or local_disc_num == mb_disc_num
 
     def _match_tracks(self):
+        # Three tiers: blind auto-match on combined score first; then a
+        # title-similarity guess for a single-medium release covers
+        # whatever's left; anything still unresolved falls to a manual
+        # QComboBox (built by the UI mixin from self._remaining_mb/
+        # self._remaining_local_options below).
         local_tracks = list(self.album.tracks or [])
 
         # Score every disc-compatible pair (title-dominant, position as a
@@ -158,23 +155,22 @@ class AlbumMusicBrainzTrackMatchingMixin:
         self._refresh_manual_combo_options(changed_combo=self.sender())
 
     def _refresh_manual_combo_options(self, changed_combo=None):
-        """Once a local track is picked in one row's combo, remove it from
-        every other row's option list -- otherwise the same local track can
-        be manually assigned to more than one MusicBrainz track. Any other
-        row that already held that same track (e.g. from its own auto-guess)
-        is bumped back to "Skip" -- the row the user just edited wins the
-        claim, since it's the one they're actively acting on.
-
-        Compares local-track options by identity (`is`), not `==`/hashing --
-        local tracks here can be plain SQLAlchemy rows (default identity
-        hash) or test doubles like SimpleNamespace (unhashable, and `==`
-        would compare field values rather than "same row")."""
+        """Sync manual-match combos so no local track is claimed by more than one MB track."""
         if changed_combo is not None:
             claimed = changed_combo.currentData()
             if claimed is not None:
                 for combo, _mbt in self._manual_combos:
                     if combo is changed_combo:
                         continue
+                    # Compare by identity (`is`), not `==`/hashing -- local
+                    # tracks here can be plain SQLAlchemy rows (default
+                    # identity hash) or test doubles like SimpleNamespace
+                    # (unhashable, and `==` would compare field values
+                    # rather than "same row"). Any other row that already
+                    # held this same track (e.g. from its own auto-guess) is
+                    # bumped back to "Skip" -- the row the user just edited
+                    # wins the claim, since it's the one they're actively
+                    # acting on.
                     if combo.currentData() is claimed:
                         combo.blockSignals(True)
                         combo.setCurrentIndex(0)  # back to Skip -- just claimed elsewhere

@@ -1,4 +1,3 @@
-from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -26,10 +25,6 @@ class NewAlbumDialog(QDialog):
         self.setWindowTitle("New Album")
         self.setMinimumWidth(400)
         self._build_ui()
-        self._resize_timer = QTimer()
-        self._resize_timer.setSingleShot(True)
-        self._resize_timer.setInterval(150)
-        self._resize_timer.timeout.connect(self._do_resize_art)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -46,7 +41,7 @@ class NewAlbumDialog(QDialog):
         form.addRow("Release Year:", self.year_spin)
 
         self.artist_edit = QLineEdit()
-        self.artist_edit.setPlaceholderText("Optional – leave blank to add later")
+        self.artist_edit.setPlaceholderText("Optional - leave blank to add later")
         form.addRow("Artist:", self.artist_edit)
 
         self.compilation_check = QCheckBox()

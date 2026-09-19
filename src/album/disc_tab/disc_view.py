@@ -14,16 +14,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.disc_tab.disc_edit import DiscEditDialog
 from src.album.disc_tab.disc_sorting import TrackSortingDisplay
-from src.common.style_utils import set_style_property
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 
 
 class DiscTabView(QWidget):
-    """
-    Main widget for managing disc structure of an album.
-    Displays tracks in their natural hierarchy and allows disc creation/editing.
-    """
+    """Main widget for managing an album's disc structure and track hierarchy."""
 
     # Emitted after any change that may add, remove, or reassign a track --
     # lets an embedding parent (e.g. the album editor) know its own,
@@ -198,10 +194,17 @@ class DiscTabView(QWidget):
 
     def create_track_display(self):
         """Create and populate the track display widget"""
-        # Clear existing display
+        # Clear existing display, including any empty-state placeholder from
+        # a previous call -- otherwise repeated calls while empty stack
+        # duplicate labels, and a later non-empty state leaves the stale
+        # placeholder behind.
         if self.track_display:
             self.track_display.setParent(None)
             self.track_display.deleteLater()
+        if getattr(self, "_empty_placeholder", None):
+            self._empty_placeholder.setParent(None)
+            self._empty_placeholder.deleteLater()
+            self._empty_placeholder = None
 
         self.track_display = TrackSortingDisplay(
             self.physical_tracks,
@@ -219,10 +222,10 @@ class DiscTabView(QWidget):
 
         # Add placeholder if no tracks
         if not self.physical_tracks and not self.virtual_tracks:
-            placeholder = QLabel("No tracks found for this album.")
-            placeholder.setAlignment(Qt.AlignCenter)
-            placeholder.setProperty("textRole", "placeholder")
-            self.track_layout.addWidget(placeholder)
+            self._empty_placeholder = QLabel("No tracks found for this album.")
+            self._empty_placeholder.setAlignment(Qt.AlignCenter)
+            self._empty_placeholder.setProperty("textRole", "placeholder")
+            self.track_layout.addWidget(self._empty_placeholder)
 
     def add_disc(self):
         """Open dialog to add a new disc"""
@@ -331,6 +334,11 @@ class DiscTabView(QWidget):
         try:
             success = self.controller.delete.delete_entity("Disc", disc.disc_id)
             if success:
+                # The DB's ON DELETE SET NULL FK cascade happens outside
+                # SQLAlchemy's unit of work, so already-loaded Track objects
+                # (e.g. in self.physical_tracks) still hold their stale
+                # pre-delete disc_id until expired here.
+                self.controller.get.session.expire_all()
                 self.status_label.setText(f"Removed {choice}")
                 self.refresh_view()
             else:
@@ -357,8 +365,3 @@ class DiscTabView(QWidget):
 
         self.status_label.setText("Ready")
         self.tracks_changed.emit()
-
-    def show_message(self, message, is_error=False):
-        """Show status message"""
-        set_style_property(self.status_label, "statusState", "error" if is_error else "ok")
-        self.status_label.setText(message)

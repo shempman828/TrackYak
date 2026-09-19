@@ -25,6 +25,7 @@ class AlbumContextMenuMixin:
     # =========================================================================
 
     def _show_context_menu(self, position):
+        """Build and show the album grid's right-click context menu."""
         menu = QMenu(self)
 
         new_action = menu.addAction("➕ New Album…")  # noqa: RUF001
@@ -40,16 +41,16 @@ class AlbumContextMenuMixin:
             album = target_album_widget.album
 
             queue_action = menu.addAction(
-                f"▶ Add to Queue: {getattr(album, 'album_name', 'Album')}"
+                f"▶ Add to Queue: {esc_amp(getattr(album, 'album_name', 'Album'))}"
             )
             queue_action.triggered.connect(lambda: self._add_album_to_queue(album))
 
             menu.addSeparator()
 
-            # --- Merge submenu ---
-            merge_menu = menu.addMenu(f"🔀 Merge {esc_amp(getattr(album, 'album_name', 'Album'))}…")
-            merge_this_action = merge_menu.addAction("Merge this album into another…")
-            merge_this_action.triggered.connect(lambda: self._merge_album(album))
+            merge_action = menu.addAction(
+                f"🔀 Merge {esc_amp(getattr(album, 'album_name', 'Album'))}…"
+            )
+            merge_action.triggered.connect(lambda: self._merge_album(album))
 
             menu.addSeparator()
 
@@ -113,10 +114,9 @@ class AlbumContextMenuMixin:
         if hasattr(album, "tracks") and album.tracks is not None:
             return list(album.tracks)
 
-        # Last resort: query all tracks and filter by album_id
+        # Last resort: query directly by album_id
         try:
-            all_tracks = self.controller.get.get_all_entities("Track") or []
-            return [t for t in all_tracks if getattr(t, "album_id", None) == album.album_id]
+            return self.controller.get.get_all_entities("Track", album_id=album.album_id) or []
         except SQLAlchemyError as e:
             logger.error(f"Failed to fetch tracks for album {album.album_id}: {e}")
             return []
@@ -146,9 +146,18 @@ class AlbumContextMenuMixin:
                 kwargs["release_year"] = dlg.release_year
 
             new_album = self.controller.add.add_entity("Album", **kwargs)
+        except SQLAlchemyError as e:
+            logger.exception("Failed to create album")
+            QMessageBox.critical(self, "Error", f"Could not create album:\n{e}")
+            return
 
-            # Optionally link an artist
-            if dlg.artist_name:
+        logger.info(f"Created new album: {new_album.album_name}")
+
+        # Optionally link an artist. Isolated from album creation above so a
+        # failure here (e.g. the artist lookup/insert) doesn't report the
+        # whole operation as failed when the album itself was created fine.
+        if dlg.artist_name:
+            try:
                 artist = self.controller.get.get_entity_object(
                     "Artist", artist_name=dlg.artist_name
                 )
@@ -160,16 +169,16 @@ class AlbumContextMenuMixin:
                     artist_id=artist.artist_id,
                     role_id=1,
                 )
+            except SQLAlchemyError as e:
+                logger.exception("Failed to link artist to new album")
+                QMessageBox.critical(
+                    self, "Error", f"Album created, but could not link artist:\n{e}"
+                )
 
-            logger.info(f"Created new album: {new_album.album_name}")
-            self.load_albums()
+        self.load_albums()
 
-            # Open the detail view immediately so the user can fill it in
-            self._show_album_details(new_album)
-
-        except SQLAlchemyError as e:
-            logger.exception("Failed to create album")
-            QMessageBox.critical(self, "Error", f"Could not create album:\n{e}")
+        # Open the detail view immediately so the user can fill it in
+        self._show_album_details(new_album)
 
     def _delete_album(self, album):
         """Confirm and delete a single album."""

@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QLineEdit, QMessageBox, QSpinBox
+from PySide6.QtWidgets import QComboBox, QDialog, QLineEdit, QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.album_musicbrainz_known_entities import known_place_mbids, known_publisher_mbids
@@ -56,25 +56,18 @@ _UNCONDITIONAL_OVERWRITE_FIELDS = frozenset({"release_year", "release_month", "r
 
 
 class AlbumMusicBrainzMixin:
-    """
-    MusicBrainz release lookup and enrichment for AlbumEditor.
+    """MusicBrainz release lookup and enrichment for AlbumEditor."""
 
-    Expects the host class to provide: self.controller, self.album,
-    self.field_widgets, self.refresh_view(), and to be a QWidget
-    subclass.
-
-    Three steps:
-      1. Search the `release` endpoint (not release-group) and let the user
-         confirm/override the auto-ranked canonical pick.
-      2. Fetch full per-release detail (credits, recording locations, disc
-         layout, aliases) for that one release.
-      3. Hand everything to AlbumMusicBrainzReviewDialog for track matching
-         and a final review/confirm step; only once that's accepted (or
-         found nothing worth reviewing) do the album-level scalar widgets
-         get filled and the MBID/Discogs links written. Cancelling at any
-         step, including that final review, leaves the album untouched.
-    """
-
+    # Entry point for a fresh match. Flow: (1) search the `release` endpoint
+    # (not release-group) and let the user confirm/override the auto-ranked
+    # canonical pick; (2) fetch full per-release detail (credits, recording
+    # locations, disc layout, aliases) for that one release, in
+    # _fetch_release_and_review(); (3) hand everything to
+    # AlbumMusicBrainzReviewDialog for track matching and a final
+    # review/confirm step in _apply_release_detail() -- only once that's
+    # accepted (or found nothing worth reviewing) do the album-level scalar
+    # widgets get filled and the MBID/Discogs links written. Cancelling at
+    # any step, including that final review, leaves the album untouched.
     def _lookup_musicbrainz(self):
         title_widget = self.field_widgets.get("album_name")
         album_name = (
@@ -118,18 +111,17 @@ class AlbumMusicBrainzMixin:
         self._fetch_release_and_review(picked.id, album_name)
 
     def _reimport_musicbrainz(self):
-        """Re-fetch this album's already-matched release and check for updates.
-
-        Reuses the same fetch-with-progress -> review flow as a fresh
-        lookup, just seeded with the album's existing MBID instead of a
-        search result. Unlike a fresh lookup, the user explicitly asked to
-        check for changes here, so the "nothing to review" case gets a
-        status message instead of silently doing nothing visible.
-        """
+        """Re-fetch this album's already-matched release and check for updates."""
         mbid = getattr(self.album, "MBID", None)
         if not mbid:
             return
         album_name = self.album.album_name or "this album"
+        # Reuses the same fetch-with-progress -> review flow as a fresh
+        # lookup, just seeded with the album's existing MBID instead of a
+        # search result. notify_if_no_changes=True because, unlike a fresh
+        # lookup, the user explicitly asked to check for changes here, so
+        # the "nothing to review" case gets a status message below (in
+        # _apply_release_detail) instead of silently doing nothing visible.
         self._fetch_release_and_review(mbid, album_name, notify_if_no_changes=True)
 
     def _fetch_release_and_review(
@@ -205,10 +197,24 @@ class AlbumMusicBrainzMixin:
         if review.has_content:
             if review.exec() != QDialog.Accepted:
                 return
+            # The actual track scalar writes (track_number, side, disc_id, ...)
+            # happened in _ReviewAcceptWorker on its own QThread/scoped_session
+            # -- a different Session than this editor's, so same-session
+            # bulk-UPDATE-by-primary-key sync can't reach across that boundary.
+            # Expire the touched Track objects here so refresh_view() below
+            # rebuilds the Tracks tab from what the worker actually wrote
+            # instead of silently redisplaying stale values.
             self._expire_musicbrainz_touched_tracks(review)
         else:
+            # No review needed: apply_immediate_scalars() runs on this same
+            # thread/session, so the bulk-UPDATE sync already applies and
+            # there's nothing to expire here (unlike the has_content branch
+            # above).
             review.apply_immediate_scalars()
             if notify_if_no_changes:
+                # Only a re-import (see _reimport_musicbrainz) sets this --
+                # a fresh lookup finding nothing to review is the common
+                # case and doesn't need a popup.
                 QMessageBox.information(
                     self,
                     "MusicBrainz",
@@ -288,20 +294,14 @@ class AlbumMusicBrainzMixin:
         self.refresh_view()
 
     def _expire_musicbrainz_touched_tracks(self, review: AlbumMusicBrainzReviewDialog):
-        """review.has_content means the actual track scalar writes
-        (track_number, side, disc_id, ...) happened in _ReviewAcceptWorker,
-        which runs on its own QThread and therefore its own scoped_session
-        Session (see that worker's docstring) -- a different Session object
-        than this editor's. SQLAlchemy's same-session bulk-UPDATE-by-primary-
-        key sync (relied on elsewhere, e.g. disc drag-and-drop) can't reach
-        across that boundary, so the Track objects this editor already
-        loaded (and the Tracks tab is about to redisplay) still hold their
-        pre-import track_number/side/disc_id. Expire them here, in this
-        editor's own session, so refresh_view() below rebuilds the Tracks
-        tab from the values the worker actually wrote instead of silently
-        redisplaying stale ones. The has_content=False path doesn't need
-        this: apply_immediate_scalars() runs on this same thread/session, so
-        the bulk-UPDATE sync already applies."""
+        """Expire Track objects the review worker wrote on its own session, so
+        refresh_view() below rebuilds the Tracks tab from the real DB values."""
+        # _ReviewAcceptWorker runs on its own QThread/scoped_session, a
+        # different Session than this editor's, so same-session bulk-UPDATE-
+        # by-primary-key sync can't reach across that boundary -- the Track
+        # objects this editor already loaded still hold their pre-import
+        # values until expired here. The has_content=False path doesn't need
+        # this: apply_immediate_scalars() runs on this same thread/session.
         session = self.controller.get.session
         for track in review._matched.values():
             session.expire(track)
@@ -311,51 +311,28 @@ class AlbumMusicBrainzMixin:
                 session.expire(track)
 
     def _apply_musicbrainz_enrichment(self, enrichment: dict):
-        """Fill field widgets from a MusicBrainz enrichment dict.
-
-        Most fields are fill-blank only -- applied where the widget is still
-        at its blank/default state, never overwriting something the user
-        already filled in or typed moments ago.
-
-        release_year/month/day (nullable QLineEdit fields, see
-        _UNCONDITIONAL_OVERWRITE_FIELDS) are the exception: they're written
-        unconditionally, overwriting an existing value. Unlike the other
-        enrichment fields, a wrong local release date is a common case (bad
-        file tags, manual entry error), and by the time this runs the user
-        has already explicitly confirmed the MB release match via the
-        review dialog -- so MB's date should win over whatever's already in
-        the field rather than only filling it in when blank.
-
-        QCheckBox fields (is_live/is_compilation) have no blank state at
-        all, so they fall back to the originally-loaded album's value being
-        None, combined with the widget still being unchecked -- applied
-        only when both hold, so a deliberate manual uncheck just before the
-        lookup is never clobbered.
-
-        QComboBox fields (status) are "blank" at their empty first entry --
-        applied by selecting a matching existing item, or setting the edit
-        text directly if the value isn't one of the preset choices.
-        """
+        """Fill field widgets from a MusicBrainz enrichment dict, without clobbering user input."""
         for field_name, value in enrichment.items():
             widget = self.field_widgets.get(field_name)
             if widget is None:
                 continue
             if field_name in _UNCONDITIONAL_OVERWRITE_FIELDS:
+                # release_year/month/day are written unconditionally, even
+                # over an existing value: a wrong local release date is a
+                # common case (bad file tags, manual entry error), and by
+                # the time this runs the user has already explicitly
+                # confirmed the MB release match via the review dialog -- so
+                # MB's date should win rather than only filling in blanks.
                 set_nullable_field_value(widget, int(value))
             elif isinstance(widget, QComboBox):
+                # "Blank" is the empty first entry -- fill by selecting a
+                # matching existing item, or setting the edit text directly
+                # if the value isn't one of the preset choices.
                 if not widget.currentText().strip():
                     idx = widget.findText(str(value))
                     if idx >= 0:
                         widget.setCurrentIndex(idx)
                     else:
                         widget.setEditText(str(value))
-            elif isinstance(widget, QLineEdit):
-                if not widget.text().strip():
-                    widget.setText(str(value))
-            elif isinstance(widget, QSpinBox):
-                if widget.value() == widget.minimum():
-                    widget.setValue(int(value))
-            elif isinstance(widget, QCheckBox) and (
-                getattr(self.album, field_name, None) is None and not widget.isChecked()
-            ):
-                widget.setChecked(bool(value))
+            elif isinstance(widget, QLineEdit) and not widget.text().strip():
+                widget.setText(str(value))

@@ -7,20 +7,16 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 from src.album.album_art_worker import CoverEmbedWorker
 from src.foundation.logger_config import logger
 from src.image.artwork_cache import all_album_tracks, get_artwork_cache
-from src.metadata.metadata_artwork import ArtworkExtractor
 
 
 class AlbumCoverArtMixin:
     """
-    Cover art loading/picking/saving/clearing, plus the Wikipedia image
-    import path that feeds into the same save routine, for AlbumEditor.
+    Cover art loading/picking/saving/clearing for AlbumEditor.
 
     Expects the host class to provide: self.album, self.controller,
     self._config, self._metadata_writer, self.cover_label, self.desc_widget,
     self.field_widgets, and to be a QWidget subclass.
     """
-
-    _EMBEDDABLE_EXTENSIONS = ArtworkExtractor.SUPPORTED_EXTENSIONS
 
     # =========================================================================
     # Cover art — loading helpers
@@ -98,8 +94,8 @@ class AlbumCoverArtMixin:
         try:
             self._config.set_last_art_dir(str(Path(path).parent))
             self._config.save()
-        except AttributeError:
-            pass
+        except (AttributeError, OSError) as e:
+            logger.warning(f"Failed to save last-used art directory: {e}")
 
         try:
             image_bytes = Path(path).read_bytes()
@@ -115,10 +111,10 @@ class AlbumCoverArtMixin:
     # =========================================================================
 
     def _start_cover_embed(self, cover_type: str, image_bytes):
-        """Embed `image_bytes` (or strip, when None) into every track and
-        warm the cache on a background thread, so the editor stays
-        responsive while mutagen rewrites a dozen FLAC files. The Artwork
-        tab / header preview is refreshed in _on_cover_embed_done."""
+        """Embed `image_bytes` (or strip artwork, when None) into every track, off the UI thread."""
+        # Runs off the UI thread so the editor stays responsive while
+        # mutagen rewrites a dozen FLAC files. The Artwork tab / header
+        # preview is refreshed in _on_cover_embed_done.
         worker = getattr(self, "_cover_embed_worker", None)
         if worker is not None and worker.isRunning():
             return  # an embed/clear is already in flight; controls are disabled
@@ -159,6 +155,7 @@ class AlbumCoverArtMixin:
         self._cover_embed_worker = None
 
     def _on_cover_embed_done(self, cover_type, image_bytes, failed, dims):
+        """Handle a finished cover embed: refresh previews and report any per-track failures."""
         self._finish_cover_embed()
         self._warn_if_embed_failures(cover_type, failed)
 
@@ -188,6 +185,7 @@ class AlbumCoverArtMixin:
             self._load_album_cover()
 
     def _on_cover_embed_error(self, cover_type, message):
+        """Report a failed cover embed/clear and restore the previous artwork state."""
         self._finish_cover_embed()
         logger.error(f"Error saving {cover_type} cover: {message}")
         QMessageBox.critical(self, "Error", f"Could not save cover art:\n{message}")
@@ -195,6 +193,7 @@ class AlbumCoverArtMixin:
         self._load_artwork_previews()
 
     def _set_cover_controls_enabled(self, enabled: bool):
+        """Enable/disable the cover pick/clear buttons and dialog buttons during an embed."""
         for btn in getattr(self, "_cover_buttons", ()):
             btn.setEnabled(enabled)
         # Also gate Save/Cancel so the dialog can't be dismissed mid-embed.
@@ -220,6 +219,7 @@ class AlbumCoverArtMixin:
         self._cover_embed_worker = None
 
     def _warn_if_embed_failures(self, cover_type: str, failed_paths):
+        """Show a warning dialog listing any track files the embed failed to write."""
         if not failed_paths:
             return
         preview = "\n".join(failed_paths[:10])

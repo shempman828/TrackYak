@@ -53,7 +53,7 @@ class RelationshipHelpers:
                 }
             ],
             title="Add Publisher",
-            parent=None,
+            parent=self.widget,
         )
 
         if not result or not result["publisher_name"]:
@@ -68,6 +68,9 @@ class RelationshipHelpers:
                 publisher = self.controller.add.add_entity(
                     "Publisher", publisher_name=publisher_name
                 )
+            if not publisher:
+                QMessageBox.critical(self.widget, "Error", "Failed to add publisher.")
+                return
 
             self.controller.add.add_entity(
                 "AlbumPublisher", publisher_id=publisher.publisher_id, album_id=self.album.album_id
@@ -78,24 +81,21 @@ class RelationshipHelpers:
 
         except SQLAlchemyError as e:
             logger.exception("Failed to add publisher")
-            QMessageBox.critical(None, "Error", f"Failed to add publisher: {e!s}")
+            QMessageBox.critical(self.widget, "Error", f"Failed to add publisher: {e!s}")
 
     def remove_publisher(self, album_publisher):
-        """Remove a publisher from the album using the association object.
-
-        FIX: AlbumPublisher uses a composite primary key (album_id + publisher_id)
-        with no separate album_publisher_id column.  We must delete by filters
-        rather than by a single integer ID.
-        """
-        try:
-            self.controller.delete.delete_entity(
-                "AlbumPublisher",
-                album_id=album_publisher.album_id,
-                publisher_id=album_publisher.publisher_id,
-            )
-            self.show_updated_view()
-        except SQLAlchemyError as e:
-            QMessageBox.critical(None, "Error", f"Failed to remove publisher: {e!s}")
+        """Remove a publisher from the album using the association object."""
+        # AlbumPublisher uses a composite primary key (album_id + publisher_id)
+        # with no separate album_publisher_id column, so delete by filters.
+        ok = self.controller.delete.delete_entity(
+            "AlbumPublisher",
+            album_id=album_publisher.album_id,
+            publisher_id=album_publisher.publisher_id,
+        )
+        if not ok:
+            QMessageBox.critical(self.widget, "Error", "Failed to remove publisher.")
+            return
+        self.show_updated_view()
 
     # =========================================================================
     # Artist credit management
@@ -104,22 +104,25 @@ class RelationshipHelpers:
     def add_artist_credit(
         self, artist_names, role_names, matched_artist_id=None, matched_role_id=None
     ):
-        """Add a new artist credit with one or more roles to the album.
-
-        `artist_names`/`role_names` come from the inline entity-completer row
-        in the Artists tab (album_tab.py) rather than a popup dialog -- both
-        are already split on the completer's multi-entity delimiter (e.g.
-        "Deakin;Panda Bear" + "Producer;Mixer" -> every artist gets every
-        role). `matched_artist_id`/`matched_role_id`, when set, skip the
-        name lookup entirely -- the user picked an existing artist/role from
-        the completer (they only apply when exactly one name was typed for
-        that field).
-        """
+        """Add a new artist credit with one or more roles to the album."""
+        # artist_names/role_names come from the inline entity-completer row
+        # in the Artists tab (album_tab.py), already split on the
+        # completer's multi-entity delimiter (e.g. "Deakin;Panda Bear" +
+        # "Producer;Mixer" -> every artist gets every role).
+        # matched_artist_id/matched_role_id, when set, skip the name lookup
+        # entirely -- the user picked an existing artist/role from the
+        # completer -- but that's only valid when exactly one name was
+        # typed for that field; enforce the precondition here rather than
+        # trusting every caller to check it.
         artist_names = [name.strip() for name in artist_names if name.strip()]
         role_names = [name.strip() for name in role_names if name.strip()]
         if not artist_names or not role_names:
             show_status_message(self.widget, "Both artist and role are required.")
             return
+        if len(artist_names) != 1:
+            matched_artist_id = None
+        if len(role_names) != 1:
+            matched_role_id = None
 
         try:
             artists = []
@@ -185,24 +188,22 @@ class RelationshipHelpers:
 
         except SQLAlchemyError as e:
             logger.exception("Failed to add artist credit")
-            QMessageBox.critical(None, "Error", f"Failed to add artist credit: {e!s}")
+            QMessageBox.critical(self.widget, "Error", f"Failed to add artist credit: {e!s}")
 
     def remove_artist_credit(self, role_assoc):
         """Remove an artist credit from the album."""
-        try:
-            self.controller.delete.delete_entity("AlbumRoleAssociation", role_assoc.association_id)
-            self.show_updated_view()
-        except SQLAlchemyError as e:
-            QMessageBox.critical(None, "Error", f"Failed to remove artist credit: {e!s}")
+        ok = self.controller.delete.delete_entity("AlbumRoleAssociation", role_assoc.association_id)
+        if not ok:
+            QMessageBox.critical(self.widget, "Error", "Failed to remove artist credit.")
+            return
+        self.show_updated_view()
 
     def convert_credit_to_per_track(self, role_assoc):
-        """Swap an album-level artist credit to a per-track credit.
-
-        Adds the same artist/role/credited_alias to every track on the
-        album (one batched insert) and removes the album-level credit.
-        Tracks that already carry this exact artist/role credit are
-        skipped by add_entities rather than causing a failure.
-        """
+        """Swap an album-level artist credit to a per-track credit."""
+        # Adds the same artist/role/credited_alias to every track on the
+        # album (one batched insert) and removes the album-level credit.
+        # Tracks that already carry this exact artist/role credit are
+        # skipped by add_entities rather than causing a failure.
         if not role_assoc.artist or not role_assoc.role:
             return
 
@@ -226,18 +227,18 @@ class RelationshipHelpers:
             self.show_updated_view()
         except SQLAlchemyError as e:
             logger.exception("Failed to convert credit to per-track")
-            QMessageBox.critical(None, "Error", f"Failed to convert credit to per-track: {e!s}")
+            QMessageBox.critical(
+                self.widget, "Error", f"Failed to convert credit to per-track: {e!s}"
+            )
 
     def convert_credit_to_album_level(self, artist_id, role_id):
-        """Swap a credit that's on every one of the album's tracks to a
-        single album-level credit instead. Mirror of
-        convert_credit_to_per_track, run in the opposite direction.
-
-        Only meant to be called for an (artist_id, role_id) pair the caller
-        has already confirmed is present on every track -- the Track
-        Credits tab's RolesTab only ever shows the intersection across all
-        of the album's tracks, so any credit it renders already qualifies.
-        """
+        """Swap a credit shared by every track to a single album-level credit."""
+        # Mirror of convert_credit_to_per_track, run in the opposite
+        # direction. Only meant to be called for an (artist_id, role_id)
+        # pair the caller has already confirmed is present on every track --
+        # the Track Credits tab's RolesTab only ever shows the intersection
+        # across all of the album's tracks, so any credit it renders
+        # already qualifies.
         already_album_level = any(
             ra.artist_id == artist_id and ra.role_id == role_id for ra in self.album.album_roles
         )
@@ -273,7 +274,9 @@ class RelationshipHelpers:
                 credited_alias_id=credited_alias_id,
             )
             if new_assoc is None:
-                QMessageBox.critical(None, "Error", "Failed to create the album-level credit.")
+                QMessageBox.critical(
+                    self.widget, "Error", "Failed to create the album-level credit."
+                )
                 return
 
             self.controller.delete.delete_entity(
@@ -285,27 +288,32 @@ class RelationshipHelpers:
             self.show_updated_view()
         except SQLAlchemyError as e:
             logger.exception("Failed to convert credit to album-level")
-            QMessageBox.critical(None, "Error", f"Failed to convert credit to album-level: {e!s}")
+            QMessageBox.critical(
+                self.widget, "Error", f"Failed to convert credit to album-level: {e!s}"
+            )
 
     def move_artist_credit(self, role_assoc, direction: int):
-        """Move an artist credit up (-1) or down (+1) within its role group.
-
-        Legacy rows all default to sort_order 0, so a plain swap between two
-        tied values would be a no-op. Siblings are renumbered to distinct,
-        sequential values (in their current effective order) before the swap,
-        which makes the very first move on a legacy album meaningful too.
-        """
+        """Move an artist credit up (-1) or down (+1) within its role group."""
+        # Legacy rows all default to sort_order 0, so a plain swap between two
+        # tied values would be a no-op. Siblings are renumbered to distinct,
+        # sequential values (in their current effective order) before the swap,
+        # which makes the very first move on a legacy album meaningful too.
         siblings = sorted(
             (ra for ra in self.album.album_roles if ra.role_id == role_assoc.role_id),
             key=lambda ra: (ra.sort_order, ra.association_id),
         )
 
+        if role_assoc not in siblings:
+            return  # Stale reference -- e.g. concurrently deleted.
+
         for position, ra in enumerate(siblings):
             if ra.sort_order != position:
                 ra.sort_order = position
-                self.controller.update.update_entity(
+                if not self.controller.update.update_entity(
                     "AlbumRoleAssociation", ra.association_id, sort_order=position
-                )
+                ):
+                    QMessageBox.critical(self.widget, "Error", "Failed to reorder credits.")
+                    return
 
         idx = siblings.index(role_assoc)
         new_idx = idx + direction
@@ -314,28 +322,30 @@ class RelationshipHelpers:
 
         other = siblings[new_idx]
         role_assoc.sort_order, other.sort_order = (other.sort_order, role_assoc.sort_order)
-        self.controller.update.update_entity(
+        ok = self.controller.update.update_entity(
             "AlbumRoleAssociation", role_assoc.association_id, sort_order=role_assoc.sort_order
         )
-        self.controller.update.update_entity(
-            "AlbumRoleAssociation", other.association_id, sort_order=other.sort_order
+        ok = (
+            self.controller.update.update_entity(
+                "AlbumRoleAssociation", other.association_id, sort_order=other.sort_order
+            )
+            and ok
         )
+        if not ok:
+            QMessageBox.critical(self.widget, "Error", "Failed to move credit.")
+            return
 
         self.show_updated_view()
 
     def _prompt_credited_alias(self, artist, current_alias_id=None):
-        """Show the alias picker for `artist` if they have any aliases on
-        file. Returns ``(accepted, alias_id)``: ``accepted`` is False only
-        when the user dismissed the dialog (Cancel/Esc), and the caller must
-        then abort rather than fall back to the canonical name. When the
-        artist has no aliases the dialog is skipped and
-        ``(True, current_alias_id)`` is returned. On accept, ``alias_id`` is
-        the chosen alias_id, or None for the canonical name."""
+        """Show the alias picker for `artist`, if they have any aliases on file."""
         aliases = self.controller.get.get_all_entities("ArtistAlias", artist_id=artist.artist_id)
         if not aliases:
             return True, current_alias_id
 
-        dialog = CreditedAsDialog(artist, aliases, current_alias_id=current_alias_id, parent=None)
+        dialog = CreditedAsDialog(
+            artist, aliases, current_alias_id=current_alias_id, parent=self.widget
+        )
         if dialog.exec() == QDialog.Accepted:
             return True, dialog.selected_alias_id()
         return False, current_alias_id
@@ -344,20 +354,18 @@ class RelationshipHelpers:
         """Change which name (canonical or alias) an existing credit shows."""
         if not role_assoc.artist:
             return
-        try:
-            accepted, credited_alias_id = self._prompt_credited_alias(
-                role_assoc.artist, current_alias_id=role_assoc.credited_alias_id
-            )
-            if not accepted:
-                return
-            self.controller.update.update_entity(
-                "AlbumRoleAssociation",
-                role_assoc.association_id,
-                credited_alias_id=credited_alias_id,
-            )
-            self.show_updated_view()
-        except SQLAlchemyError as e:
-            QMessageBox.critical(None, "Error", f"Failed to update credited name: {e!s}")
+        accepted, credited_alias_id = self._prompt_credited_alias(
+            role_assoc.artist, current_alias_id=role_assoc.credited_alias_id
+        )
+        if not accepted:
+            return
+        ok = self.controller.update.update_entity(
+            "AlbumRoleAssociation", role_assoc.association_id, credited_alias_id=credited_alias_id
+        )
+        if not ok:
+            QMessageBox.critical(self.widget, "Error", "Failed to update credited name.")
+            return
+        self.show_updated_view()
 
     # =========================================================================
     # Place management
@@ -386,7 +394,7 @@ class RelationshipHelpers:
                 },
             ],
             title="Add Place Association",
-            parent=None,
+            parent=self.widget,
         )
 
         if not result or not result["place_name"]:
@@ -397,6 +405,9 @@ class RelationshipHelpers:
             place = self.controller.get.get_entity_object("Place", place_name=result["place_name"])
             if not place:
                 place = self.controller.add.add_entity("Place", place_name=result["place_name"])
+            if not place:
+                QMessageBox.critical(self.widget, "Error", "Failed to add place.")
+                return
 
             assoc_type_obj = find_or_create_association_type(
                 self.controller, result["association_type"], known_types
@@ -414,15 +425,15 @@ class RelationshipHelpers:
 
         except SQLAlchemyError as e:
             logger.exception("Failed to add place")
-            QMessageBox.critical(None, "Error", f"Failed to add place: {e!s}")
+            QMessageBox.critical(self.widget, "Error", f"Failed to add place: {e!s}")
 
     def remove_place(self, association):
         """Remove a place association from the album."""
-        try:
-            self.controller.delete.delete_entity("PlaceAssociation", association.association_id)
-            self.show_updated_view()
-        except SQLAlchemyError as e:
-            QMessageBox.critical(None, "Error", f"Failed to remove place association: {e!s}")
+        ok = self.controller.delete.delete_entity("PlaceAssociation", association.association_id)
+        if not ok:
+            QMessageBox.critical(self.widget, "Error", "Failed to remove place association.")
+            return
+        self.show_updated_view()
 
     # =========================================================================
     # Award management
@@ -443,7 +454,7 @@ class RelationshipHelpers:
                 }
             ],
             title="Add Award",
-            parent=None,
+            parent=self.widget,
         )
 
         if not result or not result["award_name"]:
@@ -453,6 +464,9 @@ class RelationshipHelpers:
             award = self.controller.get.get_entity_object("Award", award_name=result["award_name"])
             if not award:
                 award = self.controller.add.add_entity("Award", award_name=result["award_name"])
+            if not award:
+                QMessageBox.critical(self.widget, "Error", "Failed to add award.")
+                return
 
             self.controller.add.add_entity(
                 "AwardAssociation",
@@ -465,20 +479,20 @@ class RelationshipHelpers:
 
         except SQLAlchemyError as e:
             logger.exception("Failed to add award")
-            QMessageBox.critical(None, "Error", f"Failed to add award: {e!s}")
+            QMessageBox.critical(self.widget, "Error", f"Failed to add award: {e!s}")
 
     def remove_album_award_association(self, award):
         """Remove an award from the album."""
-        try:
-            self.controller.delete.delete_entity(
-                "AwardAssociation",
-                entity_id=self.album.album_id,
-                entity_type="Album",
-                award_id=award.award_id,
-            )
-            self.show_updated_view()
-        except SQLAlchemyError as e:
-            QMessageBox.critical(None, "Error", f"Failed to remove award: {e!s}")
+        ok = self.controller.delete.delete_entity(
+            "AwardAssociation",
+            entity_id=self.album.album_id,
+            entity_type="Album",
+            award_id=award.award_id,
+        )
+        if not ok:
+            QMessageBox.critical(self.widget, "Error", "Failed to remove award.")
+            return
+        self.show_updated_view()
 
     # =========================================================================
     # Helpers
@@ -500,15 +514,7 @@ class RelationshipHelpers:
 
 
 class AutocompleteDialog:
-    """Reusable dialog with autocomplete fields.
-
-    Call signature for get_inputs:
-        get_inputs(field_configs, title="", parent=None)
-
-    Previous code was passing title and parent as positional args 2 and 3,
-    but the old method signature only accepted (field_configs, existing_data=None).
-    This has been corrected — title and parent are now proper named parameters.
-    """
+    """Reusable dialog with autocomplete fields."""
 
     @staticmethod
     def get_inputs(field_configs, title="", parent=None):
@@ -586,6 +592,7 @@ class AutocompleteDialog:
 
     @staticmethod
     def _get_widget_value(widget):
+        """Read the current value out of a field widget built by get_inputs."""
         if isinstance(widget, QLineEdit):
             return widget.text().strip()
         if isinstance(widget, QTextEdit):

@@ -1,5 +1,7 @@
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 import re
+from typing import ClassVar
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -78,19 +80,15 @@ def _volume_number(text: str):
 
 
 def _name_similarity(a: str, b: str) -> float:
-    """
-    Substring-aware similarity between two strings.
-
-    Uses SequenceMatcher as the base score but boosts when one name is
-    contained within the other (handles 'Swings with Billy Mays' vs
-    'Frank Sinatra Swings with Billy Mays'). Edition/soundtrack tags
-    ('(Remastered)', '(Original Motion Picture Soundtrack)', ...) are
-    stripped before comparing so shared boilerplate doesn't inflate the
-    score of otherwise-unrelated albums, and titles that are identical
-    once such a tag is removed are treated as a near-certain match.
-    Differing volume/part/disc numbers cap the score, since those mark
-    distinct entries in a series rather than duplicates.
-    """
+    """Substring-aware similarity between two strings, edition-tag- and volume-number-aware."""
+    # Uses SequenceMatcher as the base score but boosts when one name is
+    # contained within the other (handles 'Swings with Billy Mays' vs
+    # 'Frank Sinatra Swings with Billy Mays'). Edition/soundtrack tags are
+    # stripped before comparing so shared boilerplate doesn't inflate the
+    # score of otherwise-unrelated albums, and titles identical once such a
+    # tag is removed are treated as a near-certain match. Differing
+    # volume/part/disc numbers cap the score, since those mark distinct
+    # entries in a series rather than duplicates.
     if not a or not b:
         return 0.0
     al, bl = a.lower().strip(), b.lower().strip()
@@ -164,13 +162,9 @@ def _year_score(y1, y2) -> float:
 
 
 def score_pair(album_a, album_b) -> float:
-    """
-    Overall duplicate likelihood score in [0, 1].
-
-    Weights: album name 60 %, artist 30 %, year 10 %.
-    Artist/year weights are intentionally soft so name similarity
-    drives most decisions.
-    """
+    """Overall duplicate likelihood score in [0, 1]."""
+    # Weights: album name 60%, artist 30%, year 10% -- artist/year are
+    # intentionally soft so name similarity drives most decisions.
     name_s = _name_similarity(
         getattr(album_a, "album_name", "") or "", getattr(album_b, "album_name", "") or ""
     )
@@ -189,24 +183,38 @@ def score_pair(album_a, album_b) -> float:
 # ---------------------------------------------------------------------------
 
 
-class _DuplicateScanner(CancellableWorker):
-    """
-    Finds candidate duplicate pairs above a given threshold.
+@dataclass(frozen=True)
+class _AlbumSnapshot:
+    """Plain scalar copy of the Album fields score_pair/_bucket_key need.
 
-    Bucketing strategy: group albums by the first significant token of
-    album_name (lowercased, punctuation stripped).  Only albums in the same
-    bucket are compared, keeping complexity well below O(n²) in practice.
-    Albums whose first token is a short stop-word ('a', 'an', 'the') fall
-    back to their second token.  Albums with no usable token go into a single
-    catch-all bucket that is compared exhaustively (usually tiny).
+    _DuplicateScanner reads these from its own background thread; handing it
+    live ORM objects instead would mean two threads sharing one SQLAlchemy
+    Session (the main thread's) the moment it touched an attribute.
     """
+
+    album_id: int
+    album_name: str
+    album_artist_names: str
+    release_year: int | None
+
+
+class _DuplicateScanner(CancellableWorker):
+    """Finds candidate duplicate album pairs above a threshold, comparing _AlbumSnapshots."""
+
+    # Bucketing strategy: group albums by the first significant token of
+    # album_name (lowercased, punctuation and edition tags stripped). Only
+    # albums in the same bucket are compared, keeping complexity well below
+    # O(n^2) in practice. Albums whose first token is a short stop-word
+    # ('a', 'an', 'the') fall back to their second token. Albums with no
+    # usable token go into a single catch-all bucket that is compared
+    # exhaustively (usually tiny).
 
     progress = Signal(int)  # 0-100
-    finished = Signal(list)  # list of (album_a, album_b, score)
+    finished = Signal(list)  # list of (_AlbumSnapshot, _AlbumSnapshot, score)
 
-    _STOPWORDS = {"a", "an", "the"}
+    _STOPWORDS: ClassVar[set[str]] = {"a", "an", "the"}
 
-    def __init__(self, albums, threshold: float, parent=None):
+    def __init__(self, albums: list[_AlbumSnapshot], threshold: float, parent=None):
         super().__init__(parent)
         self.albums = albums
         self.threshold = threshold
@@ -216,6 +224,23 @@ class _DuplicateScanner(CancellableWorker):
         self.request_cancel()
 
     def run(self):
+        try:
+            results = self._scan()
+        except Exception:
+            # Broad boundary catch: this runs on a background thread, so an
+            # unexpected error (e.g. a non-numeric release_year blowing up
+            # _year_score's int() call) would otherwise kill the thread
+            # silently, leaving the dialog stuck on "Scanning..." forever.
+            logger.exception("Duplicate album scan failed")
+            self.finished.emit([])
+            return
+
+        if self.is_cancelled:
+            return
+        results.sort(key=lambda x: x[2], reverse=True)
+        self.finished.emit(results)
+
+    def _scan(self):
         albums = self.albums
         threshold = self.threshold
         results = []
@@ -240,13 +265,20 @@ class _DuplicateScanner(CancellableWorker):
                         results.append((bucket[i], bucket[j], s))
             self.progress.emit(int((idx + 1) / max(total, 1) * 100))
 
-        results.sort(key=lambda x: x[2], reverse=True)
-        self.finished.emit(results)
+        return results
 
     def _bucket_key(self, name: str) -> str:
-        tokens = list(_tokenset(name))  # already lowercased
-        # prefer the first non-stopword token
-        for tok in sorted(tokens, key=len, reverse=True):
+        # Strip edition tags first so e.g. "Abbey Road" and "Abbey Road
+        # (Deluxe Edition)" land in the same bucket and actually get
+        # compared -- _name_similarity is specifically built to score that
+        # pair as a near-certain match, but only if they reach the same
+        # bucket in the first place.
+        core = _strip_edition_tags(name)
+        # Tokenize in original word order (not _tokenset's unordered set) so
+        # "prefer the first token" means the literal first word, not
+        # whichever token happens to sort first.
+        tokens = re.sub(r"[^\w\s]", " ", core.lower()).split()
+        for tok in tokens:
             if tok not in self._STOPWORDS and len(tok) > 1:
                 return tok[:4]  # first 4 chars keeps buckets coarse
         return tokens[0][:4] if tokens else "__none__"
@@ -276,6 +308,7 @@ class AlbumMergeList(QDialog):
         self.controller = controller
         self._pairs: list[tuple] = []  # (album_a, album_b, score)
         self._scanner: _DuplicateScanner | None = None
+        self._albums_by_id: dict[int, object] = {}
 
         self.setWindowTitle("Find Duplicate Albums")
         self.resize(1000, 620)
@@ -319,7 +352,7 @@ class AlbumMergeList(QDialog):
 
         # --- Results table ---
         self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(["", "Album A", "Match", "Album B"])
+        self._table.setHorizontalHeaderLabels(["Merge?", "Album A", "Match", "Album B"])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -360,9 +393,19 @@ class AlbumMergeList(QDialog):
         self._threshold_label.setText(f"{value} %")
 
     def _start_scan(self):
-        if self._scanner and self._scanner.isRunning():
-            self._scanner.stop()
-            self._scanner.wait()
+        if self._scanner is not None:
+            # Disconnect the outgoing scanner's signals before replacing it,
+            # so a cancel-then-rescan can't have the old scanner's deferred
+            # `finished(partial_results)` land after the new scan starts and
+            # overwrite its results.
+            try:
+                self._scanner.progress.disconnect(self._progress.setValue)
+                self._scanner.finished.disconnect(self._on_scan_finished)
+            except (RuntimeError, TypeError):
+                pass
+            if self._scanner.isRunning():
+                self._scanner.stop()
+                self._scanner.wait()
 
         threshold = self._slider.value() / 100.0
 
@@ -373,6 +416,17 @@ class AlbumMergeList(QDialog):
             QMessageBox.critical(self, "Error", f"Could not load albums:\n{e}")
             return
 
+        self._albums_by_id = {a.album_id: a for a in albums}
+        snapshots = [
+            _AlbumSnapshot(
+                album_id=a.album_id,
+                album_name=a.album_name or "",
+                album_artist_names=getattr(a, "album_artist_names", "") or "",
+                release_year=getattr(a, "release_year", None),
+            )
+            for a in albums
+        ]
+
         self._table.setRowCount(0)
         self._pairs.clear()
         self._next_btn.setEnabled(False)
@@ -382,14 +436,22 @@ class AlbumMergeList(QDialog):
         self._progress.show()
         self._status_label.setText("Scanning…")
 
-        self._scanner = _DuplicateScanner(albums, threshold, parent=self)
+        self._scanner = _DuplicateScanner(snapshots, threshold, parent=self)
         self._scanner.progress.connect(self._progress.setValue)
         self._scanner.finished.connect(self._on_scan_finished)
         self._scanner.start()
 
-    def _on_scan_finished(self, pairs):
+    def _on_scan_finished(self, snapshot_pairs):
         self._progress.hide()
         self._scan_btn.setEnabled(True)
+
+        # Map snapshots back to the real (main-thread) Album ORM objects the
+        # rest of this dialog and the merge flow operate on.
+        pairs = [
+            (self._albums_by_id[sa.album_id], self._albums_by_id[sb.album_id], score)
+            for sa, sb, score in snapshot_pairs
+            if sa.album_id in self._albums_by_id and sb.album_id in self._albums_by_id
+        ]
         self._pairs = pairs
 
         if not pairs:
@@ -413,7 +475,7 @@ class AlbumMergeList(QDialog):
             chk_layout.addWidget(chk)
             chk_layout.setAlignment(Qt.AlignCenter)
             chk_layout.setContentsMargins(0, 0, 0, 0)
-            chk.stateChanged.connect(self._update_next_btn)
+            chk.checkStateChanged.connect(self._update_next_btn)
             self._table.setCellWidget(row, self._COL_CHECK, chk_widget)
 
             # Left album
@@ -496,10 +558,28 @@ class AlbumMergeList(QDialog):
 
     def _run_queue(self, pairs: list[tuple]):
         """Open AlbumMergeDialog for each pair in sequence, then close."""
-        for album_a, album_b in pairs:
+        total = len(pairs)
+        for idx, (album_a, album_b) in enumerate(pairs, start=1):
+            # An earlier merge in this queue may have already deleted one of
+            # these albums (e.g. the same album is a high-scoring duplicate
+            # of two different albums) -- re-check both still exist before
+            # opening the dialog on a stale/deleted ORM object.
+            try:
+                still_a = self.controller.get.get_entity_object("Album", album_id=album_a.album_id)
+                still_b = self.controller.get.get_entity_object("Album", album_id=album_b.album_id)
+            except SQLAlchemyError as e:
+                logger.error(f"Error re-checking merge pair before dialog: {e}")
+                continue
+            if not still_a or not still_b:
+                self._status_label.setText(
+                    f"Skipped a pair -- one album was already merged/deleted ({idx} of {total})."
+                )
+                continue
+
             dlg = AlbumMergeDialog(
-                self.controller, preload_source=album_a, preload_target=album_b, parent=self
+                self.controller, preload_source=still_a, preload_target=still_b, parent=self
             )
+            dlg.setWindowTitle(f"Merge Duplicate Albums ({idx} of {total})")
             # accept() or reject() both just advance to next pair
             dlg.exec()
 
@@ -570,19 +650,7 @@ class AlbumMergeDialog(MergeDBDialog):
 
 
 class AlbumMerge:
-    """
-    Entry point for all album merge operations.
-
-    Usage
-    -----
-    engine = AlbumMerge(controller)
-
-    # Open dialog with one known album pre-loaded as source:
-    engine.merge_known(album, parent=some_widget)
-
-    # Open the duplicate-finder list:
-    engine.open_list(parent=some_widget)
-    """
+    """Entry point for album merge operations: merge a known pair or open the duplicate finder."""
 
     def __init__(self, controller):
         self.controller = controller

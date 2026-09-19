@@ -1,17 +1,12 @@
-"""
-album_musicbrainz_review_import.py
-
-Write-phase helpers for AlbumMusicBrainzReviewDialog -- module-level
-functions (not dialog methods) so both the has_content=False synchronous
-path (AlbumMusicBrainzReviewDialog.apply_immediate_scalars, called directly
-on the UI thread when there's nothing to review) and _ReviewAcceptWorker
-(the has_content=True path, backgrounded because resolving/writing many
-credits synchronously froze the UI long enough to trigger the OS "not
-responding" prompt) share one implementation. Every function here takes
-`controller` explicitly rather than reading `self.controller`, so it works
-the same whether it's called from the main thread or from
-_ReviewAcceptWorker's background thread.
-"""
+"""Write-phase helpers for AlbumMusicBrainzReviewDialog, shared by the sync and worker accept paths."""
+# Module-level functions (not dialog methods) so both the has_content=False
+# synchronous path (AlbumMusicBrainzReviewDialog.apply_immediate_scalars,
+# called directly on the UI thread when there's nothing to review) and
+# _ReviewAcceptWorker (the has_content=True path, backgrounded because
+# resolving/writing many credits synchronously froze the UI long enough to
+# trigger the OS "not responding" prompt) share one implementation. Every
+# function here takes `controller` explicitly rather than reading
+# `self.controller`, so it works the same on either thread.
 
 from __future__ import annotations
 
@@ -20,6 +15,7 @@ from typing import Any
 from PySide6.QtCore import Signal
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.album.album_musicbrainz_track_matching import AlbumMusicBrainzTrackMatchingMixin
 from src.award.award_series_import import import_awards_for_entity
 from src.common.cancellable_worker import CancellableWorker
 from src.common.entity_completer_edit import find_or_create_by_name
@@ -35,6 +31,7 @@ from src.publisher.publisher_musicbrainz_import import import_album_labels
 
 
 def _format_mb_track_label(mbt: MBReleaseTrack) -> str:
+    """Format an MB track's disc/side/number/title for display."""
     side = f"Side {mbt.side}, " if mbt.side else ""
     return f"Disc {mbt.disc_number}, {side}Track {mbt.track_number or '?'}: {mbt.title}"
 
@@ -46,6 +43,11 @@ def _plan_discs(controller, album, detail: MBReleaseDetail):
     rows_by_number: dict[int, dict] = {}
     for mbt in detail.tracks:
         num = mbt.disc_number
+        if not num:
+            # MB parsing defaults disc_number to 0/None for a medium with no
+            # position -- fall back to disc 1 rather than creating an
+            # orphaned "Disc 0" no local track will ever be grouped under.
+            num = 1
         if num in disc_by_number or num in rows_by_number:
             continue
         disc = existing_by_number.get(num)
@@ -73,15 +75,13 @@ def _plan_discs(controller, album, detail: MBReleaseDetail):
 def _track_scalar_update(
     track, mbt: MBReleaseTrack, disc_by_number: dict, barcode: str | None, *, force: bool = False
 ) -> dict | None:
-    """force=True is for manual matches: the user just told us this MB
-    track *is* this local track even though their track_number/side
-    disagreed (that disagreement is exactly why it needed a manual
-    match), so MB's values should win rather than only filling blanks.
-
-    Returns the update dict (including track_id) for
-    update_entities_bulk_with_fallback, or None if there's nothing to
-    change -- this is pure computation, no DB write, so callers can
-    gather every track's update and apply them all in a single batch."""
+    """Compute the scalar-field update dict for a matched track, or None if nothing changed."""
+    # force=True is for manual matches: the user just told us this MB track
+    # *is* this local track even though their track_number/side disagreed
+    # (that disagreement is exactly why it needed a manual match), so MB's
+    # values should win rather than only filling blanks. This is pure
+    # computation, no DB write, so callers can gather every track's update
+    # and apply them all in a single batch via update_entities_bulk_with_fallback.
     kwargs = {}
     # mbt.side present means the local album is being reorganized into
     # vinyl sides -- a locally flat/absolute track_number (e.g. 9) is
@@ -99,20 +99,26 @@ def _track_scalar_update(
     if mbt.side and (force or renumbering_by_side or not track.side):
         kwargs["side"] = mbt.side
     # A manual match means the user just confirmed these are the same
-    # recording, whatever their titles look like -- no fuzzy gate
-    # needed, that confirmation is the gate. An auto-match already
-    # passed _position_match_confirmed's title-similarity floor (or the
-    # local track had no name at all), so it's equally trustworthy here.
-    # Either way, take MB's title as the corrected one whenever it isn't
-    # already what's stored locally -- covers both small discrepancies
-    # (e.g. "Layin'" vs "Laying") and a locally-truncated "Good
-    # Riddance" becoming "Good Riddance (Time of Your Life)".
-    if mbt.title and mbt.title.strip().lower() != (track.track_name or "").strip().lower():
+    # recording, whatever their titles look like -- no fuzzy gate needed,
+    # that confirmation is the gate. For a non-forced (auto) match, only
+    # correct the title when it's a near-miss (SequenceMatcher ratio, same
+    # metric AlbumMusicBrainzTrackMatchingMixin uses for match scoring) --
+    # a bigger difference is more likely two genuinely different titles
+    # than a typo, and overwriting it would silently drop a deliberately-
+    # kept qualifier like a local "[Live]" suffix.
+    local_title = (track.track_name or "").strip().lower()
+    mb_title = mbt.title.strip().lower() if mbt.title else ""
+    near_miss = (
+        not local_title  # nothing local to disagree with -- fill blank
+        or AlbumMusicBrainzTrackMatchingMixin._title_similarity(mb_title, local_title) >= 0.5
+    )
+    if mb_title and mb_title != local_title and (force or near_miss):
         kwargs["track_name"] = mbt.title
     if not track.track_barcode and barcode:
         kwargs["track_barcode"] = barcode
     if track.disc_id is None:
-        disc = disc_by_number.get(mbt.disc_number)
+        # _plan_discs normalizes a falsy disc_number (0/None) to 1.
+        disc = disc_by_number.get(mbt.disc_number or 1)
         if disc is not None:
             kwargs["disc_id"] = disc.disc_id
     if not kwargs:
@@ -122,6 +128,7 @@ def _track_scalar_update(
 
 
 def _batch_update_tracks(controller, updates: list[dict]) -> list[str]:
+    """Bulk-apply track scalar updates, returning human-readable failures."""
     if not updates:
         return []
     _, failed = controller.update.update_entities_bulk_with_fallback("Track", updates)
@@ -129,11 +136,11 @@ def _batch_update_tracks(controller, updates: list[dict]) -> list[str]:
 
 
 def _resolve_artists(controller, credit) -> list[Any]:
-    """Every Artist this credit's artist name resolves to. A name that was
-    previously split into 2+ artists (see SplitDB._record_split_alias)
-    resolves to that same ordered list instead of the single find-or-
-    create path recreating/reusing one combined Artist -- see
-    docs/specs/split_and_merge_aliases.md."""
+    """Resolve every Artist this credit's name maps to (usually one, more if split-aliased)."""
+    # A name previously split into 2+ artists (see SplitDB._record_split_alias)
+    # resolves to that same ordered list instead of the single find-or-create
+    # path recreating/reusing one combined Artist -- see
+    # docs/specs/split_and_merge_aliases.md.
     split_targets = controller.get.resolve_split_alias("Artist", credit.artist_name)
     if split_targets:
         return split_targets
@@ -200,16 +207,15 @@ def _resolve_artist(controller, credit) -> Any | None:
 
 
 def _resolve_roles_for_credit(controller, role_name: str, known_roles: list[Any]) -> list[Any]:
-    """Every Role this credit's role name resolves to. A name that was
-    previously split into 2+ roles (see SplitDB._record_split_alias)
-    resolves to that same ordered list instead of find_or_create_by_name
-    recreating/reusing one combined Role -- see
-    docs/specs/split_and_merge_aliases.md. A name recorded in the RoleAlias
-    table (from a merge, or added by hand) resolves to its canonical role
-    rather than spawning a duplicate -- same alias-aware path the artist
-    credit resolution above uses. A role name on the parse-ignore list
-    (docs/specs/role_parse_ignore_list.md) resolves to nothing, so both
-    callers skip the credit -- same as the file-tag import path."""
+    """Resolve every Role this credit's name maps to; [] if it's on the parse-ignore list."""
+    # A name previously split into 2+ roles (see SplitDB._record_split_alias)
+    # resolves to that same ordered list instead of find_or_create_by_name
+    # recreating/reusing one combined Role -- see docs/specs/split_and_merge_aliases.md.
+    # A name recorded in the RoleAlias table (from a merge, or added by hand)
+    # resolves to its canonical role rather than spawning a duplicate -- same
+    # alias-aware path the artist credit resolution above uses. A role name
+    # on the parse-ignore list (docs/specs/role_parse_ignore_list.md)
+    # resolves to nothing, so both callers skip the credit.
     if role_name.strip().lower() in {r.lower() for r in app_config.get_excluded_roles()}:
         return []
 
@@ -238,13 +244,12 @@ def _resolve_roles_for_credit(controller, role_name: str, known_roles: list[Any]
 def _plan_track_credit(
     controller, track, credit, known_roles: list[Any], planned_by_track: dict[int, set]
 ) -> list[dict]:
-    """Resolve (and, if genuinely new, create) the artist(s)/role(s) for
-    this credit, but leave the actual TrackArtistRole junction rows for
-    the caller to batch-insert alongside every other checked credit. A
-    credit ordinarily resolves to exactly one artist and one role -- it
-    resolves to more only when a split-alias rule matches (see
-    _resolve_artists/_resolve_roles_for_credit), in which case one row is
-    planned per (artist, role) pair."""
+    """Plan TrackArtistRole rows for one credit, resolving/creating artist(s) and role(s) as needed."""
+    # Leaves the actual insert for the caller to batch alongside every
+    # other checked credit. A credit ordinarily resolves to exactly one
+    # artist and one role -- it resolves to more only when a split-alias
+    # rule matches (see _resolve_artists/_resolve_roles_for_credit), in
+    # which case one row is planned per (artist, role) pair.
     try:
         artists = _resolve_artists(controller, credit)
         if not artists:
@@ -286,14 +291,15 @@ def _plan_album_credit(
     next_sort_order_by_role: dict[int, int],
     planned_pairs: set[tuple[int, int]],
 ) -> list[dict]:
-    """Same idea as `_plan_track_credit`, for album-level credits. The
-    sort_order that AlbumRoleAssociation rows for the same role share is
-    normally derived by re-reading `album.album_roles` after each
-    commit; since nothing is committed until the whole batch goes in,
-    `next_sort_order_by_role` tracks the same running count in memory.
-    Unlike `_plan_track_credit`, this mutates `planned_pairs` itself
-    (rather than leaving that to the caller) since a single call can now
-    plan several rows that must not collide with each other."""
+    """Plan AlbumRoleAssociation rows for one credit, resolving/creating artist(s) and role(s)."""
+    # Same idea as `_plan_track_credit`, for album-level credits. The
+    # sort_order that AlbumRoleAssociation rows for the same role share is
+    # normally derived by re-reading `album.album_roles` after each commit;
+    # since nothing is committed until the whole batch goes in,
+    # `next_sort_order_by_role` tracks the same running count in memory.
+    # Unlike `_plan_track_credit`, this mutates `planned_pairs` itself
+    # (rather than leaving that to the caller) since a single call can plan
+    # several rows that must not collide with each other.
     try:
         artists = _resolve_artists(controller, credit)
         if not artists:
@@ -381,32 +387,31 @@ def _plan_location_rows(
 
 
 class _ReviewAcceptWorker(CancellableWorker):
-    """Runs AlbumMusicBrainzReviewDialog's write phase (credit/role/
-    publisher resolution and every DB write) off the UI thread -- with
-    enough credits on a release, doing this synchronously in _on_accept()
-    froze the whole app long enough to trigger the OS's "not responding"
-    prompt.
+    """Runs AlbumMusicBrainzReviewDialog's write phase off the UI thread."""
 
-    All Qt widget state (checked boxes, manual-match combo selections)
-    must be read on the UI thread *before* this worker starts -- see
-    AlbumMusicBrainzReviewDialog._on_accept() -- since QWidget access from
-    a background thread isn't safe. Album/Track rows are re-fetched by ID
-    here rather than reusing the dialog's already-loaded ORM objects,
-    since those are bound to the main thread's scoped_session and
-    touching an unloaded relationship on them from this thread would mean
-    two threads sharing one SQLAlchemy Session. `controller`'s
-    scoped_session hands this thread its own Session the first time it's
-    touched here, same as every other CancellableWorker in this codebase
-    that writes to the DB.
-
-    Signals:
-        progress(current, total)
-        finished(failed_writes) - list[str] of human-readable failures,
-            same shape _report_failed_writes() already expects.
-        error(message) - only for something unexpected enough to abort
-            the whole run; per-item failures go into finished's list
-            instead.
-    """
+    # With enough credits on a release, doing this synchronously in
+    # _on_accept() froze the whole app long enough to trigger the OS's "not
+    # responding" prompt.
+    #
+    # All Qt widget state (checked boxes, manual-match combo selections)
+    # must be read on the UI thread *before* this worker starts -- see
+    # AlbumMusicBrainzReviewDialog._on_accept() -- since QWidget access from
+    # a background thread isn't safe. Album/Track rows are re-fetched by ID
+    # here (see get_track/resolve_track in _run) rather than reusing the
+    # dialog's already-loaded ORM objects, since those are bound to the main
+    # thread's scoped_session and touching an unloaded relationship on them
+    # from this thread would mean two threads sharing one SQLAlchemy
+    # Session. `controller`'s scoped_session hands this thread its own
+    # Session the first time it's touched here, same as every other
+    # CancellableWorker in this codebase that writes to the DB.
+    #
+    # Signals:
+    #   progress(current, total)
+    #   finished(failed_writes) - list[str] of human-readable failures,
+    #       same shape _report_failed_writes() already expects.
+    #   error(message) - only when the album itself couldn't be loaded at
+    #       all; anything that fails partway through instead folds into
+    #       finished's list (see run()'s except block).
 
     progress = Signal(int, int)
     finished = Signal(list)
@@ -437,6 +442,7 @@ class _ReviewAcceptWorker(CancellableWorker):
         self._checked_album_credits = checked_album_credits
         self._checked_track_credits = checked_track_credits
         self._checked_locations = checked_locations
+        self._failed_writes: list[str] = []
 
     def run(self):
         try:
@@ -444,20 +450,27 @@ class _ReviewAcceptWorker(CancellableWorker):
         except Exception as e:
             # Intentional broad boundary catch: this is a QThread's run()
             # body -- an unhandled exception here would kill the thread
-            # silently instead of surfacing to the UI.
+            # silently instead of surfacing to the UI. Each write group
+            # above already committed its own batch, so whatever
+            # failed_writes was gathered before the crash reflects real,
+            # already-applied partial progress -- report it via `finished`
+            # (with the crash appended as an entry) rather than discarding
+            # it behind a bare `error` popup.
             logger.error(f"MusicBrainz review accept failed: {e}", exc_info=True)
-            self.error.emit(str(e))
+            self._failed_writes.append(f"Import stopped early: {e}")
+            self.finished.emit(self._failed_writes)
         finally:
             self._release_db_session()
 
     def _run(self):
+        """Resolve/write discs, track scalars, aliases, labels, credits, and locations, in order."""
         controller = self._controller
         album = controller.get.get_entity_object("Album", album_id=self._album_id)
         if album is None:
             self.error.emit("This album no longer exists.")
             return
 
-        failed_writes: list[str] = []
+        failed_writes = self._failed_writes
         mbt_by_id = {id(mbt): mbt for mbt in self._detail.tracks}
         track_cache: dict[int, Any] = {}
 

@@ -15,6 +15,11 @@ from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 
 
+def _side_sort_key(side_name: str):
+    """Numeric-aware sort key so side labels like "1", "2", "10" order naturally."""
+    return (0, int(side_name)) if side_name.isdigit() else (1, side_name)
+
+
 class TrackSortingDisplay(QTreeWidget):
     """
     Displays tracks with intelligent hierarchy based on available metadata.
@@ -42,6 +47,7 @@ class TrackSortingDisplay(QTreeWidget):
         self.populate_tree()
 
     def _prepare_track_items(self):
+        """Build a flat list of per-track display dicts, physical and virtual alike."""
         # Look discs up by id from self.discs (freshly queried by the parent
         # view's load_data()) instead of the track.disc relationship -- once
         # lazily loaded, that relationship is cached on the Track instance
@@ -81,9 +87,22 @@ class TrackSortingDisplay(QTreeWidget):
         return items
 
     def _organize_tracks(self):
+        """Group track items by disc number, then by side, matching physical
+        and virtual tracks alike (virtual tracks carry only a display disc
+        number, not a real disc_id, so grouping is keyed on disc_number for
+        both -- see _prepare_track_items)."""
         discs = {}
         for disc in self.discs:
             num = disc.disc_number or 0
+            if num in discs:
+                # No DB uniqueness constraint on disc_number -- a collision
+                # would otherwise silently drop one disc from the tree.
+                logger.warning(
+                    f"Duplicate disc_number {num} on discs "
+                    f"{discs[num]['disc'].disc_id} and {disc.disc_id}; "
+                    "only the first is shown"
+                )
+                continue
             discs[num] = {"disc": disc, "sides": {}, "tracks": []}
 
         for item in self.all_track_items:
@@ -101,6 +120,7 @@ class TrackSortingDisplay(QTreeWidget):
         return discs
 
     def init_ui(self):
+        """Configure tree columns, drag-and-drop, selection mode, and the context menu."""
         # 1. Configure Columns and Auto-Resizing
         self.setHeaderLabels(["#", "Track Name", "Duration"])
         header = self.header()
@@ -154,7 +174,10 @@ class TrackSortingDisplay(QTreeWidget):
 
         # If the right-clicked row isn't already in the selection, treat it
         # as a single-item selection so the menu still works intuitively.
-        if track_id not in physical_ids and not item.data(1, Qt.UserRole):
+        if item.data(1, Qt.UserRole):  # right-clicked row is virtual
+            if item not in self.selectedItems():
+                has_virtual_selected = True
+        elif track_id not in physical_ids:
             physical_ids = [track_id]
 
         menu = QMenu(self)
@@ -300,10 +323,13 @@ class TrackSortingDisplay(QTreeWidget):
         # --- Batch delete from DB ---
         entity_ids = [track.track_id for track in tracks]
         ok = controller.delete.delete_entity("Track", entity_ids=entity_ids)
-        if ok:
-            logger.info(f"Batch-deleted {count} track(s) from DB")
-        else:
-            logger.error("Batch delete returned False — some tracks may not have been removed")
+        if not ok:
+            logger.error("Batch delete returned False — tracks were not removed")
+            QMessageBox.warning(
+                self, "Error", "Could not delete the selected track(s) from the library."
+            )
+            return
+        logger.info(f"Batch-deleted {count} track(s) from DB")
 
         # --- Optionally remove files from disk ---
         if delete_files and file_paths:
@@ -356,6 +382,7 @@ class TrackSortingDisplay(QTreeWidget):
     # -------------------------------------------------------------------------
 
     def populate_tree(self):
+        """Rebuild the tree's disc/side/track rows from self.grouped_tracks."""
         self.clear()
         for disc_num, data in sorted(self.grouped_tracks.items()):
             # disc_num == 0 means tracks have no disc assignment
@@ -371,7 +398,9 @@ class TrackSortingDisplay(QTreeWidget):
             disc_item.setFlags(disc_item.flags() & ~Qt.ItemIsDragEnabled)
             disc_item.setExpanded(True)
 
-            for side_name, side_tracks in sorted(data["sides"].items()):
+            for side_name, side_tracks in sorted(
+                data["sides"].items(), key=lambda kv: _side_sort_key(kv[0])
+            ):
                 side_item = QTreeWidgetItem(disc_item, [f"Side {side_name}"])
                 # Column 0 otherwise holds a Disc object (disc headers) or a
                 # track_id int (track rows) -- a str here is how dropEvent
@@ -386,6 +415,7 @@ class TrackSortingDisplay(QTreeWidget):
                 self._create_track_node(disc_item, t)
 
     def _create_track_node(self, parent_item, item_dict):
+        """Add one track row under parent_item, styled distinctly if it's virtual."""
         track = item_dict["track"]
         is_v = item_dict["is_virtual"]
 
@@ -473,7 +503,12 @@ class TrackSortingDisplay(QTreeWidget):
             }
             for track_id, (track_number, absolute_number) in updates.items()
         ]
-        updated, failed = controller.update.update_entities_bulk_with_fallback("Track", rows)
+        try:
+            updated, failed = controller.update.update_entities_bulk_with_fallback("Track", rows)
+        except (SQLAlchemyError, RuntimeError) as e:
+            logger.error(f"Error renumbering tracks: {e}")
+            QMessageBox.warning(self, "Error", f"Could not renumber tracks:\n{e}")
+            return
         for row in failed:
             logger.error(f"Failed to renumber track {row['track_id']}")
 
@@ -486,15 +521,7 @@ class TrackSortingDisplay(QTreeWidget):
     # -------------------------------------------------------------------------
 
     def dropEvent(self, event):
-        """Let Qt perform the actual internal move (reparenting the dragged
-        row(s) into whichever disc/side group and position they were dropped
-        on), then persist that new layout -- disc, side, track_number and
-        absolute_track_number for every physical track -- in a single batched
-        write. No full reload afterward: the tree is already visually correct
-        from Qt's own move, and the write already re-syncs the in-memory
-        Track objects the parent view holds, so only the stats bar needs a
-        (cheap, DB-free) refresh.
-        """
+        """Let Qt perform the internal move, then persist the new layout."""
         super().dropEvent(event)
         if not event.isAccepted():
             return
@@ -514,6 +541,7 @@ class TrackSortingDisplay(QTreeWidget):
         QTimer.singleShot(0, self._persist_drop)
 
     def _persist_drop(self):
+        """Write the tree's current disc/side/track-number layout to the DB."""
         controller = self.controller
         if controller is None:
             parent_view = self.parent()
@@ -523,6 +551,8 @@ class TrackSortingDisplay(QTreeWidget):
                 controller = parent_view.controller
 
         if not controller:
+            logger.error("Cannot persist drag-and-drop reorder: no controller found")
+            QMessageBox.warning(self, "Error", "Could not save the new track order.")
             return
 
         rows = []
@@ -559,7 +589,12 @@ class TrackSortingDisplay(QTreeWidget):
         if not rows:
             return
 
-        _, failed = controller.update.update_entities_bulk_with_fallback("Track", rows)
+        try:
+            _, failed = controller.update.update_entities_bulk_with_fallback("Track", rows)
+        except (SQLAlchemyError, RuntimeError) as e:
+            logger.error(f"Error persisting drag-and-drop reorder: {e}")
+            QMessageBox.warning(self, "Error", f"Could not save the new track order:\n{e}")
+            return
         for row in failed:
             logger.error(f"Failed to persist drag-and-drop reorder for track {row['track_id']}")
 

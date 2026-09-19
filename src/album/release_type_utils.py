@@ -24,14 +24,14 @@ _CANONICAL_BY_LOWER = {value.lower(): value for value in RELEASE_TYPE_SUGGESTION
 
 
 def normalize_release_type(value):
-    """Trim whitespace and fold known release types onto their canonical
-    casing (case-insensitive match against RELEASE_TYPE_SUGGESTIONS).
-    Unrecognized values are returned unchanged aside from trimming, since
-    they're user-defined types with no canonical form to match against.
-    """
+    """Trim whitespace and fold known release types onto their canonical casing."""
     if value is None:
         return None
+    if not isinstance(value, str):
+        return value
     stripped = value.strip()
     if not stripped:
         return None
+    # Unrecognized values pass through unchanged (aside from trimming), since
+    # they're user-defined types with no canonical form to match against.
     return _CANONICAL_BY_LOWER.get(stripped.lower(), stripped)

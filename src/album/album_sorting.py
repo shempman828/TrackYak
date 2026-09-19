@@ -79,13 +79,19 @@ class AlbumSortingMixin:
     def _restore_sort_combo(self):
         """Set the sort combo to match the current internal sort state, without a re-sort."""
         model = self.sort_combo.model()
+        self.sort_combo.blockSignals(True)
         for i in range(model.rowCount()):
             data = model.item(i).data(Qt.UserRole)
             if data == (self._sort_criteria, self._sort_descending):
-                self.sort_combo.blockSignals(True)
                 self.sort_combo.setCurrentIndex(i)
-                self.sort_combo.blockSignals(False)
                 break
+        else:
+            # No row matches the current sort state (e.g. it was set
+            # programmatically to something not in the combo) -- default to
+            # the first row instead of leaving the combo on a stale/blank
+            # selection.
+            self.sort_combo.setCurrentIndex(0)
+        self.sort_combo.blockSignals(False)
 
     def _sort_filtered(self):
         try:
@@ -168,4 +174,17 @@ class AlbumSortingMixin:
                 f"Sort key failed for album {getattr(album, 'album_name', '?')} "
                 f"(criteria={self._sort_criteria})"
             )
-            return ""
+            # Fallback must be criteria-appropriate: mixing a "" fallback
+            # into a column of int/float keys raises a str-vs-int TypeError
+            # mid-sort (caught in _sort_filtered, but list.sort() then
+            # leaves the list in undefined partial order).
+            numeric_criteria = {
+                "play_count",
+                "rating",
+                "length",
+                "track_count",
+                "album_artist_count",
+                "year",
+                "art_dimensions",
+            }
+            return 0 if self._sort_criteria in numeric_criteria else ""

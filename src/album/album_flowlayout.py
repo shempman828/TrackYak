@@ -26,15 +26,7 @@ class FlowLayout(QLayout):
         h_spacing: int | None = None,
         v_spacing: int | None = None,
     ):
-        """
-        Args:
-            parent:     Parent widget.
-            margin:     Uniform content margin applied to all four sides.
-            spacing:    Default spacing used for both axes when the axis-specific
-                        value is not supplied.
-            h_spacing:  Horizontal gap between items (overrides *spacing*).
-            v_spacing:  Vertical gap between rows (overrides *spacing*).
-        """
+        """Build a flow layout, with optional per-axis spacing overriding *spacing*."""
         super().__init__(parent)
         self.setContentsMargins(margin, margin, margin, margin)
         self._h_space: int = h_spacing if h_spacing is not None else spacing
@@ -100,6 +92,7 @@ class FlowLayout(QLayout):
 
     @h_spacing.setter
     def h_spacing(self, value: int) -> None:
+        value = max(0, value)  # a negative gap would overlap items instead of spacing them
         if value != self._h_space:
             self._h_space = value
             self.invalidate()
@@ -110,6 +103,7 @@ class FlowLayout(QLayout):
 
     @v_spacing.setter
     def v_spacing(self, value: int) -> None:
+        value = max(0, value)  # a negative gap would overlap items instead of spacing them
         if value != self._v_space:
             self._v_space = value
             self.invalidate()
@@ -119,17 +113,7 @@ class FlowLayout(QLayout):
     # ------------------------------------------------------------------
 
     def _do_layout(self, rect: QRect, *, test_only: bool) -> int:
-        """Arrange (or measure) items within *rect*.
-
-        Args:
-            rect:      Available rectangle.  Only ``rect.width()`` is used
-                       when *test_only* is True.
-            test_only: When True, positions are not applied — only the total
-                       required height is calculated and returned.
-
-        Returns:
-            Total height required to lay out all visible items.
-        """
+        """Arrange (or measure) items within *rect*; returns the total height required."""
         m = self.contentsMargins()
         left = rect.x() + m.left()
         top = rect.y() + m.top()
@@ -156,6 +140,9 @@ class FlowLayout(QLayout):
                 row_height = 0
 
             if not test_only:
+                # test_only=True (from heightForWidth) only measures the
+                # required height for a given width; it must not move any
+                # widget, since that call can happen mid-layout-pass.
                 item.setGeometry(QRect(QPoint(x, y), hint))
 
             x += item_w + self._h_space

@@ -11,23 +11,23 @@ from PySide6.QtWidgets import QComboBox
 
 from src.album.album_art_worker import ArtCacheWorker
 from src.foundation.config_setup import app_config
+from src.foundation.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 
 
+# Expects the host class to provide: self.search_bar, self.year_from,
+# self.year_to, self.min_tracks, self.incomplete_combo, self.fixed_combo,
+# self.art_combo, self.type_combo, self.media_combo, self.stats_label,
+# self.all_albums, self.filtered_albums,
+# self.display_count, self.load_chunk, self._sort_criteria,
+# self._art_worker, self._art_filter_generation, self._art_batch,
+# self._art_needs_resort, self._art_batch_timer, self._filter_save_timer,
+# self._search_timer, self._get_track_count(), self._get_artist_names(),
+# self._get_genre_names(), self._sort_filtered(), self._refresh_album_widgets(),
+# self._check_viewport_fill(), self._restore_sort_combo(), and to be a
+# QWidget subclass.
 class AlbumFilteringMixin:
-    """
-    Expects the host class to provide: self.search_bar, self.year_from,
-    self.year_to, self.min_tracks, self.incomplete_combo, self.fixed_combo,
-    self.art_combo, self.type_combo, self.media_combo, self.stats_label,
-    self.all_albums, self.filtered_albums,
-    self.display_count, self.load_chunk, self._sort_criteria,
-    self._art_worker, self._art_filter_generation, self._art_batch,
-    self._art_needs_resort, self._art_batch_timer, self._filter_save_timer,
-    self._search_timer, self._get_track_count(), self._get_artist_names(),
-    self._get_genre_names(), self._sort_filtered(), self._refresh_album_widgets(),
-    self._check_viewport_fill(), self._restore_sort_combo(), and to be a
-    QWidget subclass.
-    """
+    """Filtering pipeline mixin for AlbumView: predicate, art-worker, and state persistence."""
 
     def _on_search_changed(self, text: str):
         # Debounce: only filter after typing pauses
@@ -86,12 +86,16 @@ class AlbumFilteringMixin:
         if album_year:
             try:
                 yr = int(album_year)
+            except (TypeError, ValueError):
+                # Non-numeric release_year: treat the same as no year at all
+                # (below), rather than silently passing the year filter.
+                if year_from > 0 or year_to > 0:
+                    return False
+            else:
                 if year_from > 0 and yr < year_from:
                     return False
                 if year_to > 0 and yr > year_to:
                     return False
-            except (TypeError, ValueError):
-                pass
         else:
             # If we have a strict year filter and album has no year, skip it
             if year_from > 0 or year_to > 0:
@@ -208,23 +212,20 @@ class AlbumFilteringMixin:
         self._filter_save_timer.start()
 
     def _cancel_art_worker(self):
-        """Stop any in-flight background art-cache resolution and
-        invalidate its results, since a new filter/sort run supersedes it.
-
-        `wait()` here only blocks on however long is left of the single
-        file the worker is mid-extraction on - far cheaper than the old
-        behavior of blocking the filter pass on every pending album.
-        Bumping the generation counter also guards against a `resolved`
-        signal that was already queued on the event loop before
-        request_cancel() took effect from being applied to the new filter.
-        """
+        """Cancel any in-flight art-cache resolution; a new filter/sort run supersedes it."""
         if self._art_worker is not None and self._art_worker.isRunning():
             self._art_worker.request_cancel()
+            # Only blocks on however long is left of the single file the
+            # worker is mid-extraction on - far cheaper than the old behavior
+            # of blocking the filter pass on every pending album.
             self._art_worker.wait()
         self._art_worker = None
         self._art_batch_timer.stop()
         self._art_batch.clear()
         self._art_needs_resort = False
+        # Bumping the generation counter also guards against a `resolved`
+        # signal that was already queued on the event loop before
+        # request_cancel() took effect from being applied to the new filter.
         self._art_filter_generation += 1
 
     def _start_art_worker(
@@ -334,11 +335,15 @@ class AlbumFilteringMixin:
             "art_mode": self.art_combo.currentText(),
             "sort_criteria": self._sort_criteria,
             "sort_descending": self._sort_descending,
+            "filter_row_visible": self._filter_row_visible,
         }
 
     def _save_filter_state(self):
-        app_config.set_album_view_filters(self._get_filter_state())
-        app_config.save()
+        try:
+            app_config.set_album_view_filters(self._get_filter_state())
+            app_config.save()
+        except (OSError, TypeError, ValueError) as e:
+            logger.warning(f"Failed to save album filter state: {e}")
 
     def _set_combo_text(self, combo: QComboBox, text: str | None):
         if not text:
@@ -351,24 +356,28 @@ class AlbumFilteringMixin:
 
     def _restore_filter_state(self):
         """Restore filter widget values persisted from the previous session."""
-        state = app_config.get_album_view_filters()
+        try:
+            state = app_config.get_album_view_filters()
+        except (OSError, TypeError, ValueError) as e:
+            logger.warning(f"Failed to restore album filter state: {e}")
+            return
         if not state:
             return
 
         self.search_bar.blockSignals(True)
-        self.search_bar.setText(state.get("search", ""))
+        self.search_bar.setText(str(state.get("search", "") or ""))
         self.search_bar.blockSignals(False)
 
         self.year_from.blockSignals(True)
-        self.year_from.setValue(state.get("year_from", 0))
+        self.year_from.setValue(self._as_int(state.get("year_from", 0)))
         self.year_from.blockSignals(False)
 
         self.year_to.blockSignals(True)
-        self.year_to.setValue(state.get("year_to", 0))
+        self.year_to.setValue(self._as_int(state.get("year_to", 0)))
         self.year_to.blockSignals(False)
 
         self.min_tracks.blockSignals(True)
-        self.min_tracks.setValue(state.get("min_tracks", 0))
+        self.min_tracks.setValue(self._as_int(state.get("min_tracks", 0)))
         self.min_tracks.blockSignals(False)
 
         self._set_combo_text(self.incomplete_combo, state.get("incomplete_mode"))
@@ -383,14 +392,20 @@ class AlbumFilteringMixin:
 
         self._restore_sort_state(state.get("sort_criteria"), state.get("sort_descending"))
 
-    def _populate_dynamic_filter_combos(self):
-        """Fill the Type and Media combos with "Any" plus the sorted,
-        de-duplicated, non-blank values actually present in self.all_albums.
+        if "filter_row_visible" in state:
+            self._filter_toggle_btn.setChecked(bool(state["filter_row_visible"]))
 
-        Preserves the current selection when it still exists; otherwise
-        falls back to a pick persisted from a previous session, then to
-        "Any". Called from load_albums() after self.all_albums is set.
-        """
+    @staticmethod
+    def _as_int(value, default=0):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _populate_dynamic_filter_combos(self):
+        """Fill the Type and Media combos from the values present in self.all_albums."""
+        # Preserves the current selection when it still exists; otherwise falls back to
+        # a pick persisted from a previous session, then to "Any".
         specs = (
             (self.type_combo, "release_type", "_pending_type_mode"),
             (self.media_combo, "media_format", "_pending_media_mode"),

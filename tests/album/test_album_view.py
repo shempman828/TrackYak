@@ -310,6 +310,34 @@ def test_edit_that_still_matches_filter_keeps_widget(qapp, monkeypatch):
         view.close()
 
 
+def test_edit_with_unresolved_art_filter_falls_back_to_full_refilter(qapp, monkeypatch):
+    """Before the fix, a None verdict from _album_matches_filters (Art filter
+    cache miss -- can't be decided synchronously) was treated like a match
+    (only `is False` was checked), leaving a just-edited album visible even
+    if it doesn't actually satisfy the active filter."""
+    albums = [StubAlbum_fr(1, "Alpha"), StubAlbum_fr(2, "Beta")]
+    view, _albums_by_id = _make_view_fr(monkeypatch, albums)
+    try:
+        assert [a.album_id for a in view.filtered_albums] == [1, 2]
+
+        monkeypatch.setattr(view, "_album_matches_filters", lambda album, params: None)
+
+        refiltered = []
+        orig = view._apply_filters_preserve_scroll
+
+        def _spy():
+            refiltered.append(True)
+            orig()
+
+        monkeypatch.setattr(view, "_apply_filters_preserve_scroll", _spy)
+
+        view._patch_album_after_edit(1)
+
+        assert refiltered == [True]
+    finally:
+        view.close()
+
+
 def test_removal_that_fills_viewport_does_not_strand_remaining_albums(qapp, monkeypatch):
     """#260: if the in-place removal happens to make the grid exactly fill
     the viewport (no scrollbar left), the filtered albums beyond the display

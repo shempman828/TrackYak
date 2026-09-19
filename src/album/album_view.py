@@ -5,6 +5,7 @@ import sqlite3
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QFontMetrics, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -49,16 +50,14 @@ _ALBUM_LIST_LOAD_OPTIONS = (
 
 
 class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, QWidget):
-    """Enhanced album view with responsive grid layout, interactive controls,
-    search/filter functionality, and lazy loading.
+    """Enhanced album view with responsive grid layout, search/filter, and lazy loading."""
 
-    Filtering (widget snapshot, per-album predicate, Art-filter background
-    worker, filter-state persistence) lives in AlbumFilteringMixin
-    (album_filtering.py). Sort-option data and sort-key logic live in
-    AlbumSortingMixin (album_sorting.py). This class owns UI construction,
-    the widget grid/lazy-load, and album-detail editing, and composes the
-    other two.
-    """
+    # Filtering (widget snapshot, per-album predicate, Art-filter background
+    # worker, filter-state persistence) lives in AlbumFilteringMixin
+    # (album_filtering.py). Sort-option data and sort-key logic live in
+    # AlbumSortingMixin (album_sorting.py). This class owns UI construction,
+    # the widget grid/lazy-load, and album-detail editing, and composes the
+    # other two.
 
     def __init__(self, controller):
         super().__init__()
@@ -146,6 +145,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         # Search
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("Search albums, artists, year…")
+        self.search_bar.setAccessibleName("Search albums")
         self.search_bar.setClearButtonEnabled(True)
         self.search_bar.textChanged.connect(self._on_search_changed)
         row.addWidget(self.search_bar, stretch=3)
@@ -204,8 +204,10 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
             return widget
 
         # Year range
-        add(QLabel("Year:"))
+        year_label = QLabel("Year:")
+        add(year_label)
         self.year_from = _AnySpinBox()
+        year_label.setBuddy(self.year_from)
         self.year_from.valueChanged.connect(self._apply_filters)
         add(self.year_from)
         add(QLabel("–"))  # noqa: RUF001 (en-dash range separator)
@@ -214,8 +216,10 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         add(self.year_to)
 
         # Min track count
-        add(QLabel("Min tracks:"))
+        min_tracks_label = QLabel("Min tracks:")
+        add(min_tracks_label)
         self.min_tracks = _AnySpinBox()
+        min_tracks_label.setBuddy(self.min_tracks)
         self.min_tracks.valueChanged.connect(self._apply_filters)
         add(self.min_tracks)
 
@@ -286,6 +290,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         return self.scroll_area
 
     def _toggle_filter_row(self, visible: bool):
+        self._filter_row_visible = visible
         self._filter_row_widget.setVisible(visible)
         self._filter_toggle_btn.setText("▾ Filters" if visible else "▸ Filters")
 
@@ -295,6 +300,7 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
 
     def load_albums(self):
         """Load all albums from the controller and refresh the grid."""
+        QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             self.all_albums = (
                 self.controller.get.get_all_entities("Album", load_options=_ALBUM_LIST_LOAD_OPTIONS)
@@ -306,6 +312,8 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         except (SQLAlchemyError, sqlite3.Error, AttributeError) as e:
             logger.exception("Failed to load albums")
             QMessageBox.critical(self, "Error", f"Failed to load albums:\n{e}")
+        finally:
+            QApplication.restoreOverrideCursor()
 
     # =========================================================================
     # Widget Grid
@@ -314,8 +322,13 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
     def _refresh_album_widgets(self):
         """Rebuild the grid from scratch up to display_count."""
         clear_layout(self.grid_layout)
-        for album in self.filtered_albums[: self.display_count]:
-            self._add_album_widget(album)
+        if not self.filtered_albums:
+            empty_label = QLabel("No albums match your filters.")
+            empty_label.setProperty("textRole", "placeholder")
+            self.grid_layout.addWidget(empty_label)
+        else:
+            for album in self.filtered_albums[: self.display_count]:
+                self._add_album_widget(album)
         self.scroll_content.updateGeometry()
         self.grid_layout.update()
 
@@ -385,14 +398,11 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         dialog.exec()
 
     def _patch_album_after_edit(self, album_id):
-        """Refresh a single album in-place after editing.
-
-        Fetches a fresh copy from the DB, swaps it into all_albums and
-        filtered_albums, then re-sorts and repaints only the affected widget —
-        preserving scroll position and lazy-load progress entirely.
-        If the album is no longer retrievable (deleted externally, etc.) we
-        fall back to a full reload.
-        """
+        """Refresh a single album in-place after editing, preserving scroll/lazy-load state."""
+        # Fetches a fresh copy from the DB, swaps it into all_albums and
+        # filtered_albums, then re-sorts and repaints only the affected
+        # widget. Falls back to a full reload if the album is no longer
+        # retrievable (deleted externally, etc.).
         try:
             fresh = self.controller.get.get_entity_object("Album", album_id=album_id)
         except SQLAlchemyError as e:
@@ -429,6 +439,12 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
         # Started") - drop it from the grid in place rather than leaving a
         # stale match visible.
         verdict = self._album_matches_filters(fresh, self._get_current_filter_params())
+        if verdict is None:
+            # Art filter cache miss -- can't decide synchronously. Re-run
+            # the full filter pass (which queues it for the background
+            # worker) instead of treating "unknown" as "still matches".
+            self._apply_filters_preserve_scroll()
+            return
         if verdict is False:
             self.filtered_albums.pop(patched_idx)
             if patched_idx < self.display_count:
@@ -548,12 +564,10 @@ class AlbumView(AlbumContextMenuMixin, AlbumFilteringMixin, AlbumSortingMixin, Q
 
 
 def _shrink_combo_to_content(combo: QComboBox) -> QComboBox:
-    """The theme QSS gives every QComboBox a 80px min-width, which is wider
-    than several of the filter bar's combos actually need (e.g. "Has Art").
-    A widget-level style override wins over that app-level rule, but only
-    once the widget has been polished with it in place -- otherwise
-    sizeHint() still reports the stale, QSS-only width.
-    """
+    """Override the theme's 80px QComboBox min-width for combos that need less room."""
+    # A widget-level style override wins over that app-level QSS rule, but
+    # only once the widget has been polished with it in place -- otherwise
+    # sizeHint() still reports the stale, QSS-only width.
     apply_scaled_style(combo, "min-width: 0px;")
     combo.ensurePolished()
     return combo

@@ -1,3 +1,4 @@
+from PySide6.QtCore import QLocale
 from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QSpinBox, QTextEdit
 
@@ -10,7 +11,7 @@ class AlbumUIComponents:
     @staticmethod
     def create_editable_field(field_config, current_value=None):
         """Create appropriate widget for a field based on its configuration"""
-        if field_config.type == str:
+        if field_config.type is str:
             if field_config.longtext:
                 widget = QTextEdit()
                 if current_value is not None:
@@ -22,7 +23,7 @@ class AlbumUIComponents:
             if field_config.placeholder:
                 widget.setPlaceholderText(field_config.placeholder)
 
-        elif field_config.type == int:
+        elif field_config.type is int:
             widget = QSpinBox()
             # Set range — use 0 as minimum unless field_config specifies otherwise
             min_val = field_config.min if field_config.min is not None else 0
@@ -36,20 +37,33 @@ class AlbumUIComponents:
             else:
                 widget.setValue(int(min_val))  # default to min, not QSpinBox internal
 
-        elif field_config.type == float:
+        elif field_config.type is float:
             widget = QLineEdit()
             if current_value is not None:
                 widget.setText(str(current_value))
-            widget.setValidator(QDoubleValidator())
+            validator = QDoubleValidator()
+            # Force the C locale so the validator accepts "." as the decimal
+            # separator, matching get_field_value's float(text) parsing --
+            # otherwise a comma-decimal system locale can accept input like
+            # "1,5" that float() then silently rejects (returns None).
+            validator.setLocale(QLocale(QLocale.C))
+            if field_config.min is not None:
+                validator.setBottom(field_config.min)
+            if field_config.max is not None:
+                validator.setTop(field_config.max)
+            widget.setValidator(validator)
 
-        elif field_config.type == bool:
+        elif field_config.type is bool:
             label = field_config.friendly or field_config.short or ""
             widget = QCheckBox(label)
             if current_value is not None:
                 widget.setChecked(bool(current_value))
 
         else:
-            # Fallback: plain text input
+            # Fallback: plain text input. NOTE: get_field_value has no
+            # parse-back path for a list-typed value here, so if a future
+            # field is both editable and list-typed, round-tripping it
+            # through this QLineEdit will silently corrupt the data.
             logger.debug(
                 f"No dedicated widget for field type {field_config.type!r}; "
                 "falling back to plain text input"
@@ -67,14 +81,14 @@ class AlbumUIComponents:
             text = widget.text().strip()
             if not text:
                 return None
-            if field_type == int:
+            if field_type is int:
                 try:
                     # Strip thousands separators (e.g. "1,234,567" on the
                     # estimated_sales field) before parsing.
                     return int(text.replace(",", ""))
                 except ValueError:
                     return None
-            if field_type == float:
+            if field_type is float:
                 try:
                     return float(text)
                 except ValueError:

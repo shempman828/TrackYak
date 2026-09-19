@@ -1,21 +1,4 @@
-"""
-album_tab.py  —  AlbumTabBuilder
-
-Changes (this revision)
-───────────────────────
-• _build_artists_list: QGroupBox title font shrunk to 11 px; artist rows use
-  compact margins so the tab doesn't feel overwhelmingly large.
-• _build_artists_list: each role group now lays credits out as compact
-  chips in a FlowLayout (same pattern as artist_edit_types.py's type chips)
-  instead of one full-width row per credit, so multiple credits pack per
-  line and wrap to fit the available width (#227).
-• build_artists_tab: the credit list is now wrapped in a QScrollArea so
-  albums with many credits don't blow out the dialog height (#227).
-• _build_publishers_section / _build_places_section: after any Remove action
-  the parent dialog's _on_subdialog_closed() is NOT called here (the helper
-  already calls refresh_view which triggers _rebuild_current_tab).  No change
-  needed here for the reload-on-close requirement.
-"""
+"""Builds the Relationships/Awards/Artists tabs for the album edit dialog."""
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -24,6 +7,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -94,6 +78,19 @@ class AlbumTabBuilder:
         self.album = album_view.album
         self.controller = album_view.controller
         self.helper = album_view.helper
+
+    def _confirm_remove(self, what: str) -> bool:
+        """Ask for confirmation before a one-click Remove action."""
+        return (
+            QMessageBox.question(
+                self.view,
+                "Confirm Remove",
+                f"Remove {what}?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            == QMessageBox.Yes
+        )
 
     # =========================================================================
     # Public tab builders
@@ -177,6 +174,10 @@ class AlbumTabBuilder:
         role_search.textChanged.connect(_update_add_btn)
 
         def _handle_add():
+            if not add_btn.isEnabled():
+                # Enter can fire this from either search box directly,
+                # bypassing the button -- honor the same minimum-length gate.
+                return
             artist_names = artist_search.split_names()
             role_names = role_search.split_names()
             if not artist_names or not role_names:
@@ -206,9 +207,13 @@ class AlbumTabBuilder:
         group = QGroupBox("Publishers")
         layout = QVBoxLayout(group)
 
-        album_publishers = self.controller.get.get_all_entities(
-            "AlbumPublisher", album_id=self.album.album_id
-        )
+        try:
+            album_publishers = self.controller.get.get_all_entities(
+                "AlbumPublisher", album_id=self.album.album_id
+            )
+        except (AttributeError, TypeError) as e:
+            logger.error(f"Error loading album publishers: {e}")
+            album_publishers = []
 
         if album_publishers:
             for album_publisher in album_publishers:
@@ -228,12 +233,17 @@ class AlbumTabBuilder:
 
                     remove_btn = QPushButton("Remove")
                     remove_btn.clicked.connect(
-                        lambda checked, ap=album_publisher: self.helper.remove_publisher(ap)
+                        lambda checked, ap=album_publisher, p=publisher: (
+                            self._confirm_remove(p.publisher_name)
+                            and self.helper.remove_publisher(ap)
+                        )
                     )
                     widget_layout.addWidget(remove_btn)
                     layout.addWidget(widget)
         else:
-            layout.addWidget(QLabel("No publishers associated"))
+            empty_label = QLabel("No publishers associated")
+            empty_label.setStyleSheet("font-style: italic;")
+            layout.addWidget(empty_label)
 
         add_btn = QPushButton("Add Publisher")
         add_btn.clicked.connect(self.helper.add_publisher)
@@ -246,7 +256,11 @@ class AlbumTabBuilder:
         group = QGroupBox("Place Associations")
         layout = QVBoxLayout(group)
 
-        place_associations = self.view.get_album_place_associations()
+        try:
+            place_associations = self.view.get_album_place_associations()
+        except (AttributeError, TypeError) as e:
+            logger.error(f"Error loading album place associations: {e}")
+            place_associations = []
 
         if place_associations:
             for association in place_associations:
@@ -272,12 +286,16 @@ class AlbumTabBuilder:
 
                     remove_btn = QPushButton("Remove")
                     remove_btn.clicked.connect(
-                        lambda checked, a=association: self.helper.remove_place(a)
+                        lambda checked, a=association, p=place: (
+                            self._confirm_remove(p.place_name) and self.helper.remove_place(a)
+                        )
                     )
                     widget_layout.addWidget(remove_btn)
                     layout.addWidget(widget)
         else:
-            layout.addWidget(QLabel("No place associations"))
+            empty_label = QLabel("No place associations")
+            empty_label.setStyleSheet("font-style: italic;")
+            layout.addWidget(empty_label)
 
         add_btn = QPushButton("Add Place Association")
         add_btn.clicked.connect(self.helper.add_place)
@@ -381,7 +399,10 @@ class AlbumTabBuilder:
 
             remove_btn = QPushButton("Remove Award")
             remove_btn.clicked.connect(
-                lambda checked, a=award: self.helper.remove_album_award_association(a)
+                lambda checked, a=award: (
+                    self._confirm_remove(award_name)
+                    and self.helper.remove_album_award_association(a)
+                )
             )
             layout.addWidget(remove_btn)
 
@@ -392,11 +413,7 @@ class AlbumTabBuilder:
         return widget
 
     def _build_artists_list(self):
-        """Build the artists and credits list.
-
-        FIX: Each role group now uses a smaller font (11 px) and tighter
-        margins so the tab doesn't feel oversized.
-        """
+        """Build the artists and credits list."""
         if not hasattr(self.album, "album_roles") or not self.album.album_roles:
             return QLabel("No artist information available.")
 
@@ -484,6 +501,7 @@ class AlbumTabBuilder:
         apply_scaled_style(up_btn, "font-size: 10px; padding: 0px;")
         up_btn.setEnabled(index > 0)
         up_btn.setToolTip(f"Move {artist_name} up")
+        up_btn.setAccessibleName(f"Move {artist_name} up")
         up_btn.clicked.connect(
             lambda checked, ra=role_assoc: self.helper.move_artist_credit(ra, -1)
         )
@@ -494,6 +512,7 @@ class AlbumTabBuilder:
         apply_scaled_style(down_btn, "font-size: 10px; padding: 0px;")
         down_btn.setEnabled(index < last_index)
         down_btn.setToolTip(f"Move {artist_name} down")
+        down_btn.setAccessibleName(f"Move {artist_name} down")
         down_btn.clicked.connect(
             lambda checked, ra=role_assoc: self.helper.move_artist_credit(ra, 1)
         )
@@ -531,7 +550,9 @@ class AlbumTabBuilder:
         remove_btn.setFixedHeight(22)  # ← compact button
         apply_scaled_style(remove_btn, "font-size: 10px; padding: 1px 6px;")
         remove_btn.clicked.connect(
-            lambda checked, ra=role_assoc: self.helper.remove_artist_credit(ra)
+            lambda checked, ra=role_assoc: (
+                self._confirm_remove(artist_name) and self.helper.remove_artist_credit(ra)
+            )
         )
         chip_layout.addWidget(remove_btn)
 

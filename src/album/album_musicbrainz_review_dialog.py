@@ -1,35 +1,18 @@
-"""
-album_musicbrainz_review_dialog.py
-
-Review/checkbox dialog shown after a MusicBrainz canonical release has been
-fetched in full (see musicbrainz_release.fetch_release_detail). Modeled on
-src/artist/artist_enrichment_review_dialog.py's checkbox-per-item /
-apply-on-accept pattern, scaled up to per-track groups: album credits, track
-credits, and recording locations are relational data that needs
-find-or-create/dedup against existing local data before it's safe to write,
-so the user confirms what gets imported rather than it happening silently.
-
-Nothing is written until the user actually clicks OK: fill-blank scalars
-(track number/side/barcode, disc assignment) for auto-matched tracks are
-computed at construction time but only applied in `_on_accept()`, right
-alongside the judgment-call items (manual track matches, credits, recording
-locations, album aliases) -- so hitting Cancel here leaves the database
-untouched, not just the checkbox-gated portion of it.
-
-Track-matching logic lives in AlbumMusicBrainzTrackMatchingMixin
-(album_musicbrainz_track_matching.py) and UI construction lives in
-AlbumMusicBrainzReviewUIMixin (album_musicbrainz_review_ui.py); the
-write-phase functions and _ReviewAcceptWorker live in
-album_musicbrainz_review_import.py. This class composes the three and
-owns the accept/cancel orchestration between them.
-"""
+"""Review/checkbox dialog for confirming and applying a fetched MusicBrainz release."""
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QDialogButtonBox, QMessageBox
 
+# File map: track-matching logic lives in AlbumMusicBrainzTrackMatchingMixin
+# (album_musicbrainz_track_matching.py); UI construction lives in
+# AlbumMusicBrainzReviewUIMixin (album_musicbrainz_review_ui.py); the
+# write-phase functions and _ReviewAcceptWorker live in
+# album_musicbrainz_review_import.py. This class composes the three and
+# owns the accept/cancel orchestration between them.
 from src.album.album_musicbrainz_review_import import (
     _batch_update_tracks,
     _plan_discs,
@@ -74,9 +57,12 @@ class AlbumMusicBrainzReviewDialog(
 
     # ------------------------------------------------------------------
     # Fill-blank scalars for auto-matched tracks (disc assignment, track
-    # number/side/barcode). Computed against self._matched at construction
-    # time, but the actual writes are deferred to _on_accept() below --
-    # nothing here touches the database until the user clicks OK.
+    # number/side/barcode), for the has_content=False path: called directly
+    # by the caller (see AlbumMusicBrainzMixin) when there's nothing else to
+    # review. When has_content is True, _on_accept()/_ReviewAcceptWorker
+    # independently recompute the same fill-blank updates instead of
+    # calling this method -- the two paths aren't wired through shared code,
+    # so keep them in sync by hand if either changes.
     # ------------------------------------------------------------------
 
     def apply_immediate_scalars(self):
@@ -169,6 +155,8 @@ class AlbumMusicBrainzReviewDialog(
             self.progress_status_label.setText("Applying MusicBrainz data…")
 
     def _on_accept_progress(self, current: int, total: int):
+        if total == 0:
+            return  # nothing to process yet -- stay indeterminate
         if self.progress_bar.maximum() == 0:
             self.progress_bar.setRange(0, total)
         self.progress_bar.setValue(current)
@@ -200,18 +188,12 @@ class AlbumMusicBrainzReviewDialog(
         if worker is None or not worker.isRunning():
             return
         worker.request_cancel()
-        try:
+        with contextlib.suppress(RuntimeError):
             worker.finished.disconnect()
-        except RuntimeError:
-            pass
-        try:
+        with contextlib.suppress(RuntimeError):
             worker.error.disconnect()
-        except RuntimeError:
-            pass
-        try:
+        with contextlib.suppress(RuntimeError):
             worker.progress.disconnect()
-        except RuntimeError:
-            pass
         worker.setParent(None)
         worker.finished.connect(worker.deleteLater)
         worker.error.connect(worker.deleteLater)
