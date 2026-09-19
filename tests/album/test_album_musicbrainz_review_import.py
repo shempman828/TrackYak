@@ -12,8 +12,8 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.album import album_musicbrainz_review_import
-from src.album.album_musicbrainz_review_import import (
+from src.album.musicbrainz import album_musicbrainz_review_import
+from src.album.musicbrainz.album_musicbrainz_review_import import (
     _plan_album_credit,
     _plan_track_credit,
     _resolve_artist,

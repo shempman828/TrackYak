@@ -17,8 +17,8 @@ Covers:
     changes anything -- not just on RelationshipHelpers-mediated changes.
 """
 
-from src.album.base_album_edit_tabs import TracksTab
 from src.album.disc_tab.disc_view import DiscTabView
+from src.album.edit.base_album_edit_tabs import TracksTab
 
 # ---------------------------------------------------------------------------
 # Stubs

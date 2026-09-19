@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.album.base_album_widget import ScrollableAlbumFlow
+from src.album.edit.base_album_widget import ScrollableAlbumFlow
 from src.artist.artist_detail_awards import AwardsWidget
 from src.artist.artist_detail_credits import CreditsWidget
 from src.artist.artist_detail_header import HeaderWidget

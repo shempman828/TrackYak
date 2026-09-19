@@ -12,8 +12,8 @@ Covers:
 
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit
 
-from src.album.base_album_edit import MEDIA_FORMAT_SUGGESTIONS
-from src.album.base_album_edit_tabs import DetailsTab
+from src.album.edit.base_album_edit import MEDIA_FORMAT_SUGGESTIONS
+from src.album.edit.base_album_edit_tabs import DetailsTab
 from src.db.db_mapping_albums import ALBUM_FIELDS
 
 

@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit
 
-from src.album.base_album_edit_tabs import AdvancedTab, ArtworkTab
+from src.album.edit.base_album_edit_tabs import AdvancedTab, ArtworkTab
 
 
 class _StubEditor:

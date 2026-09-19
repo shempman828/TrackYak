@@ -18,8 +18,8 @@ from types import SimpleNamespace
 from PySide6.QtWidgets import QPushButton, QTabWidget, QWidget
 
 from src.album.album_editing_relationship_helpers import RelationshipHelpers
-from src.album.base_album_edit import AlbumEditor
-from src.album.base_album_edit_tabs import TrackCreditsTab
+from src.album.edit.base_album_edit import AlbumEditor
+from src.album.edit.base_album_edit_tabs import TrackCreditsTab
 from src.track.track_edit_roles import RolesTab
 
 # ---------------------------------------------------------------------------
@@ -319,7 +319,7 @@ def test_track_credits_tab_forwards_conversion_to_editor_helper(qapp, monkeypatc
     # Avoid spinning up RolesTab's real background-thread DB load -- this
     # test only checks the tab's own wiring of the convert-hook callback.
     monkeypatch.setattr(
-        "src.album.base_album_edit_tabs.TrackRolesTab.load", lambda self, tracks: None
+        "src.album.edit.base_album_edit_tabs.TrackRolesTab.load", lambda self, tracks: None
     )
 
     editor = _StubEditor(_StubAlbum(tracks=[_StubTrack(1)]), _StubController())
@@ -357,7 +357,7 @@ def test_refresh_track_credits_tab_reuses_existing_roles_widget_in_place(
     """
     load_calls = []
     monkeypatch.setattr(
-        "src.album.base_album_edit_tabs.TrackRolesTab.load",
+        "src.album.edit.base_album_edit_tabs.TrackRolesTab.load",
         lambda self, tracks: load_calls.append(tracks),
     )
 

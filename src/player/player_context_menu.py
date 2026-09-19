@@ -3,7 +3,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu, QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.album.base_album_edit import AlbumEditor
+from src.album.edit.base_album_edit import AlbumEditor
 from src.artist.artist_edit import ArtistEditor
 from src.common.entity_submenu import populate_entity_submenu
 from src.common.qt_text import esc_amp

@@ -15,7 +15,9 @@ from typing import Any
 from PySide6.QtCore import Signal
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.album.album_musicbrainz_track_matching import AlbumMusicBrainzTrackMatchingMixin
+from src.album.musicbrainz.album_musicbrainz_track_matching import (
+    AlbumMusicBrainzTrackMatchingMixin,
+)
 from src.award.award_series_import import import_awards_for_entity
 from src.common.cancellable_worker import CancellableWorker
 from src.common.entity_completer_edit import find_or_create_by_name

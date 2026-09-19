@@ -821,7 +821,7 @@ class AlbumsTab(_BaseTab):
 
     def _open_album_by_id(self, album_id: int):
         try:
-            from src.album.base_album_edit import AlbumEditor
+            from src.album.edit.base_album_edit import AlbumEditor
 
             album = self.controller.get.get_entity_object("Album", album_id=album_id)
             if album:

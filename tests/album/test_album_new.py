@@ -7,7 +7,7 @@ AttributeError immediately on construction. The dead timer setup was
 removed; this test guards against it (or an equivalent) coming back.
 """
 
-from src.album.album_new import NewAlbumDialog
+from src.album.edit.album_new import NewAlbumDialog
 
 
 def test_new_album_dialog_constructs_without_raising(qapp):

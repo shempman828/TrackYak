@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 from PySide6.QtWidgets import QDialog, QLineEdit
 
-from src.album.album_musicbrainz_mixin import AlbumMusicBrainzMixin
+from src.album.musicbrainz.album_musicbrainz_mixin import AlbumMusicBrainzMixin
 from src.common.nullable_numeric_field import (
     create_nullable_int_field,
     nullable_field_value,
@@ -101,9 +101,12 @@ def _run_lookup_and_capture_expected_year(host):
 
     with (
         patch(
-            "src.album.album_musicbrainz_mixin.MusicBrainzMatchDialog", side_effect=fake_dialog_ctor
+            "src.album.musicbrainz.album_musicbrainz_mixin.MusicBrainzMatchDialog",
+            side_effect=fake_dialog_ctor,
         ),
-        patch("src.album.album_musicbrainz_mixin.search_canonical_releases") as fake_search,
+        patch(
+            "src.album.musicbrainz.album_musicbrainz_mixin.search_canonical_releases"
+        ) as fake_search,
     ):
         host._lookup_musicbrainz()
         captured["search_call"]()
@@ -139,7 +142,7 @@ def test_live_year_field_value_is_still_used_as_hint(qapp):
 # media_format is a per-pressing scalar imported from MusicBrainz, fill-blank
 # only (same rule as catalog_number / release_country) -- it must never
 # overwrite a carrier the user already set.
-from src.album.album_musicbrainz_mixin import _SCALAR_ENRICHMENT_FIELDS  # noqa: E402
+from src.album.musicbrainz.album_musicbrainz_mixin import _SCALAR_ENRICHMENT_FIELDS  # noqa: E402
 
 
 def test_media_format_is_a_fill_blank_scalar_enrichment_field():

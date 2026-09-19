@@ -11,7 +11,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
-from src.album.album_musicbrainz_known_entities import known_place_mbids, known_publisher_mbids
+from src.album.musicbrainz.album_musicbrainz_known_entities import (
+    known_place_mbids,
+    known_publisher_mbids,
+)
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables.base import Base
 from src.db.db_tables.place import Place

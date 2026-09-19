@@ -13,14 +13,16 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QDialogButtonBox, Q
 # write-phase functions and _ReviewAcceptWorker live in
 # album_musicbrainz_review_import.py. This class composes the three and
 # owns the accept/cancel orchestration between them.
-from src.album.album_musicbrainz_review_import import (
+from src.album.musicbrainz.album_musicbrainz_review_import import (
     _batch_update_tracks,
     _plan_discs,
     _ReviewAcceptWorker,
     _track_scalar_update,
 )
-from src.album.album_musicbrainz_review_ui import AlbumMusicBrainzReviewUIMixin
-from src.album.album_musicbrainz_track_matching import AlbumMusicBrainzTrackMatchingMixin
+from src.album.musicbrainz.album_musicbrainz_review_ui import AlbumMusicBrainzReviewUIMixin
+from src.album.musicbrainz.album_musicbrainz_track_matching import (
+    AlbumMusicBrainzTrackMatchingMixin,
+)
 from src.musicbrainz.musicbrainz_artist import MBAlias
 from src.musicbrainz.musicbrainz_release import MBLabelInfo, MBReleaseDetail, MBReleaseTrack
 

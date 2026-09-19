@@ -25,8 +25,8 @@ from src.album.album_context_menu import AlbumContextMenuMixin
 from src.album.album_filtering import AlbumFilteringMixin
 from src.album.album_flowlayout import FlowLayout
 from src.album.album_sorting import AlbumSortingMixin
-from src.album.base_album_edit import AlbumEditor
-from src.album.base_album_widget import AlbumWidget
+from src.album.edit.base_album_edit import AlbumEditor
+from src.album.edit.base_album_widget import AlbumWidget
 from src.common.layout_utils import FlowLayoutContainer, clear_layout
 from src.db.db_tables import Album, AlbumRoleAssociation
 from src.foundation.display_settings import apply_scaled_style

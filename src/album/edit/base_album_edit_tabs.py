@@ -18,7 +18,7 @@ from src.track.track_edit_genres import GenresTab as TrackGenresTab
 from src.track.track_edit_roles import RolesTab as TrackRolesTab
 
 if TYPE_CHECKING:
-    from src.album.base_album_edit import AlbumEditor
+    from src.album.edit.base_album_edit import AlbumEditor
 
 
 def _format_duration(total_seconds):

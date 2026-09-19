@@ -30,9 +30,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.album.album_components import AlbumUIComponents
 from src.album.album_cover_art_mixin import AlbumCoverArtMixin
 from src.album.album_editing_relationship_helpers import RelationshipHelpers
-from src.album.album_musicbrainz_mixin import AlbumMusicBrainzMixin
 from src.album.album_tab import AlbumTabBuilder
-from src.album.base_album_edit_tabs import (
+from src.album.edit.base_album_edit_tabs import (
     AdvancedTab,
     AliasesTab,
     ArtworkTab,
@@ -41,6 +40,7 @@ from src.album.base_album_edit_tabs import (
     TrackCreditsTab,
     TracksTab,
 )
+from src.album.musicbrainz.album_musicbrainz_mixin import AlbumMusicBrainzMixin
 from src.album.release_type_utils import RELEASE_TYPE_SUGGESTIONS, normalize_release_type
 from src.common.edit_dirty import value_changed
 from src.common.layout_utils import clear_layout
