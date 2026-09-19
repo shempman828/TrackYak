@@ -4,8 +4,8 @@ while still displaying the plain artist_name.
 See docs/specs/artist_sort_name_ordering.md.
 """
 
-from src.artist import artist_view as artist_view_module
-from src.artist.artist_view import ArtistView
+from src.artist.view import artist_view as artist_view_module
+from src.artist.view.artist_view import ArtistView
 
 
 class StubArtist:

@@ -14,11 +14,11 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.edit.base_album_widget import ScrollableAlbumFlow
-from src.artist.artist_detail_awards import AwardsWidget
-from src.artist.artist_detail_credits import CreditsWidget
-from src.artist.artist_detail_header import HeaderWidget
-from src.artist.artist_detail_influences import InfluencesWidget
-from src.artist.artist_detail_member import MembershipWidget
+from src.artist.detail.artist_detail_awards import AwardsWidget
+from src.artist.detail.artist_detail_credits import CreditsWidget
+from src.artist.detail.artist_detail_header import HeaderWidget
+from src.artist.detail.artist_detail_influences import InfluencesWidget
+from src.artist.detail.artist_detail_member import MembershipWidget
 from src.foundation.logger_config import logger
 
 

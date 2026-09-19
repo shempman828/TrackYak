@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.artist.artist_edit_basic import BasicTab
+from src.artist.edit.artist_edit_basic import BasicTab
 
 
 class _FakeGet:

@@ -10,8 +10,8 @@ showing the pre-edit artist even though the underlying record had changed.
 
 from PySide6.QtCore import Qt
 
-from src.artist import artist_view as artist_view_module
-from src.artist.artist_view import ArtistView
+from src.artist.view import artist_view as artist_view_module
+from src.artist.view.artist_view import ArtistView
 
 
 class StubArtist:

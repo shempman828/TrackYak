@@ -2,9 +2,9 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.artist.artist_detail_alias import AliasesCarousel
-from src.artist.artist_detail_bio import BioWidget
-from src.artist.artist_detail_dates import DateDisplayWidget
+from src.artist.detail.artist_detail_alias import AliasesCarousel
+from src.artist.detail.artist_detail_bio import BioWidget
+from src.artist.detail.artist_detail_dates import DateDisplayWidget
 from src.foundation.logger_config import logger
 from src.image.pixmap_with_fallback import load_pixmap_with_fallback
 

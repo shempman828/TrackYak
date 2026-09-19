@@ -15,15 +15,15 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.artist.artist_edit_advanced import AdvancedTab
-from src.artist.artist_edit_alias import AliasesTab
-from src.artist.artist_edit_basic import BasicTab
-from src.artist.artist_edit_bio import BiographyTab
-from src.artist.artist_edit_discog import DiscographyTab
-from src.artist.artist_edit_influences import InfluencesTab
-from src.artist.artist_edit_member import MembersTab
-from src.artist.artist_edit_placesawards import PlacesAwardsTab
 from src.artist.artist_enrichment_review_dialog import ArtistEnrichmentReviewDialog
+from src.artist.edit.artist_edit_advanced import AdvancedTab
+from src.artist.edit.artist_edit_alias import AliasesTab
+from src.artist.edit.artist_edit_basic import BasicTab
+from src.artist.edit.artist_edit_bio import BiographyTab
+from src.artist.edit.artist_edit_discog import DiscographyTab
+from src.artist.edit.artist_edit_influences import InfluencesTab
+from src.artist.edit.artist_edit_member import MembersTab
+from src.artist.edit.artist_edit_placesawards import PlacesAwardsTab
 from src.foundation.logger_config import logger
 from src.musicbrainz.musicbrainz_artist import (
     complete_artist_enrichment,

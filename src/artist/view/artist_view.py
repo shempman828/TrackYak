@@ -23,9 +23,9 @@ from sqlalchemy.orm import selectinload
 
 from src.artist.artist_detail import ArtistDetailTab
 from src.artist.artist_sort import artist_sort_key
-from src.artist.artist_view_actions import ArtistActionsMixin
-from src.artist.artist_view_dedup import ArtistDedupMixin
-from src.artist.artist_view_tracks import ArtistViewTracksMixin
+from src.artist.view.artist_view_actions import ArtistActionsMixin
+from src.artist.view.artist_view_dedup import ArtistDedupMixin
+from src.artist.view.artist_view_tracks import ArtistViewTracksMixin
 from src.db.db_tables import Artist, TrackArtistRole
 from src.foundation.asset_paths import icon
 from src.foundation.config_setup import app_config

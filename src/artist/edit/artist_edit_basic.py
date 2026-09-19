@@ -26,8 +26,8 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.artist.artist_edit_types import ArtistTypesWidget
 from src.artist.artist_image_manager import move_to_artist_images_dir
+from src.artist.edit.artist_edit_types import ArtistTypesWidget
 from src.artist.religion_manager import ReligionManagerDialog
 from src.common.edit_dirty import value_changed
 from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name

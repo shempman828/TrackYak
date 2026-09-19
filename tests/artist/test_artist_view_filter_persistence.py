@@ -2,8 +2,8 @@
 restored on the next session and persisted whenever they change.
 """
 
-from src.artist import artist_view as artist_view_module
-from src.artist.artist_view import ArtistView
+from src.artist.view import artist_view as artist_view_module
+from src.artist.view.artist_view import ArtistView
 
 
 class StubArtist:

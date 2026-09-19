@@ -6,7 +6,7 @@ method name more than once, which Python would otherwise shadow silently.
 import ast
 import inspect
 
-from src.artist import artist_edit_placesawards
+from src.artist.edit import artist_edit_placesawards
 
 
 def test_no_duplicate_method_definitions_in_classes():

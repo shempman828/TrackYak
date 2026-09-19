@@ -19,7 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 #    the user navigates to them.  Adding a new view only requires adding
 #    one entry to _VIEW_FACTORIES inside _create_views(). ─────────────────
 from src.album.album_view import AlbumView
-from src.artist.artist_view import ArtistView
+from src.artist.view.artist_view import ArtistView
 from src.award.award_view import AwardView
 from src.charts.charts_view import ChartsView
 from src.core.menu_bar import MenuBar

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from PySide6.QtWidgets import QFrame, QLabel
 
-from src.artist.artist_detail_bio import BioWidget
+from src.artist.detail.artist_detail_bio import BioWidget
 
 
 def _artist(**kw):

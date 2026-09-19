@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from PySide6.QtWidgets import QLabel
 
-from src.artist.artist_detail_header import ArtistInfobox
+from src.artist.detail.artist_detail_header import ArtistInfobox
 
 # Qt's "no maximum" sentinel for widget dimensions.
 QWIDGETSIZE_MAX = (1 << 24) - 1

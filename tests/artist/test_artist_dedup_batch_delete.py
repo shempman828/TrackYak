@@ -6,13 +6,13 @@ delete_entity(entity_ids=[...]) call instead of one delete_entity call per
 selected artist. See src/artist/artist_view_dedup.py find_orphan_artists().
 """
 
-import pytest
 from PySide6.QtWidgets import QDialog, QWidget
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.artist.artist_delete_orphans import OrphanArtistDialog
-from src.artist.artist_view_dedup import ArtistDedupMixin
+from src.artist.view.artist_view_dedup import ArtistDedupMixin
 from src.db.db_helpers.delete import DeleteDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables.artist import Artist

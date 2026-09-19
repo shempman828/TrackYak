@@ -19,7 +19,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.artist.artist_detail import ArtistDetailTab
-from src.artist.artist_detail_credits import CreditsWidget, RoleSection
+from src.artist.detail.artist_detail_credits import CreditsWidget, RoleSection
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables import Album, AlbumRoleAssociation, Artist, Role, Track, TrackArtistRole
 from src.db.db_tables.base import Base
