@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.album.edit.base_album_edit import AlbumEditor
 from src.album.edit.base_album_widget import ScrollableAlbumFlow
 from src.foundation.logger_config import logger
 from src.publisher.publisher_hierarchy import get_publisher_albums
@@ -25,7 +26,21 @@ class PublisherAlbumsWindow(QDialog):
 
         # ScrollableAlbumFlow handles the scroll area + grid layout correctly
         self.flow = ScrollableAlbumFlow(albums=[], album_size=160)
+        self.flow.albumDoubleClicked.connect(self._open_album_editor)
         layout.addWidget(self.flow)
+
+    def _open_album_editor(self, album):
+        try:
+            fresh = self.controller.get.get_entity_object("Album", album_id=album.album_id)
+            if fresh:
+                album = fresh
+        except SQLAlchemyError as e:
+            logger.error(f"Error refreshing album {album.album_id} before editing: {e!s}")
+            return
+
+        dialog = AlbumEditor(self.controller, album, self)
+        dialog.exec()
+        self._load_albums()
 
     def _load_albums(self):
         try:

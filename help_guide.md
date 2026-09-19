@@ -381,6 +381,9 @@ parent label, headquarters, active years, and a logo you can upload. If
 you're editing an existing entry rather than creating one, you also get an
 Aliases tab for alternate names.
 
+**Viewing a publisher's albums**: click View Albums to open its album list.
+Double-click an album there to open it in the album editor.
+
 **Untangling duplicates**: right-click → Find Duplicate Publishers to run a
 fuzzy-match scan across your whole publisher list, then review and bulk-merge
 whatever it finds similar. For a one-off, Merge and Split work the same way
