@@ -158,12 +158,11 @@ class DraggableTreeWidget(QTreeWidget):
             if mbid_missing_only and place.MBID:
                 return False
 
-            if coords_missing_only and (
-                place.place_latitude is not None and place.place_longitude is not None
-            ):
-                return False
-
-            return True
+            return not (
+                coords_missing_only
+                and place.place_latitude is not None
+                and place.place_longitude is not None
+            )
 
         def filter_item(item):
             place = item.data(0, Qt.UserRole)
@@ -241,6 +240,16 @@ class ListView(QWidget):
         )
         self.flat_view_button.clicked.connect(self.toggle_flat_view)
         control_layout.addWidget(self.flat_view_button)
+
+        self.expand_all_button = QPushButton("Expand All")
+        self.expand_all_button.setToolTip("Open all branches in the tree")
+        self.expand_all_button.clicked.connect(self.tree_widget_expand_all)
+        control_layout.addWidget(self.expand_all_button)
+
+        self.collapse_all_button = QPushButton("Collapse All")
+        self.collapse_all_button.setToolTip("Close all branches in the tree")
+        self.collapse_all_button.clicked.connect(self.tree_widget_collapse_all)
+        control_layout.addWidget(self.collapse_all_button)
 
         # Search bar
         self.search_bar = QLineEdit()
@@ -327,7 +336,18 @@ class ListView(QWidget):
         # Drag-and-drop reparenting doesn't make sense against a flat,
         # always-sorted list.
         self.tree_widget.setDragEnabled(not self.flat_view)
+        # A flat list has no branches to open or close.
+        self.expand_all_button.setEnabled(not self.flat_view)
+        self.collapse_all_button.setEnabled(not self.flat_view)
         self.load_places()
+
+    def tree_widget_expand_all(self):
+        """Open every branch in the tree."""
+        self.tree_widget.expandAll()
+
+    def tree_widget_collapse_all(self):
+        """Close every branch in the tree."""
+        self.tree_widget.collapseAll()
 
     def filter_places(self, text):
         """Filter places based on search text."""
@@ -447,7 +467,7 @@ class ListView(QWidget):
         menu.exec_(self.tree_widget.viewport().mapToGlobal(position))
 
     def _build_hierarchy(self, places):
-        """Build a dictionary of parent-child relationships, each level sorted per self.sort_mode."""
+        """Build a dict of parent-child relationships, each level sorted per self.sort_mode."""
         hierarchy = {}
         for place in places:
             parent_id = place.parent_id
