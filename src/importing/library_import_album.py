@@ -7,22 +7,17 @@ from src.importing.artist_field_extraction import ALBUM_ARTIST_FIELDS, extract_a
 
 
 class AlbumImporter:
-    """Used by TrackImporter as one all-or-nothing transaction per track:
-    every write here defers commit to the caller, which commits/rolls back
-    the whole per-track batch itself."""
+    """Resolves or creates the Album, Disc, and Publisher entities for one imported track."""
 
     def __init__(self, controller):
         self.controller = controller
 
     def _get_or_create_album(self, metadata: dict[str, Any]):
-        """Get existing album or create new one with comprehensive metadata.
-
-        Raises on failure rather than swallowing: the album is required by
-        the track/disc/relationship rows created after it, and this whole
-        import is one transaction (commit=False throughout, committed once
-        at the end by the caller), so a failure here needs to roll back the
-        whole thing instead of silently proceeding without an album.
-        """
+        """Get existing album or create new one with comprehensive metadata."""
+        # Raises rather than returning None: the caller batches this with
+        # the track/disc/relationship rows into one commit=False
+        # transaction, so a failure here must roll back the whole thing
+        # instead of silently proceeding without an album.
         album_name = self._extract_album_name(metadata)
         release_year = self._extract_release_year(metadata)
         artist_ids = self._process_album_artists(metadata)
@@ -70,7 +65,8 @@ class AlbumImporter:
             )
             if existing_album:
                 logger.debug(
-                    f"Using existing album: {existing_album.album_name} (ID: {existing_album.album_id})"
+                    f"Using existing album: {existing_album.album_name} "
+                    f"(ID: {existing_album.album_id})"
                 )
                 return existing_album
 
@@ -124,7 +120,8 @@ class AlbumImporter:
         for artist_id in artist_ids:
             if artist_id in existing_artist_ids:
                 logger.debug(
-                    f"Album-artist relationship already exists: album_id={album_id}, artist_id={artist_id}"
+                    f"Album-artist relationship already exists: "
+                    f"album_id={album_id}, artist_id={artist_id}"
                 )
                 continue
 
@@ -163,14 +160,11 @@ class AlbumImporter:
         return new_album
 
     def _get_or_create_disc(self, album_id: int, metadata: dict[str, Any]):
-        """Get existing disc or create a new one based on the track's disc number.
-
-        Returns None if the metadata has no disc number, in which case the
-        track is simply left unassigned to any disc (matches prior behavior
-        for single-disc releases with no DISCNUMBER/TPOS tag).
-        """
+        """Get existing disc or create a new one based on the track's disc number."""
         disc_number = metadata.get("disc_number")
         if disc_number is None:
+            # No DISCNUMBER/TPOS tag: leave the track unassigned to any disc
+            # (single-disc releases have no disc number to key off of).
             return None
 
         existing_disc = self.controller.get.get_entity_object(
@@ -187,6 +181,11 @@ class AlbumImporter:
         disc_data = {k: v for k, v in disc_data.items() if v is not None}
 
         new_disc = self.controller.add.add_entity("Disc", commit=False, **disc_data)
+        if not new_disc:
+            raise RuntimeError(
+                f"Failed to create disc: album_id={album_id}, disc_number={disc_number}"
+            )
+
         logger.debug(f"Created new disc: album_id={album_id}, disc_number={disc_number}")
         return new_disc
 
@@ -221,11 +220,9 @@ class AlbumImporter:
             logger.debug(f"Created publisher relationship: {publisher_name} -> album {album_id}")
 
     def _resolve_publisher(self, publisher_name: str):
-        """Resolve a publisher name to its canonical Publisher entity,
-        checking known aliases so a name the user has aliased to a
-        canonical publisher (directly, or via a merge) doesn't recreate a
-        duplicate publisher on every import.
-        """
+        """Resolve a publisher name to its canonical Publisher entity, checking aliases first."""
+        # Checking aliases means a name the user merged/aliased to a
+        # canonical publisher doesn't recreate a duplicate on every import.
         return self.controller.get.resolve_entity_or_alias(
             "Publisher", "publisher_name", publisher_name
         )

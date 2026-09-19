@@ -1,9 +1,4 @@
-"""
-library_import.py
-
-This code handles importing audio files into a music library database and
-parsing very robust metadata.
-"""
+"""Imports audio files into the library database, extracting and mapping metadata."""
 
 from datetime import UTC
 from enum import Enum
@@ -38,14 +33,7 @@ class ImportResult(Enum):
 
 
 class TrackImporter:
-    """
-    Handles importing tracks into the database with comprehensive error handling.
-
-    Responsibilities:
-    - Recursively scan paths for supported audio files
-    - Receive metadata and manage database relationships
-    - Ensure robust error handling and continue-on-error behavior
-    """
+    """Scans paths for audio files and imports them into the database, continuing past errors."""
 
     SUPPORTED_EXTENSIONS: ClassVar = {".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".opus"}
 
@@ -58,21 +46,7 @@ class TrackImporter:
         self.last_imported_album_id: int | None = None
 
     def add_track(self, file_path: str) -> ImportResult:
-        """
-        Main method to add a track with full metadata extraction and relationship mapping.
-
-        All database writes for this track (album, disc, artists, the track
-        itself, and every relationship) are one transaction: they're
-        committed together at the end, or rolled back together if any step
-        fails, instead of each individual insert committing on its own as
-        soon as it happens.
-
-        Args:
-            file_path: Path to the audio file
-
-        Returns:
-            ImportResult: IMPORTED, SKIPPED (already in the library), or FAILED.
-        """
+        """Extract metadata for one file and import it, returning IMPORTED, SKIPPED, or FAILED."""
         self.last_imported_album_id = None
         try:
             # Normalize once so the dedup check and the stored
@@ -121,7 +95,11 @@ class TrackImporter:
                 self._process_playlist_tags(track, metadata)
 
                 session.commit()
-            except (SQLAlchemyError, RuntimeError):
+            except Exception:
+                # Broad on purpose: any failure inside this transaction
+                # (not just SQLAlchemyError/RuntimeError) must roll back
+                # before propagating, or the shared session is left dirty
+                # and every later track in this import batch fails too.
                 session.rollback()
                 raise
 
@@ -129,7 +107,7 @@ class TrackImporter:
             logger.info(f"Successfully imported track: {track.track_name}")
             return ImportResult.IMPORTED
 
-        except (OSError, SQLAlchemyError, RuntimeError) as e:
+        except Exception as e:
             logger.error(f"Error importing track {file_path}: {e!s}", exc_info=True)
             return ImportResult.FAILED
 
@@ -324,14 +302,10 @@ class TrackImporter:
     def _create_track_artist_relationships(
         self, track, artists_dict: dict, metadata: dict[str, Any]
     ):
-        """Create TrackArtistRole relationships for all artist types.
-
-        Each (role, artist) pair is isolated: one bad relationship is
-        logged and skipped rather than aborting every relationship still
-        left in the loop (the previous behavior, since a single wrapping
-        try/except meant one failure silently dropped all credits after
-        it).
-        """
+        """Create TrackArtistRole relationships for all artist types."""
+        # Each (role, artist) pair is isolated in its own try/except below,
+        # so one bad relationship is logged and skipped instead of
+        # aborting every relationship still left in the loop.
         role_cache = {}  # Cache role lookups
         excluded_roles = {r.lower() for r in app_config.get_excluded_roles()}
 
@@ -390,29 +364,12 @@ class TrackImporter:
                     )
 
     def _process_playlist_tags(self, track, metadata: dict):
-        """Read PLAYLIST tags from metadata and add the track to those playlists.
-
-        This is called after a track has been successfully created in the
-        database. It looks for playlist names stored in the file's tags
-        (written there by the metadata writer) and reconstructs the
-        playlist membership.
-
-        For FLAC/OGG files: reads the PLAYLIST Vorbis comment (may be a list).
-        For MP3 files: reads the TXXX:PLAYLIST tag and splits on " ; ".
-
-        If a playlist already exists (matched by exact name), the track is
-        added to it. If it doesn't exist, a new playlist is created first.
-        Tracks are always added at the end of the playlist (highest position + 1).
-
-        Args:
-            track:    The newly created Track ORM object.
-            metadata: The full metadata dict from MetadataExtractor.
-        """
+        """Read PLAYLIST tags from metadata and reconstruct playlist membership for the track."""
         try:
             # ── 1. Collect playlist name(s) from metadata ──────────────
             playlist_names = []
 
-            # Vorbis: stored as PLAYLIST (may be a list if multiple playlists)
+            # Vorbis (FLAC/OGG): stored as PLAYLIST (may be a list if multiple playlists)
             vorbis_playlists = metadata.get("PLAYLIST") or metadata.get("playlist")
             if vorbis_playlists:
                 if isinstance(vorbis_playlists, list):
@@ -454,16 +411,7 @@ class TrackImporter:
             )
 
     def _add_track_to_playlist_by_name(self, track, playlist_name: str):
-        """Find or create a playlist by name, then add the track to it.
-
-        If the playlist already exists, the track is appended at the end.
-        If the track is already in that playlist (e.g. importing the same file
-        twice), the duplicate is silently skipped.
-
-        Args:
-            track:         The Track ORM object to add.
-            playlist_name: The exact name of the playlist.
-        """
+        """Find or create a playlist by exact name, then append the track to it."""
         try:
             # ── Find or create the playlist ────────────────────────────
             playlist = self.controller.get.get_entity_object(
@@ -518,11 +466,7 @@ class TrackImporter:
             logger.error(f"Error adding track to playlist '{playlist_name}': {e}", exc_info=True)
 
     def _create_track_genre_relationships(self, track, metadata: dict[str, Any]):
-        """Create TrackGenre relationships with better multi-value support.
-
-        Each genre is isolated: one bad genre is logged and skipped
-        rather than aborting every genre still left in the loop.
-        """
+        """Create TrackGenre relationships for the track's genres."""
         genres = metadata.get("genre_name", [])
 
         # Handle multiple genres in various formats
@@ -609,8 +553,10 @@ class TrackImporter:
                 if self._should_process_file(file_path):
                     audio_files.add(str(file_path))
         except OSError as e:
+            # An unreadable subdirectory can abort rglob's iteration
+            # partway through; keep whatever was already found instead of
+            # discarding the whole scan.
             logger.error(f"Error scanning directory {directory}: {e}", exc_info=True)
-            return []
 
         return sorted(audio_files)
 
@@ -683,6 +629,10 @@ class ImportWorker(CancellableWorker):
         self._resource_check_interval = 50
         self._memory_warning_threshold_mb = 500
         self._clear_cache_interval = 20
+        # Reused across _check_resources calls: psutil.Process.cpu_percent()
+        # reports usage since its *previous* call on the same instance, so a
+        # fresh Process() every check would always report 0.0%.
+        self._process = psutil.Process()
         # album_ids the import added at least one track to; scanned for
         # embedded-art disagreement once the file loop finishes.
         self.touched_album_ids: set[int] = set()
@@ -702,10 +652,10 @@ class ImportWorker(CancellableWorker):
             self._release_db_session()
 
     def _emit_art_conflicts(self):
-        """Scan the albums this import touched for tracks that disagree on
-        embedded cover art and emit the conflict list. Runs even when the
-        import was cancelled (it reconciles what was touched before the
-        cancel); best-effort - a failure here must not stop `finished`."""
+        """Scan albums this import touched for cover-art disagreement and emit the conflicts."""
+        # Runs even on a cancelled import (reconciles what was touched
+        # before the cancel), and is best-effort: a scan failure must not
+        # stop `finished` from being emitted.
         if not self.touched_album_ids:
             self.art_conflicts.emit([])
             return
@@ -790,9 +740,8 @@ class ImportWorker(CancellableWorker):
 
     def _check_resources(self):
         """Check system resources and emit warnings if thresholds exceeded."""
-        process = psutil.Process()
-        memory_mb = process.memory_info().rss / 1024 / 1024
-        cpu_percent = process.cpu_percent()
+        memory_mb = self._process.memory_info().rss / 1024 / 1024
+        cpu_percent = self._process.cpu_percent()
 
         logger.info(
             f"Resource check - Processed: {self.processed_count}, "

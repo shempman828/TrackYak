@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QSpacerItem,
@@ -30,7 +31,6 @@ CONFIG_FILE = config("import_paths.json")
 class ImportDialog(QDialog):
     """Dialog for managing music file imports with enhanced UX"""
 
-    progress_updated = Signal(int, int)
     import_completed = Signal(int)
 
     def __init__(self, controller):
@@ -61,16 +61,21 @@ class ImportDialog(QDialog):
             )
         )
 
+        # Shown instead of the (empty) list until a directory is added
+        self.empty_state_label = QLabel('No directories added yet. Click "Add Directory" to start.')
+        self.empty_state_label.setStyleSheet("font-style: italic;")
+        self.empty_state_label.hide()
+
         # Buttons
         btn_layout = QHBoxLayout()
-        btn_add = QPushButton("Add Directory")
-        btn_add.setIcon(QIcon(icon("plus.svg")))
-        btn_add.clicked.connect(self._add_directory)
-        btn_remove = QPushButton("Remove Selected")
-        btn_remove.setIcon(QIcon(icon("minus.svg")))
-        btn_remove.clicked.connect(self._remove_directories)
-        btn_layout.addWidget(btn_add)
-        btn_layout.addWidget(btn_remove)
+        self.btn_add = QPushButton("Add Directory")
+        self.btn_add.setIcon(QIcon(icon("plus.svg")))
+        self.btn_add.clicked.connect(self._add_directory)
+        self.btn_remove = QPushButton("Remove Selected")
+        self.btn_remove.setIcon(QIcon(icon("minus.svg")))
+        self.btn_remove.clicked.connect(self._remove_directories)
+        btn_layout.addWidget(self.btn_add)
+        btn_layout.addWidget(self.btn_remove)
         btn_layout.addSpacerItem(QSpacerItem(20, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
         # Start/Cancel buttons
@@ -86,6 +91,8 @@ class ImportDialog(QDialog):
         action_layout.addSpacerItem(QSpacerItem(20, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
 
         # Progress
+        self.progress_bar = QProgressBar()
+        self.progress_bar.hide()
         self.status_note = QLabel(
             "You can close this window; the import will continue in the background."
         )
@@ -96,22 +103,34 @@ class ImportDialog(QDialog):
         # Assemble layout
         layout.addWidget(QLabel("Tracked Directories:"))
         layout.addWidget(self.dir_list)
+        layout.addWidget(self.empty_state_label)
         layout.addLayout(btn_layout)
         layout.addLayout(action_layout)
+        layout.addWidget(self.progress_bar)
         layout.addWidget(self.status_note)
         self.setLayout(layout)
 
         # Track if user requested close during import
         self._close_requested = False
+        self._update_empty_state()
+
+    def _update_empty_state(self):
+        """Show a placeholder message in place of the list when no directories are tracked."""
+        is_empty = self.dir_list.count() == 0
+        self.empty_state_label.setVisible(is_empty)
+        self.dir_list.setVisible(not is_empty)
 
     def _handle_progress_update(self, current: int, total: int):
         """Handle progress update from ImportWorker"""
         logger.debug(f"DEBUG: ImportDialog progress: {current}/{total}")
         if total > 0:
             percent = int(current / total * 100)
+            self.progress_bar.setRange(0, total)
+            self.progress_bar.setValue(current)
             StatusManager.show_message(f"Importing: {current}/{total} files ({percent}%)", 0)
         else:
             # Indeterminate progress
+            self.progress_bar.setRange(0, 0)
             StatusManager.show_message("Scanning files...", 0)
 
     def _add_directory(self):
@@ -128,6 +147,7 @@ class ImportDialog(QDialog):
                 self.dir_list.addItem(item)
                 self.directories.append((path_obj, True))
                 self._save_directories()
+                self._update_empty_state()
                 logger.info(f"Added import directory: {path_obj}")
         except (OSError, ValueError) as e:
             self._show_error("Add Error", str(e))
@@ -140,6 +160,7 @@ class ImportDialog(QDialog):
                 self.directories = [(p, s) for p, s in self.directories if p != path]
                 self.dir_list.takeItem(self.dir_list.row(item))
             self._save_directories()
+            self._update_empty_state()
         except OSError as e:
             self._show_error("Remove Error", str(e))
 
@@ -152,7 +173,11 @@ class ImportDialog(QDialog):
             StatusManager.start_task("Importing music files...")
             self.btn_scan.setEnabled(False)
             self.btn_cancel.setEnabled(True)
+            self.btn_add.setEnabled(False)
+            self.btn_remove.setEnabled(False)
             self.status_note.show()
+            self.progress_bar.setValue(0)
+            self.progress_bar.show()
 
             selected_paths = [
                 str(Path(self.dir_list.item(i).text()))
@@ -167,6 +192,8 @@ class ImportDialog(QDialog):
             # Connect signals directly to handlers
             self.import_worker.progress.connect(self._handle_progress_update)
             self.import_worker.art_conflicts.connect(self._on_art_conflicts)
+            self.import_worker.error_occurred.connect(self._handle_import_error)
+            self.import_worker.resource_warning.connect(self._handle_resource_warning)
             self.import_worker.finished.connect(self._import_complete)
             self.import_worker.start()
 
@@ -174,12 +201,24 @@ class ImportDialog(QDialog):
             self._show_error("Import Error", str(e))
             self.btn_scan.setEnabled(True)
             self.btn_cancel.setEnabled(False)
+            self.btn_add.setEnabled(True)
+            self.btn_remove.setEnabled(True)
             self.status_note.hide()
+            self.progress_bar.hide()
+
+    def _handle_import_error(self, message: str):
+        """Surface a non-fatal per-file import error from ImportWorker."""
+        logger.warning(f"Import error: {message}")
+        StatusManager.show_message(f"Import warning: {message}", 5000)
+
+    def _handle_resource_warning(self, warning_type: str, value: float):
+        """Surface a resource-usage warning from ImportWorker."""
+        StatusManager.show_message(f"High {warning_type} usage during import: {value:.1f}", 5000)
 
     def _on_art_conflicts(self, conflicts: list):
-        """Stash the end-of-import artwork-disagreement conflicts; the
-        reconciliation dialog is opened from _import_complete (which fires
-        right after this, on both the normal and cancelled paths)."""
+        """Stash the end-of-import artwork-disagreement conflicts."""
+        # The reconciliation dialog is opened from _import_complete, which
+        # fires right after this on both the normal and cancelled paths.
         self._pending_art_conflicts = list(conflicts)
 
     def _import_complete(self, success_count: int):
@@ -187,7 +226,10 @@ class ImportDialog(QDialog):
         StatusManager.end_task(f"Import complete: {success_count} files processed", 3000)
         self.btn_scan.setEnabled(True)
         self.btn_cancel.setEnabled(False)
+        self.btn_add.setEnabled(True)
+        self.btn_remove.setEnabled(True)
         self.status_note.hide()
+        self.progress_bar.hide()
         self.import_completed.emit(success_count)
 
         if self._close_requested:
@@ -208,9 +250,9 @@ class ImportDialog(QDialog):
             super().accept()
 
     def _maybe_show_art_reconciliation(self):
-        """Open the reconciliation dialog if the import turned up artwork
-        conflicts. Parented to this dialog when it's on screen, otherwise a
-        standalone top-level window (background import)."""
+        """Open the reconciliation dialog if the import turned up artwork conflicts."""
+        # Parented to this dialog when it's on screen, otherwise a
+        # standalone top-level window (background import).
         conflicts = self._pending_art_conflicts
         self._pending_art_conflicts = []
         if not conflicts:
@@ -226,7 +268,10 @@ class ImportDialog(QDialog):
             StatusManager.end_task("Import cancelled", 3000)
             self.btn_scan.setEnabled(True)
             self.btn_cancel.setEnabled(False)
+            self.btn_add.setEnabled(True)
+            self.btn_remove.setEnabled(True)
             self.status_note.hide()
+            self.progress_bar.hide()
 
     def load_saved_directories(self):
         """Load directories from config but respect current UI state"""
@@ -259,6 +304,7 @@ class ImportDialog(QDialog):
             logger.error(f"Config save error: {e}")
 
     def _refresh_list(self):
+        """Rebuild dir_list from self.directories, preserving scroll position and selection."""
         scroll_pos = self.dir_list.verticalScrollBar().value()
         selected_paths = [item.text() for item in self.dir_list.selectedItems()]
         self.dir_list.clear()
@@ -269,6 +315,7 @@ class ImportDialog(QDialog):
             if str(path) in selected_paths:
                 item.setSelected(True)
         self.dir_list.verticalScrollBar().setValue(scroll_pos)
+        self._update_empty_state()
 
     def _show_error(self, title: str, message: str):
         """Show standardized error dialog"""
@@ -300,11 +347,13 @@ class ImportDialog(QDialog):
         """Reset close request flag when dialog is shown again."""
         super().showEvent(event)
         self._close_requested = False
-        # Update status note based on import state
+        # Update status note/progress bar based on import state
         if self.import_worker and self.import_worker.isRunning():
             self.status_note.show()
+            self.progress_bar.show()
         else:
             self.status_note.hide()
+            self.progress_bar.hide()
 
     def reject(self):
         """Handle ESC key or window close button."""

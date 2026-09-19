@@ -1,14 +1,4 @@
-"""Shared artist-field-priority and normalization logic.
-
-TrackImporter (all credited-artist roles) and AlbumImporter (album artists
-specifically) both need to pull artist names out of the flattened metadata
-dict by trying a prioritized list of field names and normalizing whatever
-shape the value comes in (delimited string vs. list). Previously each had
-its own independent copy of this logic, and the copies had quietly drifted:
-AlbumImporter's never split delimited strings ("Artist A; Artist B") into
-separate artists the way TrackImporter's did. Centralizing it here removes
-that drift risk.
-"""
+"""Shared artist-field-priority and normalization logic for track/album import."""
 
 from typing import Any
 
@@ -32,7 +22,11 @@ def normalize_artists_data(artists_data: Any) -> list[str]:
 
     if isinstance(artists_data, str):
         artists = []
-        for delimiter in [";", ",", "/", "|"]:
+        # "/" and "|" are deliberately not treated as delimiters here: they
+        # commonly appear inside a single artist name (e.g. "AC/DC"), and
+        # tag writers use ";" for genuine multi-artist values (see
+        # metadata_text.py's " ; " joins).
+        for delimiter in [";", ","]:
             if delimiter in artists_data:
                 artists = [
                     artist.strip() for artist in artists_data.split(delimiter) if artist.strip()
@@ -47,7 +41,8 @@ def normalize_artists_data(artists_data: Any) -> list[str]:
     if isinstance(artists_data, list):
         return [artist.strip() for artist in artists_data if artist and artist.strip()]
 
-    return normalize_artists_data(str(artists_data))
+    logger.debug(f"Ignoring unsupported artist metadata type: {type(artists_data)}")
+    return []
 
 
 def extract_artists_from_metadata(metadata: dict[str, Any], field_names: list[str]) -> list[str]:
