@@ -19,7 +19,7 @@ from src.db.db_tables.base import Base
 from src.db.db_tables.track import Track
 from src.foundation import censor
 from src.metadata.metadata_mapping import VORBIS_TRACK_MAPPINGS
-from src.track.track_edit_lyrics import LyricsTab
+from src.track.edit.track_edit_lyrics import LyricsTab
 
 
 @pytest.fixture(autouse=True)
@@ -110,7 +110,7 @@ def test_saving_new_lyrics_does_not_overwrite_existing_is_explicit(qapp, session
 
 # AC4 -------------------------------------------------------------------------
 def test_manual_checkbox_choice_wins_over_autofill_same_session(qapp, session):
-    from src.track.track_edit_fieldform import _read_widget
+    from src.track.edit.track_edit_fieldform import _read_widget
 
     track = _make_track(session, is_explicit=None)
     tab = _make_tab([track])

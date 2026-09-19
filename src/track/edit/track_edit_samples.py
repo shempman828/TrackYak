@@ -24,7 +24,7 @@ from src.common.entity_completer_context import track_context_map
 from src.common.entity_completer_edit import ContextItemDelegate
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
-from src.track.track_edit_basetab import _BaseTab
+from src.track.edit.track_edit_basetab import _BaseTab
 
 # Direction constants for the add bar's toggle.
 DIR_USES = "uses"  # this track -> other track (this track samples the other)

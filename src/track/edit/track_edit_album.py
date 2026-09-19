@@ -39,7 +39,7 @@ from src.musicbrainz.musicbrainz_artist import suggest_artist_names
 from src.musicbrainz.musicbrainz_core import MusicBrainzLookupError
 from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzImportDialog, MusicBrainzMatchDialog
 from src.musicbrainz.musicbrainz_recording import search_canonical_album_for_recording
-from src.track.track_edit_basetab import _BaseTab
+from src.track.edit.track_edit_basetab import _BaseTab
 
 _ART_SIZE = 96
 

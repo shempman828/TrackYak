@@ -14,8 +14,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.album.disc_tab.disc_view import DiscTabView
-from src.track.track_edit_genres import GenresTab as TrackGenresTab
-from src.track.track_edit_roles import RolesTab as TrackRolesTab
+from src.track.edit.track_edit_genres import GenresTab as TrackGenresTab
+from src.track.edit.track_edit_roles import RolesTab as TrackRolesTab
 
 if TYPE_CHECKING:
     from src.album.edit.base_album_edit import AlbumEditor

@@ -29,7 +29,7 @@ from src.common.qt_text import esc_amp
 from src.db.db_tables import Artist, ArtistAlias, Role, TrackArtistRole
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
-from src.track.track_edit_basetab import _BaseTab
+from src.track.edit.track_edit_basetab import _BaseTab
 
 PRIMARY_ARTIST_ROLE = "Primary Artist"
 

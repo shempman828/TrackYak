@@ -10,12 +10,12 @@ to the tests below.
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 from PySide6.QtWidgets import QGroupBox, QLabel
+import pytest
 
 from src.album.album_tab import AlbumTabBuilder
 from src.common.entity_completer_edit import invalidate_entity_cache
-from src.track.track_edit_places import PlacesTab as TrackPlacesTab
+from src.track.edit.track_edit_places import PlacesTab as TrackPlacesTab
 
 # ---------------------------------------------------------------------------
 # Stateful fake controller / DB

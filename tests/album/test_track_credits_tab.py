@@ -20,7 +20,7 @@ from PySide6.QtWidgets import QPushButton, QTabWidget, QWidget
 from src.album.album_editing_relationship_helpers import RelationshipHelpers
 from src.album.edit.base_album_edit import AlbumEditor
 from src.album.edit.base_album_edit_tabs import TrackCreditsTab
-from src.track.track_edit_roles import RolesTab
+from src.track.edit.track_edit_roles import RolesTab
 
 # ---------------------------------------------------------------------------
 # Stubs

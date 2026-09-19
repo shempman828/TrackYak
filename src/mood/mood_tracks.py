@@ -2,7 +2,7 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLa
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.logger_config import logger
-from src.track.base_track_view import BaseTrackView
+from src.track.view.base_track_view import BaseTrackView
 
 
 class MoodTracksWindow(QDialog):

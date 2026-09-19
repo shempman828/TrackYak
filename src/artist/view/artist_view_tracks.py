@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
-from src.track.base_track_view import BaseTrackView
+from src.track.view.base_track_view import BaseTrackView
 
 
 class ArtistViewTracksMixin:

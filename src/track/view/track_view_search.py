@@ -3,7 +3,7 @@ track_view_search.py — background search/filter application for TrackView.
 """
 
 from src.foundation.logger_config import logger
-from src.track.track_view_filter import FilterWorker
+from src.track.view.track_view_filter import FilterWorker
 
 
 class TrackViewSearchMixin:

@@ -6,7 +6,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QMenu, QToolButton
 
 from src.foundation.logger_config import logger
-from src.track.track_view_filter import SEARCH_ALL
+from src.track.view.track_view_filter import SEARCH_ALL
 
 
 class TrackViewToolbarMixin:

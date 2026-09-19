@@ -12,12 +12,11 @@ callers bail when ``accepted`` is False.
 
 from types import SimpleNamespace
 
-import pytest
 from PySide6.QtWidgets import QDialog, QWidget
+import pytest
 
 from src.album.album_editing_relationship_helpers import RelationshipHelpers
-from src.track.track_edit_roles import RolesTab
-
+from src.track.edit.track_edit_roles import RolesTab
 
 # ---------------------------------------------------------------------------
 # Shared stubs
@@ -162,7 +161,7 @@ def test_track_add_role_aborts_when_credited_as_dialog_cancelled(qapp, monkeypat
         monkeypatch, aliases=[SimpleNamespace(alias_id=9, alias_name="TAFKAP")]
     )
     monkeypatch.setattr(
-        "src.track.track_edit_roles.CreditedAsDialog", _fake_dialog(accept=False)
+        "src.track.edit.track_edit_roles.CreditedAsDialog", _fake_dialog(accept=False)
     )
     try:
         tab._prompt_add_role_for_artist(1, "Prince")
@@ -176,7 +175,7 @@ def test_track_add_role_proceeds_when_credited_as_dialog_accepted(qapp, monkeypa
         monkeypatch, aliases=[SimpleNamespace(alias_id=9, alias_name="TAFKAP")]
     )
     monkeypatch.setattr(
-        "src.track.track_edit_roles.CreditedAsDialog",
+        "src.track.edit.track_edit_roles.CreditedAsDialog",
         _fake_dialog(accept=True, alias_id=9),
     )
     try:

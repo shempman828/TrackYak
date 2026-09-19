@@ -13,7 +13,7 @@ user instead of only logging.
 import time
 
 from src.common.entity_completer_edit import invalidate_entity_cache
-from src.track.track_edit_genres import GenresTab
+from src.track.edit.track_edit_genres import GenresTab
 
 # ---------------------------------------------------------------------------
 # Stubs

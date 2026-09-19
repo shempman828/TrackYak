@@ -20,7 +20,7 @@ from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB
 from src.db.db_tables.base import Base
-from src.track.track_edit_album import AlbumsTab
+from src.track.edit.track_edit_album import AlbumsTab
 
 
 # ---- test_track_edit_album_resolve_album.py ----------------------------------

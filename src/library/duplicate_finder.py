@@ -76,7 +76,7 @@ from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.library.fingerprint_matching import score_fingerprint_batch
 from src.statistics.batch_analysis_scheduler import recommended_worker_count
-from src.track.base_track_view import BaseTrackView
+from src.track.view.base_track_view import BaseTrackView
 
 # Pair count per process-pool task. Large enough to keep IPC/pickling
 # overhead low relative to compute, small enough to keep progress reporting

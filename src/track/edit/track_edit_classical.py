@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.track.classical_title_parser import ClassicalTitleParse, parse_classical_title
-from src.track.track_edit_fieldform import FieldFormTab
+from src.track.edit.track_edit_fieldform import FieldFormTab
 
 # Fields the preview lists, in display order. is_classical is handled
 # separately (always set to checked on a successful parse).

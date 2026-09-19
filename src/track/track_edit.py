@@ -20,20 +20,20 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.logger_config import logger
-from src.track.track_edit_advanced import AdvancedTab
-from src.track.track_edit_album import AlbumsTab
-from src.track.track_edit_awards import AwardsTab
-from src.track.track_edit_basetab import _BaseTab
-from src.track.track_edit_classical import ClassicalTab
-from src.track.track_edit_fieldform import FieldFormTab
-from src.track.track_edit_genres import GenresTab
-from src.track.track_edit_identity import IdentificationTab
-from src.track.track_edit_lyrics import LyricsTab
-from src.track.track_edit_moods import MoodsTab
-from src.track.track_edit_places import PlacesTab
-from src.track.track_edit_roles import RolesTab
-from src.track.track_edit_samples import SamplesTab
-from src.track.track_edit_usedin import UsedInTab
+from src.track.edit.track_edit_advanced import AdvancedTab
+from src.track.edit.track_edit_album import AlbumsTab
+from src.track.edit.track_edit_awards import AwardsTab
+from src.track.edit.track_edit_basetab import _BaseTab
+from src.track.edit.track_edit_classical import ClassicalTab
+from src.track.edit.track_edit_fieldform import FieldFormTab
+from src.track.edit.track_edit_genres import GenresTab
+from src.track.edit.track_edit_identity import IdentificationTab
+from src.track.edit.track_edit_lyrics import LyricsTab
+from src.track.edit.track_edit_moods import MoodsTab
+from src.track.edit.track_edit_places import PlacesTab
+from src.track.edit.track_edit_roles import RolesTab
+from src.track.edit.track_edit_samples import SamplesTab
+from src.track.edit.track_edit_usedin import UsedInTab
 
 # ---------------------------------------------------------------------------
 # TrackEditDialog — the main dialog

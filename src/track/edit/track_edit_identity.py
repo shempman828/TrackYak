@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton
 
 from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzMatchDialog
 from src.musicbrainz.musicbrainz_recording import complete_recording_enrichment, search_recordings
-from src.track.track_edit_fieldform import FieldFormTab
+from src.track.edit.track_edit_fieldform import FieldFormTab
 
 
 class IdentificationTab(FieldFormTab):

@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from src.db.db_tables import Artist, Role, Track, TrackArtistRole
 from src.db.db_tables.base import Base
-from src.track.track_view_data import TrackViewDataMixin, _fetch_lookup_caches
+from src.track.view.track_view_data import TrackViewDataMixin, _fetch_lookup_caches
 
 
 @pytest.fixture

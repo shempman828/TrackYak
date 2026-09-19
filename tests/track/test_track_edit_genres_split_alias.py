@@ -19,7 +19,7 @@ from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables.base import Base
 from src.db.db_tables.genre import Genre, GenreSplitAlias
-from src.track.track_edit_genres import GenresTab
+from src.track.edit.track_edit_genres import GenresTab
 
 
 class _Controller:

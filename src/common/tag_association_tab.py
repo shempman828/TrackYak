@@ -30,7 +30,7 @@ from src.common.entity_completer_edit import (
     register_cached_entity,
 )
 from src.foundation.logger_config import logger
-from src.track.track_edit_basetab import _BaseTab
+from src.track.edit.track_edit_basetab import _BaseTab
 
 
 class _BaseTrackAssociationTab(_BaseTab):

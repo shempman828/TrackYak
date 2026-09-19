@@ -28,7 +28,7 @@ from src.place.place_association_types import (
     fetch_association_types,
     find_or_create_association_type,
 )
-from src.track.track_edit_basetab import _BaseTab
+from src.track.edit.track_edit_basetab import _BaseTab
 
 
 def _find_or_create_place(controller, name, known_places):

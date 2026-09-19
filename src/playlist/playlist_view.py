@@ -31,7 +31,7 @@ from src.playlist.playlist_smart_builder import SmartPlaylistBuilder
 from src.playlist.playlist_smart_edit import SmartPlaylistEditDialog
 from src.playlist.playlist_smart_new import SmartPlaylistCreateDialog
 from src.playlist.playlist_tracks_window import PlaylistTracksWindow
-from src.track.base_track_view import BaseTrackView
+from src.track.view.base_track_view import BaseTrackView
 
 
 class _SmartPlaylistRefreshWorker(CancellableWorker):

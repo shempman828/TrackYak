@@ -20,7 +20,7 @@ from src.db.db_tables.track import Track
 from src.metadata.metadata_mapping import VORBIS_TRACK_MAPPINGS
 from src.statistics.analysis_cache import REQUIRED_ANALYSIS_FIELDS, track_needs_analysis
 from src.statistics.stats.audio import AudioStats
-from src.track.track_edit_fieldform import FieldFormTab
+from src.track.edit.track_edit_fieldform import FieldFormTab
 
 
 @pytest.fixture

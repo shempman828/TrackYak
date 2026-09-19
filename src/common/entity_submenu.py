@@ -1,8 +1,8 @@
 """Shared builder for the "Add to Playlist" / "Add to Mood" context submenus.
 
 The player dock (:mod:`src.player.player_context_menu`), the base track view
-(:mod:`src.track.base_track_view`) and the main library Tracks tab
-(:mod:`src.track.track_view_editing`) all offer a right-click submenu that lists
+(:mod:`src.track.view.base_track_view`) and the main library Tracks tab
+(:mod:`src.track.view.track_view_editing`) all offer a right-click submenu that lists
 every playlist or mood, nested by ``parent_id``, alphabetised per level, with a
 checkmark on the ones the track(s) already belong to. Historically each call
 site hand-rolled its own version and they drifted (the base track view menu was

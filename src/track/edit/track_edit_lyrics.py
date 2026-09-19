@@ -13,8 +13,8 @@ from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.lyrics.lyrics_format import format_lyrics_for_storage
 from src.mood.mood_autotag import auto_tag_lyrics_safe
-from src.track.track_edit_basetab import _BaseTab
-from src.track.track_edit_fieldform import (
+from src.track.edit.track_edit_basetab import _BaseTab
+from src.track.edit.track_edit_fieldform import (
     _coerce,
     _make_widget_for_field,
     _read_widget,

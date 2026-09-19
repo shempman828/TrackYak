@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.logger_config import logger
-from src.track.track_edit_basetab import _BaseTab
+from src.track.edit.track_edit_basetab import _BaseTab
 
 # Kept in sync with the CheckConstraint on TrackUsage.usage_type
 USAGE_TYPES = ["Film", "TV Show", "Video Game", "Live Event", "Commercial", "Other"]

@@ -27,7 +27,7 @@ from src.common.nullable_numeric_field import (
 )
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.foundation.logger_config import logger
-from src.track.track_edit_basetab import _BaseTab
+from src.track.edit.track_edit_basetab import _BaseTab
 
 # ---------------------------------------------------------------------------
 # Helpers shared by all tabs

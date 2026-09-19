@@ -17,7 +17,7 @@ from sqlalchemy.orm import scoped_session, sessionmaker
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables import Album, Artist, Disc, Role, Track, TrackArtistRole
 from src.db.db_tables.base import Base
-from src.track.track_view_data import TrackLookupCacheWorker
+from src.track.view.track_view_data import TrackLookupCacheWorker
 
 
 class _Controller:

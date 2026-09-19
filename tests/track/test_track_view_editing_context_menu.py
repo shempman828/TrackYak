@@ -16,7 +16,7 @@ from src.db.db_tables.base import Base
 from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.playlist import Playlist, PlaylistTracks
 from src.db.db_tables.track import Track
-from src.track.track_view_editing import TrackViewEditingMixin
+from src.track.view.track_view_editing import TrackViewEditingMixin
 
 
 @pytest.fixture

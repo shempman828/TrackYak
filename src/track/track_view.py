@@ -19,13 +19,13 @@ from PySide6.QtWidgets import QTableView, QVBoxLayout, QWidget
 
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.foundation.logger_config import logger
-from src.track.track_view_actions import TrackViewActionsMixin
-from src.track.track_view_columns import TrackViewColumnsMixin
-from src.track.track_view_data import TrackViewDataMixin
-from src.track.track_view_editing import TrackViewEditingMixin
-from src.track.track_view_filter import FilterWorker
-from src.track.track_view_search import TrackViewSearchMixin
-from src.track.track_view_toolbar import TrackViewToolbarMixin
+from src.track.view.track_view_actions import TrackViewActionsMixin
+from src.track.view.track_view_columns import TrackViewColumnsMixin
+from src.track.view.track_view_data import TrackViewDataMixin
+from src.track.view.track_view_editing import TrackViewEditingMixin
+from src.track.view.track_view_filter import FilterWorker
+from src.track.view.track_view_search import TrackViewSearchMixin
+from src.track.view.track_view_toolbar import TrackViewToolbarMixin
 
 
 class TrackView(

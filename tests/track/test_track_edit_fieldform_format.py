@@ -8,7 +8,7 @@ word-wraps).
 """
 
 from src.db.db_mapping_tracks import TRACK_FIELDS
-from src.track.track_edit_fieldform import _format_readonly
+from src.track.edit.track_edit_fieldform import _format_readonly
 
 _LONG_PATH = (
     "/music/Music Library/Music/Soloists of the Chamber Orchestra/"

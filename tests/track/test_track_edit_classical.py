@@ -13,9 +13,9 @@ from sqlalchemy.orm import sessionmaker
 
 from src.db.db_tables.base import Base
 from src.db.db_tables.track import Track
+import src.track.edit.track_edit_classical as tec
+from src.track.edit.track_edit_classical import ClassicalTab
 from src.track.track_edit import TrackEditDialog
-import src.track.track_edit_classical as tec
-from src.track.track_edit_classical import ClassicalTab
 
 _TITLE = "Symphony No. 5 in C minor, Op. 67: I. Allegro con brio"
 _CLASSICAL_ROW = 7  # sidebar index of the Classical tab

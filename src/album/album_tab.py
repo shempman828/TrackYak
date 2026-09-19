@@ -21,7 +21,7 @@ from src.common.entity_completer_edit import build_entity_search_widget
 from src.common.qt_text import esc_amp
 from src.foundation.display_settings import apply_scaled_style
 from src.foundation.logger_config import logger
-from src.track.track_edit_places import PlacesTab as TrackPlacesTab
+from src.track.edit.track_edit_places import PlacesTab as TrackPlacesTab
 
 # Prefixes that mark a role as a variant of a base role, e.g. "Assistant
 # Producer" / "Additional Producer" are both variants of "Producer".

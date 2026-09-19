@@ -39,7 +39,7 @@ from src.foundation.status_utility import show_status_message
 from src.genre.genre_edit import GenreEditDialog, GenreSetParentDialog
 from src.genre.genre_merge import GenreMergeDialog
 from src.genre.genre_tracks import GenreTracksWindow
-from src.track.base_track_view import BaseTrackView
+from src.track.view.base_track_view import BaseTrackView
 
 
 class GenreLoaderWorker(CancellableWorker):

@@ -49,7 +49,7 @@ from src.db.db_mapping_albums import ALBUM_FIELDS
 from src.foundation.config_setup import Config
 from src.foundation.logger_config import logger
 from src.metadata.metadata_writer import MetadataWriter
-from src.track.track_edit_roles import RolesTab
+from src.track.edit.track_edit_roles import RolesTab
 
 # Fallback suggestions used if the controller can't supply distinct values
 # already present in the database.

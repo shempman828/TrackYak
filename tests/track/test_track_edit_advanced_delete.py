@@ -13,8 +13,8 @@ from sqlalchemy.orm import sessionmaker
 
 from src.db.db_tables.base import Base
 from src.db.db_tables.track import Track
-from src.track import track_edit_advanced
-from src.track.track_edit_advanced import AdvancedTab
+from src.track.edit import track_edit_advanced
+from src.track.edit.track_edit_advanced import AdvancedTab
 
 
 @pytest.fixture
