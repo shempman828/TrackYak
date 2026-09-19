@@ -19,7 +19,7 @@ from src.library.organize_files_dialog import OrganizeFilesDialog
 from src.lyrics.explicit_recalc_worker import ExplicitRecalcWorker
 from src.metadata.writers.metadata_writer_dialog import show_metadata_write_dialog
 from src.mood.mood_autotag_dialog import MoodAutoTagDialog
-from src.player.player_mini import MiniPlayerWindow
+from src.player.ui.player_mini import MiniPlayerWindow
 from src.statistics.analysis_dialog import AudioAnalysisDialog
 from src.statistics.statistics_dialog import MusicStatsDialog
 

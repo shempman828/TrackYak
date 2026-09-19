@@ -8,7 +8,7 @@ onto the manager.
 
 import pytest
 
-from src.player.queue_utility import QueueManager
+from src.player.core.queue_utility import QueueManager
 
 pytestmark = pytest.mark.usefixtures("qapp")
 

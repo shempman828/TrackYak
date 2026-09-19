@@ -2,7 +2,7 @@
 waveform_seekbar.py — the Player Dock's click/drag seek control.
 
 Draws the current track's min/max amplitude envelope (from
-:mod:`src.player.waveform_cache`) split into played / unplayed regions with a
+:mod:`src.player.core.waveform_cache`) split into played / unplayed regions with a
 playhead line. With no envelope available yet — still generating, decode
 failed, unreadable file — it falls back to a plain filled progress bar and
 stays fully seekable.
@@ -18,7 +18,7 @@ from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPalette
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from src.player.waveform_cache import N_BUCKETS
+from src.player.core.waveform_cache import N_BUCKETS
 
 _MIN_WIDTH = 200
 _HEIGHT = 40

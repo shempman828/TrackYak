@@ -13,8 +13,8 @@ from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QImage, QMouseEvent
 import pytest
 
-from src.player.waveform_cache import N_BUCKETS
-from src.player.waveform_seekbar import WaveformSeekBar
+from src.player.core.waveform_cache import N_BUCKETS
+from src.player.ui.waveform_seekbar import WaveformSeekBar
 
 
 @pytest.fixture

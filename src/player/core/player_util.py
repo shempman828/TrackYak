@@ -31,14 +31,14 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from src.equalizer.equalizer_utility import EqualizerUtility
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
-from src.player.player_device import PlayerDeviceMixin
-from src.player.player_feeder import PlayerFeederMixin
-from src.player.player_gain import PlayerGainMixin
-from src.player.player_position import POSITION_INTERVAL_MS, PlayerPositionMixin
-from src.player.player_reader import PlayerReaderMixin
-from src.player.player_track_loading import PlayerTrackLoadingMixin
-from src.player.player_transport import PlayerTransportMixin
-from src.player.queue_utility import QueueManager
+from src.player.core.player_device import PlayerDeviceMixin
+from src.player.core.player_feeder import PlayerFeederMixin
+from src.player.core.player_gain import PlayerGainMixin
+from src.player.core.player_position import POSITION_INTERVAL_MS, PlayerPositionMixin
+from src.player.core.player_reader import PlayerReaderMixin
+from src.player.core.player_track_loading import PlayerTrackLoadingMixin
+from src.player.core.queue_utility import QueueManager
+from src.player.ui.player_transport import PlayerTransportMixin
 
 
 class MusicPlayer(

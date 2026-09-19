@@ -34,8 +34,8 @@ import threading
 import numpy as np
 
 from src.foundation.logger_config import logger
-from src.player.player_device import demote_thread_from_realtime
-from src.player.player_reader import BLOCKSIZE
+from src.player.core.player_device import demote_thread_from_realtime
+from src.player.core.player_reader import BLOCKSIZE
 
 # Frames handed to a single stream.write() call. One decode chunk (BLOCKSIZE,
 # 16384) is written out in slices this size so the feeder loop re-checks

@@ -28,8 +28,8 @@ from src.foundation.display_settings import DisplaySettings
 from src.foundation.logger_config import logger
 from src.image.artwork_cache import ArtworkCache
 from src.musicbrainz.musicbrainz_core import configure as configure_musicbrainz
-from src.player.music_controller import MusicController
-from src.player.player_mpris2 import MPRIS2Player
+from src.player.core.music_controller import MusicController
+from src.player.core.player_mpris2 import MPRIS2Player
 
 try:
     from src.core.main_window import GUI

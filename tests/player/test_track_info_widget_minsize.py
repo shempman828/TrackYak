@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.player.track_info_widget import TrackInfoWidget
+from src.player.ui.track_info_widget import TrackInfoWidget
 
 pytestmark = pytest.mark.usefixtures("qapp")
 

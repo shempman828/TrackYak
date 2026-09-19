@@ -8,7 +8,7 @@ self.normalization_target, self.controller, self.current_file.
 
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
-from src.player.gain_calculator import calculate_gain_factor
+from src.player.core.gain_calculator import calculate_gain_factor
 
 
 class PlayerGainMixin:

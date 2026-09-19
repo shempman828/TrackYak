@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from src.player.waveform_cache import N_BUCKETS, WaveformCache, WaveformError, compute_peaks
+from src.player.core.waveform_cache import N_BUCKETS, WaveformCache, WaveformError, compute_peaks
 
 
 def _make_wav(path, sr=8000, seconds=2.0):
@@ -88,7 +88,7 @@ def test_compute_peaks_shape_range_monotonic_and_loud_vs_silent(tmp_path):
 
 def test_compute_peaks_uses_streaming_path_when_header_count_zero(tmp_path, monkeypatch):
     wav = _make_wav(tmp_path / "a.wav", sr=8000, seconds=2.0)
-    monkeypatch.setattr("src.player.waveform_cache._frame_count", lambda _r: 0)
+    monkeypatch.setattr("src.player.core.waveform_cache._frame_count", lambda _r: 0)
 
     peaks = compute_peaks(wav, n_buckets=200)
 
@@ -129,7 +129,9 @@ def test_get_hits_cache_without_recompute_and_bumps_mtime(tmp_path, monkeypatch)
     os.utime(dest, (stale, stale))
 
     calls = []
-    monkeypatch.setattr("src.player.waveform_cache.compute_peaks", lambda *a, **k: calls.append(1))
+    monkeypatch.setattr(
+        "src.player.core.waveform_cache.compute_peaks", lambda *a, **k: calls.append(1)
+    )
 
     arr = cache.get(wav)
 

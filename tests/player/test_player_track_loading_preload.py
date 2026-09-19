@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import soundfile as sf
 
-from src.player.player_track_loading import PlayerTrackLoadingMixin
+from src.player.core.player_track_loading import PlayerTrackLoadingMixin
 
 
 class _Bare(PlayerTrackLoadingMixin):

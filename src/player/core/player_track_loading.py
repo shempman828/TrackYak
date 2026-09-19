@@ -15,7 +15,7 @@ import time
 import unicodedata
 
 from src.foundation.logger_config import logger
-from src.player.player_reader import (
+from src.player.core.player_reader import (
     _PLAYABLE_EXTENSIONS,
     READER_LOCK_TIMEOUT,
     TranscodeUnavailableError,

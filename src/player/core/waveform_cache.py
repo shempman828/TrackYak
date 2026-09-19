@@ -27,7 +27,7 @@ import soundfile as _sf
 from src.foundation.asset_paths import WAVEFORMCACHE_DIR
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
-from src.player.player_reader import _open_soundfile
+from src.player.core.player_reader import _open_soundfile
 
 # Bucket count is fixed regardless of the seek bar's pixel width — the widget
 # aggregates buckets down to its width at paint time. 2000 int8 pairs is

@@ -13,8 +13,8 @@ from PySide6.QtWidgets import QWidget
 import pytest
 
 from src.foundation.status_utility import StatusManager
-from src.player.player_context_menu import PlayerContextMenuMixin
-from src.player.player_dock import PlayerUI
+from src.player.ui.player_context_menu import PlayerContextMenuMixin
+from src.player.ui.player_dock import PlayerUI
 
 
 class _FakeLyricThread:

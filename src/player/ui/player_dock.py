@@ -11,11 +11,11 @@ from src.foundation.asset_paths import icon
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import StatusManager
-from src.player.player_context_menu import PlayerContextMenuMixin
-from src.player.track_display_formatter import format_track_display
-from src.player.track_info_widget import TrackInfoWidget
-from src.player.waveform_cache import WaveformWorker, waveform_cache
-from src.player.waveform_seekbar import WaveformSeekBar
+from src.player.core.track_display_formatter import format_track_display
+from src.player.core.waveform_cache import WaveformWorker, waveform_cache
+from src.player.ui.player_context_menu import PlayerContextMenuMixin
+from src.player.ui.track_info_widget import TrackInfoWidget
+from src.player.ui.waveform_seekbar import WaveformSeekBar
 
 
 class PlayerUI(PlayerContextMenuMixin, QWidget):

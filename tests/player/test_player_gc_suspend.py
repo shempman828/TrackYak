@@ -12,7 +12,7 @@ import gc
 
 import pytest
 
-from src.player.player_device import PlayerDeviceMixin
+from src.player.core.player_device import PlayerDeviceMixin
 
 
 class _Bare(PlayerDeviceMixin):

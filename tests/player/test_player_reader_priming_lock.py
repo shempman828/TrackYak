@@ -19,8 +19,8 @@ import time
 import numpy as np
 import soundfile as sf
 
-from src.player import player_reader
-from src.player.player_reader import PlayerReaderMixin
+from src.player.core import player_reader
+from src.player.core.player_reader import PlayerReaderMixin
 
 
 class _Bare(PlayerReaderMixin):

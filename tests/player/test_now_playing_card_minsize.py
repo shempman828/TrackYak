@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.player.queue_dock import _NowPlayingCard
+from src.player.ui.queue_dock import _NowPlayingCard
 
 pytestmark = pytest.mark.usefixtures("qapp")
 

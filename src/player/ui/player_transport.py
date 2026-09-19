@@ -13,9 +13,9 @@ from pathlib import Path
 import time
 
 from src.foundation.logger_config import logger
-from src.player.player_device import OUTPUT_LATENCY
-from src.player.player_position import PLAY_COUNT_THRESHOLD
-from src.player.player_reader import READER_LOCK_TIMEOUT
+from src.player.core.player_device import OUTPUT_LATENCY
+from src.player.core.player_position import PLAY_COUNT_THRESHOLD
+from src.player.core.player_reader import READER_LOCK_TIMEOUT
 
 RESTART_THRESHOLD_MS = 10_000
 

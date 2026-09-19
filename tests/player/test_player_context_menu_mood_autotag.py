@@ -22,7 +22,7 @@ from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.track import Track
 from src.foundation.status_utility import StatusManager
 from src.mood import mood_scoring
-from src.player.player_context_menu import PlayerContextMenuMixin
+from src.player.ui.player_context_menu import PlayerContextMenuMixin
 
 
 @pytest.fixture(autouse=True)

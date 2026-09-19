@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.foundation.logger_config import logger
-from src.player.track_info_widget import _ElidingLabel
+from src.player.ui.track_info_widget import _ElidingLabel
 from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
 
 # How many upcoming rows are visible / loaded at a time before the user scrolls

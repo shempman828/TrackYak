@@ -18,9 +18,9 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QLabel, QWidget
 import pytest
 
-from src.player.player_dock import PlayerUI
-from src.player.waveform_cache import N_BUCKETS
-from src.player.waveform_seekbar import WaveformSeekBar
+from src.player.core.waveform_cache import N_BUCKETS
+from src.player.ui.player_dock import PlayerUI
+from src.player.ui.waveform_seekbar import WaveformSeekBar
 
 
 class _DockHarness(QWidget):
@@ -52,7 +52,7 @@ def _no_threadpool(monkeypatch):
     """Capture scheduled workers instead of running them."""
     started = []
     monkeypatch.setattr(
-        "src.player.player_dock.QThreadPool",
+        "src.player.ui.player_dock.QThreadPool",
         SimpleNamespace(globalInstance=lambda: SimpleNamespace(start=started.append)),
     )
     return started

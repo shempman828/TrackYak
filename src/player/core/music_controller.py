@@ -6,7 +6,7 @@ from src.db.db_tables import Base
 from src.foundation.config_setup import Config
 from src.foundation.logger_config import logger
 from src.importing.library_import import TrackImporter
-from src.player.player_util import MusicPlayer
+from src.player.core.player_util import MusicPlayer
 from src.statistics.statistics_utility import MusicStatistics
 
 

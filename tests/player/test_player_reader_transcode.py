@@ -16,8 +16,8 @@ import pytest
 import soundfile as sf
 
 from src.importing.library_import import TrackImporter
-from src.player import player_reader
-from src.player.player_reader import (
+from src.player.core import player_reader
+from src.player.core.player_reader import (
     _FFMPEG_TRANSCODE_FORMATS,
     _LIBSNDFILE_FORMATS,
     _PLAYABLE_EXTENSIONS,
@@ -25,7 +25,7 @@ from src.player.player_reader import (
     _libsndfile_decodable_extensions,
     _transcode_to_wav,
 )
-from src.player.player_track_loading import SUPPORTED_FORMATS
+from src.player.core.player_track_loading import SUPPORTED_FORMATS
 
 
 def test_every_imported_extension_is_playable():

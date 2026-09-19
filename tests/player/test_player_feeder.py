@@ -16,9 +16,9 @@ import time
 import numpy as np
 import pytest
 
-from src.player import player_feeder
-from src.player.player_feeder import FEEDER_WRITE_BLOCKSIZE, PlayerFeederMixin
-from src.player.player_reader import BLOCKSIZE
+from src.player.core import player_feeder
+from src.player.core.player_feeder import FEEDER_WRITE_BLOCKSIZE, PlayerFeederMixin
+from src.player.core.player_reader import BLOCKSIZE
 
 CH = 2
 
@@ -219,7 +219,7 @@ def test_feeder_demotes_realtime_priority_and_clears_tid_on_exit(monkeypatch):
     # clear the shared tid so a later promote worker can't reuse a dead one.
     calls = []
     monkeypatch.setattr(
-        "src.player.player_feeder.demote_thread_from_realtime",
+        "src.player.core.player_feeder.demote_thread_from_realtime",
         lambda tid: calls.append(tid) or True,
     )
     h = _Host()

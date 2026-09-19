@@ -36,8 +36,8 @@ from src.influences.influences_view import InfluencesView
 from src.mood.mood_view import MoodView
 from src.nowplaying.nowplaying_view import NowPlayingView
 from src.place.place_view import PlaceView
-from src.player.player_dock import PlayerUI
-from src.player.queue_dock import QueueDockWidget
+from src.player.ui.player_dock import PlayerUI
+from src.player.ui.queue_dock import QueueDockWidget
 from src.playlist.playlist_view import PlaylistView
 from src.publisher.publisher_view import PublisherView
 from src.role.role_view import RoleView
