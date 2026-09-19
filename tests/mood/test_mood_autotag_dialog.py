@@ -82,12 +82,8 @@ def test_remove_keyword_is_a_noop_when_file_missing(tmp_path):
 
 
 def test_assigned_words_includes_component_words_of_phrases(tmp_path, monkeypatch):
-    path = _write_keywords(
-        tmp_path, {"Party": ["dance floor"], "Sad": ["crying"]}
-    )
-    monkeypatch.setattr(
-        "src.mood.mood_autotag_dialog._KEYWORDS_PATH", path
-    )
+    path = _write_keywords(tmp_path, {"Party": ["dance floor"], "Sad": ["crying"]})
+    monkeypatch.setattr("src.mood.mood_autotag_dialog._KEYWORDS_PATH", path)
 
     assigned = MoodAutoTagDialog._assigned_words()
 
@@ -119,10 +115,19 @@ def test_keyword_to_moods_dedupes_and_preserves_order():
     assert moods == {"sunshine": ["Happy", "Feel-Good"], "crying": ["Sad"]}
 
 
+def test_keyword_to_moods_skips_malformed_mood_value():
+    # A hand-edited mood_keywords.json can have a mood value that isn't a
+    # list of strings -- it must be dropped, not iterated character-by-
+    # character into bogus single-letter "keywords".
+    raw = {"Happy": ["sunshine"], "Broken": "not-a-list"}
+
+    moods = keyword_to_moods(raw)
+
+    assert moods == {"sunshine": ["Happy"]}
+
+
 def test_remove_keyword_from_mood_file_removes_one_association(tmp_path):
-    path = _write_keywords(
-        tmp_path, {"Heartbreak": ["ex-girlfriend"], "Sad": ["ex-girlfriend"]}
-    )
+    path = _write_keywords(tmp_path, {"Heartbreak": ["ex-girlfriend"], "Sad": ["ex-girlfriend"]})
 
     changed = remove_keyword_from_mood_file(path, "Heartbreak", "ex-girlfriend")
 
@@ -194,9 +199,7 @@ def test_word_table_wheel_step_is_fixed_not_row_height_derived(qapp, monkeypatch
     # _load_word_suggestions spins up a real LyricsStatsWorker against
     # controller.statistics.lyrics, which this stub controller doesn't
     # have -- irrelevant to what this test checks, so short-circuit it.
-    monkeypatch.setattr(
-        MoodAutoTagDialog, "_load_word_suggestions", lambda self: None
-    )
+    monkeypatch.setattr(MoodAutoTagDialog, "_load_word_suggestions", lambda self: None)
 
     dlg = MoodAutoTagDialog(_StubController())
     try:
@@ -217,9 +220,7 @@ def test_word_table_wheel_step_is_fixed_not_row_height_derived(qapp, monkeypatch
 
 
 def test_tag_progress_shows_percent_running_counts_and_eta(qapp, monkeypatch):
-    monkeypatch.setattr(
-        MoodAutoTagDialog, "_load_word_suggestions", lambda self: None
-    )
+    monkeypatch.setattr(MoodAutoTagDialog, "_load_word_suggestions", lambda self: None)
 
     dlg = MoodAutoTagDialog(_StubController())
     try:
@@ -236,5 +237,33 @@ def test_tag_progress_shows_percent_running_counts_and_eta(qapp, monkeypatch):
         assert "ETA: 10s" in fmt
         assert dlg._tag_progress_bar.value() == 50
         assert dlg._tag_progress_bar.maximum() == 100
+    finally:
+        dlg.deleteLater()
+
+
+class _StubWorker:
+    def __init__(self):
+        self.wait_called = False
+
+    def wait(self):
+        self.wait_called = True
+
+
+def test_on_tag_error_waits_for_worker_before_dropping_it(qapp, monkeypatch):
+    """Regression: dropping the worker reference without wait() risks
+    "QThread destroyed while still running" if run()'s cleanup hasn't
+    finished yet -- _on_tag_finished already waits, _on_tag_error must too.
+    """
+    monkeypatch.setattr(MoodAutoTagDialog, "_load_word_suggestions", lambda self: None)
+
+    dlg = MoodAutoTagDialog(_StubController())
+    try:
+        worker = _StubWorker()
+        dlg._tag_worker = worker
+
+        dlg._on_tag_error("boom")
+
+        assert worker.wait_called is True
+        assert dlg._tag_worker is None
     finally:
         dlg.deleteLater()

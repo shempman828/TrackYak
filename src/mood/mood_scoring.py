@@ -1,26 +1,4 @@
-"""
-mood_scoring.py
-
-score_moods(lyrics) -> list[str]: scores a track's lyrics against every
-mood's keyword list in assets/mood_keywords.json and returns the names of
-moods that clear the tagging threshold.
-
-score_moods_detailed(lyrics) -> dict[str, MoodMatch]: same scoring, same
-threshold and opposite-pair resolution, but keeps the per-mood match
-detail (density, distinct/raw hit counts) instead of discarding it.
-score_moods() is a thin wrapper over it. The density is what the mood-
-tagging write path persists on each MoodTrackAssociation row, powering the
-"most representative tracks per mood" statistic
-(docs/specs/mood_representative_tracks.md).
-
-Mirrors src/foundation/censor.py's cached, mtime-reloaded pattern approach (one
-compiled `\\b(word1|word2|...)\\b` regex per keyword list, no restart
-needed to pick up an edited word list) but scores rather than binary-
-matches, since a single incidental keyword hit must not auto-tag a mood
-(see docs/specs/lyrics_mood_tagging.md). Reuses the tokenizer already
-built for the Lyrics tab's word cloud (src/statistics/stats/lyrics.py) so
-"total words in this lyric" is counted the same way everywhere in the app.
-"""
+"""Score a track's lyrics against assets/mood_keywords.json and return which moods it clears."""
 
 from dataclasses import dataclass
 import json
@@ -29,6 +7,10 @@ import re
 
 from src.foundation.asset_paths import asset
 from src.foundation.logger_config import logger
+
+# Reuses the tokenizer built for the Lyrics tab's word cloud
+# (src/statistics/stats/lyrics.py) so "total words in this lyric" is
+# counted the same way everywhere in the app.
 from src.statistics.stats.lyrics import _tokenize
 
 _KEYWORDS_PATH = Path(asset("mood_keywords.json"))
@@ -50,11 +32,11 @@ _opposites_cache = {"mtime": None, "pairs": None}
 
 @dataclass(frozen=True)
 class MoodMatch:
-    """Per-mood match detail for one track's lyrics. `density` (raw_hits /
-    total_lyric_tokens) is the cross-mood-comparable signal -- the opposite-
-    pair tiebreak ranks on it, and it's what gets persisted on the
-    MoodTrackAssociation row for the representativeness stat."""
+    """Per-mood match detail for one track's lyrics."""
 
+    # raw_hits / total_lyric_tokens -- the cross-mood-comparable signal the
+    # opposite-pair tiebreak ranks on, and what gets persisted on the
+    # MoodTrackAssociation row for the representativeness stat.
     density: float
     distinct_hits: int
     raw_hits: int
@@ -81,20 +63,26 @@ def _get_keyword_patterns():
         logger.warning(f"Failed to load mood keyword list: {e}")
         return _cache["keyword_patterns"]
 
-    patterns = {
-        mood_name: [(kw, _compile_keyword_pattern(kw)) for kw in keywords]
-        for mood_name, keywords in raw.items()
-    }
+    patterns = {}
+    for mood_name, keywords in raw.items():
+        # The file is hand-editable, so a mood's value can be malformed
+        # (e.g. a bare string instead of a list) -- skip it rather than
+        # silently iterating its characters as one-letter "keywords".
+        if not isinstance(keywords, list) or not all(isinstance(kw, str) for kw in keywords):
+            logger.warning(f"Ignoring malformed keyword list for mood '{mood_name}'")
+            continue
+        patterns[mood_name] = [(kw, _compile_keyword_pattern(kw)) for kw in keywords]
+
     _cache["mtime"] = mtime
     _cache["keyword_patterns"] = patterns
     return patterns
 
 
 def _get_opposite_pairs() -> list[tuple[str, str]]:
-    """Return [(mood_a, mood_b), ...] pairs that should never both tag the
-    same track (assets/mood_opposites.json), reloaded whenever its mtime
-    changes -- same convention as the keyword list. Missing/corrupt file
-    reads as no pairs, i.e. purely additive multi-label tagging."""
+    """Return [(mood_a, mood_b), ...] pairs that should never both tag the same track."""
+    # Reloaded whenever assets/mood_opposites.json's mtime changes -- same
+    # convention as the keyword list. Missing/corrupt file reads as no
+    # pairs, i.e. purely additive multi-label tagging.
     try:
         mtime = _OPPOSITES_PATH.stat().st_mtime
     except OSError:
@@ -116,21 +104,20 @@ def _get_opposite_pairs() -> list[tuple[str, str]]:
 
 
 def known_mood_names() -> set[str]:
-    """Every mood name that appears as a top-level key in
-    assets/mood_keywords.json -- the live source of truth for what the
-    tagger can match, independent of whether a `Mood` DB row exists for
-    it yet (see mood_autotag.build_autotag_context, which uses this to
-    self-heal drift between the two)."""
+    """Every mood name that appears as a top-level key in assets/mood_keywords.json."""
+    # The live source of truth for what the tagger can match, independent of
+    # whether a `Mood` DB row exists for it yet (see
+    # mood_autotag.build_autotag_context, which uses this to self-heal drift
+    # between the two).
     patterns = _get_keyword_patterns()
     return set(patterns.keys()) if patterns else set()
 
 
 def score_moods_detailed(lyrics) -> dict[str, MoodMatch]:
-    """Return {mood_name: MoodMatch} for every mood whose keyword list
-    clears the tagging threshold against `lyrics`, after opposite-pair
-    resolution. Empty/whitespace-only lyrics score no moods. Insertion
-    order matches assets/mood_keywords.json's key order, so
-    `list(score_moods_detailed(x))` is exactly `score_moods(x)`."""
+    """Return {mood_name: MoodMatch} for every mood whose keywords clear the tagging threshold."""
+    # Empty/whitespace-only lyrics score no moods. Insertion order matches
+    # assets/mood_keywords.json's key order, so
+    # `list(score_moods_detailed(x))` is exactly `score_moods(x)`.
     if not lyrics or not lyrics.strip():
         return {}
 
@@ -177,7 +164,6 @@ def score_moods_detailed(lyrics) -> dict[str, MoodMatch]:
 
 
 def score_moods(lyrics) -> list[str]:
-    """Return every mood name whose keyword list clears the tagging
-    threshold against `lyrics`. Empty/whitespace-only lyrics score no
-    moods. Thin wrapper over score_moods_detailed()."""
+    """Return every mood name whose keyword list clears the tagging threshold against `lyrics`."""
+    # Thin wrapper over score_moods_detailed(); empty/whitespace-only lyrics score no moods.
     return list(score_moods_detailed(lyrics))

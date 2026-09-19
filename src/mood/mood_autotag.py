@@ -1,27 +1,14 @@
-"""
-mood_autotag.py
+"""Shared "score lyrics, write associations" path for per-track and library-wide auto-tagging."""
 
-Shared "score lyrics, write associations" path used by both the per-track
-auto-tag wiring (LyricsTab, on lyrics save/search) and the library-wide
-MoodAutoTagWorker, so both write through one place and can't drift apart.
-
-Writes are additive only: a mood/place association is only ever added,
-never removed or overwritten, whatever its origin (manual or auto). There
-is no manual/auto provenance column (a deliberate simplification, see
-docs/specs/lyrics_mood_tagging.md) -- consequence: a manually-removed
-auto-tag can reappear on a later recalculation if its keywords still
-match. Mood writes lean on MoodTrackAssociation's composite primary key
-for free dedup (add_entities_with_fallback); PlaceAssociation has a
-surrogate primary key, so it does NOT get that for free -- this module
-does its own existence check before inserting.
-
-Each newly-written MoodTrackAssociation row also carries a `score` (the
-mood's lyrics-match density from score_moods_detailed), consumed by the
-"most representative tracks per mood" statistic. It rides along in the row
-dict and doesn't affect composite-PK dedup -- a row that already exists
-keeps whatever score it was created with (additive-only: this path never
-rewrites an existing association).
-"""
+# Used by both the per-track auto-tag wiring (LyricsTab, on lyrics
+# save/search) and the library-wide MoodAutoTagWorker, so both write through
+# one place and can't drift apart. Writes are additive only: an association
+# is only ever added, never removed or overwritten -- a manually-removed
+# auto-tag can reappear on a later recalculation if its keywords still
+# match. Mood writes get free dedup from MoodTrackAssociation's composite
+# primary key (add_entities_with_fallback); PlaceAssociation has a
+# surrogate primary key, so this module does its own existence check before
+# inserting those.
 
 from dataclasses import dataclass, field
 
@@ -100,11 +87,10 @@ def build_autotag_context(controller) -> AutotagContext:
 
 
 def auto_tag_track(controller, track_id, lyrics, context: AutotagContext):
-    """Score `lyrics` and write any newly-matching mood/place associations
-    for `track_id`. Returns (moods_added, places_added) -- only the names
-    that were newly written by this call, NOT the full matched set (a
-    keyword can keep matching every run; already-existing associations,
-    manual or previously auto-added, are never touched or recounted)."""
+    """Score `lyrics` and write any newly-matching mood/place associations for `track_id`."""
+    # Returns (moods_added, places_added) -- only the names newly written by
+    # this call, NOT the full matched set (already-existing associations,
+    # manual or previously auto-added, are never touched or recounted).
     if not lyrics or not lyrics.strip():
         return [], []
 
@@ -159,11 +145,10 @@ def auto_tag_track(controller, track_id, lyrics, context: AutotagContext):
 
 
 def auto_tag_lyrics_safe(controller, track_id, lyrics) -> tuple[list, list]:
-    """Convenience wrapper around build_autotag_context()+auto_tag_track()
-    for one-off (non-batch) call sites -- lyrics search/save on the player
-    dock and the track edit dialog's Lyrics tab. Never raises: a
-    mood-matching or DB-write failure here must not block the lyrics save
-    or search result it's attached to. Returns ([], []) on failure."""
+    """Convenience wrapper around build_autotag_context()+auto_tag_track() for one-off calls."""
+    # Never raises: a mood-matching or DB-write failure here must not block
+    # the lyrics save or search result it's attached to. Returns ([], [])
+    # on failure.
     try:
         context = build_autotag_context(controller)
         return auto_tag_track(controller, track_id, lyrics, context)

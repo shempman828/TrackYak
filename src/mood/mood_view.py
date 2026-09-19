@@ -231,7 +231,7 @@ class MoodView(QWidget):
             return
 
         if self.flat_view:
-            for mood in sorted(self.moods_data, key=lambda m: m.mood_name.lower()):
+            for mood in sorted(self.moods_data, key=lambda m: (m.mood_name or "").lower()):
                 item = self._make_mood_item(mood, own_counts, recursive_counts)
                 self.mood_tree.addTopLevelItem(item)
                 self._set_mood_item_style(item, 0, own_counts, recursive_counts)
@@ -246,14 +246,14 @@ class MoodView(QWidget):
                     for mood in self.moods_data
                     if not mood.parent_id or mood.parent_id not in mood_dict
                 ],
-                key=lambda m: m.mood_name.lower(),
+                key=lambda m: (m.mood_name or "").lower(),
             )
 
             # Recursively build tree with depth tracking
             def add_children(parent_item, parent_mood, depth):
                 children = sorted(
                     [m for m in self.moods_data if m.parent_id == parent_mood.mood_id],
-                    key=lambda m: m.mood_name.lower(),
+                    key=lambda m: (m.mood_name or "").lower(),
                 )
                 for child in children:
                     child_item = self._make_mood_item(
@@ -330,15 +330,13 @@ class MoodView(QWidget):
         return item
 
     def get_track_counts_for_all_moods(self):
-        """Get own and recursive track counts for all moods.
-
-        Mirrors GenreLoaderWorker (src/genre/genre_view.py): one bulk
-        association query, then a memoized bottom-up union of per-mood
-        track-ID sets over the parent/child hierarchy, so a track tagged
-        with both a mood and one of its descendants counts once toward the
-        ancestor's recursive total instead of being double-counted by a
-        naive integer sum.
-        """
+        """Get own and recursive track counts for all moods."""
+        # Mirrors GenreLoaderWorker (src/genre/genre_view.py): one bulk
+        # association query, then a memoized bottom-up union of per-mood
+        # track-ID sets over the parent/child hierarchy, so a track tagged
+        # with both a mood and one of its descendants counts once toward the
+        # ancestor's recursive total instead of being double-counted by a
+        # naive integer sum.
         try:
             # Get all mood track associations
             all_associations = self.controller.get.get_all_entities("MoodTrackAssociation")
@@ -570,11 +568,9 @@ class MoodView(QWidget):
                 QMessageBox.critical(self, "Error", f"Failed to update mood: {e!s}")
 
     def create_new_parent_mood(self):
-        """Create a new mood and insert it as the parent of the current mood.
-
-        The new mood takes over the mood's old parent slot (preserving the
-        grandparent chain), and the current mood becomes a child of the new mood.
-        """
+        """Create a new mood and insert it as the parent of the current mood."""
+        # The new mood takes over the mood's old parent slot (preserving the
+        # grandparent chain), and the current mood becomes a child of the new mood.
         if not self.current_mood_id:
             return
 
@@ -663,6 +659,7 @@ class MoodView(QWidget):
             "Confirm Delete",
             "Are you sure you want to delete this mood and all its associations?",
             QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
@@ -686,6 +683,7 @@ class MoodView(QWidget):
             "Confirm Delete",
             f"Are you sure you want to delete {len(mood_ids)} moods and all their associations?",
             QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
             return
@@ -738,16 +736,8 @@ class MoodView(QWidget):
             self.stats_label.setText(f"Total moods: {total_moods}")
             self.tracks_count_label.setText("Tracks with moods: Unknown")
 
-    def get_tracks_for_mood(self, mood_id, include_children=None):
+    def get_tracks_for_mood(self, mood_id, include_children):
         """Get tracks associated with a mood, with optional recursive mode"""
-        # If include_children is not specified, use the current recursive mode
-        if include_children is None:
-            include_children = (
-                self.btn_recursive_mode.isChecked()
-                if hasattr(self, "btn_recursive_mode")
-                else False
-            )
-
         try:
             if include_children:
                 # Get all child mood IDs
@@ -766,8 +756,8 @@ class MoodView(QWidget):
                             track = association.track
                         else:
                             # Fallback: get track by ID
-                            track = self.controller.get.get_entity_by_id(
-                                "Track", association.track_id
+                            track = self.controller.get.get_entity_object(
+                                "Track", track_id=association.track_id
                             )
                         if track is None or track.track_id in seen_track_ids:
                             continue
@@ -785,7 +775,9 @@ class MoodView(QWidget):
                     tracks.append(association.track)
                 else:
                     # Fallback: get track by ID
-                    track = self.controller.get.get_entity_by_id("Track", association.track_id)
+                    track = self.controller.get.get_entity_object(
+                        "Track", track_id=association.track_id
+                    )
                     if track:
                         tracks.append(track)
             return tracks

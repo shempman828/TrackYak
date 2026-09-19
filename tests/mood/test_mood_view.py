@@ -4,6 +4,7 @@ selection, and MoodView.delete_selected_mood only removed self.current_mood_id,
 so a multi-selection could not be deleted from the moods view.
 """
 
+from PySide6.QtWidgets import QMessageBox
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -177,5 +178,97 @@ def test_recursive_get_tracks_for_mood_dedupes_multilevel_track(qapp):
     assert sorted(t.track_id for t in child_tracks) == sorted(
         {shared_track.track_id, child_only_track.track_id}
     )
+
+    session.close()
+
+
+# ---- test_mood_view_null_name_sort.py ----------------------------------------
+# Regression test: build_mood_tree's sort keys must tolerate a Mood row with
+# mood_name=None (the column is nullable) instead of crashing the whole view.
+class _Controller_nn:
+    def __init__(self, session):
+        self.get = GetFromDB(session)
+
+
+def test_build_mood_tree_tolerates_null_mood_name(qapp):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    controller = _Controller_nn(session)
+
+    session.add_all([Mood(mood_name="Happy"), Mood(mood_name=None)])
+    session.commit()
+
+    view = MoodView(controller)  # must not raise
+    assert view.mood_tree.topLevelItemCount() == 2
+
+    view.flat_view = True
+    view.build_mood_tree()  # must not raise in the flat-view sort path either
+    assert view.mood_tree.topLevelItemCount() == 2
+
+    session.close()
+
+
+# ---- test_mood_view_delete_confirm_default.py --------------------------------
+# Regression test: the delete-mood confirmations must default to No, matching
+# the equivalent confirmation in mood_dialog.py, so pressing Enter doesn't
+# accidentally trigger the destructive delete.
+def test_delete_selected_mood_confirmation_defaults_to_no(qapp, monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    controller = _Controller_md(session)
+
+    mood = Mood(mood_name="Happy")
+    session.add(mood)
+    session.commit()
+
+    view = MoodView(controller)
+    view.current_mood_id = mood.mood_id
+
+    captured = {}
+
+    def fake_question(*args, **_kwargs):
+        captured["default"] = args[4]
+        return QMessageBox.No
+
+    monkeypatch.setattr(QMessageBox, "question", fake_question)
+
+    view.delete_selected_mood()
+
+    assert captured["default"] == QMessageBox.No
+    # Declined delete -- mood must still exist.
+    assert session.query(Mood).count() == 1
+
+    session.close()
+
+
+def test_delete_selected_moods_confirmation_defaults_to_no(qapp, monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    controller = _Controller_md(session)
+
+    happy = Mood(mood_name="Happy")
+    sad = Mood(mood_name="Sad")
+    session.add_all([happy, sad])
+    session.commit()
+
+    view = MoodView(controller)
+
+    captured = {}
+
+    def fake_question(*args, **_kwargs):
+        captured["default"] = args[4]
+        return QMessageBox.No
+
+    monkeypatch.setattr(QMessageBox, "question", fake_question)
+
+    items = [it for it in _tree_items(view) if it.data(0, 0x0100) in (happy.mood_id, sad.mood_id)]
+    view.delete_selected_moods(items)
+
+    assert captured["default"] == QMessageBox.No
+    # Declined delete -- both moods must still exist.
+    assert session.query(Mood).count() == 2
 
     session.close()

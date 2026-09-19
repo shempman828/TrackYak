@@ -1,13 +1,9 @@
-"""
-mood_tag_worker.py
+"""MoodAutoTagWorker: library-wide backfill for lyrics-based mood/place tagging."""
 
-MoodAutoTagWorker: library-wide backfill for lyrics-based mood/place
-tagging. Scans every track with non-empty lyrics and writes any
-newly-matching Mood/Place associations via mood_autotag.auto_tag_track(),
-the same write path the per-track auto-fill in track_edit_lyrics.py uses.
-Additive only -- never removes or overwrites an existing association.
-See docs/specs/lyrics_mood_tagging.md.
-"""
+# Scans every track with non-empty lyrics and writes any newly-matching
+# Mood/Place associations via mood_autotag.auto_tag_track(), the same write
+# path the per-track auto-fill in track_edit_lyrics.py uses. Additive only
+# -- never removes or overwrites an existing association.
 
 from PySide6.QtCore import Signal
 

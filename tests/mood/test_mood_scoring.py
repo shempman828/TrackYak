@@ -19,12 +19,7 @@ from src.mood import mood_scoring
 def _isolated_keywords(tmp_path, monkeypatch):
     keywords_path = tmp_path / "mood_keywords.json"
     keywords_path.write_text(
-        json.dumps(
-            {
-                "Happy": ["happy", "sunshine", "joyful"],
-                "Sad": ["crying", "tears", "lonely"],
-            }
-        )
+        json.dumps({"Happy": ["happy", "sunshine", "joyful"], "Sad": ["crying", "tears", "lonely"]})
     )
     monkeypatch.setattr(mood_scoring, "_KEYWORDS_PATH", keywords_path)
     mood_scoring._cache["mtime"] = None
@@ -100,6 +95,22 @@ def test_known_mood_names_returns_keyword_file_keys():
     assert mood_scoring.known_mood_names() == {"Happy", "Sad"}
 
 
+def test_malformed_keyword_list_is_skipped_not_exploded(tmp_path, monkeypatch):
+    # A hand-edited mood_keywords.json can have a mood value that isn't a
+    # list of strings (e.g. a bare string). That mood must be dropped
+    # rather than silently iterated character-by-character into bogus
+    # one-letter keywords.
+    keywords_path = tmp_path / "mood_keywords.json"
+    keywords_path.write_text(json.dumps({"Happy": ["happy", "sunshine"], "Broken": "not-a-list"}))
+    monkeypatch.setattr(mood_scoring, "_KEYWORDS_PATH", keywords_path)
+    mood_scoring._cache["mtime"] = None
+    mood_scoring._cache["keyword_patterns"] = None
+
+    assert mood_scoring.known_mood_names() == {"Happy"}
+    lyrics = "the sunshine feels happy this morning as I walk outside"
+    assert mood_scoring.score_moods(lyrics) == ["Happy"]
+
+
 # Opposite-mood pair resolution ------------------------------------------------
 @pytest.fixture
 def _isolated_opposites(tmp_path, monkeypatch):
@@ -149,9 +160,7 @@ def test_opposite_pair_exact_tie_keeps_both(_isolated_opposites):
 
 
 def test_missing_opposites_file_is_a_noop(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        mood_scoring, "_OPPOSITES_PATH", tmp_path / "does_not_exist.json"
-    )
+    monkeypatch.setattr(mood_scoring, "_OPPOSITES_PATH", tmp_path / "does_not_exist.json")
     mood_scoring._opposites_cache["mtime"] = None
     mood_scoring._opposites_cache["pairs"] = None
 
@@ -177,9 +186,7 @@ _DETAILED_FIXTURES = [
 @pytest.mark.parametrize("lyrics", _DETAILED_FIXTURES)
 def test_detailed_keys_match_score_moods(lyrics):
     # AC2 regression guard: the wrapper must stay exactly the key list.
-    assert list(mood_scoring.score_moods_detailed(lyrics)) == mood_scoring.score_moods(
-        lyrics
-    )
+    assert list(mood_scoring.score_moods_detailed(lyrics)) == mood_scoring.score_moods(lyrics)
 
 
 def test_detailed_values_expose_positive_density_and_hit_counts():

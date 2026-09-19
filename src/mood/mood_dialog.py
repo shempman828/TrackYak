@@ -28,9 +28,6 @@ class MoodDialog(QDialog):
         self.mood_id = mood_data.mood_id if mood_data else None
         self.recursive_mode = False  # Default to exclusive mode
 
-        # NEW: Track for context menu enhancement
-        self.enhanced_context_menu = None
-
         self.setWindowTitle("Edit Mood" if self.is_editing else "Create New Mood")
         self.setModal(True)
         self.setMinimumWidth(800)
@@ -148,6 +145,15 @@ class MoodDialog(QDialog):
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
+        # Require a non-blank name before the mood can be saved.
+        self._ok_button = button_box.button(QDialogButtonBox.Ok)
+        self.mood_name_edit.textChanged.connect(self._update_ok_enabled)
+        self._update_ok_enabled()
+
+    def _update_ok_enabled(self):
+        """Enable OK only when the mood name field has non-whitespace text."""
+        self._ok_button.setEnabled(bool(self.mood_name_edit.text().strip()))
+
     def toggle_recursive_mode(self):
         """Toggle between recursive and exclusive track display"""
         self.recursive_mode = self.btn_recursive_mode.isChecked()
@@ -185,8 +191,8 @@ class MoodDialog(QDialog):
                             if hasattr(association, "track"):
                                 track = association.track
                             else:
-                                track = self.controller.get.get_entity_by_id(
-                                    "Track", association.track_id
+                                track = self.controller.get.get_entity_object(
+                                    "Track", track_id=association.track_id
                                 )
                             if track is None or track.track_id in seen_track_ids:
                                 continue
@@ -202,7 +208,9 @@ class MoodDialog(QDialog):
                     if hasattr(association, "track"):
                         tracks.append(association.track)
                     else:
-                        track = self.controller.get.get_entity_by_id("Track", association.track_id)
+                        track = self.controller.get.get_entity_object(
+                            "Track", track_id=association.track_id
+                        )
                         if track:
                             tracks.append(track)
 
@@ -212,12 +220,12 @@ class MoodDialog(QDialog):
             # Update the info label in track view
             self.track_view.info_label.setText(f"Showing {len(tracks)} tracks")
 
-            # NEW: Enhance the context menu with remove option
+            # Enhance the context menu with remove option
             self.enhance_track_view_context_menu()
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error loading associated tracks: {e}")
-        self.track_view.info_label.setText("Error loading tracks")
+            self.track_view.info_label.setText("Error loading tracks")
 
     def get_child_mood_ids(self, parent_mood_id):
         """Get all child mood IDs recursively for a given parent mood"""
@@ -340,50 +348,15 @@ class MoodDialog(QDialog):
 
         try:
             for track in selected_tracks:
-                # Get the MoodTrackAssociation for this mood and track
+                # MoodTrackAssociation has a composite primary key (mood_id,
+                # track_id), not a surrogate id -- delete by that key directly.
                 associations = self.controller.get.get_entity_links(
                     "MoodTrackAssociation", mood_id=self.mood_id, track_id=track.track_id
                 )
-
-                if associations:
-                    # Use the first association found
-                    association = associations[0]
-
-                    # Try different possible ID attribute names
-                    association_id = getattr(association, "id", None)
-                    if association_id is None:
-                        association_id = getattr(association, "association_id", None)
-
-                    # If we still don't have an ID, try to get the mood_track_association directly
-                    if association_id is None:
-                        # The association might be a tuple or have different structure
-                        # Try to delete using mood_id and track_id directly
-                        if hasattr(self.controller.delete, "delete_mood_track_association"):
-                            if self.controller.delete.delete_mood_track_association(
-                                mood_id=self.mood_id, track_id=track.track_id
-                            ):
-                                success_count += 1
-                            else:
-                                failed_tracks.append(track.track_name)
-                        else:
-                            # Fallback: try direct deletion with composite key
-                            result = self.controller.delete.delete_entity(
-                                "MoodTrackAssociation",
-                                mood_id=self.mood_id,
-                                track_id=track.track_id,
-                            )
-                            if result:
-                                success_count += 1
-                            else:
-                                failed_tracks.append(track.track_name)
-                    else:
-                        # Delete using the association ID
-                        if self.controller.delete.delete_entity(
-                            "MoodTrackAssociation", association_id=association_id
-                        ):
-                            success_count += 1
-                        else:
-                            failed_tracks.append(track.track_name)
+                if associations and self.controller.delete.delete_entity(
+                    "MoodTrackAssociation", mood_id=self.mood_id, track_id=track.track_id
+                ):
+                    success_count += 1
                 else:
                     failed_tracks.append(track.track_name)
 

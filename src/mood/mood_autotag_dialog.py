@@ -1,28 +1,14 @@
-"""
-mood_autotag_dialog.py
+"""Tools-menu dialog for lyrics-based mood/place auto-tagging and mood-keyword review."""
 
-MoodAutoTagDialog: Tools-menu singleton dialog for lyrics-based mood/place
-auto-tagging (docs/specs/lyrics_mood_tagging.md). Two things live here:
-
-  - "Tag Library Now": runs MoodAutoTagWorker over every track with
-    lyrics, additive-only, cancellable.
-  - Word review: surfaces frequent lyrics words and phrases (via the same
-    LyricsStats/LyricsStatsWorker the Lyrics stats tab already uses --
-    word_suggestions and phrase_suggestions, merged and re-ranked by
-    frequency here), lets each be assigned to one or more moods
-    (assets/mood_keywords.json
-    already allows the same keyword under several moods -- e.g.
-    "ex-girlfriend" under both Heartbreak and Sad -- so multi-mood support
-    needs no schema change, just a UI that doesn't hide a word the moment
-    it has one association), and lets a word be dismissed as "neutral"
-    (assets/mood_dismissed_words.json) so it stops being suggested. A
-    filter switches between reviewing brand-new suggestions and editing
-    moods already assigned to a word.
-
-Singleton behavior lives in menu_bar.py's show_mood_autotag_dialog(),
-mirroring show_alias_management_dialog()'s lazy-create-once-then-show/
-raise/activate pattern -- this class itself is a plain QDialog.
-"""
+# Two things live here: "Tag Library Now" (runs MoodAutoTagWorker over every
+# track with lyrics, additive-only, cancellable), and word review (surfaces
+# frequent lyrics words/phrases via LyricsStatsWorker, lets each be assigned
+# to one or more moods -- assets/mood_keywords.json already allows the same
+# keyword under several moods, e.g. "ex-girlfriend" under both Heartbreak and
+# Sad -- or dismissed as "neutral" via assets/mood_dismissed_words.json).
+# Singleton behavior lives in menu_bar.py's show_mood_autotag_dialog(),
+# mirroring show_alias_management_dialog()'s lazy-create-once-then-show/
+# raise/activate pattern -- this class itself is a plain QDialog.
 
 import json
 from pathlib import Path
@@ -65,12 +51,11 @@ WORD_SUGGESTION_LIMIT = 50
 
 
 def append_keyword_to_mood_file(keywords_path: Path, mood_name: str, word: str) -> bool:
-    """Append `word` to `mood_name`'s keyword list in the JSON file at
-    `keywords_path`, creating the mood's entry if needed -- and creating
-    the file itself, starting from an empty mapping, if it doesn't exist
-    yet. No-op (returns False) if the word is already present. Pulled out
-    of the dialog class so this file-write behavior is testable without a
-    live QDialog."""
+    """Append `word` to `mood_name`'s keyword list in the JSON file at `keywords_path`."""
+    # Creates the mood's entry, and the file itself (from an empty mapping),
+    # if either doesn't exist yet. No-op (returns False) if the word is
+    # already present. Pulled out of the dialog class so this file-write
+    # behavior is testable without a live QDialog.
     try:
         raw = json.loads(keywords_path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -84,9 +69,10 @@ def append_keyword_to_mood_file(keywords_path: Path, mood_name: str, word: str) 
 
 
 def remove_keyword_from_mood_file(keywords_path: Path, mood_name: str, word: str) -> bool:
-    """Remove `word` from `mood_name`'s keyword list. No-op (returns False)
-    if the mood or the word within it doesn't exist -- including when the
-    file itself doesn't exist yet, which is just an empty-keywords case."""
+    """Remove `word` from `mood_name`'s keyword list."""
+    # No-op (returns False) if the mood or the word within it doesn't exist
+    # -- including when the file itself doesn't exist yet, which is just an
+    # empty-keywords case.
     try:
         raw = json.loads(keywords_path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -100,14 +86,18 @@ def remove_keyword_from_mood_file(keywords_path: Path, mood_name: str, word: str
 
 
 def keyword_to_moods(raw: dict) -> dict:
-    """Every literal keyword/phrase across all moods, mapped to the list of
-    mood names whose list contains it verbatim (insertion-ordered, deduped).
-    This is the reverse of the mood->keywords shape `raw` is stored in, and
-    is what lets a word carry more than one mood: the file format already
-    allows the same string to appear under several moods independently,
-    this just surfaces that as a per-word view for editing."""
+    """Every literal keyword/phrase across all moods, mapped to the mood names that contain it."""
+    # The reverse of the mood->keywords shape `raw` is stored in; this is
+    # what lets a word carry more than one mood in the review UI (insertion-
+    # ordered, deduped per word).
     result: dict = {}
     for mood_name, keywords in raw.items():
+        # The file is hand-editable, so a mood's value can be malformed
+        # (e.g. a bare string instead of a list) -- skip it rather than
+        # silently iterating its characters as one-letter "keywords".
+        if not isinstance(keywords, list) or not all(isinstance(kw, str) for kw in keywords):
+            logger.warning(f"Ignoring malformed keyword list for mood '{mood_name}'")
+            continue
         for kw in keywords:
             moods = result.setdefault(kw, [])
             if mood_name not in moods:
@@ -116,8 +106,8 @@ def keyword_to_moods(raw: dict) -> dict:
 
 
 def load_dismissed_words(path: Path) -> set:
-    """Words marked "neutral" -- excluded from suggestions unless
-    explicitly shown. Missing/corrupt file reads as no dismissed words."""
+    """Words marked "neutral" -- excluded from suggestions unless explicitly shown."""
+    # Missing/corrupt file reads as no dismissed words.
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
@@ -151,21 +141,20 @@ def undismiss_word(path: Path, word: str) -> bool:
 
 
 class _WordTable(QTableWidget):
-    """QTableWidget that keeps row heights matched to wrapped mood-chip
-    content. Column 1 stretches to fill available width, so how many chip
-    lines fit per row changes whenever the widget is resized -- Qt doesn't
-    recompute row heights on its own when a stretched column's width
-    changes, so we do it explicitly here. Without this, rows default to a
-    single-line height and the chip/completer cell gets squeezed (the
-    original combo+button "Assign to" column was cramped for the same
-    reason). Mirrors track_edit_roles.py's _RolesTable."""
+    """QTableWidget that keeps row heights matched to wrapped mood-chip content."""
 
+    # Column 1 stretches to fill available width, so how many chip lines fit
+    # per row changes whenever the widget is resized -- Qt doesn't recompute
+    # row heights on its own when a stretched column's width changes, so we
+    # do it explicitly here. Mirrors track_edit_roles.py's _RolesTable.
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.resizeRowsToContents()
 
 
 class MoodAutoTagDialog(QDialog):
+    """Tools-menu dialog for running lyrics-based auto-tagging and reviewing mood keywords."""
+
     FILTER_UNASSIGNED = 0
     FILTER_ASSIGNED = 1
 
@@ -240,6 +229,9 @@ class MoodAutoTagDialog(QDialog):
         self._refresh_btn = QPushButton("Refresh Suggestions")
         self._refresh_btn.clicked.connect(self._load_word_suggestions)
         filter_row.addWidget(self._refresh_btn)
+
+        self._word_status_label = QLabel("")
+        filter_row.addWidget(self._word_status_label)
 
         self._new_mood_btn = QPushButton("+ New Mood")
         self._new_mood_btn.clicked.connect(self._create_new_mood)
@@ -346,6 +338,7 @@ class MoodAutoTagDialog(QDialog):
     def _on_tag_error(self, message):
         logger.error(f"Mood auto-tag worker failed: {message}")
         show_status_message(self, f"Mood tagging failed: {message}")
+        self._tag_worker.wait()
         self._tag_worker = None
         self._reset_tag_controls()
 
@@ -363,6 +356,7 @@ class MoodAutoTagDialog(QDialog):
         if self._lyrics_stats_worker is not None and self._lyrics_stats_worker.isRunning():
             return
         self._refresh_btn.setEnabled(False)
+        self._word_status_label.setText("Loading…")
         self._lyrics_stats_worker = LyricsStatsWorker(self.controller.statistics.lyrics)
         self._lyrics_stats_worker.finished.connect(self._on_word_stats_loaded)
         self._lyrics_stats_worker.error.connect(self._on_word_stats_error)
@@ -370,6 +364,7 @@ class MoodAutoTagDialog(QDialog):
 
     def _on_word_stats_loaded(self, stats):
         self._sync_refresh_btn_enabled()
+        self._word_status_label.setText("")
         # Single words and multi-word phrases are merged into one
         # frequency-ranked feed -- the row-level chip/dismiss machinery
         # below doesn't care how many words a candidate string has, so a
@@ -384,6 +379,7 @@ class MoodAutoTagDialog(QDialog):
 
     def _on_word_stats_error(self, message):
         self._sync_refresh_btn_enabled()
+        self._word_status_label.setText("")
         logger.error(f"Failed to load lyrics word stats: {message}")
 
     def _sync_refresh_btn_enabled(self):
@@ -527,6 +523,7 @@ class MoodAutoTagDialog(QDialog):
             chip.setFlat(True)
             chip.setProperty("class", "moodChip")
             chip.setToolTip(f"Remove '{mood_name}' from '{word}'")
+            chip.setAccessibleName(f"Remove {mood_name}")
             chip.clicked.connect(
                 lambda _checked, w=word, m=mood_name: self._remove_mood_from_word(w, m)
             )
