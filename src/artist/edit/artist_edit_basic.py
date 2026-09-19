@@ -5,7 +5,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, QSize, Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QIntValidator
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -31,6 +31,7 @@ from src.artist.edit.artist_edit_types import ArtistTypesWidget
 from src.artist.religion_manager import ReligionManagerDialog
 from src.common.edit_dirty import value_changed
 from src.common.widgets.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
+from src.common.widgets.optional_int_edit import OptionalIntEdit
 from src.foundation.logger_config import logger
 from src.image.pixmap_with_fallback import load_pixmap_with_fallback
 
@@ -570,21 +571,3 @@ class SegmentedToggle(QWidget):
         self._left_btn.blockSignals(block)
         self._right_btn.blockSignals(block)
         return super().blockSignals(block)
-
-
-class OptionalIntEdit(QLineEdit):
-    """A QLineEdit accepting integers in [min_value, max_value]; returns None when empty."""
-
-    def __init__(self, placeholder="", parent=None, *, min_value=0, max_value=9999):
-        super().__init__(parent)
-        self.setPlaceholderText(placeholder)
-        self.setFixedWidth(60)
-        self.setAlignment(Qt.AlignCenter)
-        self.setValidator(QIntValidator(min_value, max_value, self))
-
-    def get_value_or_none(self):
-        text = self.text().strip()
-        return int(text) if text else None
-
-    def set_from_db(self, val):
-        self.setText(str(int(val)) if val is not None else "")

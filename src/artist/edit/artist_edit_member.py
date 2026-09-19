@@ -4,7 +4,6 @@
 from typing import ClassVar
 
 from PySide6.QtCore import QStringListModel, Qt
-from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -27,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.widgets.optional_int_edit import OptionalIntEdit
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 
@@ -124,9 +124,9 @@ class _EditMembershipDialog(QDialog):
         layout = QFormLayout(self)
 
         self.role_edit = QLineEdit(role or "")
-        self.start_edit = OptionalIntEdit()
+        self.start_edit = OptionalIntEdit(width=70)
         self.start_edit.set_from_db(start_year)
-        self.end_edit = OptionalIntEdit()
+        self.end_edit = OptionalIntEdit(width=70)
         self.end_edit.set_from_db(end_year)
         self.current_check = QCheckBox("Current")
         self.current_check.setChecked(bool(is_current))
@@ -198,8 +198,8 @@ class _MembershipPanelBase(QWidget):
         self._name_completer = _attach_name_completer(self.name_edit)
         self.role_edit = QLineEdit()
         self.role_edit.setPlaceholderText(self._ROLE_PLACEHOLDER)
-        self.start_edit = OptionalIntEdit("Start yr")
-        self.end_edit = OptionalIntEdit("End yr")
+        self.start_edit = OptionalIntEdit("Start yr", width=70)
+        self.end_edit = OptionalIntEdit("End yr", width=70)
         self.current_check = QCheckBox("Current")
         add_btn = QPushButton(self._ADD_BUTTON_TEXT)
         add_btn.clicked.connect(self._add)
@@ -477,25 +477,3 @@ class MembersTab(QWidget):
             self._group_panel.load(self.artist)
         else:
             self._affil_panel.load(self.artist)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# OptionalIntEdit
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-class OptionalIntEdit(QLineEdit):
-    """A QLineEdit that only accepts integers and returns None when empty."""
-
-    def __init__(self, placeholder="", parent=None):
-        super().__init__(parent)
-        self.setPlaceholderText(placeholder)
-        self.setFixedWidth(70)
-        self.setValidator(QIntValidator(0, 9999, self))
-
-    def get_value_or_none(self):
-        text = self.text().strip()
-        return int(text) if text else None
-
-    def set_from_db(self, val):
-        self.setText(str(int(val)) if val is not None else "")
