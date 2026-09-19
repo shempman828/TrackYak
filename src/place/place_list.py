@@ -279,6 +279,12 @@ class ListView(QWidget):
 
         filter_layout.addStretch()
 
+        self.clear_filters_button = QPushButton("Clear Filters")
+        self.clear_filters_button.setFlat(True)
+        self.clear_filters_button.setToolTip("Reset all filters")
+        self.clear_filters_button.clicked.connect(self._clear_filters)
+        filter_layout.addWidget(self.clear_filters_button)
+
         # Count label — shows "N places" or "Showing X of Y" while filtering
         self.count_label = QLabel()
         self.count_label.setProperty("textRole", "muted")
@@ -374,6 +380,13 @@ class ListView(QWidget):
         """Handle toggling the "Coordinates missing" checkbox."""
         self.coords_missing_only = checked
         self._apply_filters()
+
+    def _clear_filters(self):
+        """Reset the search text, type filter, and both checkboxes to their defaults."""
+        self.search_bar.clear()
+        self.type_filter_widget.select_all()
+        self.mbid_missing_checkbox.setChecked(False)
+        self.coords_missing_checkbox.setChecked(False)
 
     def _refresh_type_filter_options(self, places):
         """Sync the type filter's checkboxes with the types currently present in the data.

@@ -356,9 +356,10 @@ zoom level.
 **Working the list instead**: the list view organizes places in the same
 parent/child hierarchy as the map (a City under its State under its
 Country, for instance), with search and filters for things like "missing
-coordinates" so you can find entries that still need cleanup. Drag a place
-onto another to reparent it. Use Expand All / Collapse All to open or close
-every branch at once (disabled in Flat View, where there's nothing to
+coordinates" so you can find entries that still need cleanup. Clear Filters
+resets the search box, type filter, and both checkboxes in one click. Drag a
+place onto another to reparent it. Use Expand All / Collapse All to open or
+close every branch at once (disabled in Flat View, where there's nothing to
 expand).
 
 **Adding or fixing a place**: Add Place opens a form with a "Search
