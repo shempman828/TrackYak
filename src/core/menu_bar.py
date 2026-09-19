@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QCursor, QDesktopServices, QIcon, QKeySequence
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from src.common.alias_management_dialog import AliasManagementDialog
+from src.common.dialogs.alias_management_dialog import AliasManagementDialog
 from src.equalizer.equalizer_dialog import EqualizerDialog
 from src.foundation.asset_paths import ASSETS_DIR, icon
 from src.foundation.config_setup import app_config

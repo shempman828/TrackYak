@@ -27,7 +27,7 @@ from src.album.album_flowlayout import FlowLayout
 from src.album.album_sorting import AlbumSortingMixin
 from src.album.edit.base_album_edit import AlbumEditor
 from src.album.edit.base_album_widget import AlbumWidget
-from src.common.layout_utils import FlowLayoutContainer, clear_layout
+from src.common.widgets.layout_utils import FlowLayoutContainer, clear_layout
 from src.db.db_tables import Album, AlbumRoleAssociation
 from src.foundation.display_settings import apply_scaled_style
 from src.foundation.logger_config import logger

@@ -20,8 +20,8 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.entity_completer_context import track_context_map
-from src.common.entity_completer_edit import ContextItemDelegate
+from src.common.widgets.entity_completer_context import track_context_map
+from src.common.widgets.entity_completer_edit import ContextItemDelegate
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.track.edit.track_edit_basetab import _BaseTab

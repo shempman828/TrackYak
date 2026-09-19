@@ -8,7 +8,7 @@ from src.album.musicbrainz.album_musicbrainz_known_entities import (
 from src.album.musicbrainz.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
 from src.album.release_type_utils import normalize_release_type
 from src.award.award_series_import import fetch_award_series_relations, import_awards_for_entity
-from src.common.nullable_numeric_field import nullable_field_value, set_nullable_field_value
+from src.common.widgets.nullable_numeric_field import nullable_field_value, set_nullable_field_value
 from src.foundation.logger_config import logger
 from src.musicbrainz.musicbrainz_core import MusicBrainzLookupError
 from src.musicbrainz.musicbrainz_match_dialog import MusicBrainzImportDialog, MusicBrainzMatchDialog

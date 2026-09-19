@@ -23,8 +23,8 @@ from PySide6.QtWidgets import (
 )
 
 from src.album.album_flowlayout import FlowLayout
-from src.common.qt_text import esc_amp
-from src.common.style_utils import set_style_property
+from src.common.widgets.qt_text import esc_amp
+from src.common.widgets.style_utils import set_style_property
 from src.foundation.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
 

@@ -2,7 +2,7 @@
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.entity_completer_edit import find_or_create_by_name
+from src.common.widgets.entity_completer_edit import find_or_create_by_name
 from src.foundation.logger_config import logger
 
 

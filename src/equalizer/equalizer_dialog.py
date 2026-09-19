@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.common.layout_utils import clear_layout
+from src.common.widgets.layout_utils import clear_layout
 from src.equalizer.equalizer_utility import EqualizerUtility
 from src.foundation.display_settings import apply_scaled_style
 from src.foundation.logger_config import logger

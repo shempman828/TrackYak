@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.hierarchy_tree_style import (
+from src.common.widgets.hierarchy_tree_style import (
     collect_expanded_ids,
     configure_hierarchy_tree,
     create_colored_icon,

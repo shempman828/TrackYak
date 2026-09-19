@@ -8,7 +8,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTableWidget, QTableWidgetItem
 from sqlalchemy import func, select
 
-from src.common.lookup_manager_dialog import COUNT_COL, DESC_COL, NAME_COL, BaseLookupManagerDialog
+from src.common.dialogs.lookup_manager_dialog import (
+    COUNT_COL,
+    DESC_COL,
+    NAME_COL,
+    BaseLookupManagerDialog,
+)
 from src.db.db_tables import ArtistTypeAssociation
 
 

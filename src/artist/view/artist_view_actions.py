@@ -16,8 +16,8 @@ from src.artist.artist_group_dialog import AddGroupDialog, AddMemberDialog
 from src.artist.artist_image_manager import move_to_artist_images_dir
 from src.artist.artist_place import PlaceSelectionDialog
 from src.award.award_new import AddAwardDialog
-from src.common.base_merge_dialog import MergeDBDialog
-from src.common.base_split_dialog import SplitDBDialog
+from src.common.dialogs.base_merge_dialog import MergeDBDialog
+from src.common.dialogs.base_split_dialog import SplitDBDialog
 from src.foundation.status_utility import show_status_message
 from src.influences.influences_dialog import AddInfluenceDialog
 from src.place.place_association_types import (

@@ -6,7 +6,7 @@ from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.rating_widget import RatingStarsWidget
+from src.common.widgets.rating_widget import RatingStarsWidget
 from src.foundation.asset_paths import icon
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger

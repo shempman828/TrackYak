@@ -15,8 +15,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.common.fuzzy_match_dialog import BaseFuzzyMatchDialog
-from src.common.qt_text import esc_amp
+from src.common.dialogs.fuzzy_match_dialog import BaseFuzzyMatchDialog
+from src.common.widgets.qt_text import esc_amp
 from src.foundation.status_utility import show_status_message
 
 # Longest a publisher name is allowed to render in the match list before

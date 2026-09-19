@@ -17,7 +17,7 @@ of using the one the user picked.
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 
-from src.common.entity_completer_edit import (
+from src.common.widgets.entity_completer_edit import (
     BoundedSearchEdit,
     ContextItemDelegate,
     EntityCompleterEdit,

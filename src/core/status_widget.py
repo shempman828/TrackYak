@@ -3,7 +3,7 @@ from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QPushButton, QWidget
 
-from src.common.style_utils import set_style_property
+from src.common.widgets.style_utils import set_style_property
 from src.foundation.asset_paths import icon
 from src.foundation.logger_config import logger
 

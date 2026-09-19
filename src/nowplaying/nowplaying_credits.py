@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.layout_utils import clear_layout
+from src.common.widgets.layout_utils import clear_layout
 from src.foundation.logger_config import logger
 
 

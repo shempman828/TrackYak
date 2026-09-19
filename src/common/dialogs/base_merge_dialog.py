@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.qt_text import esc_amp as _esc_amp
+from src.common.widgets.qt_text import esc_amp as _esc_amp
 from src.foundation.logger_config import logger
 
 

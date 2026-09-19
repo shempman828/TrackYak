@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.base_split_dialog import SplitDBDialog
+from src.common.dialogs.base_split_dialog import SplitDBDialog
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.publisher.publisher_detail import PublisherDetailTab

@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.layout_utils import clear_layout
+from src.common.widgets.layout_utils import clear_layout
 from src.foundation.censor import censor_text
 from src.foundation.logger_config import logger
 

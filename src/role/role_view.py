@@ -22,9 +22,9 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.base_split_dialog import SplitDBDialog
-from src.common.entity_submenu import populate_entity_submenu
-from src.common.hierarchy_tree_style import (
+from src.common.dialogs.base_split_dialog import SplitDBDialog
+from src.common.widgets.entity_submenu import populate_entity_submenu
+from src.common.widgets.hierarchy_tree_style import (
     collect_expanded_ids,
     configure_hierarchy_tree,
     filter_tree_widget,

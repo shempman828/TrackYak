@@ -5,7 +5,7 @@ from src.album.album_delete_dialog import DeleteEmptyAlbumsDialog
 from src.album.album_merge import AlbumMerge
 from src.album.edit.album_new import NewAlbumDialog
 from src.album.edit.base_album_widget import AlbumWidget
-from src.common.qt_text import esc_amp
+from src.common.widgets.qt_text import esc_amp
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 

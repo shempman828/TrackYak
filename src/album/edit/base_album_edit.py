@@ -43,8 +43,8 @@ from src.album.edit.base_album_edit_tabs import (
 from src.album.musicbrainz.album_musicbrainz_mixin import AlbumMusicBrainzMixin
 from src.album.release_type_utils import RELEASE_TYPE_SUGGESTIONS, normalize_release_type
 from src.common.edit_dirty import value_changed
-from src.common.layout_utils import clear_layout
-from src.common.nullable_numeric_field import create_nullable_int_field
+from src.common.widgets.layout_utils import clear_layout
+from src.common.widgets.nullable_numeric_field import create_nullable_int_field
 from src.db.db_mapping_albums import ALBUM_FIELDS
 from src.foundation.config_setup import Config
 from src.foundation.logger_config import logger

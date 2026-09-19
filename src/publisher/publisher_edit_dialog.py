@@ -25,13 +25,13 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.entity_alias_tab import EntityAliasesTab
-from src.common.entity_completer_context import (
+from src.common.alias.entity_alias_tab import EntityAliasesTab
+from src.common.widgets.entity_completer_context import (
     artist_context_map,
     place_context_map,
     publisher_context_map,
 )
-from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
+from src.common.widgets.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
 from src.foundation.asset_paths import icon
 from src.foundation.logger_config import logger
 from src.place.place_association_types import (

@@ -13,8 +13,8 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.credited_as_dialog import CreditedAsDialog
-from src.common.entity_completer_edit import register_cached_entity
+from src.common.dialogs.credited_as_dialog import CreditedAsDialog
+from src.common.widgets.entity_completer_edit import register_cached_entity
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.place.place_association_types import (

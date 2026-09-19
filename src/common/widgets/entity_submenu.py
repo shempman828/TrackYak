@@ -16,7 +16,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.qt_text import esc_amp
+from src.common.widgets.qt_text import esc_amp
 from src.foundation.logger_config import logger
 
 # Guard against a self-referential parent_id chain sending us infinitely deep.

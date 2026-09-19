@@ -5,7 +5,7 @@ They used to be a flat, unsorted list of every playlist/mood with no nesting
 and no membership checkmarks -- unlike the player dock, which builds a nested,
 alphabetically sorted tree with a check on the entries the track already
 belongs to. Both now go through
-``src.common.entity_submenu.populate_entity_submenu``.
+``src.common.widgets.entity_submenu.populate_entity_submenu``.
 """
 
 import pytest

@@ -21,9 +21,9 @@ from PySide6.QtWidgets import (
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.base_split_dialog import SplitDBDialog
 from src.common.cancellable_worker import CancellableWorker
-from src.common.hierarchy_tree_style import (
+from src.common.dialogs.base_split_dialog import SplitDBDialog
+from src.common.widgets.hierarchy_tree_style import (
     collect_expanded_ids,
     configure_hierarchy_tree,
     filter_tree_widget,

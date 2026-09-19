@@ -12,7 +12,7 @@ user instead of only logging.
 
 import time
 
-from src.common.entity_completer_edit import invalidate_entity_cache
+from src.common.widgets.entity_completer_edit import invalidate_entity_cache
 from src.track.edit.track_edit_genres import GenresTab
 
 # ---------------------------------------------------------------------------
@@ -116,7 +116,7 @@ def test_add_does_not_drop_valid_tracks_when_one_track_id_is_stale(qapp, monkeyp
     invalidate_entity_cache("Genre")
     warning_calls = []
     monkeypatch.setattr(
-        "src.common.tag_association_tab.QMessageBox.warning",
+        "src.common.alias.tag_association_tab.QMessageBox.warning",
         lambda *args, **kwargs: warning_calls.append(args),
     )
 
@@ -154,7 +154,7 @@ def test_add_shows_no_warning_when_all_rows_succeed(qapp, monkeypatch):
     invalidate_entity_cache("Genre")
     warning_calls = []
     monkeypatch.setattr(
-        "src.common.tag_association_tab.QMessageBox.warning",
+        "src.common.alias.tag_association_tab.QMessageBox.warning",
         lambda *args, **kwargs: warning_calls.append(args),
     )
 

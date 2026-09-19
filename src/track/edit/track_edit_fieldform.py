@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.common.nullable_numeric_field import (
+from src.common.widgets.nullable_numeric_field import (
     create_nullable_float_field,
     create_nullable_int_field,
     nullable_field_value,

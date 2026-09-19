@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.common.style_utils import set_style_property
+from src.common.widgets.style_utils import set_style_property
 from src.db.db_helpers import Session
 from src.foundation.config_setup import app_config
 from src.foundation.display_settings import apply_scaled_style

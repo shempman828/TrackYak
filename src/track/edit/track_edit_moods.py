@@ -3,7 +3,7 @@
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
-from src.common.tag_association_tab import _BaseTrackAssociationTab
+from src.common.alias.tag_association_tab import _BaseTrackAssociationTab
 
 
 class MoodsTab(_BaseTrackAssociationTab):

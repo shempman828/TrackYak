@@ -10,8 +10,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.common.layout_utils import clear_layout
-from src.common.qt_text import esc_amp
+from src.common.widgets.layout_utils import clear_layout
+from src.common.widgets.qt_text import esc_amp
 
 # Cap the dropdown's collapsed-button width so it stays compact in a filter
 # bar instead of stretching to fill all available horizontal space.

@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QMessageBox
 import pytest
 
 from src.album.album_tab import AlbumTabBuilder
-from src.common.entity_completer_edit import invalidate_entity_cache
+from src.common.widgets.entity_completer_edit import invalidate_entity_cache
 
 
 class _FakeGet:

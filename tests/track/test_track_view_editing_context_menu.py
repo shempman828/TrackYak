@@ -2,7 +2,7 @@
 
 ``TrackViewEditingMixin`` used to hand-roll its own mood submenu (keyed off a
 nonexistent ``parent_mood_id``, so never nested) and had no "Add to Playlist"
-submenu at all. Both now go through ``src.common.entity_submenu``.
+submenu at all. Both now go through ``src.common.widgets.entity_submenu``.
 """
 
 from PySide6.QtWidgets import QMenu, QWidget

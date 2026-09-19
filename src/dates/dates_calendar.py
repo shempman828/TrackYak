@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.common.layout_utils import clear_layout
+from src.common.widgets.layout_utils import clear_layout
 from src.foundation.display_settings import apply_scaled_style
 from src.foundation.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache

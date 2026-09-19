@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QMessageBox
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.alias_management_dialog import AliasManagementDialog
+from src.common.dialogs.alias_management_dialog import AliasManagementDialog
 from src.db.db_helpers.delete import DeleteDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB

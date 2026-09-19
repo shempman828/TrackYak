@@ -20,8 +20,8 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.delete_confirmation import confirm_delete_with_file_option
-from src.common.entity_submenu import populate_entity_submenu, selection_membership
+from src.common.dialogs.delete_confirmation import confirm_delete_with_file_option
+from src.common.widgets.entity_submenu import populate_entity_submenu, selection_membership
 from src.db.db_mapping_tracks import TRACK_FIELDS
 from src.foundation.censor import censor_text
 from src.foundation.logger_config import logger

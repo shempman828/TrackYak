@@ -7,8 +7,8 @@ channel.
 """
 
 from src.artist.edit.artist_edit_influences import _artist_display, _build_artist_index
-from src.common.entity_completer_context import artist_context_map, track_context_map
-from src.common.entity_completer_edit import EntityCompleterEdit
+from src.common.widgets.entity_completer_context import artist_context_map, track_context_map
+from src.common.widgets.entity_completer_edit import EntityCompleterEdit
 from src.track.edit.track_edit_samples import _build_track_index, _track_display
 
 

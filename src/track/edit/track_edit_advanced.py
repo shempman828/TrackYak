@@ -13,7 +13,7 @@ AdvancedTab — wraps FieldFormTab("Advanced") and adds four action buttons:
                        Properties) reflects them immediately.
   • Delete Track(s)     — removes the track(s) being edited via the shared
                        "Remove from Library / Delete File(s) Too" prompt
-                       (src.common.delete_confirmation), then closes the
+                       (src.common.dialogs.delete_confirmation), then closes the
                        dialog so the parent view reloads.
 """
 
@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.common.delete_confirmation import confirm_delete_with_file_option
+from src.common.dialogs.delete_confirmation import confirm_delete_with_file_option
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.metadata.metadata_writer import MetadataWriter

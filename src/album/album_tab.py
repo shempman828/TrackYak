@@ -16,9 +16,9 @@ from PySide6.QtWidgets import (
 )
 
 from src.album.album_flowlayout import FlowLayout
-from src.common.entity_completer_context import artist_context_map
-from src.common.entity_completer_edit import build_entity_search_widget
-from src.common.qt_text import esc_amp
+from src.common.widgets.entity_completer_context import artist_context_map
+from src.common.widgets.entity_completer_edit import build_entity_search_widget
+from src.common.widgets.qt_text import esc_amp
 from src.foundation.display_settings import apply_scaled_style
 from src.foundation.logger_config import logger
 from src.track.edit.track_edit_places import PlacesTab as TrackPlacesTab

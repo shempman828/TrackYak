@@ -30,7 +30,7 @@ from src.artist.artist_image_manager import move_to_artist_images_dir
 from src.artist.edit.artist_edit_types import ArtistTypesWidget
 from src.artist.religion_manager import ReligionManagerDialog
 from src.common.edit_dirty import value_changed
-from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
+from src.common.widgets.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
 from src.foundation.logger_config import logger
 from src.image.pixmap_with_fallback import load_pixmap_with_fallback
 

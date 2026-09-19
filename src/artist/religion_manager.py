@@ -17,13 +17,18 @@ from PySide6.QtWidgets import (
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.hierarchy_tree_style import (
+from src.common.dialogs.lookup_manager_dialog import (
+    COUNT_COL,
+    DESC_COL,
+    NAME_COL,
+    BaseLookupManagerDialog,
+)
+from src.common.widgets.hierarchy_tree_style import (
     collect_expanded_ids,
     icon_for_depth,
     is_hierarchy_descendant,
     restore_expanded_ids_or_expand_all,
 )
-from src.common.lookup_manager_dialog import COUNT_COL, DESC_COL, NAME_COL, BaseLookupManagerDialog
 from src.db.db_tables import Artist
 from src.foundation.logger_config import logger
 

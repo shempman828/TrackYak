@@ -2,7 +2,7 @@
 
 The player dock, the base track view and the main library Tracks tab all feed
 their right-click "Add to Playlist" / "Add to Mood" submenus through
-``src.common.entity_submenu``. Previously each hand-rolled its own copy and they
+``src.common.widgets.entity_submenu``. Previously each hand-rolled its own copy and they
 drifted (the base track view's was a flat unsorted list; the Tracks tab keyed
 nesting off a ``parent_mood_id`` attribute that does not exist).
 """
@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.common.entity_submenu import populate_entity_submenu, selection_membership
+from src.common.widgets.entity_submenu import populate_entity_submenu, selection_membership
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables.base import Base
 from src.db.db_tables.mood import Mood, MoodTrackAssociation

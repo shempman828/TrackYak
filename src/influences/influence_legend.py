@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.common.layout_utils import clear_layout
+from src.common.widgets.layout_utils import clear_layout
 from src.foundation.config_setup import app_config
 from src.foundation.display_settings import apply_scaled_style
 

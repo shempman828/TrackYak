@@ -22,10 +22,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_resolution import resolve_or_create_artist
-from src.common.credited_as_dialog import CreditedAsDialog
-from src.common.entity_completer_context import artist_context_map
-from src.common.entity_completer_edit import build_entity_search_widget, register_cached_entity
-from src.common.qt_text import esc_amp
+from src.common.dialogs.credited_as_dialog import CreditedAsDialog
+from src.common.widgets.entity_completer_context import artist_context_map
+from src.common.widgets.entity_completer_edit import (
+    build_entity_search_widget,
+    register_cached_entity,
+)
+from src.common.widgets.qt_text import esc_amp
 from src.db.db_tables import Artist, ArtistAlias, Role, TrackArtistRole
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message

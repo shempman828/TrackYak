@@ -6,7 +6,7 @@ degrade gracefully (missing relationship / null field -> "", never an
 exception).
 """
 
-from src.common.entity_completer_context import (
+from src.common.widgets.entity_completer_context import (
     album_context_map,
     artist_context_map,
     place_context_map,

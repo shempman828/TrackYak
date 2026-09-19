@@ -9,8 +9,8 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.entity_alias_tab import EntityAliasesTab
-from src.common.hierarchy_tree_style import is_hierarchy_descendant
+from src.common.alias.entity_alias_tab import EntityAliasesTab
+from src.common.widgets.hierarchy_tree_style import is_hierarchy_descendant
 from src.foundation.logger_config import logger
 
 

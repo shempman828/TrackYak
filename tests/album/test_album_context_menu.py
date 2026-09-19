@@ -122,7 +122,7 @@ def test_album_creation_failure_does_not_call_load_albums(monkeypatch, qapp):
 
 
 def test_queue_action_escapes_ampersand_in_album_name(qapp):
-    from src.common.qt_text import esc_amp
+    from src.common.widgets.qt_text import esc_amp
 
     assert esc_amp("Simon & Garfunkel") == "Simon && Garfunkel"
 

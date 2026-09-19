@@ -21,8 +21,8 @@ distinguishable in the popup.
 
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLabel, QVBoxLayout
 
-from src.common.entity_completer_context import album_context_map, track_context_map
-from src.common.entity_completer_edit import build_entity_search_widget
+from src.common.widgets.entity_completer_context import album_context_map, track_context_map
+from src.common.widgets.entity_completer_edit import build_entity_search_widget
 
 _ENTITY_FIELDS = {"Track": ("track_name", "track_id"), "Album": ("album_name", "album_id")}
 _CONTEXT_BUILDERS = {"Track": track_context_map, "Album": album_context_map}

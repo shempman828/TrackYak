@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.base_merge_dialog import MergeDBDialog
+from src.common.dialogs.base_merge_dialog import MergeDBDialog
 from src.foundation.logger_config import logger
 
 

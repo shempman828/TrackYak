@@ -3,7 +3,7 @@
 Each builder takes an already-loaded list of ORM rows and returns
 ``{entity_id: context_string}``. The context string is rendered dimmed
 beside the entity name in the completer popup (see ``ContextItemDelegate``
-in :mod:`src.common.entity_completer_edit`); it never becomes part of the
+in :mod:`src.common.widgets.entity_completer_edit`); it never becomes part of the
 completion value, so a caller's name-based resolution
 (``find_or_create_by_name``) is unaffected.
 

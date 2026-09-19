@@ -50,8 +50,8 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.album_flowlayout import FlowLayout
-from src.common.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
-from src.common.qt_text import esc_amp
+from src.common.widgets.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
+from src.common.widgets.qt_text import esc_amp
 from src.foundation.asset_paths import asset
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message

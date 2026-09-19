@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
 from src.album.musicbrainz.album_musicbrainz_review_import import _format_mb_track_label
 from src.album.musicbrainz.album_musicbrainz_track_matching import _SKIP
 from src.common.match_confidence import confidence_color, confidence_label
-from src.common.qt_text import esc_amp
+from src.common.widgets.qt_text import esc_amp
 from src.musicbrainz.musicbrainz_artist import MBAlias
 from src.musicbrainz.musicbrainz_release import MBLabelInfo
 

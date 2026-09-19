@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.album.album_art_worker import ArtCacheWorker
-from src.common.style_utils import set_style_property
+from src.common.widgets.style_utils import set_style_property
 from src.foundation.asset_paths import asset
 from src.foundation.censor import censor_text
 from src.foundation.config_setup import app_config

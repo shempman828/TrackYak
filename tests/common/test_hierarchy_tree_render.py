@@ -7,7 +7,7 @@ in that spec.
 
 from dataclasses import dataclass
 
-from src.common.hierarchy_tree_style import render_hierarchy_as_text
+from src.common.widgets.hierarchy_tree_style import render_hierarchy_as_text
 
 
 @dataclass

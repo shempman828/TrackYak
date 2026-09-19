@@ -5,8 +5,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.edit.base_album_edit import AlbumEditor
 from src.artist.artist_edit import ArtistEditor
-from src.common.entity_submenu import populate_entity_submenu
-from src.common.qt_text import esc_amp
+from src.common.widgets.entity_submenu import populate_entity_submenu
+from src.common.widgets.qt_text import esc_amp
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import StatusManager, show_status_message
 from src.lyrics.lyrics_format import format_lyrics_for_storage

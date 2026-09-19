@@ -1,4 +1,4 @@
-"""Unit tests for src.common.qt_text.esc_amp.
+"""Unit tests for src.common.widgets.qt_text.esc_amp.
 
 Qt eats a lone '&' in the plain text of buttons, checkboxes, radio buttons,
 group-box titles, menu items and tab labels as a mnemonic prefix. esc_amp
@@ -7,7 +7,7 @@ render intact. This is the shared chokepoint every fixed call site routes
 through.
 """
 
-from src.common.qt_text import esc_amp
+from src.common.widgets.qt_text import esc_amp
 
 
 def test_single_ampersand_is_doubled():

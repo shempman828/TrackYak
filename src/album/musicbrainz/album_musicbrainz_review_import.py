@@ -20,7 +20,7 @@ from src.album.musicbrainz.album_musicbrainz_track_matching import (
 )
 from src.award.award_series_import import import_awards_for_entity
 from src.common.cancellable_worker import CancellableWorker
-from src.common.entity_completer_edit import find_or_create_by_name
+from src.common.widgets.entity_completer_edit import find_or_create_by_name
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
 from src.musicbrainz.musicbrainz_release import MBReleaseDetail, MBReleaseTrack

@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.common.alias_management_dialog import AliasManagementDialog
+from src.common.dialogs.alias_management_dialog import AliasManagementDialog
 from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.delete import DeleteDB
 from src.db.db_helpers.get import GetFromDB
