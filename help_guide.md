@@ -372,6 +372,12 @@ a new type that is not in the list.
 Merge (fold a duplicate into its canonical entry), New Parent/Child Place,
 or Delete.
 
+**Untangling duplicates**: right-click → Find Duplicate Places to run a
+fuzzy-match scan across your whole place list, then review and bulk-merge
+whatever it finds similar. The scan checks both the name and the
+surrounding country/state/city context, so two same-named places in
+different countries won't be flagged against each other.
+
 ## Publishers
 
 The record-label side of your library — who released what, and how labels

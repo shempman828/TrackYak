@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QSizePolicy,
     QTreeWidget,
@@ -25,6 +26,12 @@ from src.foundation.status_utility import show_status_message
 from src.place.place_assoc_details import AssociationDetailsDialog
 from src.place.place_detail import PlaceDetailView
 from src.place.place_edit import PlaceEditDialog
+from src.place.place_fuzzy_match import (
+    CHAIN_THRESHOLD,
+    NAME_THRESHOLD,
+    FuzzyMatchDialog,
+    PlaceFuzzyMatchWorker,
+)
 from src.place.place_html import HtmlDelegate
 from src.place.place_map_filter import MultiSelectWidget
 from src.place.place_merge_dialog import PlaceMergeDialog
@@ -445,37 +452,38 @@ class ListView(QWidget):
     def show_context_menu(self, position):
         """Show context menu for tree items."""
         item = self.tree_widget.itemAt(position)
-        if not item:
-            return
-
         selected_items = self.tree_widget.selectedItems()
 
         menu = QMenu(self)
 
-        # Only show single-place actions when exactly one item is selected
-        if len(selected_items) <= 1:
-            # Capture the place into a local variable. Each lambda below uses a
-            # default argument (p=place) to lock in this value at menu-creation
-            # time, so the action always operates on the right place even if
-            # something triggers a re-render before the user clicks.
-            place = item.data(0, Qt.UserRole)
+        if item:
+            # Only show single-place actions when exactly one item is selected
+            if len(selected_items) <= 1:
+                # Capture the place into a local variable. Each lambda below uses a
+                # default argument (p=place) to lock in this value at menu-creation
+                # time, so the action always operates on the right place even if
+                # something triggers a re-render before the user clicks.
+                place = item.data(0, Qt.UserRole)
 
-            menu.addAction(
-                "View Associations", lambda p=place: self.show_association_details_for(p)
-            )
-            menu.addAction("View Details", lambda p=place: self.view_place_details_for(p))
-            menu.addAction("Edit", lambda p=place: self.edit_place_for(p))
-            menu.addAction("Merge", lambda p=place: self.merge_place(p))
-            menu.addAction("Split", lambda p=place: self._split_place())
-            menu.addSeparator()
-            menu.addAction("New Parent Place", lambda p=place: self.create_new_parent_place(p))
-            menu.addAction("New Child Place", lambda p=place: self.create_new_child_place(p))
+                menu.addAction(
+                    "View Associations", lambda p=place: self.show_association_details_for(p)
+                )
+                menu.addAction("View Details", lambda p=place: self.view_place_details_for(p))
+                menu.addAction("Edit", lambda p=place: self.edit_place_for(p))
+                menu.addAction("Merge", lambda p=place: self.merge_place(p))
+                menu.addAction("Split", lambda p=place: self._split_place())
+                menu.addSeparator()
+                menu.addAction("New Parent Place", lambda p=place: self.create_new_parent_place(p))
+                menu.addAction("New Child Place", lambda p=place: self.create_new_child_place(p))
+                menu.addSeparator()
+
+            # Delete works for single or multiple selection
+            count = len(selected_items)
+            delete_label = f"Delete {count} Places" if count > 1 else "Delete"
+            menu.addAction(delete_label, self.delete_selected_places)
             menu.addSeparator()
 
-        # Delete works for single or multiple selection
-        count = len(selected_items)
-        delete_label = f"Delete {count} Places" if count > 1 else "Delete"
-        menu.addAction(delete_label, self.delete_selected_places)
+        menu.addAction("🔎 Find Duplicate Places…", self.find_fuzzy_matches)
 
         menu.exec_(self.tree_widget.viewport().mapToGlobal(position))
 
@@ -740,6 +748,70 @@ class ListView(QWidget):
     def _split_place(self):
         """Split this place into multiple places. Not yet implemented."""
         show_status_message(self, "Split is not yet available for places.")
+
+    def find_fuzzy_matches(self):
+        """Scan every place for likely duplicates and open the review dialog.
+
+        Blocks places by normalised-name prefix/last-token to avoid an
+        all-pairs comparison, and requires both a name-similarity match and
+        an ancestor-chain-similarity match (see place_fuzzy_match.py) so
+        same-named places in different countries/regions aren't flagged.
+        The scan runs in a background thread so the UI stays responsive.
+        """
+        try:
+            places = self.controller.get.get_all_entities("Place")
+        except SQLAlchemyError as e:
+            QMessageBox.critical(self, "Error", f"Failed to load places: {e}")
+            return
+
+        if not places:
+            show_status_message(self, "No places found in database.")
+            return
+
+        progress = QProgressDialog("Scanning for duplicate places…", "Cancel", 0, 1, self)
+        progress.setWindowTitle("Duplicate Scan")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        progress.show()
+
+        worker = PlaceFuzzyMatchWorker(places, NAME_THRESHOLD, CHAIN_THRESHOLD)
+
+        def _on_progress(current, total):
+            progress.setRange(0, total)
+            progress.setValue(current)
+            progress.setLabelText(f"Scanning for duplicate places… ({current:,} / {total:,})")
+
+        def _on_finished(matches):
+            progress.close()
+            if not matches:
+                show_status_message(
+                    self,
+                    f"No similar place names found (threshold: {int(NAME_THRESHOLD * 100)}% "
+                    "similarity).",
+                )
+                return
+            dialog = FuzzyMatchDialog(matches, self.controller, self)
+            if dialog.exec_() == QDialog.Accepted:
+                self.load_places()
+                if self.parent_view:
+                    self.parent_view.refresh_views()
+
+        def _on_error(msg):
+            progress.close()
+            QMessageBox.critical(self, "Scan Error", f"Duplicate scan failed:\n{msg}")
+
+        def _on_cancelled():
+            worker.request_cancel()
+
+        worker.progress.connect(_on_progress)
+        worker.finished.connect(_on_finished)
+        worker.error.connect(_on_error)
+        progress.canceled.connect(_on_cancelled)
+
+        # Keep a reference so the worker isn't garbage collected
+        self._fuzzy_worker = worker
+        worker.start()
 
     def view_place_details_for(self, place):
         """View detailed information about the given place."""
