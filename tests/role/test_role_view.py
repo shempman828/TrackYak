@@ -11,6 +11,7 @@ from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import QMenu, QMessageBox
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import scoped_session, sessionmaker
 
 from src.db.db_helpers.delete import DeleteDB
@@ -342,6 +343,34 @@ def test_rename_preserves_search_filter_without_full_reload(
     # ...and the search filter must still be honored after the rebuild.
     assert _item_for(view.role_tree, piano.role_id).isHidden() is True
     assert _item_for(view.role_tree, guitar.role_id).isHidden() is False
+
+
+def test_rename_to_same_name_with_stray_whitespace_is_not_rejected(
+    qapp, session, controller_sf, monkeypatch
+):
+    """A rename that only trims/adds whitespace resolves back to the role's
+    own current name -- the duplicate-name check must exclude the role being
+    renamed, or this gets rejected as "already exists". See
+    src/role/role_view.py on_item_edited()."""
+    monkeypatch.setattr(RoleView, "load_roles", lambda self: None)
+    guitar = _make_role_sf(session, "Guitar")
+
+    view = RoleView(controller_sf)
+    view._all_roles = [guitar]
+    view._album_counts = {}
+    view._track_counts = {}
+    view._rebuild_tree()
+
+    guitar_item = _item_for(view.role_tree, guitar.role_id)
+    # Leading whitespace added to the display text; strips back down to the
+    # exact same name already held by this role.
+    guitar_item.setText(0, "  Guitar (0)")
+
+    # on_item_edited's own rebuild replaces the tree items, so guitar_item is
+    # now stale -- look the (new) item up again by role id.
+    assert guitar.role_name == "Guitar"
+    assert _item_for(view.role_tree, guitar.role_id).text(0) == "Guitar (0)"
+    assert view.status_bar.text() == "Renamed to Guitar"
 
 
 # ---- test_role_hierarchy_export.py -----------------------------------------
@@ -737,3 +766,107 @@ def test_change_parent_failed_update_shows_critical_and_does_not_reload(
     assert fired == []
     session.refresh(strings)
     assert strings.parent_id is None
+
+
+def test_change_parent_sqlalchemy_error_shows_critical_instead_of_propagating(
+    session, qapp, controller_eh
+):
+    """update_entity raising SQLAlchemyError (not just RuntimeError) must be
+    caught and shown as an error dialog, not propagate out uncaught. See
+    src/role/role_view.py _context_change_role_parent()."""
+    strings = _make_role_eh(session, "Strings")
+    percussion = _make_role_eh(session, "Percussion")
+    view = RoleView(controller_eh)
+    view._all_roles = [strings, percussion]
+    view.current_role_id = strings.role_id
+    view.load_roles = MagicMock()
+
+    submenu = QMenu()
+    view._populate_change_parent_submenu(submenu)
+    percussion_action = next(a for a in submenu.actions() if a.text() == "Percussion")
+
+    with (
+        patch.object(view.controller.update, "update_entity", side_effect=SQLAlchemyError("boom")),
+        patch("src.role.role_view.QMessageBox.critical") as mock_critical,
+    ):
+        percussion_action.trigger()  # must not raise
+
+    mock_critical.assert_called_once()
+    view.load_roles.assert_not_called()
+
+
+def test_drop_event_partial_failure_refreshes_and_notifies(session, qapp, controller_eh):
+    """If one item in a multi-select drop moves successfully before a later
+    one raises, the tree must still be refreshed and the user told, instead
+    of silently drifting out of sync with the DB. See
+    src/role/role_view.py on_drop_event()."""
+    guitar = _make_role_eh(session, "Guitar")
+    piano = _make_role_eh(session, "Piano")
+    view = RoleView(controller_eh)
+    view._all_roles = [guitar, piano]
+    view._rebuild_tree()
+    view.load_roles = MagicMock()
+    fired = []
+    view.role_updated.connect(lambda: fired.append(True))
+
+    guitar_item = _item_for(view.role_tree, guitar.role_id)
+    piano_item = _item_for(view.role_tree, piano.role_id)
+    guitar_item.setSelected(True)
+    piano_item.setSelected(True)
+
+    calls = {"n": 0}
+
+    def flaky_update(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return True
+        raise SQLAlchemyError("boom")
+
+    fake_event = MagicMock()
+    fake_event.pos.return_value = view.role_tree.rect().bottomRight()
+
+    with (
+        patch.object(view.controller.update, "update_entity", side_effect=flaky_update),
+        patch.object(view.role_tree, "itemAt", return_value=None),
+        patch("src.role.role_view.show_status_message") as mock_status,
+    ):
+        view.on_drop_event(fake_event)  # must not raise
+
+    view.load_roles.assert_called_once()
+    assert fired == [True]
+    mock_status.assert_called_once()
+    fake_event.ignore.assert_called_once()
+
+
+def test_create_new_parent_role_sqlalchemy_error_shows_critical(session, qapp, controller_eh):
+    """A DB error from get_entity_object must be caught and shown as an
+    error dialog, not propagate out uncaught. See src/role/role_view.py
+    create_new_parent_role()."""
+    guitar = _make_role_eh(session, "Guitar")
+    view = RoleView(controller_eh)
+    view._all_roles = [guitar]
+
+    with (
+        patch.object(view.controller.get, "get_entity_object", side_effect=SQLAlchemyError("boom")),
+        patch("src.role.role_view.QMessageBox.critical") as mock_critical,
+    ):
+        view.create_new_parent_role(guitar.role_id)  # must not raise
+
+    mock_critical.assert_called_once()
+
+
+def test_create_new_child_role_sqlalchemy_error_shows_critical(session, qapp, controller_eh):
+    """Same as create_new_parent_role: a DB error must be caught, not
+    propagate out uncaught. See src/role/role_view.py
+    create_new_child_role()."""
+    guitar = _make_role_eh(session, "Guitar")
+    view = RoleView(controller_eh)
+    view._all_roles = [guitar]
+
+    with (
+        patch.object(view.controller.get, "get_entity_object", side_effect=SQLAlchemyError("boom")),
+        patch("src.role.role_view.QMessageBox.critical") as mock_critical,
+    ):
+        view.create_new_child_role(guitar.role_id)  # must not raise
+
+    mock_critical.assert_called_once()

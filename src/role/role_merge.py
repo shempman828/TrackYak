@@ -5,12 +5,7 @@ from src.foundation.logger_config import logger
 
 
 class RoleMergeDialog(MergeDBDialog):
-    """Specialized merge dialog for roles.
-
-    Pre-populates the source side with the selected role and automatically
-    suggests similar-named roles as merge candidates on the target side
-    (e.g. combining "Guitar" and "Guitarist").
-    """
+    """Merge dialog for roles, pre-populated with the selected role and auto-suggested targets."""
 
     def __init__(self, controller, parent=None, role_obj=None):
         super().__init__(controller, "Role", parent)

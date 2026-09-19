@@ -47,18 +47,7 @@ from src.role.role_merge import RoleMergeDialog
 
 
 class RoleLoaderWorker(QObject):
-    """
-    Runs on a background thread. Fetches all roles plus their direct and
-    recursive (own + all descendants) association counts in 3 queries
-    total, then emits the results back to the main thread.
-
-    Recursive counts are computed with a memoized bottom-up Python union of
-    per-role association-id sets over the parent/child structure, mirroring
-    GenreLoaderWorker.track_ids_for. Sets (not a plain integer sum) are
-    required because the same album/track credit can be recorded against
-    both a role and one of its descendants, and must only count once
-    toward that role's recursive total.
-    """
+    """Background-thread worker that fetches all roles and their album/track association counts."""
 
     # Emitted when loading succeeds.
     # Payload: (all_roles, album_counts_by_role_id, track_counts_by_role_id,
@@ -741,8 +730,11 @@ class RoleView(QWidget):
             if not new_name:
                 raise ValueError("Role name cannot be empty")
 
-            # Check if name already exists
-            if self.controller.get.get_entity_object("Role", role_name=new_name):
+            # Check if name already exists (excluding this role itself, so a
+            # whitespace-only edit that resolves back to the current name
+            # isn't rejected as a conflict).
+            existing_role = self.controller.get.get_entity_object("Role", role_name=new_name)
+            if existing_role and existing_role.role_id != role_id:
                 raise ValueError("Role name already exists")
 
             self.controller.update.update_entity("Role", role_id, role_name=new_name)
@@ -803,6 +795,12 @@ class RoleView(QWidget):
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error moving role: {e!s}")
+            # An earlier move in this same drop may already have committed
+            # to the database before this one raised -- refresh so the tree
+            # doesn't silently drift out of sync with the DB.
+            self.load_roles()
+            self.role_updated.emit()
+            show_status_message(self, "Failed to move one or more roles.")
             event.ignore()
 
     def show_context_menu(self, pos):
@@ -883,7 +881,7 @@ class RoleView(QWidget):
         role_id = self.current_role_id
         try:
             success = self.controller.update.update_entity("Role", role_id, parent_id=new_parent_id)
-        except RuntimeError as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error changing role parent: {e!s}")
             success = False
 
@@ -1036,55 +1034,63 @@ class RoleView(QWidget):
         The new role takes over the role's old parent slot (preserving the
         grandparent chain), and the role becomes a child of the new role.
         """
-        role = self.controller.get.get_entity_object("Role", role_id=role_id)
-        if not role:
-            show_status_message(self, "The selected role no longer exists.")
-            return
+        try:
+            role = self.controller.get.get_entity_object("Role", role_id=role_id)
+            if not role:
+                show_status_message(self, "The selected role no longer exists.")
+                return
 
-        dialog = RoleEditDialog(self.controller, None, self)
-        if dialog.exec_() != QDialog.Accepted or not dialog.result_role:
-            return
+            dialog = RoleEditDialog(self.controller, None, self)
+            if dialog.exec_() != QDialog.Accepted or not dialog.result_role:
+                return
 
-        new_role = dialog.result_role
-        handle_insert_as_new_relative(
-            self.controller,
-            self,
-            entity_type="Role",
-            id_attr="role_id",
-            name_attr="role_name",
-            is_parent=True,
-            entity=role,
-            new_entity=new_role,
-            reload_fn=self.load_roles,
-            emit_fn=lambda _ne: self.role_updated.emit(),
-            status_fn=self.status_bar.setText,
-        )
+            new_role = dialog.result_role
+            handle_insert_as_new_relative(
+                self.controller,
+                self,
+                entity_type="Role",
+                id_attr="role_id",
+                name_attr="role_name",
+                is_parent=True,
+                entity=role,
+                new_entity=new_role,
+                reload_fn=self.load_roles,
+                emit_fn=lambda _ne: self.role_updated.emit(),
+                status_fn=self.status_bar.setText,
+            )
+        except (SQLAlchemyError, RuntimeError) as e:
+            logger.error(f"Error creating new parent role: {e!s}")
+            QMessageBox.critical(self, "Error", "Failed to create new parent role")
 
     def create_new_child_role(self, role_id):
         """Create a new role and set it as a child of the given role."""
-        role = self.controller.get.get_entity_object("Role", role_id=role_id)
-        if not role:
-            show_status_message(self, "The selected role no longer exists.")
-            return
+        try:
+            role = self.controller.get.get_entity_object("Role", role_id=role_id)
+            if not role:
+                show_status_message(self, "The selected role no longer exists.")
+                return
 
-        dialog = RoleEditDialog(self.controller, None, self)
-        if dialog.exec_() != QDialog.Accepted or not dialog.result_role:
-            return
+            dialog = RoleEditDialog(self.controller, None, self)
+            if dialog.exec_() != QDialog.Accepted or not dialog.result_role:
+                return
 
-        new_role = dialog.result_role
-        handle_insert_as_new_relative(
-            self.controller,
-            self,
-            entity_type="Role",
-            id_attr="role_id",
-            name_attr="role_name",
-            is_parent=False,
-            entity=role,
-            new_entity=new_role,
-            reload_fn=self.load_roles,
-            emit_fn=lambda _ne: self.role_updated.emit(),
-            status_fn=self.status_bar.setText,
-        )
+            new_role = dialog.result_role
+            handle_insert_as_new_relative(
+                self.controller,
+                self,
+                entity_type="Role",
+                id_attr="role_id",
+                name_attr="role_name",
+                is_parent=False,
+                entity=role,
+                new_entity=new_role,
+                reload_fn=self.load_roles,
+                emit_fn=lambda _ne: self.role_updated.emit(),
+                status_fn=self.status_bar.setText,
+            )
+        except (SQLAlchemyError, RuntimeError) as e:
+            logger.error(f"Error creating new child role: {e!s}")
+            QMessageBox.critical(self, "Error", "Failed to create new child role")
 
     def delete_role(self, role_id):
         """Delete selected role after confirmation."""

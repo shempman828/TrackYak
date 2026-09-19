@@ -5,6 +5,8 @@ from src.foundation.logger_config import logger
 
 
 class RoleEditDialog(QDialog):
+    """Dialog for creating a new role or editing an existing role's name and description."""
+
     def __init__(self, controller, role=None, parent=None):
         super().__init__(parent)
         self.controller = controller
@@ -17,6 +19,7 @@ class RoleEditDialog(QDialog):
         self.load_data()
 
     def setup_ui(self):
+        """Build the name/description form and OK/Cancel buttons."""
         self.setWindowTitle("Edit Role" if self.role else "New Role")
         self.setMinimumWidth(300)
 
@@ -34,11 +37,13 @@ class RoleEditDialog(QDialog):
         layout.addRow(buttons)
 
     def load_data(self):
+        """Pre-fill the form fields when editing an existing role."""
         if self.role:
             self.name_input.setText(self.role.role_name)
             self.desc_input.setText(self.role.role_description or "")
 
     def validate(self):
+        """Validate the form and save the role, or show an error and leave the dialog open."""
         name = self.name_input.text().strip()
         description = self.desc_input.text().strip() or None
 

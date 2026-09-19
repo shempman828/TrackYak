@@ -6,16 +6,12 @@ from PySide6.QtWidgets import QLabel, QListWidget, QListWidgetItem, QMenu, QVBox
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.logger_config import logger
+from src.foundation.status_utility import show_status_message
 from src.track.view.base_track_view import BaseTrackView
 
 
 class RoleDetailTab(QWidget):
-    """Detailed view for a specific role's artist relationships.
-
-    Roles can be assigned to albums (AlbumRoleAssociation) and/or tracks
-    (TrackArtistRole) independently, so both are always loaded and merged
-    per-artist rather than picking one based on a "role type".
-    """
+    """Detailed view of a role's artist relationships, from both album and track assignments."""
 
     def __init__(self, controller, role_id):
         super().__init__()
@@ -70,6 +66,7 @@ class RoleDetailTab(QWidget):
             tracks = self._get_artist_tracks_for_role(artist_id)
             if not tracks:
                 logger.info(f"No tracks found for artist {artist_id} in role {self.role_id}")
+                show_status_message(self, "No tracks found for this artist in this role.")
                 return
 
             # Get artist name for window title
@@ -95,7 +92,7 @@ class RoleDetailTab(QWidget):
             logger.error(f"Error showing tracks for artist {artist_id}: {e}", exc_info=True)
 
     def _get_artist_tracks_for_role(self, artist_id):
-        """Get all tracks for an artist in the current role, from both album and track assignments."""
+        """Get all tracks for an artist in this role, from both album and track assignments."""
         tracks = []
         seen_track_ids = set()
 
