@@ -26,12 +26,12 @@ import pytest
 
 from scripts.dedupe_flac_duplicate_pictures import _indices_to_drop, dedupe_pictures_in_flac
 from src.metadata.metadata_artwork import ArtworkExtractor
-from src.metadata.metadata_flac_file_writer import FlacFileWriter
 from src.metadata.metadata_image_utils import (
     find_picture_index_for_role,
     find_picture_indices_for_role,
 )
-from src.metadata.metadata_writer_flac_picture import FlacPictureWriter
+from src.metadata.writers.metadata_flac_file_writer import FlacFileWriter
+from src.metadata.writers.metadata_writer_flac_picture import FlacPictureWriter
 
 _STREAMINFO = b"\x00" * 34  # contents irrelevant to the metadata surgery under test
 

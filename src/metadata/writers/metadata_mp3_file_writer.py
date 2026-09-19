@@ -10,18 +10,18 @@ from typing import Any
 
 from src.foundation.logger_config import logger
 from src.metadata.metadata_byte_utils import syncsafe_to_int
-from src.metadata.metadata_id3_writer import ID3TagWriter
 from src.metadata.metadata_image_utils import find_picture_indices_for_role
-from src.metadata.metadata_writer_backup import (
+from src.metadata.writers.metadata_id3_writer import ID3TagWriter
+from src.metadata.writers.metadata_writer_backup import (
     atomic_write,
     backup_file,
     discard_backup,
     restore_backup,
     write_artwork_with_backup,
 )
-from src.metadata.metadata_writer_id3_picture import Id3PictureWriter
-from src.metadata.metadata_writer_merge import merge_id3_frames
-from src.metadata.metadata_writer_types import WriteMode
+from src.metadata.writers.metadata_writer_id3_picture import Id3PictureWriter
+from src.metadata.writers.metadata_writer_merge import merge_id3_frames
+from src.metadata.writers.metadata_writer_types import WriteMode
 
 
 class MP3FileWriter:

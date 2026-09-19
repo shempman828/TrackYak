@@ -18,13 +18,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import StatusManager
-from src.metadata.metadata_flac_file_writer import FlacFileWriter
-from src.metadata.metadata_id3_frame_builder import ID3FrameBuilder
-from src.metadata.metadata_mp3_file_writer import MP3FileWriter
-from src.metadata.metadata_ogg_file_writer import OggFileWriter
 from src.metadata.metadata_track_data import TrackDataAssembler
-from src.metadata.metadata_vorbis_comment_builder import VorbisCommentBuilder
-from src.metadata.metadata_writer_types import AudioFormat, WriteMode
+from src.metadata.writers.metadata_flac_file_writer import FlacFileWriter
+from src.metadata.writers.metadata_id3_frame_builder import ID3FrameBuilder
+from src.metadata.writers.metadata_mp3_file_writer import MP3FileWriter
+from src.metadata.writers.metadata_ogg_file_writer import OggFileWriter
+from src.metadata.writers.metadata_vorbis_comment_builder import VorbisCommentBuilder
+from src.metadata.writers.metadata_writer_types import AudioFormat, WriteMode
 
 __all__ = ["AudioFormat", "MetadataWriter", "WriteMode"]
 

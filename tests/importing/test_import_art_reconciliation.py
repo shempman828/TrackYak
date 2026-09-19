@@ -30,7 +30,7 @@ import soundfile as sf
 
 from src.importing import library_import
 from src.importing.library_import import ImportResult, ImportWorker, TrackImporter
-from src.metadata.metadata_flac_file_writer import FlacFileWriter
+from src.metadata.writers.metadata_flac_file_writer import FlacFileWriter
 
 _WRITER = FlacFileWriter()
 

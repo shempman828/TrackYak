@@ -20,8 +20,8 @@ import time
 
 import pytest
 
-from src.metadata import metadata_writer_backup
-from src.metadata.metadata_writer_backup import (
+from src.metadata.writers import metadata_writer_backup
+from src.metadata.writers.metadata_writer_backup import (
     atomic_write,
     backup_file,
     sweep_stale_temp_files,

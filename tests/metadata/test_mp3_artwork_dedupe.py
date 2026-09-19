@@ -27,9 +27,9 @@ import pytest
 
 from scripts.dedupe_mp3_duplicate_pictures import _indices_to_drop, dedupe_pictures_in_mp3
 from src.metadata.metadata_artwork import ArtworkExtractor
-from src.metadata.metadata_id3_writer import ID3TagWriter
-from src.metadata.metadata_mp3_file_writer import MP3FileWriter
-from src.metadata.metadata_writer_id3_picture import Id3PictureWriter
+from src.metadata.writers.metadata_id3_writer import ID3TagWriter
+from src.metadata.writers.metadata_mp3_file_writer import MP3FileWriter
+from src.metadata.writers.metadata_writer_id3_picture import Id3PictureWriter
 
 
 def _png(size: int, colour: tuple[int, int, int]) -> bytes:

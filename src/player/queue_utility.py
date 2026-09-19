@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.db.db_tables import Track
 from src.foundation.asset_paths import config as config_path
 from src.foundation.logger_config import logger
-from src.metadata.metadata_writer_backup import atomic_write
+from src.metadata.writers.metadata_writer_backup import atomic_write
 
 # ── Persistence limits ────────────────────────────────────────────────────────
 SAVE_HISTORY_LIMIT = 500  # most-recent N played tracks kept (recency buffer, not the full queue)

@@ -11,11 +11,11 @@ from src.foundation.logger_config import logger
 from src.metadata.metadata_byte_utils import syncsafe_to_int
 from src.metadata.metadata_image_utils import find_picture_indices_for_role
 from src.metadata.metadata_raw_tags import RawTagExtractor
-from src.metadata.metadata_writer_backup import atomic_write, write_artwork_with_backup
-from src.metadata.metadata_writer_flac_picture import FlacPictureWriter
-from src.metadata.metadata_writer_merge import merge_vorbis_comments
-from src.metadata.metadata_writer_types import WriteMode
-from src.metadata.metadata_writer_vorbis import VorbisCommentWriter
+from src.metadata.writers.metadata_writer_backup import atomic_write, write_artwork_with_backup
+from src.metadata.writers.metadata_writer_flac_picture import FlacPictureWriter
+from src.metadata.writers.metadata_writer_merge import merge_vorbis_comments
+from src.metadata.writers.metadata_writer_types import WriteMode
+from src.metadata.writers.metadata_writer_vorbis import VorbisCommentWriter
 
 
 class FlacFileWriter:

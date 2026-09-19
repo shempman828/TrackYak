@@ -3,7 +3,7 @@ combining freshly-built tag data with whatever a file already has on disk.
 """
 
 from src.foundation.logger_config import logger
-from src.metadata.metadata_writer_types import WriteMode
+from src.metadata.writers.metadata_writer_types import WriteMode
 
 
 def merge_id3_frames(

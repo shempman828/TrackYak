@@ -8,10 +8,10 @@ import struct
 from src.foundation.logger_config import logger
 from src.metadata.metadata_ogg_pages import replace_comment_packet
 from src.metadata.metadata_raw_tags import RawTagExtractor
-from src.metadata.metadata_writer_backup import atomic_write
-from src.metadata.metadata_writer_merge import merge_vorbis_comments
-from src.metadata.metadata_writer_types import WriteMode
-from src.metadata.metadata_writer_vorbis import VorbisCommentWriter
+from src.metadata.writers.metadata_writer_backup import atomic_write
+from src.metadata.writers.metadata_writer_merge import merge_vorbis_comments
+from src.metadata.writers.metadata_writer_types import WriteMode
+from src.metadata.writers.metadata_writer_vorbis import VorbisCommentWriter
 
 
 class OggFileWriter:

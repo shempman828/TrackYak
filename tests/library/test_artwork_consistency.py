@@ -28,7 +28,7 @@ import pytest
 import soundfile as sf
 
 from src.library.library_artwork_consistency import ArtworkConsistencyChecker
-from src.metadata.metadata_flac_file_writer import FlacFileWriter
+from src.metadata.writers.metadata_flac_file_writer import FlacFileWriter
 
 _WRITER = FlacFileWriter()
 

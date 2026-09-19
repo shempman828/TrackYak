@@ -17,7 +17,7 @@ from src.library.duplicate_finder import DuplicateFinderDialog
 from src.library.missing_tracks import MissingTracks
 from src.library.organize_files_dialog import OrganizeFilesDialog
 from src.lyrics.explicit_recalc_worker import ExplicitRecalcWorker
-from src.metadata.metadata_writer_dialog import show_metadata_write_dialog
+from src.metadata.writers.metadata_writer_dialog import show_metadata_write_dialog
 from src.mood.mood_autotag_dialog import MoodAutoTagDialog
 from src.player.player_mini import MiniPlayerWindow
 from src.statistics.analysis_dialog import AudioAnalysisDialog

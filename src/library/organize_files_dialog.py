@@ -34,7 +34,7 @@ class OrganizeFilesDialog(QDialog):
 
     Split out from the former combined "Manage Library" dialog; the metadata
     write flow now lives in its own Tools menu action (see
-    src.metadata.metadata_writer_dialog).
+    src.metadata.writers.metadata_writer_dialog).
     """
 
     operation_complete = Signal(bool)

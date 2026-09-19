@@ -6,7 +6,6 @@ input - no database access of its own.
 from typing import Any
 
 from src.foundation.logger_config import logger
-from src.metadata.metadata_id3_writer import ID3TagWriter
 from src.metadata.metadata_mapping import (
     ID3_ALBUM_MAPPINGS,
     ID3_DATE_MAPPINGS,
@@ -22,6 +21,7 @@ from src.metadata.metadata_text import (
     format_track_number,
     group_artists_by_tag,
 )
+from src.metadata.writers.metadata_id3_writer import ID3TagWriter
 
 
 class ID3FrameBuilder:
