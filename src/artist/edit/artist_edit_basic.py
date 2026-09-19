@@ -2,7 +2,7 @@
 # Tab: Basic
 # ══════════════════════════════════════════════════════════════════════════════
 
-import os
+from pathlib import Path
 
 from PySide6.QtCore import QSettings, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QIntValidator
@@ -162,9 +162,9 @@ class BasicTab(QWidget):
         # Begin date
         self.begin_year_edit = OptionalIntEdit("YYYY")
         self.begin_year_edit.setToolTip("Year born / founded")
-        self.begin_month_edit = OptionalIntEdit("MM")
+        self.begin_month_edit = OptionalIntEdit("MM", min_value=1, max_value=12)
         self.begin_month_edit.setToolTip("Month (1-12)")
-        self.begin_day_edit = OptionalIntEdit("DD")
+        self.begin_day_edit = OptionalIntEdit("DD", min_value=1, max_value=31)
         self.begin_day_edit.setToolTip("Day (1-31)")
         self.begin_date_label = QLabel("Born / Founded:")
         form.addRow(
@@ -184,8 +184,10 @@ class BasicTab(QWidget):
         # End date
         self.end_year_edit = OptionalIntEdit("YYYY")
         self.end_year_edit.setToolTip("Year died / disbanded")
-        self.end_month_edit = OptionalIntEdit("MM")
-        self.end_day_edit = OptionalIntEdit("DD")
+        self.end_month_edit = OptionalIntEdit("MM", min_value=1, max_value=12)
+        self.end_month_edit.setToolTip("Month (1-12)")
+        self.end_day_edit = OptionalIntEdit("DD", min_value=1, max_value=31)
+        self.end_day_edit.setToolTip("Day (1-31)")
         self.end_date_label = QLabel("Died / Disbanded:")
         self.end_date_row = self._build_date_row(
             self.end_year_edit, self.end_month_edit, self.end_day_edit
@@ -376,21 +378,21 @@ class BasicTab(QWidget):
     def collect_changes(self):
         """Return a dict of only the basic fields whose value actually
         differs from the loaded artist — untouched fields are omitted."""
-        candidates = dict(
-            artist_name=self.name_edit.text().strip(),
-            sort_name=self.sort_name_edit.text().strip() or None,
-            disambiguation=self.disambiguation_edit.text().strip() or None,
-            isgroup=1 if self.isgroup_check.isChecked() else 0,
-            gender=self.gender_combo.currentText() or None,
-            religion_id=self._resolve_religion_id(),
-            begin_year=self.begin_year_edit.get_value_or_none(),
-            begin_month=self.begin_month_edit.get_value_or_none(),
-            begin_day=self.begin_day_edit.get_value_or_none(),
-            end_year=self.end_year_edit.get_value_or_none(),
-            end_month=self.end_month_edit.get_value_or_none(),
-            end_day=self.end_day_edit.get_value_or_none(),
-            profile_pic_path=self._pic_path or None,
-        )
+        candidates = {
+            "artist_name": self.name_edit.text().strip(),
+            "sort_name": self.sort_name_edit.text().strip() or None,
+            "disambiguation": self.disambiguation_edit.text().strip() or None,
+            "isgroup": 1 if self.isgroup_check.isChecked() else 0,
+            "gender": self.gender_combo.currentText() or None,
+            "religion_id": self._resolve_religion_id(),
+            "begin_year": self.begin_year_edit.get_value_or_none(),
+            "begin_month": self.begin_month_edit.get_value_or_none(),
+            "begin_day": self.begin_day_edit.get_value_or_none(),
+            "end_year": self.end_year_edit.get_value_or_none(),
+            "end_month": self.end_month_edit.get_value_or_none(),
+            "end_day": self.end_day_edit.get_value_or_none(),
+            "profile_pic_path": self._pic_path or None,
+        }
         return {
             field: new
             for field, new in candidates.items()
@@ -440,9 +442,11 @@ class BasicTab(QWidget):
 
         # An end date implies the artist isn't active -- surface the end
         # date fields the same way toggling "Alive/Active" off would.
-        if any(k in values for k in ("end_year", "end_month", "end_day")):
-            if self.end_year_edit.get_value_or_none() is not None:
-                self.is_active_check.setChecked(False)
+        if (
+            any(k in values for k in ("end_year", "end_month", "end_day"))
+            and self.end_year_edit.get_value_or_none() is not None
+        ):
+            self.is_active_check.setChecked(False)
 
     # ── Internal slots ─────────────────────────────────────────────────────
 
@@ -477,7 +481,7 @@ class BasicTab(QWidget):
         # repeated edits within a session (or across restarts) pointed at
         # the same folder, e.g. a shared "artist pictures" directory.
         start_dir = self._settings.value(_SETTINGS_LAST_PIC_DIR, "", type=str)
-        if not start_dir or not os.path.isdir(start_dir):
+        if not start_dir or not Path(start_dir).is_dir():
             start_dir = ""
 
         path, _ = QFileDialog.getOpenFileName(
@@ -488,7 +492,7 @@ class BasicTab(QWidget):
         )
         if path:
             logger.debug(f"Profile picture selected for artist editor: {path}")
-            self._settings.setValue(_SETTINGS_LAST_PIC_DIR, os.path.dirname(path))
+            self._settings.setValue(_SETTINGS_LAST_PIC_DIR, str(Path(path).parent))
             managed_path = move_to_artist_images_dir(
                 self.artist.artist_id, self.artist.artist_name, path
             )
@@ -569,14 +573,14 @@ class SegmentedToggle(QWidget):
 
 
 class OptionalIntEdit(QLineEdit):
-    """A QLineEdit that only accepts integers and returns None when empty."""
+    """A QLineEdit accepting integers in [min_value, max_value]; returns None when empty."""
 
-    def __init__(self, placeholder="", parent=None):
+    def __init__(self, placeholder="", parent=None, *, min_value=0, max_value=9999):
         super().__init__(parent)
         self.setPlaceholderText(placeholder)
         self.setFixedWidth(60)
         self.setAlignment(Qt.AlignCenter)
-        self.setValidator(QIntValidator(0, 9999, self))
+        self.setValidator(QIntValidator(min_value, max_value, self))
 
     def get_value_or_none(self):
         text = self.text().strip()

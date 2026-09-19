@@ -561,10 +561,9 @@ class InfluencesTab(QWidget):
         self._reload_and_refresh()
 
     def _handle_swap_selected(self):
-        """Reverse influencer/influenced for the selected row(s). Since direction
-        is baked into the composite primary key, this deletes each relation and
-        re-adds it with influencer/influenced swapped (same pattern used for
-        GroupMembership edits, which also has a composite key)."""
+        """Reverse influencer/influenced for the selected row(s), via a single
+        atomic UPDATE of both composite-key columns -- never a delete+add, so
+        a mid-swap failure can't leave the relation gone."""
         rows = self._selected_row_data()
         if not rows:
             show_status_message(self, "Please select one or more rows first.")
@@ -572,7 +571,7 @@ class InfluencesTab(QWidget):
 
         # A row can't be swapped onto a key that already exists (e.g. both
         # "A influenced B" and "B influenced A" are independently present) —
-        # skip those rather than deleting the original and losing it.
+        # skip those rather than clobbering the existing reverse row.
         existing_keys = {(r["direction"], r["other_id"]) for r in self._rows}
         opposite = {DIR_INFLUENCED: DIR_INFLUENCER, DIR_INFLUENCER: DIR_INFLUENCED}
 
@@ -583,20 +582,14 @@ class InfluencesTab(QWidget):
                 skipped.append(r["name"])
                 continue
             influencer_id, influenced_id = self._row_key(r["direction"], r["other_id"])
-            try:
-                self.controller.delete.delete_entity(
-                    "ArtistInfluence", influencer_id=influencer_id, influenced_id=influenced_id
-                )
-                swapped = self.controller.add.add_entity(
-                    "ArtistInfluence",
-                    influencer_id=influenced_id,
-                    influenced_id=influencer_id,
-                    description=r["description"] or None,
-                )
-                if swapped is None:
-                    errors.append(r["name"])
-            except SQLAlchemyError as e:
-                errors.append(f"{r['name']}: {e}")
+            success = self.controller.update.update_entity_by_filter(
+                "ArtistInfluence",
+                {"influencer_id": influencer_id, "influenced_id": influenced_id},
+                influencer_id=influenced_id,
+                influenced_id=influencer_id,
+            )
+            if not success:
+                errors.append(r["name"])
 
         if skipped:
             show_status_message(
@@ -622,18 +615,13 @@ class InfluencesTab(QWidget):
             return
 
         influencer_id, influenced_id = self._row_key(direction, other_id)
-        try:
-            self.controller.delete.delete_entity(
-                "ArtistInfluence", influencer_id=influencer_id, influenced_id=influenced_id
-            )
-            self.controller.add.add_entity(
-                "ArtistInfluence",
-                influencer_id=influencer_id,
-                influenced_id=influenced_id,
-                description=dialog.value(),
-            )
-        except SQLAlchemyError as e:
-            QMessageBox.critical(self, "Error", f"Could not update description:\n{e}")
+        success = self.controller.update.update_entity_by_filter(
+            "ArtistInfluence",
+            {"influencer_id": influencer_id, "influenced_id": influenced_id},
+            description=dialog.value(),
+        )
+        if not success:
+            QMessageBox.critical(self, "Error", "Could not update description.")
             return
         self._reload_and_refresh()
 

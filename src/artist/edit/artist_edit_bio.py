@@ -8,6 +8,8 @@ from src.common.edit_dirty import value_changed
 
 
 class BiographyTab(QWidget):
+    """Free-text biography field for an artist."""
+
     def __init__(self, controller, artist, parent=None):
         super().__init__(parent)
         self.controller = controller
@@ -29,4 +31,4 @@ class BiographyTab(QWidget):
         new_val = self.bio_edit.toPlainText().strip() or None
         if not value_changed(self.artist.biography, new_val):
             return {}
-        return dict(biography=new_val)
+        return {"biography": new_val}

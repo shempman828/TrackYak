@@ -1,6 +1,8 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # Tab: Members
 # ══════════════════════════════════════════════════════════════════════════════
+from typing import ClassVar
+
 from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
@@ -162,7 +164,7 @@ class _MembershipPanelBase(QWidget):
     genuinely differ (which artist is the group, which is the member).
     """
 
-    _HEADERS: list[str] = []
+    _HEADERS: ClassVar[list[str]] = []
     _GROUPBOX_TITLE = ""
     _NAME_PLACEHOLDER = ""
     _ROLE_PLACEHOLDER = ""
@@ -290,15 +292,11 @@ class _MembershipPanelBase(QWidget):
         dialog = _EditMembershipDialog(role, start_year, end_year, is_current, self)
         if dialog.exec() != QDialog.Accepted:
             return
-        try:
-            self.controller.delete.delete_entity(
-                "GroupMembership", group_id=group_id, member_id=member_id
-            )
-            self.controller.add.add_entity(
-                "GroupMembership", group_id=group_id, member_id=member_id, **dialog.values()
-            )
-        except SQLAlchemyError as e:
-            QMessageBox.critical(self, "Error", f"Could not update membership:\n{e}")
+        success = self.controller.update.update_entity_by_filter(
+            "GroupMembership", {"group_id": group_id, "member_id": member_id}, **dialog.values()
+        )
+        if not success:
+            QMessageBox.critical(self, "Error", "Could not update membership.")
             return
         self._reload()
 
@@ -328,7 +326,7 @@ class _GroupMembersPanel(_MembershipPanelBase):
     Only instantiated (and data-loaded) when the artist is a group.
     """
 
-    _HEADERS = ["Member", "Role", "Start Year", "End Year", "Current"]
+    _HEADERS: ClassVar[list[str]] = ["Member", "Role", "Start Year", "End Year", "Current"]
     _GROUPBOX_TITLE = "Members of this Group"
     _NAME_PLACEHOLDER = "Member artist name..."
     _ROLE_PLACEHOLDER = "Role (e.g. Guitarist)"
@@ -382,7 +380,7 @@ class _AffiliationsPanel(_MembershipPanelBase):
     Only instantiated (and data-loaded) when the artist is not a group.
     """
 
-    _HEADERS = ["Group", "Role", "Start Year", "End Year", "Current"]
+    _HEADERS: ClassVar[list[str]] = ["Group", "Role", "Start Year", "End Year", "Current"]
     _GROUPBOX_TITLE = "Groups This Artist Belongs To"
     _NAME_PLACEHOLDER = "Group / band name..."
     _ROLE_PLACEHOLDER = "Role (e.g. Vocalist)"

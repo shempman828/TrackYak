@@ -8,6 +8,7 @@ the widget is blank (set_if_empty).
 
 from types import SimpleNamespace
 
+from PySide6.QtGui import QValidator
 import pytest
 
 from src.artist.edit.artist_edit_basic import BasicTab
@@ -99,3 +100,24 @@ def test_set_if_empty_leaves_filled_sort_name_untouched(tab):
     tab.sort_name_edit.setText("My Own Value")
     tab.set_if_empty({"sort_name": "From, MusicBrainz"})
     assert tab.sort_name_edit.text() == "My Own Value"
+
+
+# Month/day fields must reject out-of-range values -- found during the
+# src/artist/edit Finalize audit (2026-09-18): they previously shared the
+# year field's 0-9999 validator despite tooltips promising 1-12/1-31.
+@pytest.mark.parametrize(
+    ("field_name", "good", "bad"),
+    [
+        ("begin_month_edit", "12", "13"),
+        ("begin_day_edit", "31", "32"),
+        ("end_month_edit", "12", "13"),
+        ("end_day_edit", "31", "32"),
+    ],
+)
+def test_month_day_fields_reject_out_of_range_values(tab, field_name, good, bad):
+    field = getattr(tab, field_name)
+    state, _, _ = field.validator().validate(good, len(good))
+    assert state == QValidator.Acceptable
+
+    state, _, _ = field.validator().validate(bad, len(bad))
+    assert state != QValidator.Acceptable

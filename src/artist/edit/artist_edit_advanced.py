@@ -16,6 +16,8 @@ from src.common.edit_dirty import value_changed
 
 
 class AdvancedTab(QWidget):
+    """MBID/link fields, review-pass checkboxes, and the MusicBrainz lookup entry point."""
+
     def __init__(self, controller, artist, parent=None):
         super().__init__(parent)
         self.controller = controller
@@ -89,13 +91,13 @@ class AdvancedTab(QWidget):
         self.artist_id_label.setText(str(artist.artist_id))
 
     def collect_changes(self):
-        candidates = dict(
-            MBID=self.mbid_edit.text().strip() or None,
-            wikipedia_link=self.wiki_edit.text().strip() or None,
-            website_link=self.website_edit.text().strip() or None,
-            first_pass=1 if self.first_pass_check.isChecked() else 0,
-            second_pass=1 if self.second_pass_check.isChecked() else 0,
-        )
+        candidates = {
+            "MBID": self.mbid_edit.text().strip() or None,
+            "wikipedia_link": self.wiki_edit.text().strip() or None,
+            "website_link": self.website_edit.text().strip() or None,
+            "first_pass": 1 if self.first_pass_check.isChecked() else 0,
+            "second_pass": 1 if self.second_pass_check.isChecked() else 0,
+        }
         return {
             field: new
             for field, new in candidates.items()

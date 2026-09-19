@@ -6,6 +6,8 @@ from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCompleter,
+    QDialog,
+    QDialogButtonBox,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -59,12 +61,41 @@ def _append_row(table, values, user_data=None):
     return row
 
 
-def _remove_selected_row(parent_widget, table, remove_fn):
+def _with_selected_row(parent_widget, table, fn):
+    """Call fn(row) for the table's selected row, or hint that one is needed."""
     rows = table.selectionModel().selectedRows()
     if not rows:
         show_status_message(parent_widget, "Please select a row first.")
         return
-    remove_fn(rows[0].row())
+    fn(rows[0].row())
+
+
+class _EditAssociationTypeDialog(QDialog):
+    """Small modal for editing an existing place association's relationship type."""
+
+    def __init__(self, current_type, known_types, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Relationship Type")
+
+        layout = QVBoxLayout(self)
+        self.type_edit = QLineEdit(current_type or "")
+        self.type_edit.setPlaceholderText("Relationship (e.g. Birthplace, Hometown)")
+        completer = QCompleter(known_types, self.type_edit)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        self.type_edit.setCompleter(completer)
+        layout.addWidget(self.type_edit)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.type_edit.setFocus()
+        self.type_edit.selectAll()
+
+    def value(self) -> str:
+        return self.type_edit.text().strip()
 
 
 def _parent_place_name(place):
@@ -106,6 +137,8 @@ def _build_place_completer(controller):
 
 
 class PlacesAwardsTab(QWidget):
+    """Link/unlink/edit an artist's associated places and awards."""
+
     def __init__(self, controller, artist, parent=None):
         super().__init__(parent)
         self.controller = controller
@@ -122,9 +155,11 @@ class PlacesAwardsTab(QWidget):
         self.places_table = _make_table(
             ["Place Name", "Association Type", "Place Type", "Region/Country"], editable=False
         )
+        self.places_table.cellDoubleClicked.connect(lambda row, _col: self._edit_place(row))
         pl_layout.addWidget(self.places_table)
         place_help = QLabel(
-            "You can type a new place name — it will be created automatically if it doesn't exist yet."
+            "You can type a new place name — it will be created automatically if it "
+            "doesn't exist yet."
         )
         place_help.setWordWrap(True)
         place_help.setProperty("textRole", "muted")
@@ -133,7 +168,7 @@ class PlacesAwardsTab(QWidget):
         # ---- Place input row ----
         pl_add_row = QHBoxLayout()
 
-        # Visible line edit for place name – this is the one we keep
+        # Visible line edit for place name - this is the one we keep
         self.new_place_edit = QLineEdit()
         self.new_place_edit.setPlaceholderText("Place name (new or existing)...")
         self._selected_place_id = None
@@ -155,14 +190,20 @@ class PlacesAwardsTab(QWidget):
 
         add_place_btn = QPushButton("Link Place")
         add_place_btn.clicked.connect(self._add_place)
+        edit_place_btn = QPushButton("Edit Selected")
+        edit_place_btn.setToolTip("Edit the relationship type of the selected place link")
+        edit_place_btn.clicked.connect(
+            lambda: _with_selected_row(self, self.places_table, self._edit_place)
+        )
         rm_place_btn = QPushButton("Unlink Selected")
         rm_place_btn.clicked.connect(
-            lambda: _remove_selected_row(self, self.places_table, self._remove_place)
+            lambda: _with_selected_row(self, self.places_table, self._remove_place)
         )
 
         pl_add_row.addWidget(self.new_place_edit, 3)
         pl_add_row.addWidget(self.new_place_assoc_edit, 2)
         pl_add_row.addWidget(add_place_btn)
+        pl_add_row.addWidget(edit_place_btn)
         pl_add_row.addWidget(rm_place_btn)
         pl_layout.addLayout(pl_add_row)
         splitter.addWidget(places_grp)
@@ -173,7 +214,8 @@ class PlacesAwardsTab(QWidget):
         self.awards_table = _make_table(["Award Name", "Category", "Year"], editable=False)
         aw_layout.addWidget(self.awards_table)
         award_help = QLabel(
-            "You can type a new award name — it will be created automatically if it doesn't exist yet."
+            "You can type a new award name — it will be created automatically if it "
+            "doesn't exist yet."
         )
         award_help.setWordWrap(True)
         award_help.setProperty("textRole", "muted")
@@ -186,7 +228,7 @@ class PlacesAwardsTab(QWidget):
         add_award_btn.clicked.connect(self._add_award)
         rm_award_btn = QPushButton("Unlink Selected")
         rm_award_btn.clicked.connect(
-            lambda: _remove_selected_row(self, self.awards_table, self._remove_award)
+            lambda: _with_selected_row(self, self.awards_table, self._remove_award)
         )
         aw_add_row.addWidget(self.new_award_edit, 3)
         aw_add_row.addWidget(add_award_btn)
@@ -202,67 +244,44 @@ class PlacesAwardsTab(QWidget):
         self._load_awards()
 
     def _load_places(self):
+        # get_all_entities() already catches its own SQLAlchemyError and
+        # returns [] on failure rather than raising, so there is exactly one
+        # source of truth here -- no dead-except fallback to artist.places.
         self.places_table.setRowCount(0)
-        assocs_loaded = False
-        try:
-            place_assocs = self.controller.get.get_all_entities(
-                "PlaceAssociation", entity_id=self.artist.artist_id, entity_type="Artist"
+        place_assocs = self.controller.get.get_all_entities(
+            "PlaceAssociation", entity_id=self.artist.artist_id, entity_type="Artist"
+        )
+        for assoc in place_assocs or []:
+            if assoc.place is None:
+                continue
+            _append_row(
+                self.places_table,
+                [
+                    assoc.place.place_name,
+                    assoc.association_type.type_name if assoc.association_type else "",
+                    assoc.place.place_type or "",
+                    _parent_place_name(assoc.place),
+                ],
+                user_data=assoc.association_id,
             )
-            if place_assocs is not None:
-                for assoc in place_assocs:
-                    if assoc.place is None:
-                        continue
-                    _append_row(
-                        self.places_table,
-                        [
-                            assoc.place.place_name,
-                            assoc.association_type.type_name if assoc.association_type else "",
-                            assoc.place.place_type or "",
-                            _parent_place_name(assoc.place),
-                        ],
-                        user_data=assoc.association_id,
-                    )
-                assocs_loaded = True
-        except SQLAlchemyError as e:
-            logger.debug(f"Could not load via PlaceAssociation entities: {e}")
-        if not assocs_loaded:
-            for place in getattr(self.artist, "places", []):
-                _append_row(
-                    self.places_table,
-                    [place.place_name, "", place.place_type or "", _parent_place_name(place)],
-                    user_data=place.place_id,
-                )
 
     def _load_awards(self):
         self.awards_table.setRowCount(0)
-        assocs_loaded = False
-        try:
-            award_assocs = self.controller.get.get_all_entities(
-                "AwardAssociation", entity_id=self.artist.artist_id, entity_type="Artist"
+        award_assocs = self.controller.get.get_all_entities(
+            "AwardAssociation", entity_id=self.artist.artist_id, entity_type="Artist"
+        )
+        for assoc in award_assocs or []:
+            if assoc.award is None:
+                continue
+            _append_row(
+                self.awards_table,
+                [
+                    assoc.award.award_name,
+                    assoc.award.award_category or "",
+                    assoc.award.award_year or "",
+                ],
+                user_data=assoc.association_id,
             )
-            if award_assocs is not None:
-                for assoc in award_assocs:
-                    if assoc.award is None:
-                        continue
-                    _append_row(
-                        self.awards_table,
-                        [
-                            assoc.award.award_name,
-                            assoc.award.award_category or "",
-                            assoc.award.award_year or "",
-                        ],
-                        user_data=assoc.association_id,
-                    )
-                assocs_loaded = True
-        except SQLAlchemyError as e:
-            logger.debug(f"Could not load via AwardAssociation entities: {e}")
-        if not assocs_loaded:
-            for award in getattr(self.artist, "awards", []):
-                _append_row(
-                    self.awards_table,
-                    [award.award_name, award.award_category or "", award.award_year or ""],
-                    user_data=award.award_id,
-                )
 
     def _add_place(self):
         name = self.new_place_edit.text().strip()
@@ -281,14 +300,23 @@ class PlacesAwardsTab(QWidget):
                 place = self.controller.get.get_entity_object(
                     "Place", place_id=self._selected_place_id
                 )
+                if place is None:
+                    # The place picked from the completer no longer exists
+                    # (e.g. deleted elsewhere since); fall back to a
+                    # name-based lookup/create instead of crashing below.
+                    place = self.controller.get.get_entity_object("Place", place_name=name)
+                    if place is None:
+                        place = self.controller.add.add_entity("Place", place_name=name)
             else:
                 place = self.controller.get.get_entity_object("Place", place_name=name)
-                if isinstance(place, list):
-                    place = place[0] if place else None
                 if place is None:
                     place = self.controller.add.add_entity("Place", place_name=name)
         except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not find/create place:\n{e}")
+            return
+
+        if place is None:
+            QMessageBox.critical(self, "Error", f"Could not find/create place '{name}'.")
             return
 
         known_types = fetch_association_types(self.controller)
@@ -314,23 +342,45 @@ class PlacesAwardsTab(QWidget):
         self.new_place_assoc_edit.clear()
         self._selected_place_id = None
 
-    def _remove_place(self, row):
+    def _edit_place(self, row):
         assoc_id = self.places_table.item(row, 0).data(Qt.UserRole)
         if assoc_id is None:
             return
-        try:
-            self.controller.delete.delete_entity("PlaceAssociation", assoc_id)
-        except SQLAlchemyError:
-            try:
-                self.controller.delete.delete_entity(
-                    "PlaceAssociation",
-                    entity_id=self.artist.artist_id,
-                    entity_type="Artist",
-                    place_id=assoc_id,
-                )
-            except SQLAlchemyError as e:
-                QMessageBox.critical(self, "Error", f"Could not unlink place:\n{e}")
-                return
+        current_type = self.places_table.item(row, 1).text()
+        known_types = [t.type_name for t in fetch_association_types(self.controller)]
+
+        dialog = _EditAssociationTypeDialog(current_type, known_types, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        new_type_name = dialog.value()
+        if not new_type_name:
+            show_status_message(self, "Please enter the relationship type.")
+            return
+
+        assoc_type_obj = find_or_create_association_type(
+            self.controller, new_type_name, fetch_association_types(self.controller)
+        )
+        success = self.controller.update.update_entity(
+            "PlaceAssociation",
+            assoc_id,
+            association_type_id=assoc_type_obj.association_type_id if assoc_type_obj else None,
+        )
+        if not success:
+            QMessageBox.critical(self, "Error", "Could not update relationship type.")
+            return
+        self._reload_and_refresh()
+
+    def _remove_place(self, row):
+        # assoc_id is always a PlaceAssociation.association_id -- _load_places
+        # reads exclusively through the PlaceAssociation table -- so a single
+        # delete by that id is always the right call (delete_entity itself
+        # never raises; it returns False on failure).
+        assoc_id = self.places_table.item(row, 0).data(Qt.UserRole)
+        if assoc_id is None:
+            return
+        if not self.controller.delete.delete_entity("PlaceAssociation", assoc_id):
+            QMessageBox.critical(self, "Error", "Could not unlink place.")
+            return
         self._reload_and_refresh()
         # Removing a PlaceAssociation doesn't delete the Place or association
         # type themselves, so the completers' data is unaffected here.
@@ -340,11 +390,7 @@ class PlacesAwardsTab(QWidget):
         if not name:
             return
         try:
-            awards = self.controller.get.get_entity_object("Award", award_name=name)
-            if isinstance(awards, list):
-                award = awards[0] if awards else None
-            else:
-                award = awards
+            award = self.controller.get.get_entity_object("Award", award_name=name)
             if award is None:
                 award = self.controller.add.add_entity("Award", award_name=name)
         except SQLAlchemyError as e:
@@ -364,22 +410,14 @@ class PlacesAwardsTab(QWidget):
         self.new_award_edit.clear()
 
     def _remove_award(self, row):
+        # assoc_id is always an AwardAssociation.association_id, per the same
+        # reasoning as _remove_place.
         assoc_id = self.awards_table.item(row, 0).data(Qt.UserRole)
         if assoc_id is None:
             return
-        try:
-            self.controller.delete.delete_entity("AwardAssociation", assoc_id)
-        except SQLAlchemyError:
-            try:
-                self.controller.delete.delete_entity(
-                    "AwardAssociation",
-                    entity_id=self.artist.artist_id,
-                    entity_type="Artist",
-                    award_id=assoc_id,
-                )
-            except SQLAlchemyError as e:
-                QMessageBox.critical(self, "Error", f"Could not unlink award:\n{e}")
-                return
+        if not self.controller.delete.delete_entity("AwardAssociation", assoc_id):
+            QMessageBox.critical(self, "Error", "Could not unlink award.")
+            return
         self._reload_and_refresh()
 
     def _on_place_text_edited(self, _text):

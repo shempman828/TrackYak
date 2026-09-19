@@ -128,9 +128,32 @@ class AliasesTab(EntityAliasesTab):
             return False
 
         try:
-            # Attempt the rename first, before touching the alias row: if the
-            # new name collides with another artist we want to fail loudly
-            # and leave both the alias and the primary name untouched.
+            # Save the old name as an alias first, before touching anything
+            # else: add_entity/delete_entity/update_entity all swallow their
+            # own errors and return None/False rather than raising, so each
+            # step below is checked explicitly and ordered so a failure never
+            # leaves the old name unrecoverable.
+            save_type = alias_type or "Former Name"
+            new_alias = self.controller.add.add_entity(
+                "ArtistAlias",
+                artist_id=self.artist.artist_id,
+                alias_name=old_primary,
+                alias_type=save_type,
+            )
+            if new_alias is None:
+                logger.warning(
+                    "AliasesTab._perform_swap: could not save %r as an alias for artist_id=%s",
+                    old_primary,
+                    self.artist.artist_id,
+                )
+                QMessageBox.critical(
+                    self, "Error", f"Could not save '{old_primary}' as an alias; name not swapped."
+                )
+                return False
+
+            # Attempt the rename next: if the new name collides with another
+            # artist, undo the alias just added and leave everything else
+            # untouched.
             success = self.controller.update.update_entity(
                 "Artist", self.artist.artist_id, artist_name=new_primary
             )
@@ -141,6 +164,7 @@ class AliasesTab(EntityAliasesTab):
                     self.artist.artist_id,
                     new_primary,
                 )
+                self.controller.delete.delete_entity("ArtistAlias", new_alias.alias_id)
                 QMessageBox.warning(
                     self,
                     "Could Not Swap Name",
@@ -149,17 +173,22 @@ class AliasesTab(EntityAliasesTab):
                 )
                 return False
 
-            self.controller.delete.delete_entity("ArtistAlias", alias_id)
             self.artist.artist_name = new_primary
-            save_type = alias_type or "Former Name"
-            self.controller.add.add_entity(
-                "ArtistAlias",
-                artist_id=self.artist.artist_id,
-                alias_name=old_primary,
-                alias_type=save_type,
-            )
+
+            # Remove the alias row being promoted last: on failure the worst
+            # case is a harmless leftover alias that now duplicates the
+            # primary name, not lost data.
+            if not self.controller.delete.delete_entity("ArtistAlias", alias_id):
+                logger.warning(
+                    "AliasesTab._perform_swap: could not remove promoted alias_id=%s for "
+                    "artist_id=%s (now duplicates the primary name)",
+                    alias_id,
+                    self.artist.artist_id,
+                )
+
             logger.info(
-                "AliasesTab._perform_swap: swapped artist_id=%s primary %r -> %r (old saved as type=%r)",
+                "AliasesTab._perform_swap: swapped artist_id=%s primary %r -> %r "
+                "(old saved as type=%r)",
                 self.artist.artist_id,
                 old_primary,
                 new_primary,
