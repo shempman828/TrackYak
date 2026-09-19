@@ -363,7 +363,9 @@ expand).
 
 **Adding or fixing a place**: Add Place opens a form with a "Search
 Coordinates" button that geocodes an address or place name for you, so you
-usually don't need to look up latitude/longitude by hand.
+usually don't need to look up latitude/longitude by hand. The Type field
+shows matching types from your library as you type, but you can still type
+a new type that is not in the list.
 
 **Other actions**: right-click for View Associations, View Details, Edit,
 Merge (fold a duplicate into its canonical entry), New Parent/Child Place,

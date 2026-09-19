@@ -1,6 +1,8 @@
 from geopy import Nominatim
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
+from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtWidgets import (
+    QCompleter,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -55,6 +57,17 @@ class PlaceEditDialog(QDialog):
         places = self.controller.get.get_all_entities("Place")
         parent_index = {p.place_name: p.place_id for p in places if p.place_name}
         self.parent_edit.set_index(parent_index, place_context_map(places))
+
+        # Suggest existing place types as the user types, without
+        # restricting entry to only those types.
+        known_types = sorted(
+            {p.place_type.strip().title() for p in places if p.place_type and p.place_type.strip()}
+        )
+        type_model = QStringListModel(known_types, self.type_edit)
+        type_completer = QCompleter(type_model, self.type_edit)
+        type_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        type_completer.setFilterMode(Qt.MatchContains)
+        self.type_edit.setCompleter(type_completer)
         # EntityCompleterEdit claims Enter/Return for its own use (see its
         # docstring) instead of letting it reach the dialog's default
         # button -- reconnect it here so Enter still submits this form like
