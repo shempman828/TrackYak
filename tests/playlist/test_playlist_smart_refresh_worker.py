@@ -6,7 +6,7 @@ whose refresh hit an unexpected error would stay marked "refreshing"
 forever, blocking any future refresh until the app restarted.
 """
 
-from src.playlist.playlist_view import _SmartPlaylistRefreshWorker
+from src.playlist.playlist_refresh_controller import _SmartPlaylistRefreshWorker
 
 
 class _FakeBuilder:

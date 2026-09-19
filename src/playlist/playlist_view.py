@@ -20,43 +20,18 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.cancellable_worker import CancellableWorker
 from src.common.widgets.hierarchy_tree_style import configure_hierarchy_tree, icon_for_depth
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.playlist.playlist_edit import EditPlaylist
 from src.playlist.playlist_export import PlaylistExporter
 from src.playlist.playlist_new import PlaylistCreateDialog
-from src.playlist.playlist_smart_builder import SmartPlaylistBuilder
+from src.playlist.playlist_refresh_controller import PlaylistRefreshController
 from src.playlist.playlist_smart_edit import SmartPlaylistEditDialog
 from src.playlist.playlist_smart_new import SmartPlaylistCreateDialog
 from src.playlist.playlist_tracks_window import PlaylistTracksWindow
+from src.playlist.playlist_tree_dnd import PlaylistTreeDnD
 from src.track.view.base_track_view import BaseTrackView
-
-
-class _SmartPlaylistRefreshWorker(CancellableWorker):
-    """Runs SmartPlaylistBuilder.refresh_playlist() off the UI thread."""
-
-    finished = Signal(bool, int)  # success, playlist_id
-
-    def __init__(self, builder: SmartPlaylistBuilder, playlist_id: int, parent=None):
-        super().__init__(parent)
-        self._builder = builder
-        self._playlist_id = playlist_id
-
-    def run(self) -> None:
-        # Must always emit `finished`, even on an unexpected error -- the
-        # caller keys an in-flight-refresh guard off this signal, and a
-        # worker that dies silently would leave that playlist_id stuck
-        # "refreshing" forever.
-        try:
-            success = self._builder.refresh_playlist(self._playlist_id)
-        except Exception:
-            logger.exception(f"Unexpected error refreshing playlist {self._playlist_id}")
-            success = False
-        finally:
-            self._release_db_session()
-        self.finished.emit(success, self._playlist_id)
 
 
 class PlaylistView(QWidget):
@@ -79,10 +54,8 @@ class PlaylistView(QWidget):
         self.exporter = PlaylistExporter(self.controller, parent_widget=self)
         self.init_ui()
         self.load_playlists()
-        self.builder = SmartPlaylistBuilder(self.controller)
-        # Keep references to in-flight refresh workers so they aren't
-        # garbage-collected mid-run; keyed by playlist_id.
-        self._refresh_workers: dict[int, _SmartPlaylistRefreshWorker] = {}
+        self.refresh_controller = PlaylistRefreshController(self)
+        self.tree_dnd = PlaylistTreeDnD(self)
         self._refresh_auto_refresh_playlists()
 
     def _refresh_auto_refresh_playlists(self) -> None:
@@ -93,18 +66,9 @@ class PlaylistView(QWidget):
             logger.error(f"Failed to load auto-refresh smart playlists: {e}")
             return
         for smart_playlist in smart_playlists or []:
-            self._start_smart_playlist_refresh(
-                smart_playlist.playlist_id, self._on_startup_playlist_refreshed
+            self.refresh_controller.start_refresh(
+                smart_playlist.playlist_id, self.refresh_controller.on_startup_playlist_refreshed
             )
-
-    def _on_startup_playlist_refreshed(self, success: bool, playlist_id: int) -> None:
-        # Quiet on success/failure -- a popup for a background startup
-        # refresh the user didn't ask for would just be noise.
-        if success:
-            self.load_playlists()
-            self.playlist_updated.emit()
-        else:
-            logger.error(f"Auto-refresh failed for smart playlist {playlist_id}")
 
     def init_ui(self) -> None:
         """Initialize UI components with a modern layout and styling."""
@@ -310,7 +274,10 @@ class PlaylistView(QWidget):
             if is_smart_playlist:
                 # Smart playlist options
                 menu.addAction("Edit Smart Playlist", lambda: self.edit_smart_playlist(item_id))
-                menu.addAction("Refresh Playlist", lambda: self._refresh_smart_playlist(item_id))
+                menu.addAction(
+                    "Refresh Playlist",
+                    lambda: self.refresh_controller.refresh_smart_playlist(item_id),
+                )
                 menu.addAction("View Tracks", lambda: self.open_playlist_editor(item_id))
             else:
                 # Normal playlist options
@@ -496,7 +463,7 @@ class PlaylistView(QWidget):
 
         if not new_name:
             show_status_message(self, "Playlist name cannot be empty.")
-            self._refresh_item_display(item)
+            self.tree_dnd.refresh_item_display(item)
             return
 
         try:
@@ -509,7 +476,7 @@ class PlaylistView(QWidget):
 
         # Reformat to the canonical display form either way (re-adds the
         # smart-playlist marker, or restores the stored name on failure).
-        self._refresh_item_display(item)
+        self.tree_dnd.refresh_item_display(item)
 
     def toggle_flat_view(self) -> None:
         """Toggle between the nested hierarchy and a flat alphabetical list."""
@@ -635,9 +602,11 @@ class PlaylistView(QWidget):
 
                 # Immediately populate the playlist with matching tracks,
                 # off the UI thread — a large library can make this slow.
-                self._start_smart_playlist_refresh(
+                self.refresh_controller.start_refresh(
                     playlist.playlist_id,
-                    lambda success, pid: self._on_created_playlist_refreshed(success, pid, name),
+                    lambda success, pid: self.refresh_controller.on_created_playlist_refreshed(
+                        success, pid, name
+                    ),
                 )
 
             except (SQLAlchemyError, RuntimeError) as e:
@@ -655,16 +624,6 @@ class PlaylistView(QWidget):
                             f"Failed to remove orphaned playlist after error: {cleanup_exc}"
                         )
                 QMessageBox.critical(self, "Error", f"Could not create smart playlist: {e}")
-
-    def _on_created_playlist_refreshed(self, success: bool, playlist_id: int, name: str) -> None:
-        # Whether or not the initial match found tracks, the playlist and
-        # its criteria already exist — always refresh the UI to show it.
-        self.load_playlists()
-        self.playlist_updated.emit()
-        if success:
-            logger.info(f"Created new smart playlist: {name}")
-        else:
-            logger.error(f"Created smart playlist '{name}' but initial refresh failed")
 
     def delete_selected(self) -> None:
         item = self.tree.currentItem()
@@ -702,135 +661,11 @@ class PlaylistView(QWidget):
                 logger.error(f"Deletion failed: {e!s}")
                 QMessageBox.critical(self, "Error", f"Failed to delete {item_type}:\n{e!s}")
 
-    @staticmethod
-    def _depth_of(item: QTreeWidgetItem) -> int:
-        """Count how many ancestors `item` has in the tree."""
-        depth = 0
-        parent = item.parent()
-        while parent is not None:
-            depth += 1
-            parent = parent.parent()
-        return depth
-
-    @staticmethod
-    def _is_descendant(ancestor: QTreeWidgetItem, item: QTreeWidgetItem | None) -> bool:
-        """Return True if `item` is nested somewhere below `ancestor`."""
-        while item is not None:
-            item = item.parent()
-            if item is ancestor:
-                return True
-        return False
-
-    def _update_subtree_depth(self, item: QTreeWidgetItem, depth: int) -> None:
-        """Recompute the icon for `item` and everything nested below it
-        after its depth in the tree has changed."""
-        item.setIcon(0, icon_for_depth(depth))
-        for i in range(item.childCount()):
-            self._update_subtree_depth(item.child(i), depth + 1)
-
-    def _refresh_item_display(self, item: QTreeWidgetItem) -> None:
-        """Re-fetch a single playlist's counts from the DB and update its
-        label in place, without touching the rest of the tree."""
-        item_data = item.data(0, Qt.UserRole)
-        if not item_data or len(item_data) != 2 or item_data[0] != "playlist":
-            return
-        try:
-            playlist_obj = self.controller.get.get_entity_object(
-                "Playlist", playlist_id=item_data[1]
-            )
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to refresh playlist item display: {e!s}")
-            return
-        if not playlist_obj:
-            return
-
-        raw_name = self._format_playlist_name(playlist_obj)
-        # Block signals -- setText() below would otherwise re-trigger
-        # _on_item_renamed as though the user had edited this row by hand.
-        self.tree.blockSignals(True)
-        try:
-            item.setText(0, raw_name)
-            item.setText(1, self._format_track_count(playlist_obj))
-        finally:
-            self.tree.blockSignals(False)
-        self._style_count_cell(item)
-
     def handle_drop(self, event: Any) -> None:
-        target_item = self.tree.itemAt(event.pos())
-        dragged_item = self.tree.currentItem()
-
-        if not dragged_item:
-            event.ignore()
-            return
-
-        try:
-            # FIX: Extract data correctly - it's a tuple (type, id)
-            if target_item:
-                target_data = target_item.data(0, Qt.UserRole)
-                new_parent_id = target_data[1] if target_data else None  # FIXED
-            else:
-                new_parent_id = None
-
-            dragged_data = dragged_item.data(0, Qt.UserRole)
-            dragged_id = dragged_data[1] if dragged_data else None  # FIXED
-
-            if dragged_id is None:
-                event.ignore()
-                return
-
-            # Dropping a playlist onto itself or one of its own descendants
-            # would create a cycle in the tree - refuse it.
-            if target_item is dragged_item or self._is_descendant(dragged_item, target_item):
-                event.ignore()
-                return
-
-            old_parent_item = dragged_item.parent()
-
-            # Update the playlist's parent_id in database
-            self.controller.update.update_entity("Playlist", dragged_id, parent_id=new_parent_id)
-
-            # Move the item within the tree in place instead of reloading the
-            # whole module, so selection/scroll position/expanded state don't
-            # get disturbed by an unrelated drag-and-drop.
-            if old_parent_item is not None:
-                old_parent_item.removeChild(dragged_item)
-            else:
-                self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(dragged_item))
-
-            if target_item is not None:
-                target_item.addChild(dragged_item)
-            else:
-                self.tree.addTopLevelItem(dragged_item)
-
-            # The moved item (and everything nested under it) sits at a new
-            # depth now - refresh its indent prefix/icon to match.
-            self._update_subtree_depth(dragged_item, self._depth_of(dragged_item))
-
-            # The recursive track counts shown on both the old and new
-            # ancestor chains changed - refresh just those labels.
-            for ancestor in (old_parent_item, target_item):
-                while ancestor is not None:
-                    self._refresh_item_display(ancestor)
-                    ancestor = ancestor.parent()
-
-            dragged_item.setExpanded(True)
-            self.tree.setCurrentItem(dragged_item)
-
-            self.playlist_updated.emit()
-            logger.debug(f"Moved playlist {dragged_id} to parent {new_parent_id}")
-
-            # We've already re-parented the item ourselves. The tree runs in
-            # InternalMove mode, so if we let this drop resolve as a MoveAction
-            # QAbstractItemView.startDrag() would then run its own
-            # clearOrRemove() on the selected row - deleting the item we just
-            # moved out from under its new parent. Report IgnoreAction so Qt
-            # leaves the tree alone.
-            event.setDropAction(Qt.IgnoreAction)
-            event.accept()
-
-        except (SQLAlchemyError, RuntimeError) as e:
-            logger.error(f"Drag-drop error: {e!s}")
-            event.ignore()
+        # Kept as a PlaylistView method (delegating to PlaylistTreeDnD) so
+        # QTreeWidget's dropEvent override and external callers can keep
+        # calling view.handle_drop(event) directly.
+        self.tree_dnd.handle_drop(event)
 
     def edit_playlist(self) -> None:
         """
@@ -860,71 +695,6 @@ class PlaylistView(QWidget):
         if dialog.exec_() == QDialog.Accepted:
             # Dialog saved changes — now re-evaluate which tracks match,
             # off the UI thread.
-            self._start_smart_playlist_refresh(playlist_id, self._on_edited_playlist_refreshed)
-
-    def _on_edited_playlist_refreshed(self, success: bool, playlist_id: int) -> None:
-        if success:
-            self.load_playlists()
-            self.playlist_updated.emit()
-        else:
-            QMessageBox.warning(
-                self,
-                "Refresh Failed",
-                "Criteria were saved, but the track list could not be updated. "
-                "Try right-clicking the playlist and choosing Refresh.",
+            self.refresh_controller.start_refresh(
+                playlist_id, self.refresh_controller.on_edited_playlist_refreshed
             )
-
-    def _refresh_smart_playlist(self, playlist_id: int):
-        """Refresh a smart playlist and show the user a result message."""
-        self._start_smart_playlist_refresh(playlist_id, self._on_manual_playlist_refreshed)
-
-    def _on_manual_playlist_refreshed(self, success: bool, playlist_id: int) -> None:
-        if success:
-            self.load_playlists()
-            self.playlist_updated.emit()
-            # Read the count directly from the playlist object — no extra DB call needed
-            try:
-                playlist_obj = self.controller.get.get_entity_object(
-                    "Playlist", playlist_id=playlist_id
-                )
-                count = getattr(playlist_obj, "track_count", None)
-                msg = (
-                    f"Done! The playlist now contains {count} matching track(s)."
-                    if count is not None
-                    else "Playlist updated successfully."
-                )
-            except SQLAlchemyError as e:
-                logger.warning(f"Could not load updated playlist track count: {e}")
-                msg = "Playlist updated successfully."
-            show_status_message(self, msg)
-        else:
-            QMessageBox.warning(
-                self, "Refresh Failed", "Could not refresh the playlist. Check the log for details."
-            )
-
-    def _start_smart_playlist_refresh(self, playlist_id: int, on_finished) -> None:
-        """Launch a background refresh for ``playlist_id``, off the UI
-        thread, so re-evaluating criteria against a large library can't
-        block the UI or starve other threads (e.g. audio playback).
-
-        ``on_finished(success, playlist_id)`` runs on the UI thread once
-        the worker completes.
-        """
-        if playlist_id in self._refresh_workers:
-            # A refresh for this playlist is already running — let it finish
-            # rather than starting a second one against the same rows.
-            return
-
-        # Large libraries can make this take a moment -- tell the user
-        # something is happening instead of leaving the UI looking idle.
-        show_status_message(self, "Refreshing playlist…")
-
-        worker = _SmartPlaylistRefreshWorker(self.builder, playlist_id, parent=self)
-
-        def _handle_finished(success: bool, pid: int) -> None:
-            self._refresh_workers.pop(pid, None)
-            on_finished(success, pid)
-
-        worker.finished.connect(_handle_finished)
-        self._refresh_workers[playlist_id] = worker
-        worker.start()
