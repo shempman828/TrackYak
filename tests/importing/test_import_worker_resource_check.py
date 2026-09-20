@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.importing import library_import
-from src.importing.library_import import ImportWorker
+from src.importing import import_worker
+from src.importing.import_worker import ImportWorker
 
 
 class _FakeController:
@@ -29,7 +29,7 @@ def test_check_resources_reuses_one_process_instance(monkeypatch):
         def cpu_percent(self):
             return 0.0
 
-    monkeypatch.setattr(library_import.psutil, "Process", _FakeProcess)
+    monkeypatch.setattr(import_worker.psutil, "Process", _FakeProcess)
 
     worker = ImportWorker(_FakeController(), [])
     assert len(created) == 1
