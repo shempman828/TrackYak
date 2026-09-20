@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QHeaderView,
+    QLabel,
     QLayout,
     QMessageBox,
     QPushButton,
@@ -28,7 +29,6 @@ from src.common.widgets.entity_completer_edit import (
     build_entity_search_widget,
     register_cached_entity,
 )
-from src.common.widgets.qt_text import esc_amp
 from src.db.db_tables import Artist, ArtistAlias, Role, TrackArtistRole
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
@@ -590,18 +590,36 @@ class RolesTab(_BaseTab):
 
         self._table.resizeRowToContents(row)
 
+    def _build_role_chip(self, artist_id, artist_name, role_id, role_name) -> QWidget:
+        chip = QWidget()
+        chip.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        chip.setProperty("class", "roleChip")
+
+        chip_layout = QHBoxLayout(chip)
+        chip_layout.setContentsMargins(8, 2, 2, 2)
+        chip_layout.setSpacing(2)
+
+        label = QLabel(role_name)
+        chip_layout.addWidget(label)
+
+        close_btn = QPushButton("\u00d7")
+        close_btn.setFlat(True)
+        close_btn.setProperty("class", "roleChipClose")
+        close_btn.setFixedSize(16, 16)
+        close_btn.setToolTip(f"Remove '{role_name}' from {artist_name}")
+        close_btn.clicked.connect(
+            lambda _checked, aid=artist_id, rid=role_id: self._remove_role(aid, rid)
+        )
+        chip_layout.addWidget(close_btn)
+
+        return chip
+
     def _build_roles_cell(self, artist_id, artist_name, roles: dict) -> QWidget:
         cell = _ChipCell()
         row_layout = _FlowLayout(cell, margin=4, h_spacing=6, v_spacing=4)
 
         for role_id, role_name in self._sorted_roles(roles):
-            chip = QPushButton(f"{esc_amp(role_name)}  \u00d7")
-            chip.setFlat(True)
-            chip.setProperty("class", "roleChip")
-            chip.setToolTip(f"Remove '{role_name}' from {artist_name}")
-            chip.clicked.connect(
-                lambda _checked, aid=artist_id, rid=role_id: self._remove_role(aid, rid)
-            )
+            chip = self._build_role_chip(artist_id, artist_name, role_id, role_name)
             row_layout.addWidget(chip)
 
             if self._on_convert_to_album is not None:

@@ -2019,13 +2019,20 @@ QPushButton#PrimaryButton:disabled {
     margin-top: 10px;
 }
 
-QPushButton[class="roleChip"] {
+QWidget[class="roleChip"] {
     border: 1px solid #888;
     border-radius: 10px;
-    padding: 2px 8px;
 }
-QPushButton[class="roleChip"]:hover {
-    background-color: #444;
+
+QPushButton[class="roleChipClose"] {
+    border: none;
+    border-radius: 8px;
+    color: #999;
+    padding: 0px;
+}
+QPushButton[class="roleChipClose"]:hover {
+    background-color: #c0392b;
+    color: #fff;
 }
 
 #ToAlbumButton {
