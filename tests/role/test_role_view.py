@@ -23,7 +23,9 @@ from src.db.db_tables.associations import AlbumRoleAssociation, TrackArtistRole
 from src.db.db_tables.base import Base
 from src.db.db_tables.role import Role
 from src.db.db_tables.track import Track
-from src.role.role_view import RoleLoaderWorker, RoleView
+from src.role.role_loader_worker import RoleLoaderWorker
+from src.role.role_tree_builder import RoleTreeBuilder
+from src.role.role_view import RoleView
 
 
 # ---- test_role_view_delete.py ------------------------------------------------
@@ -152,7 +154,8 @@ def test_unchecked_delete_leaves_excluded_roles_untouched(qapp, session, monkeyp
 # Regression test: the role tree must roll up recursive (own + descendant)
 # counts and display them with the genre/playlist "own · recursive"
 # convention, instead of only ever showing each role's direct assignment
-# count. See src/role/role_view.py RoleLoaderWorker / RoleView._make_role_item.
+# count. See src/role/role_loader_worker.py RoleLoaderWorker /
+# src/role/role_tree_builder.py RoleTreeBuilder._make_role_item.
 class _Controller_rc:
     def __init__(self, session):
         self.get = GetFromDB(session)
@@ -267,8 +270,8 @@ def test_make_role_item_uses_own_recursive_display_convention(qapp):
     """Mirrors GenreView/PlaylistView's "own · recursive" tree label, per
     the "use genre and playlist tree count method and number display
     convention for roles too" request."""
-    assert RoleView._format_role_count(1, 2) == "1 · 2"
-    assert RoleView._format_role_count(3, 3) == "3"
+    assert RoleTreeBuilder._format_role_count(1, 2) == "1 · 2"
+    assert RoleTreeBuilder._format_role_count(3, 3) == "3"
 
 
 # ---- test_role_view_search_filter.py -----------------------------------------
@@ -531,7 +534,7 @@ def test_sibling_order_follows_active_sort_mode(session, qapp, controller_eh, tm
 # the life of the process -- a connection leaked per revisit, which added up
 # to most of a multi-GB RSS climb over a long view-switching session.
 #
-# See src/role/role_view.py RoleLoaderWorker.run().
+# See src/role/role_loader_worker.py RoleLoaderWorker.run().
 class _Controller_sr:
     def __init__(self, session_factory):
         self.get = GetFromDB(session_factory)
