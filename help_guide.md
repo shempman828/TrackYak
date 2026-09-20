@@ -701,7 +701,11 @@ on every later play; until it's ready — or if the file can't be read — the
 bar falls back to a plain progress fill and stays seekable. The cache is
 capped (default 256 MB, `[player] waveform_cache_max_mb` in `config.ini`,
 `0` disables the cap) and the least-recently-played entries are dropped once
-it's over. Right-click it for quick access to editing
+it's over. Settings → Audio has a "Perceptual (Log) Waveform Display" toggle
+that redraws the envelope on a log curve instead of true linear amplitude —
+useful for already-loud masters that otherwise look like a solid block; the
+cached peak data itself doesn't change, only how it's drawn. Right-click it
+for quick access to editing
 the current track/album/artist, searching for lyrics, or adding the track to
 a playlist or mood without leaving whatever view you're in. A found lyrics
 search is saved automatically and scanned for [moods](#moods) on the spot,

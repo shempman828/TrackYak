@@ -1,4 +1,5 @@
-"""Coverage for src/player/waveform_seekbar.py — see docs/specs/waveform-scrubber.md.
+"""Coverage for src/player/waveform_seekbar.py — see docs/specs/waveform-scrubber.md
+and docs/specs/waveform_display_mode.md.
 
 AC6  release emits seek_requested once, mapped from pixel x; nothing with
      duration 0
@@ -6,6 +7,13 @@ AC7  set_position moves the playhead without emitting, and is frozen at the
      drag position while dragging
 AC8  set_peaks(None) → plain-bar render + still seekable; set_peaks(arr) →
      envelope render
+
+Waveform display mode (docs/specs/waveform_display_mode.md):
+AC2  paint-time mode check treats anything other than "log" as linear
+AC5  _log_scale fixes 0 -> 0 and +-1 -> +-1
+AC6  _log_scale expands near-full-scale gaps, compresses near-silence gaps
+AC7  "log" mode visibly changes the rendered envelope vs. "linear"
+AC8  "linear" mode never invokes the curve — a true no-op
 """
 
 import numpy as np
@@ -14,7 +22,8 @@ from PySide6.QtGui import QImage, QMouseEvent
 import pytest
 
 from src.player.core.waveform_cache import N_BUCKETS
-from src.player.ui.waveform_seekbar import WaveformSeekBar
+import src.player.ui.waveform_seekbar as waveform_seekbar_module
+from src.player.ui.waveform_seekbar import WaveformSeekBar, _log_scale
 
 
 @pytest.fixture
@@ -137,3 +146,107 @@ def test_malformed_peaks_fall_back_to_plain_bar(bar):
     bar.set_duration(100_000)
     bar.set_peaks(np.zeros((10, 3), dtype=np.int8))
     assert bar._peaks is None
+
+
+# Waveform display mode (linear vs. perceptual/log) -----------------------------
+
+
+@pytest.fixture
+def waveform_mode(monkeypatch):
+    def _set(mode):
+        monkeypatch.setattr(
+            waveform_seekbar_module.app_config, "get_waveform_display_mode", lambda: mode
+        )
+
+    return _set
+
+
+def _reject_log_scale(monkeypatch):
+    def _boom(*_a, **_k):
+        raise AssertionError("_log_scale must not be called")
+
+    monkeypatch.setattr(waveform_seekbar_module, "_log_scale", _boom)
+
+
+def _render(w):
+    img = QImage(w.size(), QImage.Format_ARGB32)
+    img.fill(Qt.transparent)
+    w.render(img)
+    return img
+
+
+def _loud_peaks():
+    peaks = np.full((N_BUCKETS, 2), 115, dtype=np.int8)
+    peaks[:, 0] = -115
+    return peaks
+
+
+# AC5 ---------------------------------------------------------------------------
+
+
+def test_log_scale_fixes_zero_and_full_scale_in_place():
+    out = _log_scale(np.array([0.0, 1.0, -1.0]))
+    assert out == pytest.approx([0.0, 1.0, -1.0], abs=1e-6)
+
+
+# AC6 ---------------------------------------------------------------------------
+
+
+def test_log_scale_expands_top_and_compresses_bottom():
+    values = np.array([0.05, 0.10, 0.9, 0.99])
+    lo_gap_scaled = _log_scale(values[1:2])[0] - _log_scale(values[0:1])[0]
+    hi_gap_scaled = _log_scale(values[3:4])[0] - _log_scale(values[2:3])[0]
+
+    assert hi_gap_scaled > 0.09  # linear gap between 0.9 and 0.99
+    assert lo_gap_scaled < 0.05  # linear gap between 0.05 and 0.10
+
+
+def test_log_scale_is_monotonically_increasing():
+    xs = np.linspace(-1, 1, 201)
+    ys = _log_scale(xs)
+    assert np.all(np.diff(ys) > 0)
+
+
+# AC7 ---------------------------------------------------------------------------
+
+
+def test_log_mode_renders_a_different_envelope_than_linear(bar, waveform_mode):
+    bar.set_duration(100_000)
+    bar.set_position(50_000)
+    peaks = _loud_peaks()
+
+    waveform_mode("linear")
+    bar.set_peaks(peaks)
+    linear_img = _render(bar)
+
+    waveform_mode("log")
+    bar.update()
+    log_img = _render(bar)
+
+    assert linear_img != log_img
+
+
+# AC8 ---------------------------------------------------------------------------
+
+
+def test_linear_mode_never_invokes_the_curve(bar, waveform_mode, monkeypatch):
+    _reject_log_scale(monkeypatch)
+    waveform_mode("linear")
+    bar.set_duration(100_000)
+    bar.set_position(50_000)
+    bar.set_peaks(_loud_peaks())
+
+    assert len(_distinct_colours(bar)) > 1  # rendered fine, curve never called
+
+
+# AC2 ---------------------------------------------------------------------------
+
+
+def test_unknown_display_mode_falls_back_to_linear(bar, waveform_mode, monkeypatch):
+    _reject_log_scale(monkeypatch)
+    waveform_mode("banana")
+    bar.set_duration(100_000)
+    bar.set_position(50_000)
+    bar.set_peaks(_loud_peaks())
+
+    assert len(_distinct_colours(bar)) > 1  # rendered fine, curve never called

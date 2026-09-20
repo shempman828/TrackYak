@@ -18,12 +18,23 @@ from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPalette
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
+from src.foundation.config_setup import app_config
 from src.player.core.waveform_cache import N_BUCKETS
 
 _MIN_WIDTH = 200
 _HEIGHT = 40
 _V_PAD = 4  # px above/below the envelope
 _TRACK_H = 6  # fallback progress-bar thickness
+_LOG_K = 9.0  # companding strength for the perceptual display mode
+
+
+def _log_scale(values: np.ndarray, k: float = _LOG_K) -> np.ndarray:
+    # Mu-law companding applied to (1 - |x|): fixes 0->0 and +-1->+-1, but
+    # expands near-full-scale variation (where loud masters are pinned)
+    # instead of compressing it further.
+    sign = np.sign(values)
+    mag = np.abs(values)
+    return sign * (1.0 - np.log1p(k * (1.0 - mag)) / np.log1p(k))
 
 
 class WaveformSeekBar(QWidget):
@@ -172,6 +183,10 @@ class WaveformSeekBar(QWidget):
         edges = np.linspace(0, N_BUCKETS, cols + 1).astype(np.int64)
         lo = np.minimum.reduceat(self._peaks[:, 0].astype(np.float32), edges[:-1]) / 127.0
         hi = np.maximum.reduceat(self._peaks[:, 1].astype(np.float32), edges[:-1]) / 127.0
+
+        if app_config.get_waveform_display_mode() == "log":
+            lo = _log_scale(lo)
+            hi = _log_scale(hi)
 
         for j in range(cols):
             x0 = round(j * w / cols)

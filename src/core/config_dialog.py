@@ -346,6 +346,23 @@ class ConfigDialog(QDialog):
         info_label.setProperty("textRole", "muted")
         layout.addRow(info_label)
 
+        # ---- Waveform Display ----
+        waveform_label = QLabel("Waveform Display")
+        waveform_label.setProperty("title", True)
+        layout.addRow(waveform_label)
+
+        self.waveform_log_scale_check = QCheckBox("Perceptual (Log) Waveform Display")
+        layout.addRow("", self.waveform_log_scale_check)
+
+        waveform_info_label = QLabel(
+            "Shows more visual variation for already-loud masters, at the cost of "
+            "no longer being a literally accurate amplitude picture. The cached "
+            "peak data itself is unaffected — this only changes how it's drawn."
+        )
+        waveform_info_label.setWordWrap(True)
+        waveform_info_label.setProperty("textRole", "muted")
+        layout.addRow(waveform_info_label)
+
         return widget
 
     def _create_logging_tab(self):
@@ -642,6 +659,10 @@ class ConfigDialog(QDialog):
                 self.normalization_check.setChecked(norm_enabled)
                 self.normalization_spin.setValue(norm_target)
 
+            self.waveform_log_scale_check.setChecked(
+                self.config.get_waveform_display_mode() == "log"
+            )
+
             # Logging settings
             import logging as _logging
 
@@ -736,6 +757,10 @@ class ConfigDialog(QDialog):
 
                 self.music_player.enable_normalization(self.normalization_check.isChecked())
                 self.music_player.set_normalization_target(self.normalization_spin.value())
+
+            self.config.set_waveform_display_mode(
+                "log" if self.waveform_log_scale_check.isChecked() else "linear"
+            )
 
             # Logging settings
             self.config.set_logging_level(self.log_level_combo.currentText())

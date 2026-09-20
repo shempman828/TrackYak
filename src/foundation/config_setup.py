@@ -499,6 +499,7 @@ _CONFIG_FIELDS = [
     _primitive("persist_queue", "queue", "persist_queue", "bool", True),
     _primitive("transcode_cache_max_mb", "sync", "transcode_cache_max_mb", "int", 2048),
     _primitive("waveform_cache_max_mb", "player", "waveform_cache_max_mb", "int", 256),
+    _primitive("waveform_display_mode", "player", "display_mode", "str", "linear"),
     _primitive("track_view_visible_columns", "track_view", "visible_columns", "list", ""),
     _primitive("track_view_column_order", "track_view", "column_order", "list", ""),
     _primitive("track_view_column_widths", "track_view", "column_widths", "int_list", ""),

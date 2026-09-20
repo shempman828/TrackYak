@@ -105,3 +105,25 @@ def test_waveform_cache_max_mb_round_trips_through_config_file(fresh_config):
     raw = configparser.ConfigParser()
     raw.read(scratch_ini)
     assert raw["player"]["waveform_cache_max_mb"] == "512"
+
+
+# --- waveform display mode (linear vs. perceptual/log) -------------------- AC1
+
+
+def test_waveform_display_mode_defaults_to_linear(fresh_config):
+    cfg, _ = fresh_config
+    assert cfg.get_waveform_display_mode() == "linear"
+
+
+def test_waveform_display_mode_round_trips_through_config_file(fresh_config):
+    cfg, scratch_ini = fresh_config
+
+    cfg.set_waveform_display_mode("log")
+    cfg.save()
+
+    reloaded = _reload(scratch_ini)
+    assert reloaded.get_waveform_display_mode() == "log"
+
+    raw = configparser.ConfigParser()
+    raw.read(scratch_ini)
+    assert raw["player"]["display_mode"] == "log"

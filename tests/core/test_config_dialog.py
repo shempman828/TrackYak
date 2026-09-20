@@ -7,14 +7,17 @@ It now runs once per process in FontFamilyWorker on a background QThread,
 with ConfigDialog showing a placeholder until it lands and caching the
 result at the class level so later opens skip the work entirely.
 """
+
 import time
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QDockWidget, QLabel, QMainWindow, QStackedWidget, QWidget
+import pytest
 
 from src.core.config_dialog import ConfigDialog
 import src.core.font_family_worker as font_family_worker_module
+from src.foundation import config_setup as config_setup_module
 from src.foundation.config_setup import Config
 
 
@@ -26,10 +29,9 @@ def _pump_until(condition, app, timeout=5.0):
         time.sleep(0.005)
     assert condition(), "background font computation never completed"
 
+
 def test_first_open_backgrounds_font_computation_and_caches_it(qapp, monkeypatch):
-    monkeypatch.setattr(
-        QFontDatabase, "families", staticmethod(lambda *a, **k: ["Test Sans"])
-    )
+    monkeypatch.setattr(QFontDatabase, "families", staticmethod(lambda *a, **k: ["Test Sans"]))
     monkeypatch.setattr(
         font_family_worker_module.subprocess,
         "run",
@@ -45,9 +47,7 @@ def test_first_open_backgrounds_font_computation_and_caches_it(qapp, monkeypatch
         assert dialog.font_combo.isEnabled() is False
         assert ConfigDialog._canonical_font_families_cache is None
 
-        _pump_until(
-            lambda: ConfigDialog._canonical_font_families_cache is not None, qapp
-        )
+        _pump_until(lambda: ConfigDialog._canonical_font_families_cache is not None, qapp)
 
         assert dialog.font_combo.isEnabled() is True
         assert dialog.font_combo.count() == 1
@@ -57,10 +57,9 @@ def test_first_open_backgrounds_font_computation_and_caches_it(qapp, monkeypatch
         qapp.processEvents()
         ConfigDialog._canonical_font_families_cache = None
 
+
 def test_second_open_reuses_cache_without_a_placeholder(qapp, monkeypatch):
-    monkeypatch.setattr(
-        QFontDatabase, "families", staticmethod(lambda *a, **k: ["Test Sans"])
-    )
+    monkeypatch.setattr(QFontDatabase, "families", staticmethod(lambda *a, **k: ["Test Sans"]))
     monkeypatch.setattr(
         font_family_worker_module.subprocess,
         "run",
@@ -79,9 +78,8 @@ def test_second_open_reuses_cache_without_a_placeholder(qapp, monkeypatch):
         qapp.processEvents()
         ConfigDialog._canonical_font_families_cache = None
 
-def test_closing_dialog_before_worker_finishes_does_not_leave_thread_running(
-    qapp, monkeypatch
-):
+
+def test_closing_dialog_before_worker_finishes_does_not_leave_thread_running(qapp, monkeypatch):
     def slow_families(*a, **k):
         time.sleep(0.2)
         return ["Test Sans"]
@@ -103,6 +101,7 @@ def test_closing_dialog_before_worker_finishes_does_not_leave_thread_running(
 
     assert worker.isRunning() is False
     ConfigDialog._canonical_font_families_cache = None
+
 
 # ---- test_config_dialog_scale_scope.py ---------------------------------------
 # Regression test for the UI-scale-slider freeze: dragging the Appearance
@@ -146,6 +145,63 @@ def test_visible_restyle_roots_includes_visible_page_excludes_hidden_ones(qapp):
     assert main_window.statusBar() in roots
     assert dock in roots
 
+
 def test_visible_restyle_roots_falls_back_to_just_self_without_a_main_window(qapp):
     orphan = QWidget()
     assert ConfigDialog._visible_restyle_roots(orphan) == [orphan]
+
+
+# ---- waveform display mode (linear vs. perceptual/log), see
+# docs/specs/waveform_display_mode.md ------------------------------------------
+# AC3  audio tab loads the checkbox from waveform_display_mode
+# AC4  applying the checkbox writes "log"/"linear" back to config
+
+
+@pytest.fixture
+def fresh_config(tmp_path, monkeypatch):
+    scratch_ini = tmp_path / "config.ini"
+    monkeypatch.setattr(config_setup_module, "config", lambda name: str(scratch_ini))
+    config_setup_module.Config._instance = None
+    config_setup_module.Config._initialized = False
+    cfg = config_setup_module.Config()
+    yield cfg
+    config_setup_module.Config._instance = None
+    config_setup_module.Config._initialized = False
+
+
+def _stub_font_worker(monkeypatch):
+    monkeypatch.setattr(QFontDatabase, "families", staticmethod(lambda *a, **k: ["Test Sans"]))
+    monkeypatch.setattr(
+        font_family_worker_module.subprocess,
+        "run",
+        lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("no fc-list")),
+    )
+    ConfigDialog._canonical_font_families_cache = {"Test Sans"}
+
+
+def test_audio_tab_loads_log_checkbox_checked_when_config_is_log(qapp, monkeypatch, fresh_config):
+    _stub_font_worker(monkeypatch)
+    fresh_config.set_waveform_display_mode("log")
+
+    dialog = ConfigDialog(fresh_config)
+    try:
+        assert dialog.waveform_log_scale_check.isChecked() is True
+    finally:
+        dialog.reject()
+        qapp.processEvents()
+        ConfigDialog._canonical_font_families_cache = None
+
+
+def test_unchecking_and_applying_writes_linear_back_to_config(qapp, monkeypatch, fresh_config):
+    _stub_font_worker(monkeypatch)
+    fresh_config.set_waveform_display_mode("log")
+
+    dialog = ConfigDialog(fresh_config)
+    try:
+        dialog.waveform_log_scale_check.setChecked(False)
+        dialog._apply_settings()
+        assert fresh_config.get_waveform_display_mode() == "linear"
+    finally:
+        dialog.reject()
+        qapp.processEvents()
+        ConfigDialog._canonical_font_families_cache = None
