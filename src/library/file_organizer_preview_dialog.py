@@ -39,7 +39,7 @@ class OrganizationPreviewDialog(QDialog):
         # long path -- per wheel notch. ScrollPerPixel fixes the per-item
         # snap, but Qt still derives the scrollbar's singleStep from item
         # height, so pin it to a small fixed step too (same fix as
-        # track_edit_roles.py's _RolesTable / mood_autotag_dialog.py's
+        # track_edit_roles.py's _RolesTable / mood_word_review_widget.py's
         # _WordTable) so every notch moves the same modest amount.
         self.ops_list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.ops_list.verticalScrollBar().setSingleStep(24)
@@ -98,8 +98,7 @@ class OrganizationPreviewDialog(QDialog):
         current_path = str(op["current_path"])
         expected_path = str(op["expected_path"])
 
-        text = f"FROM: {current_path}\nTO:   {expected_path}"
-        return text
+        return f"FROM: {current_path}\nTO:   {expected_path}"
 
     def _confirm_all(self):
         """Select all operations"""

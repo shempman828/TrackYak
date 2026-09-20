@@ -1,5 +1,5 @@
 """Tests for the word-review helpers in
-src/mood/mood_autotag_dialog.py (docs/specs/lyrics_mood_tagging.md).
+src/mood/mood_word_review_widget.py (docs/specs/lyrics_mood_tagging.md).
 Maps to AC14 -- assigning a suggested word to a mood appends it to
 assets/mood_keywords.json, verified by re-reading the file.
 
@@ -13,8 +13,9 @@ import json
 from PySide6.QtWidgets import QAbstractItemView
 
 from src.mood import mood_autotag_dialog
-from src.mood.mood_autotag_dialog import (
-    MoodAutoTagDialog,
+from src.mood.mood_autotag_dialog import MoodAutoTagDialog
+from src.mood.mood_word_review_widget import (
+    _assigned_words,
     append_keyword_to_mood_file,
     dismiss_word,
     keyword_to_moods,
@@ -83,9 +84,9 @@ def test_remove_keyword_is_a_noop_when_file_missing(tmp_path):
 
 def test_assigned_words_includes_component_words_of_phrases(tmp_path, monkeypatch):
     path = _write_keywords(tmp_path, {"Party": ["dance floor"], "Sad": ["crying"]})
-    monkeypatch.setattr("src.mood.mood_autotag_dialog._KEYWORDS_PATH", path)
+    monkeypatch.setattr("src.mood.mood_word_review_widget._KEYWORDS_PATH", path)
 
-    assigned = MoodAutoTagDialog._assigned_words()
+    assigned = _assigned_words()
 
     assert assigned == {"dance", "floor", "crying"}
 
@@ -203,7 +204,7 @@ def test_word_table_wheel_step_is_fixed_not_row_height_derived(qapp, monkeypatch
 
     dlg = MoodAutoTagDialog(_StubController())
     try:
-        table = dlg._word_table
+        table = dlg._word_review._word_table
         table.insertRow(0)
         table.setRowHeight(0, 36)
         table.insertRow(1)
