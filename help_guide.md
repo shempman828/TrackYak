@@ -277,20 +277,25 @@ surviving picture (renaming its file to match), and clearing or replacing a
 picture removes the file it used to point at — the same applies to publisher
 logos.
 
-**Tags**: past Type, the Basic tab has a Tags section for free-form labels
-you define yourself, for whatever criteria matter to you — mood, era,
-backstory, anything. Unlike Type, tags are grouped into categories you
-create (Tag Types), and each category can have its own hierarchy (say, a
-"Religion" Tag Type with Christianity as a parent of Catholicism). YakTrack
-ships with no Tag Types built in — Manage Types… adds, renames, or deletes
-one. To tag an artist, pick a Tag Type from the dropdown, then type a tag
-name and press Add (or Enter); it's created on the fly if it doesn't exist
-yet, or reused if it does. Each tag shows as a removable chip labeled with
-its type and full hierarchy path (e.g. "Religion: Christianity >
-Catholicism"), and changes save immediately, the same as Type. Manage…
-renames, describes, reparents by drag-and-drop, or deletes tags within one
-Tag Type — deleting a Tag Type deletes every tag under it, and every
-artist's assignment to those tags, along with it.
+**Tags**: separate from Type, the artist editor has its own **Tags** tab for
+free-form labels you define yourself, for whatever criteria matter to you —
+mood, era, backstory, anything. Unlike Type, tags are grouped into
+categories you create (Tag Types), and each category can have its own
+hierarchy (say, a "Religion" Tag Type with Christianity as a parent of
+Catholicism). YakTrack ships with no Tag Types built in — Manage Types…
+adds, renames, or deletes one, and its Move Up/Down buttons set the
+category order every artist's Tags tab lays its sections out in. The Tags
+tab shows every category as its own section in that order; tags already in
+a category that this artist doesn't have yet appear as "+ name" suggestion
+pills — click one to tag the artist with it instantly, no typing needed. To
+add a tag that doesn't exist yet, type a name into a section's search box
+and press Add (or Enter); it's created on the fly (or reused if a tag by
+that name already exists in that category). Every assigned tag shows as a
+removable "name ×" chip — click it to untag the artist immediately, the
+same one-click removal as before. Each section's Manage… renames, describes,
+reparents by drag-and-drop, or deletes tags within that one Tag Type —
+deleting a Tag Type deletes every tag under it, and every artist's
+assignment to those tags, along with it.
 
 ## Playlists
 

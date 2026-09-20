@@ -90,6 +90,8 @@ class BaseLookupManagerDialog(QDialog):
         delete_btn.clicked.connect(self._delete_selected)
         btn_row.addWidget(delete_btn)
 
+        self._build_extra_buttons(btn_row)
+
         btn_row.addStretch()
 
         close_btn = QPushButton("Close")
@@ -100,6 +102,11 @@ class BaseLookupManagerDialog(QDialog):
 
     def _build_content_widget(self):
         raise NotImplementedError
+
+    def _build_extra_buttons(self, btn_row) -> None:
+        """Optional hook for a subclass to append extra buttons (e.g. tag
+        type's Move Up/Down for reordering) to the button row, between
+        Delete Selected and the trailing stretch. No-op by default."""
 
     def _load(self):
         raise NotImplementedError

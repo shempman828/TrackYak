@@ -16,6 +16,7 @@ class TagType(Base):
     tag_type_id = Column(Integer, primary_key=True)
     type_name = Column(String, nullable=False, unique=True)
     description = Column(String)
+    sort_order = Column(Integer, nullable=False, default=0)
 
     tags = relationship(
         "Tag", back_populates="tag_type", cascade="all, delete-orphan", passive_deletes=True

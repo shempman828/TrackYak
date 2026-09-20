@@ -74,7 +74,16 @@ def _migrate_religions_to_tags(cursor) -> tuple[int, int]:
     if row:
         tag_type_id = row[0]
     else:
-        cursor.execute("INSERT INTO tag_types (type_name) VALUES (?)", (RELIGION_TAG_TYPE_NAME,))
+        # sort_order is NOT NULL with no DB-level default (see
+        # src/db/db_tables/tag.py) -- append after whatever categories the
+        # user may have already created by hand before running this
+        # migration, same as TagTypeManagerDialog._add.
+        cursor.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tag_types")
+        next_sort_order = cursor.fetchone()[0]
+        cursor.execute(
+            "INSERT INTO tag_types (type_name, sort_order) VALUES (?, ?)",
+            (RELIGION_TAG_TYPE_NAME, next_sort_order),
+        )
         tag_type_id = cursor.lastrowid
 
     cursor.execute("SELECT religion_id, religion_name, parent_id, description FROM religions")

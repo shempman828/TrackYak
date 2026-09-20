@@ -112,6 +112,20 @@ def test_deleting_tag_type_cascades_to_its_tags_and_artist_associations(session)
     assert session.query(Artist).count() == 1
 
 
+def test_tag_type_sort_order_defaults_to_zero_and_round_trips(session):
+    tag_type = TagType(type_name="Vibe")
+    session.add(tag_type)
+    session.commit()
+    assert tag_type.sort_order == 0
+
+    tag_type.sort_order = 3
+    session.commit()
+    session.expire_all()
+
+    reloaded = session.get(TagType, tag_type.tag_type_id)
+    assert reloaded.sort_order == 3
+
+
 def test_artist_tags_relationship_is_many_to_many(session):
     artist_a = Artist(artist_name="Miles Davis")
     artist_b = Artist(artist_name="Bing Crosby")

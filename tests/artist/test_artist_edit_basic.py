@@ -121,3 +121,8 @@ def test_month_day_fields_reject_out_of_range_values(tab, field_name, good, bad)
 
     state, _, _ = field.validator().validate(bad, len(bad))
     assert state != QValidator.Acceptable
+
+
+# docs/specs/artist_tags_tab.md AC4 -- Tags moved off Basic onto its own tab
+def test_basic_tab_has_no_tags_widget(tab):
+    assert not hasattr(tab, "tags_widget")

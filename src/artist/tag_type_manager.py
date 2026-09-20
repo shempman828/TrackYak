@@ -5,7 +5,15 @@ artists, independent of any single artist's edit dialog.
 """
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTableWidget, QTableWidgetItem
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QHeaderView,
+    QInputDialog,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+)
 from sqlalchemy import func, select
 
 from src.common.dialogs.lookup_manager_dialog import (
@@ -19,9 +27,15 @@ from src.db.db_tables import ArtistTagAssociation, Tag
 
 class TagTypeManagerDialog(BaseLookupManagerDialog):
     """Table of every TagType in the library with inline rename/description
-    editing, add, and delete. The "# Artists" column counts distinct
-    artists carrying any tag of that type (see TagManagerDialog for
-    per-tag artist counts)."""
+    editing, add, delete, and Move Up/Down reordering. The "# Artists"
+    column counts distinct artists carrying any tag of that type (see
+    TagManagerDialog for per-tag artist counts).
+
+    Row order (and the order the Tags tab lays out its per-category
+    sections in) follows `sort_order`, with `type_name` as a tiebreak --
+    every row shares the default `sort_order=0` until the user reorders,
+    so nothing changes visibly until Move Up/Down is used at least once.
+    """
 
     _ENTITY_TYPE = "TagType"
     _ID_ATTR = "tag_type_id"
@@ -52,7 +66,21 @@ class TagTypeManagerDialog(BaseLookupManagerDialog):
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setAlternatingRowColors(True)
         self._table.itemChanged.connect(self._on_item_changed)
+        self._table.itemSelectionChanged.connect(self._update_move_buttons)
         return self._table
+
+    def _build_extra_buttons(self, btn_row) -> None:
+        self._move_up_btn = QPushButton("Move Up")
+        self._move_up_btn.setToolTip("Move the selected tag type earlier in the category order")
+        self._move_up_btn.clicked.connect(lambda: self._move(-1))
+        btn_row.addWidget(self._move_up_btn)
+
+        self._move_down_btn = QPushButton("Move Down")
+        self._move_down_btn.setToolTip("Move the selected tag type later in the category order")
+        self._move_down_btn.clicked.connect(lambda: self._move(1))
+        btn_row.addWidget(self._move_down_btn)
+
+        self._update_move_buttons()
 
     # ── Loading ───────────────────────────────────────────────────────────
 
@@ -67,14 +95,14 @@ class TagTypeManagerDialog(BaseLookupManagerDialog):
     def _load(self):
         self._table.blockSignals(True)
         try:
-            types = sorted(
+            self._current_types = sorted(
                 self.controller.get.get_all_entities("TagType") or [],
-                key=lambda t: t.type_name.lower(),
+                key=lambda t: (t.sort_order, t.type_name.lower()),
             )
             counts = self._fetch_counts()
 
-            self._table.setRowCount(len(types))
-            for row, t in enumerate(types):
+            self._table.setRowCount(len(self._current_types))
+            for row, t in enumerate(self._current_types):
                 name_item = QTableWidgetItem(t.type_name)
                 name_item.setData(Qt.UserRole, t.tag_type_id)
                 self._table.setItem(row, NAME_COL, name_item)
@@ -86,6 +114,7 @@ class TagTypeManagerDialog(BaseLookupManagerDialog):
                 self._table.setItem(row, COUNT_COL, count_item)
         finally:
             self._table.blockSignals(False)
+        self._update_move_buttons()
 
     def _selected_entries(self):
         rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
@@ -107,3 +136,48 @@ class TagTypeManagerDialog(BaseLookupManagerDialog):
             self._validate_and_rename(tag_type_id, item.text())
         elif item.column() == DESC_COL:
             self._save_description(tag_type_id, item.text())
+
+    # ── Add (overridden to append at the end of the category order) ───────
+
+    def _add(self):
+        name, ok = QInputDialog.getText(self, self._ADD_DIALOG_TITLE, self._ADD_DIALOG_PROMPT)
+        name = name.strip()
+        if not ok or not name:
+            return
+
+        existing = self.controller.get.get_entity_object("TagType", type_name=name)
+        if existing:
+            QMessageBox.warning(
+                self, "Duplicate Name", f"A {self._ENTITY_LABEL} named '{name}' already exists."
+            )
+            return
+
+        next_order = max((t.sort_order for t in self._current_types), default=-1) + 1
+        self.controller.add.add_entity("TagType", type_name=name, sort_order=next_order)
+        self._load()
+
+    # ── Reordering ──────────────────────────────────────────────────────────
+
+    def _update_move_buttons(self) -> None:
+        rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
+        single = len(rows) == 1
+        row = rows[0] if single else -1
+        self._move_up_btn.setEnabled(single and row > 0)
+        self._move_down_btn.setEnabled(single and 0 <= row < self._table.rowCount() - 1)
+
+    def _move(self, delta: int) -> None:
+        rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
+        if len(rows) != 1:
+            return
+        row = rows[0]
+        target = row + delta
+        if not (0 <= target < len(self._current_types)):
+            return
+
+        types = self._current_types
+        types[row], types[target] = types[target], types[row]
+        for i, t in enumerate(types):
+            self.controller.update.update_entity("TagType", t.tag_type_id, sort_order=i)
+
+        self._load()
+        self._table.selectRow(target)

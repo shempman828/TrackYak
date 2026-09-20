@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
 )
 
 from src.artist.artist_image_manager import move_to_artist_images_dir
-from src.artist.edit.artist_edit_tags import ArtistTagsWidget
 from src.artist.edit.artist_edit_types import ArtistTypesWidget
 from src.common.edit_dirty import value_changed
 from src.common.widgets.optional_int_edit import OptionalIntEdit
@@ -74,7 +73,6 @@ class BasicTab(QWidget):
 
         left_col.addWidget(self._build_identity_group())
         left_col.addWidget(self._build_types_group())
-        left_col.addWidget(self._build_tags_group())
         left_col.addWidget(self._build_dates_group())
         left_col.addWidget(self._build_links_group())
         left_col.addStretch()
@@ -138,13 +136,6 @@ class BasicTab(QWidget):
         v = QVBoxLayout(grp)
         self.types_widget = ArtistTypesWidget(self.controller, self.artist)
         v.addWidget(self.types_widget)
-        return grp
-
-    def _build_tags_group(self):
-        grp = QGroupBox("Tags")
-        v = QVBoxLayout(grp)
-        self.tags_widget = ArtistTagsWidget(self.controller, self.artist)
-        v.addWidget(self.tags_widget)
         return grp
 
     def _build_dates_group(self):
@@ -289,7 +280,6 @@ class BasicTab(QWidget):
         self.sort_name_edit.setText(artist.sort_name or "")
         self.disambiguation_edit.setText(artist.disambiguation or "")
         self.types_widget.load(artist)
-        self.tags_widget.load(artist)
 
         is_group = bool(artist.isgroup)
         self.isgroup_check.blockSignals(True)
