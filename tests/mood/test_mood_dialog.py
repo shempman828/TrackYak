@@ -50,6 +50,24 @@ def test_load_associated_tracks_shows_success_label_not_error(qapp):
         dlg.deleteLater()
 
 
+def test_remove_from_mood_action_added_once_across_reloads(qapp):
+    """Regression: enhance_track_view_context_menu runs on every tracks
+    reload (init plus each recursive-mode toggle); the action must not be
+    duplicated on the shared context menu."""
+    tracks = [_Track(1)]
+    controller = _StubController([_Association(t) for t in tracks])
+
+    dlg = MoodDialog(mood_data=_mood(), controller=controller)
+    try:
+        dlg.toggle_recursive_mode()
+        dlg.toggle_recursive_mode()
+
+        actions = [action.text() for action in dlg.track_view.context_menu.actions()]
+        assert actions.count("Remove from This Mood") == 1
+    finally:
+        dlg.deleteLater()
+
+
 def test_ok_button_disabled_until_name_entered(qapp):
     controller = _StubController()
     dlg = MoodDialog(controller=controller)

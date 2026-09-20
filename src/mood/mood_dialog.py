@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.logger_config import logger
+from src.mood.mood_track_view_context import add_remove_from_mood_action
 from src.track.view.base_track_view import BaseTrackView  # Import the BaseTrackView
 
 
@@ -265,59 +266,7 @@ class MoodDialog(QDialog):
         if not hasattr(self, "track_view") or not self.is_editing:
             return
 
-        # Get the existing context menu from track view
-        if hasattr(self.track_view, "context_menu"):
-            # Add separator and remove action directly to the existing menu
-
-            # Check if remove action already exists
-            existing_actions = [action.text() for action in self.track_view.context_menu.actions()]
-            if "Remove from This Mood" not in existing_actions:
-                # Add separator and remove action
-                self.track_view.context_menu.addSeparator()
-
-                self.remove_from_mood_action = self.track_view.context_menu.addAction(
-                    "Remove from This Mood"
-                )
-                self.remove_from_mood_action.triggered.connect(
-                    self.remove_selected_tracks_from_mood
-                )
-
-            # Override the track view's context menu setup to ensure our action is always available
-            # Store original setup method
-            original_setup_context_menu = self.track_view.setup_context_menu
-
-            def enhanced_setup_context_menu():
-                # Call original setup
-                original_setup_context_menu()
-
-                # Add our custom action to the menu
-                if hasattr(self.track_view, "context_menu"):
-                    # Check if remove action already exists
-                    existing_texts = [
-                        action.text() for action in self.track_view.context_menu.actions()
-                    ]
-                    if "Remove from This Mood" not in existing_texts:
-                        self.track_view.context_menu.addSeparator()
-                        remove_action = self.track_view.context_menu.addAction(
-                            "Remove from This Mood"
-                        )
-                        remove_action.triggered.connect(self.remove_selected_tracks_from_mood)
-
-            # Replace the setup method
-            self.track_view.setup_context_menu = enhanced_setup_context_menu
-
-            # Re-run setup to ensure our action is added
-            self.track_view.setup_context_menu()
-
-            # Also enhance the show_context_menu to ensure proper parent-child relationship
-            original_show = self.track_view.show_context_menu
-
-            def enhanced_show(position):
-                # Call original but ensure proper Wayland transient parent
-                if original_show:
-                    original_show(position)
-
-            self.track_view.show_context_menu = enhanced_show
+        add_remove_from_mood_action(self.track_view, self.remove_selected_tracks_from_mood)
 
     def remove_selected_tracks_from_mood(self):
         """Remove selected tracks from the current mood."""
