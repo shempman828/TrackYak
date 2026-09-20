@@ -261,6 +261,29 @@ def test_publisher_already_linked_by_mbid_is_not_shown_again(qapp):
     assert dialog._label_checks == []
 
 
+def test_publisher_matched_by_name_only_is_still_shown_for_backfill(qapp):
+    """A label whose name matches an existing publisher, but whose MBID does
+    not (because the local publisher has no MBID yet), must still appear in
+    the checklist -- otherwise the MBID and MB scalar data can never be
+    backfilled onto that publisher."""
+    local_tracks = [_local_track(1, 1, "Track 1")]
+    detail = _detail([_mb_track(1, "Track 1")])
+    label = _label(mbid="new-mbid", name="Atlantic Records")
+    detail.labels = [label]
+    existing_publisher = SimpleNamespace(MBID=None, publisher_name="Atlantic Records")
+
+    dialog = AlbumMusicBrainzReviewDialog(
+        controller=SimpleNamespace(),
+        album=_album(local_tracks, publishers=[existing_publisher]),
+        detail=detail,
+        aliases=[],
+    )
+
+    assert len(dialog._label_checks) == 1
+    _cb, checked_label = dialog._label_checks[0]
+    assert checked_label.mbid == "new-mbid"
+
+
 def test_ampersand_in_credit_is_not_eaten_as_a_mnemonic(qapp):
     """Album-credit checkboxes take raw MB artist/role names; a '&' there is
     a Qt mnemonic prefix and must be doubled so "Simon & Garfunkel" / "R&B"

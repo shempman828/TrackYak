@@ -57,19 +57,15 @@ class AlbumMusicBrainzReviewUIMixin:
         return out
 
     def _usable_labels(self) -> list[MBLabelInfo]:
-        """Return MusicBrainz labels not already attached to this album."""
+        """Return MusicBrainz labels not already attached to this album by MBID.
+
+        A label whose name matches an existing publisher, but whose MBID does
+        not, is kept: resolve_or_create_publisher backfills the MBID onto
+        that publisher (or creates a new one, if it turns out to be a
+        distinct entity that just shares a name) once the label is checked.
+        """
         existing_mbids = {p.MBID for p in (self.album.publishers or []) if p.MBID}
-        existing_names = {
-            (p.publisher_name or "").strip().lower() for p in (self.album.publishers or [])
-        }
-        out = []
-        for label in self.detail.labels:
-            if label.mbid in existing_mbids:
-                continue
-            if label.name.strip().lower() in existing_names:
-                continue
-            out.append(label)
-        return out
+        return [label for label in self.detail.labels if label.mbid not in existing_mbids]
 
     def _build_ui(self):
         """Construct the review dialog's scrollable content and OK/Cancel buttons."""
