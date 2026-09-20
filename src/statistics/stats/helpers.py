@@ -41,7 +41,7 @@ def distinct_artist_track_subquery(session):
     specific role (composer leaderboards, per-role leaderboards) don't need
     this -- the composite PK already prevents duplicates once role_id is
     fixed -- but anything aggregating "this artist's tracks" across all
-    roles (generation/type/religion/gender ratings, artist-by-country) does.
+    roles (generation/type/gender ratings, artist-by-country) does.
     """
     return session.query(TrackArtistRole.artist_id, TrackArtistRole.track_id).distinct().subquery()
 
@@ -212,7 +212,4 @@ def sparse_data_guard(count_query, min_count=20, min_fraction=None, total=None) 
     count = count_query.count()
     if count < min_count:
         return False
-    if min_fraction is not None and total:
-        if count / total < min_fraction:
-            return False
-    return True
+    return not (min_fraction is not None and total and count / total < min_fraction)

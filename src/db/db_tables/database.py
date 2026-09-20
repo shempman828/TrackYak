@@ -1,8 +1,7 @@
-"""
-MusicDatabase: engine/session setup plus schema and integrity verification.
-"""
+"""MusicDatabase: engine/session setup plus schema and integrity verification."""
 
 import re
+from typing import ClassVar
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -68,7 +67,9 @@ class MusicDatabase:
                 "artist_types",
                 "artist_type_associations",
                 "genres",
-                "religions",
+                "tag_types",
+                "tags",
+                "artist_tag_associations",
                 "moods",
                 "publishers",
                 "places",
@@ -187,13 +188,14 @@ class MusicDatabase:
     # pattern in the app. Named explicitly (rather than dropping "anything not
     # in metadata") so this can't accidentally drop an index this code doesn't
     # know about.
-    _RETIRED_INDEXES = {
+    _RETIRED_INDEXES: ClassVar[set[str]] = {
         "idx_tracks_path",  # duplicate of the track_file_path unique constraint
         "idx_tracks_disc_id",  # exact duplicate of idx_track_disc_id
         "idx_artist_begin_end",  # no query filters/sorts on begin_year/end_year
         "idx_track_genres",  # duplicate of the track_genres composite primary key
         "idx_artist_type_assoc",  # duplicate of the artist_type_associations composite primary key
-        "idx_mood_track_association",  # duplicate of the mood_track_association composite primary key
+        # duplicate of the mood_track_association composite primary key
+        "idx_mood_track_association",
         "ix_album_publisher_unique",  # duplicate of the album_publisher composite primary key
         "idx_track_usages_type",  # usage_type is never filtered on its own
         "idx_album_roles",  # redundant leftmost prefix of uq_album_artist_role
@@ -292,7 +294,8 @@ class MusicDatabase:
                         CREATE TRIGGER chart_entries_fts_ad
                         AFTER DELETE ON chart_entries
                         BEGIN
-                            INSERT INTO chart_entries_fts(chart_entries_fts, rowid, raw_title, raw_performer)
+                            INSERT INTO chart_entries_fts(chart_entries_fts, rowid, raw_title,
+                                raw_performer)
                             VALUES ('delete', old.chart_entry_id, old.raw_title, old.raw_performer);
                         END
                         """
@@ -304,7 +307,8 @@ class MusicDatabase:
                         CREATE TRIGGER chart_entries_fts_au
                         AFTER UPDATE ON chart_entries
                         BEGIN
-                            INSERT INTO chart_entries_fts(chart_entries_fts, rowid, raw_title, raw_performer)
+                            INSERT INTO chart_entries_fts(chart_entries_fts, rowid, raw_title,
+                                raw_performer)
                             VALUES ('delete', old.chart_entry_id, old.raw_title, old.raw_performer);
                             INSERT INTO chart_entries_fts(rowid, raw_title, raw_performer)
                             VALUES (new.chart_entry_id, new.raw_title, new.raw_performer);

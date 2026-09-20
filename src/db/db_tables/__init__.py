@@ -21,6 +21,7 @@ from src.db.db_tables.artist_type import ArtistType
 from src.db.db_tables.associations import (
     AlbumPublisher,
     AlbumRoleAssociation,
+    ArtistTagAssociation,
     ArtistTypeAssociation,
     PublisherFounder,
     TrackArtistRole,
@@ -37,8 +38,8 @@ from src.db.db_tables.place import Place, PlaceAssociation
 from src.db.db_tables.place_association_type import PlaceAssociationType
 from src.db.db_tables.playlist import Playlist, PlaylistTracks, SmartPlaylist, SmartPlaylistCriteria
 from src.db.db_tables.publisher import Publisher, PublisherAlias, PublisherSplitAlias
-from src.db.db_tables.religion import Religion
 from src.db.db_tables.role import Role, RoleAlias, RoleSplitAlias
+from src.db.db_tables.tag import Tag, TagType
 from src.db.db_tables.track import Samples, Track, TrackUsage
 
 __all__ = [
@@ -51,6 +52,7 @@ __all__ = [
     "ArtistAlias",
     "ArtistInfluence",
     "ArtistSplitAlias",
+    "ArtistTagAssociation",
     "ArtistType",
     "ArtistTypeAssociation",
     "Award",
@@ -75,13 +77,14 @@ __all__ = [
     "PublisherAlias",
     "PublisherFounder",
     "PublisherSplitAlias",
-    "Religion",
     "Role",
     "RoleAlias",
     "RoleSplitAlias",
     "Samples",
     "SmartPlaylist",
     "SmartPlaylistCriteria",
+    "Tag",
+    "TagType",
     "Track",
     "TrackArtistRole",
     "TrackGenre",

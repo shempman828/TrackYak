@@ -38,6 +38,15 @@ class ArtistTypeAssociation(Base):
     )
 
 
+class ArtistTagAssociation(Base):
+    __tablename__ = "artist_tag_associations"
+
+    artist_id = Column(
+        Integer, ForeignKey("artists.artist_id", ondelete="CASCADE"), primary_key=True
+    )
+    tag_id = Column(Integer, ForeignKey("tags.tag_id", ondelete="CASCADE"), primary_key=True)
+
+
 class TrackArtistRole(Base):
     __tablename__ = "track_artist_roles"
 

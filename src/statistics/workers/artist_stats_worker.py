@@ -3,8 +3,8 @@ artist_stats_worker.py
 
 ArtistStatsWorker: runs ArtistStats.get_comprehensive_artist_stats() off the
 GUI thread for the Artists tab. Separate from load_data() since it's several
-joined GROUP BY queries across demographics (generation/type/religion/
-gender), not a single cheap aggregate.
+joined GROUP BY queries across demographics (generation/type/gender), not a
+single cheap aggregate.
 """
 
 from PySide6.QtCore import Signal

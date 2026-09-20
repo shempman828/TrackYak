@@ -1,6 +1,4 @@
-"""
-Artist-related ORM models: Artist, ArtistAlias, ArtistInfluence, and GroupMembership.
-"""
+"""Artist-related ORM models: Artist, ArtistAlias, ArtistInfluence, and GroupMembership."""
 
 from datetime import UTC, datetime
 
@@ -39,9 +37,8 @@ class Artist(Base):
     profile_pic_path = Column(String)
     wikipedia_link = Column(String)
     website_link = Column(String)
-    religion_id = Column(Integer, ForeignKey("religions.religion_id", ondelete="SET NULL"))
 
-    religion = relationship("Religion", back_populates="artists")
+    tags = relationship("Tag", secondary="artist_tag_associations", back_populates="artists")
     aliases = relationship(
         "ArtistAlias", back_populates="artist", cascade="all, delete-orphan", passive_deletes=True
     )
@@ -154,11 +151,11 @@ class Artist(Base):
 
     @property
     def career_span(self):
-        """Return a human-readable career span string, e.g. '2001–2015' or '2001–present'."""
+        """Return a human-readable career span string, e.g. '2001-2015' or '2001-present'."""
         if not self.begin_year:
             return None
         end = str(self.end_year) if self.end_year else "present"
-        return f"{self.begin_year}–{end}"
+        return f"{self.begin_year}-{end}"
 
     @property
     def album_count(self):
@@ -176,9 +173,9 @@ class ArtistAlias(Base):
 
     alias_id = Column(Integer, primary_key=True)
     alias_name = Column(String, unique=True, nullable=False)
-    alias_type = Column(
-        String
-    )  # Legal Name, Stylized name, Project Name, Persona, Birth Name, Former Name, Localized name, Romanized name, Phonetic name
+    # Legal Name, Stylized name, Project Name, Persona, Birth Name, Former Name,
+    # Localized name, Romanized name, Phonetic name
+    alias_type = Column(String)
     artist_id = Column(Integer, ForeignKey("artists.artist_id", ondelete="CASCADE"), nullable=False)
 
     artist = relationship("Artist", back_populates="aliases")

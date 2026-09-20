@@ -32,7 +32,7 @@ def _artist(**overrides):
         "disambiguation": None,
         "isgroup": 0,
         "gender": None,
-        "religion": None,
+        "tags": [],
         "types": [],
         "begin_year": None,
         "begin_month": None,

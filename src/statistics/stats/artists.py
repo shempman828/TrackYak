@@ -1,8 +1,8 @@
 """
 stats/artists.py
 
-ArtistStats: average artist rating by generation, artist type/religion/
-gender distribution and rating comparisons, highest/lowest rated artist
+ArtistStats: average artist rating by generation, artist type/gender
+distribution and rating comparisons, highest/lowest rated artist
 disambiguated by gender (power-of-10), and lifespan stats (oldest living,
 longest/shortest lived, youngest). Role-credit-count stats, rating-by-role,
 per-role leaderboards, and highest-rated artist by country live in
@@ -12,7 +12,7 @@ than plain artist-table queries.
 
 from sqlalchemy import func, or_
 
-from src.db.db_tables import Artist, ArtistType, ArtistTypeAssociation, Religion, Track
+from src.db.db_tables import Artist, ArtistType, ArtistTypeAssociation, Track
 from src.statistics.stats.helpers import (
     RATING_MAX,
     RATING_MIN,
@@ -43,7 +43,7 @@ GENERATIONS = (
     ("Gen Beta", 2025, 2039),
 )
 
-# Minimum rated tracks for a bucket (generation/type/religion/gender) to be
+# Minimum rated tracks for a bucket (generation/type/gender) to be
 # included in a rating comparison -- keeps small buckets from producing a
 # noisy "highest rated" result off a handful of tracks.
 RATING_BUCKET_MIN_N = 10
@@ -71,8 +71,6 @@ class ArtistStats:
                 "artist_type_distribution": self._artist_type_distribution(session),
                 "artist_type_rating": self._artist_type_rating(session),
                 "highest_rated_artist_per_type": self._highest_rated_artist_per_type(session),
-                "artist_religion_distribution": self._artist_religion_distribution(session),
-                "religion_rating_comparison": self._religion_rating_comparison(session),
                 "gender_rating_comparison": self._gender_rating_comparison(session),
                 "rated_artists_by_gender": self._rated_artists_by_gender(session),
                 "lifespan_stats": self._lifespan_stats(session),
@@ -193,45 +191,6 @@ class ArtistStats:
             if current is None or avg_rating > current[1]:
                 best_by_type[type_name] = (artist_name, round(avg_rating, 2))
         return best_by_type
-
-    # ------------------------------------------------------------------ #
-    #  Religion distribution / rating                                      #
-    # ------------------------------------------------------------------ #
-
-    def _artist_religion_distribution(self, session):
-        rows = (
-            session.query(Religion.religion_name, func.count(Artist.artist_id))
-            .join(Artist, Religion.religion_id == Artist.religion_id)
-            .group_by(Religion.religion_id, Religion.religion_name)
-            .order_by(func.count(Artist.artist_id).desc())
-            .all()
-        )
-        return dict(rows)
-
-    def _religion_rating_comparison(self, session):
-        dedup = distinct_artist_track_subquery(session)
-        rows = (
-            session.query(
-                Religion.religion_name,
-                func.avg(Track.user_rating).label("avg_rating"),
-                func.count(Track.track_id).label("n"),
-            )
-            .select_from(Religion)
-            .join(Artist, Religion.religion_id == Artist.religion_id)
-            .join(dedup, Artist.artist_id == dedup.c.artist_id)
-            .join(Track, dedup.c.track_id == Track.track_id)
-            .filter(
-                Track.user_rating.isnot(None),
-                Track.user_rating >= RATING_MIN,
-                Track.user_rating <= RATING_MAX,
-            )
-            .group_by(Religion.religion_id, Religion.religion_name)
-            .having(func.count(Track.track_id) >= RATING_BUCKET_MIN_N)
-            .all()
-        )
-        ratings = [(name, round(avg, 2), n) for name, avg, n in rows]
-        ratings.sort(key=lambda r: r[1], reverse=True)
-        return ratings
 
     # ------------------------------------------------------------------ #
     #  Gender rating comparison / leaderboard                              #

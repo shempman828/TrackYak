@@ -1,4 +1,4 @@
-"""Artists tab: top artists, dates, artist type/religion/gender, lifespan."""
+"""Artists tab: top artists, dates, artist type/gender, lifespan."""
 
 from PySide6.QtWidgets import (
     QComboBox,
@@ -68,16 +68,6 @@ class ArtistsTabMixin:
         self.artist_type_best_list = LeaderboardListWidget()
         type_layout.addWidget(self.artist_type_best_list)
         layout.addWidget(type_group)
-
-        religion_group = QGroupBox("Artist Religion")
-        religion_layout = QVBoxLayout(religion_group)
-        religion_layout.addWidget(QLabel("Distribution:"))
-        self.artist_religion_chart = BarDistributionChart()
-        religion_layout.addWidget(self.artist_religion_chart)
-        religion_layout.addWidget(QLabel("Rating Comparison:"))
-        self.artist_religion_rating_list = LeaderboardListWidget()
-        religion_layout.addWidget(self.artist_religion_rating_list)
-        layout.addWidget(religion_group)
 
         gender_group = QGroupBox("Artist Gender")
         gender_layout = QVBoxLayout(gender_group)
@@ -193,11 +183,6 @@ class ArtistsTabMixin:
             reverse=True,
         )
         self.artist_type_best_list.set_data(type_rows)
-
-        self.artist_religion_chart.set_data(stats.get("artist_religion_distribution"))
-        self.artist_religion_rating_list.set_data(
-            self._rating_rows_with_n(stats.get("religion_rating_comparison", []))
-        )
 
         self.gender_rating_list.set_data(
             self._rating_rows_with_n(stats.get("gender_rating_comparison", []))

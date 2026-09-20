@@ -8,7 +8,8 @@ Indexes deliberately omitted here because they'd be redundant with an
 existing PRIMARY KEY / UNIQUE constraint (SQLite auto-indexes both):
   - Track.track_file_path — already unique=True
   - TrackGenre(track_id, genre_id), ArtistTypeAssociation(artist_id, artist_type_id),
-    MoodTrackAssociation(mood_id, track_id) — already composite primary keys
+    ArtistTagAssociation(artist_id, tag_id), MoodTrackAssociation(mood_id, track_id)
+    — already composite primary keys
   - AlbumPublisher(album_id, publisher_id) — already a composite primary key
   - AlbumRoleAssociation(album_id, artist_id) — already a leftmost prefix of
     the uq_album_artist_role(album_id, artist_id, role_id) unique constraint
@@ -30,6 +31,7 @@ from src.db.db_tables.artist import Artist, ArtistInfluence, GroupMembership
 from src.db.db_tables.associations import (
     AlbumPublisher,
     AlbumRoleAssociation,
+    ArtistTagAssociation,
     ArtistTypeAssociation,
     PublisherFounder,
     TrackArtistRole,
@@ -44,6 +46,7 @@ from src.db.db_tables.place import Place, PlaceAssociation
 from src.db.db_tables.playlist import PlaylistTracks, SmartPlaylistCriteria
 from src.db.db_tables.publisher import Publisher
 from src.db.db_tables.role import Role
+from src.db.db_tables.tag import Tag
 from src.db.db_tables.track import Samples, Track, TrackUsage
 
 # --- Artist ---
@@ -52,7 +55,6 @@ Index(
 )  # No longer a byproduct of unique=True -- artist_name isn't unique
 # anymore (two real people can share a name; MB import disambiguates by
 # MBID), so name lookups need their own explicit index.
-Index("idx_artists_religion_id", Artist.religion_id)  # Grouped counts in religion_manager
 Index(
     "idx_artists_begin_month_day", Artist.begin_month, Artist.begin_day
 )  # "Most common birthdate (m+d)" statistic
@@ -105,6 +107,9 @@ Index(
     "idx_artist_type_associations_type_id", ArtistTypeAssociation.artist_type_id
 )  # Reverse lookup: type → artists (artist-type distribution/rating statistics)
 Index(
+    "idx_artist_tag_associations_tag_id", ArtistTagAssociation.tag_id
+)  # Reverse lookup: tag → artists
+Index(
     "idx_track_artist_roles_role_id", TrackArtistRole.role_id
 )  # Reverse lookup: role → credited tracks/artists (role-credit statistics)
 Index(
@@ -128,6 +133,10 @@ Index("idx_publishers_parent_id", Publisher.parent_id)  # Publisher hierarchy wa
 
 # --- Role ---
 Index("idx_roles_parent_id", Role.parent_id)  # Role hierarchy walk
+
+# --- Tag ---
+Index("idx_tags_parent_id", Tag.parent_id)  # Tag hierarchy walk
+Index("idx_tags_type_id", Tag.tag_type_id)  # Tags scoped/listed by their TagType
 
 # --- Place ---
 Index("idx_places_parent_id", Place.parent_id)  # Recursive place/country rollups
