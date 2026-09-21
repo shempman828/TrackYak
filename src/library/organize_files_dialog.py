@@ -3,17 +3,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QIcon, Qt
-from PySide6.QtWidgets import (
-    QDialog,
-    QFileDialog,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QProgressBar,
-    QPushButton,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QVBoxLayout
 
 from src.foundation.asset_paths import icon
 from src.foundation.config_setup import app_config
@@ -23,19 +13,11 @@ from src.library.file_manager import CLEANUP_PROGRESS_START, FileOrganizer
 from src.library.file_organizer_preview_dialog import OrganizationPreviewDialog
 
 # --- Long HTML texts extracted for clarity ---
-_DIR_EXPLANATION = (
-    "Set the root directory where your music library is stored. "
-    "This is where file operations will be performed."
-)
+_DIR_EXPLANATION = "Set the root directory where your music library is stored. This is where file operations will be performed."
 
 
 class OrganizeFilesDialog(QDialog):
-    """Dialog for organizing library files into a consistent folder structure.
-
-    Split out from the former combined "Manage Library" dialog; the metadata
-    write flow now lives in its own Tools menu action (see
-    src.metadata.writers.metadata_writer_dialog).
-    """
+    """Dialog for organizing library files into a consistent folder structure."""
 
     operation_complete = Signal(bool)
     library_modified = Signal()
@@ -159,14 +141,7 @@ class OrganizeFilesDialog(QDialog):
             # underlying Qt object was already deleted
             return False
 
-    def _cancel_worker(
-        self,
-        worker_ref,
-        status_label: QLabel,
-        progress: QProgressBar,
-        cancel_button: QPushButton,
-        cancel_message: str,
-    ) -> None:
+    def _cancel_worker(self, worker_ref, status_label: QLabel, progress: QProgressBar, cancel_button: QPushButton, cancel_message: str) -> None:
         """Safely cancel a worker if it's running, then cleanup UI and reference."""
         if self._worker_is_running(worker_ref):
             try:
@@ -226,9 +201,7 @@ class OrganizeFilesDialog(QDialog):
         if self.org_progress.maximum() == 0:
             self.org_progress.setRange(0, 100)
         cleanup_span = 100 - CLEANUP_PROGRESS_START
-        self.org_progress.setValue(
-            min(100, CLEANUP_PROGRESS_START + int(percent / 100 * cleanup_span))
-        )
+        self.org_progress.setValue(min(100, CLEANUP_PROGRESS_START + int(percent / 100 * cleanup_span)))
         self.org_status.setText(f"Cleaning: {current_dir}")
 
     def _show_organization_preview(self, operations: list[dict]) -> None:
@@ -288,13 +261,17 @@ class OrganizeFilesDialog(QDialog):
             QMessageBox.warning(self, "Cancelled", "File organization was cancelled")
 
     def _cancel_organization(self) -> None:
-        self._cancel_worker(
-            self.organizer,
-            self.org_status,
-            self.org_progress,
-            self.btn_cancel_organize,
-            "Organization cancelled",
-        )
+        self._cancel_worker(self.organizer, self.org_status, self.org_progress, self.btn_cancel_organize, "Organization cancelled")
+
+    def closeEvent(self, event) -> None:
+        # Without this, closing the dialog mid-scan (or while FileOrganizer.run() is
+        # busy-waiting for preview approval that will never come) leaves the worker
+        # thread running forever -- see DuplicateFinderDialog/ArtworkConsistencyDialog
+        # for the same pattern.
+        if self._worker_is_running(self.organizer):
+            self.organizer.request_cancel()
+            self.organizer.wait(3000)
+        super().closeEvent(event)
 
     # -------------------- Config / Path Helpers --------------------
     def _load_root_from_config(self) -> None:
@@ -320,9 +297,7 @@ class OrganizeFilesDialog(QDialog):
     def _set_root(self) -> None:
         try:
             current_dir = app_config.get_base_directory() if app_config else str(Path.home())
-            picked = QFileDialog.getExistingDirectory(
-                self, "Select Root Directory", str(current_dir)
-            )
+            picked = QFileDialog.getExistingDirectory(self, "Select Root Directory", str(current_dir))
             if picked:
                 chosen = Path(picked).resolve()
                 if not chosen.exists():

@@ -22,22 +22,11 @@ import time
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QProgressBar,
-    QPushButton,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from src.album.album_art_worker import CoverEmbedWorker
 from src.common.cancellable_worker import CancellableWorker
+from src.common.eta_estimator import estimate_remaining
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.image.artwork_cache import get_artwork_cache
@@ -49,16 +38,10 @@ _THUMB_PX = 72
 
 
 class ArtworkConsistencyScanWorker(CancellableWorker):
-    """Runs ArtworkConsistencyChecker.run() off the UI thread.
+    """Runs ArtworkConsistencyChecker.run() off the UI thread."""
 
-    Signals:
-        progress(scanned, total)
-        finished(conflicts)   - list of conflict dicts (may be partial on cancel)
-        error(message)
-    """
-
-    progress = Signal(int, int)
-    finished = Signal(list)
+    progress = Signal(int, int)  # scanned, total
+    finished = Signal(list)  # conflicts -- list of conflict dicts, may be partial on cancel
     error = Signal(str)
 
     def __init__(self, controller):
@@ -68,12 +51,11 @@ class ArtworkConsistencyScanWorker(CancellableWorker):
     def run(self):
         try:
             checker = ArtworkConsistencyChecker(self._controller)
-            checker.run(
-                progress_callback=lambda scanned, total: self.progress.emit(scanned, total),
-                is_cancelled=lambda: self.is_cancelled,
-            )
-            if not self.is_cancelled:
-                self.finished.emit(checker.conflicts)
+            checker.run(progress_callback=lambda scanned, total: self.progress.emit(scanned, total), is_cancelled=lambda: self.is_cancelled)
+            # Always emit, even when cancelled (with whatever partial conflicts were
+            # found so far) -- otherwise the dialog's Scan/Cancel buttons and progress
+            # bar are left stuck since nothing else resets them.
+            self.finished.emit(checker.conflicts)
         except Exception as e:
             # Broad boundary catch: this is a QThread body; an escaping
             # exception would be lost and leave the dialog's Scan button
@@ -85,8 +67,7 @@ class ArtworkConsistencyScanWorker(CancellableWorker):
 
 
 def _group_tracks_by_variant(tracks: list) -> "OrderedDict[str | None, list]":
-    """Group a conflict's per-track entries by their picture hash, preserving
-    first-seen order. A key of None is the "no artwork" group."""
+    """Group a conflict's per-track entries by their picture hash, preserving first-seen order (a key of None is the "no artwork" group)."""
     groups: OrderedDict = OrderedDict()
     for entry in tracks:
         groups.setdefault(entry["hash"], []).append(entry)
@@ -94,6 +75,8 @@ def _group_tracks_by_variant(tracks: list) -> "OrderedDict[str | None, list]":
 
 
 class ArtworkConsistencyDialog(QDialog):
+    """Dialog for scanning and resolving albums whose tracks disagree on embedded art."""
+
     def __init__(self, controller, parent=None, initial_conflicts: list | None = None):
         super().__init__(parent)
         self.controller = controller
@@ -106,9 +89,7 @@ class ArtworkConsistencyDialog(QDialog):
         # the library-scan controls are hidden and the tree is populated
         # directly. `None` => the normal Tools-menu full-library scan.
         self._import_mode = initial_conflicts is not None
-        self.setWindowTitle(
-            "Reconcile Imported Artwork" if self._import_mode else "Artwork Conflicts"
-        )
+        self.setWindowTitle("Reconcile Imported Artwork" if self._import_mode else "Artwork Conflicts")
         self.setMinimumSize(720, 520)
         self._build_ui()
         if self._import_mode:
@@ -207,28 +188,11 @@ class ArtworkConsistencyDialog(QDialog):
     def _on_progress(self, scanned: int, total: int):
         self._progress_bar.setRange(0, max(total, 1))
         self._progress_bar.setValue(scanned)
-        eta = self._estimate_remaining(scanned, total)
+        eta = estimate_remaining(self._scan_start_time, scanned, total)
         if eta:
             self._progress_bar.setFormat(f"%p%  ({scanned:,}/{total:,} albums, ETA: {eta})")
         else:
             self._progress_bar.setFormat(f"%p%  ({scanned:,}/{total:,} albums)")
-
-    def _estimate_remaining(self, current: int, total: int) -> str | None:
-        """Human-readable ETA for the scan, or None if there isn't enough
-        data yet. Same elapsed/rate estimate as DuplicateFinderDialog."""
-        if not self._scan_start_time or current <= 0 or current >= total:
-            return None
-        elapsed = time.monotonic() - self._scan_start_time
-        if elapsed < 1.0:
-            return None
-        rate = current / elapsed
-        if rate <= 0:
-            return None
-        remaining = int((total - current) / rate)
-        if remaining < 60:
-            return f"{remaining}s"
-        minutes, seconds = divmod(remaining, 60)
-        return f"{minutes}m {seconds:02d}s"
 
     def _on_scan_finished(self, conflicts: list):
         self._scan_worker.wait()
@@ -237,10 +201,7 @@ class ArtworkConsistencyDialog(QDialog):
         self._conflicts = conflicts
         self._populate_tree(conflicts)
         n_albums = len({(c["album_id"], c["role"]) for c in conflicts})
-        if conflicts:
-            msg = f"{n_albums} album/role conflict(s) found."
-        else:
-            msg = "No artwork conflicts found."
+        msg = f"{n_albums} album/role conflict(s) found." if conflicts else "No artwork conflicts found."
         self._status_label.setText(msg)
         show_status_message(self, msg)
 
@@ -267,13 +228,7 @@ class ArtworkConsistencyDialog(QDialog):
             groups = _group_tracks_by_variant(conflict["tracks"])
             n_tracks = len(conflict["tracks"])
             album_label = conflict["album_name"] or f"Album {conflict['album_id']}"
-            top = QTreeWidgetItem(
-                self._tree,
-                [
-                    f"{album_label}  ·  {conflict['role']}",
-                    f"{n_tracks} tracks, {len(groups)} version(s)",
-                ],
-            )
+            top = QTreeWidgetItem(self._tree, [f"{album_label}  ·  {conflict['role']}", f"{n_tracks} tracks, {len(groups)} version(s)"])
             top.setData(0, Qt.UserRole, conflict)
             top.setExpanded(True)
             for variant_hash, entries in groups.items():
@@ -300,9 +255,7 @@ class ArtworkConsistencyDialog(QDialog):
         else:
             pixmap, dims = self._load_variant_pixmap(entries, role)
             if pixmap is not None and not pixmap.isNull():
-                thumb.setPixmap(
-                    pixmap.scaled(_THUMB_PX, _THUMB_PX, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                )
+                thumb.setPixmap(pixmap.scaled(_THUMB_PX, _THUMB_PX, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             else:
                 thumb.setText("?")
             size_kb = None
@@ -323,9 +276,7 @@ class ArtworkConsistencyDialog(QDialog):
         cell_layout.addStretch()
 
         use_btn = QPushButton("Use for all tracks")
-        use_btn.clicked.connect(
-            lambda _checked=False, c=conflict, h=variant_hash, e=entries: self._resolve(c, h, e)
-        )
+        use_btn.clicked.connect(lambda _checked=False, c=conflict, h=variant_hash, e=entries: self._resolve(c, h, e))
         cell_layout.addWidget(use_btn)
 
         self._tree.setItemWidget(row, 0, cell)
@@ -346,6 +297,7 @@ class ArtworkConsistencyDialog(QDialog):
 
     @staticmethod
     def _read_role_bytes(path: str, role: str) -> bytes | None:
+        """Read a track file's embedded picture bytes for `role`, or None if it has none or can't be read."""
         try:
             embedded = ArtworkExtractor().extract_artwork_by_role(path, Path(path).suffix.lower())
         except Exception:
@@ -368,37 +320,18 @@ class ArtworkConsistencyDialog(QDialog):
             prompt = f"Remove all {role} artwork from every track of “{album_name}”?"
             image_bytes = None
         else:
-            prompt = (
-                f"Embed this {role} image into every track of "
-                f"“{album_name}”, replacing what the other tracks currently "
-                f"have?"
-            )
+            prompt = f"Embed this {role} image into every track of “{album_name}”, replacing what the other tracks currently have?"
             image_bytes = self._pick_source_bytes(entries, role)
             if image_bytes is None:
-                QMessageBox.warning(
-                    self,
-                    "Cannot Read Image",
-                    "None of the tracks in this version could be read for their embedded image.",
-                )
+                QMessageBox.warning(self, "Cannot Read Image", "None of the tracks in this version could be read for their embedded image.")
                 return
 
-        if (
-            QMessageBox.question(
-                self,
-                "Apply to All Tracks",
-                prompt,
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            != QMessageBox.Yes
-        ):
+        if QMessageBox.question(self, "Apply to All Tracks", prompt, QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
 
         album = self.controller.get.get_entity_object("Album", album_id=album_id)
         if album is None:
-            QMessageBox.warning(
-                self, "Album Not Found", f"Album {album_id} is no longer in the library."
-            )
+            QMessageBox.warning(self, "Album Not Found", f"Album {album_id} is no longer in the library.")
             return
 
         cache = get_artwork_cache()
@@ -406,14 +339,8 @@ class ArtworkConsistencyDialog(QDialog):
         self._tree.setEnabled(False)
         show_status_message(self, f"Reconciling artwork for “{album_name}”…", duration=0)
 
-        worker = CoverEmbedWorker(
-            album, tracks, cache, MetadataWriter(self.controller), role, image_bytes
-        )
-        worker.completed.connect(
-            lambda failed, _dims, aid=album_id, rl=role, name=album_name: self._on_resolve_done(
-                aid, rl, name, failed
-            )
-        )
+        worker = CoverEmbedWorker(album, tracks, cache, MetadataWriter(self.controller), role, image_bytes)
+        worker.completed.connect(lambda failed, _dims, aid=album_id, rl=role, name=album_name: self._on_resolve_done(aid, rl, name, failed))
         worker.error.connect(lambda msg, name=album_name: self._on_resolve_error(name, msg))
         worker.finished.connect(worker.deleteLater)
         self._embed_worker = worker
@@ -440,12 +367,7 @@ class ArtworkConsistencyDialog(QDialog):
             preview = "\n".join(failed[:10])
             if len(failed) > 10:
                 preview += f"\n… and {len(failed) - 10} more"
-            QMessageBox.warning(
-                self,
-                "Some Files Not Updated",
-                f"Artwork was applied, but {len(failed)} track file(s) could "
-                f"not be written:\n\n{preview}",
-            )
+            QMessageBox.warning(self, "Some Files Not Updated", f"Artwork was applied, but {len(failed)} track file(s) could not be written:\n\n{preview}")
 
         self._remove_conflict_row(album_id, role)
         msg = f"Artwork reconciled for “{album_name}” ({role})."
@@ -460,9 +382,7 @@ class ArtworkConsistencyDialog(QDialog):
         show_status_message(self, f"Artwork reconcile failed: {message}")
 
     def _remove_conflict_row(self, album_id, role):
-        self._conflicts = [
-            c for c in self._conflicts if not (c["album_id"] == album_id and c["role"] == role)
-        ]
+        self._conflicts = [c for c in self._conflicts if not (c["album_id"] == album_id and c["role"] == role)]
         for i in range(self._tree.topLevelItemCount()):
             item = self._tree.topLevelItem(i)
             conflict = item.data(0, Qt.UserRole)

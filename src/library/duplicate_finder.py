@@ -70,8 +70,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import selectinload
 
 from src.common.cancellable_worker import CancellableWorker
+from src.common.eta_estimator import estimate_remaining
+from src.db.db_tables.associations import TrackArtistRole
+from src.db.db_tables.track import Track
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.library.fingerprint_matching import score_fingerprint_batch
@@ -99,12 +103,9 @@ def _normalise(text: str) -> str:
 
 
 def _blocking_key(track_name: str) -> str:
-    """
-    Cheap key used to decide which tracks are worth comparing.
-    Returns the first 3 characters of the normalised name.
-    This groups "bohemian rhapsody", "bohemia" etc. into the same block
-    while keeping "stairway to heaven" completely separate.
-    """
+    """Cheap key used to decide which tracks are worth comparing: the first 3 characters of the normalised name."""
+    # Groups "bohemian rhapsody", "bohemia" etc. into the same block while keeping
+    # "stairway to heaven" completely separate.
     norm = _normalise(track_name)
     return norm[:3] if norm else ""
 
@@ -129,10 +130,7 @@ def _get_primary_artist_string(track) -> str:
     # association) — filter those out before searching.
     artist_roles = [ar for ar in (getattr(track, "artist_roles", None) or []) if ar]
     if artist_roles:
-        primary = next(
-            (ar for ar in artist_roles if getattr(ar.role, "role_name", "") == "Primary Artist"),
-            None,
-        )
+        primary = next((ar for ar in artist_roles if getattr(ar.role, "role_name", "") == "Primary Artist"), None)
         chosen = primary or artist_roles[0]
         return getattr(chosen.artist, "artist_name", "") or ""
     return ""
@@ -152,33 +150,14 @@ def _get_album_string(track) -> str:
 
 
 class DuplicateScanWorker(CancellableWorker):
-    """
-    Background worker that finds duplicate tracks using a blocking strategy.
+    """Background worker that finds duplicate tracks using a blocking strategy."""
 
-    Signals:
-        progress(current, total)  - for the progress bar
-        status(message)           - human-readable status string
-        finished(groups, stopped_early) - list[list[track]], one inner list
-                                    per group, plus whether the user stopped
-                                    the scan before it finished
-        error(message)
-    """
-
-    progress = Signal(int, int)
-    status = Signal(str)
-    finished = Signal(list, bool)  # groups, stopped_early
+    progress = Signal(int, int)  # current, total -- for the progress bar
+    status = Signal(str)  # human-readable status string
+    finished = Signal(list, bool)  # groups (list[list[track]]), stopped_early
     error = Signal(str)
 
-    def __init__(
-        self,
-        tracks: list,
-        threshold: float,
-        use_artist: bool,
-        use_album: bool,
-        use_year: bool,
-        match_mode: str = "metadata",
-        parent=None,
-    ):
+    def __init__(self, tracks: list, threshold: float, use_artist: bool, use_album: bool, use_year: bool, match_mode: str = "metadata", parent=None):
         super().__init__(parent)
         self._tracks = tracks
         self._threshold = threshold
@@ -204,19 +183,12 @@ class DuplicateScanWorker(CancellableWorker):
     # ------------------------------------------------------------------
 
     def _build_blocks(self) -> dict[str, list]:
-        """
-        Group tracks by blocking key. Only returns blocks with >= 2 tracks —
-        single-track blocks can never produce a duplicate pair.
-
-        "metadata" mode blocks by the first 3 chars of the normalised track
-        name. "fingerprint" mode instead blocks tracks with a computed
-        AcoustID fingerprint by a 4-second duration bucket -- true
-        duplicates (same recording) have essentially identical durations,
-        while mislabeled/retitled duplicates would never share a
-        title-prefix block at all.
-        """
+        """Group tracks by blocking key. Only returns blocks with >= 2 tracks -- a single-track block can never produce a duplicate pair."""
         blocks: dict[str, list] = defaultdict(list)
         if self._match_mode == "fingerprint":
+            # True duplicates (same recording) have essentially identical durations,
+            # while mislabeled/retitled duplicates would never share a title-prefix
+            # block at all -- so bucket by duration instead of by name here.
             for track in self._tracks:
                 if not getattr(track, "acoustid_fingerprint", None):
                     continue
@@ -232,53 +204,39 @@ class DuplicateScanWorker(CancellableWorker):
         return {k: v for k, v in blocks.items() if len(v) >= 2}
 
     def _decode_fingerprint(self, track) -> "np.ndarray | None":
-        """Decode a track's stored chromaprint fingerprint into the int
-        array fast_match_fingerprints() operates on. Returns None on failure
-        (e.g. corrupt/legacy data) so the caller can drop the track from
-        fingerprint-mode blocks entirely -- it could never score above 0.0
-        against anything anyway.
-
-        Fingerprints are stored as str (Track.acoustid_fingerprint is a Text
-        column), but chromaprint.decode_fingerprint requires the raw bytes
-        form originally returned by fingerprint_file() -- chromaprint
-        fingerprints are plain-ASCII base64, so encode() round-trips exactly.
-        """
+        """Decode a track's stored chromaprint fingerprint into the int array fast_match_fingerprints() operates on."""
+        # Returns None on failure (e.g. corrupt/legacy data) so the caller can drop the
+        # track from fingerprint-mode blocks entirely -- it could never score above 0.0
+        # against anything anyway.
         try:
+            # Fingerprints are stored as str (Track.acoustid_fingerprint is a Text column),
+            # but chromaprint.decode_fingerprint requires the raw bytes form originally
+            # returned by fingerprint_file() -- chromaprint fingerprints are plain-ASCII
+            # base64, so encode() round-trips exactly.
             ints = chromaprint.decode_fingerprint(track.acoustid_fingerprint.encode())[0]
             return np.asarray(ints, dtype=np.uint32)
         except (chromaprint.FingerprintError, AttributeError) as e:
-            logger.warning(
-                f"Fingerprint decode failed for track {getattr(track, 'track_id', None)}: {e}"
-            )
+            logger.warning(f"Fingerprint decode failed for track {getattr(track, 'track_id', None)}: {e}")
             return None
 
     def _score_pair_metadata(self, a, b) -> float:
-        """
-        Weighted similarity score for a pair of tracks.
-        track_name always contributes (weight 2).
-        Optional fields each have weight 1, and are skipped when either
-        track has no value for that field.
-
-        Two cheap, always-on signals guard against the classic false-positive
-        case of classical music movements ("Symphony No. 5: I. Allegro" vs
-        "...: II. Andante") which have near-identical track names but are
-        clearly different tracks:
-          - movement_number: if both tracks have one and they differ, the
-            pair can never be a duplicate — short-circuit immediately.
-          - duration: real duplicates of the same recording have very
-            similar lengths; different movements/tracks usually don't.
-        """
+        """Weighted similarity score for a pair of tracks: track_name always contributes (weight 2), optional fields each add weight 1 when both tracks have a value."""
         mv_a = getattr(a, "movement_number", None)
         mv_b = getattr(b, "movement_number", None)
+        # Guards against the classic false-positive case of classical music movements
+        # ("Symphony No. 5: I. Allegro" vs "...: II. Andante"), which have near-identical
+        # track names but are clearly different tracks: if both tracks have a movement
+        # number and they differ, the pair can never be a duplicate.
         if mv_a is not None and mv_b is not None and mv_a != mv_b:
             return 0.0
 
-        name_score = _similarity(
-            getattr(a, "track_name", "") or "", getattr(b, "track_name", "") or ""
-        )
+        name_score = _similarity(getattr(a, "track_name", "") or "", getattr(b, "track_name", "") or "")
         weighted_sum = name_score * 2
         weight_total = 2.0
 
+        # Always-on second guard alongside movement_number above: real duplicates of the
+        # same recording have very similar lengths, while different movements/tracks
+        # usually don't -- also helps catch the classical-movements false-positive case.
         dur_a = getattr(a, "duration", None)
         dur_b = getattr(b, "duration", None)
         if dur_a and dur_b:
@@ -291,11 +249,7 @@ class DuplicateScanWorker(CancellableWorker):
         # couldn't reach the threshold, skip the relationship lookups
         # (artist/album require walking ORM relationships) entirely. This is
         # what makes high thresholds noticeably faster than low ones.
-        remaining = (
-            (1 if self._use_artist else 0)
-            + (1 if self._use_album else 0)
-            + (1 if self._use_year else 0)
-        )
+        remaining = (1 if self._use_artist else 0) + (1 if self._use_album else 0) + (1 if self._use_year else 0)
         if remaining:
             best_possible = (weighted_sum + remaining) / (weight_total + remaining)
             if best_possible < self._threshold:
@@ -322,9 +276,7 @@ class DuplicateScanWorker(CancellableWorker):
 
         return weighted_sum / weight_total if weight_total else 0.0
 
-    def _find_duplicates_metadata(
-        self, blocks: dict[str, list], track_index: dict[int, int], union, total_pairs: int
-    ) -> tuple[int, bool]:
+    def _find_duplicates_metadata(self, blocks: dict[str, list], track_index: dict[int, int], union, total_pairs: int) -> tuple[int, bool]:
         """Single-threaded scan: string-similarity scoring is cheap enough
         (and already short-circuits via the best_possible check in
         _score_pair_metadata) that a process pool isn't worth the IPC
@@ -361,20 +313,13 @@ class DuplicateScanWorker(CancellableWorker):
 
         return checked, stopped
 
-    def _find_duplicates_fingerprint(
-        self, blocks: dict[str, list], track_index: dict[int, int], union, total_pairs: int
-    ) -> tuple[int, bool]:
-        """Process-pool scan: fingerprint comparison is CPU-bound pure work
-        (see fingerprint_matching.py) that benefits from real parallelism
-        across cores -- a single GIL-bound thread can't get that.
-
-        Each track's fingerprint is decoded once here (cheap, negligible
-        cost) rather than per-pair. Candidate pairs are flattened across all
-        blocks and chunked into fixed-size batches so IPC overhead stays low
-        while progress/cancellation stay reasonably responsive; only decoded
-        fingerprint arrays and integer pair indices cross the process
-        boundary, never Qt/ORM objects.
-        """
+    def _find_duplicates_fingerprint(self, blocks: dict[str, list], track_index: dict[int, int], union, total_pairs: int) -> tuple[int, bool]:
+        """Process-pool scan: fingerprint comparison is CPU-bound pure work (see fingerprint_matching.py) that benefits from real parallelism across cores."""
+        # Each track's fingerprint is decoded once here (cheap, negligible cost) rather
+        # than per-pair. Candidate pairs are flattened across all blocks and chunked into
+        # fixed-size batches so IPC overhead stays low while progress/cancellation stay
+        # reasonably responsive; only decoded fingerprint arrays and integer pair indices
+        # cross the process boundary, never Qt/ORM objects.
         decoded: dict[int, np.ndarray] = {}
         for block_tracks in blocks.values():
             for track in block_tracks:
@@ -403,17 +348,11 @@ class DuplicateScanWorker(CancellableWorker):
             self.progress.emit(0, max(total_pairs, 1))
             return checked, stopped
 
-        batches = [
-            all_pairs[k : k + _FINGERPRINT_BATCH_SIZE]
-            for k in range(0, len(all_pairs), _FINGERPRINT_BATCH_SIZE)
-        ]
+        batches = [all_pairs[k : k + _FINGERPRINT_BATCH_SIZE] for k in range(0, len(all_pairs), _FINGERPRINT_BATCH_SIZE)]
         num_workers = min(recommended_worker_count(), len(batches))
         last_emitted = 0
 
-        logger.info(
-            f"Fingerprint scan: {len(all_pairs):,} pairs -> {len(batches):,} "
-            f"batches across {num_workers} worker process(es)"
-        )
+        logger.info(f"Fingerprint scan: {len(all_pairs):,} pairs -> {len(batches):,} batches across {num_workers} worker process(es)")
 
         # Forking a process that already has Qt/PySide6 initialised is a
         # known source of rare, hard-to-diagnose deadlocks (same rationale
@@ -431,9 +370,7 @@ class DuplicateScanWorker(CancellableWorker):
                     batch = pending.pop(0)
                     referenced = {idx for pair in batch for idx in pair}
                     fp_subset = {idx: decoded[idx] for idx in referenced}
-                    future = executor.submit(
-                        score_fingerprint_batch, fp_subset, batch, self._threshold
-                    )
+                    future = executor.submit(score_fingerprint_batch, fp_subset, batch, self._threshold)
                     in_flight[future] = len(batch)
 
             submit_more()
@@ -456,13 +393,7 @@ class DuplicateScanWorker(CancellableWorker):
         return checked, stopped
 
     def _find_duplicates(self) -> list:
-        """
-        Main routine:
-          1. Build blocks (fast single pass)
-          2. Compare pairs only within each block
-          3. Union-find merges pairs into groups
-          4. Return groups of size >= 2
-        """
+        """Build blocks, compare pairs within each block, union-find them into groups, and return groups of size >= 2."""
         n = len(self._tracks)
         self.status.emit(f"Building candidate blocks from {n:,} tracks...")
         self.progress.emit(0, 1)
@@ -470,13 +401,8 @@ class DuplicateScanWorker(CancellableWorker):
         blocks = self._build_blocks()
         total_pairs = sum(len(v) * (len(v) - 1) // 2 for v in blocks.values())
 
-        logger.info(
-            f"Blocking: {n:,} tracks -> {len(blocks):,} blocks -> "
-            f"{total_pairs:,} pairs (was {n * (n - 1) // 2:,} without blocking)"
-        )
-        self.status.emit(
-            f"Comparing {total_pairs:,} candidate pairs across {len(blocks):,} blocks..."
-        )
+        logger.info(f"Blocking: {n:,} tracks -> {len(blocks):,} blocks -> {total_pairs:,} pairs (was {n * (n - 1) // 2:,} without blocking)")
+        self.status.emit(f"Comparing {total_pairs:,} candidate pairs across {len(blocks):,} blocks...")
         self.progress.emit(0, max(total_pairs, 1))
 
         # Union-Find keyed by object id() so we don't need a separate index dict
@@ -493,13 +419,9 @@ class DuplicateScanWorker(CancellableWorker):
             parent[find(x)] = find(y)
 
         if self._match_mode == "fingerprint":
-            checked, stopped = self._find_duplicates_fingerprint(
-                blocks, track_index, union, total_pairs
-            )
+            checked, stopped = self._find_duplicates_fingerprint(blocks, track_index, union, total_pairs)
         else:
-            checked, stopped = self._find_duplicates_metadata(
-                blocks, track_index, union, total_pairs
-            )
+            checked, stopped = self._find_duplicates_metadata(blocks, track_index, union, total_pairs)
 
         self._stopped_early = stopped
         if stopped:
@@ -524,12 +446,7 @@ class DuplicateScanWorker(CancellableWorker):
 
 
 class DuplicateFinderDialog(QDialog):
-    """
-    Main dialog for finding and reviewing duplicate tracks.
-
-    Layout:
-      Settings bar  ->  progress bar  ->  splitter (group list | track view)
-    """
+    """Main dialog for finding and reviewing duplicate tracks."""
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
@@ -577,9 +494,7 @@ class DuplicateFinderDialog(QDialog):
         self.mode_group = QButtonGroup(self)
         self.radio_metadata = QRadioButton("Metadata (title/artist/album)")
         self.radio_metadata.setChecked(True)
-        self.radio_metadata.setToolTip(
-            "Compare tags: track title, artist, album, year. Only takes effect on the next scan."
-        )
+        self.radio_metadata.setToolTip("Compare tags: track title, artist, album, year. Only takes effect on the next scan.")
         self.radio_fingerprint = QRadioButton("Audio Fingerprint")
         self.radio_fingerprint.setToolTip(
             "Compare actual audio content via AcoustID/chromaprint, "
@@ -604,30 +519,21 @@ class DuplicateFinderDialog(QDialog):
 
         self.chk_artist = QCheckBox("Artist")
         self.chk_artist.setChecked(True)
-        self.chk_artist.setToolTip(
-            "Include primary artist in similarity scoring. Only takes effect "
-            "on the next scan — click Scan Library to apply."
-        )
+        self.chk_artist.setToolTip("Include primary artist in similarity scoring. Only takes effect on the next scan — click Scan Library to apply.")
         self.chk_artist.toggled.connect(self._on_settings_changed)
         layout.addWidget(self.chk_artist)
 
         self.chk_album = QCheckBox("Album")
         self.chk_album.setChecked(False)
         self.chk_album.setToolTip(
-            "Include album name — useful if the same song appears on "
-            "multiple albums and you want to keep both. Only takes effect "
-            "on the next scan — click Scan Library to apply."
+            "Include album name — useful if the same song appears on multiple albums and you want to keep both. Only takes effect on the next scan — click Scan Library to apply."
         )
         self.chk_album.toggled.connect(self._on_settings_changed)
         layout.addWidget(self.chk_album)
 
         self.chk_year = QCheckBox("Year")
         self.chk_year.setChecked(False)
-        self.chk_year.setToolTip(
-            "Require matching release year — reduces false positives "
-            "for covers and remasters. Only takes effect on the next scan "
-            "— click Scan Library to apply."
-        )
+        self.chk_year.setToolTip("Require matching release year — reduces false positives for covers and remasters. Only takes effect on the next scan — click Scan Library to apply.")
         self.chk_year.toggled.connect(self._on_settings_changed)
         layout.addWidget(self.chk_year)
 
@@ -688,9 +594,7 @@ class DuplicateFinderDialog(QDialog):
         self.group_title_label.setProperty("title", True)
         right_layout.addWidget(self.group_title_label)
 
-        self.track_view = BaseTrackView(
-            controller=self.controller, tracks=[], title="", enable_drag=False, enable_drop=False
-        )
+        self.track_view = BaseTrackView(controller=self.controller, tracks=[], title="", enable_drag=False, enable_drop=False)
         # Embed as a widget, not a floating window
         self.track_view.setWindowFlags(Qt.Widget)
         self.track_view.setMinimumWidth(600)
@@ -712,7 +616,20 @@ class DuplicateFinderDialog(QDialog):
             return
 
         try:
-            all_tracks = self.controller.get.get_all_entities("Track")
+            # Eager-load everything _score_pair_metadata's artist/album string
+            # helpers touch, so DuplicateScanWorker's thread never lazy-loads a
+            # relationship (which would check out its own pooled DB connection
+            # on that thread -- see cancellable_worker.py's docstring on the
+            # QueuePool exhaustion this caused before).
+            all_tracks = self.controller.get.get_all_entities(
+                "Track",
+                load_options=[
+                    selectinload(Track.artist_roles).selectinload(TrackArtistRole.artist),
+                    selectinload(Track.artist_roles).selectinload(TrackArtistRole.role),
+                    selectinload(Track.artist_roles).selectinload(TrackArtistRole.credited_alias),
+                    selectinload(Track.album),
+                ],
+            )
         except SQLAlchemyError as e:
             QMessageBox.critical(self, "Error", f"Could not load tracks:\n{e}")
             return
@@ -762,30 +679,11 @@ class DuplicateFinderDialog(QDialog):
         self.progress_bar.setRange(0, total)
         self.progress_bar.setValue(current)
 
-        eta = self._estimate_remaining(current, total)
+        eta = estimate_remaining(self._scan_start_time, current, total)
         if eta:
             self.progress_bar.setFormat(f"Comparing pairs: {current:,} / {total:,}  (ETA: {eta})")
         else:
             self.progress_bar.setFormat(f"Comparing pairs: {current:,} / {total:,}")
-
-    def _estimate_remaining(self, current: int, total: int) -> str | None:
-        """Return a human-readable ETA string, or None if not enough data yet."""
-        if not self._scan_start_time or current <= 0 or current >= total:
-            return None
-
-        elapsed = time.monotonic() - self._scan_start_time
-        if elapsed < 1.0:
-            return None
-
-        rate = current / elapsed
-        if rate <= 0:
-            return None
-
-        remaining_seconds = int((total - current) / rate)
-        if remaining_seconds < 60:
-            return f"{remaining_seconds}s"
-        minutes, seconds = divmod(remaining_seconds, 60)
-        return f"{minutes}m {seconds:02d}s"
 
     def _on_scan_finished(self, groups: list, stopped_early: bool = False):
         self._groups = groups
@@ -801,10 +699,7 @@ class DuplicateFinderDialog(QDialog):
             self.group_title_label.setText("No duplicate groups found.")
         else:
             total_tracks = sum(len(g) for g in groups)
-            self.status_label.setText(
-                f"{prefix}Found {len(groups):,} duplicate group(s) involving "
-                f"{total_tracks:,} tracks."
-            )
+            self.status_label.setText(f"{prefix}Found {len(groups):,} duplicate group(s) involving {total_tracks:,} tracks.")
             self.group_title_label.setText("Select a group on the left to inspect tracks.")
 
     def _on_scan_error(self, message: str):
@@ -835,9 +730,7 @@ class DuplicateFinderDialog(QDialog):
         self._current_group_tracks = list(group)
         first = group[0]
         name = getattr(first, "track_name", "Unknown") or "Unknown"
-        self.group_title_label.setText(
-            f"Group {row + 1} - {len(group)} possible duplicates of '{name}'"
-        )
+        self.group_title_label.setText(f"Group {row + 1} - {len(group)} possible duplicates of '{name}'")
         self.track_view.load_data(self._current_group_tracks)
 
     # ------------------------------------------------------------------
@@ -864,9 +757,7 @@ class DuplicateFinderDialog(QDialog):
             self.group_list.setCurrentRow(min(current_row, new_count - 1))
 
         total_tracks = sum(len(g) for g in self._groups)
-        self.status_label.setText(
-            f"{len(self._groups):,} group(s) remaining, {total_tracks:,} tracks involved."
-        )
+        self.status_label.setText(f"{len(self._groups):,} group(s) remaining, {total_tracks:,} tracks involved.")
 
     # ------------------------------------------------------------------
     # Helpers

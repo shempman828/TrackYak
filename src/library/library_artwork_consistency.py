@@ -29,9 +29,7 @@ from src.metadata.metadata_artwork import ArtworkExtractor
 class ArtworkConsistencyChecker:
     """Finds albums where tracks disagree on embedded art per role."""
 
-    def __init__(
-        self, controller, limit: int | None = None, album_ids: "set[int] | list[int] | None" = None
-    ):
+    def __init__(self, controller, limit: int | None = None, album_ids: "set[int] | list[int] | None" = None):
         self.controller = controller
         self.limit = limit
         # When given, the scan is restricted to these album ids (used by the
@@ -41,23 +39,13 @@ class ArtworkConsistencyChecker:
         self.extractor = ArtworkExtractor()
         self.conflicts: list[dict[str, Any]] = []
 
-    def run(
-        self,
-        progress_callback: Callable[[int, int], None] | None = None,
-        is_cancelled: Callable[[], bool] | None = None,
-    ) -> dict[str, int]:
-        """Scan every album, filling `self.conflicts`. Returns a summary dict.
-
-        `progress_callback(scanned, total)` is called once per album before
-        it is processed. `is_cancelled()` is polled once per album; when it
-        returns True the scan stops and `run()` returns with whatever has
-        been found so far.
-        """
-        summary = {
-            "albums_scanned": 0,
-            "albums_skipped_insufficient_tracks": 0,
-            "conflicts_found": 0,
-        }
+    def run(self, progress_callback: Callable[[int, int], None] | None = None, is_cancelled: Callable[[], bool] | None = None) -> dict[str, int]:
+        """Scan every album, filling `self.conflicts`, and return a summary dict."""
+        # `progress_callback(scanned, total)` is called once per album before it is
+        # processed. `is_cancelled()` is polled once per album; when it returns True the
+        # scan stops and `run()` returns with whatever has been found so far.
+        self.conflicts = []
+        summary = {"albums_scanned": 0, "albums_skipped_insufficient_tracks": 0, "conflicts_found": 0}
 
         albums = self.controller.get.get_all_entities("Album")
         if not albums:
@@ -82,20 +70,13 @@ class ArtworkConsistencyChecker:
 
             summary["albums_scanned"] += 1
 
-            tracks = [
-                t
-                for t in (getattr(album, "tracks", None) or [])
-                if t.track_file_path
-                and Path(t.track_file_path).suffix.lower() in ArtworkExtractor.SUPPORTED_EXTENSIONS
-            ]
+            tracks = [t for t in (getattr(album, "tracks", None) or []) if t.track_file_path and Path(t.track_file_path).suffix.lower() in ArtworkExtractor.SUPPORTED_EXTENSIONS]
             if len(tracks) < 2:
                 # Nothing to disagree with.
                 summary["albums_skipped_insufficient_tracks"] += 1
                 continue
 
-            per_role_hashes: dict[str, dict[int, str | None]] = {
-                role: {} for role in ArtworkExtractor.PICTURE_TYPE_ROLES.values()
-            }
+            per_role_hashes: dict[str, dict[int, str | None]] = {role: {} for role in ArtworkExtractor.PICTURE_TYPE_ROLES.values()}
             track_paths: dict[int, str] = {}
             track_dimensions: dict[int, dict[str, Any]] = {}
 
@@ -123,10 +104,7 @@ class ArtworkConsistencyChecker:
                     if picture:
                         picture_hash = hashlib.sha256(picture["data"]).hexdigest()
                         per_role_hashes[role][track.track_id] = picture_hash
-                        track_dimensions[track.track_id][role] = {
-                            "width": picture.get("width"),
-                            "height": picture.get("height"),
-                        }
+                        track_dimensions[track.track_id][role] = {"width": picture.get("width"), "height": picture.get("height")}
                     else:
                         per_role_hashes[role][track.track_id] = None
 
@@ -142,12 +120,7 @@ class ArtworkConsistencyChecker:
                         "album_name": getattr(album, "album_name", None),
                         "role": role,
                         "tracks": [
-                            {
-                                "track_id": track_id,
-                                "track_path": track_paths.get(track_id),
-                                "hash": picture_hash,
-                                "dimensions": track_dimensions.get(track_id, {}).get(role),
-                            }
+                            {"track_id": track_id, "track_path": track_paths.get(track_id), "hash": picture_hash, "dimensions": track_dimensions.get(track_id, {}).get(role)}
                             for track_id, picture_hash in hashes_by_track.items()
                         ],
                     }

@@ -118,13 +118,7 @@ def test_present_absent_split_flagged_with_none_entries(tmp_path):
 def test_cancel_predicate_stops_scan_early(tmp_path):
     albums = []
     for aid in range(1, 6):
-        tracks = [
-            _track(
-                aid * 10 + j,
-                _make_flac(tmp_path / f"c{aid}_{j}.flac", art=IMG_A if j == 0 else IMG_B),
-            )
-            for j in range(2)
-        ]
+        tracks = [_track(aid * 10 + j, _make_flac(tmp_path / f"c{aid}_{j}.flac", art=IMG_A if j == 0 else IMG_B)) for j in range(2)]
         albums.append(_album(aid, f"Album {aid}", tracks))
 
     seen = []
@@ -143,10 +137,7 @@ def test_cancel_predicate_stops_scan_early(tmp_path):
 # -- AC5 ----------------------------------------------------------------—-
 def test_single_embeddable_track_album_skipped(tmp_path):
     # The .wav track is filtered out, leaving a single embeddable track.
-    tracks = [
-        _track(1, _make_flac(tmp_path / "solo.flac", art=IMG_A)),
-        _track(2, "/music/not-embeddable.wav"),
-    ]
+    tracks = [_track(1, _make_flac(tmp_path / "solo.flac", art=IMG_A)), _track(2, "/music/not-embeddable.wav")]
     checker, summary = _run([_album(3, "Solo", tracks)])
 
     assert checker.conflicts == []
@@ -168,14 +159,8 @@ def test_rear_consistency_judged_independently_of_front(tmp_path):
 # -- album_ids filter (import-reconciliation AC1) ----------------------—-
 def test_album_ids_filter_restricts_scan_to_given_albums(tmp_path):
     # Both albums have a front conflict; the scan is scoped to album A only.
-    a_tracks = [
-        _track(1, _make_flac(tmp_path / "a1.flac", art=IMG_A)),
-        _track(2, _make_flac(tmp_path / "a2.flac", art=IMG_B)),
-    ]
-    b_tracks = [
-        _track(3, _make_flac(tmp_path / "b1.flac", art=IMG_A)),
-        _track(4, _make_flac(tmp_path / "b2.flac", art=IMG_B)),
-    ]
+    a_tracks = [_track(1, _make_flac(tmp_path / "a1.flac", art=IMG_A)), _track(2, _make_flac(tmp_path / "a2.flac", art=IMG_B))]
+    b_tracks = [_track(3, _make_flac(tmp_path / "b1.flac", art=IMG_A)), _track(4, _make_flac(tmp_path / "b2.flac", art=IMG_B))]
     albums = [_album(100, "A", a_tracks), _album(200, "B", b_tracks)]
 
     checker = ArtworkConsistencyChecker(_controller(albums), album_ids={100})
@@ -185,16 +170,23 @@ def test_album_ids_filter_restricts_scan_to_given_albums(tmp_path):
     assert [c["album_id"] for c in checker.conflicts] == [100]
 
 
+# -- run() called twice on the same instance ---------------------------—-
+def test_rerunning_same_checker_does_not_duplicate_conflicts(tmp_path):
+    """A second run() on the same instance must not pile duplicate conflicts onto self.conflicts."""
+    a_tracks = [_track(1, _make_flac(tmp_path / "a1.flac", art=IMG_A)), _track(2, _make_flac(tmp_path / "a2.flac", art=IMG_B))]
+    checker = ArtworkConsistencyChecker(_controller([_album(1, "Split", a_tracks)]))
+
+    first = checker.run()
+    second = checker.run()
+
+    assert first == second
+    assert len(checker.conflicts) == 1
+
+
 # -- album_ids default (import-reconciliation AC2) ---------------------—-
 def test_no_album_ids_scans_every_album(tmp_path):
-    a_tracks = [
-        _track(1, _make_flac(tmp_path / "a1.flac", art=IMG_A)),
-        _track(2, _make_flac(tmp_path / "a2.flac", art=IMG_B)),
-    ]
-    b_tracks = [
-        _track(3, _make_flac(tmp_path / "b1.flac", art=IMG_A)),
-        _track(4, _make_flac(tmp_path / "b2.flac", art=IMG_B)),
-    ]
+    a_tracks = [_track(1, _make_flac(tmp_path / "a1.flac", art=IMG_A)), _track(2, _make_flac(tmp_path / "a2.flac", art=IMG_B))]
+    b_tracks = [_track(3, _make_flac(tmp_path / "b1.flac", art=IMG_A)), _track(4, _make_flac(tmp_path / "b2.flac", art=IMG_B))]
     albums = [_album(100, "A", a_tracks), _album(200, "B", b_tracks)]
 
     checker, summary = _run(albums)  # no album_ids

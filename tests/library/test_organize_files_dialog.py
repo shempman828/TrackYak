@@ -7,6 +7,10 @@ in-dialog "Update Metadata" button and its half-wired worker plumbing must
 stay gone.
 """
 
+from unittest.mock import Mock
+
+from PySide6.QtGui import QCloseEvent
+
 from src.library.organize_files_dialog import OrganizeFilesDialog
 
 
@@ -30,5 +34,29 @@ def test_dialog_has_no_metadata_section(qapp):
         assert hasattr(dlg, "org_status")
         assert hasattr(dlg, "btn_cancel_organize")
         assert dlg.windowTitle() == "Organize Files"
+    finally:
+        dlg.deleteLater()
+
+
+def test_close_while_organizing_cancels_the_worker(qapp):
+    """Closing the dialog mid-scan must cancel the FileOrganizer thread instead of orphaning it (regression)."""
+    dlg = OrganizeFilesDialog(None)
+    try:
+        fake_worker = Mock()
+        fake_worker.isRunning.return_value = True
+        dlg.organizer = fake_worker
+
+        dlg.closeEvent(QCloseEvent())
+
+        fake_worker.request_cancel.assert_called_once()
+        fake_worker.wait.assert_called_once()
+    finally:
+        dlg.deleteLater()
+
+
+def test_close_with_no_worker_does_not_error(qapp):
+    dlg = OrganizeFilesDialog(None)
+    try:
+        dlg.closeEvent(QCloseEvent())  # self.organizer is None -- must not raise
     finally:
         dlg.deleteLater()

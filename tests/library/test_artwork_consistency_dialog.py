@@ -65,9 +65,7 @@ def two_variant_conflict(tmp_path):
 
 # -- AC9 -------------------------------------------------------------------
 def test_import_mode_populates_tree_without_scan(qapp, two_variant_conflict):
-    dialog = ArtworkConsistencyDialog(
-        SimpleNamespace(), parent=None, initial_conflicts=[two_variant_conflict]
-    )
+    dialog = ArtworkConsistencyDialog(SimpleNamespace(), parent=None, initial_conflicts=[two_variant_conflict])
     try:
         assert dialog._import_mode is True
         assert dialog._scan_worker is None
@@ -99,9 +97,7 @@ class _FakeEmbedWorker(QObject):
         self.started = True
 
 
-def test_import_mode_resolve_runs_embed_worker_and_invalidates(
-    qapp, monkeypatch, two_variant_conflict
-):
+def test_import_mode_resolve_runs_embed_worker_and_invalidates(qapp, monkeypatch, two_variant_conflict):
     album = SimpleNamespace(album_id=7, album_name="Split", tracks=[SimpleNamespace(track_id=1)])
     controller = SimpleNamespace(get=SimpleNamespace(get_entity_object=lambda *_a, **_k: album))
     fake_cache = Mock()
@@ -109,9 +105,7 @@ def test_import_mode_resolve_runs_embed_worker_and_invalidates(
     monkeypatch.setattr(acd, "CoverEmbedWorker", _FakeEmbedWorker)
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
 
-    dialog = ArtworkConsistencyDialog(
-        controller, parent=None, initial_conflicts=[two_variant_conflict]
-    )
+    dialog = ArtworkConsistencyDialog(controller, parent=None, initial_conflicts=[two_variant_conflict])
     try:
         conflict = dialog._conflicts[0]
         # resolve the "hy" variant (track 3)
@@ -133,6 +127,30 @@ def test_import_mode_resolve_runs_embed_worker_and_invalidates(
         assert dialog._conflicts == []
     finally:
         dialog.deleteLater()
+
+
+# -- cancel must not leave the dialog's controls stuck --------------------
+def test_scan_worker_emits_finished_even_when_cancelled(qapp, monkeypatch):
+    """A cancelled scan must still emit `finished` (with partial results), or the dialog's Scan/Cancel controls never reset (regression)."""
+
+    class _FakeChecker:
+        def __init__(self, controller):
+            self.conflicts = [{"album_id": 1, "role": "front"}]
+
+        def run(self, progress_callback=None, is_cancelled=None):
+            is_cancelled()  # simulate the scan noticing cancellation and stopping
+            return {}
+
+    monkeypatch.setattr(acd, "ArtworkConsistencyChecker", _FakeChecker)
+
+    worker = acd.ArtworkConsistencyScanWorker(SimpleNamespace())
+    worker.request_cancel()
+
+    received = []
+    worker.finished.connect(received.append)
+    worker.run()
+
+    assert received == [[{"album_id": 1, "role": "front"}]]
 
 
 if __name__ == "__main__":
