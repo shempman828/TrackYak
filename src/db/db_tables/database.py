@@ -11,6 +11,7 @@ from src.album.release_type_utils import normalize_release_type
 from src.db.db_engine import engine as _shared_engine
 from src.db.db_tables.album import Album
 from src.db.db_tables.base import Base
+from src.db.db_tables.place import PlaceAssociation
 from src.db.db_tables.track import Track
 from src.foundation.logger_config import logger
 from src.statistics.album_gain_peak import compute_album_gain_peak
@@ -25,11 +26,7 @@ class MusicDatabase:
             # doesn't open a second, uncoordinated connection pool against the
             # same SQLite file as MusicController/db_helpers. A non-default
             # path (e.g. for tests) still gets its own dedicated engine.
-            self.engine = (
-                _shared_engine
-                if db_path == _DEFAULT_DB_PATH
-                else create_engine(db_path, echo=False)
-            )
+            self.engine = _shared_engine if db_path == _DEFAULT_DB_PATH else create_engine(db_path, echo=False)
             self.Session = sessionmaker(bind=self.engine)
             self._initialize_database()
             self._verify_integrity()
@@ -144,18 +141,12 @@ class MusicDatabase:
                     if column.name in existing_columns:
                         continue
                     if self._try_add_column(table_name, column):
-                        logger.info(
-                            f"Added missing column {table_name}.{column.name} via ALTER TABLE."
-                        )
+                        logger.info(f"Added missing column {table_name}.{column.name} via ALTER TABLE.")
                     else:
                         missing_columns.append(f"{table_name}.{column.name}")
 
             if missing_columns:
-                logger.warning(
-                    f"The following columns exist in the ORM but are missing from the "
-                    f"database file — queries using them will fail until a migration is "
-                    f"run: {sorted(missing_columns)}"
-                )
+                logger.warning(f"The following columns exist in the ORM but are missing from the database file — queries using them will fail until a migration is run: {sorted(missing_columns)}")
             else:
                 logger.info("Column integrity check passed.")
 
@@ -167,6 +158,8 @@ class MusicDatabase:
             # that was created under an earlier version of the schema is
             # silently never applied to an existing database file.
             self._drop_legacy_indexes()
+            if "place_associations" in existing_tables:
+                self._dedupe_duplicate_place_associations()
             self._create_missing_indexes(inspector, existing_tables)
 
             # ── Step 4: One-off data backfill ────────────────────────────────
@@ -249,29 +242,12 @@ class MusicDatabase:
         """
         try:
             with self.engine.begin() as conn:
-                exists = conn.execute(
-                    text(
-                        "SELECT 1 FROM sqlite_master "
-                        "WHERE type = 'table' AND name = 'chart_entries_fts'"
-                    )
-                ).first()
+                exists = conn.execute(text("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'chart_entries_fts'")).first()
                 if exists:
                     return
 
-                conn.execute(
-                    text(
-                        "CREATE VIRTUAL TABLE chart_entries_fts USING fts5("
-                        "raw_title, raw_performer, "
-                        "content='chart_entries', content_rowid='chart_entry_id'"
-                        ")"
-                    )
-                )
-                conn.execute(
-                    text(
-                        "INSERT INTO chart_entries_fts(rowid, raw_title, raw_performer) "
-                        "SELECT chart_entry_id, raw_title, raw_performer FROM chart_entries"
-                    )
-                )
+                conn.execute(text("CREATE VIRTUAL TABLE chart_entries_fts USING fts5(raw_title, raw_performer, content='chart_entries', content_rowid='chart_entry_id')"))
+                conn.execute(text("INSERT INTO chart_entries_fts(rowid, raw_title, raw_performer) SELECT chart_entry_id, raw_title, raw_performer FROM chart_entries"))
 
                 # Standard external-content FTS5 sync triggers (per SQLite docs):
                 # a plain row op mirrors into the index; an update is a delete
@@ -378,34 +354,21 @@ class MusicDatabase:
             new_sql = re.sub(r"UNIQUE\s*\(\s*artist_name\s*\)\s*,\s*", "", create_sql, count=1)
             new_sql = new_sql.replace("CREATE TABLE artists (", "CREATE TABLE artists_new (", 1)
             if "artists_new" not in new_sql:
-                raise SQLAlchemyError(
-                    "Could not safely rewrite the artists table's CREATE "
-                    "statement for the artist_name migration -- aborting "
-                    "rather than risk a malformed rebuild."
-                )
+                raise SQLAlchemyError("Could not safely rewrite the artists table's CREATE statement for the artist_name migration -- aborting rather than risk a malformed rebuild.")
 
             cursor.execute("PRAGMA foreign_keys=OFF")
             try:
                 cursor.execute("BEGIN")
                 cursor.execute(new_sql)
-                cursor.execute(
-                    f"INSERT INTO artists_new ({col_list}) SELECT {col_list} FROM artists"
-                )
+                cursor.execute(f"INSERT INTO artists_new ({col_list}) SELECT {col_list} FROM artists")
                 cursor.execute("DROP TABLE artists")
                 cursor.execute("ALTER TABLE artists_new RENAME TO artists")
                 cursor.execute("PRAGMA foreign_key_check")
                 violations = cursor.fetchall()
                 if violations:
-                    raise SQLAlchemyError(
-                        f"Foreign key check failed after artist_name "
-                        f"migration, rolling back: {violations}"
-                    )
+                    raise SQLAlchemyError(f"Foreign key check failed after artist_name migration, rolling back: {violations}")
                 raw_conn.commit()
-                logger.info(
-                    "Migrated artists table: dropped the UNIQUE(artist_name) "
-                    "constraint so MB import can create a second same-named "
-                    "Artist instead of merging two different real people."
-                )
+                logger.info("Migrated artists table: dropped the UNIQUE(artist_name) constraint so MB import can create a second same-named Artist instead of merging two different real people.")
             except Exception:
                 raw_conn.rollback()
                 raise
@@ -444,10 +407,7 @@ class MusicDatabase:
 
                 if updated:
                     session.commit()
-                    logger.info(
-                        f"Backfilled album_gain/album_peak for {updated} album(s) "
-                        f"from existing track analysis data."
-                    )
+                    logger.info(f"Backfilled album_gain/album_peak for {updated} album(s) from existing track analysis data.")
         except SQLAlchemyError as e:
             logger.error(f"Album gain/peak backfill failed: {e}")
 
@@ -475,6 +435,53 @@ class MusicDatabase:
         except SQLAlchemyError as e:
             logger.error(f"release_type casing normalization failed: {e}")
 
+    def _dedupe_duplicate_place_associations(self) -> None:
+        """One-time cleanup for place_associations rows that duplicate the
+        same entity/place/association-type combination -- e.g. two
+        "Headquarters" rows for one publisher pointing at the same place,
+        left behind by independent code paths (PublisherEditDialog vs.
+        MusicBrainz import) that each only checked for an existing row of
+        their own before this table had a backing constraint. Keeps the
+        lowest-id (oldest) row in each duplicate group and drops the rest,
+        so the uq_place_assoc_entity_place_type index in indexes.py can be
+        created on an existing database file.
+
+        Rows with no association_type_id (the FK is nullable, and is set to
+        NULL if the type row is ever deleted) are left alone: SQLite's
+        unique index treats NULLs as distinct from one another, so an
+        untyped row is never actually a collision under that index and
+        deleting it here would just destroy data the index wouldn't have
+        blocked anyway.
+
+        Only touches rows that actually collide, so it's a no-op on every
+        startup after the first.
+        """
+        try:
+            with self.Session() as session:
+                rows = (
+                    session.query(PlaceAssociation.association_id, PlaceAssociation.entity_type, PlaceAssociation.entity_id, PlaceAssociation.place_id, PlaceAssociation.association_type_id)
+                    .order_by(PlaceAssociation.association_id)
+                    .all()
+                )
+
+                seen_keys = set()
+                duplicate_ids = []
+                for row in rows:
+                    if row.association_type_id is None:
+                        continue
+                    key = (row.entity_type, row.entity_id, row.place_id, row.association_type_id)
+                    if key in seen_keys:
+                        duplicate_ids.append(row.association_id)
+                    else:
+                        seen_keys.add(key)
+
+                if duplicate_ids:
+                    session.query(PlaceAssociation).filter(PlaceAssociation.association_id.in_(duplicate_ids)).delete(synchronize_session=False)
+                    session.commit()
+                    logger.info(f"Removed {len(duplicate_ids)} duplicate place_associations row(s) (same entity, place, and association type).")
+        except SQLAlchemyError as e:
+            logger.error(f"Duplicate place_associations cleanup failed: {e}")
+
     def _try_add_column(self, table_name: str, column) -> bool:
         """Attempt to add a missing column to an existing table via ALTER TABLE.
 
@@ -494,9 +501,7 @@ class MusicDatabase:
         if column.foreign_keys and not column.nullable:
             return False
 
-        has_scalar_default = column.default is not None and getattr(
-            column.default, "is_scalar", False
-        )
+        has_scalar_default = column.default is not None and getattr(column.default, "is_scalar", False)
         if not column.nullable and not has_scalar_default:
             return False
 

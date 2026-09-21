@@ -26,18 +26,11 @@ from PySide6.QtWidgets import (
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.alias.entity_alias_tab import EntityAliasesTab
-from src.common.widgets.entity_completer_context import (
-    artist_context_map,
-    place_context_map,
-    publisher_context_map,
-)
+from src.common.widgets.entity_completer_context import artist_context_map, place_context_map, publisher_context_map
 from src.common.widgets.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
 from src.foundation.asset_paths import icon
 from src.foundation.logger_config import logger
-from src.place.place_association_types import (
-    fetch_association_types,
-    find_or_create_association_type,
-)
+from src.place.place_association_types import fetch_association_types, find_or_create_association_type
 from src.publisher.publisher_hierarchy import get_descendant_publisher_ids
 from src.publisher.publisher_image_manager import move_to_publisher_logos_dir
 
@@ -125,14 +118,7 @@ class PublisherEditDialog(QDialog):
             tabs = QTabWidget()
             tabs.addTab(overview, "Overview")
 
-            self.tab_aliases = EntityAliasesTab(
-                self.controller,
-                self.publisher,
-                "Publisher",
-                "publisher_id",
-                placeholder="e.g. EMI Records",
-                list_style=True,
-            )
+            self.tab_aliases = EntityAliasesTab(self.controller, self.publisher, "Publisher", "publisher_id", placeholder="e.g. EMI Records", list_style=True)
             aliases_page = QWidget()
             aliases_layout = QVBoxLayout(aliases_page)
             aliases_layout.setContentsMargins(12, 12, 12, 12)
@@ -186,10 +172,7 @@ class PublisherEditDialog(QDialog):
         self.founder_edit = EntityCompleterEdit("Search artist…")
         artists = self.controller.get.get_all_entities("Artist") or []
         self._known_artists = artists
-        self.founder_edit.set_index(
-            {a.artist_name: a.artist_id for a in artists if a.artist_name},
-            artist_context_map(artists),
-        )
+        self.founder_edit.set_index({a.artist_name: a.artist_id for a in artists if a.artist_name}, artist_context_map(artists))
         self.founder_edit.returnPressed.connect(self._add_founder)
         founder_add_btn = QPushButton("Add")
         founder_add_btn.clicked.connect(self._add_founder)
@@ -247,19 +230,13 @@ class PublisherEditDialog(QDialog):
         self.parent_edit = EntityCompleterEdit("Search parent publisher…")
         excluded_ids = set()
         if self.publisher:
-            excluded_ids = set(
-                get_descendant_publisher_ids(self.controller, self.publisher.publisher_id)
-            )
+            excluded_ids = set(get_descendant_publisher_ids(self.controller, self.publisher.publisher_id))
         publishers = self.controller.get.get_all_entities("Publisher")
         # Kept unfiltered (unlike parent_index below) so find-or-create in
         # validate() can still recognize an excluded descendant by name --
         # the cycle check there is what rejects it, not a missing lookup.
         self._known_publishers = publishers
-        parent_index = {
-            p.publisher_name: p.publisher_id
-            for p in publishers
-            if p.publisher_name and p.publisher_id not in excluded_ids
-        }
+        parent_index = {p.publisher_name: p.publisher_id for p in publishers if p.publisher_name and p.publisher_id not in excluded_ids}
         self.parent_edit.set_index(parent_index, publisher_context_map(publishers))
         self.parent_edit.returnPressed.connect(self.validate)
         facts_form.addRow("Parent:", self.parent_edit)
@@ -271,9 +248,7 @@ class PublisherEditDialog(QDialog):
         self.hq_edit = EntityCompleterEdit("Search place…")
         places = self.controller.get.get_all_entities("Place") or []
         self._known_places = places
-        self.hq_edit.set_index(
-            {p.place_name: p.place_id for p in places if p.place_name}, place_context_map(places)
-        )
+        self.hq_edit.set_index({p.place_name: p.place_id for p in places if p.place_name}, place_context_map(places))
         self.hq_edit.returnPressed.connect(self.validate)
         facts_form.addRow("Headquarters:", self.hq_edit)
 
@@ -325,41 +300,15 @@ class PublisherEditDialog(QDialog):
             self.name_input.setText(self.publisher.publisher_name or "")
             self.desc_input.setPlainText(self.publisher.description or "")
             if self.publisher.parent_id:
-                parent = self.controller.get.get_entity_object(
-                    "Publisher", publisher_id=self.publisher.parent_id
-                )
+                parent = self.controller.get.get_entity_object("Publisher", publisher_id=self.publisher.parent_id)
                 self.parent_edit.setText(parent.publisher_name if parent else "")
-            hq_assocs = (
-                self.controller.get.get_all_entities(
-                    "PlaceAssociation",
-                    entity_type="Publisher",
-                    entity_id=self.publisher.publisher_id,
-                )
-                or []
-            )
-            hq_assoc = next(
-                (
-                    a
-                    for a in hq_assocs
-                    if a.association_type
-                    and a.association_type.type_name == _HEADQUARTERS_TYPE_NAME
-                ),
-                None,
-            )
+            hq_assocs = self.controller.get.get_all_entities("PlaceAssociation", entity_type="Publisher", entity_id=self.publisher.publisher_id) or []
+            hq_assoc = next((a for a in hq_assocs if a.association_type and a.association_type.type_name == _HEADQUARTERS_TYPE_NAME), None)
             if hq_assoc and hq_assoc.place:
                 self.hq_edit.setText(hq_assoc.place.place_name)
                 self._hq_association_id = hq_assoc.association_id
-            founder_assocs = (
-                self.controller.get.get_all_entities(
-                    "PublisherFounder", publisher_id=self.publisher.publisher_id
-                )
-                or []
-            )
-            self._founder_ids = [
-                (assoc.artist.artist_id, assoc.artist.artist_name)
-                for assoc in founder_assocs
-                if assoc.artist
-            ]
+            founder_assocs = self.controller.get.get_all_entities("PublisherFounder", publisher_id=self.publisher.publisher_id) or []
+            self._founder_ids = [(assoc.artist.artist_id, assoc.artist.artist_name) for assoc in founder_assocs if assoc.artist]
             self._refresh_founders_list()
             self.begin_year_edit.set_from_db(self.publisher.begin_year)
             self.end_year_edit.set_from_db(self.publisher.end_year)
@@ -375,10 +324,7 @@ class PublisherEditDialog(QDialog):
             self.is_active_check.setChecked(True)
 
     def _refresh_logo_preview(self, path):
-        if path and Path(path).exists():
-            pixmap = QPixmap(path)
-        else:
-            pixmap = icon("default_logo.svg").pixmap(LOGO_MAX_SIZE)
+        pixmap = QPixmap(path) if path and Path(path).exists() else icon("default_logo.svg").pixmap(LOGO_MAX_SIZE)
         scaled = pixmap.scaled(LOGO_MAX_SIZE, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.logo_label.setPixmap(scaled)
 
@@ -390,17 +336,10 @@ class PublisherEditDialog(QDialog):
         start_dir = self._settings.value(_SETTINGS_LAST_LOGO_DIR, "", type=str)
         if not start_dir or not Path(start_dir).is_dir():
             start_dir = ""
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select Publisher Logo",
-            start_dir,
-            "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif *.svg)",
-        )
+        path, _ = QFileDialog.getOpenFileName(self, "Select Publisher Logo", start_dir, "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif *.svg)")
         if path:
             self._settings.setValue(_SETTINGS_LAST_LOGO_DIR, str(Path(path).parent))
-            managed_path = move_to_publisher_logos_dir(
-                self.publisher.publisher_id, self.publisher.publisher_name, path
-            )
+            managed_path = move_to_publisher_logos_dir(self.publisher.publisher_id, self.publisher.publisher_name, path)
             self._set_logo_path(managed_path)
 
     def _clear_logo(self):
@@ -415,9 +354,7 @@ class PublisherEditDialog(QDialog):
             return
 
         existing = self.controller.get.get_entity_object("Publisher", publisher_name=name)
-        if existing and (
-            not self.publisher or existing.publisher_id != self.publisher.publisher_id
-        ):
+        if existing and (not self.publisher or existing.publisher_id != self.publisher.publisher_id):
             QMessageBox.warning(self, "Validation", "Publisher name already exists")
             return
 
@@ -429,30 +366,16 @@ class PublisherEditDialog(QDialog):
             # sets the text directly and never locks an id.
             parent_id = self.parent_edit.matched_id()
             if parent_id is None:
-                parent_obj = self.controller.get.get_entity_object(
-                    "Publisher", publisher_name=parent_name
-                )
+                parent_obj = self.controller.get.get_entity_object("Publisher", publisher_name=parent_name)
                 parent_id = parent_obj.publisher_id if parent_obj else None
             if parent_id is None:
                 # No existing publisher matches what was typed -- create one
                 # on the fly rather than blocking the save, mirroring the
                 # find-or-create pattern used by the other completer fields.
-                parent_obj = find_or_create_by_name(
-                    self.controller,
-                    "Publisher",
-                    "publisher_name",
-                    parent_name,
-                    self._known_publishers,
-                )
+                parent_obj = find_or_create_by_name(self.controller, "Publisher", "publisher_name", parent_name, self._known_publishers)
                 parent_id = parent_obj.publisher_id if parent_obj else None
-            if self.publisher and parent_id in get_descendant_publisher_ids(
-                self.controller, self.publisher.publisher_id
-            ):
-                QMessageBox.warning(
-                    self,
-                    "Invalid Parent",
-                    "Cannot set parent to this publisher itself or one of its own descendants.",
-                )
+            if self.publisher and parent_id in get_descendant_publisher_ids(self.controller, self.publisher.publisher_id):
+                QMessageBox.warning(self, "Invalid Parent", "Cannot set parent to this publisher itself or one of its own descendants.")
                 return
 
         hq_name = self.hq_edit.text().strip()
@@ -466,9 +389,7 @@ class PublisherEditDialog(QDialog):
                 place_obj = self.controller.get.get_entity_object("Place", place_name=hq_name)
                 hq_place_id = place_obj.place_id if place_obj else None
             if hq_place_id is None:
-                place_obj = find_or_create_by_name(
-                    self.controller, "Place", "place_name", hq_name, self._known_places
-                )
+                place_obj = find_or_create_by_name(self.controller, "Place", "place_name", hq_name, self._known_places)
                 hq_place_id = place_obj.place_id if place_obj else None
 
         begin_year = self.begin_year_edit.get_value_or_none()
@@ -527,22 +448,22 @@ class PublisherEditDialog(QDialog):
             return
 
         if self._hq_association_id is not None:
-            self.controller.update.update_entity(
-                "PlaceAssociation", self._hq_association_id, place_id=hq_place_id
-            )
+            self.controller.update.update_entity("PlaceAssociation", self._hq_association_id, place_id=hq_place_id)
         else:
             known_types = fetch_association_types(self.controller)
-            hq_type = find_or_create_association_type(
-                self.controller, _HEADQUARTERS_TYPE_NAME, known_types
-            )
+            hq_type = find_or_create_association_type(self.controller, _HEADQUARTERS_TYPE_NAME, known_types)
             assoc = self.controller.add.add_entity(
-                "PlaceAssociation",
-                entity_id=publisher_id,
-                entity_type="Publisher",
-                place_id=hq_place_id,
-                association_type_id=hq_type.association_type_id if hq_type else None,
+                "PlaceAssociation", entity_id=publisher_id, entity_type="Publisher", place_id=hq_place_id, association_type_id=hq_type.association_type_id if hq_type else None
             )
-            self._hq_association_id = assoc.association_id
+            if assoc is None:
+                # add_entity returns None if the uq_place_assoc_entity_place_type
+                # index rejected this insert -- another path (e.g. a MusicBrainz
+                # import running on its own thread/session) committed the same
+                # place+type association first. Adopt that row instead of
+                # leaving this publisher with no known headquarters.
+                existing = self.controller.get.get_all_entities("PlaceAssociation", entity_type="Publisher", entity_id=publisher_id) or []
+                assoc = next((a for a in existing if a.place_id == hq_place_id and hq_type and a.association_type_id == hq_type.association_type_id), None)
+            self._hq_association_id = assoc.association_id if assoc else None
 
     def _refresh_founders_list(self):
         self.founders_list.clear()
@@ -570,9 +491,7 @@ class PublisherEditDialog(QDialog):
             if artist_id is None:
                 artist_obj = self.controller.get.get_entity_object("Artist", artist_name=name)
                 if artist_obj is None:
-                    artist_obj = find_or_create_by_name(
-                        self.controller, "Artist", "artist_name", name, self._known_artists
-                    )
+                    artist_obj = find_or_create_by_name(self.controller, "Artist", "artist_name", name, self._known_artists)
                 if artist_obj is not None:
                     artist_id = artist_obj.artist_id
                     artist_name = artist_obj.artist_name
@@ -587,9 +506,7 @@ class PublisherEditDialog(QDialog):
 
         self._refresh_founders_list()
         if already_listed:
-            QMessageBox.information(
-                self, "Already Added", "Already listed as a founder:\n" + "\n".join(already_listed)
-            )
+            QMessageBox.information(self, "Already Added", "Already listed as a founder:\n" + "\n".join(already_listed))
 
         self.founder_edit.reset()
 
@@ -603,19 +520,12 @@ class PublisherEditDialog(QDialog):
 
     def _save_founders(self, publisher_id):
         """Sync this publisher's PublisherFounder rows to self._founder_ids."""
-        existing = (
-            self.controller.get.get_all_entities("PublisherFounder", publisher_id=publisher_id)
-            or []
-        )
+        existing = self.controller.get.get_all_entities("PublisherFounder", publisher_id=publisher_id) or []
         existing_ids = {assoc.artist_id for assoc in existing}
         target_ids = {artist_id for artist_id, _ in self._founder_ids}
 
         for assoc in existing:
             if assoc.artist_id not in target_ids:
-                self.controller.delete.delete_entity(
-                    "PublisherFounder", publisher_id=publisher_id, artist_id=assoc.artist_id
-                )
+                self.controller.delete.delete_entity("PublisherFounder", publisher_id=publisher_id, artist_id=assoc.artist_id)
         for artist_id in target_ids - existing_ids:
-            self.controller.add.add_entity(
-                "PublisherFounder", publisher_id=publisher_id, artist_id=artist_id
-            )
+            self.controller.add.add_entity("PublisherFounder", publisher_id=publisher_id, artist_id=artist_id)

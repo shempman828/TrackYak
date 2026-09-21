@@ -28,15 +28,7 @@ from sqlalchemy import Index
 
 from src.db.db_tables.album import Album
 from src.db.db_tables.artist import Artist, ArtistInfluence, GroupMembership
-from src.db.db_tables.associations import (
-    AlbumPublisher,
-    AlbumRoleAssociation,
-    ArtistTagAssociation,
-    ArtistTypeAssociation,
-    PublisherFounder,
-    TrackArtistRole,
-    TrackGenre,
-)
+from src.db.db_tables.associations import AlbumPublisher, AlbumRoleAssociation, ArtistTagAssociation, ArtistTypeAssociation, PublisherFounder, TrackArtistRole, TrackGenre
 from src.db.db_tables.award import Award, AwardAssociation
 from src.db.db_tables.chart import ChartEntry
 from src.db.db_tables.disc import Disc
@@ -50,30 +42,18 @@ from src.db.db_tables.tag import Tag
 from src.db.db_tables.track import Samples, Track, TrackUsage
 
 # --- Artist ---
-Index(
-    "idx_artists_name", Artist.artist_name
-)  # No longer a byproduct of unique=True -- artist_name isn't unique
+Index("idx_artists_name", Artist.artist_name)  # No longer a byproduct of unique=True -- artist_name isn't unique
 # anymore (two real people can share a name; MB import disambiguates by
 # MBID), so name lookups need their own explicit index.
-Index(
-    "idx_artists_begin_month_day", Artist.begin_month, Artist.begin_day
-)  # "Most common birthdate (m+d)" statistic
-Index(
-    "idx_artists_end_month_day", Artist.end_month, Artist.end_day
-)  # "Most common deathdate (m+d)" statistic
-Index(
-    "idx_artists_begin_year", Artist.begin_year
-)  # Generation-bucket rating stat, oldest/youngest-artist stats
+Index("idx_artists_begin_month_day", Artist.begin_month, Artist.begin_day)  # "Most common birthdate (m+d)" statistic
+Index("idx_artists_end_month_day", Artist.end_month, Artist.end_day)  # "Most common deathdate (m+d)" statistic
+Index("idx_artists_begin_year", Artist.begin_year)  # Generation-bucket rating stat, oldest/youngest-artist stats
 
 # --- Album ---
 Index("idx_albums_title", Album.album_name)
 Index("idx_albums_release_year", Album.release_year)  # Commonly filtered/sorted
-Index(
-    "idx_albums_release_month_day", Album.release_month, Album.release_day
-)  # "Most common album release date (m+d)" statistic
-Index(
-    "idx_albums_release_country", Album.release_country
-)  # Release-country distribution / highest-rated-album-by-country statistics
+Index("idx_albums_release_month_day", Album.release_month, Album.release_day)  # "Most common album release date (m+d)" statistic
+Index("idx_albums_release_country", Album.release_country)  # Release-country distribution / highest-rated-album-by-country statistics
 
 # --- Track ---
 Index("idx_tracks_title", Track.track_name)
@@ -86,9 +66,7 @@ Index("idx_tracks_needs_tag_write", Track.needs_tag_write)  # Dirty-tracking sca
 
 # --- Genre ---
 Index("idx_genres_name", Genre.genre_name)
-Index(
-    "idx_genres_parent_id", Genre.parent_id
-)  # Genre hierarchy walk: most-niche-genre depth, root-branch lookups
+Index("idx_genres_parent_id", Genre.parent_id)  # Genre hierarchy walk: most-niche-genre depth, root-branch lookups
 
 # --- Mood ---
 Index("idx_moods_parent_id", Mood.parent_id)  # Mood hierarchy walk
@@ -100,35 +78,19 @@ Index("idx_discs_album_number", Disc.album_id, Disc.disc_number)
 Index("idx_track_artist_roles", TrackArtistRole.artist_id, TrackArtistRole.track_id)
 Index("idx_album_roles_artist", AlbumRoleAssociation.artist_id)  # Reverse lookup: artist → albums
 Index("idx_track_genres_genre_id", TrackGenre.genre_id)  # Reverse lookup: genre → tracks
-Index(
-    "idx_mood_track_association_track_id", MoodTrackAssociation.track_id
-)  # Reverse lookup: track → moods
-Index(
-    "idx_artist_type_associations_type_id", ArtistTypeAssociation.artist_type_id
-)  # Reverse lookup: type → artists (artist-type distribution/rating statistics)
-Index(
-    "idx_artist_tag_associations_tag_id", ArtistTagAssociation.tag_id
-)  # Reverse lookup: tag → artists
-Index(
-    "idx_track_artist_roles_role_id", TrackArtistRole.role_id
-)  # Reverse lookup: role → credited tracks/artists (role-credit statistics)
-Index(
-    "idx_album_role_association_role_id", AlbumRoleAssociation.role_id
-)  # Reverse lookup: role → credited albums/artists
+Index("idx_mood_track_association_track_id", MoodTrackAssociation.track_id)  # Reverse lookup: track → moods
+Index("idx_artist_type_associations_type_id", ArtistTypeAssociation.artist_type_id)  # Reverse lookup: type → artists (artist-type distribution/rating statistics)
+Index("idx_artist_tag_associations_tag_id", ArtistTagAssociation.tag_id)  # Reverse lookup: tag → artists
+Index("idx_track_artist_roles_role_id", TrackArtistRole.role_id)  # Reverse lookup: role → credited tracks/artists (role-credit statistics)
+Index("idx_album_role_association_role_id", AlbumRoleAssociation.role_id)  # Reverse lookup: role → credited albums/artists
 
 # --- Artist relationship self-joins ---
-Index(
-    "idx_artist_influences_influenced_id", ArtistInfluence.influenced_id
-)  # Reverse lookup: who did this artist influence
-Index(
-    "idx_group_membership_member_id", GroupMembership.member_id
-)  # Reverse lookup: what groups is this artist a member of
+Index("idx_artist_influences_influenced_id", ArtistInfluence.influenced_id)  # Reverse lookup: who did this artist influence
+Index("idx_group_membership_member_id", GroupMembership.member_id)  # Reverse lookup: what groups is this artist a member of
 
 # --- Publisher ---
 Index("idx_album_publisher_publisher_id", AlbumPublisher.publisher_id)
-Index(
-    "idx_publisher_founders_artist_id", PublisherFounder.artist_id
-)  # Reverse lookup: artist → publishers founded
+Index("idx_publisher_founders_artist_id", PublisherFounder.artist_id)  # Reverse lookup: artist → publishers founded
 Index("idx_publishers_parent_id", Publisher.parent_id)  # Publisher hierarchy walk
 
 # --- Role ---
@@ -140,42 +102,31 @@ Index("idx_tags_type_id", Tag.tag_type_id)  # Tags scoped/listed by their TagTyp
 
 # --- Place ---
 Index("idx_places_parent_id", Place.parent_id)  # Recursive place/country rollups
-Index(
-    "idx_places_place_type", Place.place_type
-)  # Country-only filtering for recursive country rating statistics
+Index("idx_places_place_type", Place.place_type)  # Country-only filtering for recursive country rating statistics
 
 # --- Place associations ---
 Index("idx_place_associations", PlaceAssociation.place_id, PlaceAssociation.entity_id)
+Index("idx_place_assoc_entity_type_id", PlaceAssociation.entity_type, PlaceAssociation.entity_id)  # Covers both entity_type-only sweeps and the common entity_type+entity_id lookup
 Index(
-    "idx_place_assoc_entity_type_id", PlaceAssociation.entity_type, PlaceAssociation.entity_id
-)  # Covers both entity_type-only sweeps and the common entity_type+entity_id lookup
+    "uq_place_assoc_entity_place_type", PlaceAssociation.entity_type, PlaceAssociation.entity_id, PlaceAssociation.place_id, PlaceAssociation.association_type_id, unique=True
+)  # Same entity linked to the same place with the same association type twice is a
+# duplicate (e.g. two "Headquarters" rows for one publisher pointing at the same
+# place) -- the same place under a *different* type is a distinct, valid fact.
 
 # --- Awards ---
-Index(
-    "idx_awards_mb_series_id", Award.mb_series_id, Award.award_year
-)  # Awards-sync find-or-create key
+Index("idx_awards_mb_series_id", Award.mb_series_id, Award.award_year)  # Awards-sync find-or-create key
 
 # --- Award associations ---
 Index("idx_award_associations", AwardAssociation.award_id, AwardAssociation.entity_id)
-Index(
-    "idx_award_assoc_entity_type_id", AwardAssociation.entity_type, AwardAssociation.entity_id
-)  # Covers both entity_type-only sweeps and the common entity_type+entity_id lookup
+Index("idx_award_assoc_entity_type_id", AwardAssociation.entity_type, AwardAssociation.entity_id)  # Covers both entity_type-only sweeps and the common entity_type+entity_id lookup
 
 # --- Playlists ---
-Index(
-    "idx_playlist_tracks_track_id", PlaylistTracks.track_id
-)  # Reverse lookup: track → playlists it appears in
-Index(
-    "idx_smart_playlist_criteria_playlist_id", SmartPlaylistCriteria.smart_playlist_id
-)  # Loaded whenever a smart playlist is built/edited
+Index("idx_playlist_tracks_track_id", PlaylistTracks.track_id)  # Reverse lookup: track → playlists it appears in
+Index("idx_smart_playlist_criteria_playlist_id", SmartPlaylistCriteria.smart_playlist_id)  # Loaded whenever a smart playlist is built/edited
 
 # --- Charts ---
-Index(
-    "idx_chart_entries_entity", ChartEntry.entity_type, ChartEntry.entity_id
-)  # Reverse lookup: track/album -> its chart history
-Index(
-    "idx_chart_entries_raw_title", ChartEntry.raw_title
-)  # Search tab lookups; also the matcher's title-bucket build query
+Index("idx_chart_entries_entity", ChartEntry.entity_type, ChartEntry.entity_id)  # Reverse lookup: track/album -> its chart history
+Index("idx_chart_entries_raw_title", ChartEntry.raw_title)  # Search tab lookups; also the matcher's title-bucket build query
 
 # --- Samples ---
 Index("idx_samples_sampled_id", Samples.sampled_id)  # Reverse lookup: track → tracks that sample it
