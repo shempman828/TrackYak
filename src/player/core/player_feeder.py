@@ -1,32 +1,29 @@
-"""
-player_feeder.py — the background thread that pushes decoded audio into the
-PortAudio output stream, plus its deferred diagnostics.
+"""player_feeder.py — the background thread that pushes decoded audio into the PortAudio output stream, plus its deferred diagnostics."""
 
-Design: PortAudio's output stream is opened WITHOUT a callback. A dedicated
-feeder thread pulls the reader's decode chunks out of the ring buffer, applies
-gain + EQ, and hands them to ``stream.write()`` in small slices. ``write()``
-blocks *inside PortAudio's C code with the GIL released* until the device has
-room, and PortAudio's own C thread moves the samples to the DAC. So no Python
-ever runs on the real-time thread and a GIL stall on the feeder (a DB write,
-an image decode, a Qt model rebuild elsewhere in the process) just delays the
-next ``write()`` by a few ms instead of blowing a hardware deadline. The
-~37 s ring buffer (player_reader.py) is the cushion; the feeder only has to
-average keeping up.
-
-The feeder thread OWNS the stream's start/stop/write/abort for the stream's
-lifetime — the main thread only constructs the stream and closes it once the
-feeder has been joined (see _stop_feeder_thread / _close_stream).
-
-Expects the host class to provide: self.audio_stream, self._finish_pending,
-self._track_finished (signal), self._stream_generation, self.playing,
-self.paused, self._buffer_lock, self._audio_buffer, self._total_frames,
-self._current_frame, self._gain_factor, self.volume_level, self.equalizer,
-self._frames_played, self._is_advancing, self._buffer_epoch (bumped by reset
-sites when _audio_buffer is cleared), self._final_chunk_seen, and the feeder
-control fields set up in MusicPlayer.__init__ (self._feeder_thread,
-self._feeder_stop, self._feeder_wake, self._feeder_flush,
-self._feeder_native_tid, self._feeder_generation).
-"""
+# Design: PortAudio's output stream is opened WITHOUT a callback. A dedicated
+# feeder thread pulls the reader's decode chunks out of the ring buffer,
+# applies gain + EQ, and hands them to stream.write() in small slices.
+# write() blocks *inside PortAudio's C code with the GIL released* until the
+# device has room, and PortAudio's own C thread moves the samples to the DAC.
+# So no Python ever runs on the real-time thread, and a GIL stall on the
+# feeder (a DB write, an image decode, a Qt model rebuild elsewhere in the
+# process) just delays the next write() by a few ms instead of blowing a
+# hardware deadline. The ~37s ring buffer (player_reader.py) is the cushion;
+# the feeder only has to average keeping up.
+#
+# The feeder thread OWNS the stream's start/stop/write/abort for the stream's
+# lifetime -- the main thread only constructs the stream and closes it once
+# the feeder has been joined (see _stop_feeder_thread / _close_stream).
+#
+# Expects the host class to provide: self.audio_stream, self._finish_pending,
+# self._track_finished (signal), self._stream_generation, self.playing,
+# self.paused, self._buffer_lock, self._audio_buffer, self._total_frames,
+# self._current_frame, self._gain_factor, self.volume_level, self.equalizer,
+# self._frames_played, self._is_advancing, self._buffer_epoch (bumped by
+# reset sites when _audio_buffer is cleared), self._final_chunk_seen, and the
+# feeder control fields set up in MusicPlayer.__init__ (self._feeder_thread,
+# self._feeder_stop, self._feeder_wake, self._feeder_flush,
+# self._feeder_native_tid, self._feeder_generation).
 
 import contextlib
 import threading
@@ -34,8 +31,8 @@ import threading
 import numpy as np
 
 from src.foundation.logger_config import logger
-from src.player.core.player_device import demote_thread_from_realtime
 from src.player.core.player_reader import BLOCKSIZE
+from src.player.core.player_realtime import demote_thread_from_realtime
 
 # Frames handed to a single stream.write() call. One decode chunk (BLOCKSIZE,
 # 16384) is written out in slices this size so the feeder loop re-checks
@@ -71,36 +68,26 @@ class PlayerFeederMixin:
         self._feeder_flush.clear()
         self._feeder_generation = self._stream_generation
         self._feeder_native_tid = None
-        self._feeder_thread = threading.Thread(
-            target=self._feeder_loop,
-            args=(self._stream_generation,),
-            daemon=True,
-            name="AudioFeeder",
-        )
+        self._feeder_thread = threading.Thread(target=self._feeder_loop, args=(self._stream_generation,), daemon=True, name="AudioFeeder")
         self._feeder_thread.start()
 
     def _stop_feeder_thread(self):
-        """Signal the feeder thread to exit and wait briefly. Safe to call
-        more than once and when no feeder is running.
-
-        If join() times out, the thread is still alive -- most likely stuck
-        inside a slow stream.write() (a wedged device). Do NOT clear
-        self._feeder_thread in that case: clearing it would blind
-        _start_feeder_thread()'s "already running" guard, letting it spawn a
-        second feeder that writes to the stream alongside the first one
-        instead of leaving the stuck thread to exit on its own once
-        self._feeder_stop (already set above) lets it out of its loop.
-        """
+        """Signal the feeder thread to exit and wait briefly for it to stop."""
+        # Safe to call more than once and when no feeder is running. If
+        # join() times out, the thread is still alive -- most likely stuck
+        # inside a slow stream.write() (a wedged device). Do NOT clear
+        # self._feeder_thread in that case: clearing it would blind
+        # _start_feeder_thread()'s "already running" guard, letting it spawn
+        # a second feeder that writes to the stream alongside the first one,
+        # instead of leaving the stuck thread to exit on its own once
+        # self._feeder_stop (already set above) lets it out of its loop.
         self._feeder_stop.set()
         self._feeder_wake.set()
         thread = self._feeder_thread
         if thread is not None and thread.is_alive() and thread is not threading.current_thread():
             thread.join(timeout=FEEDER_JOIN_TIMEOUT)
             if thread.is_alive():
-                logger.warning(
-                    "_stop_feeder_thread(): feeder thread still stuck after 2s; "
-                    "leaving it in place instead of orphaning it"
-                )
+                logger.warning("_stop_feeder_thread(): feeder thread still stuck after 2s; leaving it in place instead of orphaning it")
                 return
         self._feeder_thread = None
 
@@ -175,9 +162,7 @@ class PlayerFeederMixin:
                     # real fault worth counting.
                     if not self._finish_pending.is_set():
                         self._pending_buffer_underrun_count += 1
-                    if self._final_chunk_seen or (
-                        self._total_frames > 0 and self._current_frame >= self._total_frames
-                    ):
+                    if self._final_chunk_seen or (self._total_frames > 0 and self._current_frame >= self._total_frames):
                         self._emit_track_finished_once()
                     self._feeder_stop.wait(timeout=0.01)
                     continue
@@ -233,19 +218,13 @@ class PlayerFeederMixin:
                     stream.stop()
 
     def _write_chunk(self, stream, out: np.ndarray, generation: int, epoch: int) -> bool:
-        """Write `out` to the stream in FEEDER_WRITE_BLOCKSIZE slices, bailing
-        out between slices if playback state moved under us. Returns True iff
-        the whole chunk was written."""
+        """Write `out` to the stream in FEEDER_WRITE_BLOCKSIZE slices; returns True iff the whole chunk was written."""
         pos = 0
         total = len(out)
         while pos < total:
-            if (
-                self._feeder_stop.is_set()
-                or self.paused
-                or generation != self._stream_generation
-                or epoch != self._buffer_epoch
-                or self._feeder_flush.is_set()
-            ):
+            if self._feeder_stop.is_set() or self.paused or generation != self._stream_generation or epoch != self._buffer_epoch or self._feeder_flush.is_set():
+                # Playback state moved under us between slices -- bail
+                # without writing the rest of this chunk.
                 return False
             end = min(pos + FEEDER_WRITE_BLOCKSIZE, total)
             try:
@@ -276,17 +255,10 @@ class PlayerFeederMixin:
         if self._pending_output_underflow_count:
             count = self._pending_output_underflow_count
             self._pending_output_underflow_count = 0
-            logger.warning(
-                f"Audio output underflow x{count} since last check "
-                f"(feeder thread missed the device deadline; "
-                f"playing={self.playing}, frames_done={self._current_frame})"
-            )
+            logger.warning(f"Audio output underflow x{count} since last check (feeder thread missed the device deadline; playing={self.playing}, frames_done={self._current_frame})")
         if self._pending_buffer_underrun_count:
             count = self._pending_buffer_underrun_count
             self._pending_buffer_underrun_count = 0
             with self._buffer_lock:
                 buf_len = len(self._audio_buffer)
-            logger.warning(
-                f"Audio buffer underrun x{count} since last check "
-                f"(reader thread fell behind; buffer now has {buf_len} chunks)"
-            )
+            logger.warning(f"Audio buffer underrun x{count} since last check (reader thread fell behind; buffer now has {buf_len} chunks)")

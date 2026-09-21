@@ -1,12 +1,9 @@
-"""
-player_track_loading.py — opening audio files and pre-loading the next
-queued track for MusicPlayer.
+"""player_track_loading.py — opening audio files and pre-loading the next queued track for MusicPlayer."""
 
-Expects the host class to provide: self.sf (soundfile module), self._sf_reader,
-self._reader_lock, self._preload_lock, self._next_* preload state,
-self.queue_manager, self.equalizer, self.current_* track state, and the
-track_changed/duration_changed/position_changed signals.
-"""
+# Expects the host class to provide: self.sf (soundfile module),
+# self._sf_reader, self._reader_lock, self._preload_lock, self._next_*
+# preload state, self.queue_manager, self.equalizer, self.current_* track
+# state, and the track_changed/duration_changed/position_changed signals.
 
 import contextlib
 from pathlib import Path
@@ -15,12 +12,7 @@ import time
 import unicodedata
 
 from src.foundation.logger_config import logger
-from src.player.core.player_reader import (
-    _PLAYABLE_EXTENSIONS,
-    READER_LOCK_TIMEOUT,
-    TranscodeUnavailableError,
-    _open_soundfile,
-)
+from src.player.core.player_reader import _PLAYABLE_EXTENSIONS, READER_LOCK_TIMEOUT, TranscodeUnavailableError, _open_soundfile
 
 # Formats the player will open. Sourced from player_reader so the load gate,
 # the transcode routing, and the importer's SUPPORTED_EXTENSIONS can't drift
@@ -106,6 +98,16 @@ class PlayerTrackLoadingMixin:
                     new_ch = new_reader.channels
                     new_frames = len(new_reader)
 
+            if new_sr <= 0:
+                # A damaged header can report samplerate=0; the duration and
+                # position math below divides by it, so reject the file here
+                # instead of letting that raise ZeroDivisionError later.
+                with contextlib.suppress(OSError, self.sf.LibsndfileError):
+                    new_reader.close()
+                self.error_occurred.emit(f"Unreadable audio format: {file_path.name}")
+                logger.error(f"load_track: {file_path} reports samplerate={new_sr}")
+                return False
+
             # Swap in the new reader and close the old one.
             old_reader = None
             if not self._reader_lock.acquire(timeout=READER_LOCK_TIMEOUT):
@@ -145,10 +147,7 @@ class PlayerTrackLoadingMixin:
             logger.debug(f"track_changed emitted at {time.time()}")
             self.duration_changed.emit(self._duration)
 
-            logger.info(
-                f"Loaded: {file_path.name} | {new_sr}Hz | {new_ch}ch | "
-                f"{self._duration}ms | gain={self._gain_factor:.4f}"
-            )
+            logger.info(f"Loaded: {file_path.name} | {new_sr}Hz | {new_ch}ch | {self._duration}ms | gain={self._gain_factor:.4f}")
 
             # Start the reader thread so the buffer begins filling immediately.
             # play() will reuse the existing stream if SR/channels match, so

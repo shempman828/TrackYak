@@ -1,12 +1,10 @@
-"""
-player_position.py — position tracking and play-count recording for
-MusicPlayer, ticked by the position timer.
+"""player_position.py — position tracking and play-count recording for MusicPlayer, ticked by the position timer."""
 
-Expects the host class to provide: self.playing, self.paused, self._sf_reader,
-self._frames_played, self.current_sample_rate, self.position_changed signal,
-self._duration, self.current_file, self.controller, and
-self._flush_playback_diagnostics (see PlayerFeederMixin).
-"""
+# Expects the host class to provide: self.playing, self.paused,
+# self._sf_reader, self._frames_played, self.current_sample_rate,
+# self.position_changed signal, self._duration, self.current_file,
+# self.controller, and self._flush_playback_diagnostics (see
+# PlayerFeederMixin).
 
 from datetime import datetime
 import threading
@@ -32,12 +30,7 @@ class PlayerPositionMixin:
 
         self._flush_playback_diagnostics()
 
-        if (
-            self._duration > 0
-            and not self._play_count_recorded
-            and (self._position / self._duration) >= PLAY_COUNT_THRESHOLD
-            and not self._has_reached_threshold
-        ):
+        if self._duration > 0 and not self._play_count_recorded and (self._position / self._duration) >= PLAY_COUNT_THRESHOLD and not self._has_reached_threshold:
             self._has_reached_threshold = True
             self._increment_play_count()
 
@@ -51,17 +44,10 @@ class PlayerPositionMixin:
 
         def _update_db():
             try:
-                track = self.controller.get.get_entity_object(
-                    "Track", track_file_path=str(current_path)
-                )
+                track = self.controller.get.get_entity_object("Track", track_file_path=str(current_path))
                 if track and getattr(track, "track_id", None):
                     new_count = (getattr(track, "play_count", 0) or 0) + 1
-                    self.controller.update.update_entity(
-                        "Track",
-                        track.track_id,
-                        play_count=new_count,
-                        last_listened_date=datetime.now(),
-                    )
+                    self.controller.update.update_entity("Track", track.track_id, play_count=new_count, last_listened_date=datetime.now())
                     # Emit signal back to main thread
                     self.play_count_updated.emit(current_path, new_count)
                     logger.info(f"Play count → {new_count}: {current_path.name}")

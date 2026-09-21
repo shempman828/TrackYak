@@ -1,16 +1,11 @@
-"""
-waveform_cache.py — per-track downsampled amplitude envelopes for the
-Player Dock's waveform seek bar.
+"""waveform_cache.py — per-track downsampled amplitude envelopes for the Player Dock's waveform seek bar."""
 
-One tiny ``.npy`` per track identity under ``cache/waveforms/``, keyed the
-same way as the sync transcode cache (resolved path | mtime | size). The
-array is ``int8``, shape ``(N_BUCKETS, 2)``: column 0 = bucket minimum
-sample, column 1 = bucket maximum, quantised to ``[-127, 127]``.
-
-Decoding reuses :func:`player_reader._open_soundfile`, so every container the
-player can play — including the ``.m4a``/``.aac``/``.opus`` ffmpeg-to-WAV
-fallback — is covered.
-"""
+# One tiny .npy per track identity under cache/waveforms/, keyed the same way
+# as the sync transcode cache (resolved path | mtime | size). The array is
+# int8, shape (N_BUCKETS, 2): column 0 = bucket minimum sample, column 1 =
+# bucket maximum, quantised to [-127, 127]. Decoding reuses
+# player_reader._open_soundfile, so every container the player can play --
+# including the .m4a/.aac/.opus ffmpeg-to-WAV fallback -- is covered.
 
 import contextlib
 import hashlib
@@ -108,11 +103,7 @@ def _reduce_known_length(reader, n_frames: int, n_buckets: int) -> np.ndarray:
 def _reduce_streaming(reader, n_buckets: int) -> np.ndarray:
     """Fallback for files whose header reports 0 / an unreliable frame count
     (streaming FLAC, some VBR MP3): decode fully, then bucket by index."""
-    blocks = [
-        block
-        for block in reader.blocks(blocksize=_SUBCHUNK_FRAMES, dtype="float32", always_2d=True)
-        if len(block)
-    ]
+    blocks = [block for block in reader.blocks(blocksize=_SUBCHUNK_FRAMES, dtype="float32", always_2d=True) if len(block)]
     total = sum(len(b) for b in blocks)
     if not total:
         zero = np.zeros(n_buckets, dtype=np.float32)
@@ -232,10 +223,7 @@ class WaveformCache:
             logger.warning(f"WaveformCache: enforce_limit failed: {e}")
             return
         if result["evicted"] or result["swept_tmp"]:
-            logger.info(
-                f"WaveformCache: swept {result['swept_tmp']} tmp, evicted "
-                f"{result['evicted']} file(s) ({result['freed_bytes']} bytes)"
-            )
+            logger.info(f"WaveformCache: swept {result['swept_tmp']} tmp, evicted {result['evicted']} file(s) ({result['freed_bytes']} bytes)")
 
     def enforce_limit(self, max_bytes: int) -> dict:
         """Sweep stale ``.tmp`` files, then LRU-evict ``.npy`` files until the

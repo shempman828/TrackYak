@@ -1,25 +1,24 @@
-"""
-player_util.py — MusicPlayer
-Streaming music playback engine.
+"""player_util.py — MusicPlayer: streaming music playback engine."""
 
-The class itself is intentionally thin: it owns __init__, Qt signals, and
-read-only UI properties, while behavior lives in the mixins below (each is
-one former section of this file):
-
-    player_device.py         — audio backend init, output device selection,
-                                exclusive/bit-perfect (raw hw:) mode
-    player_reader.py          — background decode thread + ring buffer
-    player_track_loading.py   — opening files, next-track pre-load
-    player_transport.py       — play/pause/stop/seek/next/previous
-    player_feeder.py          — the thread that writes decoded audio into the
-                                output stream + its deferred diagnostics
-    player_position.py        — position-timer tick, play-count recording
-    player_gain.py             — volume + ReplayGain/normalization
-
-Diagnostics note: the feeder thread (player_feeder.py) must not do logging
-I/O itself — it only counts events; _flush_playback_diagnostics (called from
-the position timer each tick) does the actual logging from the main thread.
-"""
+# The class itself is intentionally thin: it owns __init__, Qt signals, and
+# read-only UI properties, while behavior lives in the mixins below (each is
+# one former section of this file):
+#
+#     player_device.py         — audio backend init, output device selection,
+#                                 exclusive/bit-perfect (raw hw:) mode
+#     player_realtime.py       — RTKit real-time priority + GC suspension
+#     player_reader.py         — background decode thread + ring buffer
+#     player_track_loading.py  — opening files, next-track pre-load
+#     player_transport.py      — play/pause/stop/seek/next/previous
+#     player_feeder.py         — the thread that writes decoded audio into the
+#                                 output stream + its deferred diagnostics
+#     player_position.py       — position-timer tick, play-count recording
+#     player_gain.py           — volume + ReplayGain/normalization
+#
+# Diagnostics note: the feeder thread (player_feeder.py) must not do logging
+# I/O itself -- it only counts events; _flush_playback_diagnostics (called
+# from the position timer each tick) does the actual logging from the main
+# thread.
 
 import collections
 import contextlib
@@ -36,21 +35,13 @@ from src.player.core.player_feeder import PlayerFeederMixin
 from src.player.core.player_gain import PlayerGainMixin
 from src.player.core.player_position import POSITION_INTERVAL_MS, PlayerPositionMixin
 from src.player.core.player_reader import PlayerReaderMixin
+from src.player.core.player_realtime import PlayerRealtimeMixin
 from src.player.core.player_track_loading import PlayerTrackLoadingMixin
+from src.player.core.player_transport import PlayerTransportMixin
 from src.player.core.queue_utility import QueueManager
-from src.player.ui.player_transport import PlayerTransportMixin
 
 
-class MusicPlayer(
-    QObject,
-    PlayerDeviceMixin,
-    PlayerReaderMixin,
-    PlayerTrackLoadingMixin,
-    PlayerTransportMixin,
-    PlayerFeederMixin,
-    PlayerPositionMixin,
-    PlayerGainMixin,
-):
+class MusicPlayer(QObject, PlayerDeviceMixin, PlayerRealtimeMixin, PlayerReaderMixin, PlayerTrackLoadingMixin, PlayerTransportMixin, PlayerFeederMixin, PlayerPositionMixin, PlayerGainMixin):
     """
     Streaming music player.  Reads audio from disk in small chunks so RAM usage
     stays flat regardless of file size or library size.
@@ -202,9 +193,7 @@ class MusicPlayer(
         # runs on the main thread regardless of which thread emits it.
         from PySide6.QtCore import Qt as _Qt
 
-        self._track_finished.connect(
-            self._handle_playback_finished, type=_Qt.ConnectionType.QueuedConnection
-        )
+        self._track_finished.connect(self._handle_playback_finished, type=_Qt.ConnectionType.QueuedConnection)
 
         # ── Boot ──────────────────────────────────────────────────────────────
         self._audio_initialized = self._initialize_audio_backend()

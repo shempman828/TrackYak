@@ -12,11 +12,11 @@ import gc
 
 import pytest
 
-from src.player.core.player_device import PlayerDeviceMixin
+from src.player.core.player_realtime import PlayerRealtimeMixin
 
 
-class _Bare(PlayerDeviceMixin):
-    """PlayerDeviceMixin has no __init__; the gc helpers touch no self state."""
+class _Bare(PlayerRealtimeMixin):
+    """PlayerRealtimeMixin has no __init__; the gc helpers touch no self state."""
 
 
 @pytest.fixture(autouse=True)

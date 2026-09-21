@@ -9,7 +9,7 @@ PortAudio period would only add output latency.
 """
 
 from src.player.core.player_reader import BLOCKSIZE
-from src.player.ui.player_transport import STREAM_BLOCKSIZE
+from src.player.core.player_transport import STREAM_BLOCKSIZE
 
 
 def test_stream_blocksize_lets_portaudio_choose():

@@ -23,6 +23,7 @@ import pytest
 from src.player.core import player_feeder
 from src.player.core.player_device import PlayerDeviceMixin
 from src.player.core.player_feeder import PlayerFeederMixin
+from src.player.core.player_realtime import PlayerRealtimeMixin
 
 CH = 2
 
@@ -59,7 +60,7 @@ class _StuckStream:
         return False
 
 
-class _Host(PlayerDeviceMixin, PlayerFeederMixin):
+class _Host(PlayerDeviceMixin, PlayerRealtimeMixin, PlayerFeederMixin):
     def __init__(self):
         self._buffer_lock = threading.Lock()
         self._audio_buffer = collections.deque([np.zeros((100, CH), dtype="float32")])
@@ -107,17 +108,9 @@ def test_close_stream_does_not_race_a_still_stuck_feeder(monkeypatch):
     closed = h._close_stream()
 
     assert closed is False, "_close_stream() must report failure when the feeder is stuck"
-    assert h._feeder_thread is not None and h._feeder_thread.is_alive(), (
-        "stuck feeder thread must be left in place, not orphaned"
-    )
-    assert h.audio_stream is stream, (
-        "_close_stream() must leave self.audio_stream alone while the feeder "
-        "that owns it is still alive"
-    )
-    assert not stream.closed_while_writing, (
-        "_close_stream() called stop()/close() on the stream while the feeder "
-        "thread was still inside write() on it -- a native-level race"
-    )
+    assert h._feeder_thread is not None and h._feeder_thread.is_alive(), "stuck feeder thread must be left in place, not orphaned"
+    assert h.audio_stream is stream, "_close_stream() must leave self.audio_stream alone while the feeder that owns it is still alive"
+    assert not stream.closed_while_writing, "_close_stream() called stop()/close() on the stream while the feeder thread was still inside write() on it -- a native-level race"
 
     # Let the feeder unstick and exit; its own teardown stops the stream.
     stream.release.set()

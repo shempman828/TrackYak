@@ -1,10 +1,8 @@
-"""
-player_gain.py — volume and ReplayGain-based normalization for MusicPlayer.
+"""player_gain.py — volume and ReplayGain-based normalization for MusicPlayer."""
 
-Expects the host class to provide: self.volume_level, self.volume_changed
-signal, self._volume_save_timer, self.normalization_enabled,
-self.normalization_target, self.controller, self.current_file.
-"""
+# Expects the host class to provide: self.volume_level, self.volume_changed
+# signal, self._volume_save_timer, self.normalization_enabled,
+# self.normalization_target, self.controller, self.current_file.
 
 from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
@@ -43,12 +41,7 @@ class PlayerGainMixin:
         Returns the multiplier applied to every audio chunk.
         Uses ReplayGain from the DB when available; falls back to 1.0.
         """
-        return calculate_gain_factor(
-            self.controller,
-            self.current_file,
-            self.normalization_enabled,
-            self.normalization_target,
-        )
+        return calculate_gain_factor(self.controller, self.current_file, self.normalization_enabled, self.normalization_target)
 
     def _save_volume_to_config(self):
         try:

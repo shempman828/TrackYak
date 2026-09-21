@@ -69,11 +69,7 @@ class PlayerTransportMixin:
                 return
 
             # ── Reuse existing stream if sample rate and channels match ──────────
-            if (
-                self.audio_stream is not None
-                and self.audio_stream.samplerate == self.current_sample_rate
-                and self.audio_stream.channels == self.current_channels
-            ):
+            if self.audio_stream is not None and self.audio_stream.samplerate == self.current_sample_rate and self.audio_stream.channels == self.current_channels:
                 # Stream already open and compatible — clear finish flag and go.
                 # The reader thread was already started by load_track(), so the
                 # buffer is being filled; the feeder thread is still running
@@ -95,10 +91,7 @@ class PlayerTransportMixin:
                 # (see _close_stream()) -- opening a second one now would leave
                 # it unfed (silence) at best and race the stuck feeder's own
                 # teardown at worst. Bail out; the caller can retry play().
-                self.error_occurred.emit(
-                    "Audio device busy (previous stream still shutting down); "
-                    "try again in a moment."
-                )
+                self.error_occurred.emit("Audio device busy (previous stream still shutting down); try again in a moment.")
                 return
             self._stream_generation += 1
             self._finish_pending.clear()
@@ -154,9 +147,7 @@ class PlayerTransportMixin:
                     # PipeWire/PulseAudio (e.g. PortAudio "Device unavailable"). Fall
                     # back to the system default so playback still works, but surface
                     # it — this used to fail silently except for a log line.
-                    logger.warning(
-                        f"Output device unavailable ({exc}); falling back to default device"
-                    )
+                    logger.warning(f"Output device unavailable ({exc}); falling back to default device")
                     if self.exclusive_mode:
                         self.error_occurred.emit(
                             "Bit-perfect device unavailable (likely in use by "
@@ -165,10 +156,7 @@ class PlayerTransportMixin:
                             "a different one, and try again."
                         )
                     else:
-                        self.error_occurred.emit(
-                            f"Output device unavailable ({exc}); falling back to "
-                            "the default device."
-                        )
+                        self.error_occurred.emit(f"Output device unavailable ({exc}); falling back to the default device.")
                     self.current_device = None
                     fallback_config = self._get_device_config()
                     self.audio_stream = _open_stream(fallback_config["device"])
@@ -232,10 +220,7 @@ class PlayerTransportMixin:
             finally:
                 self._reader_lock.release()
         else:
-            logger.warning(
-                "stop(): reader lock busy (reader thread likely stuck on slow "
-                "I/O); skipping cursor reset"
-            )
+            logger.warning("stop(): reader lock busy (reader thread likely stuck on slow I/O); skipping cursor reset")
         self._frames_played = 0
         with self._buffer_lock:
             self._audio_buffer.clear()
@@ -326,10 +311,7 @@ class PlayerTransportMixin:
             self._stop_reader_thread()
 
             if not self._reader_lock.acquire(timeout=READER_LOCK_TIMEOUT):
-                logger.warning(
-                    "seek(): reader lock busy (reader thread likely stuck on "
-                    "slow I/O); aborting seek"
-                )
+                logger.warning("seek(): reader lock busy (reader thread likely stuck on slow I/O); aborting seek")
                 # _stop_reader_thread() already tore down the reader thread;
                 # restart it (from the unchanged position) so playback
                 # doesn't stay silently stopped.

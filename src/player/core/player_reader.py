@@ -1,11 +1,9 @@
-"""
-player_reader.py — background decode thread for MusicPlayer.
+"""player_reader.py — background decode thread for MusicPlayer."""
 
-Expects the host class to provide: self._buffer_lock, self._audio_buffer,
-self._reader_lock, self._reader_stop, self._reader_thread, self._sf_reader,
-self._resolved_file_path, self._total_frames, self._current_frame,
-self.current_channels, self.sf (soundfile module).
-"""
+# Expects the host class to provide: self._buffer_lock, self._audio_buffer,
+# self._reader_lock, self._reader_stop, self._reader_thread, self._sf_reader,
+# self._resolved_file_path, self._total_frames, self._current_frame,
+# self.current_channels, self.sf (soundfile module).
 
 import contextlib
 import os
@@ -29,14 +27,12 @@ _PLAYABLE_EXTENSIONS = {".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a", ".aac"
 
 
 def _libsndfile_decodable_extensions() -> set[str]:
-    """Container extensions the *linked* libsndfile build can open directly.
-
-    MP3 (libsndfile 1.1.0) and Ogg/Opus (1.2.0) support arrived recently and
-    are both build-time options, so probe the running library instead of
-    assuming. Ogg/Vorbis needs the OGG container plus the VORBIS subtype;
-    .opus is Ogg framing with the OPUS subtype. .m4a/.aac (MPEG-4 / raw
-    ADTS) have never been decodable by libsndfile.
-    """
+    """Container extensions the *linked* libsndfile build can open directly."""
+    # MP3 (libsndfile 1.1.0) and Ogg/Opus (1.2.0) support arrived recently and
+    # are both build-time options, so probe the running library instead of
+    # assuming. Ogg/Vorbis needs the OGG container plus the VORBIS subtype;
+    # .opus is Ogg framing with the OPUS subtype. .m4a/.aac (MPEG-4 / raw
+    # ADTS) have never been decodable by libsndfile.
     try:
         formats = {name.upper() for name in _soundfile.available_formats()}
         subtypes = {name.upper() for name in _soundfile.available_subtypes()}
@@ -63,10 +59,7 @@ _LIBSNDFILE_FORMATS = _libsndfile_decodable_extensions() & _PLAYABLE_EXTENSIONS
 _FFMPEG_TRANSCODE_FORMATS = _PLAYABLE_EXTENSIONS - _LIBSNDFILE_FORMATS
 
 
-_FFMPEG_MISSING_MESSAGE = (
-    "Can't play {ext} files without ffmpeg -- install it "
-    "(e.g. `sudo apt install ffmpeg`) and try again."
-)
+_FFMPEG_MISSING_MESSAGE = "Can't play {ext} files without ffmpeg -- install it (e.g. `sudo apt install ffmpeg`) and try again."
 
 
 class TranscodeUnavailableError(OSError):
@@ -87,31 +80,11 @@ def _transcode_to_wav(file_path: Path) -> Path:
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-v",
-                "error",
-                "-y",
-                "-i",
-                str(file_path),
-                "-f",
-                "wav",
-                "-acodec",
-                "pcm_f32le",
-                str(tmp_path),
-            ],
-            check=True,
-            capture_output=True,
-            stdin=subprocess.DEVNULL,
-            timeout=30,
-        )
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(file_path), "-f", "wav", "-acodec", "pcm_f32le", str(tmp_path)], check=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
     except FileNotFoundError as exc:
         # ffmpeg disappeared between the which() check and the run.
         tmp_path.unlink(missing_ok=True)
-        raise TranscodeUnavailableError(
-            _FFMPEG_MISSING_MESSAGE.format(ext=file_path.suffix)
-        ) from exc
+        raise TranscodeUnavailableError(_FFMPEG_MISSING_MESSAGE.format(ext=file_path.suffix)) from exc
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         tmp_path.unlink(missing_ok=True)
         raise OSError(f"ffmpeg transcode failed: {exc}") from exc
@@ -159,16 +132,14 @@ class PlayerReaderMixin:
     that the audio feeder thread (see PlayerFeederMixin) drains."""
 
     def _start_reader_thread(self):
-        """Start background thread that decodes audio into the buffer.
-
-        No-op if a reader thread is already running for the current reader —
-        load_track() always starts one, and play() may call this again right
-        after (e.g. when it has to open a new device stream for a sample-rate/
-        channel change). Restarting here would orphan the already-running
-        thread (nothing ever stops it) and wipe out whatever it already
-        decoded without resetting _current_frame, silently dropping the start
-        of the track.
-        """
+        """Start the background thread that decodes audio into the ring buffer."""
+        # No-op if a reader thread is already running for the current reader
+        # -- load_track() always starts one, and play() may call this again
+        # right after (e.g. opening a new device stream for a sample-rate/
+        # channel change). Restarting here would orphan the running thread
+        # (nothing ever stops it) and wipe out what it already decoded
+        # without resetting _current_frame, silently dropping the start of
+        # the track.
         if self._reader_thread is not None and self._reader_thread.is_alive():
             return
         self._reader_stop.clear()
@@ -200,10 +171,7 @@ class PlayerReaderMixin:
                 reader = self._sf_reader
                 if reader is not None:
                     known_length = self._total_frames > 0
-                    if known_length:
-                        to_read = min(BLOCKSIZE, self._total_frames - self._current_frame)
-                    else:
-                        to_read = BLOCKSIZE
+                    to_read = min(BLOCKSIZE, self._total_frames - self._current_frame) if known_length else BLOCKSIZE
                     if to_read > 0:
                         chunk = reader.read(to_read, dtype="float32", always_2d=True)
                         self._current_frame += len(chunk)
@@ -215,41 +183,31 @@ class PlayerReaderMixin:
             finally:
                 self._reader_lock.release()
         else:
-            logger.warning(
-                "Buffer priming skipped: reader lock busy (stale reader thread "
-                "likely still stuck on slow I/O); deferring to reader thread"
-            )
+            logger.warning("Buffer priming skipped: reader lock busy (stale reader thread likely still stuck on slow I/O); deferring to reader thread")
 
-        self._reader_thread = threading.Thread(
-            target=self._reader_loop, daemon=True, name="AudioReader"
-        )
+        self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True, name="AudioReader")
         self._reader_thread.start()
 
     def _stop_reader_thread(self):
-        """Signal the reader thread to stop and wait briefly.
-
-        If join() times out, the thread is still alive -- almost always
-        blocked inside a slow reader.read() while holding _reader_lock (see
-        READER_LOCK_TIMEOUT above). Do NOT clear self._reader_thread or the
-        buffer in that case: clearing the reference would blind
-        _start_reader_thread()'s "already running" guard, letting it spawn a
-        second thread against the same reader while leaving this one alive
-        -- and clearing _reader_stop right after (as that guard's caller
-        does) would erase the very signal this still-running thread is
-        waiting to see, turning it into a permanent, unstoppable zombie
-        that keeps decoding into a buffer nothing is meant to be filling.
-        Leaving everything in place means the thread will see
-        _reader_stop still set and exit cleanly once it finally unblocks.
-        """
+        """Signal the reader thread to stop and wait briefly for it to exit."""
+        # If join() times out, the thread is still alive -- almost always
+        # blocked inside a slow reader.read() while holding _reader_lock
+        # (see READER_LOCK_TIMEOUT above). Do NOT clear self._reader_thread
+        # or the buffer in that case: clearing the reference would blind
+        # _start_reader_thread()'s "already running" guard, letting it spawn
+        # a second thread against the same reader while this one stays
+        # alive -- and clearing _reader_stop right after (as that guard's
+        # caller does) would erase the very signal this thread is waiting to
+        # see, turning it into a permanent zombie that keeps decoding into a
+        # buffer nothing is meant to be filling. Leaving everything in place
+        # means the thread will see _reader_stop still set and exit cleanly
+        # once it finally unblocks.
         self._reader_stop.set()
         thread = self._reader_thread
         if thread is not None and thread.is_alive():
             thread.join(timeout=READER_JOIN_TIMEOUT)
             if thread.is_alive():
-                logger.warning(
-                    "_stop_reader_thread(): reader thread still stuck on slow "
-                    "I/O after 2s; leaving it in place instead of orphaning it"
-                )
+                logger.warning("_stop_reader_thread(): reader thread still stuck on slow I/O after 2s; leaving it in place instead of orphaning it")
                 return
         self._reader_thread = None
         with self._buffer_lock:
@@ -336,9 +294,7 @@ class PlayerReaderMixin:
                                 self._sf_reader = fresh_reader
                                 recovered = True
                             except (OSError, self.sf.LibsndfileError) as reopen_exc:
-                                logger.error(
-                                    f"Fresh reopen after decode error also failed: {reopen_exc}"
-                                )
+                                logger.error(f"Fresh reopen after decode error also failed: {reopen_exc}")
                         if not recovered:
                             try:
                                 skip_to = self._current_frame + BLOCKSIZE
@@ -347,10 +303,7 @@ class PlayerReaderMixin:
                                 reader.seek(skip_to)
                                 self._current_frame = skip_to
                             except (OSError, self.sf.LibsndfileError) as seek_exc:
-                                logger.error(
-                                    f"Reader thread could not resync after decode error, "
-                                    f"ending track: {seek_exc}"
-                                )
+                                logger.error(f"Reader thread could not resync after decode error, ending track: {seek_exc}")
                                 # Can't recover — push an empty chunk so the feeder's
                                 # short-read check signals track-finished once the
                                 # buffer drains, instead of hanging silently forever.

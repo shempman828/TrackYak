@@ -1,10 +1,8 @@
-"""
-ReplayGain-based playback gain calculation.
+"""ReplayGain-based playback gain calculation."""
 
-Extracted from MusicPlayer (player_util.py) so this pure lookup-and-math
-logic is decoupled from the real-time audio engine — it touches the DB,
-not the reader thread/buffer/stream machinery.
-"""
+# Kept separate from MusicPlayer (player_util.py): this is pure lookup-and-
+# math logic that touches the DB, not the reader thread/buffer/stream
+# machinery of the real-time audio engine.
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -31,13 +29,9 @@ def get_track_gain_from_db(controller, current_file):
     return None, None
 
 
-def calculate_gain_factor(
-    controller, current_file, normalization_enabled: bool, normalization_target: float
-) -> float:
-    """
-    Returns the multiplier applied to every audio chunk.
-    Uses ReplayGain from the DB when available; falls back to 1.0.
-    """
+def calculate_gain_factor(controller, current_file, normalization_enabled: bool, normalization_target: float) -> float:
+    """Returns the multiplier applied to every audio chunk."""
+    # Uses ReplayGain from the DB when available; falls back to 1.0.
     if not normalization_enabled or current_file is None:
         return 1.0
 
@@ -53,17 +47,17 @@ def calculate_gain_factor(
             gain_db = track_gain + target_offset
             gain_factor = 10.0 ** (gain_db / 20.0)
 
-            # Peak limiter: only clamp if the boosted signal would clip.
-            # This runs AFTER gain is set so quiet tracks still get lifted.
-            if track_peak and track_peak > 0:
-                max_output = gain_factor * float(track_peak)
-                if max_output > 0.99:
-                    gain_factor = 0.99 / float(track_peak)
+            # Peak limiter: clamp if the boosted signal would clip. This runs
+            # AFTER gain is set so quiet tracks still get lifted. A missing
+            # or zero track_peak (incomplete DB metadata) falls back to 1.0
+            # instead of skipping the clamp, so gain_factor stays bounded
+            # even without real peak data.
+            effective_peak = float(track_peak) if track_peak and track_peak > 0 else 1.0
+            max_output = gain_factor * effective_peak
+            if max_output > 0.99:
+                gain_factor = 0.99 / effective_peak
 
-            logger.debug(
-                f"Gain factor (ReplayGain): {gain_factor:.4f}  "
-                f"(track_gain={track_gain:.2f} dB, target={normalization_target} LUFS)"
-            )
+            logger.debug(f"Gain factor (ReplayGain): {gain_factor:.4f}  (track_gain={track_gain:.2f} dB, target={normalization_target} LUFS)")
             return float(gain_factor)
 
     except (ValueError, TypeError) as exc:

@@ -1,15 +1,9 @@
-"""
-mpris2_integration.py
+"""Registers TrackYak as an MPRIS2 media player on D-Bus so Wayland desktops route media keys to this app."""
 
-Registers TrackYak as an MPRIS2 media player on D-Bus so that Wayland
-desktop environments (GNOME, KDE, etc.) route media key presses to this
-app instead of handling them at the OS level.
-
-MPRIS2 is the standard Linux protocol for media player control. When you
-press a media key on Wayland, the desktop sends a D-Bus message to whatever
-app has registered under org.mpris.MediaPlayer2 — not a keypress event.
-Qt's ApplicationShortcut cannot intercept this, so we register here instead.
-"""
+# MPRIS2 is the standard Linux protocol for media player control. On
+# Wayland, a media-key press becomes a D-Bus message to whatever app is
+# registered under org.mpris.MediaPlayer2, not a keypress event -- Qt's
+# ApplicationShortcut cannot intercept it, so this module registers instead.
 
 import threading
 
@@ -24,10 +18,7 @@ try:
     DBUS_AVAILABLE = True
 except ImportError:
     DBUS_AVAILABLE = False
-    logger.warning(
-        "dbus-python or PyGObject not installed — media keys will not work on Wayland.\n"
-        "Fix with:  sudo apt install python3-dbus python3-gi"
-    )
+    logger.warning("dbus-python or PyGObject not installed — media keys will not work on Wayland.\nFix with:  sudo apt install python3-dbus python3-gi")
 
 try:
     from PySide6.QtCore import QMetaObject, Qt
@@ -42,6 +33,11 @@ MPRIS2_IFACE = "org.mpris.MediaPlayer2"
 MPRIS2_PLAYER_IFACE = "org.mpris.MediaPlayer2.Player"
 DBUS_PROPS_IFACE = "org.freedesktop.DBus.Properties"
 BUS_NAME = "org.mpris.MediaPlayer2.trackyak"
+
+# MusicPlayer.repeat_mode is 0=none, 1=one, 2=all; MPRIS2's LoopStatus is the
+# string enum "None"/"Track"/"Playlist".
+_REPEAT_MODE_TO_LOOP_STATUS = {0: "None", 1: "Track", 2: "Playlist"}
+_LOOP_STATUS_TO_REPEAT_MODE = {v: k for k, v in _REPEAT_MODE_TO_LOOP_STATUS.items()}
 
 
 def _invoke_on_main_thread(obj, method_name):
@@ -212,7 +208,19 @@ class _MPRIS2DBusService(dbus.service.Object):
 
     @dbus.service.method(DBUS_PROPS_IFACE, in_signature="ssv")
     def Set(self, interface, prop, value):
-        pass
+        if interface == MPRIS2_PLAYER_IFACE and prop == "LoopStatus":
+            mode = _LOOP_STATUS_TO_REPEAT_MODE.get(str(value))
+            if mode is not None:
+                # set_repeat_mode() touches QTimers/Qt state, so it must run
+                # on the main thread, not this D-Bus thread (see Seek above).
+                try:
+                    from PySide6.QtCore import QTimer
+
+                    QTimer.singleShot(0, lambda: self._player.set_repeat_mode(mode))
+                except (AttributeError, TypeError, RuntimeError) as e:
+                    logger.error(f"MPRIS2 Set LoopStatus error: {e}")
+        # Shuffle isn't a persistent mode in this app (only one-shot
+        # shuffle-the-queue actions), so there is no state to set here.
 
     def _get_props(self, interface):
         """Return the properties the desktop queries to know what we support."""
@@ -231,17 +239,22 @@ class _MPRIS2DBusService(dbus.service.Object):
                 volume = self._player.volume_level / 100.0
                 position_us = self._player.position * 1000  # ms → µs
                 status = self._playback_status()
+                loop_status = _REPEAT_MODE_TO_LOOP_STATUS.get(self._player.repeat_mode, "None")
+                metadata = self._get_metadata()
             except (AttributeError, TypeError):
                 volume = 0.75
                 position_us = 0
                 status = "Stopped"
+                loop_status = "None"
+                metadata = dbus.Dictionary({}, signature="sv")
 
             return {
                 "PlaybackStatus": dbus.String(status),
-                "LoopStatus": dbus.String("None"),
+                "LoopStatus": dbus.String(loop_status),
                 "Rate": dbus.Double(1.0),
+                # Not a real toggle in this app -- see Set() above.
                 "Shuffle": dbus.Boolean(False),
-                "Metadata": dbus.Dictionary({}, signature="sv"),
+                "Metadata": metadata,
                 "Volume": dbus.Double(volume),
                 "Position": dbus.Int64(position_us),
                 "MinimumRate": dbus.Double(1.0),
@@ -254,6 +267,24 @@ class _MPRIS2DBusService(dbus.service.Object):
                 "CanControl": dbus.Boolean(True),
             }
         return {}
+
+    def _get_metadata(self):
+        """Build the MPRIS2 Metadata map from the currently queued track."""
+        track = self._player.queue_manager.get_current_track()
+        if track is None:
+            return dbus.Dictionary({}, signature="sv")
+        metadata = {
+            "mpris:trackid": dbus.ObjectPath(f"{MPRIS2_OBJECT_PATH}/Track/{track.track_id}"),
+            "mpris:length": dbus.Int64(self._player.duration * 1000),  # ms → µs
+            "xesam:title": dbus.String(getattr(track, "track_name", None) or ""),
+        }
+        artist = getattr(track, "primary_artist_names", None)
+        if artist:
+            metadata["xesam:artist"] = dbus.Array([dbus.String(artist)], signature="s")
+        album = getattr(track, "album_name", None)
+        if album:
+            metadata["xesam:album"] = dbus.String(album)
+        return dbus.Dictionary(metadata, signature="sv")
 
     def _playback_status(self):
         state = self._player.state  # "playing" | "paused" | "stopped"

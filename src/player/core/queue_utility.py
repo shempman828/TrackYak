@@ -73,13 +73,8 @@ class QueueManager(QObject):
         super().__init__()
         self.queue: list[Track] = []
         # maxlen keeps memory bounded; oldest entry is auto-dropped when full.
-        self.history: deque = deque(
-            maxlen=SAVE_HISTORY_LIMIT
-        )  # history[-1] == most recently played
+        self.history: deque = deque(maxlen=SAVE_HISTORY_LIMIT)  # history[-1] == most recently played
         self.config = config
-
-        # Kept for any legacy callers that check .history_exists — always False now.
-        self.history_exists: bool = False
 
         # Thread bookkeeping
         self._bulk_thread: QThread | None = None
@@ -108,10 +103,7 @@ class QueueManager(QObject):
 
         finished = self.queue.pop(0)
         self.history.append(finished)
-        logger.debug(
-            f"advance_queue: '{getattr(finished, 'track_name', '?')}' → history "
-            f"(history depth: {len(self.history)}, remaining: {len(self.queue)})"
-        )
+        logger.debug(f"advance_queue: '{getattr(finished, 'track_name', '?')}' → history (history depth: {len(self.history)}, remaining: {len(self.queue)})")
         self.queue_changed.emit()
 
     def go_to_previous(self) -> bool:
@@ -350,9 +342,7 @@ class QueueManager(QObject):
             data = json.dumps(state).encode("utf-8")
             atomic_write(self._queue_state_path(), data)
 
-            logger.info(
-                f"save_queue_to_config: {len(history_ids)} history + {len(queue_ids)} queue saved"
-            )
+            logger.info(f"save_queue_to_config: {len(history_ids)} history + {len(queue_ids)} queue saved")
         except (OSError, TypeError, AttributeError) as exc:
             logger.error(f"save_queue_to_config failed: {exc}")
 
@@ -407,10 +397,7 @@ class QueueManager(QObject):
             self.history = deque(loaded_history, maxlen=SAVE_HISTORY_LIMIT)
             self.queue = loaded_queue
 
-            logger.info(
-                f"load_queue_from_config: {len(loaded_history)} history + "
-                f"{len(loaded_queue)} queue restored"
-            )
+            logger.info(f"load_queue_from_config: {len(loaded_history)} history + {len(loaded_queue)} queue restored")
             self.queue_changed.emit()
             return bool(loaded_queue)
 

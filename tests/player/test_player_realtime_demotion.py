@@ -17,8 +17,8 @@ import time
 
 import pytest
 
-from src.player.core import player_device
-from src.player.core.player_device import PlayerDeviceMixin, demote_thread_from_realtime
+from src.player.core import player_realtime
+from src.player.core.player_realtime import PlayerRealtimeMixin, demote_thread_from_realtime
 
 _LINUX_SCHED = hasattr(os, "sched_setscheduler")
 
@@ -56,7 +56,7 @@ def test_demote_is_a_noop_without_sched_setscheduler(monkeypatch):
 # ── _request_exclusive_realtime_priority worker ────────────────────────────
 
 
-class _DeviceHost(PlayerDeviceMixin):
+class _DeviceHost(PlayerRealtimeMixin):
     def __init__(self, *, stream_generation, feeder_generation, feeder_tid, exclusive):
         self._stream_generation = stream_generation
         self._feeder_generation = feeder_generation
@@ -70,7 +70,7 @@ class _DeviceHost(PlayerDeviceMixin):
 
 
 def _run_promotion(host, monkeypatch, poll_timeout=0.15):
-    monkeypatch.setattr(player_device, "REALTIME_PROMOTION_POLL_TIMEOUT", poll_timeout)
+    monkeypatch.setattr(player_realtime, "REALTIME_PROMOTION_POLL_TIMEOUT", poll_timeout)
     host._request_exclusive_realtime_priority()
     time.sleep(poll_timeout + 0.3)
     for t in threading.enumerate():
@@ -90,7 +90,7 @@ def test_worker_ignores_a_stale_feeder_tid_from_a_previous_stream(monkeypatch):
 def test_worker_promotes_the_feeder_started_for_this_stream(monkeypatch):
     host = _DeviceHost(stream_generation=7, feeder_generation=7, feeder_tid=4242, exclusive=True)
     _run_promotion(host, monkeypatch)
-    assert host.promoted == [(4242, player_device.REALTIME_PROMOTION_PRIORITY)]
+    assert host.promoted == [(4242, player_realtime.REALTIME_PROMOTION_PRIORITY)]
 
 
 def test_worker_bails_if_exclusive_mode_turned_off_while_waiting(monkeypatch):

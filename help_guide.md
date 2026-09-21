@@ -739,7 +739,9 @@ same lyrics search from the keyboard.
 next/previous · `Ctrl+↑`/`Ctrl+↓` volume · `Shift+→`/`Shift+←` seek ·
 `Ctrl+Shift+↑`/`Ctrl+Shift+↓` rate up/down half a star · `Ctrl+Shift+L`
 search lyrics for the current track. Media keys on your keyboard work even
-when the app isn't focused.*
+when the app isn't focused, and on Linux desktops (GNOME, KDE) the system's
+media widget/lock screen shows the current track's title, artist, and album,
+and its repeat control stays in sync with the repeat toggle above.*
 
 ## Queue Dock
 
