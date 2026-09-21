@@ -1,15 +1,5 @@
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QDialog,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.album.disc_tab.disc_edit import DiscEditDialog
@@ -82,7 +72,8 @@ class DiscTabView(QWidget):
         self.renumber_btn = QPushButton("🔢 Auto-Number Tracks")
         self.renumber_btn.setToolTip(
             "Assign track numbers (restarting at 1 on each disc/side) and "
-            "absolute track numbers (continuous) based on the order shown below"
+            "absolute track numbers (continuous) based on the order shown below. "
+            "For a detected single with two bare tracks, assigns A1/B1 instead."
         )
         self.renumber_btn.clicked.connect(self.renumber_tracks)
         action_layout.addWidget(self.renumber_btn)
@@ -133,17 +124,10 @@ class DiscTabView(QWidget):
         """Load tracks and discs from the database"""
         try:
             # Load physical tracks for this album
-            self.physical_tracks = (
-                self.controller.get.get_all_entities("Track", album_id=self.album.album_id) or []
-            )
+            self.physical_tracks = self.controller.get.get_all_entities("Track", album_id=self.album.album_id) or []
 
             # Load virtual track links for this album
-            self.virtual_links = (
-                self.controller.get.get_all_entities(
-                    "AlbumVirtualTrack", album_id=self.album.album_id
-                )
-                or []
-            )
+            self.virtual_links = self.controller.get.get_all_entities("AlbumVirtualTrack", album_id=self.album.album_id) or []
 
             # Extract actual tracks from virtual links
             self.virtual_tracks = [link.track for link in self.virtual_links if link.track]
@@ -152,9 +136,7 @@ class DiscTabView(QWidget):
             self.all_tracks = self.physical_tracks + self.virtual_tracks
 
             # Load discs for this album
-            self.discs = (
-                self.controller.get.get_all_entities("Disc", album_id=self.album.album_id) or []
-            )
+            self.discs = self.controller.get.get_all_entities("Disc", album_id=self.album.album_id) or []
 
             # Sort discs by disc_number
             self.discs.sort(key=lambda d: d.disc_number or 0)
@@ -186,9 +168,7 @@ class DiscTabView(QWidget):
         # Virtual tracks don't have disc assignments in the same way
         # They use virtual_disc_number from the link
 
-        self.track_count_label.setText(
-            f"Tracks: {len(self.physical_tracks)} physical, {len(self.virtual_tracks)} virtual"
-        )
+        self.track_count_label.setText(f"Tracks: {len(self.physical_tracks)} physical, {len(self.virtual_tracks)} virtual")
         self.disc_count_label.setText(f"Discs: {len(self.discs)}")
         self.unassigned_label.setText(f"Unassigned: {unassigned_physical}")
 
@@ -211,6 +191,7 @@ class DiscTabView(QWidget):
             discs=self.discs,
             virtual_links=self.virtual_links,
             controller=self.controller,  # Pass controller so the widget can open edit dialogs
+            release_type=self.album.release_type,
             parent=self,
         )
 
@@ -239,12 +220,7 @@ class DiscTabView(QWidget):
                 next_number = max(d.disc_number for d in self.discs) + 1 if self.discs else 1
 
                 # Create disc using controller
-                success = self.controller.add.add_entity(
-                    "Disc",
-                    album_id=self.album.album_id,
-                    disc_number=next_number,
-                    disc_title=disc_data.get("disc_title"),
-                )
+                success = self.controller.add.add_entity("Disc", album_id=self.album.album_id, disc_number=next_number, disc_title=disc_data.get("disc_title"))
 
                 if success:
                     self.status_label.setText(f"Added disc {next_number}")
@@ -295,9 +271,7 @@ class DiscTabView(QWidget):
 
         disc_data = dialog.get_disc_data()
         try:
-            success = self.controller.update.update_entity(
-                "Disc", disc.disc_id, disc_title=disc_data.get("disc_title")
-            )
+            success = self.controller.update.update_entity("Disc", disc.disc_id, disc_title=disc_data.get("disc_title"))
             if success:
                 self.status_label.setText(f"Updated {self._disc_label(disc)}")
                 self.refresh_view()
@@ -322,11 +296,7 @@ class DiscTabView(QWidget):
         assigned_tracks = [t for t in self.physical_tracks if t.disc_id == disc.disc_id]
         if assigned_tracks:
             confirm = QMessageBox.warning(
-                self,
-                "Disc Has Tracks",
-                f"{choice} has {len(assigned_tracks)} track(s) assigned to it. "
-                "Removing it will unassign those tracks. Continue?",
-                QMessageBox.Yes | QMessageBox.Cancel,
+                self, "Disc Has Tracks", f"{choice} has {len(assigned_tracks)} track(s) assigned to it. Removing it will unassign those tracks. Continue?", QMessageBox.Yes | QMessageBox.Cancel
             )
             if confirm != QMessageBox.Yes:
                 return

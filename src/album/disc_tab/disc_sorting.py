@@ -1,18 +1,17 @@
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QHeaderView,
-    QMenu,
-    QMessageBox,
-    QTreeWidget,
-    QTreeWidgetItem,
-)
+from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QMenu, QMessageBox, QTreeWidget, QTreeWidgetItem
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.album.release_type_utils import is_single
 from src.common.dialogs.delete_confirmation import confirm_delete_with_file_option
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
+
+# Sentinel distinct from any real side value (including None, which means
+# "no side") so the first track in a group always triggers the group-start
+# reset in assign_absolute_track_numbers/_persist_drop.
+_NO_SIDE_YET = object()
 
 
 def _side_sort_key(side_name: str):
@@ -33,12 +32,13 @@ class TrackSortingDisplay(QTreeWidget):
     # Emitted after tracks are deleted so the parent view can reload.
     track_deleted = Signal()
 
-    def __init__(self, tracks, discs=None, virtual_links=None, controller=None, parent=None):
+    def __init__(self, tracks, discs=None, virtual_links=None, controller=None, release_type=None, parent=None):
         super().__init__(parent)
         self.physical_tracks = tracks
         self.discs = discs or []
         self.virtual_links = virtual_links or []
         self.controller = controller  # Needed to open the edit dialog
+        self.is_single = is_single(release_type, len(self.physical_tracks), len(self.discs))
 
         # Create a combined list with metadata for sorting
         self.all_track_items = self._prepare_track_items()
@@ -62,28 +62,10 @@ class TrackSortingDisplay(QTreeWidget):
         items = []
         for track in self.physical_tracks:
             disc = discs_by_id.get(track.disc_id)
-            items.append(
-                {
-                    "track": track,
-                    "is_virtual": False,
-                    "disc_id": track.disc_id,
-                    "disc_number": disc.disc_number if disc else None,
-                    "track_number": track.track_number,
-                    "side": track.side,
-                }
-            )
+            items.append({"track": track, "is_virtual": False, "disc_id": track.disc_id, "disc_number": disc.disc_number if disc else None, "track_number": track.track_number, "side": track.side})
         for link in self.virtual_links:
             if link.track:
-                items.append(
-                    {
-                        "track": link.track,
-                        "is_virtual": True,
-                        "link": link,
-                        "disc_number": link.virtual_disc_number,
-                        "track_number": link.virtual_track_number,
-                        "side": link.virtual_side,
-                    }
-                )
+                items.append({"track": link.track, "is_virtual": True, "link": link, "disc_number": link.virtual_disc_number, "track_number": link.virtual_track_number, "side": link.virtual_side})
         return items
 
     def _organize_tracks(self):
@@ -97,11 +79,7 @@ class TrackSortingDisplay(QTreeWidget):
             if num in discs:
                 # No DB uniqueness constraint on disc_number -- a collision
                 # would otherwise silently drop one disc from the tree.
-                logger.warning(
-                    f"Duplicate disc_number {num} on discs "
-                    f"{discs[num]['disc'].disc_id} and {disc.disc_id}; "
-                    "only the first is shown"
-                )
+                logger.warning(f"Duplicate disc_number {num} on discs {discs[num]['disc'].disc_id} and {disc.disc_id}; only the first is shown")
                 continue
             discs[num] = {"disc": disc, "sides": {}, "tracks": []}
 
@@ -154,10 +132,10 @@ class TrackSortingDisplay(QTreeWidget):
             return
 
         # track_id is stored in column 0 as an int (set in _create_track_node).
-        # Disc and side header items store a disc object instead — skip those.
+        # Disc header items store a Disc object instead — skip those.
         track_id = item.data(0, Qt.UserRole)
         if not isinstance(track_id, int):
-            return  # User right-clicked a disc or side header, not a track
+            return  # User right-clicked a disc header, not a track
 
         # Collect all selected physical track IDs (the user may have
         # highlighted multiple rows before right-clicking).
@@ -166,7 +144,7 @@ class TrackSortingDisplay(QTreeWidget):
         for sel_item in self.selectedItems():
             sel_id = sel_item.data(0, Qt.UserRole)
             if not isinstance(sel_id, int):
-                continue  # skip disc/side header rows
+                continue  # skip disc header rows
             if sel_item.data(1, Qt.UserRole):  # is_virtual
                 has_virtual_selected = True
             else:
@@ -187,9 +165,7 @@ class TrackSortingDisplay(QTreeWidget):
             label = "✏️  Edit Track" if count == 1 else f"✏️  Edit {count} Tracks"
             edit_action = QAction(label, self)
             # Capture the list so the lambda always sees the right value
-            edit_action.triggered.connect(
-                lambda checked=False, ids=physical_ids: self._edit_track(ids)
-            )
+            edit_action.triggered.connect(lambda checked=False, ids=physical_ids: self._edit_track(ids))
             menu.addAction(edit_action)
 
         if has_virtual_selected:
@@ -203,9 +179,7 @@ class TrackSortingDisplay(QTreeWidget):
             count = len(physical_ids)
             del_label = "🗑️  Delete Track" if count == 1 else f"🗑️  Delete {count} Tracks"
             delete_action = QAction(del_label, self)
-            delete_action.triggered.connect(
-                lambda checked=False, ids=physical_ids: self._delete_tracks(ids)
-            )
+            delete_action.triggered.connect(lambda checked=False, ids=physical_ids: self._delete_tracks(ids))
             menu.addAction(delete_action)
 
         menu.exec_(self.viewport().mapToGlobal(position))
@@ -304,9 +278,7 @@ class TrackSortingDisplay(QTreeWidget):
             names += f" … and {count - 3} more"
 
         # --- Confirmation dialog: DB only / also delete file(s) / cancel ---
-        choice = confirm_delete_with_file_option(
-            self, "Delete Tracks", f"Delete {count} track(s)?\n\n{names}"
-        )
+        choice = confirm_delete_with_file_option(self, "Delete Tracks", f"Delete {count} track(s)?\n\n{names}")
         if choice is None:
             return
 
@@ -325,9 +297,7 @@ class TrackSortingDisplay(QTreeWidget):
         ok = controller.delete.delete_entity("Track", entity_ids=entity_ids)
         if not ok:
             logger.error("Batch delete returned False — tracks were not removed")
-            QMessageBox.warning(
-                self, "Error", "Could not delete the selected track(s) from the library."
-            )
+            QMessageBox.warning(self, "Error", "Could not delete the selected track(s) from the library.")
             return
         logger.info(f"Batch-deleted {count} track(s) from DB")
 
@@ -359,10 +329,10 @@ class TrackSortingDisplay(QTreeWidget):
     def selected_disc(self):
         """Return the Disc the user has selected in the tree, or None.
 
-        A selected disc-header row yields its Disc directly; a selected side
-        header or track row yields the Disc of the disc-header row it lives
-        under. Rows under the "Unassigned Tracks" group (no real Disc) and an
-        empty selection both yield None.
+        A selected disc-header row yields its Disc directly; a selected
+        track row yields the Disc of the disc-header row it lives under.
+        Rows under the "Unassigned Tracks" group (no real Disc) and an empty
+        selection both yield None.
         """
         items = self.selectedItems()
         if not items:
@@ -398,18 +368,15 @@ class TrackSortingDisplay(QTreeWidget):
             disc_item.setFlags(disc_item.flags() & ~Qt.ItemIsDragEnabled)
             disc_item.setExpanded(True)
 
-            for side_name, side_tracks in sorted(
-                data["sides"].items(), key=lambda kv: _side_sort_key(kv[0])
-            ):
-                side_item = QTreeWidgetItem(disc_item, [f"Side {side_name}"])
-                # Column 0 otherwise holds a Disc object (disc headers) or a
-                # track_id int (track rows) -- a str here is how dropEvent
-                # tells "this branch is a side group" apart from those.
-                side_item.setData(0, Qt.UserRole, side_name)
-                side_item.setFlags(side_item.flags() & ~Qt.ItemIsDragEnabled)
-                side_item.setExpanded(True)
-                for t in sorted(side_tracks, key=lambda x: x["track_number"] or 0):
-                    self._create_track_node(side_item, t)
+            # Side-grouped tracks sit directly under the disc, one row per
+            # track, with the side folded into the number column ("A1",
+            # "B1", ...) instead of nested under a separate "Side A" header
+            # row -- a header-per-side reads as needless depth, especially
+            # for the common single (Disc 1 / Side A / Side B, one track
+            # each).
+            side_items = [t for tracks in data["sides"].values() for t in tracks]
+            for t in sorted(side_items, key=lambda x: (_side_sort_key(x["side"]), x["track_number"] or 0)):
+                self._create_track_node(disc_item, t)
 
             for t in sorted(data["tracks"], key=lambda x: x["track_number"] or 0):
                 self._create_track_node(disc_item, t)
@@ -418,17 +385,23 @@ class TrackSortingDisplay(QTreeWidget):
         """Add one track row under parent_item, styled distinctly if it's virtual."""
         track = item_dict["track"]
         is_v = item_dict["is_virtual"]
+        side = item_dict.get("side")
+        track_number = item_dict.get("track_number")
+        number_label = f"{side}{track_number}" if side and track_number is not None else str(track_number or "?")
 
         duration = track.duration_formatted
         # Append a ghost emoji to virtual track names so they're visually
         # distinct without needing a whole dedicated column.
         track_name = (track.track_name or "Unknown") + (" 👻" if is_v else "")
 
-        node = QTreeWidgetItem(
-            parent_item, [str(item_dict["track_number"] or "?"), track_name, duration]
-        )
+        node = QTreeWidgetItem(parent_item, [number_label, track_name, duration])
         # Store track_id as an int so show_context_menu can identify track rows
         node.setData(0, Qt.UserRole, int(track.track_id))
+        # Side travels with the item through drag-and-drop reordering (Qt
+        # moves the QTreeWidgetItem itself), so assign_absolute_track_numbers
+        # and _persist_drop can read a track's side straight off its own row
+        # without needing a side-header parent to infer it from.
+        node.setData(0, Qt.UserRole + 1, side)
         node.setData(1, Qt.UserRole, is_v)
 
         if is_v:
@@ -445,18 +418,23 @@ class TrackSortingDisplay(QTreeWidget):
 
     def assign_absolute_track_numbers(self):
         """
-        Walk the tree in its current visible order (discs, then sides, then
-        tracks — reflecting any manual drag-and-drop reordering) and assign
-        both track numbers to physical tracks:
+        Walk the tree in its current visible order (discs, then tracks —
+        reflecting any manual drag-and-drop reordering) and assign track
+        numbers to physical tracks:
 
         - track_number: position within the current disc/side group,
-          restarting at 1 for every disc and every side.
+          restarting at 1 for every disc and every run of same-side tracks.
         - absolute_track_number: overall position, counting continuously
           across the whole tree without resetting.
 
         Virtual tracks still occupy a position in both counts (so numbering
         stays correct around them) but are not written to, since they belong
         to another album's track row.
+
+        For a detected single (self.is_single) whose tracks have no side set
+        yet, a disc holding exactly two bare tracks is auto-split into an
+        A-side/B-side pair (side "A"/"B", each track_number 1) instead of
+        being numbered 1/2 with no side — the common 7" single layout.
         """
         controller = self.controller
         if controller is None:
@@ -474,19 +452,30 @@ class TrackSortingDisplay(QTreeWidget):
         updates = {}
         absolute_position = 0
 
-        def visit(item):
+        def visit(disc_item):
             nonlocal absolute_position
-            group_position = 0
-            for i in range(item.childCount()):
-                child = item.child(i)
-                track_id = child.data(0, Qt.UserRole)
-                if isinstance(track_id, int):
+            track_children = [disc_item.child(i) for i in range(disc_item.childCount()) if isinstance(disc_item.child(i).data(0, Qt.UserRole), int)]
+
+            auto_split_single = self.is_single and len(track_children) == 2 and not any(c.data(0, Qt.UserRole + 1) for c in track_children)
+
+            if auto_split_single:
+                for child, side in zip(track_children, ("A", "B"), strict=True):
                     absolute_position += 1
-                    group_position += 1
                     if not child.data(1, Qt.UserRole):  # skip virtual tracks
-                        updates[track_id] = (group_position, absolute_position)
-                else:
-                    visit(child)
+                        updates[child.data(0, Qt.UserRole)] = (1, absolute_position, side)
+                return
+
+            group_position = 0
+            current_side = _NO_SIDE_YET
+            for child in track_children:
+                side = child.data(0, Qt.UserRole + 1)
+                if side != current_side:
+                    current_side = side
+                    group_position = 0
+                absolute_position += 1
+                group_position += 1
+                if not child.data(1, Qt.UserRole):  # skip virtual tracks
+                    updates[child.data(0, Qt.UserRole)] = (group_position, absolute_position, None)
 
         for i in range(self.topLevelItemCount()):
             visit(self.topLevelItem(i))
@@ -495,14 +484,12 @@ class TrackSortingDisplay(QTreeWidget):
             show_status_message(self, "No tracks to renumber.")
             return
 
-        rows = [
-            {
-                "track_id": track_id,
-                "track_number": track_number,
-                "absolute_track_number": absolute_number,
-            }
-            for track_id, (track_number, absolute_number) in updates.items()
-        ]
+        rows = []
+        for track_id, (track_number, absolute_number, side) in updates.items():
+            row = {"track_id": track_id, "track_number": track_number, "absolute_track_number": absolute_number}
+            if side is not None:
+                row["side"] = side
+            rows.append(row)
         try:
             updated, failed = controller.update.update_entities_bulk_with_fallback("Track", rows)
         except (SQLAlchemyError, RuntimeError) as e:
@@ -541,7 +528,7 @@ class TrackSortingDisplay(QTreeWidget):
         QTimer.singleShot(0, self._persist_drop)
 
     def _persist_drop(self):
-        """Write the tree's current disc/side/track-number layout to the DB."""
+        """Write the tree's current disc/track-number/side layout to the DB."""
         controller = self.controller
         if controller is None:
             parent_view = self.parent()
@@ -558,33 +545,32 @@ class TrackSortingDisplay(QTreeWidget):
         rows = []
         absolute_position = 0
 
-        def visit(item, disc_obj, side_name):
+        def visit(disc_item):
             nonlocal absolute_position
+            disc_obj = disc_item.data(0, Qt.UserRole)
             group_position = 0
-            for i in range(item.childCount()):
-                child = item.child(i)
+            current_side = _NO_SIDE_YET
+            for i in range(disc_item.childCount()):
+                child = disc_item.child(i)
                 track_id = child.data(0, Qt.UserRole)
-                if isinstance(track_id, int):
-                    absolute_position += 1
-                    group_position += 1
-                    child.setText(0, str(group_position))
-                    if not child.data(1, Qt.UserRole):  # skip virtual tracks
-                        rows.append(
-                            {
-                                "track_id": track_id,
-                                "track_number": group_position,
-                                "absolute_track_number": absolute_position,
-                                "side": side_name,
-                                "disc_id": disc_obj.disc_id if disc_obj else None,
-                            }
-                        )
-                else:
-                    child_side = child.data(0, Qt.UserRole)
-                    visit(child, disc_obj, child_side if isinstance(child_side, str) else None)
+                if not isinstance(track_id, int):
+                    continue  # defensive: only track rows expected here
+
+                # Side travels with the dragged item itself (see
+                # _create_track_node), so it's read straight off the row
+                # rather than inferred from a parent side-header group.
+                side = child.data(0, Qt.UserRole + 1)
+                if side != current_side:
+                    current_side = side
+                    group_position = 0
+                absolute_position += 1
+                group_position += 1
+                child.setText(0, f"{side}{group_position}" if side else str(group_position))
+                if not child.data(1, Qt.UserRole):  # skip virtual tracks
+                    rows.append({"track_id": track_id, "track_number": group_position, "absolute_track_number": absolute_position, "side": side, "disc_id": disc_obj.disc_id if disc_obj else None})
 
         for i in range(self.topLevelItemCount()):
-            disc_item = self.topLevelItem(i)
-            visit(disc_item, disc_item.data(0, Qt.UserRole), None)
+            visit(self.topLevelItem(i))
 
         if not rows:
             return

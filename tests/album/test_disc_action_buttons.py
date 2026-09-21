@@ -18,9 +18,10 @@ from src.album.disc_tab.disc_view import DiscTabView
 
 
 class _StubAlbum:
-    def __init__(self, album_id=1, album_name="Test Album"):
+    def __init__(self, album_id=1, album_name="Test Album", release_type=None):
         self.album_id = album_id
         self.album_name = album_name
+        self.release_type = release_type
 
 
 class _StubDisc:
@@ -127,11 +128,7 @@ def test_edit_disc_writes_title_via_controller(qapp, monkeypatch):
 def test_edit_disc_targets_disc_selected_in_track_list(qapp, monkeypatch):
     """Multi-disc album: Edit Disc acts on the disc highlighted in the tree,
     not via a picker dialog."""
-    discs = [
-        _StubDisc(disc_id=1, disc_number=1),
-        _StubDisc(disc_id=2, disc_number=2),
-        _StubDisc(disc_id=3, disc_number=3),
-    ]
+    discs = [_StubDisc(disc_id=1, disc_number=1), _StubDisc(disc_id=2, disc_number=2), _StubDisc(disc_id=3, disc_number=3)]
     controller = _StubController(discs=discs)
     view = DiscTabView(_StubAlbum(), controller)
     monkeypatch.setattr(disc_view, "DiscEditDialog", _FakeDiscDialog)
