@@ -27,6 +27,21 @@ from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QMenu, QTreeWidget
 from src.charts.chart_recommendations import MissingChartItem
 
 _COLUMNS = ["Title", "Artist", "Type", "Chart", "Peak", "Weeks on Chart", "Connects"]
+_SORT_VALUE_ROLE = Qt.UserRole + 1
+_NUMERIC_COLUMNS = {4, 5, 6}  # Peak, Weeks on Chart, Connects
+
+
+class _RecommendationTreeItem(QTreeWidgetItem):
+    """Sorts the Peak, Weeks on Chart, and Connects columns by their numeric
+    value instead of lexicographically (so 9 sorts before 10), matching the
+    pattern in genre_tree_builder.py's _GenreTreeItem."""
+
+    def __lt__(self, other):
+        tree = self.treeWidget()
+        column = tree.sortColumn() if tree else 0
+        if column in _NUMERIC_COLUMNS:
+            return self.data(column, _SORT_VALUE_ROLE) < other.data(column, _SORT_VALUE_ROLE)
+        return self.text(column).lower() < other.text(column).lower()
 
 
 class ChartRecommendationTable(QTreeWidget):
@@ -38,7 +53,10 @@ class ChartRecommendationTable(QTreeWidget):
         self.setHeaderLabels(_COLUMNS)
         self.setRootIsDecorated(False)  # flat list, no expand arrows
         self.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.setSortingEnabled(False)  # results arrive pre-ranked
+        self.setSortingEnabled(True)
+        # No column sorted at start, so results keep arriving in their
+        # pre-ranked order until the user clicks a header.
+        self.header().setSortIndicator(-1, Qt.AscendingOrder)
         self.header().setSectionResizeMode(0, QHeaderView.Stretch)  # Title column grows
         self.header().setSectionResizeMode(1, QHeaderView.Stretch)  # Artist column grows
         self.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -47,7 +65,7 @@ class ChartRecommendationTable(QTreeWidget):
     def populate(self, items: Iterable[MissingChartItem]) -> None:
         self.clear()
         for item in items:
-            tree_item = QTreeWidgetItem(
+            tree_item = _RecommendationTreeItem(
                 [
                     item.raw_title,
                     item.raw_performer,
@@ -59,6 +77,9 @@ class ChartRecommendationTable(QTreeWidget):
                 ]
             )
             tree_item.setData(0, Qt.UserRole, item)
+            tree_item.setData(4, _SORT_VALUE_ROLE, item.peak_position or 0)
+            tree_item.setData(5, _SORT_VALUE_ROLE, item.weeks_on_chart or 0)
+            tree_item.setData(6, _SORT_VALUE_ROLE, item.gap_run_length or 0)
             self.addTopLevelItem(tree_item)
 
     def context_menu_for_item(self, item: MissingChartItem) -> QMenu:

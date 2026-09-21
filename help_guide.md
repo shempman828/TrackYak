@@ -571,7 +571,9 @@ rankings to one year or a whole decade — click a decade for its submenu, then
 scan every chart week in range, so after you open the tab, change the chart
 filter, run length, or year, or match an entry, "Computing recommendations…"
 shows briefly while the list rebuilds in the background — the rest of the app
-stays responsive meanwhile.
+stays responsive meanwhile. Both tables start in ranked order; click a column
+header to sort by it instead (Peak, Weeks on Chart, and Connects sort by
+their number, not as text), and click again to reverse the order.
 
 **Matching by hand**: right-click any entry (in Week Browser, Search, or
 Recommendations) for Match to Track/Album, which opens a search-and-pick
