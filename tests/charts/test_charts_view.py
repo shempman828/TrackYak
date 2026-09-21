@@ -62,26 +62,14 @@ def no_real_csvs_on_disk(monkeypatch, tmp_path):
     """Point chart_data_path() at a scratch tmp_path for the duration of
     this test, so chart_csv_exists() never touches the real assets/charts
     directory in the repo."""
-    monkeypatch.setattr(
-        "src.charts.chart_download.chart_data_path", lambda name: str(tmp_path / name)
-    )
+    monkeypatch.setattr("src.charts.chart_download.chart_data_path", lambda name: str(tmp_path / name))
 
 
 def _seed_charts_no_data(session):
     session.add_all(
         [
-            Chart(
-                chart_key="hot-100",
-                chart_name="Billboard Hot 100",
-                source_url="https://example.invalid/hot-100.csv",
-                matched_entity_type="Track",
-            ),
-            Chart(
-                chart_key="billboard-200",
-                chart_name="Billboard 200",
-                source_url="https://example.invalid/billboard-200.csv",
-                matched_entity_type="Album",
-            ),
+            Chart(chart_key="hot-100", chart_name="Billboard Hot 100", source_url="https://example.invalid/hot-100.csv", matched_entity_type="Track"),
+            Chart(chart_key="billboard-200", chart_name="Billboard 200", source_url="https://example.invalid/billboard-200.csv", matched_entity_type="Album"),
         ]
     )
     session.commit()
@@ -96,9 +84,7 @@ def _seed_charts_fully_synced(session):
     track = Track(track_name="Last Christmas")
     session.add_all([artist, track])
     session.commit()
-    session.add(
-        TrackArtistRole(track_id=track.track_id, artist_id=artist.artist_id, role_id=role.role_id)
-    )
+    session.add(TrackArtistRole(track_id=track.track_id, artist_id=artist.artist_id, role_id=role.role_id))
 
     hot100 = Chart(
         chart_key="hot-100",
@@ -174,12 +160,7 @@ def test_playlists_btn_label_is_contextual(qapp, session, controller, tmp_path):
     view.show()
     assert view.playlists_btn.text() == "Generate Charts Playlists"
 
-    session.add(
-        Playlist(
-            playlist_name="Billboard Hot 100",
-            playlist_description="__chart_playlist__:root:hot-100",
-        )
-    )
+    session.add(Playlist(playlist_name="Billboard Hot 100", playlist_description="__chart_playlist__:root:hot-100"))
     session.commit()
 
     view.load_charts()
@@ -246,6 +227,12 @@ def test_week_browser_tab_populates_from_seeded_entry(qapp, session, controller,
     # Matched entries (match_score=1.0) are tinted via confidence_color
     # instead of a dedicated checkmark column (see chart_entry_table.py).
     assert item.foreground(1).color() == confidence_color(1.0)
+    # Regression: dark_mode.qss sets `color` on QTreeView::item, which wins
+    # over Qt::ForegroundRole -- setForeground() alone renders no visible
+    # difference under that theme. A background tint must also be set so
+    # the match state stays visible.
+    assert item.background(1).color().rgb() == confidence_color(1.0).rgb()
+    assert item.background(1).color().alpha() < 255
 
 
 def test_search_tab_finds_seeded_entry(qapp, session, controller, tmp_path):

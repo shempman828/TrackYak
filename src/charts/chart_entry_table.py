@@ -11,6 +11,7 @@ per-item setText(col, ...)) rather than QTableWidget.
 from collections.abc import Iterable
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QMenu, QTreeWidget, QTreeWidgetItem
 
 from src.common.match_confidence import confidence_color
@@ -28,6 +29,12 @@ class ChartEntryTable(QTreeWidget):
     are grayed out the same way disc_sorting.py grays virtual tracks --
     per-column setForeground() plus a tooltip, since no existing view in
     this codebase colors a whole row via a single call.
+
+    setForeground() alone is not enough here: unlike the QTableWidget used
+    by the MusicBrainz review UI, dark_mode.qss sets an explicit `color` on
+    QTreeView::item, which wins over Qt::ForegroundRole for a QTreeWidget.
+    A translucent setBackground() tint is added alongside it so the match
+    state stays visible under the active theme.
 
     Manual match/clear-match is exposed as a right-click context menu whose
     two actions emit signals rather than touch the DB directly -- this
@@ -57,23 +64,23 @@ class ChartEntryTable(QTreeWidget):
         self._entries_by_id = {}
         for entry in entries:
             item = QTreeWidgetItem(
-                [
-                    str(entry.position),
-                    entry.raw_title,
-                    entry.raw_performer,
-                    str(entry.peak_position) if entry.peak_position else "",
-                    str(entry.weeks_on_chart) if entry.weeks_on_chart else "",
-                ]
+                [str(entry.position), entry.raw_title, entry.raw_performer, str(entry.peak_position) if entry.peak_position else "", str(entry.weeks_on_chart) if entry.weeks_on_chart else ""]
             )
             item.setData(0, Qt.UserRole, entry.chart_entry_id)
             self._entries_by_id[entry.chart_entry_id] = entry
             if entry.is_matched:
                 color = confidence_color(entry.match_score or 0.0)
+                tint = QColor(color)
+                tint.setAlpha(70)
                 for col in range(len(_COLUMNS)):
                     item.setForeground(col, color)
+                    item.setBackground(col, QBrush(tint))
             else:
+                tint = QColor(Qt.gray)
+                tint.setAlpha(40)
                 for col in range(len(_COLUMNS)):
                     item.setForeground(col, Qt.gray)
+                    item.setBackground(col, QBrush(tint))
                 item.setToolTip(1, "Not yet matched to a library track")
             self.addTopLevelItem(item)
 
