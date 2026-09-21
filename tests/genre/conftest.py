@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.db.db_tables.base import Base
-from src.genre.genre_view import GenreLoaderWorker
+from src.genre.genre_loader_worker import GenreLoaderWorker
 
 
 @pytest.fixture(autouse=True)

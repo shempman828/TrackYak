@@ -337,20 +337,23 @@ carry it directly, plus a second number for tracks pulled in from its
 subgenres if it has any. Right-click → View Tracks (with a Recursive toggle
 to include those subgenre tracks too, or not).
 
-**Building out the hierarchy**: New Genre to add one from scratch, or
-right-click an existing genre for New Parent Genre / New Child Genre to slot
-one in above or below it. Drag a genre onto another to reparent it, or onto
-empty space to make it top-level. Rename any genre by clicking directly into
-its name in the tree.
+**Building out the hierarchy**: New Genre to add one from scratch — pick a
+parent right there in the dialog, or leave it top-level — or right-click an
+existing genre for New Parent Genre / New Child Genre to slot one in above or
+below it. Drag a genre onto another to reparent it, or onto empty space to
+make it top-level. Rename any genre by clicking directly into its name in the
+tree.
 
-**Cleaning up duplicates**: if you've ended up with, say, both "Hip Hop" and
-"Hip-Hop," right-click one and choose Merge to fold it into the other. Split
-does the opposite — it clones a genre's full set of track relationships onto
-two or more new names, useful for untangling a genre that was really
-covering several distinct ones (the original is left in place, not moved).
-Deleting a genre promotes its children to top-level rather than deleting them
-too, and offers to add the name to your Excluded Genres list so future
-auto-tagging skips it.
+**Cleaning up duplicates**: genre names are case-insensitive, so "Rock" and
+"rock" count as the same name — creating or renaming a genre to a name that
+already exists (in any case) is rejected. If you've ended up with, say, both
+"Hip Hop" and "Hip-Hop," right-click one and choose Merge to fold it into the
+other. Split does the opposite — it clones a genre's full set of track
+relationships onto two or more new names, useful for untangling a genre that
+was really covering several distinct ones (the original is left in place,
+not moved). Deleting a genre promotes its children to top-level rather than
+deleting them too, and offers to add the name to your Excluded Genres list so
+future auto-tagging skips it.
 
 **Exporting**: right-click anywhere in the tree (an item or empty space) and
 choose Export Hierarchy... to save the whole tree as a plain-text or

@@ -46,9 +46,7 @@ class GenreTracksWindow(QDialog):
         layout.addWidget(self.track_count_label)
 
         # Create BaseTrackView
-        self.base_track_view = BaseTrackView(
-            controller=self.controller, tracks=self.tracks, title=""
-        )
+        self.base_track_view = BaseTrackView(controller=self.controller, tracks=self.tracks, title="")
         layout.addWidget(self.base_track_view)
 
     def toggle_recursive(self):
@@ -63,66 +61,16 @@ class GenreTracksWindow(QDialog):
     def load_tracks(self):
         """Load and display tracks for the genre."""
         try:
-            logger.debug(
-                f"=== Starting track load for genre: {self.genre.genre_name} (ID: {self.genre.genre_id}) ==="
-            )
-            logger.debug(f"Recursive mode: {self.show_recursive_tracks}")
-
             if self.show_recursive_tracks:
-                # Get all descendant genre IDs including current genre
                 genre_ids = self._get_all_descendant_genre_ids(self.genre.genre_id)
-                logger.debug(f"Recursive genre IDs found: {genre_ids}")
-
-                # Get track-genre associations for these genre IDs
-                track_genres = self.controller.get.get_all_entities("TrackGenre")
-                logger.debug(f"Total track-genre associations: {len(track_genres)}")
-
-                # Filter to only associations with our target genres
-                matching_associations = [tg for tg in track_genres if tg.genre_id in genre_ids]
-
-                logger.debug(f"Matching track-genre associations: {len(matching_associations)}")
-
-                track_ids = list(set([tg.track_id for tg in matching_associations]))
-                logger.debug(f"Unique track IDs: {track_ids}")
-
-                # Get the actual tracks - handle list parameter properly
-                if track_ids:
-                    # Query tracks one by one to avoid the list parameter issue
-                    tracks = []
-                    for track_id in track_ids:
-                        track = self.controller.get.get_entity_object("Track", track_id=track_id)
-                        if track:
-                            tracks.append(track)
-                else:
-                    tracks = []
                 mode_text = " (including all sub-genres)"
-
             else:
-                # Get track-genre associations for this specific genre
-                track_genres = self.controller.get.get_all_entities("TrackGenre")
-                logger.debug(f"Total track-genre associations: {len(track_genres)}")
-
-                matching_associations = [
-                    tg for tg in track_genres if tg.genre_id == self.genre.genre_id
-                ]
-                logger.debug(f"Matching track-genre associations: {len(matching_associations)}")
-
-                track_ids = [tg.track_id for tg in matching_associations]
-                logger.debug(f"Track IDs: {track_ids}")
-
-                # Get the actual tracks - handle list parameter properly
-                if track_ids:
-                    # Query tracks one by one to avoid the list parameter issue
-                    tracks = []
-                    for track_id in track_ids:
-                        track = self.controller.get.get_entity_object("Track", track_id=track_id)
-                        if track:
-                            tracks.append(track)
-                else:
-                    tracks = []
+                genre_ids = [self.genre.genre_id]
                 mode_text = ""
 
-            logger.debug(f"Found {len(tracks)} tracks to display")
+            track_genres = self.controller.get.get_all_entities("TrackGenre", genre_id__in=genre_ids)
+            track_ids = list({tg.track_id for tg in track_genres})
+            tracks = self.controller.get.get_all_entities("Track", track_id__in=track_ids) if track_ids else []
 
             # Update the BaseTrackView with the loaded tracks
             self.tracks = tracks
@@ -131,29 +79,24 @@ class GenreTracksWindow(QDialog):
             # Update track count
             result_text = f"Found {len(tracks)} tracks{mode_text}"
             self.track_count_label.setText(result_text)
-            logger.debug(f"=== Track load completed: {result_text} ===")
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error loading tracks: {e!s}")
-            logger.exception("Full traceback:")
             self.track_count_label.setText("Error loading tracks")
 
-    def _get_all_descendant_genre_ids(self, genre_id):
-        """Helper method to get all descendant genre IDs recursively."""
-        logger.debug(f"Getting descendants for genre ID: {genre_id}")
+    def _get_all_descendant_genre_ids(self, genre_id, _visited=None):
+        """Return `genre_id` plus every descendant genre ID, recursively."""
+        _visited = _visited or set()
+        if genre_id in _visited:
+            # Cyclic parent_id chain (shouldn't happen); stop descending
+            # instead of recursing forever.
+            return []
+        _visited = _visited | {genre_id}
+
         genre_ids = [genre_id]
-
-        # Get direct children
         child_genres = self.controller.get.get_all_entities("Genre", parent_id=genre_id)
-        logger.debug(f"Found {len(child_genres)} direct children for genre {genre_id}")
-
-        # Recursively get descendants
         for child in child_genres:
-            logger.debug(f"Processing child: {child.genre_name} (ID: {child.genre_id})")
-            child_descendants = self._get_all_descendant_genre_ids(child.genre_id)
-            genre_ids.extend(child_descendants)
-
-        logger.debug(f"Total descendants for genre {genre_id}: {genre_ids}")
+            genre_ids.extend(self._get_all_descendant_genre_ids(child.genre_id, _visited))
         return genre_ids
 
     def closeEvent(self, event):

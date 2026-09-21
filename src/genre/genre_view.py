@@ -1,27 +1,11 @@
 from collections import defaultdict
+from pathlib import Path
 
 from PySide6.QtCore import QMimeData, Qt, Signal
 from PySide6.QtGui import QDrag
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QDialog,
-    QFileDialog,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QMenu,
-    QMessageBox,
-    QPushButton,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
-from sqlalchemy import select
+from PySide6.QtWidgets import QCheckBox, QDialog, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QTreeWidget, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.cancellable_worker import CancellableWorker
 from src.common.dialogs.base_split_dialog import SplitDBDialog
 from src.common.widgets.hierarchy_tree_style import (
     collect_expanded_ids,
@@ -33,92 +17,21 @@ from src.common.widgets.hierarchy_tree_style import (
     render_hierarchy_as_text,
     restore_expanded_ids_or_expand_all,
 )
-from src.db.db_tables import TrackGenre
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
-from src.genre.genre_edit import GenreEditDialog, GenreSetParentDialog
+from src.genre.genre_edit import GenreEditDialog, GenreSetParentDialog, find_duplicate_genre_name
+from src.genre.genre_loader_worker import GenreLoaderWorker
 from src.genre.genre_merge import GenreMergeDialog
 from src.genre.genre_tracks import GenreTracksWindow
+from src.genre.genre_tree_builder import GenreTreeBuilder
 from src.track.view.base_track_view import BaseTrackView
 
 
-class GenreLoaderWorker(CancellableWorker):
-    """Runs on a background thread. Fetches all genres plus their direct and
-    recursive (own + all descendants) track counts in two queries total,
-    then emits the results back to the main thread.
-
-    Recursive counts are computed with one ungrouped TrackGenre query plus a
-    memoized bottom-up Python union of per-genre track-id sets over the
-    parent/child structure -- the same approach as
-    PublisherTreeWidget.calculate_recursive_album_counts -- instead of
-    Genre.all_track_count's per-object Python recursion, which has no
-    batching and an O(n^2)/N+1-query risk on a tree of any size. Sets (not
-    a plain integer sum) are required because a track tagged with both a
-    genre and one of its descendants must only count once toward that
-    genre's recursive total.
-    """
-
-    # Payload: (genres, direct_counts_by_genre_id, recursive_counts_by_genre_id)
-    # Uses `object` rather than `list`/`dict`, matching RoleLoaderWorker --
-    # PySide6's queued cross-thread delivery can otherwise fail to
-    # copy-convert plain dict/list signal args.
-    finished = Signal(object, object, object)
-    error = Signal(str)
-
-    def __init__(self, controller, parent=None):
-        super().__init__(parent)
-        self.controller = controller
-
-    def run(self):
-        try:
-            genres = self.controller.get.get_all_entities("Genre") or []
-
-            direct_track_ids = defaultdict(set)
-            for genre_id, track_id in self.controller.get.session.execute(
-                select(TrackGenre.genre_id, TrackGenre.track_id)
-            ).all():
-                direct_track_ids[genre_id].add(track_id)
-
-            direct_counts = {
-                genre_id: len(track_ids) for genre_id, track_ids in direct_track_ids.items()
-            }
-
-            children_map = defaultdict(list)
-            for genre in genres:
-                children_map[genre.parent_id].append(genre.genre_id)
-
-            recursive_track_ids: dict = {}
-
-            def track_ids_for(genre_id):
-                if genre_id not in recursive_track_ids:
-                    ids = set(direct_track_ids.get(genre_id, ()))
-                    for child_id in children_map.get(genre_id, []):
-                        ids |= track_ids_for(child_id)
-                    recursive_track_ids[genre_id] = ids
-                return recursive_track_ids[genre_id]
-
-            for genre in genres:
-                track_ids_for(genre.genre_id)
-
-            recursive_totals = {
-                genre_id: len(track_ids) for genre_id, track_ids in recursive_track_ids.items()
-            }
-
-        except Exception as e:
-            logger.exception("Genre count scan failed")
-            self.error.emit(str(e))
-            self._release_db_session()
-            return
-
-        self._release_db_session()
-        self.finished.emit(genres, direct_counts, recursive_totals)
-
-
 class _ReverseStr:
-    """Wraps a string so `sorted()` orders it in reverse -- used to sort the
-    Genre column descending while still tie-breaking a numeric column
-    ascending (plain `reverse=True` would flip both)."""
+    """Wraps a string so `sorted()` orders it in reverse."""
 
+    # Used to sort the Genre column descending while still tie-breaking a
+    # numeric column ascending (plain `reverse=True` would flip both).
     __slots__ = ("value",)
 
     def __init__(self, value: str):
@@ -131,28 +44,6 @@ class _ReverseStr:
         return self.value == other.value
 
 
-class _GenreTreeItem(QTreeWidgetItem):
-    """QTreeWidgetItem that sorts the Tracks column numerically by recursive
-    track count instead of lexicographically comparing its "own · recursive"
-    display string (which would put "9" after "12 · 42"). The Genre column
-    falls back to the default (case-insensitive) text comparison."""
-
-    _SORT_COUNT_ROLE = Qt.UserRole + 1
-
-    def __lt__(self, other):
-        tree = self.treeWidget()
-        column = tree.sortColumn() if tree else 0
-        if column == 1:
-            self_count = self.data(1, self._SORT_COUNT_ROLE) or 0
-            other_count = other.data(1, self._SORT_COUNT_ROLE) or 0
-            if self_count != other_count:
-                return self_count < other_count
-        # Ties on the Tracks column, and any sort on the Genre column
-        # itself, fall back to a deterministic case-insensitive name
-        # comparison.
-        return self.text(0).lower() < other.text(0).lower()
-
-
 class GenreView(QWidget):
     """Widget displaying genre hierarchy with CRUD operations and parent-child relationships."""
 
@@ -162,8 +53,8 @@ class GenreView(QWidget):
         super().__init__()
         self.current_genre_id: int | None = None
         self.controller = controller
-        self.show_recursive_tracks = False
         self.flat_view = False
+        self.tree_builder = GenreTreeBuilder()
 
         # Populated after background loading finishes; kept on the instance
         # so re-sorting or toggling Flat View never re-queries the database.
@@ -230,9 +121,7 @@ class GenreView(QWidget):
         self.flat_view_button = QPushButton("Flat View")
         self.flat_view_button.setCheckable(True)
         self.flat_view_button.setChecked(False)
-        self.flat_view_button.setToolTip(
-            "Toggle between the hierarchical tree and a flat alphabetical list"
-        )
+        self.flat_view_button.setToolTip("Toggle between the hierarchical tree and a flat alphabetical list")
         self.flat_view_button.clicked.connect(self.toggle_flat_view)
         top_row.addWidget(self.flat_view_button)
 
@@ -254,11 +143,7 @@ class GenreView(QWidget):
 
     def eventFilter(self, obj, event):
         """Handle keyboard shortcuts."""
-        if (
-            obj == self.tree
-            and event.type() == event.Type.KeyPress
-            and event.key() == Qt.Key_Delete
-        ):
+        if obj == self.tree and event.type() == event.Type.KeyPress and event.key() == Qt.Key_Delete:
             self.delete_selected_genres()
             return True
         return super().eventFilter(obj, event)
@@ -295,18 +180,16 @@ class GenreView(QWidget):
                 self.genre_updated.emit()
                 self.status_bar.setText("Genre split completed successfully")
 
-        except SQLAlchemyError as e:
+        except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error in _split_genre(): {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"An unexpected error occurred:\n{e}")
 
     def load_genres(self):
-        """Kick off background loading of genres and both track-count sets.
-
-        Mirrors RoleView.load_roles(): runs a GenreLoaderWorker on a
-        background QThread so opening/refreshing the genre tab never
-        blocks the UI, then rebuilds the tree from the cached results in
-        _on_genres_loaded() once it finishes.
-        """
+        """Kick off background loading of genres and both track-count sets."""
+        # Mirrors RoleView.load_roles(): runs a GenreLoaderWorker on a
+        # background QThread so opening/refreshing the genre tab never
+        # blocks the UI, then rebuilds the tree from the cached results in
+        # _on_genres_loaded() once it finishes.
         try:
             if self._loader_thread and self._loader_thread.isRunning():
                 return
@@ -343,9 +226,7 @@ class GenreView(QWidget):
         self.status_bar.setText("Failed to load genres")
 
     def _rebuild_tree(self):
-        """Rebuild the tree widget from cached genre/count data (no DB
-        calls). Used after loading and whenever Flat View is toggled, so
-        neither operation re-queries the database."""
+        """Rebuild the tree widget from cached genre/count data (no DB calls)."""
         genres = self._all_genres
         direct_counts = self._direct_counts
         recursive_counts = self._recursive_counts
@@ -377,12 +258,10 @@ class GenreView(QWidget):
             children_map[genre.parent_id].append(genre)
 
         if self.flat_view:
-            self._build_genre_flat(genres, genre_map, direct_counts, recursive_counts)
+            self.tree_builder.build_genre_flat(genres, genre_map, direct_counts, recursive_counts, self.tree)
         else:
             # Build the tree recursively starting from root nodes (parent_id=None)
-            self._build_genre_tree(
-                None, children_map, genre_map, direct_counts, recursive_counts, 0
-            )
+            self.tree_builder.build_genre_tree(None, children_map, genre_map, direct_counts, recursive_counts, 0, self.tree)
 
         # Native Qt sort — no manual per-sibling sorting needed. Restoring
         # the same column/order here (rather than leaving it as whatever
@@ -396,8 +275,8 @@ class GenreView(QWidget):
         self.filter_genres(self.search_bar.text())
 
     def toggle_flat_view(self):
-        """Toggle between the nested hierarchy and a flat list, using
-        already-loaded data — no database round-trip."""
+        """Toggle between the nested hierarchy and a flat list."""
+        # Uses already-loaded data -- no database round-trip.
         self.flat_view = self.flat_view_button.isChecked()
         self.flat_view_button.setText("Tree View" if self.flat_view else "Flat View")
         self.expand_all_button.setEnabled(not self.flat_view)
@@ -407,106 +286,23 @@ class GenreView(QWidget):
         self.tree.setDragEnabled(not self.flat_view)
         self._rebuild_tree()
 
-    @staticmethod
-    def _format_track_count(own_count: int, recursive_count: int) -> str:
-        """Build the compact track-count text for the Tracks column,
-        mirroring PlaylistView._format_track_count."""
-        if recursive_count != own_count:
-            # Has subgenres contributing additional tracks, e.g. "12 · 42"
-            return f"{own_count} · {recursive_count}"
-        # Counts match — just the one number, e.g. "5"
-        return str(own_count)
-
-    @staticmethod
-    def _style_count_cell(item: QTreeWidgetItem) -> None:
-        """Right-align and de-emphasize the Tracks column so it reads as a
-        secondary detail rather than competing with the genre name."""
-        item.setTextAlignment(1, Qt.AlignRight | Qt.AlignVCenter)
-        font = item.font(1)
-        font.setItalic(True)
-        item.setFont(1, font)
-        if "·" in item.text(1):
-            item.setToolTip(1, "Own tracks · total including subgenres")
-
-    def _make_genre_item(self, genre, own_count, recursive_count, depth, genre_map):
-        """Build a single genre's tree item, shared by the tree and flat builders.
-
-        Looks up the parent genre through `genre_map` (by `parent_id`)
-        rather than the ORM `.parent` relationship: `genre` was fetched on
-        GenreLoaderWorker's background thread and is detached by the time
-        it reaches here (its session was released right after the query),
-        so a lazy-loaded relationship access would raise
-        DetachedInstanceError -- a plain dict lookup by already-loaded
-        column value doesn't need the session at all.
-        """
-        count_text = self._format_track_count(own_count, recursive_count)
-
-        item = _GenreTreeItem([genre.genre_name, count_text])
-        item.setData(0, Qt.UserRole, genre.genre_id)
-        item.setData(1, _GenreTreeItem._SORT_COUNT_ROLE, recursive_count)
-        item.setFlags(item.flags() | Qt.ItemIsEditable)
-
-        item.setIcon(0, icon_for_depth(depth))
-        self._style_count_cell(item)
-
-        tooltip = f"ID: {genre.genre_id}\nTracks: {count_text}"
-        if genre.description:
-            tooltip += f"\nDescription: {genre.description}"
-        parent = genre_map.get(genre.parent_id)
-        if parent:
-            tooltip += f"\nParent: {parent.genre_name}"
-        item.setToolTip(0, tooltip)
-        return item
-
-    def _build_genre_tree(
-        self, parent_item, children_map, genre_map, direct_counts, recursive_counts, depth
-    ):
-        """Recursively build the tree structure with visual hierarchy
-        indicators. Insertion order doesn't matter for display order —
-        native Qt sorting (self.tree.setSortingEnabled(True)) reorders
-        each sibling group by whichever column is currently sorted."""
-        parent_id = parent_item.data(0, Qt.UserRole) if parent_item else None
-        for genre in children_map.get(parent_id, []):
-            own_count = direct_counts.get(genre.genre_id, 0)
-            recursive_count = recursive_counts.get(genre.genre_id, own_count)
-            item = self._make_genre_item(genre, own_count, recursive_count, depth, genre_map)
-
-            if parent_item:
-                parent_item.addChild(item)
-            else:
-                self.tree.addTopLevelItem(item)
-
-            self._build_genre_tree(
-                item, children_map, genre_map, direct_counts, recursive_counts, depth + 1
-            )
-
-    def _build_genre_flat(self, genres, genre_map, direct_counts, recursive_counts):
-        """Populate the tree as a single unnested list; native Qt sorting
-        orders it (see _build_genre_tree's docstring)."""
-        for genre in genres:
-            own_count = direct_counts.get(genre.genre_id, 0)
-            recursive_count = recursive_counts.get(genre.genre_id, own_count)
-            item = self._make_genre_item(genre, own_count, recursive_count, 0, genre_map)
-            self.tree.addTopLevelItem(item)
-
     def on_item_edited(self, item, column):
-        """Handle genre name updates. The Tracks column (1) is display-only
-        and never reaches here as an edit target, matching
-        PublisherTreeWidget.on_item_changed's `if column != 0: return` guard."""
+        """Handle genre name updates."""
+        # The Tracks column (1) is display-only and never reaches here as an
+        # edit target, matching PublisherTreeWidget.on_item_changed's
+        # `if column != 0: return` guard.
         if column != 0:
             return
 
         genre_id = item.data(0, Qt.UserRole)
         new_name = item.text(0).strip()
-        old_display_text = item.text(0)  # in case we need to revert
 
         try:
             if not new_name:
                 raise ValueError("Genre name cannot be empty")
 
-            # Check if name already exists (excluding current genre)
-            existing = self.controller.get.get_entity_object("Genre", genre_name=new_name)
-            if existing and existing.genre_id != genre_id:
+            existing = find_duplicate_genre_name(self.controller, new_name, exclude_id=genre_id)
+            if existing:
                 raise ValueError("Genre name already exists")
 
             # Update the genre name
@@ -517,11 +313,26 @@ class GenreView(QWidget):
 
         except ValueError as e:
             show_status_message(self, str(e))
-            item.setText(0, old_display_text)  # Revert to old display text
+            self._revert_item_text(item, genre_id)
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error renaming genre: {e!s}")
             QMessageBox.critical(self, "Error", "Failed to rename genre")
-            item.setText(0, old_display_text)  # Revert to old display text
+            self._revert_item_text(item, genre_id)
+
+    def _revert_item_text(self, item, genre_id):
+        """Reset a tree item's displayed name back to what's actually in the DB."""
+        # By the time itemChanged fires, Qt has already applied the edit to
+        # item.text(0), so the item itself no longer holds the pre-edit
+        # name -- it has to be re-fetched from the DB. Signals are blocked
+        # so this doesn't re-enter on_item_edited via itemChanged.
+        genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
+        if not genre:
+            return
+        self.tree.blockSignals(True)
+        try:
+            item.setText(0, genre.genre_name)
+        finally:
+            self.tree.blockSignals(False)
 
     def filter_genres(self, text):
         """Simple text-based filtering."""
@@ -547,12 +358,8 @@ class GenreView(QWidget):
                 all_genres = self.controller.get.get_all_entities("Genre")
                 for item in selected_items:
                     child_id = item.data(0, Qt.UserRole)
-                    if child_id == target_id or is_hierarchy_descendant(
-                        child_id, target_id, all_genres, id_attr="genre_id"
-                    ):
-                        show_status_message(
-                            self, "Cannot make a genre a child of itself or its descendants."
-                        )
+                    if child_id == target_id or is_hierarchy_descendant(child_id, target_id, all_genres, id_attr="genre_id"):
+                        show_status_message(self, "Cannot make a genre a child of itself or its descendants.")
                         event.ignore()
                         return
 
@@ -587,19 +394,12 @@ class GenreView(QWidget):
                 menu.addAction("Split", lambda: self._split_genre())
                 menu.addSeparator()
                 menu.addAction("Set Parent...", lambda: self.set_parent_for_selected_genres())
-                menu.addAction(
-                    "New Parent Genre", lambda: self.create_new_parent(self.current_genre_id)
-                )
-                menu.addAction(
-                    "New Child Genre", lambda: self.create_new_child(self.current_genre_id)
-                )
+                menu.addAction("New Parent Genre", lambda: self.create_new_parent(self.current_genre_id))
+                menu.addAction("New Child Genre", lambda: self.create_new_child(self.current_genre_id))
             else:
                 # Multiple selection
                 self.current_genre_id = None
-                menu.addAction(
-                    f"View Tracks ({len(selected_items)} genres)",
-                    lambda: self.view_tracks_for_selected_genres(selected_items),
-                )
+                menu.addAction(f"View Tracks ({len(selected_items)} genres)", lambda: self.view_tracks_for_selected_genres(selected_items))
                 menu.addAction("Set Parent...", lambda: self.set_parent_for_selected_genres())
 
             # Always show delete option (works for single or multiple)
@@ -613,10 +413,10 @@ class GenreView(QWidget):
         menu.exec_(self.tree.viewport().mapToGlobal(pos))
 
     def export_hierarchy(self):
-        """Export the full genre hierarchy as a box-drawing tree to a
-        .txt or .md file, regardless of the current Flat View toggle or
-        any active search filter. Sibling order follows the tree's
-        currently active sort column/direction."""
+        """Export the full genre hierarchy as a box-drawing tree to a .txt or .md file."""
+        # Exports regardless of the current Flat View toggle or any active
+        # search filter. Sibling order follows the tree's currently active
+        # sort column/direction.
         if not self._all_genres:
             show_status_message(self, "No genres available to export.")
             return
@@ -635,20 +435,9 @@ class GenreView(QWidget):
                 return (primary, name_key)
             return (name_key if sort_order == Qt.AscendingOrder else _ReverseStr(name_key),)
 
-        content = render_hierarchy_as_text(
-            self._all_genres,
-            id_attr="genre_id",
-            name_attr="genre_name",
-            parent_attr="parent_id",
-            sort_key=sort_key,
-        )
+        content = render_hierarchy_as_text(self._all_genres, id_attr="genre_id", name_attr="genre_name", parent_attr="parent_id", sort_key=sort_key)
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export Genre Hierarchy",
-            "genre_hierarchy.txt",
-            "Text Files (*.txt);;Markdown Files (*.md)",
-        )
+        file_path, _ = QFileDialog.getSaveFileName(self, "Export Genre Hierarchy", "genre_hierarchy.txt", "Text Files (*.txt);;Markdown Files (*.md)")
         if not file_path:
             return
 
@@ -656,7 +445,7 @@ class GenreView(QWidget):
             content = f"```\n{content}\n```"
 
         try:
-            with open(file_path, "w", encoding="utf-8") as f:
+            with Path(file_path).open("w", encoding="utf-8") as f:
                 f.write(content)
             show_status_message(self, f"Exported {len(self._all_genres)} genre(s) to {file_path}")
             logger.info(f"Exported {len(self._all_genres)} genre(s) to {file_path}")
@@ -672,7 +461,12 @@ class GenreView(QWidget):
             return
 
         genre_id = current_item.data(0, Qt.UserRole)
-        genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
+        try:
+            genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
+        except (SQLAlchemyError, RuntimeError) as e:
+            logger.error(f"Error loading genre for tracks view: {e!s}")
+            QMessageBox.critical(self, "Error", "Failed to load genre")
+            return
 
         if genre:
             tracks_window = GenreTracksWindow(self.controller, genre, self)
@@ -683,26 +477,16 @@ class GenreView(QWidget):
         genre_ids = [it.data(0, Qt.UserRole) for it in items]
 
         try:
-            track_genres = self.controller.get.get_all_entities(
-                "TrackGenre", genre_id__in=genre_ids
-            )
+            track_genres = self.controller.get.get_all_entities("TrackGenre", genre_id__in=genre_ids)
             track_ids = list({tg.track_id for tg in track_genres})
-            tracks = (
-                self.controller.get.get_all_entities("Track", track_id__in=track_ids)
-                if track_ids
-                else []
-            )
+            tracks = self.controller.get.get_all_entities("Track", track_id__in=track_ids) if track_ids else []
         except SQLAlchemyError as e:
             logger.error(f"Error loading tracks for selected genres: {e}")
             QMessageBox.critical(self, "Error", "Failed to load tracks for genres")
             return
 
         names = ", ".join(it.text(0) for it in items)
-        tracks_window = BaseTrackView(
-            controller=self.controller,
-            tracks=tracks,
-            title=f"Tracks in {len(genre_ids)} genres: {names}",
-        )
+        tracks_window = BaseTrackView(controller=self.controller, tracks=tracks, title=f"Tracks in {len(genre_ids)} genres: {names}")
         tracks_window.exec_()
 
     def merge_genre(self, source_genre_id):
@@ -743,17 +527,17 @@ class GenreView(QWidget):
             show_status_message(self, "Please select genres to edit.")
             return
 
-        genres = []
-        for item in selected_items:
-            genre_id = item.data(0, Qt.UserRole)
-            genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
-            if genre:
-                genres.append(genre)
-
-        if not genres:
-            return
-
         try:
+            genres = []
+            for item in selected_items:
+                genre_id = item.data(0, Qt.UserRole)
+                genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
+                if genre:
+                    genres.append(genre)
+
+            if not genres:
+                return
+
             dialog = GenreSetParentDialog(self.controller, genres, self)
             if dialog.exec_() == QDialog.Accepted:
                 self.load_genres()
@@ -767,64 +551,70 @@ class GenreView(QWidget):
             QMessageBox.critical(self, "Error", "Failed to set parent")
 
     def create_new_parent(self, genre_id):
-        """Create a new genre and insert it as the parent of the given genre.
+        """Create a new genre and insert it as the parent of the given genre."""
+        # The new genre takes over the genre's old parent slot (preserving
+        # the grandparent chain), and the genre becomes a child of the new
+        # genre.
+        try:
+            genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
+            if not genre:
+                show_status_message(self, "The selected genre no longer exists.")
+                return
 
-        The new genre takes over the genre's old parent slot (preserving the
-        grandparent chain), and the genre becomes a child of the new genre.
-        """
-        genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
-        if not genre:
-            show_status_message(self, "The selected genre no longer exists.")
-            return
+            dialog = GenreEditDialog(self.controller, None)
+            if dialog.exec_() != QDialog.Accepted or not dialog.result_genre:
+                return
 
-        dialog = GenreEditDialog(self.controller, None)
-        if dialog.exec_() != QDialog.Accepted or not dialog.result_genre:
-            return
-
-        new_genre = dialog.result_genre
-        handle_insert_as_new_relative(
-            self.controller,
-            self,
-            entity_type="Genre",
-            id_attr="genre_id",
-            name_attr="genre_name",
-            is_parent=True,
-            entity=genre,
-            new_entity=new_genre,
-            reload_fn=self.load_genres,
-            emit_fn=lambda _ne: self.genre_updated.emit(),
-            status_fn=self.status_bar.setText,
-        )
+            new_genre = dialog.result_genre
+            handle_insert_as_new_relative(
+                self.controller,
+                self,
+                entity_type="Genre",
+                id_attr="genre_id",
+                name_attr="genre_name",
+                is_parent=True,
+                entity=genre,
+                new_entity=new_genre,
+                reload_fn=self.load_genres,
+                emit_fn=lambda _ne: self.genre_updated.emit(),
+                status_fn=self.status_bar.setText,
+            )
+        except (SQLAlchemyError, RuntimeError) as e:
+            logger.error(f"Error creating new parent genre: {e!s}")
+            QMessageBox.critical(self, "Error", "Failed to create new parent genre")
 
     def create_new_child(self, genre_id):
         """Create a new genre and set it as a child of the given genre."""
-        genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
-        if not genre:
-            show_status_message(self, "The selected genre no longer exists.")
-            return
+        try:
+            genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
+            if not genre:
+                show_status_message(self, "The selected genre no longer exists.")
+                return
 
-        dialog = GenreEditDialog(self.controller, None)
-        if dialog.exec_() != QDialog.Accepted or not dialog.result_genre:
-            return
+            dialog = GenreEditDialog(self.controller, None)
+            if dialog.exec_() != QDialog.Accepted or not dialog.result_genre:
+                return
 
-        new_genre = dialog.result_genre
-        handle_insert_as_new_relative(
-            self.controller,
-            self,
-            entity_type="Genre",
-            id_attr="genre_id",
-            name_attr="genre_name",
-            is_parent=False,
-            entity=genre,
-            new_entity=new_genre,
-            reload_fn=self.load_genres,
-            emit_fn=lambda _ne: self.genre_updated.emit(),
-            status_fn=self.status_bar.setText,
-        )
+            new_genre = dialog.result_genre
+            handle_insert_as_new_relative(
+                self.controller,
+                self,
+                entity_type="Genre",
+                id_attr="genre_id",
+                name_attr="genre_name",
+                is_parent=False,
+                entity=genre,
+                new_entity=new_genre,
+                reload_fn=self.load_genres,
+                emit_fn=lambda _ne: self.genre_updated.emit(),
+                status_fn=self.status_bar.setText,
+            )
+        except (SQLAlchemyError, RuntimeError) as e:
+            logger.error(f"Error creating new child genre: {e!s}")
+            QMessageBox.critical(self, "Error", "Failed to create new child genre")
 
     def _build_delete_confirmation_box(self, message):
-        """Build (but don't show) the Yes/No delete confirmation box, with an
-        'Also add deleted genre(s) to Excluded Genres list' checkbox attached."""
+        """Build (but don't show) the Yes/No delete confirmation box."""
         box = QMessageBox(self)
         box.setWindowTitle("Confirm Delete")
         box.setText(message)
@@ -845,8 +635,7 @@ class GenreView(QWidget):
         return confirmed, box._exclusion_checkbox.isChecked()
 
     def _add_to_excluded_genres(self, genre_names):
-        """Add genre_names to the Excluded Genres config list, case-insensitive
-        deduped against what's already there. Returns the count actually added."""
+        """Add genre_names to the Excluded Genres config list, deduped case-insensitively."""
         if not genre_names:
             return 0
         config = self.controller.config
@@ -866,28 +655,35 @@ class GenreView(QWidget):
             show_status_message(self, "Please select genres to delete.")
             return
 
-        # Get genre names for confirmation message, keeping each tree item
-        # paired with its genre_id so we can target the right item on delete
-        genre_names = []
-        to_delete = []  # list of (item, genre_id, genre_name)
+        try:
+            # Get genre names for confirmation message, keeping each tree item
+            # paired with its genre_id so we can target the right item on delete
+            genre_names = []
+            to_delete = []  # list of (item, genre_id, genre_name)
 
-        for item in selected_items:
-            genre_id = item.data(0, Qt.UserRole)
-            genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
-            if genre:
-                genre_names.append(genre.genre_name)
-                to_delete.append((item, genre_id, genre.genre_name))
+            for item in selected_items:
+                genre_id = item.data(0, Qt.UserRole)
+                genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
+                if genre:
+                    genre_names.append(genre.genre_name)
+                    to_delete.append((item, genre_id, genre.genre_name))
+        except (SQLAlchemyError, RuntimeError) as e:
+            logger.error(f"Error loading genres for deletion: {e!s}")
+            QMessageBox.critical(self, "Error", "Failed to load genres for deletion")
+            return
 
         if not to_delete:
             return
 
         # Confirm deletion
+        max_listed = 20
         if len(genre_names) == 1:
             message = f"Are you sure you want to delete '{genre_names[0]}'?"
         else:
-            message = f"Are you sure you want to delete {len(genre_names)} genres?\n\n" + "\n".join(
-                f"• {name}" for name in genre_names
-            )
+            listed = "\n".join(f"• {name}" for name in genre_names[:max_listed])
+            if len(genre_names) > max_listed:
+                listed += f"\n…and {len(genre_names) - max_listed} more"
+            message = f"Are you sure you want to delete {len(genre_names)} genres?\n\n" + listed
 
         confirmed, add_to_excluded = self._confirm_delete(message)
 
@@ -910,10 +706,7 @@ class GenreView(QWidget):
 
                 self.genre_updated.emit()
 
-                if success_count == len(to_delete):
-                    status = f"Deleted {success_count} genre(s)"
-                else:
-                    status = f"Deleted {success_count} of {len(to_delete)} genre(s)"
+                status = f"Deleted {success_count} genre(s)" if success_count == len(to_delete) else f"Deleted {success_count} of {len(to_delete)} genre(s)"
 
                 if add_to_excluded:
                     excluded_count = self._add_to_excluded_genres(deleted_names)
@@ -929,9 +722,7 @@ class GenreView(QWidget):
         """Delete single genre after confirmation (kept for backward compatibility)."""
         try:
             genre = self.controller.get.get_entity_object("Genre", genre_id=genre_id)
-            confirmed, add_to_excluded = self._confirm_delete(
-                f"Are you sure you want to delete '{genre.genre_name}'?"
-            )
+            confirmed, add_to_excluded = self._confirm_delete(f"Are you sure you want to delete '{genre.genre_name}'?")
 
             if confirmed:
                 self.controller.delete.delete_entity("Genre", genre_id)
@@ -962,14 +753,14 @@ class GenreView(QWidget):
         return None
 
     def _remove_genre_tree_item(self, item):
-        """Remove a single genre's tree item without reloading the whole tree.
+        """Remove a single genre's tree item without reloading the whole tree."""
+        # Deleting a genre nullifies its children's parent_id in the DB
+        # (they become top-level genres), so their tree items are promoted
+        # to the top level rather than deleted along with their parent.
+        # The rest of the tree - including every other item's expanded or
+        # collapsed state - is left untouched.
+        genre_id = item.data(0, Qt.UserRole)
 
-        Deleting a genre nullifies its children's parent_id in the DB
-        (they become top-level genres), so their tree items are promoted
-        to the top level rather than deleted along with their parent.
-        The rest of the tree - including every other item's expanded or
-        collapsed state - is left untouched.
-        """
         children = item.takeChildren()
         container = item.parent() or self.tree.invisibleRootItem()
         container.removeChild(item)
@@ -986,6 +777,17 @@ class GenreView(QWidget):
             # that's alphabetical or by track count.
             header = self.tree.header()
             self.tree.sortByColumn(header.sortIndicatorSection(), header.sortIndicatorOrder())
+
+        # Keep the cached genre/count data in sync with the delete: _rebuild_tree()
+        # (e.g. from toggle_flat_view) and export_hierarchy() both read these
+        # caches directly instead of re-querying the database, so leaving the
+        # deleted genre in them would resurrect it on the next rebuild.
+        self._all_genres = [g for g in self._all_genres if g.genre_id != genre_id]
+        for genre in self._all_genres:
+            if genre.parent_id == genre_id:
+                genre.parent_id = None
+        self._direct_counts.pop(genre_id, None)
+        self._recursive_counts.pop(genre_id, None)
 
     def _reindent_subtree(self, item, depth):
         """Refresh depth-based icons after an item moves to a new tree level."""

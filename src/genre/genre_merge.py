@@ -5,11 +5,10 @@ from src.foundation.logger_config import logger
 
 
 class GenreMergeDialog(MergeDBDialog):
-    """Specialized merge dialog for genres.
+    """Specialized merge dialog for genres."""
 
-    Pre-populates the source side with the selected genre and automatically
-    suggests similar-named genres as merge candidates on the target side.
-    """
+    # Pre-populates the source side with the selected genre and automatically
+    # suggests similar-named genres as merge candidates on the target side.
 
     def __init__(self, controller, parent=None, genre_obj=None):
         super().__init__(controller, "Genre", parent)

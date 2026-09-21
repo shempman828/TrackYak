@@ -25,7 +25,8 @@ from src.db.db_helpers.update import UpdateDB
 from src.db.db_tables.associations import TrackGenre
 from src.db.db_tables.genre import Genre
 from src.db.db_tables.track import Track
-from src.genre.genre_view import GenreLoaderWorker, GenreView
+from src.genre.genre_loader_worker import GenreLoaderWorker
+from src.genre.genre_view import GenreView
 
 
 # ---- test_genre_hierarchy_export.py ------------------------------------------
@@ -81,10 +82,7 @@ def test_export_with_no_genres_shows_status_and_skips_dialog(qapp, controller_he
     view = GenreView(controller_he)
     assert view._all_genres == []
 
-    with (
-        patch("src.genre.genre_view.QFileDialog.getSaveFileName") as mock_dialog,
-        patch("src.genre.genre_view.show_status_message") as mock_status,
-    ):
+    with patch("src.genre.genre_view.QFileDialog.getSaveFileName") as mock_dialog, patch("src.genre.genre_view.show_status_message") as mock_status:
         view.export_hierarchy()
 
     mock_dialog.assert_not_called()
@@ -96,9 +94,7 @@ def test_export_opens_save_dialog_with_txt_md_filter(session, qapp, controller_h
     _make_genre_he(session, "Rock")
     view = GenreView(controller_he)
 
-    with patch(
-        "src.genre.genre_view.QFileDialog.getSaveFileName", return_value=("", "")
-    ) as mock_dialog:
+    with patch("src.genre.genre_view.QFileDialog.getSaveFileName", return_value=("", "")) as mock_dialog:
         view.export_hierarchy()
 
     args, _kwargs = mock_dialog.call_args
@@ -113,10 +109,7 @@ def test_txt_export_writes_plain_box_drawing_text(session, qapp, controller_he, 
     view = GenreView(controller_he)
 
     out_path = tmp_path / "hierarchy.txt"
-    with patch(
-        "src.genre.genre_view.QFileDialog.getSaveFileName",
-        return_value=(str(out_path), "Text Files (*.txt)"),
-    ):
+    with patch("src.genre.genre_view.QFileDialog.getSaveFileName", return_value=(str(out_path), "Text Files (*.txt)")):
         view.export_hierarchy()
 
     content = out_path.read_text(encoding="utf-8")
@@ -129,10 +122,7 @@ def test_md_export_wraps_content_in_code_fence(session, qapp, controller_he, tmp
     view = GenreView(controller_he)
 
     out_path = tmp_path / "hierarchy.md"
-    with patch(
-        "src.genre.genre_view.QFileDialog.getSaveFileName",
-        return_value=(str(out_path), "Markdown Files (*.md)"),
-    ):
+    with patch("src.genre.genre_view.QFileDialog.getSaveFileName", return_value=(str(out_path), "Markdown Files (*.md)")):
         view.export_hierarchy()
 
     content = out_path.read_text(encoding="utf-8")
@@ -146,10 +136,7 @@ def test_export_identical_regardless_of_flat_view(session, qapp, controller_he, 
 
     def _export():
         out_path = tmp_path / "out.txt"
-        with patch(
-            "src.genre.genre_view.QFileDialog.getSaveFileName",
-            return_value=(str(out_path), "Text Files (*.txt)"),
-        ):
+        with patch("src.genre.genre_view.QFileDialog.getSaveFileName", return_value=(str(out_path), "Text Files (*.txt)")):
             view.export_hierarchy()
         return out_path.read_text(encoding="utf-8")
 
@@ -170,10 +157,7 @@ def test_export_identical_regardless_of_search_filter(session, qapp, controller_
 
     def _export():
         out_path = tmp_path / "out.txt"
-        with patch(
-            "src.genre.genre_view.QFileDialog.getSaveFileName",
-            return_value=(str(out_path), "Text Files (*.txt)"),
-        ):
+        with patch("src.genre.genre_view.QFileDialog.getSaveFileName", return_value=(str(out_path), "Text Files (*.txt)")):
             view.export_hierarchy()
         return out_path.read_text(encoding="utf-8")
 
@@ -192,18 +176,13 @@ def test_export_follows_name_ascending_sort(session, qapp, controller_he, tmp_pa
     view.tree.sortByColumn(0, Qt.SortOrder.AscendingOrder)
 
     out_path = tmp_path / "out.txt"
-    with patch(
-        "src.genre.genre_view.QFileDialog.getSaveFileName",
-        return_value=(str(out_path), "Text Files (*.txt)"),
-    ):
+    with patch("src.genre.genre_view.QFileDialog.getSaveFileName", return_value=(str(out_path), "Text Files (*.txt)")):
         view.export_hierarchy()
 
     assert out_path.read_text(encoding="utf-8") == "Alpha\nZydeco"
 
 
-def test_export_follows_tracks_descending_sort_with_alphabetical_tiebreak(
-    session, qapp, controller_he, tmp_path
-):
+def test_export_follows_tracks_descending_sort_with_alphabetical_tiebreak(session, qapp, controller_he, tmp_path):
     rock = _make_genre_he(session, "Rock")
     punk = _make_genre_he(session, "Punk", parent=rock)
     jazz = _make_genre_he(session, "Jazz")
@@ -217,31 +196,20 @@ def test_export_follows_tracks_descending_sort_with_alphabetical_tiebreak(
     view.tree.sortByColumn(1, Qt.SortOrder.DescendingOrder)
 
     out_path = tmp_path / "out.txt"
-    with patch(
-        "src.genre.genre_view.QFileDialog.getSaveFileName",
-        return_value=(str(out_path), "Text Files (*.txt)"),
-    ):
+    with patch("src.genre.genre_view.QFileDialog.getSaveFileName", return_value=(str(out_path), "Text Files (*.txt)")):
         view.export_hierarchy()
 
     # Rock (6) first, then Alt/Jazz tied at 2 (alphabetical tie-break).
     assert out_path.read_text(encoding="utf-8") == "Rock\n└── Punk\nAlt\nJazz"
 
 
-def test_export_success_shows_status_message_with_count_and_path(
-    session, qapp, controller_he, tmp_path
-):
+def test_export_success_shows_status_message_with_count_and_path(session, qapp, controller_he, tmp_path):
     _make_genre_he(session, "Rock")
     _make_genre_he(session, "Jazz")
     view = GenreView(controller_he)
 
     out_path = tmp_path / "out.txt"
-    with (
-        patch(
-            "src.genre.genre_view.QFileDialog.getSaveFileName",
-            return_value=(str(out_path), "Text Files (*.txt)"),
-        ),
-        patch("src.genre.genre_view.show_status_message") as mock_status,
-    ):
+    with patch("src.genre.genre_view.QFileDialog.getSaveFileName", return_value=(str(out_path), "Text Files (*.txt)")), patch("src.genre.genre_view.show_status_message") as mock_status:
         view.export_hierarchy()
 
     message = mock_status.call_args.args[1]
@@ -255,11 +223,8 @@ def test_export_write_failure_shows_error_dialog(session, qapp, controller_he, t
 
     out_path = tmp_path / "out.txt"
     with (
-        patch(
-            "src.genre.genre_view.QFileDialog.getSaveFileName",
-            return_value=(str(out_path), "Text Files (*.txt)"),
-        ),
-        patch("builtins.open", side_effect=OSError("permission denied")),
+        patch("src.genre.genre_view.QFileDialog.getSaveFileName", return_value=(str(out_path), "Text Files (*.txt)")),
+        patch("pathlib.Path.open", side_effect=OSError("permission denied")),
         patch("src.genre.genre_view.QMessageBox.critical") as mock_critical,
         patch("src.genre.genre_view.show_status_message") as mock_status,
     ):
@@ -277,10 +242,7 @@ def test_export_contains_only_genre_names(session, qapp, controller_he, tmp_path
     view = GenreView(controller_he)
 
     out_path = tmp_path / "out.txt"
-    with patch(
-        "src.genre.genre_view.QFileDialog.getSaveFileName",
-        return_value=(str(out_path), "Text Files (*.txt)"),
-    ):
+    with patch("src.genre.genre_view.QFileDialog.getSaveFileName", return_value=(str(out_path), "Text Files (*.txt)")):
         view.export_hierarchy()
 
     content = out_path.read_text(encoding="utf-8")
@@ -431,9 +393,7 @@ def test_checked_delete_adds_genre_names_to_excluded_genres(qapp, controller_de,
     assert set(controller_de.config.get_excluded_genres()) == {"Rock", "Jazz"}
 
 
-def test_checked_delete_does_not_duplicate_existing_case_insensitive_entry(
-    qapp, session, monkeypatch
-):
+def test_checked_delete_does_not_duplicate_existing_case_insensitive_entry(qapp, session, monkeypatch):
     controller_de = _Controller_de(session, config=_StubConfig(initial=["rock"]))
     _make_genre_de(session, "Rock")
     view = GenreView(controller_de)
@@ -557,11 +517,41 @@ def test_skipped_genres_tab_reflects_names_added_via_delete(qapp, controller_de,
     fake_self = _FakeDialogSelf(controller_de)
     tab_page = AliasManagementDialog._create_skipped_genres_tab(fake_self)
     assert tab_page is not None  # keep it referenced so Qt doesn't GC the child QListWidget
-    names = [
-        fake_self.excluded_genres_list.item(i).text()
-        for i in range(fake_self.excluded_genres_list.count())
-    ]
+    names = [fake_self.excluded_genres_list.item(i).text() for i in range(fake_self.excluded_genres_list.count())]
     assert "Rock" in names
+
+
+def test_deleted_genre_does_not_reappear_after_flat_view_toggle(qapp, controller_de, monkeypatch):
+    _make_genre_de(controller_de.get.session, "Rock")
+    view = GenreView(controller_de)
+    view.tree.selectAll()
+    _patch_confirm_delete(view, monkeypatch, confirmed=True, checked=False)
+
+    view.delete_selected_genres()
+    assert [g.genre_name for g in view._all_genres] == []
+
+    # Toggling Flat View rebuilds the tree from the cached genre list --
+    # without pruning that cache on delete, this would resurrect "Rock".
+    view.flat_view_button.setChecked(True)
+    view.toggle_flat_view()
+
+    assert view.tree.topLevelItemCount() == 0
+
+
+def test_deleting_parent_clears_promoted_childs_cached_parent_id(qapp, controller_de, monkeypatch):
+    session = controller_de.get.session
+    rock = _make_genre_de(session, "Rock")
+    punk = _make_genre_de(session, "Punk", parent_id=rock.genre_id)
+    view = GenreView(controller_de)
+
+    rock_item = view.tree.topLevelItem(0)
+    rock_item.setSelected(True)
+    _patch_confirm_delete(view, monkeypatch, confirmed=True, checked=False)
+
+    view.delete_selected_genres()
+
+    cached_punk = next(g for g in view._all_genres if g.genre_id == punk.genre_id)
+    assert cached_punk.parent_id is None
 
 
 # ---- test_genre_view_sort_by_count.py ----------------------------------------
@@ -629,11 +619,7 @@ def test_worker_computes_direct_and_recursive_counts(session, controller_sbc):
 
     worker = GenreLoaderWorker(controller_sbc)
     result = {}
-    worker.finished.connect(
-        lambda genres, direct, recursive: result.update(
-            genres=genres, direct=direct, recursive=recursive
-        )
-    )
+    worker.finished.connect(lambda genres, direct, recursive: result.update(genres=genres, direct=direct, recursive=recursive))
     worker.run()
 
     assert result["direct"].get(rock.genre_id, 0) == 1
@@ -644,12 +630,7 @@ def test_worker_computes_direct_and_recursive_counts(session, controller_sbc):
     assert result["recursive"][punk.genre_id] == 2
     assert result["recursive"][alt.genre_id] == 0
     assert result["recursive"][jazz.genre_id] == 3
-    assert {g.genre_id for g in result["genres"]} == {
-        rock.genre_id,
-        punk.genre_id,
-        alt.genre_id,
-        jazz.genre_id,
-    }
+    assert {g.genre_id for g in result["genres"]} == {rock.genre_id, punk.genre_id, alt.genre_id, jazz.genre_id}
 
 
 def test_recursive_count_dedupes_track_tagged_at_multiple_levels(session, controller_sbc):
@@ -666,9 +647,7 @@ def test_recursive_count_dedupes_track_tagged_at_multiple_levels(session, contro
 
     worker = GenreLoaderWorker(controller_sbc)
     result = {}
-    worker.finished.connect(
-        lambda genres, direct, recursive: result.update(direct=direct, recursive=recursive)
-    )
+    worker.finished.connect(lambda genres, direct, recursive: result.update(direct=direct, recursive=recursive))
     worker.run()
 
     assert result["direct"].get(rock.genre_id, 0) == 1
@@ -688,11 +667,7 @@ def test_worker_releases_session_and_emits_error_on_exception(session, controlle
     monkeypatch.setattr(session, "execute", _boom)
 
     released = {"called": False}
-    monkeypatch.setattr(
-        GenreLoaderWorker,
-        "_release_db_session",
-        staticmethod(lambda: released.__setitem__("called", True)),
-    )
+    monkeypatch.setattr(GenreLoaderWorker, "_release_db_session", staticmethod(lambda: released.__setitem__("called", True)))
 
     worker = GenreLoaderWorker(controller_sbc)
     outcomes = {}
@@ -740,18 +715,13 @@ def test_sorting_by_tracks_column_orders_by_recursive_count(session, qapp, contr
     assert _top_level_names(view.tree) == ["Rock", "Jazz"]  # 6 desc 2
 
     rock_item = view.tree.topLevelItem(0)
-    assert [rock_item.child(i).text(0) for i in range(rock_item.childCount())] == [
-        "Punk",
-        "Alt",
-    ]  # 5 desc 0
+    assert [rock_item.child(i).text(0) for i in range(rock_item.childCount())] == ["Punk", "Alt"]  # 5 desc 0
 
     view.tree.sortByColumn(1, Qt.SortOrder.AscendingOrder)
     assert _top_level_names(view.tree) == ["Jazz", "Rock"]  # 2 asc 6
 
 
-def test_sorting_by_tracks_column_issues_no_database_queries(
-    session, qapp, controller_sbc, monkeypatch
-):
+def test_sorting_by_tracks_column_issues_no_database_queries(session, qapp, controller_sbc, monkeypatch):
     rock = _make_genre_sbc(session, "Rock")
     jazz = _make_genre_sbc(session, "Jazz")
     _add_tracks_with_genre_sbc(session, rock, 1)
@@ -774,9 +744,7 @@ def test_genre_without_subgenres_shows_plain_count(session, qapp, controller_sbc
     assert item.text(1) == "3"
 
 
-def test_genre_with_subgenres_shows_own_and_recursive_when_they_differ(
-    session, qapp, controller_sbc
-):
+def test_genre_with_subgenres_shows_own_and_recursive_when_they_differ(session, qapp, controller_sbc):
     rock = _make_genre_sbc(session, "Rock")
     punk = _make_genre_sbc(session, "Punk", parent=rock)
     _add_tracks_with_genre_sbc(session, rock, 12)
@@ -917,6 +885,20 @@ def test_rename_via_name_column_updates_the_genre(session, qapp, controller_sbc)
     assert rock.genre_name == "Classic Rock"
 
 
+def test_rename_to_case_variant_of_another_genre_is_rejected(session, qapp, controller_sbc):
+    _make_genre_sbc(session, "Rock")
+    punk = _make_genre_sbc(session, "Punk")
+
+    view = GenreView(controller_sbc)
+    punk_item = next(view.tree.topLevelItem(i) for i in range(view.tree.topLevelItemCount()) if view.tree.topLevelItem(i).data(0, Qt.UserRole) == punk.genre_id)
+    punk_item.setText(0, "rock")
+    view.on_item_edited(punk_item, 0)
+
+    session.expire(punk)
+    assert punk.genre_name == "Punk"
+    assert punk_item.text(0) == "Punk"
+
+
 def test_editing_tracks_column_is_a_no_op(session, qapp, controller_sbc):
     rock = _make_genre_sbc(session, "Rock")
     _add_tracks_with_genre_sbc(session, rock, 4)
@@ -955,9 +937,7 @@ def test_loading_state_shown_and_duplicate_load_is_guarded(session, qapp, contro
     assert view._loader_thread is previous_thread  # no new worker started
 
 
-def test_flat_view_toggle_uses_cached_counts_no_database_calls(
-    session, qapp, controller_sbc, monkeypatch
-):
+def test_flat_view_toggle_uses_cached_counts_no_database_calls(session, qapp, controller_sbc, monkeypatch):
     rock = _make_genre_sbc(session, "Rock")
     punk = _make_genre_sbc(session, "Punk", parent=rock)
     _add_tracks_with_genre_sbc(session, rock, 1)
@@ -973,9 +953,7 @@ def test_flat_view_toggle_uses_cached_counts_no_database_calls(
     assert calls["n"] == 0
 
 
-def test_tooltip_build_does_not_touch_orm_parent_relationship_when_detached(
-    session, qapp, controller_sbc
-):
+def test_tooltip_build_does_not_touch_orm_parent_relationship_when_detached(session, qapp, controller_sbc):
     rock = _make_genre_sbc(session, "Rock")
     punk = _make_genre_sbc(session, "Punk", parent=rock)
     _add_tracks_with_genre_sbc(session, rock, 1)
