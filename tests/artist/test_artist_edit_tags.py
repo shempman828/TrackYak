@@ -241,6 +241,83 @@ def test_removing_an_assigned_tag_moves_it_back_to_suggestions(qapp):
         section.deleteLater()
 
 
+# ── _TagTypeSection: search-box add against hierarchical/duplicate input ──
+
+
+def test_add_resolves_nested_tag_from_completer_pick_instead_of_creating_duplicate(qapp):
+    controller = _Controller()
+    artist = _make_artist(controller)
+    tag_type = _make_tag_type(controller, "Religion")
+    christian = _make_tag(controller, tag_type, "Christian")
+    catholic = _make_tag(controller, tag_type, "Catholic", parent_id=christian.tag_id)
+
+    section = _TagTypeSection(controller, artist, tag_type)
+    try:
+        section.load(artist)
+        # Simulate picking "Christian > Catholic" from the completer popup,
+        # as EntityCompleterEdit._on_completion_picked does: it records the
+        # matched id and writes the full display string into the field.
+        candidate = "Christian > Catholic"
+        section._search._matched_id = section._search._display_to_id[candidate]
+        section._search.setText(candidate)
+
+        section._add()
+
+        session = controller.SessionFactory
+        session.expire_all()
+        assert session.query(Tag).count() == 2  # no bogus new tag created
+        assert catholic.tag_id in section._assigned_chips
+
+        refreshed = session.get(Artist, artist.artist_id)
+        assert [t.tag_id for t in refreshed.tags] == [catholic.tag_id]
+    finally:
+        section.deleteLater()
+
+
+def test_add_dedupes_case_variant_names_typed_in_one_submission(qapp):
+    controller = _Controller()
+    artist = _make_artist(controller)
+    tag_type = _make_tag_type(controller, "Genre")
+
+    section = _TagTypeSection(controller, artist, tag_type)
+    try:
+        section.load(artist)
+        section._search.setText("Rock;rock")
+        section._add()
+
+        session = controller.SessionFactory
+        session.expire_all()
+        assert session.query(Tag).filter_by(tag_name="Rock").count() == 1
+        refreshed = session.get(Artist, artist.artist_id)
+        assert [t.tag_name for t in refreshed.tags] == ["Rock"]
+        assert len(section._assigned_chips) == 1
+    finally:
+        section.deleteLater()
+
+
+def test_add_does_not_show_chip_when_association_insert_fails(qapp, monkeypatch):
+    controller = _Controller()
+    artist = _make_artist(controller)
+    tag_type = _make_tag_type(controller, "Genre")
+
+    section = _TagTypeSection(controller, artist, tag_type)
+    try:
+        section.load(artist)
+        # add_entities() reports failure by returning fewer rows than asked
+        # for, not by raising -- simulate that here.
+        monkeypatch.setattr(controller.add, "add_entities", lambda *a, **k: [])
+        section._search.setText("Rock")
+        section._add()
+
+        assert section._assigned_chips == {}
+        session = controller.SessionFactory
+        session.expire_all()
+        refreshed = session.get(Artist, artist.artist_id)
+        assert refreshed.tags == []
+    finally:
+        section.deleteLater()
+
+
 def test_tag_type_with_no_tags_shows_empty_suggestion_state(qapp):
     controller = _Controller()
     artist = _make_artist(controller)

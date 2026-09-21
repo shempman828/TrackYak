@@ -5,38 +5,11 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.album.album_flowlayout import FlowLayout
+from src.album.album_flowlayout import ChipArea, FlowLayout
 from src.artist.artist_type_manager import ArtistTypeManagerDialog
 from src.common.widgets.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
 from src.common.widgets.qt_text import esc_amp
 from src.foundation.logger_config import logger
-
-
-class _ChipArea(QWidget):
-    """Container widget for the type chips' FlowLayout.
-
-    FlowLayout.sizeHint()/minimumSize() can only account for a single chip
-    (a flow layout's real height depends on how many rows it wraps into at
-    a given width, which isn't knowable until it's actually given that
-    width). Left alone, the enclosing "Types" group box reserves space for
-    just one row, so once an artist has enough types to wrap onto a second
-    or third row, the chips get squished/overlapped instead of the group
-    box growing to fit them. Recomputing minimumHeight from heightForWidth()
-    whenever the width changes (or a chip is added/removed, via
-    refresh_height()) keeps the reserved space accurate.
-    """
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.refresh_height()
-
-    def refresh_height(self):
-        layout = self.layout()
-        if layout is None:
-            return
-        height = layout.heightForWidth(self.width())
-        if height != self.minimumHeight():
-            self.setMinimumHeight(height)
 
 
 class ArtistTypesWidget(QWidget):
@@ -85,7 +58,7 @@ class ArtistTypesWidget(QWidget):
 
         layout.addLayout(search_row)
 
-        self._chip_area = _ChipArea()
+        self._chip_area = ChipArea()
         self._chip_flow = FlowLayout(self._chip_area, margin=0, h_spacing=6, v_spacing=4)
         layout.addWidget(self._chip_area)
 
@@ -207,13 +180,9 @@ class ArtistTypesWidget(QWidget):
         try:
             for name in names:
                 if single_matched_id is not None:
-                    entity = self.controller.get.get_entity_object(
-                        "ArtistType", artist_type_id=single_matched_id
-                    )
+                    entity = self.controller.get.get_entity_object("ArtistType", artist_type_id=single_matched_id)
                 else:
-                    entity = find_or_create_by_name(
-                        self.controller, "ArtistType", "type_name", name, self._known_types
-                    )
+                    entity = find_or_create_by_name(self.controller, "ArtistType", "type_name", name, self._known_types)
                 if entity:
                     entities.append(entity)
         except SQLAlchemyError as e:
@@ -225,13 +194,7 @@ class ArtistTypesWidget(QWidget):
         new_entities = [e for e in entities if e.artist_type_id not in self._chips]
         if new_entities:
             try:
-                self.controller.add.add_entities(
-                    "ArtistTypeAssociation",
-                    [
-                        {"artist_id": self.artist.artist_id, "artist_type_id": e.artist_type_id}
-                        for e in new_entities
-                    ],
-                )
+                self.controller.add.add_entities("ArtistTypeAssociation", [{"artist_id": self.artist.artist_id, "artist_type_id": e.artist_type_id} for e in new_entities])
             except SQLAlchemyError as e:
                 logger.error(f"Failed to add type to artist: {e}")
                 new_entities = []
@@ -247,11 +210,7 @@ class ArtistTypesWidget(QWidget):
 
     def _remove(self, artist_type_id):
         try:
-            self.controller.delete.delete_entity(
-                "ArtistTypeAssociation",
-                artist_id=self.artist.artist_id,
-                artist_type_id=artist_type_id,
-            )
+            self.controller.delete.delete_entity("ArtistTypeAssociation", artist_id=self.artist.artist_id, artist_type_id=artist_type_id)
         except SQLAlchemyError as e:
             logger.error(f"Failed to remove type from artist: {e}")
             return

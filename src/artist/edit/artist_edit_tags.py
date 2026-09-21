@@ -2,20 +2,10 @@
 # Tab: Tags
 # ══════════════════════════════════════════════════════════════════════════════
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import (
-    QApplication,
-    QFrame,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QApplication, QFrame, QGroupBox, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.album.album_flowlayout import FlowLayout
+from src.album.album_flowlayout import ChipArea, FlowLayout
 from src.artist.tag_manager import TagManagerDialog
 from src.artist.tag_type_manager import TagTypeManagerDialog
 from src.common.widgets.entity_completer_edit import EntityCompleterEdit
@@ -23,36 +13,14 @@ from src.common.widgets.qt_text import esc_amp
 from src.foundation.logger_config import logger
 
 
-class _ChipArea(QWidget):
-    """See ArtistTypesWidget._ChipArea -- same FlowLayout height-tracking fix."""
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.refresh_height()
-
-    def refresh_height(self):
-        layout = self.layout()
-        if layout is None:
-            return
-        height = layout.heightForWidth(self.width())
-        if height != self.minimumHeight():
-            self.setMinimumHeight(height)
-
-
 class _TagTypeSection(QGroupBox):
-    """One TagType's slice of the Tags tab.
-
-    Shows the artist's tags of this type as removable chips (click removes
-    immediately, same as before), the type's other known tags as
-    click-to-add suggestion pills (no typing needed for a tag that already
-    exists in this category), and a search box to create a brand-new tag or
-    add one by typing (find-or-create, same as before). Writes are
-    immediate via ArtistTagAssociation rows, same as Types/Aliases/Members/
-    Influences -- not batched into ArtistEditor's Save.
-    """
+    """One TagType's slice of the Tags tab: assigned-tag chips, suggestion
+    pills for the type's other known tags, and a search box to add or
+    find-or-create a tag. Writes are immediate, not batched into
+    ArtistEditor's Save (same as Types/Aliases/Members/Influences)."""
 
     def __init__(self, controller, artist, tag_type, parent=None):
-        super().__init__(tag_type.type_name, parent)
+        super().__init__(esc_amp(tag_type.type_name), parent)
         self.controller = controller
         self.artist = artist
         self.tag_type = tag_type
@@ -78,24 +46,20 @@ class _TagTypeSection(QGroupBox):
 
         self._manage_btn = QPushButton("Manage…")
         self._manage_btn.setFlat(True)
-        self._manage_btn.setToolTip(
-            f"Rename, describe, reparent, or delete {self.tag_type.type_name} tags"
-        )
+        self._manage_btn.setToolTip(f"Rename, describe, reparent, or delete {self.tag_type.type_name} tags")
         self._manage_btn.clicked.connect(self._open_tag_manager)
         search_row.addWidget(self._manage_btn)
         layout.addLayout(search_row)
 
-        self._suggestion_area = _ChipArea()
-        self._suggestion_flow = FlowLayout(
-            self._suggestion_area, margin=0, h_spacing=6, v_spacing=4
-        )
+        self._suggestion_area = ChipArea()
+        self._suggestion_flow = FlowLayout(self._suggestion_area, margin=0, h_spacing=6, v_spacing=4)
         layout.addWidget(self._suggestion_area)
 
         self._no_suggestions_label = QLabel("No tags to suggest yet — add one above")
         self._no_suggestions_label.setProperty("textRole", "note")
         layout.addWidget(self._no_suggestions_label)
 
-        self._assigned_area = _ChipArea()
+        self._assigned_area = ChipArea()
         self._assigned_flow = FlowLayout(self._assigned_area, margin=0, h_spacing=6, v_spacing=4)
         layout.addWidget(self._assigned_area)
 
@@ -107,28 +71,19 @@ class _TagTypeSection(QGroupBox):
 
     def _fetch_known_tags(self):
         try:
-            return sorted(
-                self.controller.get.get_all_entities("Tag", tag_type_id=self.tag_type.tag_type_id)
-                or [],
-                key=lambda t: t.tag_name.lower(),
-            )
+            return sorted(self.controller.get.get_all_entities("Tag", tag_type_id=self.tag_type.tag_type_id) or [], key=lambda t: t.tag_name.lower())
         except SQLAlchemyError as e:
             logger.warning(f"Could not fetch Tag for tag editor: {e}")
             return []
 
     def load(self, artist):
-        """Full rebuild -- used for the initial load and after the Manage
-        dialogs, where tags may have changed wholesale. Add/remove of a
-        single tag instead update the two chip rows incrementally (see
-        _move_to_assigned/_move_to_suggestions) -- see ArtistTypesWidget.load
-        for why."""
+        """Full rebuild of both chip rows -- used for the initial load and
+        after the Manage dialogs; single add/remove instead update the rows
+        incrementally (see _move_to_assigned and _remove)."""
         self.artist = artist
         self._known_tags = self._fetch_known_tags()
 
-        assigned = sorted(
-            (t for t in artist.tags if t.tag_type_id == self.tag_type.tag_type_id),
-            key=lambda t: t.tag_name.lower(),
-        )
+        assigned = sorted((t for t in artist.tags if t.tag_type_id == self.tag_type.tag_type_id), key=lambda t: t.tag_name.lower())
         assigned_ids = {t.tag_id for t in assigned}
         suggestions = [t for t in self._known_tags if t.tag_id not in assigned_ids]
 
@@ -160,9 +115,7 @@ class _TagTypeSection(QGroupBox):
         self._search.set_index(index)
 
     def _open_tag_manager(self):
-        dialog = TagManagerDialog(
-            self.controller, self, initial_tag_type_id=self.tag_type.tag_type_id
-        )
+        dialog = TagManagerDialog(self.controller, self, initial_tag_type_id=self.tag_type.tag_type_id)
         dialog.exec()
         self.load(self.artist)
 
@@ -181,10 +134,7 @@ class _TagTypeSection(QGroupBox):
         chips.clear()
 
     def _relayout(self):
-        for flow, area in (
-            (self._assigned_flow, self._assigned_area),
-            (self._suggestion_flow, self._suggestion_area),
-        ):
+        for flow, area in ((self._assigned_flow, self._assigned_area), (self._suggestion_flow, self._suggestion_area)):
             flow.activate()
             area.refresh_height()
             area.updateGeometry()
@@ -218,13 +168,19 @@ class _TagTypeSection(QGroupBox):
     # ── Add / remove ─────────────────────────────────────────────────────
 
     def _find_or_create_tag(self, name: str):
+        # Matches against full_tag_path too, not just the bare tag_name: the
+        # completer index and every chip/pill label are keyed by
+        # full_tag_path (e.g. "Christian > Catholic"), so picking a nested
+        # tag's suggestion writes its full path into the field. Matching on
+        # tag_name alone would miss it and create a bogus new top-level tag
+        # literally named "Christian > Catholic".
         lowered = name.strip().lower()
         for t in self._known_tags:
             if (t.tag_name or "").strip().lower() == lowered:
                 return t
-        tag = self.controller.add.add_entity(
-            "Tag", tag_name=name, tag_type_id=self.tag_type.tag_type_id
-        )
+            if (t.full_tag_path or "").strip().lower() == lowered:
+                return t
+        tag = self.controller.add.add_entity("Tag", tag_name=name, tag_type_id=self.tag_type.tag_type_id)
         if tag is not None:
             self._known_tags.append(tag)
         return tag
@@ -234,10 +190,15 @@ class _TagTypeSection(QGroupBox):
         if not names:
             return
 
+        # A single typed name that matched a completer suggestion resolves
+        # straight to its id, bypassing _find_or_create_tag's name-based
+        # lookup entirely (see its comment for why that matters for nested
+        # tags) -- same shortcut as ArtistTypesWidget._add().
+        single_matched_id = self._search.matched_id() if len(names) == 1 else None
         entities = []
         try:
             for name in names:
-                entity = self._find_or_create_tag(name)
+                entity = self.controller.get.get_entity_object("Tag", tag_id=single_matched_id) if single_matched_id is not None else self._find_or_create_tag(name)
                 if entity:
                     entities.append(entity)
         except SQLAlchemyError as e:
@@ -246,19 +207,23 @@ class _TagTypeSection(QGroupBox):
         if not entities:
             return
 
-        new_entities = [e for e in entities if e.tag_id not in self._assigned_chips]
+        seen_ids: set = set()
+        new_entities = []
+        for e in entities:
+            if e.tag_id in self._assigned_chips or e.tag_id in seen_ids:
+                continue
+            seen_ids.add(e.tag_id)
+            new_entities.append(e)
+
         if new_entities:
-            try:
-                self.controller.add.add_entities(
-                    "ArtistTagAssociation",
-                    [
-                        {"artist_id": self.artist.artist_id, "tag_id": e.tag_id}
-                        for e in new_entities
-                    ],
-                )
-            except SQLAlchemyError as e:
-                logger.error(f"Failed to add tag to artist: {e}")
-                new_entities = []
+            # add_entities() reports failure by returning fewer rows than
+            # asked for, not by raising -- it catches its own DB errors
+            # internally. Checking the count (rather than assuming success
+            # whenever no exception surfaces) is what keeps a chip from
+            # showing as assigned when the association was never persisted.
+            added = self.controller.add.add_entities("ArtistTagAssociation", [{"artist_id": self.artist.artist_id, "tag_id": e.tag_id} for e in new_entities])
+            added_ids = {assoc.tag_id for assoc in added}
+            new_entities = [e for e in new_entities if e.tag_id in added_ids]
 
         self._search.reset()
         self._refresh_completer_index()
@@ -272,9 +237,7 @@ class _TagTypeSection(QGroupBox):
         if tag_id in self._assigned_chips:
             return
         try:
-            self.controller.add.add_entity(
-                "ArtistTagAssociation", artist_id=self.artist.artist_id, tag_id=tag_id
-            )
+            self.controller.add.add_entity("ArtistTagAssociation", artist_id=self.artist.artist_id, tag_id=tag_id)
         except SQLAlchemyError as e:
             logger.error(f"Failed to add tag to artist: {e}")
             return
@@ -283,6 +246,7 @@ class _TagTypeSection(QGroupBox):
         label = tag.full_tag_path if tag is not None else ""
         self._move_to_assigned(tag_id, label)
         self._relayout()
+        self._flush_new_chip_paint()
 
     def _move_to_assigned(self, tag_id, label):
         pill = self._suggestion_pills.pop(tag_id, None)
@@ -297,9 +261,7 @@ class _TagTypeSection(QGroupBox):
 
     def _remove(self, tag_id):
         try:
-            self.controller.delete.delete_entity(
-                "ArtistTagAssociation", artist_id=self.artist.artist_id, tag_id=tag_id
-            )
+            self.controller.delete.delete_entity("ArtistTagAssociation", artist_id=self.artist.artist_id, tag_id=tag_id)
         except SQLAlchemyError as e:
             logger.error(f"Failed to remove tag from artist: {e}")
             return
@@ -319,12 +281,8 @@ class _TagTypeSection(QGroupBox):
 
 
 class ArtistTagsTab(QWidget):
-    """Dialog tab showing every configured TagType as its own section
-    (`_TagTypeSection`), stacked in the user's configured category order
-    (Manage Types' Move Up/Down -- see TagTypeManagerDialog). A tab-level
-    Manage Types… button handles adding/renaming/deleting/reordering
-    categories; each section has its own Manage… for that category's tags.
-    """
+    """Dialog tab showing every configured TagType as its own section, in
+    the user's configured category order."""
 
     def __init__(self, controller, artist, parent=None):
         super().__init__(parent)
@@ -367,10 +325,7 @@ class ArtistTagsTab(QWidget):
 
     def _fetch_tag_types(self):
         try:
-            return sorted(
-                self.controller.get.get_all_entities("TagType") or [],
-                key=lambda t: (t.sort_order, t.type_name.lower()),
-            )
+            return sorted(self.controller.get.get_all_entities("TagType") or [], key=lambda t: (t.sort_order, t.type_name.lower()))
         except SQLAlchemyError as e:
             logger.warning(f"Could not fetch TagType for Tags tab: {e}")
             return []

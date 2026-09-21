@@ -5,7 +5,7 @@ when the available width is exhausted, similar to CSS flexbox wrap.
 """
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
-from PySide6.QtWidgets import QLayout
+from PySide6.QtWidgets import QLayout, QWidget
 
 from src.foundation.logger_config import logger
 
@@ -18,14 +18,7 @@ class FlowLayout(QLayout):
     independently either at construction time or via the property setters.
     """
 
-    def __init__(
-        self,
-        parent=None,
-        margin: int = 0,
-        spacing: int = 20,
-        h_spacing: int | None = None,
-        v_spacing: int | None = None,
-    ):
+    def __init__(self, parent=None, margin: int = 0, spacing: int = 20, h_spacing: int | None = None, v_spacing: int | None = None):
         """Build a flow layout, with optional per-axis spacing overriding *spacing*."""
         super().__init__(parent)
         self.setContentsMargins(margin, margin, margin, margin)
@@ -164,3 +157,30 @@ class FlowLayout(QLayout):
         if parent is not None:
             parent.updateGeometry()
             parent.update()
+
+
+class ChipArea(QWidget):
+    """Container widget for a FlowLayout of chips.
+
+    FlowLayout.sizeHint()/minimumSize() can only account for a single chip
+    (a flow layout's real height depends on how many rows it wraps into at
+    a given width, which isn't knowable until it's actually given that
+    width). Left alone, the enclosing group box reserves space for just one
+    row, so once enough chips are added to wrap onto a second or third row,
+    they get squished/overlapped instead of the group box growing to fit
+    them. Recomputing minimumHeight from heightForWidth() whenever the width
+    changes (or a chip is added/removed, via refresh_height()) keeps the
+    reserved space accurate.
+    """
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.refresh_height()
+
+    def refresh_height(self):
+        layout = self.layout()
+        if layout is None:
+            return
+        height = layout.heightForWidth(self.width())
+        if height != self.minimumHeight():
+            self.setMinimumHeight(height)
