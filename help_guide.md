@@ -842,7 +842,17 @@ Genres & Moods, Places & Credits, Audio Profile, and Lyrics.
   Happy/Sad, Sleepy/Energetic — see `assets/mood_opposites.json`, which you
   can edit to add more), only the more strongly-matching mood of the pair
   gets tagged when both would otherwise clear the threshold; a near-even
-  match still tags both rather than guessing.
+  match still tags both rather than guessing. A place a track's lyrics
+  name-drop is never linked right away — it's queued for **Review
+  Song-About Places…** instead, since a common word or name (e.g. "Bath",
+  "England") can match a place in your library without the lyric actually
+  being about it.
+- **Review Song-About Places…** — approve, change, or reject each place
+  lyric detection queued by Mood Tagging, grouped by place name so one
+  decision covers every track currently waiting on that name. Your choice
+  is saved and reused automatically — approve or reject a name once and it
+  never needs reviewing again; Change lets you point a detection at a
+  different place (e.g. the right "Kingston") instead.
 - **Artwork Conflicts…** — scans every album for tracks that disagree on
   their embedded cover art: some carrying a different picture than the
   others, or having none where the rest have one. Album art displayed

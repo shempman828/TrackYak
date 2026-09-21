@@ -315,11 +315,14 @@ class PlayerContextMenuMixin:
             self.controller.update.update_entity("Track", track.track_id, lyrics=lyrics_text)
             message = "Lyrics found and saved."
             if lyrics_text:
-                moods_added, _places_added = auto_tag_lyrics_safe(
+                moods_added, _places_added, places_queued = auto_tag_lyrics_safe(
                     self.controller, track.track_id, lyrics_text
                 )
                 if moods_added:
                     message += f" Tagged mood(s): {', '.join(moods_added)}."
+                if places_queued:
+                    plural = "s" if len(places_queued) != 1 else ""
+                    message += f" {len(places_queued)} place{plural} awaiting review."
             StatusManager.show_message(message, 4000)
             if self.current_track is track:
                 self._reload_now_playing()

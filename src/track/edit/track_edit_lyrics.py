@@ -122,17 +122,29 @@ class LyricsTab(_BaseTab):
                 changes["is_explicit"] = text_contains_explicit_words(final_lyrics)
 
         if lyrics_dirty and not self.is_multi and final_lyrics:
-            moods_added, _places_added = self._run_mood_autotag(final_lyrics)
-            if moods_added:
-                show_status_message(self, f"Tagged mood(s): {', '.join(moods_added)}.")
+            moods_added, _places_added, places_queued = self._run_mood_autotag(final_lyrics)
+            self._show_autotag_status(moods_added, places_queued)
 
         return changes
 
-    def _run_mood_autotag(self, lyrics: str) -> tuple[list, list]:
+    def _run_mood_autotag(self, lyrics: str) -> tuple[list, list, list]:
         """Score `lyrics` and write any newly-matching mood/place
         associations for this track, additive-only. Never raises -- a
         matching failure must not block saving the rest of the dialog."""
         return auto_tag_lyrics_safe(self.controller, self.track.track_id, lyrics)
+
+    def _show_autotag_status(self, moods_added: list, places_queued: list) -> None:
+        parts = []
+        if moods_added:
+            parts.append(f"Tagged mood(s): {', '.join(moods_added)}.")
+        if places_queued:
+            plural = "s" if len(places_queued) != 1 else ""
+            parts.append(
+                f"{len(places_queued)} place{plural} awaiting review "
+                "(Tools → Review Song-About Places…)."
+            )
+        if parts:
+            show_status_message(self, " ".join(parts))
 
     def _search_lyrics(self):
         self._search_btn.setEnabled(False)
@@ -145,9 +157,12 @@ class LyricsTab(_BaseTab):
         self._search_btn.setEnabled(True)
         message = "Lyrics found."
         if not self.is_multi and formatted:
-            moods_added, _places_added = self._run_mood_autotag(formatted)
+            moods_added, _places_added, places_queued = self._run_mood_autotag(formatted)
             if moods_added:
                 message += f" Tagged mood(s): {', '.join(moods_added)}."
+            if places_queued:
+                plural = "s" if len(places_queued) != 1 else ""
+                message += f" {len(places_queued)} place{plural} awaiting review."
         show_status_message(self, message)
 
     def _on_lyrics_not_found(self) -> None:

@@ -19,6 +19,7 @@ from src.library.organize_files_dialog import OrganizeFilesDialog
 from src.lyrics.explicit_recalc_worker import ExplicitRecalcWorker
 from src.metadata.writers.metadata_writer_dialog import show_metadata_write_dialog
 from src.mood.mood_autotag_dialog import MoodAutoTagDialog
+from src.place.place_song_about_review_dialog import PlaceSongAboutReviewDialog
 from src.player.ui.player_mini import MiniPlayerWindow
 from src.statistics.analysis_dialog import AudioAnalysisDialog
 from src.statistics.statistics_dialog import MusicStatsDialog
@@ -141,6 +142,13 @@ class MenuBar:
             slot=self.show_mood_autotag_dialog,
             tooltip="Auto-tag tracks with moods and known places from their "
             "lyrics, and review lyrics words not yet assigned to a mood",
+        )
+        self.add_action(
+            tools_menu,
+            "Review Song-About Places…",
+            slot=self.show_place_song_about_review_dialog,
+            tooltip="Approve, change, or reject places lyric-detected in tracks' "
+            "lyrics before they're linked -- your choice is remembered per place",
         )
         self.add_action(
             tools_menu,
@@ -403,6 +411,14 @@ class MenuBar:
         self.mood_autotag_dialog.show()
         self.mood_autotag_dialog.raise_()
         self.mood_autotag_dialog.activateWindow()
+
+    def show_place_song_about_review_dialog(self):
+        if not hasattr(self, "place_song_about_review_dialog"):
+            self.place_song_about_review_dialog = PlaceSongAboutReviewDialog(self.controller, self)
+        self.place_song_about_review_dialog.refresh()
+        self.place_song_about_review_dialog.show()
+        self.place_song_about_review_dialog.raise_()
+        self.place_song_about_review_dialog.activateWindow()
 
     def show_artwork_consistency_dialog(self):
         if not hasattr(self, "artwork_consistency_dialog"):

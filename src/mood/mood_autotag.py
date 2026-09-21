@@ -17,6 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.foundation.logger_config import logger
 from src.lyrics.place_matching import detect_known_places
 from src.mood.mood_scoring import known_mood_names, score_moods_detailed
+from src.place import place_song_about_store
 from src.place.place_association_types import (
     fetch_association_types,
     find_or_create_association_type,
@@ -31,6 +32,14 @@ class AutotagContext:
     place_id_by_name: dict
     song_about_type_id: int | None
     existing_place_pairs: set = field(default_factory=set)
+    # place_name -> decision dict (see place_song_about_store), loaded once
+    # per context so a library-wide scan doesn't re-read the JSON per track.
+    place_decisions: dict = field(default_factory=dict)
+    # Detections with no saved decision yet, accumulated in memory and
+    # written out once via flush_pending_queue() -- not per-track, so a
+    # library-wide scan over thousands of tracks doesn't do a JSON
+    # read-modify-write per track.
+    pending_queue: list = field(default_factory=list)
 
 
 def build_autotag_context(controller) -> AutotagContext:
@@ -83,16 +92,23 @@ def build_autotag_context(controller) -> AutotagContext:
         place_id_by_name=place_id_by_name,
         song_about_type_id=song_about_type_id,
         existing_place_pairs=existing_place_pairs,
+        place_decisions=place_song_about_store.load_decisions(),
     )
 
 
 def auto_tag_track(controller, track_id, lyrics, context: AutotagContext):
     """Score `lyrics` and write any newly-matching mood/place associations for `track_id`."""
-    # Returns (moods_added, places_added) -- only the names newly written by
-    # this call, NOT the full matched set (already-existing associations,
-    # manual or previously auto-added, are never touched or recounted).
+    # Returns (moods_added, places_added, places_queued) -- only the names
+    # newly touched by this call, NOT the full matched set (already-existing
+    # associations, manual or previously auto-added, are never touched or
+    # recounted). places_added is written to the DB right away (an
+    # already-approved or remapped name); places_queued is appended to
+    # context.pending_queue for later review instead -- a fresh place-name
+    # match is never written blind, since lyric place detection has no way
+    # to tell a real "song about" place from an incidentally-matching
+    # common word/name (see PlaceSongAboutReviewDialog).
     if not lyrics or not lyrics.strip():
-        return [], []
+        return [], [], []
 
     moods_matched = score_moods_detailed(lyrics)
     mood_name_by_id = {v: k for k, v in context.mood_id_by_name.items()}
@@ -116,15 +132,28 @@ def auto_tag_track(controller, track_id, lyrics, context: AutotagContext):
     places_matched = detect_known_places(lyrics, list(context.place_id_by_name.keys()))
     place_rows = []
     places_added = []
+    places_queued = []
     if context.song_about_type_id is not None:
         for name in places_matched:
             place_id = context.place_id_by_name[name]
             pair = (place_id, track_id)
             if pair in context.existing_place_pairs:
                 continue
+            decision = context.place_decisions.get(name)
+            if decision is None:
+                context.pending_queue.append(
+                    {"track_id": track_id, "place_name": name, "place_id": place_id}
+                )
+                places_queued.append(name)
+                continue
+            if decision.get("decision") == place_song_about_store.DECISION_REJECTED:
+                continue
+            write_place_id = place_id
+            if decision.get("decision") == place_song_about_store.DECISION_REMAPPED:
+                write_place_id = decision.get("place_id") or place_id
             place_rows.append(
                 {
-                    "place_id": place_id,
+                    "place_id": write_place_id,
                     "entity_id": track_id,
                     "entity_type": "Track",
                     "association_type_id": context.song_about_type_id,
@@ -141,17 +170,29 @@ def auto_tag_track(controller, track_id, lyrics, context: AutotagContext):
             for pair in [(r["place_id"], r["entity_id"]) for r in place_rows]:
                 context.existing_place_pairs.discard(pair)
 
-    return moods_added, places_added
+    return moods_added, places_added, places_queued
 
 
-def auto_tag_lyrics_safe(controller, track_id, lyrics) -> tuple[list, list]:
+def flush_pending_queue(context: AutotagContext) -> None:
+    """Write context.pending_queue's accumulated detections to the on-disk
+    review queue in one batch, and clear it. Callers using a context across
+    many tracks (MoodAutoTagWorker) must call this once after their scan;
+    auto_tag_lyrics_safe() does it for its own single-track context."""
+    if context.pending_queue:
+        place_song_about_store.enqueue(context.pending_queue)
+        context.pending_queue = []
+
+
+def auto_tag_lyrics_safe(controller, track_id, lyrics) -> tuple[list, list, list]:
     """Convenience wrapper around build_autotag_context()+auto_tag_track() for one-off calls."""
     # Never raises: a mood-matching or DB-write failure here must not block
-    # the lyrics save or search result it's attached to. Returns ([], [])
+    # the lyrics save or search result it's attached to. Returns ([], [], [])
     # on failure.
     try:
         context = build_autotag_context(controller)
-        return auto_tag_track(controller, track_id, lyrics, context)
+        result = auto_tag_track(controller, track_id, lyrics, context)
+        flush_pending_queue(context)
+        return result
     except Exception as e:
         logger.error(f"Mood auto-tag failed for track {track_id}: {e}")
-        return [], []
+        return [], [], []

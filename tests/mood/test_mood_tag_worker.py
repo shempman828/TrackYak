@@ -22,18 +22,14 @@ from src.db.db_tables.place_association_type import PlaceAssociationType
 from src.db.db_tables.track import Track
 from src.mood import mood_scoring, mood_tag_worker
 from src.mood.mood_tag_worker import MoodAutoTagWorker
+from src.place import place_song_about_store
 
 
 @pytest.fixture(autouse=True)
 def _isolated_keywords(tmp_path, monkeypatch):
     keywords_path = tmp_path / "mood_keywords.json"
     keywords_path.write_text(
-        json.dumps(
-            {
-                "Happy": ["happy", "sunshine", "joyful"],
-                "Sad": ["crying", "tears", "lonely"],
-            }
-        )
+        json.dumps({"Happy": ["happy", "sunshine", "joyful"], "Sad": ["crying", "tears", "lonely"]})
     )
     monkeypatch.setattr(mood_scoring, "_KEYWORDS_PATH", keywords_path)
     mood_scoring._cache["mtime"] = None
@@ -73,6 +69,13 @@ def controller(session):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_song_about_store(tmp_path, monkeypatch):
+    monkeypatch.setattr(place_song_about_store, "_QUEUE_PATH", tmp_path / "queue.json")
+    monkeypatch.setattr(place_song_about_store, "_DECISIONS_PATH", tmp_path / "decisions.json")
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _seed_moods(session):
     session.add_all([Mood(mood_name="Happy"), Mood(mood_name="Sad")])
     session.commit()
@@ -88,9 +91,7 @@ def _make_track(session, **overrides):
 
 
 def test_writes_mood_association_for_matching_lyrics(session, controller):
-    track = _make_track(
-        session, lyrics="happy happy happy sunshine joyful morning vibes"
-    )
+    track = _make_track(session, lyrics="happy happy happy sunshine joyful morning vibes")
     MoodAutoTagWorker(controller).run()
 
     happy = session.query(Mood).filter_by(mood_name="Happy").one()
@@ -108,9 +109,7 @@ def test_finished_signal_reports_scanned_and_mood_tags_added(session, controller
 
     worker = MoodAutoTagWorker(controller)
     results = []
-    worker.finished.connect(
-        lambda scanned, moods, places: results.append((scanned, moods, places))
-    )
+    worker.finished.connect(lambda scanned, moods, places: results.append((scanned, moods, places)))
     worker.run()
 
     assert results == [(2, 1, 0)]
@@ -134,18 +133,21 @@ def test_progress_signal_reports_running_counts_not_final_totals(
     worker = MoodAutoTagWorker(controller)
     updates = []
     worker.progress.connect(
-        lambda scanned, total, moods, places: updates.append((scanned, total, moods, places))
+        lambda scanned, total, moods, places, queued: updates.append(
+            (scanned, total, moods, places, queued)
+        )
     )
     worker.run()
 
     # Running counts climb as each track is scanned -- the mood tag lands
-    # on track 1, the place tag on track 2 -- not just a single emit with
-    # the final totals.
+    # on track 1; "Paris" has no saved decision yet, so track 2 queues it
+    # for review instead of writing a place tag -- not just a single emit
+    # with the final totals.
     assert updates == [
-        (1, 3, 1, 0),
-        (2, 3, 1, 1),
-        (3, 3, 1, 1),
-        (3, 3, 1, 1),  # unconditional post-loop emit
+        (1, 3, 1, 0, 0),
+        (2, 3, 1, 0, 1),
+        (3, 3, 1, 0, 1),
+        (3, 3, 1, 0, 1),  # unconditional post-loop emit
     ]
 
 
@@ -174,9 +176,7 @@ def test_never_touches_a_track_with_existing_association(session, controller):
 
     worker = MoodAutoTagWorker(controller)
     results = []
-    worker.finished.connect(
-        lambda scanned, moods, places: results.append((scanned, moods, places))
-    )
+    worker.finished.connect(lambda scanned, moods, places: results.append((scanned, moods, places)))
     worker.run()
 
     # Already existed before the run -- not counted as newly added.
@@ -208,9 +208,7 @@ def test_skips_tracks_with_null_or_empty_lyrics(session, controller):
 
     worker = MoodAutoTagWorker(controller)
     results = []
-    worker.finished.connect(
-        lambda scanned, moods, places: results.append((scanned, moods, places))
-    )
+    worker.finished.connect(lambda scanned, moods, places: results.append((scanned, moods, places)))
     worker.run()
 
     assert results == [(0, 0, 0)]
@@ -261,11 +259,7 @@ def test_worker_writes_match_density_as_score(session, controller):
 def test_worker_leaves_existing_row_score_untouched(session, controller):
     track = _make_track(session, lyrics="happy happy happy sunshine joyful")
     happy = session.query(Mood).filter_by(mood_name="Happy").one()
-    session.add(
-        MoodTrackAssociation(
-            mood_id=happy.mood_id, track_id=track.track_id, score=0.999
-        )
-    )
+    session.add(MoodTrackAssociation(mood_id=happy.mood_id, track_id=track.track_id, score=0.999))
     session.commit()
 
     MoodAutoTagWorker(controller).run()
@@ -284,9 +278,7 @@ def test_write_path_never_scores_a_row_it_did_not_create(session, controller):
     # NULL score is left for the startup backfill, not the write path.
     track = _make_track(session, lyrics="happy happy happy sunshine joyful")
     happy = session.query(Mood).filter_by(mood_name="Happy").one()
-    session.add(
-        MoodTrackAssociation(mood_id=happy.mood_id, track_id=track.track_id)
-    )
+    session.add(MoodTrackAssociation(mood_id=happy.mood_id, track_id=track.track_id))
     session.commit()
 
     MoodAutoTagWorker(controller).run()
@@ -323,7 +315,11 @@ def song_about_type(session):
 
 
 # AC7 -------------------------------------------------------------------------
-def test_writes_place_association_for_known_place(session, controller, song_about_type):
+def test_known_place_with_no_decision_is_queued_not_written(session, controller, song_about_type):
+    # Lyric place detection can pick up a common word/name that happens to
+    # match a place already in the library without the lyric actually being
+    # about it (e.g. "Bath", "England") -- so a fresh place-name match is
+    # queued for PlaceSongAboutReviewDialog, never written blind.
     paris = Place(place_name="Paris")
     session.add(paris)
     session.commit()
@@ -331,20 +327,37 @@ def test_writes_place_association_for_known_place(session, controller, song_abou
 
     worker = MoodAutoTagWorker(controller)
     results = []
-    worker.finished.connect(
-        lambda scanned, moods, places: results.append((scanned, moods, places))
-    )
+    worker.finished.connect(lambda scanned, moods, places: results.append((scanned, moods, places)))
+    worker.run()
+
+    assert results == [(1, 0, 0)]
+    assert session.query(PlaceAssociation).count() == 0
+    queue = place_song_about_store.load_queue()
+    assert queue == [
+        {"track_id": track.track_id, "place_name": "Paris", "place_id": paris.place_id}
+    ]
+
+
+def test_approved_place_decision_is_written_by_the_worker(session, controller, song_about_type):
+    paris = Place(place_name="Paris")
+    session.add(paris)
+    session.commit()
+    track = _make_track(session, lyrics="I left my heart in Paris one cold night")
+    place_song_about_store.save_decision("Paris", place_song_about_store.DECISION_APPROVED)
+
+    worker = MoodAutoTagWorker(controller)
+    results = []
+    worker.finished.connect(lambda scanned, moods, places: results.append((scanned, moods, places)))
     worker.run()
 
     assert results == [(1, 0, 1)]
     assoc = (
         session.query(PlaceAssociation)
-        .filter_by(
-            place_id=paris.place_id, entity_id=track.track_id, entity_type="Track"
-        )
+        .filter_by(place_id=paris.place_id, entity_id=track.track_id, entity_type="Track")
         .one()
     )
     assert assoc.association_type_id == song_about_type.association_type_id
+    assert place_song_about_store.load_queue() == []
 
 
 # AC8 -------------------------------------------------------------------------
@@ -358,11 +371,33 @@ def test_place_not_in_db_never_creates_a_place_row(session, controller, song_abo
 
 
 # AC9 (place path) --------------------------------------------------------------
-def test_second_place_run_is_idempotent(session, controller, song_about_type):
+def test_second_place_run_does_not_duplicate_the_queue_entry(session, controller, song_about_type):
     paris = Place(place_name="Paris")
     session.add(paris)
     session.commit()
     _make_track(session, lyrics="I left my heart in Paris one cold night")
+
+    MoodAutoTagWorker(controller).run()
+    worker2 = MoodAutoTagWorker(controller)
+    results = []
+    worker2.finished.connect(
+        lambda scanned, moods, places: results.append((scanned, moods, places))
+    )
+    worker2.run()
+
+    assert results == [(1, 0, 0)]
+    assert session.query(PlaceAssociation).count() == 0
+    assert len(place_song_about_store.load_queue()) == 1
+
+
+def test_second_place_run_after_approval_does_not_duplicate_the_association(
+    session, controller, song_about_type
+):
+    paris = Place(place_name="Paris")
+    session.add(paris)
+    session.commit()
+    _make_track(session, lyrics="I left my heart in Paris one cold night")
+    place_song_about_store.save_decision("Paris", place_song_about_store.DECISION_APPROVED)
 
     MoodAutoTagWorker(controller).run()
     worker2 = MoodAutoTagWorker(controller)

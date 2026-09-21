@@ -155,11 +155,16 @@ class MoodAutoTagDialog(QDialog):
             self._tag_worker.request_cancel()
             self._tag_cancel_btn.setEnabled(False)
 
-    def _on_tag_progress(self, scanned, total, mood_tags_added, place_tags_added):
+    def _on_tag_progress(
+        self, scanned, total, mood_tags_added, place_tags_added, place_tags_queued
+    ):
         self._tag_progress_bar.setRange(0, max(total, 1))
         self._tag_progress_bar.setValue(scanned)
 
-        counts = f"{mood_tags_added:,} mood / {place_tags_added:,} place tags added"
+        counts = (
+            f"{mood_tags_added:,} mood / {place_tags_added:,} place tags added, "
+            f"{place_tags_queued:,} place(s) awaiting review"
+        )
         eta = self._estimate_remaining(scanned, total)
         if eta:
             self._tag_progress_bar.setFormat(
@@ -189,10 +194,10 @@ class MoodAutoTagDialog(QDialog):
         minutes, seconds = divmod(remaining_seconds, 60)
         return f"{minutes}m {seconds:02d}s"
 
-    def _on_tag_finished(self, scanned, mood_tags_added, place_tags_added):
+    def _on_tag_finished(self, scanned, mood_tags_added, place_tags_added, place_tags_queued):
         self._tag_status_label.setText(
             f"{scanned} track(s) scanned, {mood_tags_added} mood tag(s) added, "
-            f"{place_tags_added} place tag(s) added"
+            f"{place_tags_added} place tag(s) added, {place_tags_queued} awaiting review"
         )
         show_status_message(self, "Mood tagging complete.")
         self._tag_worker.wait()
