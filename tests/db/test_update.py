@@ -113,3 +113,19 @@ def test_old_file_kept_when_another_row_still_references_it(session, managed_dir
 
     assert ok is True
     assert shared.exists()  # a2 still points at it
+
+
+def test_update_entity_returns_false_for_nonexistent_id(session):
+    """A stale/nonexistent entity_id must report failure instead of silently no-opping."""
+    ok = UpdateDB(session).update_entity("Artist", 999, artist_name="Ghost")
+    assert ok is False
+
+
+def test_update_entities_returns_false_when_no_ids_match(session):
+    ok = UpdateDB(session).update_entities("Artist", [999, 1000], artist_name="Ghost")
+    assert ok is False
+
+
+def test_update_entity_by_filter_returns_false_when_nothing_matches(session):
+    ok = UpdateDB(session).update_entity_by_filter("Artist", {"artist_name": "Nonexistent"}, artist_name="Renamed")
+    assert ok is False

@@ -14,12 +14,7 @@ written.
 
 from sqlalchemy import select, update
 
-from src.db.db_tables.associations import (
-    AlbumPublisher,
-    AlbumRoleAssociation,
-    TrackArtistRole,
-    TrackGenre,
-)
+from src.db.db_tables.associations import AlbumPublisher, AlbumRoleAssociation, TrackArtistRole, TrackGenre
 from src.db.db_tables.mood import MoodTrackAssociation
 from src.db.db_tables.place import PlaceAssociation
 from src.db.db_tables.playlist import PlaylistTracks
@@ -55,20 +50,13 @@ TRACK_TAG_FIELDS = (
     | {m["field"] for m in VORBIS_TRACK_MAPPINGS.values()}
     | {m["field"] for m in MP4_TRACK_MAPPINGS.values()}
     | {m["field"] for m in WAV_TRACK_MAPPINGS.values()}
-    | _date_fields_for_track(
-        ID3_DATE_MAPPINGS, VORBIS_DATE_MAPPINGS, MP4_DATE_MAPPINGS, WAV_DATE_MAPPINGS
-    )
+    | _date_fields_for_track(ID3_DATE_MAPPINGS, VORBIS_DATE_MAPPINGS, MP4_DATE_MAPPINGS, WAV_DATE_MAPPINGS)
     | {"disc_id", "album_id"}
 )
 
 # Association-row models that carry a track_id column directly -- the row's
 # own attributes/kwargs already have the answer, no query needed.
-DIRECT_TRACK_FK = {
-    "TrackArtistRole": "track_id",
-    "TrackGenre": "track_id",
-    "MoodTrackAssociation": "track_id",
-    "PlaylistTracks": "track_id",
-}
+DIRECT_TRACK_FK = {"TrackArtistRole": "track_id", "TrackGenre": "track_id", "MoodTrackAssociation": "track_id", "PlaylistTracks": "track_id"}
 
 # Association-row models that carry an album_id -- cascades to every track
 # on that album (album-level artist credits / publishers).
@@ -116,12 +104,8 @@ def tracks_for_artist(session, artist_ids) -> set:
     ids = {i for i in artist_ids if i is not None}
     if not ids:
         return set()
-    direct = session.scalars(
-        select(TrackArtistRole.track_id).where(TrackArtistRole.artist_id.in_(ids))
-    ).all()
-    album_ids = session.scalars(
-        select(AlbumRoleAssociation.album_id).where(AlbumRoleAssociation.artist_id.in_(ids))
-    ).all()
+    direct = session.scalars(select(TrackArtistRole.track_id).where(TrackArtistRole.artist_id.in_(ids))).all()
+    album_ids = session.scalars(select(AlbumRoleAssociation.album_id).where(AlbumRoleAssociation.artist_id.in_(ids))).all()
     return set(direct) | tracks_for_album(session, album_ids)
 
 
@@ -129,12 +113,8 @@ def tracks_for_role(session, role_ids) -> set:
     ids = {i for i in role_ids if i is not None}
     if not ids:
         return set()
-    direct = session.scalars(
-        select(TrackArtistRole.track_id).where(TrackArtistRole.role_id.in_(ids))
-    ).all()
-    album_ids = session.scalars(
-        select(AlbumRoleAssociation.album_id).where(AlbumRoleAssociation.role_id.in_(ids))
-    ).all()
+    direct = session.scalars(select(TrackArtistRole.track_id).where(TrackArtistRole.role_id.in_(ids))).all()
+    album_ids = session.scalars(select(AlbumRoleAssociation.album_id).where(AlbumRoleAssociation.role_id.in_(ids))).all()
     return set(direct) | tracks_for_album(session, album_ids)
 
 
@@ -142,9 +122,7 @@ def tracks_for_publisher(session, publisher_ids) -> set:
     ids = {i for i in publisher_ids if i is not None}
     if not ids:
         return set()
-    album_ids = session.scalars(
-        select(AlbumPublisher.album_id).where(AlbumPublisher.publisher_id.in_(ids))
-    ).all()
+    album_ids = session.scalars(select(AlbumPublisher.album_id).where(AlbumPublisher.publisher_id.in_(ids))).all()
     return tracks_for_album(session, album_ids)
 
 
@@ -152,36 +130,22 @@ def tracks_for_genre(session, genre_ids) -> set:
     ids = {i for i in genre_ids if i is not None}
     if not ids:
         return set()
-    return set(
-        session.scalars(select(TrackGenre.track_id).where(TrackGenre.genre_id.in_(ids))).all()
-    )
+    return set(session.scalars(select(TrackGenre.track_id).where(TrackGenre.genre_id.in_(ids))).all())
 
 
 def tracks_for_mood(session, mood_ids) -> set:
     ids = {i for i in mood_ids if i is not None}
     if not ids:
         return set()
-    return set(
-        session.scalars(
-            select(MoodTrackAssociation.track_id).where(MoodTrackAssociation.mood_id.in_(ids))
-        ).all()
-    )
+    return set(session.scalars(select(MoodTrackAssociation.track_id).where(MoodTrackAssociation.mood_id.in_(ids))).all())
 
 
 def tracks_for_place(session, place_ids) -> set:
     ids = {i for i in place_ids if i is not None}
     if not ids:
         return set()
-    direct = session.scalars(
-        select(PlaceAssociation.entity_id).where(
-            PlaceAssociation.place_id.in_(ids), PlaceAssociation.entity_type == "Track"
-        )
-    ).all()
-    album_ids = session.scalars(
-        select(PlaceAssociation.entity_id).where(
-            PlaceAssociation.place_id.in_(ids), PlaceAssociation.entity_type == "Album"
-        )
-    ).all()
+    direct = session.scalars(select(PlaceAssociation.entity_id).where(PlaceAssociation.place_id.in_(ids), PlaceAssociation.entity_type == "Track")).all()
+    album_ids = session.scalars(select(PlaceAssociation.entity_id).where(PlaceAssociation.place_id.in_(ids), PlaceAssociation.entity_type == "Album")).all()
     return set(direct) | tracks_for_album(session, album_ids)
 
 
@@ -189,11 +153,7 @@ def tracks_for_playlist(session, playlist_ids) -> set:
     ids = {i for i in playlist_ids if i is not None}
     if not ids:
         return set()
-    return set(
-        session.scalars(
-            select(PlaylistTracks.track_id).where(PlaylistTracks.playlist_id.in_(ids))
-        ).all()
-    )
+    return set(session.scalars(select(PlaylistTracks.track_id).where(PlaylistTracks.playlist_id.in_(ids))).all())
 
 
 def place_association_tracks(session, place_association_rows) -> set:
@@ -213,12 +173,11 @@ def place_association_tracks(session, place_association_rows) -> set:
 
 
 def mark_dirty_for_new_rows(session, model_name: str, rows: list) -> None:
-    """Mark tracks dirty for newly-inserted association rows (add.py path).
-    `rows` is a list of kwargs dicts, one per row about to be inserted --
-    cheap to resolve since the row's own attributes carry the FK, no query
-    needed (except for PlaceAssociation's Album-side, and Album/AlbumPublisher
-    style cascades to every track on the album).
-    """
+    """Mark tracks dirty for newly-inserted association rows (add.py path)."""
+    # `rows` is a list of kwargs dicts, one per row about to be inserted -- cheap to
+    # resolve since the row's own attributes carry the FK, no query needed (except for
+    # PlaceAssociation's Album-side, and Album/AlbumPublisher style cascades to every
+    # track on the album).
     if not rows:
         return
 
@@ -249,12 +208,8 @@ CASCADE_RESOLVERS = {
 }
 
 
-def _track_siblings_for_move(
-    session, old_disc_ids, old_album_ids, new_disc_ids, new_album_ids
-) -> set:
-    return tracks_for_disc(session, set(old_disc_ids) | set(new_disc_ids)) | tracks_for_album(
-        session, set(old_album_ids) | set(new_album_ids)
-    )
+def _track_siblings_for_move(session, old_disc_ids, old_album_ids, new_disc_ids, new_album_ids) -> set:
+    return tracks_for_disc(session, set(old_disc_ids) | set(new_disc_ids)) | tracks_for_album(session, set(old_album_ids) | set(new_album_ids))
 
 
 def mark_dirty_for_entity_update(session, model_name: str, entity_ids, kwargs: dict) -> None:
@@ -269,19 +224,12 @@ def mark_dirty_for_entity_update(session, model_name: str, entity_ids, kwargs: d
         if TRACK_TAG_FIELDS & kwargs.keys():
             mark_tracks_dirty(session, entity_ids)
         if "disc_id" in kwargs or "album_id" in kwargs:
-            rows = session.execute(
-                select(Track.disc_id, Track.album_id).where(Track.track_id.in_(entity_ids))
-            ).all()
+            rows = session.execute(select(Track.disc_id, Track.album_id).where(Track.track_id.in_(entity_ids))).all()
             old_disc_ids = {r[0] for r in rows if r[0] is not None}
             old_album_ids = {r[1] for r in rows if r[1] is not None}
             new_disc_ids = {kwargs["disc_id"]} if kwargs.get("disc_id") is not None else set()
             new_album_ids = {kwargs["album_id"]} if kwargs.get("album_id") is not None else set()
-            mark_tracks_dirty(
-                session,
-                _track_siblings_for_move(
-                    session, old_disc_ids, old_album_ids, new_disc_ids, new_album_ids
-                ),
-            )
+            mark_tracks_dirty(session, _track_siblings_for_move(session, old_disc_ids, old_album_ids, new_disc_ids, new_album_ids))
     elif model_name in CASCADE_RESOLVERS:
         mark_tracks_dirty(session, CASCADE_RESOLVERS[model_name](session, entity_ids))
     elif model_name == "AlbumPublisher":
@@ -290,20 +238,13 @@ def mark_dirty_for_entity_update(session, model_name: str, entity_ids, kwargs: d
         # album_id itself, so entity_ids already *are* album ids.
         mark_tracks_dirty(session, tracks_for_album(session, entity_ids))
     elif model_name == "AlbumRoleAssociation":
-        album_ids = session.scalars(
-            select(AlbumRoleAssociation.album_id).where(
-                AlbumRoleAssociation.association_id.in_(entity_ids)
-            )
-        ).all()
+        album_ids = session.scalars(select(AlbumRoleAssociation.album_id).where(AlbumRoleAssociation.association_id.in_(entity_ids))).all()
         mark_tracks_dirty(session, tracks_for_album(session, album_ids))
 
 
 def mark_dirty_for_bulk_track_update(session, updates: list) -> None:
-    """update_entities_bulk's per-row-differing-values path, Track only (the
-    only model this bulk form is used for today -- see MB import review's
-    _batch_update_tracks). Each dict in `updates` has track_id plus whatever
-    fields are being set on that row.
-    """
+    """update_entities_bulk's per-row-differing-values path, Track only (the only model this bulk form is used for today)."""
+    # Each dict in `updates` has track_id plus whatever fields are being set on that row.
     if not updates:
         return
 
@@ -315,17 +256,12 @@ def mark_dirty_for_bulk_track_update(session, updates: list) -> None:
         return
 
     ids = [u["track_id"] for u in moving]
-    rows = session.execute(
-        select(Track.disc_id, Track.album_id).where(Track.track_id.in_(ids))
-    ).all()
+    rows = session.execute(select(Track.disc_id, Track.album_id).where(Track.track_id.in_(ids))).all()
     old_disc_ids = {r[0] for r in rows if r[0] is not None}
     old_album_ids = {r[1] for r in rows if r[1] is not None}
     new_disc_ids = {u["disc_id"] for u in moving if u.get("disc_id") is not None}
     new_album_ids = {u["album_id"] for u in moving if u.get("album_id") is not None}
-    mark_tracks_dirty(
-        session,
-        _track_siblings_for_move(session, old_disc_ids, old_album_ids, new_disc_ids, new_album_ids),
-    )
+    mark_tracks_dirty(session, _track_siblings_for_move(session, old_disc_ids, old_album_ids, new_disc_ids, new_album_ids))
 
 
 def _attr(row, name):
@@ -349,11 +285,9 @@ _CASCADE_PK_ATTR = {
 
 
 def mark_dirty_for_rows(session, model_name: str, rows) -> None:
-    """Mark tracks dirty for a batch of already-loaded existing rows of
-    `model_name` that are about to be updated (update_entity_by_filter) or
-    deleted (delete_entity). `rows` are ORM instances, so old disc_id/album_id
-    values are read straight off them -- no extra SELECT needed.
-    """
+    """Mark tracks dirty for a batch of already-loaded existing rows of `model_name` about to be updated or deleted."""
+    # `rows` are ORM instances, so old disc_id/album_id values are read straight off
+    # them -- no extra SELECT needed.
     rows = list(rows)
     if not rows:
         return

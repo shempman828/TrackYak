@@ -15,38 +15,16 @@ class DeleteDB(BaseDBHelper):
 
     @staticmethod
     def _managed_image_paths(model_name: str, entities) -> list[str]:
-        """Managed image paths owned by `entities` (empty unless the model
-        is one that keeps a picture on disk). Collected before deletion so
-        the files can be unlinked once the rows are committed away."""
+        """Managed image paths owned by `entities` (empty unless the model keeps a picture on disk)."""
+        # Collected before deletion so the files can be unlinked once the rows are committed away.
         col = IMAGE_PATH_COLUMNS.get(model_name)
         if not col:
             return []
         attr = col[0]
         return [p for e in entities if (p := getattr(e, attr, None))]
 
-    def delete_entity(
-        self,
-        model_name: str,
-        entity_id: int | None = None,
-        entity_ids: list | None = None,
-        **filters,
-    ):
-        """
-        Delete one or many database entities.
-
-        Three ways to call this:
-
-            # Single item by primary key (original behaviour, unchanged)
-            delete_entity("Track", entity_id=42)
-
-            # Many items in one query -- new batch path
-            delete_entity("Track", entity_ids=[1, 2, 3, 99])
-
-            # Filter-based deletion (original behaviour, unchanged); any
-            # filter value that is a list/tuple/set is matched with IN(...)
-            delete_entity("Track", track_name="Unknown")
-            delete_entity("TrackArtistRole", track_id=[1, 2, 3], artist_id=5, role_id=2)
-        """
+    def delete_entity(self, model_name: str, entity_id: int | None = None, entity_ids: list | None = None, **filters):
+        """Delete one or many database entities, by entity_id, entity_ids, or filters."""
         entity_class = MODEL_REGISTRY.get(model_name)
         if not entity_class:
             logger.error(f"Entity type '{model_name}' not found")
@@ -64,9 +42,7 @@ class DeleteDB(BaseDBHelper):
                 pk_cols = list(entity_class.__table__.primary_key.columns)
                 pk_col = pk_cols[0].name if pk_cols else "id"
 
-                to_delete = self.session.query(entity_class).filter(
-                    getattr(entity_class, pk_col).in_(entity_ids)
-                )
+                to_delete = self.session.query(entity_class).filter(getattr(entity_class, pk_col).in_(entity_ids))
                 rows = to_delete.all()
                 image_paths = self._managed_image_paths(model_name, rows)
                 mark_dirty_for_rows(self.session, model_name, rows)
@@ -76,9 +52,7 @@ class DeleteDB(BaseDBHelper):
                 self._commit()
                 for path in image_paths:
                     delete_managed_image(path)
-                logger.info(
-                    f"Batch-deleted {len(entity_ids)} {model_name} row(s) (ids={entity_ids})"
-                )
+                logger.info(f"Batch-deleted {len(entity_ids)} {model_name} row(s) (ids={entity_ids})")
                 return True
 
             # ------------------------------------------------------------------
@@ -108,10 +82,7 @@ class DeleteDB(BaseDBHelper):
                         logger.warning(f"{model_name} has no attribute '{attr}'")
                         return False
                     column = getattr(entity_class, attr)
-                    if isinstance(value, (list, tuple, set)):
-                        query = query.filter(column.in_(value))
-                    else:
-                        query = query.filter(column == value)
+                    query = query.filter(column.in_(value) if isinstance(value, (list, tuple, set)) else column == value)
                 entities = query.all()
                 image_paths = self._managed_image_paths(model_name, entities)
                 mark_dirty_for_rows(self.session, model_name, entities)
@@ -131,13 +102,7 @@ class DeleteDB(BaseDBHelper):
             self.session.rollback()
             return False
 
-    def delete_file(
-        self,
-        file_path: str | None = None,
-        model_name: str | None = None,
-        entity_id: int | None = None,
-        **filters,
-    ):
+    def delete_file(self, file_path: str | None = None, model_name: str | None = None, entity_id: int | None = None, **filters):
         """Delete a file from disk after deleting its database entry."""
         db_deleted = True
         if model_name:

@@ -11,15 +11,11 @@ from src.foundation.logger_config import logger
 class GetFromDB(BaseDBHelper):
     """Class for retrieving data from the database"""
 
-    def query_entities(
-        self, entity_class: str, multiple: bool = True, load_options=None, **filters
-    ):
-        """Generic entity query supporting simple and advanced filtering.
-
-        ``load_options`` accepts a list of SQLAlchemy loader options (e.g.
-        ``selectinload(...)``) so callers that need related data can eager-load
-        it in one extra query instead of triggering a lazy-load per row.
-        """
+    def query_entities(self, entity_class: str, multiple: bool = True, load_options=None, **filters):
+        """Generic entity query supporting simple and advanced filtering."""
+        # load_options accepts a list of SQLAlchemy loader options (e.g. selectinload(...))
+        # so callers needing related data can eager-load it in one extra query instead of
+        # triggering a lazy-load per row.
         logger.debug(f"Querying {entity_class} (multiple={multiple}) with filters: {filters}")
 
         try:
@@ -57,11 +53,7 @@ class GetFromDB(BaseDBHelper):
                     case "eq":
                         stmt = stmt.where(column == value)
                     case "not":
-                        stmt = stmt.where(
-                            ~column.in_(value)
-                            if isinstance(value, (list, tuple, set))
-                            else column != value
-                        )
+                        stmt = stmt.where(~column.in_(value) if isinstance(value, (list, tuple, set)) else column != value)
                     case "in":
                         if not isinstance(value, (list, tuple, set)):
                             logger.warning(f"Filter 'in' requires iterable, got {type(value)}")
@@ -85,26 +77,21 @@ class GetFromDB(BaseDBHelper):
                     case "gte":
                         stmt = stmt.where(column >= value)
                     case "isnull":
-                        stmt = stmt.where(column == None if value else column != None)
+                        stmt = stmt.where(column.is_(None) if value else column.is_not(None))
                     case "notnull":
-                        stmt = stmt.where(column != None)
+                        stmt = stmt.where(column.is_not(None))
                     case "lte":
                         stmt = stmt.where(column <= value)
                     case "range":
                         if isinstance(value, (list, tuple)) and len(value) == 2:
                             stmt = stmt.where(column.between(value[0], value[1]))
                         else:
-                            logger.warning(
-                                f"Filter 'range' requires tuple/list of length 2, got {value}"
-                            )
+                            logger.warning(f"Filter 'range' requires tuple/list of length 2, got {value}")
                     case _:
                         logger.error(f"Unsupported filter operation: {op}")
                         continue
 
-            if multiple:
-                result = self.session.scalars(stmt).all()
-            else:
-                result = self.session.scalar(stmt)
+            result = self.session.scalars(stmt).all() if multiple else self.session.scalar(stmt)
 
             # Close out the read transaction this query just opened -- left
             # open (SQLAlchemy autobegin never ends it on its own), a
@@ -128,24 +115,17 @@ class GetFromDB(BaseDBHelper):
         return self.query_entities(model_name, multiple=False, **kwargs)
 
     def get_album_exists(self, album_name, release_year, artist_ids):
-        """
-        Check whether an album exists with the given title, release year,
-        and exact set of artist IDs (for Album Artist role only).
-        """
+        """Check whether an album exists with the given title, release year, and exact set of artist IDs (Album Artist role only)."""
         if not artist_ids:
             logger.debug(f"No artist IDs provided for album check: '{album_name}' ({release_year})")
             return None
 
-        logger.debug(
-            f"Checking if album exists: '{album_name}' ({release_year}), Album Artists: {artist_ids}"
-        )
+        logger.debug(f"Checking if album exists: '{album_name}' ({release_year}), Album Artists: {artist_ids}")
         expected_artist_ids = sorted(artist_ids)
 
         try:
             # Find albums with matching name and year
-            base_albums_stmt = select(Album.album_id, Album.album_name).where(
-                Album.album_name == album_name, Album.release_year == release_year
-            )
+            base_albums_stmt = select(Album.album_id, Album.album_name).where(Album.album_name == album_name, Album.release_year == release_year)
             candidate_albums = self.session.execute(base_albums_stmt).all()
 
             if not candidate_albums:
@@ -160,13 +140,9 @@ class GetFromDB(BaseDBHelper):
                     AlbumRoleAssociation.album_id == album_id,
                     AlbumRoleAssociation.role_id == 1,  # Album Artist role
                 )
-                album_artist_ids = sorted(
-                    [row[0] for row in self.session.execute(artist_stmt).all()]
-                )
+                album_artist_ids = sorted([row[0] for row in self.session.execute(artist_stmt).all()])
 
-                logger.debug(
-                    f"Album '{candidate_album_name}' (ID: {album_id}) has album artists: {album_artist_ids}"
-                )
+                logger.debug(f"Album '{candidate_album_name}' (ID: {album_id}) has album artists: {album_artist_ids}")
 
                 if album_artist_ids == expected_artist_ids:
                     # Found exact match, return the album
@@ -188,8 +164,7 @@ class GetFromDB(BaseDBHelper):
         return self.query_entities(link_type, multiple=True, **kwargs)
 
     def count_entities(self, model_name: str) -> int:
-        """Cheap SELECT count(*) -- used to decide whether a table is small
-        enough to safely preload in full (e.g. into a completer index)."""
+        """Cheap SELECT count(*), used to decide whether a table is small enough to safely preload in full."""
         try:
             entity_class_obj = MODEL_REGISTRY[model_name]
         except KeyError:
@@ -206,13 +181,9 @@ class GetFromDB(BaseDBHelper):
             return 0
 
     def resolve_entity_or_alias(self, model_name: str, name_field: str, name: str):
-        """Resolve `name` to an entity of `model_name` by its own name field,
-        falling back to a `<model_name>Alias` table's `alias_name` (e.g.
-        PublisherAlias, GenreAlias). Lets a name the user has aliased to a
-        canonical entity -- directly, or via a merge -- resolve to it
-        instead of the caller creating a duplicate. Returns None if neither
-        matches.
-        """
+        """Resolve `name` to an entity of `model_name` by its own name field, falling back to its alias table (e.g. PublisherAlias, GenreAlias)."""
+        # Lets a name the user has aliased to a canonical entity -- directly, or via a
+        # merge -- resolve to it instead of the caller creating a duplicate.
         entity = self.get_entity_object(model_name, **{name_field: name})
         if entity:
             return entity
@@ -221,28 +192,18 @@ class GetFromDB(BaseDBHelper):
         return getattr(alias, model_name.lower()) if alias else None
 
     def resolve_split_alias(self, model_name: str, name: str) -> list | None:
-        """Resolve `name` against a `<model_name>SplitAlias` table (e.g.
-        RoleSplitAlias, GenreSplitAlias) -- a name that was previously split
-        into 2+ entities (see SplitDB._record_split_alias) resolves to that
-        same ordered list of entities instead of the caller creating/
-        reusing one combined entity. Returns None if no rule matches (as
-        opposed to an empty list, which would mean "matched but every
-        target entity is gone" -- callers should treat both as "no split
-        happened" and fall back to normal single-entity resolution).
-        """
+        """Resolve `name` against a `<model_name>SplitAlias` table (e.g. RoleSplitAlias, GenreSplitAlias) to the ordered list of entities it was split into."""
+        # Returns None if no rule matches, or [] if a rule matched but every target entity
+        # is gone -- callers should treat both as "no split happened" and fall back to
+        # normal single-entity resolution.
         alias_class = MODEL_REGISTRY.get(f"{model_name}SplitAlias")
         if alias_class is None:
             return None
         try:
-            rows = self.session.scalars(
-                select(alias_class)
-                .where(alias_class.alias_name == name)
-                .order_by(alias_class.sort_order)
-            ).all()
+            rows = self.session.scalars(select(alias_class).where(alias_class.alias_name == name).order_by(alias_class.sort_order)).all()
         except SQLAlchemyError as e:
             logger.error(f"Database error resolving split alias for {model_name}: {e}")
             return None
         if not rows:
             return None
-        targets = [getattr(row, model_name.lower()) for row in rows]
-        return [t for t in targets if t is not None] or None
+        return [t for row in rows if (t := getattr(row, model_name.lower())) is not None]

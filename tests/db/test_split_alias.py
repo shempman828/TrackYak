@@ -21,24 +21,13 @@ from src.db.db_tables.track import Track
 _CASES = [
     ("Genre", Genre, "genre_name", "split_genre", GenreSplitAlias, "genre_id"),
     ("Artist", Artist, "artist_name", "split_artist", ArtistSplitAlias, "artist_id"),
-    (
-        "Publisher",
-        Publisher,
-        "publisher_name",
-        "split_publisher",
-        PublisherSplitAlias,
-        "publisher_id",
-    ),
+    ("Publisher", Publisher, "publisher_name", "split_publisher", PublisherSplitAlias, "publisher_id"),
     ("Role", Role, "role_name", "split_role", RoleSplitAlias, "role_id"),
 ]
 
 
-@pytest.mark.parametrize(
-    "model_name,model_class,name_field,split_method,alias_class,fk_field", _CASES
-)
-def test_split_into_two_records_alias_rule(
-    session, model_name, model_class, name_field, split_method, alias_class, fk_field
-):
+@pytest.mark.parametrize("model_name,model_class,name_field,split_method,alias_class,fk_field", _CASES)
+def test_split_into_two_records_alias_rule(session, model_name, model_class, name_field, split_method, alias_class, fk_field):
     original = model_class(**{name_field: "Viola & Violin"})
     session.add(original)
     session.commit()
@@ -48,29 +37,34 @@ def test_split_into_two_records_alias_rule(
     result = getattr(splitter, split_method)(getattr(original, original_id), ["Viola", "Violin"])
     assert result is True
 
-    rows = (
-        session.query(alias_class)
-        .filter_by(alias_name="Viola & Violin")
-        .order_by(alias_class.sort_order)
-        .all()
-    )
+    rows = session.query(alias_class).filter_by(alias_name="Viola & Violin").order_by(alias_class.sort_order).all()
     assert len(rows) == 2
-    new_entities = (
-        session.query(model_class)
-        .filter(getattr(model_class, name_field).in_(["Viola", "Violin"]))
-        .all()
-    )
+    new_entities = session.query(model_class).filter(getattr(model_class, name_field).in_(["Viola", "Violin"])).all()
     new_ids = {getattr(e, fk_field) for e in new_entities}
     assert {getattr(r, fk_field) for r in rows} == new_ids
     assert [r.sort_order for r in rows] == [0, 1]
 
 
-@pytest.mark.parametrize(
-    "model_name,model_class,name_field,split_method,alias_class,fk_field", _CASES
-)
-def test_split_into_one_records_no_alias(
-    session, model_name, model_class, name_field, split_method, alias_class, fk_field
-):
+@pytest.mark.parametrize("model_name,model_class,name_field,split_method,alias_class,fk_field", _CASES)
+def test_splitting_into_own_name_reuses_original_row(session, model_name, model_class, name_field, split_method, alias_class, fk_field):
+    """Splitting into a name equal to the original entity's own name must reuse that row, not create a duplicate."""
+    original = model_class(**{name_field: "Combined Name"})
+    session.add(original)
+    session.commit()
+    original_id_attr = original.__table__.primary_key.columns.keys()[0]
+    original_id = getattr(original, original_id_attr)
+
+    splitter = SplitDB(session)
+    result = getattr(splitter, split_method)(original_id, ["Combined Name", "Split Off"])
+    assert result is True
+
+    matches = session.query(model_class).filter(getattr(model_class, name_field) == "Combined Name").all()
+    assert len(matches) == 1
+    assert getattr(matches[0], fk_field) == original_id
+
+
+@pytest.mark.parametrize("model_name,model_class,name_field,split_method,alias_class,fk_field", _CASES)
+def test_split_into_one_records_no_alias(session, model_name, model_class, name_field, split_method, alias_class, fk_field):
     original = model_class(**{name_field: "Duplicate Name"})
     session.add(original)
     session.commit()

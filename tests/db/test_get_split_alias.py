@@ -1,5 +1,7 @@
 """Tests for GetFromDB.resolve_split_alias (docs/specs/split_and_merge_aliases.md)."""
 
+from sqlalchemy import text
+
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables.role import Role, RoleSplitAlias
 
@@ -9,12 +11,7 @@ def test_resolve_split_alias_returns_ordered_targets(session):
     violin = Role(role_name="Violin")
     session.add_all([viola, violin])
     session.commit()
-    session.add_all(
-        [
-            RoleSplitAlias(alias_name="Viola & Violin", role_id=violin.role_id, sort_order=1),
-            RoleSplitAlias(alias_name="Viola & Violin", role_id=viola.role_id, sort_order=0),
-        ]
-    )
+    session.add_all([RoleSplitAlias(alias_name="Viola & Violin", role_id=violin.role_id, sort_order=1), RoleSplitAlias(alias_name="Viola & Violin", role_id=viola.role_id, sort_order=0)])
     session.commit()
 
     getter = GetFromDB(session)
@@ -25,3 +22,24 @@ def test_resolve_split_alias_returns_ordered_targets(session):
 def test_resolve_split_alias_returns_none_when_no_rule(session):
     getter = GetFromDB(session)
     assert getter.resolve_split_alias("Role", "Nonexistent Combined Role") is None
+
+
+def test_resolve_split_alias_returns_empty_list_when_targets_gone(session):
+    """A rule that matches but whose target rows are all gone must return [] (not None), so callers can tell the two cases apart."""
+    viola = Role(role_name="Viola")
+    session.add(viola)
+    session.commit()
+    session.add(RoleSplitAlias(alias_name="Viola & Violin", role_id=viola.role_id, sort_order=0))
+    session.commit()
+    role_id = viola.role_id
+
+    # Bypass the FK cascade that would normally remove the alias row along with its
+    # target role, to simulate an orphaned rule left behind by a prior data issue.
+    session.execute(text("PRAGMA foreign_keys=OFF"))
+    session.execute(text("DELETE FROM roles WHERE role_id = :id"), {"id": role_id})
+    session.commit()
+    session.execute(text("PRAGMA foreign_keys=ON"))
+
+    getter = GetFromDB(session)
+    result = getter.resolve_split_alias("Role", "Viola & Violin")
+    assert result == []

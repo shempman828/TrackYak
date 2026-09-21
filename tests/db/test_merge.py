@@ -38,11 +38,7 @@ def _make_artists_album_and_role(session):
     session.add_all([source, target, album, role])
     session.commit()
 
-    session.add(
-        AlbumRoleAssociation(
-            album_id=album.album_id, artist_id=source.artist_id, role_id=role.role_id
-        )
-    )
+    session.add(AlbumRoleAssociation(album_id=album.album_id, artist_id=source.artist_id, role_id=role.role_id))
     session.commit()
     return source, target, album, role
 
@@ -75,6 +71,21 @@ def test_merge_preserves_album_role_when_collection_not_preloaded(session):
     remaining = session.query(AlbumRoleAssociation).filter_by(album_id=album.album_id).all()
     assert len(remaining) == 1
     assert remaining[0].artist_id == target.artist_id
+
+
+def test_merge_entity_into_itself_is_rejected(session):
+    """source_id == target_id must not delete the entity (both resolve to the same identity-mapped row)."""
+    artist = Artist(artist_name="Solo Artist")
+    session.add(artist)
+    session.commit()
+    artist_id = artist.artist_id
+
+    merger = MergeDB(session)
+    result = merger.merge_entities("Artist", artist_id, artist_id)
+
+    assert result is False
+    session.expire_all()
+    assert session.get(Artist, artist_id) is not None
 
 
 # ---- test_merge_place.py -----------------------------------------------------
@@ -131,12 +142,7 @@ def test_merge_promotes_branch_when_target_is_descendant_of_source_pl(session):
     session.add(target)
     session.commit()
 
-    source_id, mid_id, sibling_id, target_id = (
-        source.place_id,
-        mid.place_id,
-        sibling.place_id,
-        target.place_id,
-    )
+    source_id, mid_id, sibling_id, target_id = (source.place_id, mid.place_id, sibling.place_id, target.place_id)
 
     merger = MergeDB(session)
     result = merger.merge_entities("Place", source_id, target_id)
@@ -187,9 +193,7 @@ def test_merge_transfers_associations_and_drops_exact_duplicates(session):
     dup_on_target = PlaceAssociation(place_id=target.place_id, entity_id=42, entity_type="Track")
     dup_on_source = PlaceAssociation(place_id=source.place_id, entity_id=42, entity_type="Track")
     # This one is unique to source and should simply migrate over.
-    unique_on_source = PlaceAssociation(
-        place_id=source.place_id, entity_id=99, entity_type="Artist"
-    )
+    unique_on_source = PlaceAssociation(place_id=source.place_id, entity_id=99, entity_type="Artist")
     session.add_all([dup_on_target, dup_on_source, unique_on_source])
     session.commit()
     target_id = target.place_id
@@ -353,12 +357,7 @@ def test_merge_promotes_branch_when_target_is_descendant_of_source_rc(session):
     session.add(target)
     session.commit()
 
-    source_id, mid_id, sibling_id, target_id = (
-        source.role_id,
-        mid.role_id,
-        sibling.role_id,
-        target.role_id,
-    )
+    source_id, mid_id, sibling_id, target_id = (source.role_id, mid.role_id, sibling.role_id, target.role_id)
 
     merger = MergeDB(session)
     result = merger.merge_entities("Role", source_id, target_id)
@@ -406,9 +405,7 @@ def test_merge_keeps_source_picture_renames_it_onto_target(session, managed_dirs
     session.commit()
     source_id, target_id = source.artist_id, target.artist_id
 
-    MergeDB(session).merge_entities(
-        "Artist", source_id, target_id, {"profile_pic_path": str(src_pic)}
-    )
+    MergeDB(session).merge_entities("Artist", source_id, target_id, {"profile_pic_path": str(src_pic)})
 
     session.expire_all()
     survivor = session.get(Artist, target_id)
@@ -432,9 +429,7 @@ def test_merge_keeps_target_picture_unlinks_source_file(session, managed_dirs):
     session.commit()
     source_id, target_id = source.artist_id, target.artist_id
 
-    MergeDB(session).merge_entities(
-        "Artist", source_id, target_id, {"profile_pic_path": str(tgt_pic)}
-    )
+    MergeDB(session).merge_entities("Artist", source_id, target_id, {"profile_pic_path": str(tgt_pic)})
 
     session.expire_all()
     assert session.get(Artist, target_id).profile_pic_path == str(tgt_pic)

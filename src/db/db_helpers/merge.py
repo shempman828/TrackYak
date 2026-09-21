@@ -5,35 +5,14 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from src.db.db_helpers.registry import BaseDBHelper
 from src.db.db_helpers.track_dirty import CASCADE_RESOLVERS, mark_tracks_dirty
-from src.db.db_tables import (
-    Album,
-    Artist,
-    ArtistAlias,
-    ArtistType,
-    Genre,
-    GenreAlias,
-    Mood,
-    Publisher,
-    PublisherAlias,
-    Role,
-    RoleAlias,
-)
+from src.db.db_tables import Album, Artist, ArtistAlias, ArtistType, Genre, GenreAlias, Mood, Publisher, PublisherAlias, Role, RoleAlias
 from src.db.db_tables.award import AwardAssociation
 from src.db.db_tables.place import Place, PlaceAssociation
 from src.foundation.logger_config import logger
 from src.image.image_cleanup import IMAGE_PATH_COLUMNS, delete_managed_image, rename_managed_image
 
 # Model registry — safer than globals()
-_MERGE_MODEL_REGISTRY: dict = {
-    "Artist": Artist,
-    "Publisher": Publisher,
-    "Genre": Genre,
-    "Mood": Mood,
-    "Role": Role,
-    "Album": Album,
-    "ArtistType": ArtistType,
-    "Place": Place,
-}
+_MERGE_MODEL_REGISTRY: dict = {"Artist": Artist, "Publisher": Publisher, "Genre": Genre, "Mood": Mood, "Role": Role, "Album": Album, "ArtistType": ArtistType, "Place": Place}
 
 # For these entity types, merging automatically preserves the merged-away
 # entity's name as an alias of the surviving entity, so the same "duplicate"
@@ -49,24 +28,25 @@ _ALIAS_ON_MERGE_REGISTRY: dict = {
 # Tables that link to entities polymorphically via an (entity_type, entity_id)
 # pair rather than a real foreign key. These are invisible to the FK-scanning
 # loop in merge_entities() and must be migrated explicitly.
-_POLYMORPHIC_ASSOCIATION_TABLES = [
-    (PlaceAssociation.__table__, "entity_type", "entity_id"),
-    (AwardAssociation.__table__, "entity_type", "entity_id"),
-]
+_POLYMORPHIC_ASSOCIATION_TABLES = [(PlaceAssociation.__table__, "entity_type", "entity_id"), (AwardAssociation.__table__, "entity_type", "entity_id")]
 
 
 class MergeDB(BaseDBHelper):
     """Class for merging database entries."""
 
-    def merge_entities(
-        self, model_name: str, source_id: int, target_id: int, resolved_fields: dict | None = None
-    ):
+    def merge_entities(self, model_name: str, source_id: int, target_id: int, resolved_fields: dict | None = None):
         """Merge two entities of the same type across all relationship tables."""
         logger.debug(f"Merging {model_name} ID {source_id} -> {target_id}")
 
         entity_class = _MERGE_MODEL_REGISTRY.get(model_name)
         if entity_class is None:
             logger.error(f"Entity '{model_name}' not found in merge registry.")
+            return False
+
+        if source_id == target_id:
+            # source and target would resolve to the same identity-mapped object below,
+            # so deleting "source" would delete the entity being merged into as well.
+            logger.error(f"Cannot merge {model_name} {source_id} into itself.")
             return False
 
         source_entity = self.session.get(entity_class, source_id)
@@ -107,26 +87,14 @@ class MergeDB(BaseDBHelper):
 
                 for column in table.columns:
                     for fk in column.foreign_keys:
-                        if (
-                            fk.column.table.name == entity_class.__table__.name
-                            and fk.column.name == pk_column
-                        ):
-                            logger.debug(
-                                f"Found FK: {table.name}.{column.name} -> "
-                                f"{entity_class.__table__.name}.{pk_column}"
-                            )
+                        if fk.column.table.name == entity_class.__table__.name and fk.column.name == pk_column:
+                            logger.debug(f"Found FK: {table.name}.{column.name} -> {entity_class.__table__.name}.{pk_column}")
 
-                            update_stmt = (
-                                update(table)
-                                .where(column == source_id)
-                                .values({column.name: target_id})
-                            )
+                            update_stmt = update(table).where(column == source_id).values({column.name: target_id})
 
                             rowcount = self._safe_execute(update_stmt)
                             if rowcount > 0:
-                                logger.info(
-                                    f"Updated {rowcount} rows in {table.name}.{column.name}"
-                                )
+                                logger.info(f"Updated {rowcount} rows in {table.name}.{column.name}")
                                 updated_tables.add(table.name)
                             elif rowcount == -1:
                                 # Bulk UPDATE hit a unique constraint on at least one
@@ -134,61 +102,31 @@ class MergeDB(BaseDBHelper):
                                 # to a row-by-row pass so only rows that truly
                                 # collide with an existing target row get dropped —
                                 # the rest are still migrated to the target.
-                                moved, dropped = self._migrate_fk_rows_individually(
-                                    table, column, source_id, target_id
-                                )
+                                moved, dropped = self._migrate_fk_rows_individually(table, column, source_id, target_id)
                                 if moved:
-                                    logger.info(
-                                        f"Row-by-row updated {moved} rows in "
-                                        f"{table.name}.{column.name}"
-                                    )
+                                    logger.info(f"Row-by-row updated {moved} rows in {table.name}.{column.name}")
                                     updated_tables.add(table.name)
                                 if dropped:
-                                    logger.info(
-                                        f"Constraint on {table.name}.{column.name}: "
-                                        f"deleted {dropped} duplicate source rows "
-                                        f"(target already has them)."
-                                    )
+                                    logger.info(f"Constraint on {table.name}.{column.name}: deleted {dropped} duplicate source rows (target already has them).")
                                     skipped_tables.add(table.name)
 
             for assoc_table, type_col_name, id_col_name in _POLYMORPHIC_ASSOCIATION_TABLES:
                 type_col = assoc_table.c[type_col_name]
                 id_col = assoc_table.c[id_col_name]
 
-                update_stmt = (
-                    update(assoc_table)
-                    .where(type_col == model_name, id_col == source_id)
-                    .values({id_col_name: target_id})
-                )
+                update_stmt = update(assoc_table).where(type_col == model_name, id_col == source_id).values({id_col_name: target_id})
 
                 rowcount = self._safe_execute(update_stmt)
                 if rowcount > 0:
-                    logger.info(
-                        f"Updated {rowcount} rows in "
-                        f"{assoc_table.name}.{id_col_name} (polymorphic {model_name})"
-                    )
+                    logger.info(f"Updated {rowcount} rows in {assoc_table.name}.{id_col_name} (polymorphic {model_name})")
                     updated_tables.add(assoc_table.name)
                 elif rowcount == -1:
-                    moved, dropped = self._migrate_fk_rows_individually(
-                        assoc_table,
-                        id_col,
-                        source_id,
-                        target_id,
-                        extra_where=(type_col == model_name),
-                    )
+                    moved, dropped = self._migrate_fk_rows_individually(assoc_table, id_col, source_id, target_id, extra_where=(type_col == model_name))
                     if moved:
-                        logger.info(
-                            f"Row-by-row updated {moved} rows in "
-                            f"{assoc_table.name}.{id_col_name} (polymorphic "
-                            f"{model_name})"
-                        )
+                        logger.info(f"Row-by-row updated {moved} rows in {assoc_table.name}.{id_col_name} (polymorphic {model_name})")
                         updated_tables.add(assoc_table.name)
                     if dropped:
-                        logger.info(
-                            f"Constraint on {assoc_table.name}.{id_col_name}: "
-                            f"deleted {dropped} duplicate source rows "
-                            f"(target already has them)."
-                        )
+                        logger.info(f"Constraint on {assoc_table.name}.{id_col_name}: deleted {dropped} duplicate source rows (target already has them).")
                         skipped_tables.add(assoc_table.name)
 
             if model_name == "Place":
@@ -199,7 +137,7 @@ class MergeDB(BaseDBHelper):
                 # delete-time behavior of nulling their parent_id, silently
                 # detaching them from the hierarchy instead of reparenting
                 # them onto the target.
-                self._reparent_place_children(source_id, target_id)
+                self._reparent_children(Place, "place_id", source_id, target_id)
                 # place_associations has no unique constraint, so the usual
                 # IntegrityError-triggered "drop duplicate rows" fallback in
                 # the FK loop above never fires for it. Explicitly drop exact
@@ -213,7 +151,7 @@ class MergeDB(BaseDBHelper):
                 # fall through to the ORM's default delete-time behavior of
                 # nulling their parent_id, silently detaching them from the
                 # hierarchy instead of being reparented onto the target.
-                self._reparent_role_children(source_id, target_id)
+                self._reparent_children(Role, "role_id", source_id, target_id)
 
             self._preserve_alias_on_merge(model_name, source_entity, target_entity, resolved_fields)
 
@@ -243,16 +181,10 @@ class MergeDB(BaseDBHelper):
                     # check for that before assigning so a collision doesn't
                     # blow up the commit below and force a rollback of the
                     # whole merge.
-                    conflict = self._find_unique_conflict(
-                        entity_class, pk_column, target_id, {field: value}
-                    )
+                    conflict = self._find_unique_conflict(entity_class, pk_column, target_id, {field: value})
                     if conflict is not None:
                         _, conflict_value, other_id = conflict
-                        logger.error(
-                            f"Cannot merge {model_name} {source_id} -> {target_id}: "
-                            f"resolved '{field}' value {conflict_value!r} is already "
-                            f"used by {model_name} {other_id}"
-                        )
+                        logger.error(f"Cannot merge {model_name} {source_id} -> {target_id}: resolved '{field}' value {conflict_value!r} is already used by {model_name} {other_id}")
                         self.session.rollback()
                         return False
 
@@ -262,15 +194,9 @@ class MergeDB(BaseDBHelper):
             self._commit()
 
             if image_col:
-                self._reconcile_merged_image(
-                    model_name, target_id, image_col[0], pre_source_image, pre_target_image
-                )
+                self._reconcile_merged_image(model_name, target_id, image_col[0], pre_source_image, pre_target_image)
 
-            logger.info(
-                f"Merge complete: {model_name} {source_id} -> {target_id}. "
-                f"Updated tables: {sorted(updated_tables)}. "
-                f"Constraint-skipped tables: {sorted(skipped_tables)}."
-            )
+            logger.info(f"Merge complete: {model_name} {source_id} -> {target_id}. Updated tables: {sorted(updated_tables)}. Constraint-skipped tables: {sorted(skipped_tables)}.")
             return True
 
         except SQLAlchemyError as e:
@@ -278,17 +204,12 @@ class MergeDB(BaseDBHelper):
             self.session.rollback()
             return False
 
-    def _reconcile_merged_image(
-        self, model_name, target_id, attr, pre_source_image, pre_target_image
-    ):
-        """Fix up managed picture files after an Artist/Publisher merge.
-
-        Whichever of the two pictures the merge did not keep is now
-        referenced by nobody -- unlink it. If the surviving picture is the
-        file that belonged to the merged-away source, it is still named for
-        the deleted source id, so rename it to the target's own
-        deterministic name and repoint the column.
-        """
+    def _reconcile_merged_image(self, model_name, target_id, attr, pre_source_image, pre_target_image):
+        """Fix up managed picture files after an Artist/Publisher merge."""
+        # Whichever of the two pictures the merge did not keep is now referenced by nobody --
+        # unlink it. If the surviving picture is the file that belonged to the merged-away
+        # source, it is still named for the deleted source id, so rename it to the target's
+        # own deterministic name and repoint the column.
         entity_class = _MERGE_MODEL_REGISTRY[model_name]
         name_attr = {"Artist": "artist_name", "Publisher": "publisher_name"}[model_name]
         target_entity = self.session.get(entity_class, target_id)
@@ -316,14 +237,10 @@ class MergeDB(BaseDBHelper):
                 logger.error(f"Could not repoint {model_name} {target_id}.{attr}: {e}")
                 self.session.rollback()
 
-    def _preserve_alias_on_merge(
-        self, model_name, source_entity, target_entity, resolved_fields=None
-    ):
-        """For entity types in `_ALIAS_ON_MERGE_REGISTRY`, save the merged-away
-        entity's name as an alias of the surviving entity, so that name
-        resolves back to the same entity instead of creating a duplicate
-        later (e.g. on import).
-        """
+    def _preserve_alias_on_merge(self, model_name, source_entity, target_entity, resolved_fields=None):
+        """For entity types in `_ALIAS_ON_MERGE_REGISTRY`, save the merged-away entity's name as an alias of the surviving entity."""
+        # So that name resolves back to the same entity instead of creating a duplicate
+        # later (e.g. on import).
         alias_info = _ALIAS_ON_MERGE_REGISTRY.get(model_name)
         if not alias_info:
             return
@@ -351,41 +268,34 @@ class MergeDB(BaseDBHelper):
         # column and the target entity's own primary-key attribute name.
         target_id = getattr(target_entity, fk_field)
 
-        existing_alias = self.session.scalar(
-            select(alias_class).where(alias_class.alias_name == discarded_name)
-        )
+        existing_alias = self.session.scalar(select(alias_class).where(alias_class.alias_name == discarded_name))
         if existing_alias is not None:
             if getattr(existing_alias, fk_field) != target_id:
                 setattr(existing_alias, fk_field, target_id)
             return
 
         self.session.add(alias_class(alias_name=discarded_name, **{fk_field: target_id}))
-        logger.info(
-            f"Preserved '{discarded_name}' as an alias of {model_name} {target_id} after merge."
-        )
+        logger.info(f"Preserved '{discarded_name}' as an alias of {model_name} {target_id} after merge.")
 
-    def _reparent_place_children(self, source_id, target_id):
-        """Reparent source's child places onto the target instead of letting
-        them fall through to the ORM's default null-out-on-delete behavior.
-
-        If the target is itself a descendant of the source (e.g. merging a
-        country into one of its own states), naively pointing every one of
-        source's children at target would create a cycle: the single child
-        that leads down to target would end up with target as its parent
-        while target is that child's own descendant. That one branch is
-        promoted onto source's former parent instead; every other child of
-        source reparents onto target normally.
-        """
-        source_entity = self.session.get(Place, source_id)
+    def _reparent_children(self, entity_class, pk_col_name: str, source_id, target_id):
+        """Reparent source's children onto the target instead of letting them fall through to the ORM's default null-out-on-delete behavior."""
+        # Used for Place and Role, both self-referential via parent_id. If the target is
+        # itself a descendant of the source (e.g. merging a country into one of its own
+        # states, or "Musician" into its own child "Instrumentalist"), naively pointing
+        # every one of source's children at target would create a cycle: the single child
+        # that leads down to target would end up with target as its parent while target is
+        # that child's own descendant. That one branch is promoted onto source's former
+        # parent instead; every other child of source reparents onto target normally.
+        source_entity = self.session.get(entity_class, source_id)
         grandparent_id = source_entity.parent_id if source_entity else None
 
         chain_child_id = None
-        current = self.session.get(Place, target_id)
+        current = self.session.get(entity_class, target_id)
         visited = set()
-        while current is not None and current.place_id not in visited:
-            visited.add(current.place_id)
+        while current is not None and getattr(current, pk_col_name) not in visited:
+            visited.add(getattr(current, pk_col_name))
             if current.parent_id == source_id:
-                chain_child_id = current.place_id
+                chain_child_id = getattr(current, pk_col_name)
                 break
             current = current.parent
 
@@ -395,87 +305,22 @@ class MergeDB(BaseDBHelper):
         # only pending ORM changes rather than already committed to the DB,
         # that reload would still see the old parent_id and cascade-null the
         # rows we just repointed, clobbering this step.
-        table = Place.__table__
+        table = entity_class.__table__
+        pk_col = table.c[pk_col_name]
         if chain_child_id is not None:
-            self._safe_execute(
-                update(table)
-                .where(table.c.place_id == chain_child_id)
-                .values(parent_id=grandparent_id)
-            )
-            self._safe_execute(
-                update(table)
-                .where(table.c.parent_id == source_id, table.c.place_id != chain_child_id)
-                .values(parent_id=target_id)
-            )
+            self._safe_execute(update(table).where(pk_col == chain_child_id).values(parent_id=grandparent_id))
+            self._safe_execute(update(table).where(table.c.parent_id == source_id, pk_col != chain_child_id).values(parent_id=target_id))
         else:
-            self._safe_execute(
-                update(table).where(table.c.parent_id == source_id).values(parent_id=target_id)
-            )
-
-    def _reparent_role_children(self, source_id, target_id):
-        """Reparent source's child roles onto the target instead of letting
-        them fall through to the ORM's default null-out-on-delete behavior.
-
-        Mirrors `_reparent_place_children`: if the target is itself a
-        descendant of the source (e.g. merging "Musician" into its own
-        child "Instrumentalist"), naively pointing every child of source at
-        target would create a cycle. That one branch is promoted onto
-        source's former parent instead; every other child of source
-        reparents onto target normally.
-        """
-        source_entity = self.session.get(Role, source_id)
-        grandparent_id = source_entity.parent_id if source_entity else None
-
-        chain_child_id = None
-        current = self.session.get(Role, target_id)
-        visited = set()
-        while current is not None and current.role_id not in visited:
-            visited.add(current.role_id)
-            if current.parent_id == source_id:
-                chain_child_id = current.role_id
-                break
-            current = current.parent
-
-        # Raw SQL, not ORM attribute assignment: `session.expire(source_entity)`
-        # further down reloads its `children` collection from the database to
-        # decide what to null out on delete. If these reparenting updates were
-        # only pending ORM changes rather than already committed to the DB,
-        # that reload would still see the old parent_id and cascade-null the
-        # rows we just repointed, clobbering this step.
-        table = Role.__table__
-        if chain_child_id is not None:
-            self._safe_execute(
-                update(table)
-                .where(table.c.role_id == chain_child_id)
-                .values(parent_id=grandparent_id)
-            )
-            self._safe_execute(
-                update(table)
-                .where(table.c.parent_id == source_id, table.c.role_id != chain_child_id)
-                .values(parent_id=target_id)
-            )
-        else:
-            self._safe_execute(
-                update(table).where(table.c.parent_id == source_id).values(parent_id=target_id)
-            )
+            self._safe_execute(update(table).where(table.c.parent_id == source_id).values(parent_id=target_id))
 
     def _dedupe_place_associations(self, place_id):
-        """Remove exact-duplicate PlaceAssociation rows left on `place_id`
-        after source's rows were migrated onto it, keeping the lowest-id row
-        for each (entity_type, entity_id, association_type_id) combination.
-        Uses raw table access (not ORM entities) to avoid stale identity-map
-        objects left over from earlier views of the place's associations.
-        """
+        """Remove exact-duplicate PlaceAssociation rows left on `place_id` after source's rows were migrated onto it."""
+        # Keeps the lowest-id row for each (entity_type, entity_id, association_type_id)
+        # combination. Uses raw table access (not ORM entities) to avoid stale
+        # identity-map objects left over from earlier views of the place's associations.
         table = PlaceAssociation.__table__
         rows = self.session.execute(
-            select(
-                table.c.association_id,
-                table.c.entity_type,
-                table.c.entity_id,
-                table.c.association_type_id,
-            )
-            .where(table.c.place_id == place_id)
-            .order_by(table.c.association_id)
+            select(table.c.association_id, table.c.entity_type, table.c.entity_id, table.c.association_type_id).where(table.c.place_id == place_id).order_by(table.c.association_id)
         ).fetchall()
 
         seen = set()
@@ -489,17 +334,12 @@ class MergeDB(BaseDBHelper):
                 seen.add(key)
 
         if dropped:
-            logger.info(
-                f"Removed {dropped} duplicate place_associations row(s) after "
-                f"merging into place {place_id}."
-            )
+            logger.info(f"Removed {dropped} duplicate place_associations row(s) after merging into place {place_id}.")
 
     def _safe_execute(self, stmt) -> int:
-        """
-        Execute a statement inside a savepoint.
-        Returns rowcount on success, -1 if a unique/integrity constraint fired.
-        Any other SQLAlchemyError is re-raised.
-        """
+        """Execute a statement inside a savepoint."""
+        # Returns rowcount on success, -1 if a unique/integrity constraint fired.
+        # Any other SQLAlchemyError is re-raised.
         try:
             with self.session.begin_nested():
                 result = self.session.execute(stmt)
@@ -508,20 +348,12 @@ class MergeDB(BaseDBHelper):
             logger.debug("Skipping statement due to unique constraint violation.")
             return -1
 
-    def _migrate_fk_rows_individually(
-        self, table, fk_column, source_id, target_id, extra_where=None
-    ):
-        """Move rows referencing source_id to target_id one row at a time.
-
-        Used as a fallback when a bulk UPDATE fails because at least one row
-        would collide with a unique constraint (the target already has an
-        equivalent row). Handling rows individually ensures non-conflicting
-        rows are still migrated instead of being dropped along with the
-        genuine duplicates.
-
-        `extra_where` narrows the row selection further (e.g. matching an
-        `entity_type` discriminator on a polymorphic association table).
-        """
+    def _migrate_fk_rows_individually(self, table, fk_column, source_id, target_id, extra_where=None):
+        """Move rows referencing source_id to target_id one row at a time, as a fallback when a bulk UPDATE hits a unique constraint."""
+        # Handling rows individually ensures non-conflicting rows are still migrated instead
+        # of being dropped along with the genuine duplicates. `extra_where` narrows the row
+        # selection further (e.g. matching an `entity_type` discriminator on a polymorphic
+        # association table).
         pk_columns = list(table.primary_key.columns)
         select_stmt = select(*pk_columns).where(fk_column == source_id)
         if extra_where is not None:
