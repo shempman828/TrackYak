@@ -18,6 +18,21 @@ from src.common.match_confidence import confidence_color
 from src.db.db_tables.chart import ChartEntry
 
 _COLUMNS = ["Pos", "Title", "Artist", "Peak", "Weeks on Chart"]
+_SORT_VALUE_ROLE = Qt.UserRole + 1
+_NUMERIC_COLUMNS = {0, 3, 4}  # Pos, Peak, Weeks on Chart
+
+
+class _ChartEntryTreeItem(QTreeWidgetItem):
+    """Sorts the Pos, Peak, and Weeks on Chart columns by their numeric
+    value instead of lexicographically (so 9 sorts before 10), matching the
+    pattern in genre_tree_builder.py's _GenreTreeItem."""
+
+    def __lt__(self, other):
+        tree = self.treeWidget()
+        column = tree.sortColumn() if tree else 0
+        if column in _NUMERIC_COLUMNS:
+            return self.data(column, _SORT_VALUE_ROLE) < other.data(column, _SORT_VALUE_ROLE)
+        return self.text(column).lower() < other.text(column).lower()
 
 
 class ChartEntryTable(QTreeWidget):
@@ -52,7 +67,10 @@ class ChartEntryTable(QTreeWidget):
         self.setHeaderLabels(_COLUMNS)
         self.setRootIsDecorated(False)  # flat list, no expand arrows
         self.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.setSortingEnabled(False)  # results arrive pre-ordered (by position/relevance)
+        self.setSortingEnabled(True)
+        # No column sorted at start, so results keep arriving in their
+        # pre-ordered (by position/relevance) order until the user clicks a header.
+        self.header().setSortIndicator(-1, Qt.AscendingOrder)
         self.header().setSectionResizeMode(1, QHeaderView.Stretch)  # Title column grows
         self.header().setSectionResizeMode(2, QHeaderView.Stretch)  # Artist column grows
         self._entries_by_id = {}  # chart_entry_id -> ChartEntry, refreshed each populate()
@@ -63,10 +81,13 @@ class ChartEntryTable(QTreeWidget):
         self.clear()
         self._entries_by_id = {}
         for entry in entries:
-            item = QTreeWidgetItem(
+            item = _ChartEntryTreeItem(
                 [str(entry.position), entry.raw_title, entry.raw_performer, str(entry.peak_position) if entry.peak_position else "", str(entry.weeks_on_chart) if entry.weeks_on_chart else ""]
             )
             item.setData(0, Qt.UserRole, entry.chart_entry_id)
+            item.setData(0, _SORT_VALUE_ROLE, entry.position or 0)
+            item.setData(3, _SORT_VALUE_ROLE, entry.peak_position or 0)
+            item.setData(4, _SORT_VALUE_ROLE, entry.weeks_on_chart or 0)
             self._entries_by_id[entry.chart_entry_id] = entry
             if entry.is_matched:
                 color = confidence_color(entry.match_score or 0.0)
