@@ -4,31 +4,14 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QThread, QTimer, Signal
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QDialog,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLayout,
-    QMessageBox,
-    QPushButton,
-    QSizePolicy,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel, QLayout, QMessageBox, QPushButton, QSizePolicy, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.artist.artist_resolution import resolve_or_create_artist
 from src.common.dialogs.credited_as_dialog import CreditedAsDialog
 from src.common.widgets.entity_completer_context import artist_context_map
-from src.common.widgets.entity_completer_edit import (
-    build_entity_search_widget,
-    register_cached_entity,
-)
+from src.common.widgets.entity_completer_edit import build_entity_search_widget, register_cached_entity
 from src.db.db_tables import Artist, ArtistAlias, Role, TrackArtistRole
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
@@ -64,15 +47,7 @@ def _fetch_role_rows(session, track_ids: list):
     `.artist`/`.role` relationships per row -- that lazy-loads one query at
     a time and is what made the Roles tab hitch on open."""
     stmt = (
-        select(
-            TrackArtistRole.track_id,
-            TrackArtistRole.artist_id,
-            TrackArtistRole.role_id,
-            TrackArtistRole.credited_alias_id,
-            Role.role_name,
-            Artist.artist_name,
-            ArtistAlias.alias_name,
-        )
+        select(TrackArtistRole.track_id, TrackArtistRole.artist_id, TrackArtistRole.role_id, TrackArtistRole.credited_alias_id, Role.role_name, Artist.artist_name, ArtistAlias.alias_name)
         .outerjoin(Artist, TrackArtistRole.artist_id == Artist.artist_id)
         .outerjoin(Role, TrackArtistRole.role_id == Role.role_id)
         .outerjoin(ArtistAlias, TrackArtistRole.credited_alias_id == ArtistAlias.alias_id)
@@ -111,9 +86,7 @@ def _group_role_rows(rows, track_ids: list, is_multi: bool) -> dict:
         for _track_id, artist_id, role_id, alias_id, role_name, artist_name, alias_name in rows:
             credited_name = alias_name or artist_name or "?"
             role_name = role_name or "?"
-            entry = grouped.setdefault(
-                (artist_id, credited_name), {"roles": {}, "credited_alias_id": alias_id}
-            )
+            entry = grouped.setdefault((artist_id, credited_name), {"roles": {}, "credited_alias_id": alias_id})
             entry["roles"][role_id] = role_name
 
     return grouped
@@ -322,9 +295,7 @@ class _RolesTable(QTableWidget):
         return self.content_height() > self._MAX_CONTENT_HEIGHT
 
     def sizeHint(self):
-        return QSize(
-            super().sizeHint().width(), min(self.content_height(), self._MAX_CONTENT_HEIGHT)
-        )
+        return QSize(super().sizeHint().width(), min(self.content_height(), self._MAX_CONTENT_HEIGHT))
 
 
 class RolesTab(_BaseTab):
@@ -356,20 +327,12 @@ class RolesTab(_BaseTab):
         search_row.setSpacing(8)
 
         self._artist_search = build_entity_search_widget(
-            self.controller,
-            "Artist",
-            "artist_name",
-            "artist_id",
-            "Search artists…",
-            index_builder=_build_artist_index,
-            context_builder=artist_context_map,
+            self.controller, "Artist", "artist_name", "artist_id", "Search artists…", index_builder=_build_artist_index, context_builder=artist_context_map
         )
         self._artist_search.textChanged.connect(self._update_add_btn)
         search_row.addWidget(self._artist_search)
 
-        self._role_edit = build_entity_search_widget(
-            self.controller, "Role", "role_name", "role_id", "Role (e.g. Performer, Composer…)"
-        )
+        self._role_edit = build_entity_search_widget(self.controller, "Role", "role_name", "role_id", "Role (e.g. Performer, Composer…)")
         self._role_edit.textChanged.connect(self._update_add_btn)
         search_row.addWidget(self._role_edit)
 
@@ -388,9 +351,7 @@ class RolesTab(_BaseTab):
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self._table.horizontalHeader().sectionResized.connect(
-            lambda *_args: self._table.resizeRowsToContents()
-        )
+        self._table.horizontalHeader().sectionResized.connect(lambda *_args: self._table.resizeRowsToContents())
         self._table.setWordWrap(True)
         self._table.verticalHeader().setVisible(False)
         self._table.verticalHeader().setDefaultSectionSize(36)
@@ -411,10 +372,7 @@ class RolesTab(_BaseTab):
         # this table is reused in place across reloads (see
         # AlbumEditor._refresh_track_credits_tab), not recreated.
         self._table.verticalScrollBar().setSingleStep(24)
-        self._table.setToolTip(
-            "Each artist gets one row; their roles are shown as chips with "
-            "individual remove (\u00d7) buttons."
-        )
+        self._table.setToolTip("Each artist gets one row; their roles are shown as chips with individual remove (\u00d7) buttons.")
         layout.addWidget(self._table)
         # Preferred vertical policy lets the table grow, so without a
         # stretch here a QVBoxLayout with no other expanding widget hands
@@ -477,12 +435,7 @@ class RolesTab(_BaseTab):
         self._table.setRowCount(0)
 
         for (artist_id, credited_name), entry in self._sorted_groups(grouped):
-            self._add_artist_row(
-                artist_id,
-                credited_name,
-                entry["roles"],
-                credited_alias_id=entry.get("credited_alias_id"),
-            )
+            self._add_artist_row(artist_id, credited_name, entry["roles"], credited_alias_id=entry.get("credited_alias_id"))
 
         # ResizeToContents tracks each insertRow individually, so a column
         # can be left sized from an earlier, narrower row in the batch —
@@ -572,18 +525,12 @@ class RolesTab(_BaseTab):
         if not self.is_multi:
             credit_btn = QPushButton("Credit as…")
             credit_btn.setToolTip(f"Choose which name to credit {artist_name} as")
-            credit_btn.clicked.connect(
-                lambda _checked, aid=artist_id, r=dict(roles), cur=credited_alias_id: (
-                    self._change_credited_alias(aid, r, cur)
-                )
-            )
+            credit_btn.clicked.connect(lambda _checked, aid=artist_id, r=dict(roles), cur=credited_alias_id: self._change_credited_alias(aid, r, cur))
             actions_layout.addWidget(credit_btn)
 
         remove_artist_btn = QPushButton("Remove All")
         remove_artist_btn.setToolTip(f"Remove every role for {artist_name}")
-        remove_artist_btn.clicked.connect(
-            lambda _checked, aid=artist_id: self._remove_all_roles_for_artist(aid)
-        )
+        remove_artist_btn.clicked.connect(lambda _checked, aid=artist_id: self._remove_all_roles_for_artist(aid))
         actions_layout.addWidget(remove_artist_btn)
 
         self._table.setCellWidget(row, 2, actions_widget)
@@ -595,22 +542,38 @@ class RolesTab(_BaseTab):
         chip.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         chip.setProperty("class", "roleChip")
 
-        chip_layout = QHBoxLayout(chip)
+        chip_layout = QVBoxLayout(chip)
         chip_layout.setContentsMargins(8, 2, 2, 2)
         chip_layout.setSpacing(2)
 
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(2)
+
         label = QLabel(role_name)
-        chip_layout.addWidget(label)
+        top_row.addWidget(label)
 
         close_btn = QPushButton("\u00d7")
         close_btn.setFlat(True)
         close_btn.setProperty("class", "roleChipClose")
         close_btn.setFixedSize(16, 16)
         close_btn.setToolTip(f"Remove '{role_name}' from {artist_name}")
-        close_btn.clicked.connect(
-            lambda _checked, aid=artist_id, rid=role_id: self._remove_role(aid, rid)
-        )
-        chip_layout.addWidget(close_btn)
+        close_btn.clicked.connect(lambda _checked, aid=artist_id, rid=role_id: self._remove_role(aid, rid))
+        top_row.addWidget(close_btn)
+
+        chip_layout.addLayout(top_row)
+
+        # Placed under the role's own label/close row (rather than beside it
+        # in the flow layout) so it stays grouped with the role it acts on
+        # even after the row wraps, and so it doesn't double the horizontal
+        # space every chip takes up.
+        if self._on_convert_to_album is not None:
+            to_album_btn = QPushButton("\u2192 Album")
+            to_album_btn.setFlat(True)
+            to_album_btn.setObjectName("ToAlbumButton")
+            to_album_btn.setToolTip(f"Make '{role_name}' for {artist_name} a single album-level credit instead (removes it from every track)")
+            to_album_btn.clicked.connect(lambda _checked, aid=artist_id, rid=role_id: self._on_convert_to_album(aid, rid))
+            chip_layout.addWidget(to_album_btn)
 
         return chip
 
@@ -622,26 +585,9 @@ class RolesTab(_BaseTab):
             chip = self._build_role_chip(artist_id, artist_name, role_id, role_name)
             row_layout.addWidget(chip)
 
-            if self._on_convert_to_album is not None:
-                to_album_btn = QPushButton("→ Album")
-                to_album_btn.setFlat(True)
-                to_album_btn.setObjectName("ToAlbumButton")
-                to_album_btn.setToolTip(
-                    f"Make '{role_name}' for {artist_name} a single album-level "
-                    f"credit instead (removes it from every track)"
-                )
-                to_album_btn.clicked.connect(
-                    lambda _checked, aid=artist_id, rid=role_id: self._on_convert_to_album(aid, rid)
-                )
-                row_layout.addWidget(to_album_btn)
-
         add_role_btn = QPushButton("+ Add role…")
         add_role_btn.setFlat(True)
-        add_role_btn.clicked.connect(
-            lambda _checked, aid=artist_id, name=artist_name: self._prompt_add_role_for_artist(
-                aid, name
-            )
-        )
+        add_role_btn.clicked.connect(lambda _checked, aid=artist_id, name=artist_name: self._prompt_add_role_for_artist(aid, name))
         row_layout.addWidget(add_role_btn)
         return cell
 
@@ -670,11 +616,7 @@ class RolesTab(_BaseTab):
             return self.controller.get.get_entity_object("Role", role_id=matched_id)
 
         existing_role = self.controller.get.get_entity_object("Role", role_name=role_name)
-        role = (
-            existing_role
-            if not isinstance(existing_role, list)
-            else (existing_role[0] if existing_role else None)
-        )
+        role = existing_role if not isinstance(existing_role, list) else (existing_role[0] if existing_role else None)
         if not role:
             role = self.controller.add.add_entity("Role", role_name=role_name)
             register_cached_entity("Role", role)
@@ -694,12 +636,8 @@ class RolesTab(_BaseTab):
         # matched_id only names a single typed artist/role -- with several
         # entered at once (e.g. "Deakin;Panda Bear") each is resolved by
         # name instead of relying on that one-shot completer pick.
-        single_artist_matched_id = (
-            self._artist_search.matched_id() if len(artist_names) == 1 else None
-        )
-        artists = [
-            self._resolve_artist(name, matched_id=single_artist_matched_id) for name in artist_names
-        ]
+        single_artist_matched_id = self._artist_search.matched_id() if len(artist_names) == 1 else None
+        artists = [self._resolve_artist(name, matched_id=single_artist_matched_id) for name in artist_names]
         if any(artist is None for artist in artists):
             QMessageBox.warning(self, "Error", "Could not resolve artist.")
             return
@@ -719,9 +657,7 @@ class RolesTab(_BaseTab):
                     # artist rather than adding under the canonical name.
                     continue
             for role in roles:
-                self._batch_add_track_artist_role(
-                    artist.artist_id, role.role_id, credited_alias_id=credited_alias_id
-                )
+                self._batch_add_track_artist_role(artist.artist_id, role.role_id, credited_alias_id=credited_alias_id)
 
         self._artist_search.reset()
         self._role_edit.reset()
@@ -732,11 +668,7 @@ class RolesTab(_BaseTab):
         the existing role input field (reused as a quick prompt)."""
         role_names = self._role_edit.split_names()
         if not role_names:
-            show_status_message(
-                self,
-                f"Type a role name (min 2 chars) in the role field, then click "
-                f"'+ Add role…' next to {artist_name}.",
-            )
+            show_status_message(self, f"Type a role name (min 2 chars) in the role field, then click '+ Add role…' next to {artist_name}.")
             self._role_edit.setFocus()
             return
 
@@ -755,9 +687,7 @@ class RolesTab(_BaseTab):
                     return
 
         for role in roles:
-            self._batch_add_track_artist_role(
-                artist_id, role.role_id, credited_alias_id=credited_alias_id
-            )
+            self._batch_add_track_artist_role(artist_id, role.role_id, credited_alias_id=credited_alias_id)
         self._role_edit.reset()
         self.load(self.tracks)
 
@@ -784,18 +714,12 @@ class RolesTab(_BaseTab):
         if not artist:
             return
 
-        accepted, new_alias_id = self._prompt_credited_alias(
-            artist, current_alias_id=current_alias_id
-        )
+        accepted, new_alias_id = self._prompt_credited_alias(artist, current_alias_id=current_alias_id)
         if not accepted or new_alias_id == current_alias_id:
             return
 
         for role_id in roles:
-            self.controller.update.update_entity_by_filter(
-                "TrackArtistRole",
-                {"track_id": self.track.track_id, "artist_id": artist_id, "role_id": role_id},
-                credited_alias_id=new_alias_id,
-            )
+            self.controller.update.update_entity_by_filter("TrackArtistRole", {"track_id": self.track.track_id, "artist_id": artist_id, "role_id": role_id}, credited_alias_id=new_alias_id)
         self.load(self.tracks)
 
     def _remove_role(self, artist_id, role_id):
@@ -823,15 +747,7 @@ class RolesTab(_BaseTab):
     # respectively), instead of one round-trip per track.
 
     def _batch_add_track_artist_role(self, artist_id, role_id, credited_alias_id=None):
-        rows = [
-            {
-                "track_id": track.track_id,
-                "artist_id": artist_id,
-                "role_id": role_id,
-                "credited_alias_id": credited_alias_id,
-            }
-            for track in self.tracks
-        ]
+        rows = [{"track_id": track.track_id, "artist_id": artist_id, "role_id": role_id, "credited_alias_id": credited_alias_id} for track in self.tracks]
         try:
             self.controller.add.add_entities("TrackArtistRole", rows)
         except SQLAlchemyError as e:
@@ -840,8 +756,6 @@ class RolesTab(_BaseTab):
     def _batch_delete_track_artist_role(self, artist_id, role_id):
         track_ids = [track.track_id for track in self.tracks]
         try:
-            self.controller.delete.delete_entity(
-                "TrackArtistRole", track_id=track_ids, artist_id=artist_id, role_id=role_id
-            )
+            self.controller.delete.delete_entity("TrackArtistRole", track_id=track_ids, artist_id=artist_id, role_id=role_id)
         except SQLAlchemyError as e:
             logger.error(f"Failed to remove role from tracks: {e}")

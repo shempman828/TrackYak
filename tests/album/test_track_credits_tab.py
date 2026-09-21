@@ -15,7 +15,7 @@ Covers:
 
 from types import SimpleNamespace
 
-from PySide6.QtWidgets import QPushButton, QTabWidget, QWidget
+from PySide6.QtWidgets import QPushButton, QTabWidget, QVBoxLayout, QWidget
 
 from src.album.album_editing_relationship_helpers import RelationshipHelpers
 from src.album.edit.base_album_edit import AlbumEditor
@@ -117,9 +117,7 @@ def test_convert_credit_to_album_level_creates_album_credit_and_removes_track_ro
     controller = _StubController(get=_StubGet(entity_object_return=existing_track_row))
 
     refresh_calls = []
-    helper = RelationshipHelpers(
-        controller, album, lambda: refresh_calls.append(True), widget=QWidget()
-    )
+    helper = RelationshipHelpers(controller, album, lambda: refresh_calls.append(True), widget=QWidget())
 
     helper.convert_credit_to_album_level(artist_id=10, role_id=5)
 
@@ -128,13 +126,7 @@ def test_convert_credit_to_album_level_creates_album_credit_and_removes_track_ro
     assert len(controller.add.add_entity_calls) == 1
     model_name, kwargs = controller.add.add_entity_calls[0]
     assert model_name == "AlbumRoleAssociation"
-    assert kwargs == {
-        "album_id": 7,
-        "artist_id": 10,
-        "role_id": 5,
-        "sort_order": 1,
-        "credited_alias_id": 42,
-    }
+    assert kwargs == {"album_id": 7, "artist_id": 10, "role_id": 5, "sort_order": 1, "credited_alias_id": 42}
 
     # Per-track rows removed across every track in one filter-based delete.
     assert len(controller.delete.delete_entity_calls) == 1
@@ -147,19 +139,14 @@ def test_convert_credit_to_album_level_creates_album_credit_and_removes_track_ro
 
 def test_convert_credit_to_album_level_noop_when_already_album_level(qapp, monkeypatch):
     status_calls = []
-    monkeypatch.setattr(
-        "src.album.album_editing_relationship_helpers.show_status_message",
-        lambda widget, msg: status_calls.append(msg),
-    )
+    monkeypatch.setattr("src.album.album_editing_relationship_helpers.show_status_message", lambda widget, msg: status_calls.append(msg))
 
     tracks = [_StubTrack(1)]
     already_there = _StubRoleAssoc(artist_id=10, role_id=5)
     album = _StubAlbum(tracks, album_roles=[already_there])
     controller = _StubController()
     refresh_calls = []
-    helper = RelationshipHelpers(
-        controller, album, lambda: refresh_calls.append(True), widget=QWidget()
-    )
+    helper = RelationshipHelpers(controller, album, lambda: refresh_calls.append(True), widget=QWidget())
 
     helper.convert_credit_to_album_level(artist_id=10, role_id=5)
 
@@ -173,18 +160,13 @@ def test_convert_credit_to_album_level_does_not_delete_tracks_when_add_fails(qap
     """If creating the album-level credit fails, the per-track credit must
     be left alone -- otherwise the artist loses the credit everywhere."""
     critical_calls = []
-    monkeypatch.setattr(
-        "src.album.album_editing_relationship_helpers.QMessageBox.critical",
-        lambda *args, **kwargs: critical_calls.append(args),
-    )
+    monkeypatch.setattr("src.album.album_editing_relationship_helpers.QMessageBox.critical", lambda *args, **kwargs: critical_calls.append(args))
 
     tracks = [_StubTrack(1), _StubTrack(2)]
     album = _StubAlbum(tracks, album_roles=[])
     controller = _StubController(add=_StubAdd(add_entity_return=None))
     refresh_calls = []
-    helper = RelationshipHelpers(
-        controller, album, lambda: refresh_calls.append(True), widget=QWidget()
-    )
+    helper = RelationshipHelpers(controller, album, lambda: refresh_calls.append(True), widget=QWidget())
 
     helper.convert_credit_to_album_level(artist_id=10, role_id=5)
 
@@ -204,9 +186,7 @@ def test_roles_cell_has_no_convert_button_by_default(qapp):
     tab = RolesTab([_StubTrack(1)], controller)
     try:
         cell = tab._build_roles_cell(10, "Some Artist", {5: "Producer"})
-        button_texts = [
-            w.text() for w in cell.findChildren(QPushButton)
-        ]
+        button_texts = [w.text() for w in cell.findChildren(QPushButton)]
         assert not any("Album" in t for t in button_texts)
     finally:
         tab.cleanup()
@@ -215,16 +195,40 @@ def test_roles_cell_has_no_convert_button_by_default(qapp):
 def test_roles_cell_convert_button_invokes_hook_with_artist_and_role(qapp):
     controller = _StubController()
     calls = []
-    tab = RolesTab(
-        [_StubTrack(1)], controller, on_convert_to_album=lambda aid, rid: calls.append((aid, rid))
-    )
+    tab = RolesTab([_StubTrack(1)], controller, on_convert_to_album=lambda aid, rid: calls.append((aid, rid)))
     try:
         cell = tab._build_roles_cell(10, "Some Artist", {5: "Producer"})
-        convert_btn = next(
-            w for w in cell.findChildren(QPushButton) if "Album" in w.text()
-        )
+        convert_btn = next(w for w in cell.findChildren(QPushButton) if "Album" in w.text())
         convert_btn.click()
         assert calls == [(10, 5)]
+    finally:
+        tab.cleanup()
+
+
+def test_roles_cell_convert_button_sits_below_its_own_chip(qapp):
+    """Regression: the "-> Album" button used to be a sibling of the role
+    chip in the cell's flow layout, so it could wrap onto its own line
+    below an unrelated chip and read as belonging to the wrong role, while
+    also doubling the horizontal space each role took up. It must instead
+    live inside its own chip's layout, stacked under that chip's label/close
+    row, so it always stays grouped with -- and directly below -- the role
+    it acts on.
+    """
+    controller = _StubController()
+    tab = RolesTab([_StubTrack(1)], controller, on_convert_to_album=lambda aid, rid: None)
+    try:
+        cell = tab._build_roles_cell(10, "Some Artist", {5: "Producer"})
+        convert_btn = next(w for w in cell.findChildren(QPushButton) if "Album" in w.text())
+        chip = convert_btn.parentWidget()
+        assert chip.property("class") == "roleChip"
+
+        # The chip's own layout is vertical, and the convert button is its
+        # last item -- i.e. stacked below the label/close row, not a
+        # sibling of the chip in the cell's flow layout.
+        chip_layout = chip.layout()
+        assert isinstance(chip_layout, QVBoxLayout)
+        last_item = chip_layout.itemAt(chip_layout.count() - 1)
+        assert last_item.widget() is convert_btn
     finally:
         tab.cleanup()
 
@@ -277,10 +281,7 @@ def test_roles_table_wheel_step_is_fixed_not_row_height_derived(qapp):
         table.setRowHeight(2, 36)
 
         step = table.verticalScrollBar().singleStep()
-        assert step < 40, (
-            f"wheel step ({step}px) scales with the 90px tall row -- "
-            "still feels like scrolling by row, not by pixel"
-        )
+        assert step < 40, f"wheel step ({step}px) scales with the 90px tall row -- still feels like scrolling by row, not by pixel"
     finally:
         tab.cleanup()
 
@@ -310,25 +311,19 @@ def test_track_credits_tab_shows_message_when_album_has_no_tracks(qapp):
     tab = TrackCreditsTab(editor)
     built = tab.build()
     labels = [c for c in built.findChildren(QWidget) if hasattr(c, "text")]
-    assert any(
-        "no tracks" in getattr(w, "text", lambda: "")().lower() for w in labels
-    )
+    assert any("no tracks" in getattr(w, "text", lambda: "")().lower() for w in labels)
 
 
 def test_track_credits_tab_forwards_conversion_to_editor_helper(qapp, monkeypatch):
     # Avoid spinning up RolesTab's real background-thread DB load -- this
     # test only checks the tab's own wiring of the convert-hook callback.
-    monkeypatch.setattr(
-        "src.album.edit.base_album_edit_tabs.TrackRolesTab.load", lambda self, tracks: None
-    )
+    monkeypatch.setattr("src.album.edit.base_album_edit_tabs.TrackRolesTab.load", lambda self, tracks: None)
 
     editor = _StubEditor(_StubAlbum(tracks=[_StubTrack(1)]), _StubController())
     tab = TrackCreditsTab(editor)
     built = tab.build()
     try:
-        roles_widget = next(
-            c for c in built.findChildren(RolesTab)
-        )
+        roles_widget = next(c for c in built.findChildren(RolesTab))
         roles_widget._on_convert_to_album(10, 5)
         assert editor.helper.convert_calls == [(10, 5)]
     finally:
@@ -341,9 +336,7 @@ def test_track_credits_tab_forwards_conversion_to_editor_helper(qapp, monkeypatc
 # ---------------------------------------------------------------------------
 
 
-def test_refresh_track_credits_tab_reuses_existing_roles_widget_in_place(
-    qapp, monkeypatch
-):
+def test_refresh_track_credits_tab_reuses_existing_roles_widget_in_place(qapp, monkeypatch):
     """Refreshing Track Credits (e.g. after an edit made anywhere in the
     album editor -- Publishers & Places, Album credit, Awards, etc. all
     route through refresh_view()) must reload the existing RolesTab in
@@ -356,10 +349,7 @@ def test_refresh_track_credits_tab_reuses_existing_roles_widget_in_place(
     resetting the user's scroll position on every refresh.
     """
     load_calls = []
-    monkeypatch.setattr(
-        "src.album.edit.base_album_edit_tabs.TrackRolesTab.load",
-        lambda self, tracks: load_calls.append(tracks),
-    )
+    monkeypatch.setattr("src.album.edit.base_album_edit_tabs.TrackRolesTab.load", lambda self, tracks: load_calls.append(tracks))
 
     tracks = [_StubTrack(1), _StubTrack(2)]
     editor = _StubEditor(_StubAlbum(tracks=tracks), _StubController())
