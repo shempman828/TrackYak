@@ -21,17 +21,13 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.widgets.hierarchy_tree_style import collect_expanded_ids, restore_expanded_ids
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.place.place_assoc_details import AssociationDetailsDialog
 from src.place.place_detail import PlaceDetailView
 from src.place.place_edit import PlaceEditDialog
-from src.place.place_fuzzy_match import (
-    CHAIN_THRESHOLD,
-    NAME_THRESHOLD,
-    FuzzyMatchDialog,
-    PlaceFuzzyMatchWorker,
-)
+from src.place.place_fuzzy_match import CHAIN_THRESHOLD, NAME_THRESHOLD, FuzzyMatchDialog, PlaceFuzzyMatchWorker
 from src.place.place_html import HtmlDelegate
 from src.place.place_map_filter import MultiSelectWidget
 from src.place.place_merge_dialog import PlaceMergeDialog
@@ -94,9 +90,7 @@ class DraggableTreeWidget(QTreeWidget):
 
             # Save the new parents to the database
             for moved_place, new_parent_id in moved_places:
-                self.list_view.controller.update.update_entity(
-                    "Place", moved_place.place_id, parent_id=new_parent_id
-                )
+                self.list_view.controller.update.update_entity("Place", moved_place.place_id, parent_id=new_parent_id)
                 logger.info(f"Updated parent for {moved_place.place_name} to {new_parent_id}")
 
             # Reload both views so tree items always reflect the real database state
@@ -129,14 +123,7 @@ class DraggableTreeWidget(QTreeWidget):
             iterator += 1
         return count
 
-    def filter_items(
-        self,
-        search_text,
-        selected_types=None,
-        mbid_missing_only=False,
-        coords_missing_only=False,
-        expand_matches=False,
-    ):
+    def filter_items(self, search_text, selected_types=None, mbid_missing_only=False, coords_missing_only=False, expand_matches=False):
         """Filter tree items based on search text plus optional type/MBID/coordinate criteria.
 
         An ancestor is kept visible whenever any descendant matches, so the
@@ -154,22 +141,14 @@ class DraggableTreeWidget(QTreeWidget):
                 return False
 
             if selected_types is not None:
-                place_type = (
-                    place.place_type.strip().title()
-                    if place.place_type and place.place_type.strip()
-                    else _NO_TYPE_LABEL
-                )
+                place_type = place.place_type.strip().title() if place.place_type and place.place_type.strip() else _NO_TYPE_LABEL
                 if place_type not in selected_types:
                     return False
 
             if mbid_missing_only and place.MBID:
                 return False
 
-            return not (
-                coords_missing_only
-                and place.place_latitude is not None
-                and place.place_longitude is not None
-            )
+            return not (coords_missing_only and place.place_latitude is not None and place.place_longitude is not None)
 
         def filter_item(item):
             place = item.data(0, Qt.UserRole)
@@ -199,6 +178,12 @@ class DraggableTreeWidget(QTreeWidget):
 class ListView(QWidget):
     """List view with CRUD operations for places"""
 
+    # Extra data role for the place's ID, kept separate from Qt.UserRole
+    # (which holds the full Place object) so collect_expanded_ids /
+    # restore_expanded_ids have a stable key across reloads — a freshly
+    # fetched Place object is not equal to the one it replaces.
+    _ID_ROLE = Qt.UserRole + 1
+
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
@@ -227,9 +212,7 @@ class ListView(QWidget):
         control_layout.addStretch()
 
         self.sort_toggle_button = QPushButton("Sort: A-Z")
-        self.sort_toggle_button.setToolTip(
-            "Toggle sorting between alphabetical and total association count"
-        )
+        self.sort_toggle_button.setToolTip("Toggle sorting between alphabetical and total association count")
         self.sort_toggle_button.clicked.connect(self.toggle_sort_mode)
         control_layout.addWidget(self.sort_toggle_button)
 
@@ -242,9 +225,7 @@ class ListView(QWidget):
         self.flat_view_button = QPushButton("Flat View")
         self.flat_view_button.setCheckable(True)
         self.flat_view_button.setChecked(False)
-        self.flat_view_button.setToolTip(
-            "Toggle between the hierarchical tree and a flat alphabetical list"
-        )
+        self.flat_view_button.setToolTip("Toggle between the hierarchical tree and a flat alphabetical list")
         self.flat_view_button.clicked.connect(self.toggle_flat_view)
         control_layout.addWidget(self.flat_view_button)
 
@@ -326,7 +307,19 @@ class ListView(QWidget):
         self.load_places()
 
     def load_places(self):
-        """Load places into the tree with hierarchical indentation."""
+        """Load places into the tree with hierarchical indentation.
+
+        Rebuilds the tree from scratch, so the expanded branches, the
+        current selection, and the scroll position are saved beforehand
+        and restored afterward — otherwise every edit, sort, or filter
+        change would jump the user back to a fully collapsed top of list.
+        """
+        expanded_ids = collect_expanded_ids(self.tree_widget, id_role=self._ID_ROLE)
+        current_item = self.tree_widget.currentItem()
+        current_place_id = current_item.data(0, self._ID_ROLE) if current_item else None
+        scrollbar = self.tree_widget.verticalScrollBar()
+        scroll_value = scrollbar.value() if scrollbar else 0
+
         self.tree_widget.clear()
         places = self.controller.get.get_all_entities("Place")
         self._refresh_type_filter_options(places)
@@ -338,9 +331,27 @@ class ListView(QWidget):
             # Add places to the tree with expand/collapse capability
             self._add_places_to_tree(hierarchy, None, self.tree_widget.invisibleRootItem())
 
+        restore_expanded_ids(self.tree_widget, expanded_ids, id_role=self._ID_ROLE)
+        self._restore_current_place(current_place_id)
+
         # Reapply any active search/type/MBID/coordinate filters, since the
         # tree was just rebuilt from scratch.
         self._apply_filters()
+
+        if scrollbar:
+            scrollbar.setValue(scroll_value)
+
+    def _restore_current_place(self, place_id):
+        """Re-select the tree item for `place_id`, if it still exists."""
+        if place_id is None:
+            return
+        iterator = QTreeWidgetItemIterator(self.tree_widget)
+        while iterator.value():
+            item = iterator.value()
+            if item.data(0, self._ID_ROLE) == place_id:
+                self.tree_widget.setCurrentItem(item)
+                return
+            iterator += 1
 
     def toggle_flat_view(self):
         """Toggle between the nested hierarchy and a flat alphabetical list."""
@@ -425,19 +436,8 @@ class ListView(QWidget):
 
     def _apply_filters(self):
         """Reapply all active filters (search text, type, MBID missing, coordinates missing)."""
-        filters_active = bool(
-            self.filter_text
-            or self.mbid_missing_only
-            or self.coords_missing_only
-            or (self.all_place_types and self.selected_types != self.all_place_types)
-        )
-        self.tree_widget.filter_items(
-            self.filter_text,
-            self.selected_types,
-            self.mbid_missing_only,
-            self.coords_missing_only,
-            expand_matches=filters_active,
-        )
+        filters_active = bool(self.filter_text or self.mbid_missing_only or self.coords_missing_only or (self.all_place_types and self.selected_types != self.all_place_types))
+        self.tree_widget.filter_items(self.filter_text, self.selected_types, self.mbid_missing_only, self.coords_missing_only, expand_matches=filters_active)
         self._update_count_label()
 
     def _update_count_label(self):
@@ -465,9 +465,7 @@ class ListView(QWidget):
                 # something triggers a re-render before the user clicks.
                 place = item.data(0, Qt.UserRole)
 
-                menu.addAction(
-                    "View Associations", lambda p=place: self.show_association_details_for(p)
-                )
+                menu.addAction("View Associations", lambda p=place: self.show_association_details_for(p))
                 menu.addAction("View Details", lambda p=place: self.view_place_details_for(p))
                 menu.addAction("Edit", lambda p=place: self.edit_place_for(p))
                 menu.addAction("Merge", lambda p=place: self.merge_place(p))
@@ -498,9 +496,7 @@ class ListView(QWidget):
 
         for children in hierarchy.values():
             if self.sort_mode == "associations":
-                children.sort(
-                    key=lambda p: (-p.recursive_association_count, (p.place_name or "").lower())
-                )
+                children.sort(key=lambda p: (-p.recursive_association_count, (p.place_name or "").lower()))
             else:
                 children.sort(key=lambda p: (p.place_name or "").lower())
 
@@ -515,6 +511,7 @@ class ListView(QWidget):
             item_text = self.format_list_item(place)
             item = QTreeWidgetItem([item_text])
             item.setData(0, Qt.UserRole, place)
+            item.setData(0, self._ID_ROLE, place.place_id)
             item.setToolTip(0, self.create_tooltip(place))
 
             parent_tree_item.addChild(item)
@@ -524,9 +521,7 @@ class ListView(QWidget):
     def _add_places_flat(self, places):
         """Add every place as a top-level item, sorted per self.sort_mode, with no nesting."""
         if self.sort_mode == "associations":
-            ordered = sorted(
-                places, key=lambda p: (-p.recursive_association_count, (p.place_name or "").lower())
-            )
+            ordered = sorted(places, key=lambda p: (-p.recursive_association_count, (p.place_name or "").lower()))
         else:
             ordered = sorted(places, key=lambda p: (p.place_name or "").lower())
 
@@ -535,6 +530,7 @@ class ListView(QWidget):
             item_text = self.format_list_item(place)
             item = QTreeWidgetItem([item_text])
             item.setData(0, Qt.UserRole, place)
+            item.setData(0, self._ID_ROLE, place.place_id)
             item.setToolTip(0, self.create_tooltip(place))
             root.addChild(item)
 
@@ -550,10 +546,7 @@ class ListView(QWidget):
 
         mb_badge = " \U0001f517" if place.MBID else ""
 
-        base_text = (
-            f"<span class='place-name'>{place_name}</span>{mb_badge} "
-            f"(<span class='{type_class}'>{place_type}</span>)"
-        )
+        base_text = f"<span class='place-name'>{place_name}</span>{mb_badge} (<span class='{type_class}'>{place_type}</span>)"
 
         direct = place.association_count
         recursive = place.recursive_association_count
@@ -653,12 +646,8 @@ class ListView(QWidget):
             if new_place_data["parent_id"] is None:
                 # User didn't pick a parent for the new place in the
                 # dialog, so default to preserving the grandparent chain.
-                self.controller.update.update_entity(
-                    "Place", new_place.place_id, parent_id=place.parent_id
-                )
-            self.controller.update.update_entity(
-                "Place", place.place_id, parent_id=new_place.place_id
-            )
+                self.controller.update.update_entity("Place", new_place.place_id, parent_id=place.parent_id)
+            self.controller.update.update_entity("Place", place.place_id, parent_id=new_place.place_id)
             if self.parent_view:
                 self.parent_view.refresh_views()
             logger.info("New parent place created and linked successfully.")
@@ -681,9 +670,7 @@ class ListView(QWidget):
             if not new_place:
                 raise ValueError("Failed to create new place")
 
-            self.controller.update.update_entity(
-                "Place", new_place.place_id, parent_id=place.place_id
-            )
+            self.controller.update.update_entity("Place", new_place.place_id, parent_id=place.place_id)
             if self.parent_view:
                 self.parent_view.refresh_views()
             logger.info("New child place created and linked successfully.")
@@ -712,9 +699,7 @@ class ListView(QWidget):
                 names_preview += f", … (+{count - 5} more)"
             message = f"Delete {count} places permanently?\n\n{names_preview}"
 
-        confirm = QMessageBox.question(
-            self, "Confirm Delete", message, QMessageBox.Yes | QMessageBox.No
-        )
+        confirm = QMessageBox.question(self, "Confirm Delete", message, QMessageBox.Yes | QMessageBox.No)
         if confirm != QMessageBox.Yes:
             return
 
@@ -730,9 +715,7 @@ class ListView(QWidget):
             self.parent_view.refresh_views()
 
         if errors:
-            QMessageBox.critical(
-                self, "Error", "Could not delete the following places:\n" + "\n".join(errors)
-            )
+            QMessageBox.critical(self, "Error", "Could not delete the following places:\n" + "\n".join(errors))
         else:
             logger.info(f"Deleted {count} place(s) successfully")
 
@@ -785,11 +768,7 @@ class ListView(QWidget):
         def _on_finished(matches):
             progress.close()
             if not matches:
-                show_status_message(
-                    self,
-                    f"No similar place names found (threshold: {int(NAME_THRESHOLD * 100)}% "
-                    "similarity).",
-                )
+                show_status_message(self, f"No similar place names found (threshold: {int(NAME_THRESHOLD * 100)}% similarity).")
                 return
             dialog = FuzzyMatchDialog(matches, self.controller, self)
             if dialog.exec_() == QDialog.Accepted:
