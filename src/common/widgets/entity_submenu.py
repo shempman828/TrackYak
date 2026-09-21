@@ -27,6 +27,7 @@ _ENTITY_META = {
     "Playlist": ("playlist_id", "playlist_name", "playlists"),
     "Mood": ("mood_id", "mood_name", "moods"),
     "Role": ("role_id", "role_name", "roles"),
+    "Genre": ("genre_id", "genre_name", "genres"),
 }
 
 
@@ -40,10 +41,7 @@ def selection_membership(tracks, relation_attr: str, id_attr: str):
     read off each link row (``"playlist_id"`` / ``"mood_id"``).
     """
     try:
-        per_track = [
-            {getattr(link, id_attr) for link in getattr(track, relation_attr, [])}
-            for track in tracks
-        ]
+        per_track = [{getattr(link, id_attr) for link in getattr(track, relation_attr, [])} for track in tracks]
     except SQLAlchemyError as e:
         logger.error(f"Error reading {relation_attr} membership for context menu: {e}")
         return set(), set()

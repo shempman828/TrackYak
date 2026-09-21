@@ -79,12 +79,11 @@ def test_find_duplicate_genre_name_excludes_given_id(session, controller):
 
 
 def test_new_genre_dialog_offers_existing_genres_as_parent(session, qapp, controller):
-    _make_genre(session, "Rock")
+    rock = _make_genre(session, "Rock")
 
     dialog = GenreEditDialog(controller, None)
 
-    assert dialog.parent_combo.count() == 2
-    assert dialog.parent_combo.itemText(1) == "Rock"
+    assert dialog.parent_combo.available_ids() == [rock.genre_id]
 
 
 def test_edit_genre_dialog_still_excludes_descendants_from_parent_combo(session, qapp, controller):
@@ -93,8 +92,7 @@ def test_edit_genre_dialog_still_excludes_descendants_from_parent_combo(session,
 
     dialog = GenreEditDialog(controller, rock)
 
-    combo_names = [dialog.parent_combo.itemText(i) for i in range(dialog.parent_combo.count())]
-    assert punk.genre_name not in combo_names
+    assert punk.genre_id not in dialog.parent_combo.available_ids()
 
 
 def test_new_genre_can_be_saved_with_a_chosen_parent(session, qapp, controller):
@@ -102,8 +100,7 @@ def test_new_genre_can_be_saved_with_a_chosen_parent(session, qapp, controller):
 
     dialog = GenreEditDialog(controller, None)
     dialog.name_input.setText("Punk")
-    idx = dialog.parent_combo.findData(rock.genre_id)
-    dialog.parent_combo.setCurrentIndex(idx)
+    dialog.parent_combo.set_selected_id(rock.genre_id)
     dialog.validate()
 
     assert dialog.result() == 1  # QDialog.Accepted

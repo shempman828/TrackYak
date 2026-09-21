@@ -342,7 +342,9 @@ parent right there in the dialog, or leave it top-level — or right-click an
 existing genre for New Parent Genre / New Child Genre to slot one in above or
 below it. Drag a genre onto another to reparent it, or onto empty space to
 make it top-level. Rename any genre by clicking directly into its name in the
-tree.
+tree. The Parent Genre field in these dialogs is a button, not a plain list —
+click it to browse the hierarchy through nested submenus, or type to search
+and pick a match.
 
 **Cleaning up duplicates**: genre names are case-insensitive, so "Rock" and
 "rock" count as the same name — creating or renaming a genre to a name that

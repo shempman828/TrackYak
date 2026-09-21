@@ -1,7 +1,8 @@
-from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QMessageBox
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QMessageBox
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.alias.entity_alias_tab import EntityAliasesTab
+from src.common.widgets.hierarchy_picker_button import HierarchyPickerButton
 from src.common.widgets.hierarchy_tree_style import is_hierarchy_descendant
 from src.foundation.logger_config import logger
 
@@ -64,8 +65,7 @@ class GenreEditDialog(QDialog):
         self.desc_input = QLineEdit()
         layout.addRow("Description:", self.desc_input)
 
-        self.parent_combo = QComboBox()
-        self.parent_combo.addItem("(No parent)", None)
+        self.parent_combo = HierarchyPickerButton(self.controller, "Genre", "genre_id", "genre_name")
         layout.addRow("Parent Genre:", self.parent_combo)
 
         # Aliases only make sense once the genre exists (they need a
@@ -90,25 +90,15 @@ class GenreEditDialog(QDialog):
             if self.tab_aliases:
                 self.tab_aliases.load(self.genre)
 
-        # Clear existing items except the first "(No parent)" option
-        for i in range(self.parent_combo.count() - 1, 0, -1):
-            self.parent_combo.removeItem(i)
-
         try:
             valid_parents = get_valid_parents(self.controller, self.genre)
-            for g in valid_parents:
-                self.parent_combo.addItem(g.genre_name, g.genre_id)
+            self.parent_combo.set_options(valid_parents)
         except SQLAlchemyError as e:
             logger.error(f"Error loading valid parents: {e!s}")
             QMessageBox.warning(self, "Error", "Could not load parent options")
 
         # Pre-select current parent, if editing
-        current_idx = 0
-        if self.genre and self.genre.parent_id:
-            idx = self.parent_combo.findData(self.genre.parent_id)
-            if idx >= 0:
-                current_idx = idx
-        self.parent_combo.setCurrentIndex(current_idx)
+        self.parent_combo.set_selected_id(self.genre.parent_id if self.genre else None)
 
     def validate(self):
         """Validate the form and save the genre, rejecting empty or duplicate names."""
@@ -122,7 +112,7 @@ class GenreEditDialog(QDialog):
             QMessageBox.warning(self, "Validation", "Genre name already exists")
             return
 
-        parent_id = self.parent_combo.currentData()
+        parent_id = self.parent_combo.selected_id()
         try:
             if self.genre:  # Editing
                 self.controller.update.update_entity("Genre", self.genre.genre_id, genre_name=name, description=self.desc_input.text().strip() or None, parent_id=parent_id)
@@ -153,8 +143,7 @@ class GenreSetParentDialog(QDialog):
         summary = f"Set parent for '{self.genres[0].genre_name}':" if len(self.genres) == 1 else f"Set parent for {len(self.genres)} selected genres:"
         layout.addRow(QLabel(summary))
 
-        self.parent_combo = QComboBox()
-        self.parent_combo.addItem("(No parent)", None)
+        self.parent_combo = HierarchyPickerButton(self.controller, "Genre", "genre_id", "genre_name")
         layout.addRow("Parent Genre:", self.parent_combo)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -163,7 +152,7 @@ class GenreSetParentDialog(QDialog):
         layout.addRow(buttons)
 
     def load_data(self):
-        """Populate the parent combo, excluding the selected genres and their descendants."""
+        """Populate the parent picker, excluding the selected genres and their descendants."""
         all_genres = self.controller.get.get_all_entities("Genre")
         selected_ids = {g.genre_id for g in self.genres}
 
@@ -179,21 +168,17 @@ class GenreSetParentDialog(QDialog):
 
         valid_parents = [g for g in all_genres if g.genre_id not in invalid_ids]
         valid_parents.sort(key=lambda g: g.genre_name.lower())
-
-        for g in valid_parents:
-            self.parent_combo.addItem(g.genre_name, g.genre_id)
+        self.parent_combo.set_options(valid_parents)
 
         # Pre-select the current parent, but only if every selected genre
         # already shares that same parent.
         parent_ids = {g.parent_id for g in self.genres}
         if len(parent_ids) == 1:
-            idx = self.parent_combo.findData(next(iter(parent_ids)))
-            if idx >= 0:
-                self.parent_combo.setCurrentIndex(idx)
+            self.parent_combo.set_selected_id(next(iter(parent_ids)))
 
     def validate(self):
         """Apply the chosen parent to every selected genre."""
-        parent_id = self.parent_combo.currentData()
+        parent_id = self.parent_combo.selected_id()
         try:
             for genre in self.genres:
                 self.controller.update.update_entity("Genre", genre.genre_id, parent_id=parent_id)

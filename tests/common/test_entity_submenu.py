@@ -15,6 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from src.common.widgets.entity_submenu import populate_entity_submenu, selection_membership
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_tables.base import Base
+from src.db.db_tables.genre import Genre
 from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.db.db_tables.playlist import Playlist, PlaylistTracks
 from src.db.db_tables.role import Role
@@ -39,15 +40,7 @@ def _rows(menu):
     for action in menu.actions():
         if action.isSeparator():
             continue
-        out.append(
-            (
-                action.text(),
-                action.menu() is not None,
-                action.isCheckable(),
-                action.isChecked(),
-                action.data(),
-            )
-        )
+        out.append((action.text(), action.menu() is not None, action.isCheckable(), action.isChecked(), action.data()))
     return out
 
 
@@ -63,18 +56,11 @@ def test_hierarchy_is_nested_and_alphabetically_sorted(qapp, session):
     jazz = Playlist(playlist_name="Jazz")
     session.add_all([rock, jazz])
     session.flush()
-    session.add_all(
-        [
-            Playlist(playlist_name="Zeppelin", parent_id=rock.playlist_id),
-            Playlist(playlist_name="AC/DC", parent_id=rock.playlist_id),
-        ]
-    )
+    session.add_all([Playlist(playlist_name="Zeppelin", parent_id=rock.playlist_id), Playlist(playlist_name="AC/DC", parent_id=rock.playlist_id)])
     session.commit()
 
     menu = QMenu()
-    populate_entity_submenu(
-        menu, controller=_Controller(session), entity_type="Playlist", on_trigger=lambda *_: None
-    )
+    populate_entity_submenu(menu, controller=_Controller(session), entity_type="Playlist", on_trigger=lambda *_: None)
 
     top = [(text, is_sub) for text, is_sub, *_ in _rows(menu)]
     # "Jazz" (leaf) sorts before "Rock" (submenu), per-level alphabetical.
@@ -90,9 +76,7 @@ def test_smart_playlists_are_excluded(qapp, session):
     session.commit()
 
     menu = QMenu()
-    populate_entity_submenu(
-        menu, controller=_Controller(session), entity_type="Playlist", on_trigger=lambda *_: None
-    )
+    populate_entity_submenu(menu, controller=_Controller(session), entity_type="Playlist", on_trigger=lambda *_: None)
 
     assert [text for text, *_ in _rows(menu)] == ["Manual"]
 
@@ -105,14 +89,7 @@ def test_member_ids_checked_and_partial_ids_suffixed(qapp, session):
     session.commit()
 
     menu = QMenu()
-    populate_entity_submenu(
-        menu,
-        controller=_Controller(session),
-        entity_type="Playlist",
-        on_trigger=lambda *_: None,
-        member_ids={a.playlist_id},
-        partial_ids={s.playlist_id},
-    )
+    populate_entity_submenu(menu, controller=_Controller(session), entity_type="Playlist", on_trigger=lambda *_: None, member_ids={a.playlist_id}, partial_ids={s.playlist_id})
 
     by_text = {text: (checkable, checked) for text, _, checkable, checked, _ in _rows(menu)}
     assert by_text["All"] == (True, True)
@@ -128,11 +105,7 @@ def test_action_data_and_trigger_wiring(qapp, session):
     fired = []
     menu = QMenu()
     populate_entity_submenu(
-        menu,
-        controller=_Controller(session),
-        entity_type="Playlist",
-        on_trigger=lambda *_: fired.append(menu.actions()[0].data()),
-        make_action_data=lambda entity_id: (entity_id, ["7", "8"]),
+        menu, controller=_Controller(session), entity_type="Playlist", on_trigger=lambda *_: fired.append(menu.actions()[0].data()), make_action_data=lambda entity_id: (entity_id, ["7", "8"])
     )
 
     action = menu.actions()[0]
@@ -143,9 +116,7 @@ def test_action_data_and_trigger_wiring(qapp, session):
 
 def test_empty_and_moods(qapp, session):
     empty = QMenu()
-    populate_entity_submenu(
-        empty, controller=_Controller(session), entity_type="Playlist", on_trigger=lambda *_: None
-    )
+    populate_entity_submenu(empty, controller=_Controller(session), entity_type="Playlist", on_trigger=lambda *_: None)
     only = empty.actions()[0]
     assert only.text() == "No playlists available"
     assert not only.isEnabled()
@@ -153,9 +124,7 @@ def test_empty_and_moods(qapp, session):
     session.add_all([Mood(mood_name="Wistful"), Mood(mood_name="Angry")])
     session.commit()
     mood_menu = QMenu()
-    populate_entity_submenu(
-        mood_menu, controller=_Controller(session), entity_type="Mood", on_trigger=lambda *_: None
-    )
+    populate_entity_submenu(mood_menu, controller=_Controller(session), entity_type="Mood", on_trigger=lambda *_: None)
     assert [text for text, *_ in _rows(mood_menu)] == ["Angry", "Wistful"]
 
 
@@ -169,9 +138,7 @@ def test_nesting_uses_parent_id_not_parent_mood_id(qapp, session):
     session.commit()
 
     menu = QMenu()
-    populate_entity_submenu(
-        menu, controller=_Controller(session), entity_type="Mood", on_trigger=lambda *_: None
-    )
+    populate_entity_submenu(menu, controller=_Controller(session), entity_type="Mood", on_trigger=lambda *_: None)
     calm_menu = _submenu(menu, "Calm")
     assert [text for text, *_ in _rows(calm_menu)] == ["Serene", "Add to 'Calm'"]
 
@@ -223,26 +190,15 @@ def test_ampersand_in_entity_name_is_not_eaten_as_a_mnemonic(qapp, session):
     parent = Playlist(playlist_name="Rhythm & Blues")
     session.add(parent)
     session.flush()
-    session.add_all(
-        [
-            Playlist(playlist_name="R&B", parent_id=parent.playlist_id),
-            Playlist(playlist_name="Doo & Wop", parent_id=parent.playlist_id),
-        ]
-    )
+    session.add_all([Playlist(playlist_name="R&B", parent_id=parent.playlist_id), Playlist(playlist_name="Doo & Wop", parent_id=parent.playlist_id)])
     session.commit()
 
     menu = QMenu()
-    populate_entity_submenu(
-        menu, controller=_Controller(session), entity_type="Playlist", on_trigger=lambda *_: None
-    )
+    populate_entity_submenu(menu, controller=_Controller(session), entity_type="Playlist", on_trigger=lambda *_: None)
 
     # Nested submenu title keeps the ampersand (doubled form in .text()).
     branch = _submenu(menu, "Rhythm && Blues")
-    assert [text for text, *_ in _rows(branch)] == [
-        "Doo && Wop",
-        "R&&B",
-        "Add to 'Rhythm && Blues'",
-    ]
+    assert [text for text, *_ in _rows(branch)] == ["Doo && Wop", "R&&B", "Add to 'Rhythm && Blues'"]
 
 
 def test_entities_override_skips_db_fetch_and_uses_given_list(qapp, session):
@@ -254,19 +210,11 @@ def test_entities_override_skips_db_fetch_and_uses_given_list(qapp, session):
     called = []
     controller = _Controller(session)
     original_get_all = controller.get.get_all_entities
-    controller.get.get_all_entities = lambda *a, **k: (
-        called.append((a, k)) or original_get_all(*a, **k)
-    )
+    controller.get.get_all_entities = lambda *a, **k: called.append((a, k)) or original_get_all(*a, **k)
 
     other = Role(role_name="Guitarist")
     menu = QMenu()
-    populate_entity_submenu(
-        menu,
-        controller=controller,
-        entity_type="Role",
-        on_trigger=lambda *_: None,
-        entities_override=[other],
-    )
+    populate_entity_submenu(menu, controller=controller, entity_type="Role", on_trigger=lambda *_: None, entities_override=[other])
 
     assert called == []
     assert [text for text, *_ in _rows(menu)] == ["Guitarist"]
@@ -280,11 +228,25 @@ def test_role_hierarchy_nests_by_parent_id(qapp, session):
     session.commit()
 
     menu = QMenu()
-    populate_entity_submenu(
-        menu, controller=_Controller(session), entity_type="Role", on_trigger=lambda *_: None
-    )
+    populate_entity_submenu(menu, controller=_Controller(session), entity_type="Role", on_trigger=lambda *_: None)
     band_menu = _submenu(menu, "Band")
     assert [text for text, *_ in _rows(band_menu)] == ["Drummer", "Add to 'Band'"]
+
+
+def test_genre_hierarchy_nests_by_parent_id_with_bare_branch_label(qapp, session):
+    """Genre's HierarchyPickerButton uses entity_type="Genre" with
+    branch_self_label=lambda disp: disp, same as Role's "Change Parent" --
+    "Add to 'Rock'" doesn't make sense for picking a parent."""
+    rock = Genre(genre_name="Rock")
+    session.add(rock)
+    session.flush()
+    session.add(Genre(genre_name="Punk", parent_id=rock.genre_id))
+    session.commit()
+
+    menu = QMenu()
+    populate_entity_submenu(menu, controller=_Controller(session), entity_type="Genre", on_trigger=lambda *_: None, branch_self_label=lambda disp: disp)
+    rock_menu = _submenu(menu, "Rock")
+    assert [text for text, *_ in _rows(rock_menu)] == ["Punk", "Rock"]
 
 
 def test_branch_self_label_override_replaces_add_to_wording(qapp, session):
@@ -298,12 +260,6 @@ def test_branch_self_label_override_replaces_add_to_wording(qapp, session):
     session.commit()
 
     menu = QMenu()
-    populate_entity_submenu(
-        menu,
-        controller=_Controller(session),
-        entity_type="Role",
-        on_trigger=lambda *_: None,
-        branch_self_label=lambda disp: disp,
-    )
+    populate_entity_submenu(menu, controller=_Controller(session), entity_type="Role", on_trigger=lambda *_: None, branch_self_label=lambda disp: disp)
     band_menu = _submenu(menu, "Band")
     assert [text for text, *_ in _rows(band_menu)] == ["Drummer", "Band"]
