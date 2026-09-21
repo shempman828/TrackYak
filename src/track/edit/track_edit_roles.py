@@ -543,7 +543,7 @@ class RolesTab(_BaseTab):
         chip.setProperty("class", "roleChip")
 
         chip_layout = QVBoxLayout(chip)
-        chip_layout.setContentsMargins(8, 2, 2, 2)
+        chip_layout.setContentsMargins(8, 4, 8, 6)
         chip_layout.setSpacing(2)
 
         top_row = QHBoxLayout()
