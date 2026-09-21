@@ -1,18 +1,6 @@
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import (
-    QComboBox,
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMenu,
-    QMessageBox,
-    QPushButton,
-    QSplitter,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QSplitter, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.dialogs.base_split_dialog import SplitDBDialog
@@ -72,9 +60,7 @@ class PublisherView(QWidget):
         self.flat_view_button = QPushButton("Flat View")
         self.flat_view_button.setCheckable(True)
         self.flat_view_button.setChecked(False)
-        self.flat_view_button.setToolTip(
-            "Toggle between the hierarchical tree and a flat alphabetical list"
-        )
+        self.flat_view_button.setToolTip("Toggle between the hierarchical tree and a flat alphabetical list")
         self.flat_view_button.clicked.connect(self.toggle_flat_view)
         filter_bar.addWidget(self.flat_view_button)
 
@@ -94,6 +80,7 @@ class PublisherView(QWidget):
 
         # Right panel - Detail view
         self.detail_tab = PublisherDetailTab(self.controller)
+        self.detail_tab.albums_changed.connect(self.load_publishers)
 
         # Add panels to splitter
         splitter.addWidget(left_panel)
@@ -201,9 +188,7 @@ class PublisherView(QWidget):
                 names_preview += f", … (+{count - 5} more)"
             message = f"Are you sure you want to delete {count} publishers?\n\n{names_preview}"
 
-        reply = QMessageBox.question(
-            self, "Confirm Delete", message, QMessageBox.Yes | QMessageBox.No
-        )
+        reply = QMessageBox.question(self, "Confirm Delete", message, QMessageBox.Yes | QMessageBox.No)
 
         if reply == QMessageBox.Yes:
             errors = []
@@ -219,11 +204,7 @@ class PublisherView(QWidget):
             self.detail_tab.show_empty_state()
 
             if errors:
-                QMessageBox.warning(
-                    self,
-                    "Partial Delete",
-                    "Could not delete the following publishers:\n" + "\n".join(errors),
-                )
+                QMessageBox.warning(self, "Partial Delete", "Could not delete the following publishers:\n" + "\n".join(errors))
 
     def _split_publisher(self):
         """Split the selected publisher."""
@@ -235,20 +216,12 @@ class PublisherView(QWidget):
         publisher_id = item.data(0, Qt.UserRole)
 
         try:
-            publisher_obj = self.controller.get.get_entity_object(
-                "Publisher", publisher_id=publisher_id
-            )
+            publisher_obj = self.controller.get.get_entity_object("Publisher", publisher_id=publisher_id)
             if not publisher_obj:
                 show_status_message(self, "The selected publisher no longer exists.")
                 return
 
-            split_dialog = SplitDBDialog(
-                self.controller.split,
-                "Publisher",
-                publisher_obj,
-                self,
-                get_helper=self.controller.get,
-            )
+            split_dialog = SplitDBDialog(self.controller.split, "Publisher", publisher_obj, self, get_helper=self.controller.get)
 
             if split_dialog.exec_() == QDialog.Accepted:
                 self.load_publishers()
@@ -288,12 +261,8 @@ class PublisherView(QWidget):
 
         new_publisher = dialog.result_publisher
         try:
-            self.controller.update.update_entity(
-                "Publisher", new_publisher.publisher_id, parent_id=publisher.parent_id
-            )
-            self.controller.update.update_entity(
-                "Publisher", publisher.publisher_id, parent_id=new_publisher.publisher_id
-            )
+            self.controller.update.update_entity("Publisher", new_publisher.publisher_id, parent_id=publisher.parent_id)
+            self.controller.update.update_entity("Publisher", publisher.publisher_id, parent_id=new_publisher.publisher_id)
             self.load_publishers()
             logger.info("New parent publisher created and linked successfully.")
         except SQLAlchemyError as e:
@@ -314,9 +283,7 @@ class PublisherView(QWidget):
 
         new_publisher = dialog.result_publisher
         try:
-            self.controller.update.update_entity(
-                "Publisher", new_publisher.publisher_id, parent_id=publisher.publisher_id
-            )
+            self.controller.update.update_entity("Publisher", new_publisher.publisher_id, parent_id=publisher.publisher_id)
             self.load_publishers()
             logger.info("New child publisher created and linked successfully.")
         except SQLAlchemyError as e:
@@ -330,9 +297,7 @@ class PublisherView(QWidget):
         if item:
             publisher_id = item.data(0, Qt.UserRole)
             try:
-                publisher_obj = self.controller.get.get_entity_object(
-                    "Publisher", publisher_id=publisher_id
-                )
+                publisher_obj = self.controller.get.get_entity_object("Publisher", publisher_id=publisher_id)
             except SQLAlchemyError as e:
                 logger.error(f"Error fetching publisher for merge: {e!s}")
 
@@ -417,19 +382,12 @@ class PublisherView(QWidget):
                             continue
                         for i, a in enumerate(block):
                             for b in block[i + 1 :]:
-                                pair_key = (
-                                    min(a.publisher_id, b.publisher_id),
-                                    max(a.publisher_id, b.publisher_id),
-                                )
+                                pair_key = (min(a.publisher_id, b.publisher_id), max(a.publisher_id, b.publisher_id))
                                 if pair_key in seen_pairs:
                                     continue
                                 seen_pairs.add(pair_key)
 
-                                ratio = SequenceMatcher(
-                                    None,
-                                    self._normalise(a.publisher_name),
-                                    self._normalise(b.publisher_name),
-                                ).ratio()
+                                ratio = SequenceMatcher(None, self._normalise(a.publisher_name), self._normalise(b.publisher_name)).ratio()
 
                                 if ratio >= self._threshold:
                                     matches.append((a, b, round(ratio * 100)))
@@ -446,10 +404,7 @@ class PublisherView(QWidget):
         def _on_finished(matches):
             progress.close()
             if not matches:
-                show_status_message(
-                    self,
-                    f"No similar publisher names found (threshold: {int(THRESHOLD * 100)}% similarity).",
-                )
+                show_status_message(self, f"No similar publisher names found (threshold: {int(THRESHOLD * 100)}% similarity).")
                 return
             dialog = PublisherFuzzyMatchDialog(matches, self.controller, self)
             if dialog.exec_() == QDialog.Accepted:
@@ -480,9 +435,7 @@ class PublisherView(QWidget):
     def toggle_flat_view(self):
         """Toggle between the nested hierarchy and a flat alphabetical list."""
         self.publishers_tree.toggle_flat_view()
-        self.flat_view_button.setText(
-            "Tree View" if self.publishers_tree.flat_view else "Flat View"
-        )
+        self.flat_view_button.setText("Tree View" if self.publishers_tree.flat_view else "Flat View")
         # Reapply any active search/MBID/fixed-status filters, since the
         # tree was just rebuilt from scratch.
         self.filter_publishers()
@@ -504,7 +457,5 @@ class PublisherView(QWidget):
 
     def filter_publishers(self, *_args):
         """Filter publishers based on search text, MBID link status, and fixed status."""
-        self.publishers_tree.filter_items(
-            self.search_bar.text(), self.mbid_combo.currentText(), self.fixed_combo.currentText()
-        )
+        self.publishers_tree.filter_items(self.search_bar.text(), self.mbid_combo.currentText(), self.fixed_combo.currentText())
         self._update_count_label()

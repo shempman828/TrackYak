@@ -92,6 +92,29 @@ def test_double_click_refreshes_album_list_after_editor_closes(monkeypatch, qapp
         window.deleteLater()
 
 
+def test_album_edit_emits_albums_changed(monkeypatch, qapp):
+    """Editing an album must emit albums_changed so the owning publisher
+    detail panel and tree (whose album counts are otherwise left stale)
+    know to refresh."""
+    _StubAlbumEditor.instances = []
+    album = SimpleNamespace(album_id=7, album_name="Some Album")
+    controller = _StubController(album)
+
+    monkeypatch.setattr(publisher_albums_module, "AlbumEditor", _StubAlbumEditor)
+    monkeypatch.setattr(publisher_albums_module, "get_publisher_albums", lambda *a, **k: [])
+
+    window = PublisherAlbumsWindow(controller, _make_publisher())
+    try:
+        received = []
+        window.albums_changed.connect(lambda: received.append(True))
+
+        window._open_album_editor(album)
+
+        assert received == [True]
+    finally:
+        window.deleteLater()
+
+
 def test_flow_double_click_signal_is_connected_to_editor(monkeypatch, qapp):
     _StubAlbumEditor.instances = []
     album = SimpleNamespace(album_id=7, album_name="Some Album")

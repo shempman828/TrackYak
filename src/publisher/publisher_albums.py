@@ -1,3 +1,4 @@
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -9,6 +10,11 @@ from src.publisher.publisher_hierarchy import get_publisher_albums
 
 class PublisherAlbumsWindow(QDialog):
     """Popup dialog that loads and displays a publisher's albums on demand."""
+
+    # Emitted after an album is edited from this window, so the owning
+    # publisher detail panel and tree (whose album counts are otherwise
+    # left stale) can refresh themselves.
+    albums_changed = Signal()
 
     def __init__(self, controller, publisher, parent=None):
         super().__init__(parent)
@@ -41,6 +47,7 @@ class PublisherAlbumsWindow(QDialog):
         dialog = AlbumEditor(self.controller, album, self)
         dialog.exec()
         self._load_albums()
+        self.albums_changed.emit()
 
     def _load_albums(self):
         try:
@@ -48,9 +55,7 @@ class PublisherAlbumsWindow(QDialog):
 
             self.flow.set_albums(albums)
             count = len(albums)
-            self.status_label.setText(
-                f"{count} album{'s' if count != 1 else ''} — {self.publisher.publisher_name}"
-            )
+            self.status_label.setText(f"{count} album{'s' if count != 1 else ''} — {self.publisher.publisher_name}")
         except SQLAlchemyError as e:
             logger.error(f"Error loading albums window: {e!s}")
             self.status_label.setText("Error loading albums.")

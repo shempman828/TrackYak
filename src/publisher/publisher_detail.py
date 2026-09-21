@@ -1,20 +1,9 @@
 import html
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import (
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QMessageBox,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.asset_paths import icon
@@ -27,6 +16,11 @@ from src.track.view.base_track_view import BaseTrackView
 
 class PublisherDetailTab(QWidget):
     """Modern detail view with card-based layout."""
+
+    # Emitted after an album is edited from the "View Albums" popup, so the
+    # owning publisher tree (whose per-node album counts are otherwise left
+    # stale) can refresh itself.
+    albums_changed = Signal()
 
     def __init__(self, controller):
         super().__init__()
@@ -169,9 +163,7 @@ class PublisherDetailTab(QWidget):
     def load_publisher_data(self, publisher_id):
         """Load and display publisher data."""
         try:
-            publisher = self.controller.get.get_entity_object(
-                "Publisher", publisher_id=publisher_id
-            )
+            publisher = self.controller.get.get_entity_object("Publisher", publisher_id=publisher_id)
             if not publisher:
                 self.show_empty_state()
                 return
@@ -194,7 +186,14 @@ class PublisherDetailTab(QWidget):
         if not self.current_publisher:
             return
         self._albums_window = PublisherAlbumsWindow(self.controller, self.current_publisher, self)
+        self._albums_window.albums_changed.connect(self._on_albums_changed)
         self._albums_window.show()
+
+    def _on_albums_changed(self):
+        """Refresh this panel's album count after an edit in the albums popup."""
+        if self.current_publisher:
+            self._display_publisher_info(self.current_publisher)
+        self.albums_changed.emit()
 
     def _display_publisher_info(self, publisher):
         """Update publisher information display."""
@@ -231,10 +230,7 @@ class PublisherDetailTab(QWidget):
 
     def _display_logo(self, logo_path):
         """Display publisher logo."""
-        if logo_path and Path(logo_path).exists():
-            pixmap = QPixmap(logo_path)
-        else:
-            pixmap = icon("default_logo.svg").pixmap(120, 120)
+        pixmap = QPixmap(logo_path) if logo_path and Path(logo_path).exists() else icon("default_logo.svg").pixmap(120, 120)
 
         scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.logo_label.setPixmap(scaled_pixmap)
@@ -244,18 +240,14 @@ class PublisherDetailTab(QWidget):
         self.places_list.clear()
         try:
             # CORRECT: Get PlaceAssociation entities with proper filtering
-            publisher_places = self.controller.get.get_all_entities(
-                "PlaceAssociation", entity_type="Publisher", entity_id=publisher_id
-            )
+            publisher_places = self.controller.get.get_all_entities("PlaceAssociation", entity_type="Publisher", entity_id=publisher_id)
 
             if not publisher_places:
                 self.places_list.addItem("No places associated")
                 return
 
             for place_assoc in publisher_places:
-                place = self.controller.get.get_entity_object(
-                    "Place", place_id=place_assoc.place_id
-                )
+                place = self.controller.get.get_entity_object("Place", place_id=place_assoc.place_id)
                 if place:
                     item = QListWidgetItem(place.place_name)
                     self.places_list.addItem(item)
@@ -274,19 +266,11 @@ class PublisherDetailTab(QWidget):
             tracks = self._get_publisher_tracks()
 
             if not tracks:
-                show_status_message(
-                    self, f"No tracks found for publisher: {self.current_publisher.publisher_name}"
-                )
+                show_status_message(self, f"No tracks found for publisher: {self.current_publisher.publisher_name}")
                 return
 
             # Create and show the track view dialog
-            track_view = BaseTrackView(
-                controller=self.controller,
-                tracks=tracks,
-                title=f"Tracks - {self.current_publisher.publisher_name}",
-                enable_drag=True,
-                enable_drop=False,
-            )
+            track_view = BaseTrackView(controller=self.controller, tracks=tracks, title=f"Tracks - {self.current_publisher.publisher_name}", enable_drag=True, enable_drop=False)
 
             # Set modal so user must close it before returning to main window
             track_view.setModal(True)
@@ -314,15 +298,11 @@ class PublisherDetailTab(QWidget):
             for album in albums:
                 # Get all tracks for this album using direct relationship
                 # Tracks have a foreign key to album_id
-                album_tracks = self.controller.get.get_all_entities(
-                    "Track", album_id=album.album_id
-                )
+                album_tracks = self.controller.get.get_all_entities("Track", album_id=album.album_id)
 
                 for track in album_tracks:
                     # Get the full track object with relationships
-                    track_full = self.controller.get.get_entity_object(
-                        "Track", track_id=track.track_id
-                    )
+                    track_full = self.controller.get.get_entity_object("Track", track_id=track.track_id)
                     if track_full:
                         tracks.append(track_full)
 
