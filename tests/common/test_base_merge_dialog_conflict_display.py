@@ -1,4 +1,4 @@
-"""Regression tests for the merge-conflict card display (used by Album and
+"""Regression tests for the merge-conflict value display (used by Album and
 other entity merges via MergeDBDialog).
 
 A hardcoded card width plus a 50-character truncation in
@@ -7,11 +7,11 @@ _format_value_for_display used to silently cut off long conflicting values
 whose whole job is to let the user compare the two values.
 """
 
-from PySide6.QtWidgets import QLabel, QRadioButton
+from PySide6.QtWidgets import QLabel
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.common.dialogs.base_merge_dialog import MergeDBDialog
+from src.common.dialogs.base_merge_dialog import MergeDBDialog, _ConflictValueCell
 from src.db.db_tables.album import Album
 from src.db.db_tables.base import Base
 
@@ -56,14 +56,14 @@ def test_conflict_card_shows_full_value_and_has_no_fixed_width(qapp):
         assert labels, "expected a label containing the full, untruncated value"
         assert labels[0].wordWrap()
 
-        conflict_card = labels[0].parentWidget()
-        while conflict_card is not None and conflict_card.objectName() != "conflictCard":
-            conflict_card = conflict_card.parentWidget()
-        assert conflict_card is not None
-        assert conflict_card.maximumWidth() >= 16777215  # Qt's QWIDGETSIZE_MAX default
+        conflict_cell = labels[0].parentWidget()
+        while conflict_cell is not None and not isinstance(conflict_cell, _ConflictValueCell):
+            conflict_cell = conflict_cell.parentWidget()
+        assert conflict_cell is not None
+        assert conflict_cell.maximumWidth() >= 16777215  # Qt's QWIDGETSIZE_MAX default
 
-        radios = resolve_page.findChildren(QRadioButton)
-        assert radios, "conflict options should still be selectable"
+        cells = resolve_page.findChildren(_ConflictValueCell)
+        assert cells, "conflict options should still be selectable"
     finally:
         dialog.deleteLater()
         session.close()

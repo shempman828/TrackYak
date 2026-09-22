@@ -2069,11 +2069,46 @@ QLabel#entityInfoBox {
     min-height: 36px;
 }
 
-QWidget#conflictCard {
-    border: 1px solid palette(mid);
-    border-radius: 4px;
-    padding: 6px;
-    margin-bottom: 6px;
+/* ── SPECIAL: Merge conflict resolution grid (MergeDBDialog) ─────────────────── */
+QLabel[mergeColHeader="true"] {
+    color: #8599ea;
+    font-weight: bold;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    padding: 2px 8px 6px 8px;
+}
+
+QLabel[mergeFieldLabel="true"] {
+    color: #7a82a8;
+    font-weight: bold;
+    font-size: 11px;
+    padding: 8px 4px;
+}
+
+QWidget[mergeCell="true"] {
+    background: rgba(17, 18, 26, 0.6);
+    border: 1px solid #1e1f2b;
+    border-radius: 8px;
+}
+
+QWidget[mergeCell="true"]:hover {
+    border-color: rgba(133, 153, 234, 0.4);
+    background: rgba(133, 153, 234, 0.07);
+}
+
+QWidget[mergeCell="true"][chosen="true"] {
+    background: rgba(133, 153, 234, 0.18);
+    border: 1px solid #8599ea;
+}
+
+QWidget[mergeCell="true"] QLabel {
+    background: transparent;
+    color: #b8c0f0;
+}
+
+QLabel[mergeCellCheck="true"] {
+    color: #8599ea;
+    font-weight: bold;
 }
 
 #NavContainer {

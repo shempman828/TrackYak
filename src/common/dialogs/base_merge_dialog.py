@@ -3,26 +3,53 @@ import html
 import re
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QButtonGroup,
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
-    QMessageBox,
-    QPushButton,
-    QRadioButton,
-    QScrollArea,
-    QStackedWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.qt_text import esc_amp as _esc_amp
 from src.foundation.logger_config import logger
+
+
+class _ConflictValueCell(QWidget):
+    """One clickable value in the conflict-resolution grid.
+
+    Behaves like a radio option shaped as a table cell: clicking it selects
+    this side's value for the row and notifies the dialog to deselect the
+    sibling cell in the same row.
+    """
+
+    def __init__(self, display_text, on_select, parent=None):
+        super().__init__(parent)
+        self.setProperty("mergeCell", True)
+        self.setProperty("chosen", False)
+        self.setCursor(Qt.PointingHandCursor)
+        self._on_select = on_select
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(6)
+
+        self._check = QLabel("✓")
+        self._check.setProperty("mergeCellCheck", True)
+        self._check.setFixedWidth(14)
+        layout.addWidget(self._check, 0, Qt.AlignTop)
+
+        value_label = QLabel(display_text)
+        value_label.setWordWrap(True)
+        layout.addWidget(value_label, 1)
+
+        self._check.setVisible(False)
+
+    def set_chosen(self, chosen):
+        self._check.setVisible(chosen)
+        self.setProperty("chosen", chosen)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._on_select()
+        super().mousePressEvent(event)
 
 
 class MergeDBDialog(QDialog):
@@ -469,7 +496,7 @@ class MergeDBDialog(QDialog):
     # --- CONFLICT RESOLUTION FEATURES ---
 
     def _build_conflict_ui(self):
-        """Conflict resolution UI with radio buttons."""
+        """Conflict resolution UI: one column per entity, one row per field."""
         resolve_page = QWidget()
         layout = QVBoxLayout(resolve_page)
 
@@ -486,50 +513,17 @@ class MergeDBDialog(QDialog):
         content = QWidget()
         scroll_layout = QVBoxLayout(content)
 
-        self.radio_groups = {}
+        self._conflict_choices = {}
+        self._conflict_cells = {}
         conflicts = self._get_conflicts()
 
         if not conflicts:
             # No conflicts found - show direct merge option
             scroll_layout.addWidget(QLabel(f"<h3>No conflicts detected!</h3>All fields are identical between the two {self.model_name.lower()}s.<br>You can proceed with the merge directly."))
         else:
-            scroll_layout.addWidget(QLabel("<h3>Resolve Conflicts</h3>Select which value to keep for each conflicting field:"))
+            scroll_layout.addWidget(QLabel("<h3>Resolve Conflicts</h3>Click a value to keep it for that field:"))
             scroll_layout.addSpacing(8)
-
-            for field, (s_val, t_val) in conflicts.items():
-                # --- Card widget: gives each field a visible box ---
-                card = QWidget()
-                card.setObjectName("conflictCard")
-
-                card_layout = QVBoxLayout(card)
-                card_layout.setSpacing(4)
-                card_layout.setContentsMargins(8, 6, 8, 6)
-
-                field_label = QLabel(f"<b>{field}</b>")
-                card_layout.addWidget(field_label)
-
-                group = QButtonGroup(self)
-
-                s_display = self._format_value_for_display(s_val)
-                t_display = self._format_value_for_display(t_val)
-
-                source_name = getattr(self.source_entity, self.name_attr, "Source")
-                target_name = getattr(self.target_entity, self.name_attr, "Target")
-
-                s_radio = self._add_conflict_option(card_layout, group, 0, f"Keep Source ({source_name}): {s_display}")
-                t_radio = self._add_conflict_option(card_layout, group, 1, f"Keep Target ({target_name}): {t_display}")
-
-                # Default to Target if source is empty, otherwise Source
-                if s_val is None or s_val == "":
-                    t_radio.setChecked(True)
-                else:
-                    s_radio.setChecked(True)
-
-                self.radio_groups[field] = group
-
-                # Card fills the available width so long values can wrap
-                # instead of being squeezed by a fixed pixel cap.
-                scroll_layout.addWidget(card)
+            scroll_layout.addLayout(self._build_conflict_grid(conflicts))
 
         scroll_layout.addStretch()
         scroll.setWidget(content)
@@ -549,27 +543,69 @@ class MergeDBDialog(QDialog):
         self.stack.addWidget(resolve_page)
         self.stack.setCurrentIndex(1)
 
-    def _add_conflict_option(self, card_layout, group, button_id, text):
-        """Add a radio button paired with a word-wrapped label.
+    def _build_conflict_grid(self, conflicts):
+        """Build the Field / Source-entity / Target-entity grid.
 
-        QRadioButton has no word-wrap support, so long field values would
-        otherwise be silently clipped instead of wrapping onto new lines.
+        Each entity gets one column, named once in the header, instead of
+        repeating "Keep Source (Name): ..." on every field's row.
         """
-        row = QHBoxLayout()
-        row.setSpacing(6)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(8)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
 
-        radio = QRadioButton()
-        group.addButton(radio, button_id)
+        source_name = getattr(self.source_entity, self.name_attr, "Source")
+        target_name = getattr(self.target_entity, self.name_attr, "Target")
 
-        label = QLabel(text)
-        label.setWordWrap(True)
-        label.mousePressEvent = lambda _event, radio=radio: radio.setChecked(True)
+        field_header = QLabel("Field")
+        field_header.setProperty("mergeColHeader", True)
+        grid.addWidget(field_header, 0, 0)
 
-        row.addWidget(radio, 0, Qt.AlignTop)
-        row.addWidget(label, 1)
-        card_layout.addLayout(row)
+        source_header = QLabel(html.escape(str(source_name)))
+        source_header.setProperty("mergeColHeader", True)
+        grid.addWidget(source_header, 0, 1)
 
-        return radio
+        target_header = QLabel(html.escape(str(target_name)))
+        target_header.setProperty("mergeColHeader", True)
+        grid.addWidget(target_header, 0, 2)
+
+        divider = QFrame()
+        divider.setFrameShape(QFrame.HLine)
+        grid.addWidget(divider, 1, 0, 1, 3)
+
+        row = 2
+        for field, (s_val, t_val) in conflicts.items():
+            field_label = QLabel(field)
+            field_label.setProperty("mergeFieldLabel", True)
+            field_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+            grid.addWidget(field_label, row, 0)
+
+            s_display = html.escape(self._format_value_for_display(s_val))
+            t_display = html.escape(self._format_value_for_display(t_val))
+
+            s_cell = _ConflictValueCell(s_display, lambda f=field: self._choose_conflict(f, 0))
+            t_cell = _ConflictValueCell(t_display, lambda f=field: self._choose_conflict(f, 1))
+            grid.addWidget(s_cell, row, 1)
+            grid.addWidget(t_cell, row, 2)
+            self._conflict_cells[field] = (s_cell, t_cell)
+
+            # Default to Target if source is empty, otherwise Source
+            default_side = 1 if (s_val is None or s_val == "") else 0
+            self._conflict_choices[field] = default_side
+            (t_cell if default_side == 1 else s_cell).set_chosen(True)
+
+            row += 1
+
+        return grid
+
+    def _choose_conflict(self, field, side):
+        """Record the chosen side for a field and update the cell highlight."""
+        self._conflict_choices[field] = side
+        s_cell, t_cell = self._conflict_cells[field]
+        s_cell.set_chosen(side == 0)
+        t_cell.set_chosen(side == 1)
 
     def _format_value_for_display(self, value):
         """Format a value for display in the conflict resolution UI."""
@@ -655,15 +691,10 @@ class MergeDBDialog(QDialog):
             # Do NOT modify the ORM objects here.
             resolved_fields = {}
 
-            if hasattr(self, "radio_groups"):
-                for field, group in self.radio_groups.items():
-                    checked = group.checkedId()
-
-                    if checked == 0:  # Source selected
-                        resolved_fields[field] = getattr(self.source_entity, field)
-
-                    elif checked == 1:  # Target selected
-                        resolved_fields[field] = getattr(self.target_entity, field)
+            if hasattr(self, "_conflict_choices"):
+                for field, side in self._conflict_choices.items():
+                    entity = self.source_entity if side == 0 else self.target_entity
+                    resolved_fields[field] = getattr(entity, field)
 
             success = self.merge_helper.merge_entities(self.model_name, getattr(self.source_entity, self.id_attr), getattr(self.target_entity, self.id_attr), resolved_fields)
 
