@@ -3,23 +3,11 @@ PySide6 dialog for writing database metadata to audio files.
 Streamlined version - entire library updates only.
 """
 
-import os
+from pathlib import Path
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QDialog,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QProgressBar,
-    QPushButton,
-    QTextEdit,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QGroupBox, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QTextEdit, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
@@ -43,7 +31,10 @@ class MetadataScannerWorker(CancellableWorker):
     """
 
     progress = Signal(int, int)  # current, total
-    finished = Signal(dict)  # {track_id: bool}  True = eligible
+    # object, not dict: PySide marshals a queued dict signal via QVariantMap,
+    # which only supports string keys and fails to copy-convert this
+    # int-keyed {track_id: bool} payload across the thread boundary.
+    finished = Signal(object)  # {track_id: bool}  True = eligible
     log_message = Signal(str)
 
     def __init__(self, metadata_writer, full_rescan: bool = False, parent=None):
@@ -57,10 +48,7 @@ class MetadataScannerWorker(CancellableWorker):
     def run(self):
         try:
             controller = self.metadata_writer.controller
-            if self.full_rescan:
-                tracks = controller.get.get_all_entities("Track")
-            else:
-                tracks = controller.get.get_all_entities("Track", needs_tag_write=1)
+            tracks = controller.get.get_all_entities("Track") if self.full_rescan else controller.get.get_all_entities("Track", needs_tag_write=1)
             total = len(tracks)
             results = {}
 
@@ -74,7 +62,7 @@ class MetadataScannerWorker(CancellableWorker):
                 self.progress.emit(i + 1, total)
 
                 try:
-                    eligible = bool(track.track_file_path and os.path.exists(track.track_file_path))
+                    eligible = bool(track.track_file_path and Path(track.track_file_path).exists())
                     results[track.track_id] = eligible
 
                     if i % 100 == 0 or i == total - 1:
@@ -86,9 +74,7 @@ class MetadataScannerWorker(CancellableWorker):
                     results[track.track_id] = False
 
             eligible_count = sum(1 for v in results.values() if v)
-            self.log_message.emit(
-                f"Scan complete: {eligible_count}/{total} tracks have writable files."
-            )
+            self.log_message.emit(f"Scan complete: {eligible_count}/{total} tracks have writable files.")
             self.finished.emit(results)
 
         except Exception as e:
@@ -108,12 +94,12 @@ class MetadataWriteWorker(CancellableWorker):
     """Worker thread for metadata writing operations."""
 
     progress = Signal(int, int, int)  # current, total, track_id
-    finished = Signal(dict)  # results: {track_id: success}
+    # object, not dict: see MetadataScannerWorker.finished for why a
+    # queued int-keyed dict signal fails to copy-convert.
+    finished = Signal(object)  # results: {track_id: success}
     log_message = Signal(str)
 
-    def __init__(
-        self, metadata_writer: MetadataWriter, track_ids: list[int], mode: WriteMode, parent=None
-    ):
+    def __init__(self, metadata_writer: MetadataWriter, track_ids: list[int], mode: WriteMode, parent=None):
         super().__init__(parent)
         self.metadata_writer = metadata_writer
         self.track_ids = track_ids
@@ -199,9 +185,7 @@ class MetadataWriteDialog(QDialog):
         # Full rescan option — by default, scanning only considers tracks the
         # database already knows changed (Track.needs_tag_write); this is the
         # manual fallback for reconciling files edited outside the app.
-        self.full_rescan_check = QCheckBox(
-            "Full rescan (check every track, ignoring the changed-tracks flag)"
-        )
+        self.full_rescan_check = QCheckBox("Full rescan (check every track, ignoring the changed-tracks flag)")
         mode_layout.addWidget(self.full_rescan_check)
 
         layout.addWidget(mode_group)
@@ -281,9 +265,7 @@ class MetadataWriteDialog(QDialog):
         self.scan_results = {}
 
         # Start scanner thread
-        self.scanner_thread = MetadataScannerWorker(
-            self.metadata_writer, full_rescan=self.full_rescan_check.isChecked()
-        )
+        self.scanner_thread = MetadataScannerWorker(self.metadata_writer, full_rescan=self.full_rescan_check.isChecked())
         self.scanner_thread.progress.connect(self.update_scan_progress)
         self.scanner_thread.finished.connect(self.on_scan_finished)
         self.scanner_thread.log_message.connect(self.log_message)
@@ -327,14 +309,8 @@ class MetadataWriteDialog(QDialog):
         self.cancel_btn.setEnabled(False)
         self.progress_group.setVisible(False)
 
-        logger.info(
-            f"Metadata scan complete ({scan_kind}): "
-            f"{eligible_count}/{total_count} files eligible for update"
-        )
-        self.log_message(
-            f"=== Scan complete ({scan_kind}): "
-            f"{eligible_count}/{total_count} files eligible for update ==="
-        )
+        logger.info(f"Metadata scan complete ({scan_kind}): {eligible_count}/{total_count} files eligible for update")
+        self.log_message(f"=== Scan complete ({scan_kind}): {eligible_count}/{total_count} files eligible for update ===")
 
     def start_update(self):
         """Start updating metadata for all tracks that need it."""
@@ -395,20 +371,14 @@ class MetadataWriteDialog(QDialog):
         self.progress_group.setVisible(False)
 
         # Show results
-        logger.info(
-            f"Metadata update complete: {success_count}/{total_count} files updated successfully"
-        )
+        logger.info(f"Metadata update complete: {success_count}/{total_count} files updated successfully")
         self.log_message(f"=== Update complete: {success_count}/{total_count} successful ===")
         self.update_status(f"Updated {success_count}/{total_count} files successfully")
 
         if success_count == total_count:
             show_status_message(self, f"Successfully updated metadata for all {total_count} files")
         else:
-            QMessageBox.warning(
-                self,
-                "Completed with Errors",
-                f"Updated {success_count} files successfully, {total_count - success_count} failed",
-            )
+            QMessageBox.warning(self, "Completed with Errors", f"Updated {success_count} files successfully, {total_count - success_count} failed")
 
     def cancel_operation(self):
         """Cancel the current operation (scan or write)."""
