@@ -6,17 +6,13 @@ result set (~100-200 rows), so the query runs synchronously off
 controller.get -- no worker needed, unlike the bulk import/matching passes.
 """
 
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from sqlalchemy import select
 
 from src.charts.chart_entry_table import ChartEntryTable
-from src.charts.chart_manual_match_actions import (
-    handle_clear_match_requested,
-    handle_manual_match_requested,
-)
+from src.charts.chart_filter_toggle import MatchFilterToggle
+from src.charts.chart_manual_match_actions import handle_clear_match_requested, handle_manual_match_requested
 from src.db.db_tables.chart import ChartEntry
-
-_MATCH_FILTERS = ["All", "Matched Only", "Unmatched Only"]
 
 _MONTH_NAMES = [
     "January",
@@ -45,7 +41,10 @@ class ChartWeekBrowserTab(QWidget):
     def init_ui(self):
         layout = QVBoxLayout(self)
 
-        controls = QHBoxLayout()
+        controls_frame = QFrame()
+        controls_frame.setProperty("class", "toolbar")
+        controls = QHBoxLayout(controls_frame)
+        controls.setContentsMargins(10, 8, 10, 8)
         controls.addWidget(QLabel("Chart:"))
         self.chart_combo = QComboBox()
         self.chart_combo.currentIndexChanged.connect(self._on_chart_changed)
@@ -67,14 +66,13 @@ class ChartWeekBrowserTab(QWidget):
         controls.addWidget(self.week_combo)
 
         controls.addWidget(QLabel("Show:"))
-        self.match_filter = QComboBox()
-        self.match_filter.addItems(_MATCH_FILTERS)
+        self.match_filter = MatchFilterToggle()
         self.match_filter.currentIndexChanged.connect(self._on_match_filter_changed)
         controls.addWidget(self.match_filter)
         controls.addStretch()
-        layout.addLayout(controls)
+        layout.addWidget(controls_frame)
 
-        self.table = ChartEntryTable()
+        self.table = ChartEntryTable(empty_text="No entries for this selection.")
         self.table.manual_match_requested.connect(self._on_manual_match_requested)
         self.table.clear_match_requested.connect(self._on_clear_match_requested)
         layout.addWidget(self.table)

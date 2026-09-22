@@ -10,16 +10,33 @@ per-item setText(col, ...)) rather than QTableWidget.
 
 from collections.abc import Iterable
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QBrush, QColor
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QMenu, QTreeWidget, QTreeWidgetItem
 
+from src.charts.chart_table_placeholder import install_empty_placeholder, sync_empty_placeholder
 from src.common.match_confidence import confidence_color
 from src.db.db_tables.chart import ChartEntry
 
 _COLUMNS = ["Pos", "Title", "Artist", "Peak", "Weeks on Chart"]
 _SORT_VALUE_ROLE = Qt.UserRole + 1
 _NUMERIC_COLUMNS = {0, 3, 4}  # Pos, Peak, Weeks on Chart
+_DOT_SIZE = 8
+
+
+def _status_dot(color: QColor) -> QIcon:
+    """Small filled-circle icon, drawn once per color, giving each row's
+    match status a legible marker independent of the translucent row tint
+    (which reads faintly under some themes -- see the class docstring)."""
+    pixmap = QPixmap(_DOT_SIZE, _DOT_SIZE)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(color)
+    painter.drawEllipse(0, 0, _DOT_SIZE, _DOT_SIZE)
+    painter.end()
+    return QIcon(pixmap)
 
 
 class _ChartEntryTreeItem(QTreeWidgetItem):
@@ -61,13 +78,14 @@ class ChartEntryTable(QTreeWidget):
     manual_match_requested = Signal(int)  # chart_entry_id
     clear_match_requested = Signal(int)  # chart_entry_id
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, empty_text: str = "No chart entries."):
         super().__init__(parent)
         self.setColumnCount(len(_COLUMNS))
         self.setHeaderLabels(_COLUMNS)
         self.setRootIsDecorated(False)  # flat list, no expand arrows
         self.setSelectionMode(QAbstractItemView.SingleSelection)
         self.setSortingEnabled(True)
+        self.setIconSize(QSize(_DOT_SIZE, _DOT_SIZE))
         # No column sorted at start, so results keep arriving in their
         # pre-ordered (by position/relevance) order until the user clicks a header.
         self.header().setSortIndicator(-1, Qt.AscendingOrder)
@@ -76,6 +94,7 @@ class ChartEntryTable(QTreeWidget):
         self._entries_by_id = {}  # chart_entry_id -> ChartEntry, refreshed each populate()
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
+        self._empty_label = install_empty_placeholder(self, empty_text)
 
     def populate(self, entries: Iterable[ChartEntry]) -> None:
         self.clear()
@@ -93,17 +112,20 @@ class ChartEntryTable(QTreeWidget):
                 color = confidence_color(entry.match_score or 0.0)
                 tint = QColor(color)
                 tint.setAlpha(70)
+                item.setIcon(0, _status_dot(color))
                 for col in range(len(_COLUMNS)):
                     item.setForeground(col, color)
                     item.setBackground(col, QBrush(tint))
             else:
                 tint = QColor(Qt.gray)
                 tint.setAlpha(40)
+                item.setIcon(0, _status_dot(QColor(Qt.gray)))
                 for col in range(len(_COLUMNS)):
                     item.setForeground(col, Qt.gray)
                     item.setBackground(col, QBrush(tint))
                 item.setToolTip(1, "Not yet matched to a library track")
             self.addTopLevelItem(item)
+        sync_empty_placeholder(self, self._empty_label)
 
     def context_menu_for_entry(self, entry_id) -> QMenu | None:
         """Build (but don't show) the manual-match context menu for

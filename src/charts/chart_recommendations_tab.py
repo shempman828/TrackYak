@@ -33,27 +33,12 @@ ChartWeekBrowserTab/ChartSearchTab.
 
 import datetime
 
-from PySide6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
-    QMenu,
-    QMessageBox,
-    QSpinBox,
-    QTabWidget,
-    QToolButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox, QSpinBox, QTabWidget, QToolButton, QVBoxLayout, QWidget
 
 from src.charts.chart_manual_match_actions import handle_bulk_manual_match_requested
 from src.charts.chart_recommendation_table import ChartRecommendationTable
 from src.charts.chart_recommendations import chart_week_years
-from src.charts.chart_recommendations_worker import (
-    MODE_GAP_FILLS,
-    MODE_POPULAR,
-    ChartRecommendationsWorker,
-)
+from src.charts.chart_recommendations_worker import MODE_GAP_FILLS, MODE_POPULAR, ChartRecommendationsWorker
 from src.foundation.logger_config import logger
 
 _ALL_YEARS_LABEL = "All Years"
@@ -93,7 +78,10 @@ class ChartRecommendationsTab(QWidget):
     def init_ui(self):
         layout = QVBoxLayout(self)
 
-        controls = QHBoxLayout()
+        controls_frame = QFrame()
+        controls_frame.setProperty("class", "toolbar")
+        controls = QHBoxLayout(controls_frame)
+        controls.setContentsMargins(10, 8, 10, 8)
         controls.addWidget(QLabel("Chart:"))
         self.chart_combo = QComboBox()
         self.chart_combo.addItem("All Charts")
@@ -122,12 +110,13 @@ class ChartRecommendationsTab(QWidget):
         controls.addWidget(self.min_gap_spin)
         controls.addStretch()
         self.status_label = QLabel("")
+        self.status_label.setProperty("textRole", "muted")
         controls.addWidget(self.status_label)
-        layout.addLayout(controls)
+        layout.addWidget(controls_frame)
 
         self.sub_tabs = QTabWidget()
-        self.popular_table = ChartRecommendationTable()
-        self.gap_table = ChartRecommendationTable()
+        self.popular_table = ChartRecommendationTable(empty_text="No missing popular songs found.")
+        self.gap_table = ChartRecommendationTable(empty_text="No gap-fill candidates found.")
         self.sub_tabs.addTab(self.popular_table, "Missing Popular")
         self.sub_tabs.addTab(self.gap_table, "Gap Fills")
         self.sub_tabs.currentChanged.connect(self._on_sub_tab_changed)

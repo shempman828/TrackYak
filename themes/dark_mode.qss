@@ -2159,6 +2159,13 @@ QLineEdit#InfluenceFindField {
     min-width: 160px;
 }
 
+/* ── SHARED: generic filter/toolbar frame (any view's controls row) ─────────── */
+QFrame[class="toolbar"] {
+    background-color: rgba(17, 18, 26, 0.55);
+    border: 1px solid #1e1f2b;
+    border-radius: 8px;
+}
+
 /* ── SPECIAL: Add/Remove Influence dialogs (influences_dialog.py) ────────────── */
 QLabel[influenceSection="true"] {
     color: #EAD685;

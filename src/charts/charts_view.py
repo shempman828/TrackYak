@@ -10,7 +10,9 @@ connect progress/finished/error -> start()).
 
 import time
 
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QStackedWidget, QTabWidget, QVBoxLayout, QWidget
+from sqlalchemy import func, select
 
 from src.charts.chart_download import chart_csv_exists
 from src.charts.chart_download_worker import ChartDownloadWorker
@@ -22,8 +24,12 @@ from src.charts.chart_recommendations_tab import ChartRecommendationsTab
 from src.charts.chart_search_tab import ChartSearchTab
 from src.charts.chart_week_browser_tab import ChartWeekBrowserTab
 from src.common.eta_estimator import estimate_remaining
+from src.common.widgets.detail_card import DetailCard
+from src.common.widgets.style_utils import refresh_style
+from src.db.db_tables.chart import ChartEntry
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
+from src.statistics.widgets.stat_tile import StatTileWidget
 
 
 class ChartsView(QWidget):
@@ -69,11 +75,31 @@ class ChartsView(QWidget):
         header.addWidget(self.status_label)
         layout.addLayout(header)
 
+        self.stats_row = QWidget()
+        stats_layout = QHBoxLayout(self.stats_row)
+        stats_layout.setContentsMargins(0, 0, 0, 0)
+        stats_layout.setSpacing(10)
+        self.stat_synced = StatTileWidget("Charts Synced")
+        self.stat_match_rate = StatTileWidget("Match Rate")
+        self.stat_updated = StatTileWidget("Last Updated")
+        for tile in (self.stat_synced, self.stat_match_rate, self.stat_updated):
+            stats_layout.addWidget(tile)
+        layout.addWidget(self.stats_row)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setFixedHeight(6)
         self.progress_bar.setTextVisible(False)
         layout.addWidget(self.progress_bar)
+
+        self.empty_state_card = DetailCard("Get Started")
+        empty_hint = QLabel("Download chart data above to begin matching it against your library.")
+        empty_hint.setProperty("textRole", "muted")
+        empty_hint.setWordWrap(True)
+        empty_hint.setAlignment(Qt.AlignCenter)
+        self.empty_state_card.body.addStretch()
+        self.empty_state_card.body.addWidget(empty_hint)
+        self.empty_state_card.body.addStretch()
 
         self.tabs = QTabWidget()
         self.week_tab = ChartWeekBrowserTab(self.controller)
@@ -82,7 +108,16 @@ class ChartsView(QWidget):
         self.tabs.addTab(self.week_tab, "Week Browser")
         self.tabs.addTab(self.search_tab, "Search")
         self.tabs.addTab(self.recommendations_tab, "Recommendations")
-        layout.addWidget(self.tabs)
+
+        # A QStackedWidget (rather than toggling .setVisible() on two
+        # siblings in the same QVBoxLayout) keeps exactly one Expanding
+        # child in the layout at all times -- with the tab widget simply
+        # hidden, nothing was left to absorb the window's leftover vertical
+        # space, so the header and the card drifted apart with a blank gap.
+        self.content_stack = QStackedWidget()
+        self.content_stack.addWidget(self.empty_state_card)
+        self.content_stack.addWidget(self.tabs)
+        layout.addWidget(self.content_stack)
 
     # -----------------------------------------------------------------------
     # State
@@ -102,6 +137,10 @@ class ChartsView(QWidget):
         self.match_btn.setVisible(bool(synced_charts))
         self.playlists_btn.setVisible(bool(synced_charts))
         self._refresh_playlists_btn_label()
+        self._refresh_primary_button(all_downloaded)
+
+        self.stats_row.setVisible(bool(synced_charts))
+        self.content_stack.setCurrentWidget(self.tabs if synced_charts else self.empty_state_card)
 
         if synced_charts:
             self.week_tab.set_charts(synced_charts)
@@ -109,8 +148,33 @@ class ChartsView(QWidget):
             self.recommendations_tab.set_charts(synced_charts)
             latest = max((c.last_downloaded_at for c in self._charts if c.last_downloaded_at), default=None)
             self.status_label.setText(f"Last updated: {latest.strftime('%Y-%m-%d %H:%M')}" if latest else "")
+            self._refresh_stats(synced_charts, latest)
         else:
             self.status_label.setText("No chart data imported yet." if all_downloaded else "")
+
+    def _refresh_primary_button(self, all_downloaded: bool) -> None:
+        """The header's one primary (accent-filled) action is whichever of
+        Download/Fetch is currently visible -- the "get data flowing" step
+        -- so it stands out from the plainer Match Now/Playlists buttons."""
+        self.download_btn.setObjectName("" if all_downloaded else "PrimaryButton")
+        self.fetch_btn.setObjectName("PrimaryButton" if all_downloaded else "")
+        refresh_style(self.download_btn)
+        refresh_style(self.fetch_btn)
+
+    def _refresh_stats(self, synced_charts, latest) -> None:
+        chart_ids = [c.chart_id for c in synced_charts]
+        session = self.controller.get.session
+        total = session.scalar(select(func.count()).select_from(ChartEntry).where(ChartEntry.chart_id.in_(chart_ids))) or 0
+        matched = (
+            session.scalar(
+                select(func.count()).select_from(ChartEntry).where(ChartEntry.chart_id.in_(chart_ids), ChartEntry.entity_id.isnot(None))
+            )
+            or 0
+        )
+        self.stat_synced.set_data(len(synced_charts), f"of {len(self._charts)} chart(s)")
+        match_rate = f"{matched / total:.0%}" if total else "N/A"
+        self.stat_match_rate.set_data(match_rate, f"{matched:,} / {total:,} entries")
+        self.stat_updated.set_data(latest.strftime("%b %d, %Y") if latest else "N/A")
 
     def _refresh_playlists_btn_label(self):
         """Contextual label: "Generate Charts Playlists" until a chart-derived

@@ -25,6 +25,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QMenu, QTreeWidget, QTreeWidgetItem
 
 from src.charts.chart_recommendations import MissingChartItem
+from src.charts.chart_table_placeholder import install_empty_placeholder, sync_empty_placeholder
 
 _COLUMNS = ["Title", "Artist", "Type", "Chart", "Peak", "Weeks on Chart", "Connects"]
 _SORT_VALUE_ROLE = Qt.UserRole + 1
@@ -47,7 +48,7 @@ class _RecommendationTreeItem(QTreeWidgetItem):
 class ChartRecommendationTable(QTreeWidget):
     bulk_match_requested = Signal(object)  # MissingChartItem
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, empty_text: str = "No recommendations found."):
         super().__init__(parent)
         self.setColumnCount(len(_COLUMNS))
         self.setHeaderLabels(_COLUMNS)
@@ -61,6 +62,7 @@ class ChartRecommendationTable(QTreeWidget):
         self.header().setSectionResizeMode(1, QHeaderView.Stretch)  # Artist column grows
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
+        self._empty_label = install_empty_placeholder(self, empty_text)
 
     def populate(self, items: Iterable[MissingChartItem]) -> None:
         self.clear()
@@ -81,6 +83,7 @@ class ChartRecommendationTable(QTreeWidget):
             tree_item.setData(5, _SORT_VALUE_ROLE, item.weeks_on_chart or 0)
             tree_item.setData(6, _SORT_VALUE_ROLE, item.gap_run_length or 0)
             self.addTopLevelItem(tree_item)
+        sync_empty_placeholder(self, self._empty_label)
 
     def context_menu_for_item(self, item: MissingChartItem) -> QMenu:
         """Build (but don't show) the manual-match context menu for `item`.

@@ -12,18 +12,15 @@ unlimited.
 """
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
 from sqlalchemy import bindparam, select, text
 
 from src.charts.chart_entry_table import ChartEntryTable
-from src.charts.chart_manual_match_actions import (
-    handle_clear_match_requested,
-    handle_manual_match_requested,
-)
+from src.charts.chart_filter_toggle import MatchFilterToggle
+from src.charts.chart_manual_match_actions import handle_clear_match_requested, handle_manual_match_requested
 from src.charts.fts_query import build_and_query
 from src.db.db_tables.chart import ChartEntry
 
-_MATCH_FILTERS = ["All", "Matched Only", "Unmatched Only"]
 _RESULT_LIMIT = 500
 _DEBOUNCE_MS = 250
 
@@ -38,7 +35,10 @@ class ChartSearchTab(QWidget):
     def init_ui(self):
         layout = QVBoxLayout(self)
 
-        controls = QHBoxLayout()
+        controls_frame = QFrame()
+        controls_frame.setProperty("class", "toolbar")
+        controls = QHBoxLayout(controls_frame)
+        controls.setContentsMargins(10, 8, 10, 8)
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText("Search title or artist across all charts/years...")
         self.search_box.textChanged.connect(self._on_search_changed)
@@ -51,16 +51,16 @@ class ChartSearchTab(QWidget):
         controls.addWidget(self.chart_combo)
 
         controls.addWidget(QLabel("Show:"))
-        self.match_filter = QComboBox()
-        self.match_filter.addItems(_MATCH_FILTERS)
+        self.match_filter = MatchFilterToggle()
         self.match_filter.currentIndexChanged.connect(self._run_search)
         controls.addWidget(self.match_filter)
-        layout.addLayout(controls)
+        layout.addWidget(controls_frame)
 
         self.result_label = QLabel("")
+        self.result_label.setProperty("textRole", "muted")
         layout.addWidget(self.result_label)
 
-        self.table = ChartEntryTable()
+        self.table = ChartEntryTable(empty_text="No results yet — try a different search.")
         self.table.manual_match_requested.connect(self._on_manual_match_requested)
         self.table.clear_match_requested.connect(self._on_clear_match_requested)
         layout.addWidget(self.table)
