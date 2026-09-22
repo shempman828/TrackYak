@@ -62,7 +62,7 @@ def _album(album_id, name, tracks):
 
 
 def _controller(albums):
-    return SimpleNamespace(get=SimpleNamespace(get_all_entities=lambda entity: list(albums)))
+    return SimpleNamespace(get=SimpleNamespace(get_all_entities=lambda entity, load_options=None: list(albums)))
 
 
 def _run(albums, **kwargs):

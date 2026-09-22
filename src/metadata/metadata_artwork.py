@@ -1,5 +1,7 @@
 import io
+from pathlib import Path
 import struct
+from typing import ClassVar
 
 from PIL import Image
 
@@ -18,15 +20,10 @@ class ArtworkExtractor:
 
     # Formats supported by extract_artwork_by_role / write_artwork_to_file's
     # role-based (front/rear/liner) read+write path.
-    SUPPORTED_EXTENSIONS = {".flac", ".mp3"}
+    SUPPORTED_EXTENSIONS: ClassVar[set[str]] = {".flac", ".mp3"}
 
     def __init__(self):
-        self.format_handlers = {
-            ".mp3": self._extract_mp3_artwork,
-            ".flac": self._extract_flac_artwork,
-            ".m4a": self._extract_alac_artwork,
-            ".mp4": self._extract_alac_artwork,
-        }
+        self.format_handlers = {".mp3": self._extract_mp3_artwork, ".flac": self._extract_flac_artwork, ".m4a": self._extract_alac_artwork, ".mp4": self._extract_alac_artwork}
 
     def extract_artwork(self, data, file_ext):
         """
@@ -48,9 +45,7 @@ class ArtworkExtractor:
             artwork = handler(data)
 
             if artwork:
-                logger.debug(
-                    f"Successfully extracted artwork: {len(artwork.get('data', []))} bytes"
-                )
+                logger.debug(f"Successfully extracted artwork: {len(artwork.get('data', []))} bytes")
             else:
                 logger.debug("No artwork found")
 
@@ -74,11 +69,7 @@ class ArtworkExtractor:
                 frame_start = pos + 6
             else:  # ID3v2.3/2.4
                 frame_id = data[pos : pos + 4].decode("ascii", errors="ignore")
-                frame_size = (
-                    syncsafe_to_int(data[pos + 4 : pos + 8])
-                    if version_major == 4
-                    else struct.unpack(">I", data[pos + 4 : pos + 8])[0]
-                )
+                frame_size = syncsafe_to_int(data[pos + 4 : pos + 8]) if version_major == 4 else struct.unpack(">I", data[pos + 4 : pos + 8])[0]
                 frame_start = pos + 10
 
             if frame_size == 0:
@@ -97,13 +88,9 @@ class ArtworkExtractor:
             size = syncsafe_to_int(data[6:10])
             end_pos = min(10 + size, len(data))
 
-            for frame_id, frame_start, frame_size in self._iter_id3_frames(
-                data, version_major, end_pos
-            ):
+            for frame_id, frame_start, frame_size in self._iter_id3_frames(data, version_major, end_pos):
                 if frame_id in ["APIC", "PIC"]:
-                    return self._parse_id3_apic_frame(
-                        data[frame_start : frame_start + frame_size], version_major
-                    )
+                    return self._parse_id3_apic_frame(data[frame_start : frame_start + frame_size], version_major)
 
         except (IndexError, struct.error) as e:
             logger.warning(f"Error extracting MP3 artwork: {e}")
@@ -121,20 +108,13 @@ class ArtworkExtractor:
             size = syncsafe_to_int(data[6:10])
             end_pos = min(10 + size, len(data))
 
-            for frame_id, frame_start, frame_size in self._iter_id3_frames(
-                data, version_major, end_pos
-            ):
+            for frame_id, frame_start, frame_size in self._iter_id3_frames(data, version_major, end_pos):
                 if frame_id in ["APIC", "PIC"]:
-                    parsed_picture = self._parse_id3_apic_frame(
-                        data[frame_start : frame_start + frame_size], version_major
-                    )
+                    parsed_picture = self._parse_id3_apic_frame(data[frame_start : frame_start + frame_size], version_major)
                     if parsed_picture:
                         picture_type = parsed_picture["picture_type"]
                         if picture_type in pictures:
-                            logger.warning(
-                                f"Duplicate ID3 picture type {picture_type} found; "
-                                "keeping first occurrence"
-                            )
+                            logger.warning(f"Duplicate ID3 picture type {picture_type} found; keeping first occurrence")
                         else:
                             pictures[picture_type] = parsed_picture
 
@@ -224,10 +204,7 @@ class ArtworkExtractor:
                     if parsed_picture:
                         picture_type = parsed_picture["picture_type"]
                         if picture_type in pictures:
-                            logger.warning(
-                                f"Duplicate FLAC picture type {picture_type} found; "
-                                "keeping first occurrence"
-                            )
+                            logger.warning(f"Duplicate FLAC picture type {picture_type} found; keeping first occurrence")
                         else:
                             pictures[picture_type] = parsed_picture
 
@@ -241,6 +218,11 @@ class ArtworkExtractor:
 
         return pictures
 
+    # Growth step for the incremental FLAC metadata read below. Most covers
+    # fit in the first chunk; the loop only grows the buffer for files whose
+    # metadata (usually a large embedded picture) spills past it.
+    _FLAC_READ_CHUNK = 256 * 1024
+
     def extract_artwork_by_role(self, file_path, file_ext):
         """
         Extract embedded artwork keyed by role ("front"/"rear"/"liner").
@@ -249,24 +231,78 @@ class ArtworkExtractor:
         empty dict. Returns a dict containing only the roles that were
         found - callers should use .get(role) rather than assuming all
         three keys exist.
+
+        Reads only the tag/metadata region of the file rather than the
+        whole thing - callers such as the library-wide consistency scan
+        (src/library/library_artwork_consistency.py) call this once per
+        track, and a full read of every track's audio data made that scan
+        take tens of minutes on large libraries.
         """
         ext = file_ext.lower()
         if ext not in self.SUPPORTED_EXTENSIONS:
             return {}
 
         try:
-            with open(file_path, "rb") as f:
-                data = f.read()
+            data = self._read_flac_metadata_prefix(file_path) if ext == ".flac" else self._read_mp3_id3_prefix(file_path)
         except OSError as e:
             logger.warning(f"Error reading {file_path} for role-based artwork: {e}")
             return {}
 
-        if ext == ".flac":
-            all_pictures = self._extract_flac_artwork_all(data)
-        else:
-            all_pictures = self._extract_mp3_artwork_all(data)
+        all_pictures = self._extract_flac_artwork_all(data) if ext == ".flac" else self._extract_mp3_artwork_all(data)
 
         return self._pictures_to_roles(all_pictures, file_path)
+
+    def _read_mp3_id3_prefix(self, file_path):
+        """Read just the ID3v2 tag (header + its declared size) instead of
+        the whole MP3, mirroring the bounds _extract_mp3_artwork_all itself
+        parses."""
+        with Path(file_path).open("rb") as f:
+            header = f.read(10)
+            if len(header) < 10 or header[0:3] != b"ID3":
+                return header
+            size = syncsafe_to_int(header[6:10])
+            return header + f.read(size)
+
+    def _read_flac_metadata_prefix(self, file_path):
+        """Read only the FLAC metadata-block region (STREAMINFO..PICTURE),
+        growing the read in chunks until the last metadata block is fully
+        buffered, instead of reading the whole file's audio payload."""
+        with Path(file_path).open("rb") as f:
+            buf = f.read(self._FLAC_READ_CHUNK)
+            while True:
+                pos = self._flac_metadata_start(buf)
+                if pos is None:
+                    more = f.read(self._FLAC_READ_CHUNK)
+                    if not more:
+                        return buf  # no "fLaC" marker found even at EOF
+                    buf += more
+                    continue
+
+                end = self._flac_metadata_end(buf, pos)
+                if end is not None:
+                    return buf[:end]
+
+                more = f.read(self._FLAC_READ_CHUNK)
+                if not more:
+                    return buf  # truncated/malformed; hand back what we have
+                buf += more
+
+    def _flac_metadata_end(self, data, pos):
+        """Walk FLAC metadata block headers starting at `pos`, returning the
+        offset just past the last one (its is_last bit set) once fully
+        contained in `data`, or None if more bytes must be read first."""
+        while True:
+            if pos + 4 > len(data):
+                return None
+            header = struct.unpack(">I", data[pos : pos + 4])[0]
+            is_last = (header >> 31) & 1
+            block_size = header & 0xFFFFFF
+            block_end = pos + 4 + block_size
+            if block_end > len(data):
+                return None
+            if is_last:
+                return block_end
+            pos = block_end
 
     def _pictures_to_roles(self, all_pictures, file_path):
         """
@@ -286,10 +322,7 @@ class ArtworkExtractor:
 
         if "front" not in by_role and len(leftovers) == 1:
             fallback_type, fallback_picture = next(iter(leftovers.items()))
-            logger.debug(
-                f"No typed front cover in {file_path}; treating untyped picture "
-                f"(type {fallback_type}) as front cover"
-            )
+            logger.debug(f"No typed front cover in {file_path}; treating untyped picture (type {fallback_type}) as front cover")
             by_role["front"] = fallback_picture
             del leftovers[fallback_type]
 
@@ -483,13 +516,7 @@ class ArtworkExtractor:
             # This will raise an exception if the image is invalid
             image.load()
 
-            return {
-                "data": image_data,
-                "format": format_type,
-                "width": image.width,
-                "height": image.height,
-                "size": len(image_data),
-            }
+            return {"data": image_data, "format": format_type, "width": image.width, "height": image.height, "size": len(image_data)}
         except (OSError, Image.DecompressionBombError) as e:
             logger.warning(f"Error processing image data: {e}")
             return None

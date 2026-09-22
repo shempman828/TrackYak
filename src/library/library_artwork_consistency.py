@@ -22,8 +22,16 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy.orm import selectinload
+
+from src.db.db_tables import Album
 from src.foundation.logger_config import logger
 from src.metadata.metadata_artwork import ArtworkExtractor
+
+# Loading every album without this fires one extra SELECT per album to
+# fetch its tracks (N+1) once `album.tracks` is touched below. Matches the
+# selectin-preload pattern in src/album/album_view.py.
+_ALBUM_LOAD_OPTIONS = (selectinload(Album.tracks),)
 
 
 class ArtworkConsistencyChecker:
@@ -47,7 +55,7 @@ class ArtworkConsistencyChecker:
         self.conflicts = []
         summary = {"albums_scanned": 0, "albums_skipped_insufficient_tracks": 0, "conflicts_found": 0}
 
-        albums = self.controller.get.get_all_entities("Album")
+        albums = self.controller.get.get_all_entities("Album", load_options=_ALBUM_LOAD_OPTIONS)
         if not albums:
             logger.warning("ArtworkConsistencyChecker: no albums found in database.")
             return summary
