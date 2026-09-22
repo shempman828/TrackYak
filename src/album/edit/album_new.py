@@ -1,13 +1,4 @@
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QDialog,
-    QDialogButtonBox,
-    QFormLayout,
-    QLineEdit,
-    QMessageBox,
-    QSpinBox,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QMessageBox, QSpinBox, QVBoxLayout
 
 from src.foundation.logger_config import logger
 
@@ -23,16 +14,24 @@ class NewAlbumDialog(QDialog):
         super().__init__(parent)
         self.controller = controller
         self.setWindowTitle("New Album")
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(420)
         self._build_ui()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        form = QFormLayout()
+        layout.setSpacing(14)
+
+        heading = QLabel("New Album")
+        heading.setProperty("title", True)
+        layout.addWidget(heading)
 
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Required")
-        form.addRow("Album Name:", self.name_edit)
+        self.name_edit.setObjectName("NewAlbumNameField")
+        self.name_edit.setPlaceholderText("Album name (required)")
+        layout.addWidget(self.name_edit)
+
+        form = QFormLayout()
+        form.setSpacing(10)
 
         self.year_spin = QSpinBox()
         self.year_spin.setRange(0, 9999)
@@ -41,15 +40,18 @@ class NewAlbumDialog(QDialog):
         form.addRow("Release Year:", self.year_spin)
 
         self.artist_edit = QLineEdit()
-        self.artist_edit.setPlaceholderText("Optional - leave blank to add later")
+        self.artist_edit.setPlaceholderText("Optional — leave blank to add later")
         form.addRow("Artist:", self.artist_edit)
 
-        self.compilation_check = QCheckBox()
-        form.addRow("Compilation:", self.compilation_check)
+        self.compilation_check = QCheckBox("This is a compilation")
+        form.addRow("", self.compilation_check)
 
         layout.addLayout(form)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        ok_button = buttons.button(QDialogButtonBox.Ok)
+        ok_button.setText("Create")
+        ok_button.setObjectName("PrimaryButton")
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

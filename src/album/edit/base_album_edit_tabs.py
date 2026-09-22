@@ -3,17 +3,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from src.album.disc_tab.disc_view import DiscTabView
+from src.common.widgets.detail_card import DetailCard
 from src.track.edit.track_edit_genres import GenresTab as TrackGenresTab
 from src.track.edit.track_edit_roles import RolesTab as TrackRolesTab
 
@@ -45,44 +38,65 @@ class DetailsTab:
     def build(self) -> QWidget:
         tab = QWidget()
         outer = QHBoxLayout(tab)
-        outer.setSpacing(24)
+        outer.setSpacing(16)
         outer.setContentsMargins(12, 12, 12, 12)
+        outer.setAlignment(Qt.AlignTop)
 
         left = QVBoxLayout()
-        left.setSpacing(10)
-
-        def _row(label_text, field_name):
-            row = QHBoxLayout()
-            lbl = QLabel(label_text)
-            lbl.setFixedWidth(130)
-            row.addWidget(lbl)
-            w = self.editor.field_widgets.get(field_name)
-            if w:
-                row.addWidget(w, 1)
-            left.addLayout(row)
-
-        _row("Language:", "album_language")
-        _row("Release Type:", "release_type")
-        _row("Catalog Number:", "catalog_number")
-        _row("Release Country:", "release_country")
-        _row("Media Format:", "media_format")
-        _row("MBID:", "MBID")
-        _row("Status:", "status")
-        _row("Est. Sales:", "estimated_sales")
-        _row("Wikipedia Link:", "album_wikipedia_link")
+        left.setSpacing(16)
+        left.addWidget(
+            self._build_form_card(
+                "Identity",
+                (
+                    ("Language", "album_language"),
+                    ("Release Type", "release_type"),
+                    ("Catalog Number", "catalog_number"),
+                    ("Release Country", "release_country"),
+                    ("Media Format", "media_format"),
+                ),
+            )
+        )
         left.addStretch()
 
         right = QVBoxLayout()
-        right.setSpacing(10)
-        for field_name in ("is_live", "is_compilation", "art_is_explicit"):
-            w = self.editor.field_widgets.get(field_name)
-            if w:
-                right.addWidget(w)
+        right.setSpacing(16)
+        right.addWidget(
+            self._build_form_card(
+                "Status & Links",
+                (
+                    ("Status", "status"),
+                    ("Est. Sales", "estimated_sales"),
+                    ("MBID", "MBID"),
+                    ("Wikipedia Link", "album_wikipedia_link"),
+                ),
+            )
+        )
+        right.addWidget(self._build_flags_card())
         right.addStretch()
 
         outer.addLayout(left, 1)
         outer.addLayout(right, 1)
         return tab
+
+    def _build_form_card(self, title: str, rows: tuple[tuple[str, str], ...]) -> DetailCard:
+        card = DetailCard(title)
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        for label_text, field_name in rows:
+            w = self.editor.field_widgets.get(field_name)
+            if w:
+                form.addRow(f"{label_text}:", w)
+        card.body.addLayout(form)
+        return card
+
+    def _build_flags_card(self) -> DetailCard:
+        card = DetailCard("Flags")
+        for field_name in ("is_live", "is_compilation", "art_is_explicit"):
+            w = self.editor.field_widgets.get(field_name)
+            if w:
+                card.body.addWidget(w)
+        return card
 
 
 # -------------------------------------------------------------------------
@@ -350,96 +364,104 @@ class AdvancedTab:
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
+        layout.setSpacing(14)
 
         for field_name in ("first_pass", "second_pass"):
             field_widget = self.editor.field_widgets.get(field_name)
             if field_widget:
                 layout.addWidget(field_widget)
 
-        def _read_only_row(label_text, value_text):
-            row = QHBoxLayout()
-            lbl = QLabel(label_text)
-            lbl.setFixedWidth(160)
-            row.addWidget(lbl)
-            val = QLabel(value_text)
-            row.addWidget(val)
-            row.addStretch()
-            layout.addLayout(row)
-
         album = self.editor.album
+        track_count = len(album.tracks) if album.tracks else 0
 
         rg_label = QLabel("ReplayGain")
         rg_label.setProperty("title", True)
         layout.addWidget(rg_label)
-        album_gain = getattr(album, "album_gain", None)
-        if album_gain is not None:
-            try:
-                gain_text = f"{float(album_gain):.2f}"
-            except (TypeError, ValueError):
-                gain_text = str(album_gain)
-        else:
-            gain_text = "—"
-        _read_only_row("Album Gain (dB):", gain_text)
 
-        album_peak = getattr(album, "album_peak", None)
-        if album_peak is not None:
-            try:
-                peak_text = f"{float(album_peak):.4f}"
-            except (TypeError, ValueError):
-                peak_text = str(album_peak)
-        else:
-            peak_text = "—"
-        _read_only_row("Album Peak:", peak_text)
+        rg_row = QHBoxLayout()
+        rg_row.setSpacing(12)
+        rg_row.addWidget(self._stat_tile("Album Gain (dB)", self._format_decimal(getattr(album, "album_gain", None), 2)))
+        rg_row.addWidget(self._stat_tile("Album Peak", self._format_decimal(getattr(album, "album_peak", None), 4)))
+        rg_row.addStretch()
+        layout.addLayout(rg_row)
 
         stats_label = QLabel("Library Stats")
         stats_label.setProperty("title", True)
         layout.addWidget(stats_label)
-        track_count = len(album.tracks) if album.tracks else 0
-        _read_only_row("Track Count:", str(track_count))
 
         total_duration = getattr(album, "total_duration", None)
-        if total_duration:
-            _read_only_row("Total Duration:", _format_duration(total_duration))
-            if track_count:
-                _read_only_row(
-                    "Average Track Duration:", _format_duration(total_duration / track_count)
-                )
-
         total_plays = getattr(album, "total_plays", None)
-        _read_only_row("Total Plays:", str(total_plays) if total_plays is not None else "—")
 
-        avg_rating = getattr(album, "average_rating", None)
-        if avg_rating is not None:
-            try:
-                display_rating = f"{float(avg_rating):.2f}"
-            except (TypeError, ValueError):
-                display_rating = str(avg_rating)
-        else:
-            display_rating = "—"
-        _read_only_row("Average Rating:", display_rating)
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(12)
+        stats_row.addWidget(self._stat_tile("Tracks", str(track_count)))
+        if total_duration:
+            stats_row.addWidget(self._stat_tile("Duration", _format_duration(total_duration)))
+            if track_count:
+                stats_row.addWidget(self._stat_tile("Avg Track", _format_duration(total_duration / track_count)))
+        stats_row.addWidget(self._stat_tile("Plays", str(total_plays) if total_plays is not None else "—"))
+        stats_row.addWidget(self._stat_tile("Rating", self._format_decimal(getattr(album, "average_rating", None), 2)))
+        stats_row.addStretch()
+        layout.addLayout(stats_row)
 
         if album.tracks:
             rated_tracks = len([t for t in album.tracks if t.user_rating])
             played_tracks = len([t for t in album.tracks if t.play_count and t.play_count > 0])
-            _read_only_row("Rated Tracks:", f"{rated_tracks}/{track_count}")
-            _read_only_row("Played Tracks:", f"{played_tracks}/{track_count}")
+            tracked_row = QHBoxLayout()
+            tracked_row.setSpacing(12)
+            tracked_row.addWidget(self._stat_tile("Rated Tracks", f"{rated_tracks}/{track_count}"))
+            tracked_row.addWidget(self._stat_tile("Played Tracks", f"{played_tracks}/{track_count}"))
+            tracked_row.addStretch()
+            layout.addLayout(tracked_row)
+
+        badges_row = QHBoxLayout()
+        badges_row.setSpacing(10)
 
         possibly_incomplete = getattr(album, "possibly_incomplete", None)
-        inc_text = (
-            "—" if possibly_incomplete is None else ("Yes ⚠️" if possibly_incomplete else "No")
-        )
-        _read_only_row("Possibly Incomplete:", inc_text)
+        if possibly_incomplete is not None:
+            badges_row.addWidget(self._badge("Possibly Incomplete" if possibly_incomplete else "Complete", "warn" if possibly_incomplete else "good"))
 
         has_all_track_numbers = getattr(album, "has_all_track_numbers", None)
-        tn_text = (
-            "—" if has_all_track_numbers is None else ("Yes ✓" if has_all_track_numbers else "No ✗")
-        )
-        _read_only_row("Has All Track #s:", tn_text)
+        if has_all_track_numbers is not None:
+            badges_row.addWidget(self._badge("Has All Track #s" if has_all_track_numbers else "Missing Track #s", "good" if has_all_track_numbers else "warn"))
 
         cert = getattr(album, "RIAA_certification", None)
         if cert:
-            _read_only_row("RIAA Certification:", cert)
+            badges_row.addWidget(self._badge(cert, "neutral"))
+
+        badges_row.addStretch()
+        layout.addLayout(badges_row)
 
         layout.addStretch()
         return tab
+
+    @staticmethod
+    def _stat_tile(label_text: str, value_text: str) -> QFrame:
+        tile = QFrame()
+        tile.setObjectName("StatTile")
+        tile.setMinimumWidth(110)
+        tile_layout = QVBoxLayout(tile)
+        tile_layout.setContentsMargins(12, 10, 12, 10)
+        tile_layout.setSpacing(4)
+        value_lbl = QLabel(value_text)
+        value_lbl.setObjectName("StatTileValue")
+        caption_lbl = QLabel(label_text.upper())
+        caption_lbl.setObjectName("StatTileLabel")
+        tile_layout.addWidget(value_lbl)
+        tile_layout.addWidget(caption_lbl)
+        return tile
+
+    @staticmethod
+    def _badge(text: str, state: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setProperty("badgeState", state)
+        return lbl
+
+    @staticmethod
+    def _format_decimal(value, places: int) -> str:
+        if value is None:
+            return "—"
+        try:
+            return f"{float(value):.{places}f}"
+        except (TypeError, ValueError):
+            return str(value)

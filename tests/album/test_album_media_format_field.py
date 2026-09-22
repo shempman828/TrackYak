@@ -10,7 +10,7 @@ Covers:
   - The completer suggestion list carries MusicBrainz's common carriers.
 """
 
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit
+from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit
 
 from src.album.edit.base_album_edit import MEDIA_FORMAT_SUGGESTIONS
 from src.album.edit.base_album_edit_tabs import DetailsTab
@@ -23,13 +23,13 @@ class _StubEditor:
 
 
 def _row_labels_in_order(tab):
-    """The left-column row labels of a built DetailsTab, top to bottom."""
+    """The row labels of a built DetailsTab's field-group forms, top to bottom."""
     labels = []
-    for child in tab.findChildren(QHBoxLayout):
-        for i in range(child.count()):
-            w = child.itemAt(i).widget()
-            if isinstance(w, QLabel):
-                labels.append(w.text())
+    for form in tab.findChildren(QFormLayout):
+        for i in range(form.rowCount()):
+            item = form.itemAt(i, QFormLayout.LabelRole)
+            if item and isinstance(item.widget(), QLabel):
+                labels.append(item.widget().text())
     return labels
 
 

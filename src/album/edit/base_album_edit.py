@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QCompleter,
     QDialog,
     QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -334,10 +335,16 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             artist_label.setToolTip(all_names)
             layout.addWidget(artist_label)
 
-        # Release date — labelled spinboxes stacked as a form group
-        date_group = QHBoxLayout()
+        # Release date — labelled spinboxes stacked as a form group, framed
+        # as a single chip so the three parts read as one control.
+        date_frame = QFrame()
+        date_frame.setObjectName("DateChipGroup")
+        date_group = QHBoxLayout(date_frame)
+        date_group.setContentsMargins(10, 6, 10, 6)
         date_group.setSpacing(12)
-        date_group.addWidget(QLabel("Released:"))
+        released_lbl = QLabel("Released:")
+        released_lbl.setProperty("textRole", "muted")
+        date_group.addWidget(released_lbl)
         for field, label_text in (("release_year", "Year"), ("release_month", "Month"), ("release_day", "Day")):
             w = self.field_widgets.get(field)
             if w:
@@ -350,11 +357,14 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
                 col.addWidget(w)
                 date_group.addLayout(col)
         date_group.addStretch()
-        layout.addLayout(date_group)
+        date_row = QHBoxLayout()
+        date_row.addWidget(date_frame)
+        date_row.addStretch()
+        layout.addLayout(date_row)
 
         # Description
-        desc_label = QLabel("Description:")
-        desc_label.setStyleSheet("font-weight: bold;")
+        desc_label = QLabel("Description")
+        desc_label.setProperty("title", True)
         layout.addWidget(desc_label)
 
         self.desc_widget = self.field_widgets.get("album_description")
@@ -373,6 +383,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         self._links_row.setSpacing(8)
 
         self.lookup_button = QPushButton("🎵 Look Up on MusicBrainz")
+        self.lookup_button.setObjectName("PrimaryButton")
         self.lookup_button.setToolTip(
             "Search MusicBrainz release groups by album title/artist and fill "
             "in blank fields (MBID, release type, live/compilation, release "
@@ -451,13 +462,16 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
         aliases = getattr(self.album, "album_aliases", []) or []
         if not aliases:
-            self.aliases_layout.addWidget(QLabel("No aliases yet."))
+            empty_lbl = QLabel("No aliases yet.")
+            empty_lbl.setProperty("textRole", "placeholder")
+            self.aliases_layout.addWidget(empty_lbl)
             return
 
         for alias in aliases:
-            row_widget = QWidget()
+            row_widget = QFrame()
+            row_widget.setObjectName("AliasRow")
             row = QHBoxLayout(row_widget)
-            row.setContentsMargins(0, 0, 0, 0)
+            row.setContentsMargins(12, 8, 10, 8)
             name_lbl = QLabel(f"<b>{alias.alias_name}</b>")
             type_lbl = QLabel(alias.alias_type or "—")
             type_lbl.setProperty("textRole", "muted")

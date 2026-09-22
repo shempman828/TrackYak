@@ -1,10 +1,34 @@
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QFontMetrics, QPainter, QPixmap
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QGridLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
+from src.common.widgets.style_utils import set_style_property
 from src.foundation.censor import censor_text
 from src.foundation.logger_config import logger
 from src.image.artwork_cache import get_artwork_cache
+
+ART_CORNER_RADIUS = 10
+
+
+def rounded_pixmap(pixmap: QPixmap, radius: int = ART_CORNER_RADIUS) -> QPixmap:
+    """Return a copy of pixmap with its corners clipped to a rounded rect."""
+    if pixmap.isNull():
+        return pixmap
+    ratio = pixmap.devicePixelRatio()
+    w, h = pixmap.width() / ratio, pixmap.height() / ratio
+
+    rounded = QPixmap(pixmap.size())
+    rounded.setDevicePixelRatio(ratio)
+    rounded.fill(Qt.transparent)
+
+    painter = QPainter(rounded)
+    painter.setRenderHint(QPainter.Antialiasing)
+    path = QPainterPath()
+    path.addRoundedRect(0, 0, w, h, radius, radius)
+    painter.setClipPath(path)
+    painter.drawPixmap(0, 0, pixmap)
+    painter.end()
+    return rounded
 
 
 class AlbumWidget(QWidget):
@@ -15,6 +39,10 @@ class AlbumWidget(QWidget):
 
     def __init__(self, album, size=200, parent=None):
         super().__init__(parent)
+        # Plain QWidget subclasses don't paint a QSS background/border unless
+        # this is set -- needed for the [selected="true"]/[hovered="true"]
+        # rules in dark_mode.qss to actually render.
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.album = album
         self.art_size = size
         self.click_timer = QTimer(self)
@@ -65,7 +93,7 @@ class AlbumWidget(QWidget):
         scaled_pixmap = pixmap.scaled(
             self.art_size, self.art_size, Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
-        self.art_label.setPixmap(scaled_pixmap)
+        self.art_label.setPixmap(rounded_pixmap(scaled_pixmap))
 
         # 2. Set Text
         album_name = censor_text(str(getattr(self.album, "album_name", None) or "Unknown Album"))
@@ -104,19 +132,30 @@ class AlbumWidget(QWidget):
         return self._create_placeholder()
 
     def _create_placeholder(self):
+        """Paint a rounded gradient tile with a music-note glyph -- the same
+        "no art" language as the Now Playing art card (see
+        src/nowplaying/nowplaying_art.py::_paint_placeholder_in_rect)."""
         canvas_size = 256
         pixmap = QPixmap(canvas_size, canvas_size)
-        pixmap.fill(self.palette().color(self.backgroundRole()))
+        pixmap.fill(Qt.transparent)
 
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(self.palette().color(self.foregroundRole()))
-        painter.setFont(QFont())
 
-        rect = QFontMetrics(painter.font()).boundingRect("No Art")
-        painter.drawText(
-            (canvas_size - rect.width()) // 2, (canvas_size + rect.height()) // 2, "No Art"
-        )
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, canvas_size, canvas_size, ART_CORNER_RADIUS, ART_CORNER_RADIUS)
+        painter.setClipPath(path)
+
+        gradient = QLinearGradient(0, 0, canvas_size, canvas_size)
+        gradient.setColorAt(0.0, QColor("#1a1b26"))
+        gradient.setColorAt(1.0, QColor("#0e0f15"))
+        painter.fillPath(path, gradient)
+
+        painter.setClipping(False)
+        note_font = QFont(self.font().family(), canvas_size // 5, QFont.Bold)
+        painter.setFont(note_font)
+        painter.setPen(QColor("#333a52"))
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, "♪")
         painter.end()
         return pixmap
 
@@ -144,6 +183,14 @@ class AlbumWidget(QWidget):
         if event.button() == Qt.LeftButton:
             self.doubleClicked.emit(self.album)
         super().mouseDoubleClickEvent(event)
+
+    def enterEvent(self, event):
+        set_style_property(self, "hovered", True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        set_style_property(self, "hovered", False)
+        super().leaveEvent(event)
 
 
 class AlbumFlowWidget(QWidget):

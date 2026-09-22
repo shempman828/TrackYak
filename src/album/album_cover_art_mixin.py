@@ -5,6 +5,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from src.album.album_art_worker import CoverEmbedWorker
+from src.album.edit.base_album_widget import rounded_pixmap
 from src.foundation.logger_config import logger
 from src.image.artwork_cache import all_album_tracks, get_artwork_cache
 
@@ -29,9 +30,8 @@ class AlbumCoverArtMixin:
         px = cache.get_pixmap(self.album, "front", is_explicit) if cache else None
         if px and not px.isNull():
             size = getattr(self, "_cover_size", 150)
-            self.cover_label.setPixmap(
-                px.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            )
+            scaled = px.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.cover_label.setPixmap(rounded_pixmap(scaled))
             return
         self.cover_label.setText("No Cover\nImage")
 
@@ -46,7 +46,8 @@ class AlbumCoverArtMixin:
                 continue
             px = cache.get_pixmap(self.album, cover_type, is_explicit) if cache else None
             if px and not px.isNull():
-                display.setPixmap(px.scaled(250, 250, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                scaled = px.scaled(250, 250, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                display.setPixmap(rounded_pixmap(scaled))
                 if path_label:
                     dims = cache.get_dimensions(self.album, cover_type) if cache else None
                     info_parts = ["Embedded in track file(s)"]
@@ -67,7 +68,8 @@ class AlbumCoverArtMixin:
             px.load(str(source))
 
         if not px.isNull():
-            label.setPixmap(px.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            scaled = px.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            label.setPixmap(rounded_pixmap(scaled))
         else:
             label.setText("Invalid Image")
 

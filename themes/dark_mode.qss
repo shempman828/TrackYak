@@ -1545,6 +1545,7 @@ QLabel#albumByline {
 /* ── SPECIAL: Album cover placeholder (no art set) ───────────────────────────── */
 QLabel[coverPlaceholder="true"] {
     border: 1px solid #2a2c3e;
+    border-radius: 10px;
     background: #1a1b26;
     color: #555e7a;
 }
@@ -1645,6 +1646,12 @@ AlbumWidget[selected="true"] {
     border: 2px solid #8599ea;
     background-color: rgba(133, 153, 234, 0.15);
     border-radius: 4px;
+}
+
+AlbumWidget[hovered="true"] {
+    background-color: rgba(133, 153, 234, 0.08);
+    border: 1px solid rgba(133, 153, 234, 0.3);
+    border-radius: 6px;
 }
 
 /* ── SPECIAL: StatusBarWidget floating overlay ────────────────────────────────── */
@@ -1871,12 +1878,85 @@ RoleDetailTab QPushButton#RoleSubroleLink:hover {
 }
 
 #AlbumTitleField {
-    font-size: 18px;
+    font-size: 24px;
     font-weight: bold;
 }
 
 #AlbumDescriptionEdit {
     padding: 2px 4px;
+}
+
+/* ── SPECIAL: Album edit — release-date chip group ───────────────────────────── */
+QFrame#DateChipGroup {
+    background: rgba(17, 18, 26, 0.5);
+    border: 1px solid #1e1f2b;
+    border-radius: 8px;
+}
+
+/* ── SPECIAL: Album edit — Advanced tab stat tiles ───────────────────────────── */
+QFrame#StatTile {
+    background: rgba(17, 18, 26, 0.6);
+    border: 1px solid #1e1f2b;
+    border-radius: 8px;
+}
+
+QLabel#StatTileValue {
+    font-size: 18px;
+    font-weight: bold;
+    color: #b8c0f0;
+}
+
+QLabel#StatTileLabel {
+    font-size: 9px;
+    font-weight: bold;
+    letter-spacing: 0.08em;
+    color: #555e7a;
+}
+
+/* ── GENERIC: small status/flag badge pill (good/warn/neutral) ──────────────── */
+QLabel[badgeState="good"] {
+    background: rgba(153, 234, 133, 0.14);
+    color: #99EA85;
+    border-radius: 9px;
+    padding: 1px 8px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+QLabel[badgeState="warn"] {
+    background: rgba(234, 133, 153, 0.14);
+    color: #EA8599;
+    border-radius: 9px;
+    padding: 1px 8px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+QLabel[badgeState="neutral"] {
+    background: rgba(133, 153, 234, 0.10);
+    color: #7a82a8;
+    border-radius: 9px;
+    padding: 1px 8px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+/* ── SPECIAL: Album edit — Aliases tab row card ──────────────────────────────── */
+QFrame#AliasRow {
+    background: rgba(17, 18, 26, 0.5);
+    border: 1px solid #1e1f2b;
+    border-radius: 8px;
+}
+
+QFrame#AliasRow:hover {
+    background: rgba(133, 153, 234, 0.08);
+    border-color: rgba(133, 153, 234, 0.3);
+}
+
+/* ── SPECIAL: New Album dialog — name field prominence ───────────────────────── */
+#NewAlbumNameField {
+    font-size: 18px;
+    font-weight: bold;
 }
 
 #ArtistPicLabel {

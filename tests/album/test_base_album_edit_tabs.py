@@ -12,7 +12,7 @@ Motivating bugs:
 
 from types import SimpleNamespace
 
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit
+from PySide6.QtWidgets import QLabel, QLineEdit
 
 from src.album.edit.base_album_edit_tabs import AdvancedTab, ArtworkTab
 
@@ -37,14 +37,15 @@ class _StubEditor:
         self.set_enabled_calls.append(enabled)
 
 
-def _row_labels_in_order(tab):
-    labels = []
-    for child in tab.findChildren(QHBoxLayout):
-        for i in range(child.count()):
-            w = child.itemAt(i).widget()
-            if isinstance(w, QLabel):
-                labels.append(w.text())
-    return labels
+def _stat_tiles(tab):
+    """Map each stat tile's caption (e.g. "ALBUM GAIN (DB)") to its value text."""
+    tiles = {}
+    for value_lbl in tab.findChildren(QLabel, "StatTileValue"):
+        tile = value_lbl.parentWidget()
+        caption_lbl = tile.findChild(QLabel, "StatTileLabel") if tile else None
+        if caption_lbl is not None:
+            tiles[caption_lbl.text()] = value_lbl.text()
+    return tiles
 
 
 def test_artwork_tab_keeps_controls_disabled_when_embed_worker_running(qapp):
@@ -76,18 +77,10 @@ def test_advanced_tab_renders_dash_for_corrupt_gain_and_peak(qapp):
 
     tab = AdvancedTab(editor).build()
 
-    labels = _row_labels_in_order(tab)
-    gain_idx = labels.index("Album Gain (dB):")
-    peak_idx = labels.index("Album Peak:")
-    values = []
-    for child in tab.findChildren(QHBoxLayout):
-        for i in range(child.count()):
-            w = child.itemAt(i).widget()
-            if isinstance(w, QLabel):
-                values.append(w.text())
+    tiles = _stat_tiles(tab)
     # Non-numeric gain/peak fall back to their str() rather than crashing.
-    assert values[gain_idx + 1] == "not-a-number"
-    assert peak_idx is not None
+    assert tiles["ALBUM GAIN (DB)"] == "not-a-number"
+    assert "ALBUM PEAK" in tiles
 
 
 def test_advanced_tab_formats_numeric_gain_and_peak(qapp):
