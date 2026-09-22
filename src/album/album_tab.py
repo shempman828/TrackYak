@@ -2,18 +2,7 @@
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import (
-    QFrame,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QScrollArea,
-    QSizePolicy,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFrame, QGroupBox, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from src.album.album_flowlayout import FlowLayout
 from src.common.widgets.entity_completer_context import artist_context_map
@@ -79,19 +68,6 @@ class AlbumTabBuilder:
         self.controller = album_view.controller
         self.helper = album_view.helper
 
-    def _confirm_remove(self, what: str) -> bool:
-        """Ask for confirmation before a one-click Remove action."""
-        return (
-            QMessageBox.question(
-                self.view,
-                "Confirm Remove",
-                f"Remove {what}?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            == QMessageBox.Yes
-        )
-
     # =========================================================================
     # Public tab builders
     # =========================================================================
@@ -149,26 +125,15 @@ class AlbumTabBuilder:
         row_layout.setContentsMargins(0, 0, 0, 8)
         row_layout.setSpacing(6)
 
-        artist_search = build_entity_search_widget(
-            self.controller,
-            "Artist",
-            "artist_name",
-            "artist_id",
-            "Search artists…",
-            context_builder=artist_context_map,
-        )
+        artist_search = build_entity_search_widget(self.controller, "Artist", "artist_name", "artist_id", "Search artists…", context_builder=artist_context_map)
 
-        role_search = build_entity_search_widget(
-            self.controller, "Role", "role_name", "role_id", "Role (e.g. Performer, Composer…)"
-        )
+        role_search = build_entity_search_widget(self.controller, "Role", "role_name", "role_id", "Role (e.g. Performer, Composer…)")
 
         add_btn = QPushButton("Add Artist Credit")
         add_btn.setEnabled(False)
 
         def _update_add_btn(*_args):
-            add_btn.setEnabled(
-                len(artist_search.text().strip()) >= 2 and len(role_search.text().strip()) >= 2
-            )
+            add_btn.setEnabled(len(artist_search.text().strip()) >= 2 and len(role_search.text().strip()) >= 2)
 
         artist_search.textChanged.connect(_update_add_btn)
         role_search.textChanged.connect(_update_add_btn)
@@ -208,18 +173,14 @@ class AlbumTabBuilder:
         layout = QVBoxLayout(group)
 
         try:
-            album_publishers = self.controller.get.get_all_entities(
-                "AlbumPublisher", album_id=self.album.album_id
-            )
+            album_publishers = self.controller.get.get_all_entities("AlbumPublisher", album_id=self.album.album_id)
         except (AttributeError, TypeError) as e:
             logger.error(f"Error loading album publishers: {e}")
             album_publishers = []
 
         if album_publishers:
             for album_publisher in album_publishers:
-                publisher = self.controller.get.get_entity_object(
-                    "Publisher", publisher_id=album_publisher.publisher_id
-                )
+                publisher = self.controller.get.get_entity_object("Publisher", publisher_id=album_publisher.publisher_id)
                 if publisher:
                     widget = QWidget()
                     widget_layout = QHBoxLayout(widget)
@@ -232,12 +193,7 @@ class AlbumTabBuilder:
                     widget_layout.addWidget(name_label)
 
                     remove_btn = QPushButton("Remove")
-                    remove_btn.clicked.connect(
-                        lambda checked, ap=album_publisher, p=publisher: (
-                            self._confirm_remove(p.publisher_name)
-                            and self.helper.remove_publisher(ap)
-                        )
-                    )
+                    remove_btn.clicked.connect(lambda checked, ap=album_publisher: self.helper.remove_publisher(ap))
                     widget_layout.addWidget(remove_btn)
                     layout.addWidget(widget)
         else:
@@ -264,19 +220,13 @@ class AlbumTabBuilder:
 
         if place_associations:
             for association in place_associations:
-                place = self.controller.get.get_entity_object(
-                    "Place", place_id=association.place_id
-                )
+                place = self.controller.get.get_entity_object("Place", place_id=association.place_id)
                 if place:
                     widget = QWidget()
                     widget_layout = QHBoxLayout(widget)
                     widget_layout.setContentsMargins(0, 0, 0, 0)
 
-                    assoc_type_name = (
-                        association.association_type.type_name
-                        if association.association_type
-                        else ""
-                    )
+                    assoc_type_name = association.association_type.type_name if association.association_type else ""
                     mb_badge = " \U0001f517" if place.MBID else ""
                     place_text = f"{place.place_name} ({assoc_type_name}){mb_badge}"
                     place_label = QLabel(place_text)
@@ -285,11 +235,7 @@ class AlbumTabBuilder:
                     widget_layout.addWidget(place_label)
 
                     remove_btn = QPushButton("Remove")
-                    remove_btn.clicked.connect(
-                        lambda checked, a=association, p=place: (
-                            self._confirm_remove(p.place_name) and self.helper.remove_place(a)
-                        )
-                    )
+                    remove_btn.clicked.connect(lambda checked, a=association: self.helper.remove_place(a))
                     widget_layout.addWidget(remove_btn)
                     layout.addWidget(widget)
         else:
@@ -325,10 +271,7 @@ class AlbumTabBuilder:
             layout.addWidget(QLabel("This album has no tracks yet."))
             return group
 
-        info = QLabel(
-            "Places common to every track on this album. Adding or removing "
-            "a place here applies it to all of the album's tracks."
-        )
+        info = QLabel("Places common to every track on this album. Adding or removing a place here applies it to all of the album's tracks.")
         info.setWordWrap(True)
         layout.addWidget(info)
 
@@ -340,12 +283,7 @@ class AlbumTabBuilder:
     def _build_awards_list(self):
         """Build the awards list content"""
         try:
-            award_associations = (
-                self.controller.get.get_all_entities(
-                    "AwardAssociation", entity_id=self.album.album_id, entity_type="Album"
-                )
-                or []
-            )
+            award_associations = self.controller.get.get_all_entities("AwardAssociation", entity_id=self.album.album_id, entity_type="Album") or []
             album_awards = [assoc.award for assoc in award_associations if assoc.award is not None]
         except (AttributeError, TypeError) as e:
             logger.error(f"Error loading album awards: {e}")
@@ -398,12 +336,7 @@ class AlbumTabBuilder:
                 layout.addWidget(desc_label)
 
             remove_btn = QPushButton("Remove Award")
-            remove_btn.clicked.connect(
-                lambda checked, a=award: (
-                    self._confirm_remove(award_name)
-                    and self.helper.remove_album_award_association(a)
-                )
-            )
+            remove_btn.clicked.connect(lambda checked, a=award: self.helper.remove_album_award_association(a))
             layout.addWidget(remove_btn)
 
         except (AttributeError, TypeError) as e:
@@ -502,9 +435,7 @@ class AlbumTabBuilder:
         up_btn.setEnabled(index > 0)
         up_btn.setToolTip(f"Move {artist_name} up")
         up_btn.setAccessibleName(f"Move {artist_name} up")
-        up_btn.clicked.connect(
-            lambda checked, ra=role_assoc: self.helper.move_artist_credit(ra, -1)
-        )
+        up_btn.clicked.connect(lambda checked, ra=role_assoc: self.helper.move_artist_credit(ra, -1))
         chip_layout.addWidget(up_btn)
 
         down_btn = QPushButton("▼")
@@ -513,9 +444,7 @@ class AlbumTabBuilder:
         down_btn.setEnabled(index < last_index)
         down_btn.setToolTip(f"Move {artist_name} down")
         down_btn.setAccessibleName(f"Move {artist_name} down")
-        down_btn.clicked.connect(
-            lambda checked, ra=role_assoc: self.helper.move_artist_credit(ra, 1)
-        )
+        down_btn.clicked.connect(lambda checked, ra=role_assoc: self.helper.move_artist_credit(ra, 1))
         chip_layout.addWidget(down_btn)
 
         name_label = QLabel(artist_name)
@@ -525,35 +454,21 @@ class AlbumTabBuilder:
         credit_btn = QPushButton("Credit as…")
         credit_btn.setFixedHeight(22)
         apply_scaled_style(credit_btn, "font-size: 10px; padding: 1px 6px;")
-        credit_btn.setToolTip(
-            f"Choose which name (canonical or alias) to credit "
-            f"{role_assoc.artist.artist_name if role_assoc.artist else artist_name} as here"
-        )
-        credit_btn.clicked.connect(
-            lambda checked, ra=role_assoc: self.helper.change_credited_alias(ra)
-        )
+        credit_btn.setToolTip(f"Choose which name (canonical or alias) to credit {role_assoc.artist.artist_name if role_assoc.artist else artist_name} as here")
+        credit_btn.clicked.connect(lambda checked, ra=role_assoc: self.helper.change_credited_alias(ra))
         chip_layout.addWidget(credit_btn)
 
         to_track_btn = QPushButton("→ Track")
         to_track_btn.setFixedHeight(22)
         apply_scaled_style(to_track_btn, "font-size: 10px; padding: 1px 6px;")
-        to_track_btn.setToolTip(
-            "Move this credit to every track on the album (removes it "
-            "from the album-level credit list)"
-        )
-        to_track_btn.clicked.connect(
-            lambda checked, ra=role_assoc: self.helper.convert_credit_to_per_track(ra)
-        )
+        to_track_btn.setToolTip("Move this credit to every track on the album (removes it from the album-level credit list)")
+        to_track_btn.clicked.connect(lambda checked, ra=role_assoc: self.helper.convert_credit_to_per_track(ra))
         chip_layout.addWidget(to_track_btn)
 
         remove_btn = QPushButton("Remove")
         remove_btn.setFixedHeight(22)  # ← compact button
         apply_scaled_style(remove_btn, "font-size: 10px; padding: 1px 6px;")
-        remove_btn.clicked.connect(
-            lambda checked, ra=role_assoc: (
-                self._confirm_remove(artist_name) and self.helper.remove_artist_credit(ra)
-            )
-        )
+        remove_btn.clicked.connect(lambda checked, ra=role_assoc: self.helper.remove_artist_credit(ra))
         chip_layout.addWidget(remove_btn)
 
         return chip
