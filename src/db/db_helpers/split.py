@@ -157,7 +157,6 @@ class SplitDB(BaseDBHelper):
                     new_pub = Publisher(
                         publisher_name=name,
                         description=original_publisher.description,
-                        logo_path=original_publisher.logo_path,
                         parent_id=original_publisher.parent_id,
                         begin_year=original_publisher.begin_year,
                         end_year=original_publisher.end_year,

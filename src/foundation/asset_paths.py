@@ -8,10 +8,7 @@ from PySide6.QtGui import QIcon
 # --- Base Directories --------------------------------------------------------
 
 # Handle both development and frozen (PyInstaller / fbs) modes
-if getattr(sys, "frozen", False):
-    BASE_DIR = Path(sys._MEIPASS)  # temporary folder when frozen
-else:
-    BASE_DIR = Path(__file__).resolve().parents[2]
+BASE_DIR = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
 
 # --- Core Directories --------------------------------------------------------
 
@@ -28,7 +25,6 @@ CACHE_DIR = BASE_DIR / "cache"
 # --- Subdirectories ----------------------------------------------------------
 
 ARTIST_IMAGES_DIR = IMAGES_DIR / "artist_images"
-PUBLISHER_LOGOS_DIR = IMAGES_DIR / "publisher_logos"
 IMAGECACHE_DIR = CACHE_DIR / "imagecache"
 # Downsampled per-track amplitude envelopes for the Player Dock's waveform
 # seek bar. One tiny .npy per track identity; fully regenerable from the
@@ -108,10 +104,7 @@ def _migrate_legacy_cache_locations():
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    legacy_moves = [
-        (CONFIG_DIR / "analysis_cache.json", CACHE_DIR / "analysis_cache.json"),
-        (IMAGES_DIR / "imagecache", IMAGECACHE_DIR),
-    ]
+    legacy_moves = [(CONFIG_DIR / "analysis_cache.json", CACHE_DIR / "analysis_cache.json"), (IMAGES_DIR / "imagecache", IMAGECACHE_DIR)]
     for old_path, new_path in legacy_moves:
         if not old_path.exists() or new_path.exists():
             continue
@@ -128,19 +121,7 @@ def ensure_directories_exist():
 
     _migrate_legacy_cache_locations()
 
-    for path in [
-        ASSETS_DIR,
-        IMAGES_DIR,
-        LOGS_DIR,
-        PLAYLISTS_DIR,
-        ARTIST_IMAGES_DIR,
-        PUBLISHER_LOGOS_DIR,
-        IMAGECACHE_DIR,
-        WAVEFORMCACHE_DIR,
-        THEMES_DIR,
-        CHARTS_DIR,
-        CACHE_DIR,
-    ]:
+    for path in [ASSETS_DIR, IMAGES_DIR, LOGS_DIR, PLAYLISTS_DIR, ARTIST_IMAGES_DIR, IMAGECACHE_DIR, WAVEFORMCACHE_DIR, THEMES_DIR, CHARTS_DIR, CACHE_DIR]:
         if not path.exists():
             logger.info(f"Creating missing directory: {path}")
         path.mkdir(parents=True, exist_ok=True)

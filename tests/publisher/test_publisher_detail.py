@@ -43,7 +43,7 @@ class _StubController:
 
 
 def _make_publisher():
-    return SimpleNamespace(publisher_id=1, publisher_name="Test Publisher", second_pass=False, first_pass=False, is_active=1, begin_year=None, end_year=None, description="", logo_path=None)
+    return SimpleNamespace(publisher_id=1, publisher_name="Test Publisher", second_pass=False, first_pass=False, is_active=1, begin_year=None, end_year=None, description="")
 
 
 def test_editing_album_refreshes_publisher_album_count(monkeypatch, qapp):

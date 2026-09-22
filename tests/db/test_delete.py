@@ -1,27 +1,22 @@
 """Regression tests for DeleteDB.delete_entity (src/db/db_helpers/delete.py).
 
-Deleting an Artist or Publisher row must also unlink its managed picture
-file under images/artist_images/ or images/publisher_logos/ -- nothing else
-in the app ever removes those files.
+Deleting an Artist row must also unlink its managed picture file under
+images/artist_images/ -- nothing else in the app ever removes those files.
 """
 
 import pytest
 
 from src.db.db_helpers.delete import DeleteDB
 from src.db.db_tables.artist import Artist
-from src.db.db_tables.publisher import Publisher
 from src.foundation import asset_paths
 
 
 @pytest.fixture
 def managed_dirs(tmp_path, monkeypatch):
     artist_dir = tmp_path / "artist_images"
-    publisher_dir = tmp_path / "publisher_logos"
     artist_dir.mkdir()
-    publisher_dir.mkdir()
     monkeypatch.setattr(asset_paths, "ARTIST_IMAGES_DIR", artist_dir)
-    monkeypatch.setattr(asset_paths, "PUBLISHER_LOGOS_DIR", publisher_dir)
-    return artist_dir, publisher_dir
+    return artist_dir
 
 
 def _artist_with_pic(session, artist_dir, name):
@@ -39,8 +34,7 @@ def _artist_with_pic(session, artist_dir, name):
 
 
 def test_single_delete_unlinks_profile_picture(session, managed_dirs):
-    artist_dir, _ = managed_dirs
-    artist, pic = _artist_with_pic(session, artist_dir, "Miles Davis")
+    artist, pic = _artist_with_pic(session, managed_dirs, "Miles Davis")
 
     assert DeleteDB(session).delete_entity("Artist", entity_id=artist.artist_id) is True
 
@@ -49,26 +43,13 @@ def test_single_delete_unlinks_profile_picture(session, managed_dirs):
 
 
 def test_batch_delete_unlinks_every_picture(session, managed_dirs):
-    artist_dir, _ = managed_dirs
-    a1, p1 = _artist_with_pic(session, artist_dir, "One")
-    a2, p2 = _artist_with_pic(session, artist_dir, "Two")
+    a1, p1 = _artist_with_pic(session, managed_dirs, "One")
+    a2, p2 = _artist_with_pic(session, managed_dirs, "Two")
 
     ok = DeleteDB(session).delete_entity("Artist", entity_ids=[a1.artist_id, a2.artist_id])
 
     assert ok is True
     assert not p1.exists() and not p2.exists()
-
-
-def test_delete_publisher_unlinks_logo(session, managed_dirs):
-    _, publisher_dir = managed_dirs
-    logo = publisher_dir / "7_Label.png"
-    logo.write_bytes(b"x")
-    pub = Publisher(publisher_name="Label", logo_path=str(logo))
-    session.add(pub)
-    session.commit()
-
-    assert DeleteDB(session).delete_entity("Publisher", entity_id=pub.publisher_id) is True
-    assert not logo.exists()
 
 
 def test_delete_leaves_files_outside_managed_dirs_alone(session, tmp_path, managed_dirs):

@@ -1,14 +1,12 @@
 """
-One-time cleanup for files left behind in images/artist_images/ and
-images/publisher_logos/ after the entity that owned them was deleted, or
-after its picture was cleared / re-picked with a different extension in an
-editor. Nothing removed these before DeleteDB / MergeDB grew their
-delete- and merge-time hooks.
+One-time cleanup for files left behind in images/artist_images/ after the
+entity that owned them was deleted, or after its picture was cleared /
+re-picked with a different extension in an editor. Nothing removed these
+before DeleteDB / MergeDB grew their delete- and merge-time hooks.
 
-Deletes every file in those two directories whose filename is referenced by
-no Artist.profile_pic_path / Publisher.logo_path row. Files a row points at
-that are missing on disk are reported, never touched. The database is only
-read.
+Deletes every file in that directory whose filename is referenced by no
+Artist.profile_pic_path row. Files a row points at that are missing on disk
+are reported, never touched. The database is only read.
 
 Guard: if a model has zero referenced images but its directory holds files,
 that directory is skipped (a partial DB read must not wipe the folder).

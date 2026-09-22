@@ -1,12 +1,9 @@
 """Lifecycle management for files under the managed images directories.
 
-Artist profile pictures (images/artist_images/) and publisher logos
-(images/publisher_logos/) are copied in with deterministic
-``{entity_id}_{sanitized_name}{suffix}`` names by
-:mod:`src.artist.artist_image_manager` /
-:mod:`src.publisher.publisher_image_manager`. Nothing else in the app ever
-removed them, so deleting or merging the owning entity left the file behind
-forever.
+Artist profile pictures (images/artist_images/) are copied in with
+deterministic ``{entity_id}_{sanitized_name}{suffix}`` names by
+:mod:`src.artist.artist_image_manager`. Nothing else in the app ever removed
+them, so deleting or merging the owning entity left the file behind forever.
 
 This module is the single place that unlinks or renames those files. It is
 called from :meth:`DeleteDB.delete_entity` (row + file removed together) and
@@ -26,10 +23,7 @@ from src.foundation.logger_config import logger
 _INVALID_CHARS = re.compile(r'[<>:"/\\|?*]')
 
 # model name -> (image-path column on the model, managed-dir attr on asset_paths)
-IMAGE_PATH_COLUMNS: dict[str, tuple[str, str]] = {
-    "Artist": ("profile_pic_path", "ARTIST_IMAGES_DIR"),
-    "Publisher": ("logo_path", "PUBLISHER_LOGOS_DIR"),
-}
+IMAGE_PATH_COLUMNS: dict[str, tuple[str, str]] = {"Artist": ("profile_pic_path", "ARTIST_IMAGES_DIR")}
 
 
 def _managed_dirs() -> list[Path]:
@@ -166,17 +160,11 @@ def prune_orphaned_images(session, *, dry_run: bool = False) -> dict[str, list[s
 
         model = models[model_name]
         column = getattr(model, col)
-        referenced = {
-            Path(value).name
-            for (value,) in session.query(column).filter(column.isnot(None), column != "")
-        }
+        referenced = {Path(value).name for (value,) in session.query(column).filter(column.isnot(None), column != "")}
 
         files = [p for p in directory.iterdir() if p.is_file()]
         if not referenced and files:
-            logger.warning(
-                f"prune_orphaned_images: {model_name} has no referenced images but "
-                f"{len(files)} file(s) in {directory}; skipping (partial DB load?)."
-            )
+            logger.warning(f"prune_orphaned_images: {model_name} has no referenced images but {len(files)} file(s) in {directory}; skipping (partial DB load?).")
             continue
 
         for f in files:
@@ -188,13 +176,8 @@ def prune_orphaned_images(session, *, dry_run: bool = False) -> dict[str, list[s
 
         on_disk = {p.name for p in files}
         for name in sorted(referenced - on_disk):
-            logger.warning(
-                f"prune_orphaned_images: {model_name}.{col} references missing file {name!r}"
-            )
+            logger.warning(f"prune_orphaned_images: {model_name}.{col} references missing file {name!r}")
             missing_refs.append(name)
 
-    logger.info(
-        f"prune_orphaned_images: {'would remove' if dry_run else 'removed'} "
-        f"{len(removed)} orphan(s), {len(missing_refs)} dangling reference(s)."
-    )
+    logger.info(f"prune_orphaned_images: {'would remove' if dry_run else 'removed'} {len(removed)} orphan(s), {len(missing_refs)} dangling reference(s).")
     return {"removed": removed, "missing_refs": missing_refs}

@@ -1,12 +1,9 @@
-from pathlib import Path
-
-from PySide6.QtCore import QSettings, QSize, Qt
-from PySide6.QtGui import QIntValidator, QPixmap
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
-    QFileDialog,
     QFormLayout,
     QFrame,
     QGroupBox,
@@ -28,15 +25,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.common.alias.entity_alias_tab import EntityAliasesTab
 from src.common.widgets.entity_completer_context import artist_context_map, place_context_map, publisher_context_map
 from src.common.widgets.entity_completer_edit import EntityCompleterEdit, find_or_create_by_name
-from src.foundation.asset_paths import icon
 from src.foundation.logger_config import logger
 from src.place.place_association_types import fetch_association_types, find_or_create_association_type
 from src.publisher.publisher_hierarchy import get_descendant_publisher_ids
-from src.publisher.publisher_image_manager import move_to_publisher_logos_dir
 
-_SETTINGS_LAST_LOGO_DIR = "publisher_editor/last_logo_dir"
 _HEADQUARTERS_TYPE_NAME = "Headquarters"
-LOGO_MAX_SIZE = QSize(100, 100)
 
 
 class OptionalIntEdit(QLineEdit):
@@ -69,14 +62,12 @@ class PublisherEditDialog(QDialog):
         # without re-querying the database.
         self.result_publisher = None
         self.tab_aliases = None
-        self._logo_path = None
         self._hq_association_id = None
         # (artist_id, artist_name) pairs -- staged in memory and synced to
         # PublisherFounder rows on save (see _save_founders), the same
         # after-save-sync approach _save_headquarters uses so this also
         # works when creating a brand-new publisher.
         self._founder_ids = []
-        self._settings = QSettings()
         self.setup_ui()
         self.load_data()
 
@@ -196,30 +187,6 @@ class PublisherEditDialog(QDialog):
         infobox_layout.setContentsMargins(12, 12, 12, 12)
         infobox_layout.setSpacing(10)
 
-        # Logo picker only makes sense once the publisher exists -- like
-        # the artist profile picture, the picked file is moved into the
-        # managed images dir immediately using publisher_id in its
-        # filename, so this section is edit-only.
-        if self.publisher:
-            self.logo_label = QLabel()
-            self.logo_label.setFixedSize(LOGO_MAX_SIZE)
-            self.logo_label.setAlignment(Qt.AlignCenter)
-            self.logo_label.setObjectName("PublisherLogoLabel")
-            logo_row = QHBoxLayout()
-            logo_row.addStretch()
-            logo_row.addWidget(self.logo_label)
-            logo_row.addStretch()
-            infobox_layout.addLayout(logo_row)
-
-            logo_buttons = QHBoxLayout()
-            self.logo_browse_button = QPushButton("Browse...")
-            self.logo_browse_button.clicked.connect(self._browse_logo)
-            self.logo_clear_button = QPushButton("Clear")
-            self.logo_clear_button.clicked.connect(self._clear_logo)
-            logo_buttons.addWidget(self.logo_browse_button)
-            logo_buttons.addWidget(self.logo_clear_button)
-            infobox_layout.addLayout(logo_buttons)
-
         facts_form = QFormLayout()
         facts_form.setLabelAlignment(Qt.AlignRight)
         facts_form.setFormAlignment(Qt.AlignTop)
@@ -317,33 +284,10 @@ class PublisherEditDialog(QDialog):
             self.mbid_input.setText(self.publisher.MBID or "")
             self.first_pass_check.setChecked(bool(self.publisher.first_pass))
             self.second_pass_check.setChecked(bool(self.publisher.second_pass))
-            self._set_logo_path(self.publisher.logo_path)
             if self.tab_aliases:
                 self.tab_aliases.load(self.publisher)
         else:
             self.is_active_check.setChecked(True)
-
-    def _refresh_logo_preview(self, path):
-        pixmap = QPixmap(path) if path and Path(path).exists() else icon("default_logo.svg").pixmap(LOGO_MAX_SIZE)
-        scaled = pixmap.scaled(LOGO_MAX_SIZE, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.logo_label.setPixmap(scaled)
-
-    def _set_logo_path(self, path):
-        self._logo_path = path or None
-        self._refresh_logo_preview(self._logo_path)
-
-    def _browse_logo(self):
-        start_dir = self._settings.value(_SETTINGS_LAST_LOGO_DIR, "", type=str)
-        if not start_dir or not Path(start_dir).is_dir():
-            start_dir = ""
-        path, _ = QFileDialog.getOpenFileName(self, "Select Publisher Logo", start_dir, "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif *.svg)")
-        if path:
-            self._settings.setValue(_SETTINGS_LAST_LOGO_DIR, str(Path(path).parent))
-            managed_path = move_to_publisher_logos_dir(self.publisher.publisher_id, self.publisher.publisher_name, path)
-            self._set_logo_path(managed_path)
-
-    def _clear_logo(self):
-        self._set_logo_path(None)
 
     def validate(self):
         name = self.name_input.text().strip()
@@ -415,7 +359,6 @@ class PublisherEditDialog(QDialog):
                     MBID=mbid,
                     first_pass=first_pass,
                     second_pass=second_pass,
-                    logo_path=self._logo_path,
                 )
                 self.result_publisher = self.publisher
             else:  # Creating

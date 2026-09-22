@@ -1,12 +1,9 @@
 import html
-from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.foundation.asset_paths import icon
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.publisher.publisher_albums import PublisherAlbumsWindow
@@ -62,14 +59,8 @@ class PublisherDetailTab(QWidget):
 
         layout = QVBoxLayout(card)
 
-        # Header with logo and basic info
+        # Header with basic info
         header_layout = QHBoxLayout()
-
-        # Logo
-        self.logo_label = QLabel()
-        self.logo_label.setFixedSize(120, 120)
-
-        header_layout.addWidget(self.logo_label)
 
         # Basic info
         info_layout = QVBoxLayout()
@@ -224,16 +215,6 @@ class PublisherDetailTab(QWidget):
         # Description
         desc = publisher.description or "No description available"
         self.description_label.setText(desc)
-
-        # Logo
-        self._display_logo(publisher.logo_path)
-
-    def _display_logo(self, logo_path):
-        """Display publisher logo."""
-        pixmap = QPixmap(logo_path) if logo_path and Path(logo_path).exists() else icon("default_logo.svg").pixmap(120, 120)
-
-        scaled_pixmap = pixmap.scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.logo_label.setPixmap(scaled_pixmap)
 
     def _load_publisher_places(self, publisher_id):
         """Load and display associated places."""

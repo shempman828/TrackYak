@@ -274,8 +274,7 @@ Add Artist, Add Group, Find Duplicate Artists, and Delete Unused Artists at
 the bottom of the menu for library upkeep. Deleting an artist also deletes
 its stored profile picture from disk, merging two artists keeps only the
 surviving picture (renaming its file to match), and clearing or replacing a
-picture removes the file it used to point at — the same applies to publisher
-logos.
+picture removes the file it used to point at.
 
 **Tags**: separate from Type, the artist editor has its own **Tags** tab for
 free-form labels you define yourself, for whatever criteria matter to you —
@@ -409,13 +408,13 @@ The record-label side of your library — who released what, and how labels
 and their imprints relate to each other.
 
 **Browsing**: search and filter by MusicBrainz-link status or metadata
-review tier in the tree on the left; click any publisher to see its logo,
-info, and associated places on the right.
+review tier in the tree on the left; click any publisher to see its info
+and associated places on the right.
 
 **Editing a publisher**: fields cover description, who founded it, its
-parent label, headquarters, active years, and a logo you can upload. If
-you're editing an existing entry rather than creating one, you also get an
-Aliases tab for alternate names.
+parent label, headquarters, and active years. If you're editing an existing
+entry rather than creating one, you also get an Aliases tab for alternate
+names.
 
 **Viewing a publisher's albums**: click View Albums to open its album list.
 Double-click an album there to open it in the album editor.
