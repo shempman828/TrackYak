@@ -248,8 +248,9 @@ Wikipedia-style writeup for each one.
 
 **Browsing**: the list on the left can be narrowed to individuals only or
 groups only, searched by name, sorted several ways, and filtered by metadata
-review status, whether they have a profile image, or artist type. Groups get
-a 👥 marker; artists linked to MusicBrainz get a 🔗.
+review status, whether they have a profile image, artist type, whether they
+are linked to MusicBrainz, or whether they have any tracks in your library.
+Groups get a 👥 marker; artists linked to MusicBrainz get a 🔗.
 
 **Reading about an artist**: click one and the right panel builds a
 biography-style page — an infobox with the key facts up top, then whichever

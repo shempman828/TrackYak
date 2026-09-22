@@ -4,19 +4,7 @@ from typing import ClassVar
 import webbrowser
 
 from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
-    QMenu,
-    QMessageBox,
-    QSplitter,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QSplitter, QVBoxLayout, QWidget
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
@@ -134,6 +122,18 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
         self.type_combo.currentTextChanged.connect(self._apply_filters)
         filter_bar.addWidget(self.type_combo)
 
+        self.link_combo = QComboBox()
+        self.link_combo.addItems(["Any Link", "Has Link", "No Link"])
+        self.link_combo.setToolTip("Filter by MusicBrainz link")
+        self.link_combo.currentTextChanged.connect(self._apply_filters)
+        filter_bar.addWidget(self.link_combo)
+
+        self.tracks_combo = QComboBox()
+        self.tracks_combo.addItems(["Any Tracks", "Has Tracks", "No Tracks"])
+        self.tracks_combo.setToolTip("Filter by whether the artist has any tracks")
+        self.tracks_combo.currentTextChanged.connect(self._apply_filters)
+        filter_bar.addWidget(self.tracks_combo)
+
         # Count label — shows "Showing X of Y"
         self.count_label = QLabel()
         self.count_label.setProperty("textRole", "muted")
@@ -185,12 +185,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
     def load_artists(self):
         """Load all artists from DB, pre-filtered by individual/group mode."""
         try:
-            all_artists = sorted(
-                self.controller.get.get_all_entities(
-                    "Artist", load_options=[selectinload(Artist.types)]
-                ),
-                key=artist_sort_key,
-            )
+            all_artists = sorted(self.controller.get.get_all_entities("Artist", load_options=[selectinload(Artist.types)]), key=artist_sort_key)
 
             if self.current_mode == "individuals":
                 artists = [a for a in all_artists if not getattr(a, "isgroup", 0)]
@@ -202,9 +197,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
             self.all_artists = artists
 
             # Rebuild type filter options from loaded artists' ArtistType assignments
-            types = sorted(
-                {t.type_name for a in artists for t in (getattr(a, "types", None) or [])}
-            )
+            types = sorted({t.type_name for a in artists for t in (getattr(a, "types", None) or [])})
             if self._pending_restore_type is not None:
                 current_type = self._pending_restore_type
                 self._pending_restore_type = None
@@ -238,11 +231,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
         if metadata_mode == "Not Started":
             artists = [a for a in artists if not getattr(a, "first_pass", 0)]
         elif metadata_mode == "First Pass":
-            artists = [
-                a
-                for a in artists
-                if getattr(a, "first_pass", 0) and not getattr(a, "second_pass", 0)
-            ]
+            artists = [a for a in artists if getattr(a, "first_pass", 0) and not getattr(a, "second_pass", 0)]
         elif metadata_mode == "Second Pass":
             artists = [a for a in artists if getattr(a, "second_pass", 0)]
 
@@ -256,9 +245,25 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
         # --- Artist type filter ---
         type_filter = self.type_combo.currentText()
         if type_filter and type_filter != "Any Type":
-            artists = [
-                a for a in artists if any(t.type_name == type_filter for t in (a.types or []))
-            ]
+            artists = [a for a in artists if any(t.type_name == type_filter for t in (a.types or []))]
+
+        # --- MusicBrainz link filter ---
+        link_mode = self.link_combo.currentText()
+        if link_mode == "Has Link":
+            artists = [a for a in artists if getattr(a, "MBID", None)]
+        elif link_mode == "No Link":
+            artists = [a for a in artists if not getattr(a, "MBID", None)]
+
+        # --- Track count filter ---
+        tracks_mode = self.tracks_combo.currentText()
+        if tracks_mode in ("Has Tracks", "No Tracks"):
+            try:
+                artist_ids_with_tracks = set(self.controller.get.session.execute(select(TrackArtistRole.artist_id).distinct()).scalars())
+            except SQLAlchemyError as e:
+                logger.warning(f"Track-presence filter failed: {e}")
+                artist_ids_with_tracks = set()
+            wants_tracks = tracks_mode == "Has Tracks"
+            artists = [a for a in artists if (a.artist_id in artist_ids_with_tracks) == wants_tracks]
 
         # --- Sort ---
         import random as _random
@@ -269,25 +274,12 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
             _random.shuffle(artists)
         elif sort_label == "Most Tracks":
             try:
-                counts = dict(
-                    self.controller.get.session.execute(
-                        select(TrackArtistRole.artist_id, func.count()).group_by(
-                            TrackArtistRole.artist_id
-                        )
-                    ).all()
-                )
+                counts = dict(self.controller.get.session.execute(select(TrackArtistRole.artist_id, func.count()).group_by(TrackArtistRole.artist_id)).all())
                 artists = sorted(artists, key=lambda a: counts.get(a.artist_id, 0), reverse=True)
             except SQLAlchemyError as e:
                 logger.warning(f"Track-count sort failed: {e}")
         else:
-            sort_key = next(
-                (
-                    key
-                    for label, key in self._SORT_OPTIONS
-                    if label == sort_label and key is not None
-                ),
-                artist_sort_key,
-            )
+            sort_key = next((key for label, key in self._SORT_OPTIONS if label == sort_label and key is not None), artist_sort_key)
             reverse = self._SORT_REVERSED.get(sort_label, False)
             try:
                 artists = sorted(artists, key=sort_key, reverse=reverse)
@@ -306,6 +298,8 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
             "metadata": self.metadata_combo.currentText(),
             "image": self.image_combo.currentText(),
             "type": self.type_combo.currentText(),
+            "link": self.link_combo.currentText(),
+            "tracks": self.tracks_combo.currentText(),
         }
 
     def _save_filter_state(self):
@@ -343,6 +337,8 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
         self._set_combo_text(self.sort_combo, state.get("sort"))
         self._set_combo_text(self.metadata_combo, state.get("metadata"))
         self._set_combo_text(self.image_combo, state.get("image"))
+        self._set_combo_text(self.link_combo, state.get("link"))
+        self._set_combo_text(self.tracks_combo, state.get("tracks"))
 
         # type_combo only has "Any Type" until load_artists() rebuilds it from
         # the DB, so stash the target for it to pick up at that point instead.
@@ -486,9 +482,7 @@ class ArtistView(ArtistActionsMixin, ArtistViewTracksMixin, ArtistDedupMixin, QW
             wiki_link = getattr(artist, "wikipedia_link", None)
             if wiki_link:
                 open_wiki_action = menu.addAction("🌐 Open Wikipedia Page")
-                open_wiki_action.triggered.connect(
-                    lambda checked=False, url=wiki_link: webbrowser.open(url)
-                )
+                open_wiki_action.triggered.connect(lambda checked=False, url=wiki_link: webbrowser.open(url))
 
             influences_action = menu.addAction("🔗 Edit Influences")
             influences_action.triggered.connect(self.edit_influences)
