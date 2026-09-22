@@ -24,6 +24,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.cancellable_worker import CancellableWorker
 from src.common.dialogs.base_merge_dialog import MergeDBDialog
+from src.common.dismissed_duplicates import DEFAULT_DISMISSED_DUPLICATES_PATH, dismiss_pair, load_dismissed_pairs, normalize_pair
 from src.foundation.logger_config import logger
 
 # ---------------------------------------------------------------------------
@@ -165,16 +166,9 @@ def score_pair(album_a, album_b) -> float:
     """Overall duplicate likelihood score in [0, 1]."""
     # Weights: album name 60%, artist 30%, year 10% -- artist/year are
     # intentionally soft so name similarity drives most decisions.
-    name_s = _name_similarity(
-        getattr(album_a, "album_name", "") or "", getattr(album_b, "album_name", "") or ""
-    )
-    artist_s = _artist_similarity(
-        getattr(album_a, "album_artist_names", "") or "",
-        getattr(album_b, "album_artist_names", "") or "",
-    )
-    year_s = _year_score(
-        getattr(album_a, "release_year", None), getattr(album_b, "release_year", None)
-    )
+    name_s = _name_similarity(getattr(album_a, "album_name", "") or "", getattr(album_b, "album_name", "") or "")
+    artist_s = _artist_similarity(getattr(album_a, "album_artist_names", "") or "", getattr(album_b, "album_artist_names", "") or "")
+    year_s = _year_score(getattr(album_a, "release_year", None), getattr(album_b, "release_year", None))
     return name_s * 0.60 + artist_s * 0.30 + year_s * 0.10
 
 
@@ -295,13 +289,14 @@ class AlbumMergeList(QDialog):
     to merge sequentially.
 
     Layout per row:
-      [ ✓ ]  Album A name / artist / year  |  score %  |  Album B name / artist / year
+      [ ✓ ]  Album A name / artist / year  |  score %  |  Album B name / artist / year  |  Dismiss
     """
 
     _COL_CHECK = 0
     _COL_LEFT = 1
     _COL_SCORE = 2
     _COL_RIGHT = 3
+    _COL_DISMISS = 4
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
@@ -351,12 +346,13 @@ class AlbumMergeList(QDialog):
         layout.addWidget(self._progress)
 
         # --- Results table ---
-        self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(["Merge?", "Album A", "Match", "Album B"])
+        self._table = QTableWidget(0, 5)
+        self._table.setHorizontalHeaderLabels(["Merge?", "Album A", "Match", "Album B", ""])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.verticalHeader().setVisible(False)
@@ -418,12 +414,7 @@ class AlbumMergeList(QDialog):
 
         self._albums_by_id = {a.album_id: a for a in albums}
         snapshots = [
-            _AlbumSnapshot(
-                album_id=a.album_id,
-                album_name=a.album_name or "",
-                album_artist_names=getattr(a, "album_artist_names", "") or "",
-                release_year=getattr(a, "release_year", None),
-            )
+            _AlbumSnapshot(album_id=a.album_id, album_name=a.album_name or "", album_artist_names=getattr(a, "album_artist_names", "") or "", release_year=getattr(a, "release_year", None))
             for a in albums
         ]
 
@@ -448,10 +439,11 @@ class AlbumMergeList(QDialog):
         # Map snapshots back to the real (main-thread) Album ORM objects the
         # rest of this dialog and the merge flow operate on.
         pairs = [
-            (self._albums_by_id[sa.album_id], self._albums_by_id[sb.album_id], score)
-            for sa, sb, score in snapshot_pairs
-            if sa.album_id in self._albums_by_id and sb.album_id in self._albums_by_id
+            (self._albums_by_id[sa.album_id], self._albums_by_id[sb.album_id], score) for sa, sb, score in snapshot_pairs if sa.album_id in self._albums_by_id and sb.album_id in self._albums_by_id
         ]
+
+        dismissed = load_dismissed_pairs(DEFAULT_DISMISSED_DUPLICATES_PATH, "Album")
+        pairs = [p for p in pairs if normalize_pair(p[0].album_id, p[1].album_id) not in dismissed]
         self._pairs = pairs
 
         if not pairs:
@@ -499,6 +491,42 @@ class AlbumMergeList(QDialog):
             right_item.setData(Qt.UserRole, album_b)
             self._table.setItem(row, self._COL_RIGHT, right_item)
 
+            # Dismiss column
+            btn_dismiss = QPushButton("✖ Dismiss")
+            btn_dismiss.setToolTip("Not a duplicate -- don't suggest this pair again")
+            btn_dismiss.clicked.connect(lambda _checked=False, b=btn_dismiss: self._dismiss_row(b))
+            self._table.setCellWidget(row, self._COL_DISMISS, btn_dismiss)
+
+    def _find_row_for_widget(self, widget: QWidget, column: int) -> int | None:
+        for row in range(self._table.rowCount()):
+            if self._table.cellWidget(row, column) is widget:
+                return row
+        return None
+
+    def _dismiss_row(self, btn_dismiss: QPushButton) -> None:
+        """Record the row's album pair as permanently not-a-duplicate and
+        hide the row. Hidden rather than removed: QTableWidget.removeRow()
+        destroys cell widgets immediately, and this handler is still
+        running inside btn_dismiss's own clicked() call stack -- destroying
+        it out from under itself here would be a use-after-free. Hiding
+        needs no such care, and every other row-scanning method
+        (_select_all, _update_next_btn, _checked_pairs) already skips
+        hidden rows so a dismissed pair can't come back via Select All."""
+        row = self._find_row_for_widget(btn_dismiss, self._COL_DISMISS)
+        if row is None:
+            return
+
+        album_a = self._table.item(row, self._COL_LEFT).data(Qt.UserRole)
+        album_b = self._table.item(row, self._COL_RIGHT).data(Qt.UserRole)
+        dismiss_pair(DEFAULT_DISMISSED_DUPLICATES_PATH, "Album", album_a.album_id, album_b.album_id)
+        self._pairs = [p for p in self._pairs if not (p[0] is album_a and p[1] is album_b)]
+
+        chk = self._get_checkbox(row)
+        if chk:
+            chk.setChecked(False)
+        self._table.setRowHidden(row, True)
+        self._update_next_btn()
+
     def _album_label(self, album) -> str:
         name = getattr(album, "album_name", "") or "Unknown"
         artist = getattr(album, "album_artist_names", "") or ""
@@ -525,20 +553,21 @@ class AlbumMergeList(QDialog):
 
     def _select_all(self):
         for row in range(self._table.rowCount()):
+            if self._table.isRowHidden(row):
+                continue
             chk = self._get_checkbox(row)
             if chk:
                 chk.setChecked(True)
 
     def _update_next_btn(self):
-        any_checked = any(
-            (chk := self._get_checkbox(r)) and chk.isChecked()
-            for r in range(self._table.rowCount())
-        )
+        any_checked = any((chk := self._get_checkbox(r)) and chk.isChecked() for r in range(self._table.rowCount()) if not self._table.isRowHidden(r))
         self._next_btn.setEnabled(any_checked)
 
     def _checked_pairs(self) -> list[tuple]:
         result = []
         for row in range(self._table.rowCount()):
+            if self._table.isRowHidden(row):
+                continue
             chk = self._get_checkbox(row)
             if chk and chk.isChecked():
                 album_a = self._table.item(row, self._COL_LEFT).data(Qt.UserRole)
@@ -571,14 +600,10 @@ class AlbumMergeList(QDialog):
                 logger.error(f"Error re-checking merge pair before dialog: {e}")
                 continue
             if not still_a or not still_b:
-                self._status_label.setText(
-                    f"Skipped a pair -- one album was already merged/deleted ({idx} of {total})."
-                )
+                self._status_label.setText(f"Skipped a pair -- one album was already merged/deleted ({idx} of {total}).")
                 continue
 
-            dlg = AlbumMergeDialog(
-                self.controller, preload_source=still_a, preload_target=still_b, parent=self
-            )
+            dlg = AlbumMergeDialog(self.controller, preload_source=still_a, preload_target=still_b, parent=self)
             dlg.setWindowTitle(f"Merge Duplicate Albums ({idx} of {total})")
             # accept() or reject() both just advance to next pair
             dlg.exec()
@@ -601,13 +626,7 @@ class AlbumMergeDialog(MergeDBDialog):
     """
 
     def __init__(self, controller, parent=None, preload_source=None, preload_target=None):
-        super().__init__(
-            controller,
-            "Album",
-            parent=parent,
-            preload_source=preload_source,
-            preload_target=preload_target,
-        )
+        super().__init__(controller, "Album", parent=parent, preload_source=preload_source, preload_target=preload_target)
 
     # ------------------------------------------------------------------
     # Overrides

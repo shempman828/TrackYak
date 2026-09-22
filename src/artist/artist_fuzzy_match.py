@@ -4,19 +4,7 @@ import re
 from typing import Any
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QProgressBar,
-    QPushButton,
-    QRadioButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget
 
 from src.common.cancellable_worker import CancellableWorker
 from src.common.dialogs.fuzzy_match_dialog import BaseFuzzyMatchDialog
@@ -217,9 +205,7 @@ class FuzzyMatchDialog(BaseFuzzyMatchDialog):
         layout = QVBoxLayout(self)
 
         # Instructions
-        lbl_instructions = QLabel(
-            "✔ Check pairs to merge | 🅐🅑 Select which artist to keep | ✖ Leave unchecked to ignore"
-        )
+        lbl_instructions = QLabel("✔ Check pairs to merge | 🅐🅑 Select which artist to keep | ✖ Leave unchecked to ignore | Dismiss to never suggest a pair again")
         layout.addWidget(lbl_instructions)
 
         # Scrollable match list
@@ -244,13 +230,9 @@ class FuzzyMatchDialog(BaseFuzzyMatchDialog):
             # credits) is shown alongside each name since it's the strongest
             # signal for which spelling is the canonical one -- e.g. "Lew"
             # with 63 credits vs. "Lewis" with 2 suggests "Lewis" is the typo.
-            radio_a = QRadioButton(
-                f"{_esc_amp(artist_a.artist_name)} ({artist_a.role_count} roles)"
-            )
+            radio_a = QRadioButton(f"{_esc_amp(artist_a.artist_name)} ({artist_a.role_count} roles)")
             radio_a.entity = artist_a
-            radio_b = QRadioButton(
-                f"{_esc_amp(artist_b.artist_name)} ({artist_b.role_count} roles)"
-            )
+            radio_b = QRadioButton(f"{_esc_amp(artist_b.artist_name)} ({artist_b.role_count} roles)")
             radio_b.entity = artist_b
             radio_a.setChecked(True)  # Default to first artist
 
@@ -259,7 +241,13 @@ class FuzzyMatchDialog(BaseFuzzyMatchDialog):
             hbox.addWidget(QLabel(f"Similarity: {score}%"))
             hbox.addStretch()
 
-            self.match_widgets.append((chk_merge, radio_a, radio_b))
+            widgets_tuple = (chk_merge, radio_a, radio_b)
+            btn_dismiss = QPushButton("✖ Dismiss")
+            btn_dismiss.setToolTip("Not a duplicate -- don't suggest this pair again")
+            btn_dismiss.clicked.connect(lambda _checked=False, a=artist_a, b=artist_b, f=frame, wt=widgets_tuple: self._dismiss_pair(a, b, f, wt))
+            hbox.addWidget(btn_dismiss)
+
+            self.match_widgets.append(widgets_tuple)
             self.match_layout.addWidget(frame)
 
         scroll.setWidget(content)
@@ -287,12 +275,8 @@ class FuzzyMatchDialog(BaseFuzzyMatchDialog):
         layout.addWidget(self._status_label)
 
     def _notify_no_jobs(self) -> None:
-        QMessageBox.warning(
-            self, "No Merges", "No pairs were merged (none checked or errors occurred)"
-        )
+        QMessageBox.warning(self, "No Merges", "No pairs were merged (none checked or errors occurred)")
 
     def _on_pair_merged(self, old_artist, new_artist) -> None:
         logger.info(f"adding alias for {old_artist.artist_name} to {new_artist.artist_name}")
-        self.controller.add.add_entity(
-            "ArtistAlias", artist_id=new_artist.artist_id, alias_name=old_artist.artist_name
-        )
+        self.controller.add.add_entity("ArtistAlias", artist_id=new_artist.artist_id, alias_name=old_artist.artist_name)

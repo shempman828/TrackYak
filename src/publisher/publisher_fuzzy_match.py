@@ -1,19 +1,6 @@
 from typing import Any
 
-from PySide6.QtWidgets import (
-    QApplication,
-    QCheckBox,
-    QFrame,
-    QGridLayout,
-    QHBoxLayout,
-    QLabel,
-    QProgressBar,
-    QPushButton,
-    QRadioButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget
 
 from src.common.dialogs.fuzzy_match_dialog import BaseFuzzyMatchDialog
 from src.common.widgets.qt_text import esc_amp
@@ -51,10 +38,7 @@ class PublisherFuzzyMatchDialog(BaseFuzzyMatchDialog):
         layout = QVBoxLayout(self)
 
         # Instructions
-        lbl_instructions = QLabel(
-            "✔ Check pairs to merge | 🅐🅑 Select which publisher to keep "
-            "| ✖ Leave unchecked to ignore"
-        )
+        lbl_instructions = QLabel("✔ Check pairs to merge | 🅐🅑 Select which publisher to keep | ✖ Leave unchecked to ignore | Dismiss to never suggest a pair again")
         layout.addWidget(lbl_instructions)
 
         # Scrollable match list
@@ -89,17 +73,30 @@ class PublisherFuzzyMatchDialog(BaseFuzzyMatchDialog):
 
             grid.addWidget(radio_a, row, 1)
             grid.addWidget(radio_b, row, 2)
-            grid.addWidget(QLabel(f"Similarity: {score}%"), row, 3)
+            score_label = QLabel(f"Similarity: {score}%")
+            grid.addWidget(score_label, row, 3)
 
+            row_widgets = [chk_merge, radio_a, radio_b, score_label]
+
+            separator = None
             if i < len(self.matches) - 1:
                 separator = QFrame()
                 separator.setFrameShape(QFrame.HLine)
                 separator.setFrameShadow(QFrame.Sunken)
                 grid.addWidget(separator, row + 1, 0, 1, 4)
+                row_widgets.append(separator)
 
-            self.match_widgets.append((chk_merge, radio_a, radio_b))
+            btn_dismiss = QPushButton("✖ Dismiss")
+            btn_dismiss.setToolTip("Not a duplicate -- don't suggest this pair again")
+            grid.addWidget(btn_dismiss, row, 4)
+            row_widgets.append(btn_dismiss)
 
-        grid.setColumnStretch(4, 1)
+            widgets_tuple = (chk_merge, radio_a, radio_b)
+            btn_dismiss.clicked.connect(lambda _checked=False, a=publisher_a, b=publisher_b, rw=row_widgets, wt=widgets_tuple: self._dismiss_pair(a, b, rw, wt))
+
+            self.match_widgets.append(widgets_tuple)
+
+        grid.setColumnStretch(5, 1)
         scroll.setWidget(content)
         layout.addWidget(scroll)
 

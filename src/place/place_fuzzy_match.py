@@ -17,19 +17,7 @@ import re
 from typing import Any
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QProgressBar,
-    QPushButton,
-    QRadioButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget
 
 from src.common.cancellable_worker import CancellableWorker
 from src.common.dialogs.fuzzy_match_dialog import BaseFuzzyMatchDialog
@@ -208,9 +196,7 @@ class FuzzyMatchDialog(BaseFuzzyMatchDialog):
         layout = QVBoxLayout(self)
 
         # Instructions
-        lbl_instructions = QLabel(
-            "✔ Check pairs to merge | 🅐🅑 Select which place to keep | ✖ Leave unchecked to ignore"
-        )
+        lbl_instructions = QLabel("✔ Check pairs to merge | 🅐🅑 Select which place to keep | ✖ Leave unchecked to ignore | Dismiss to never suggest a pair again")
         layout.addWidget(lbl_instructions)
 
         # Scrollable match list
@@ -247,7 +233,13 @@ class FuzzyMatchDialog(BaseFuzzyMatchDialog):
             hbox.addWidget(QLabel(f"Similarity: {score}%"))
             hbox.addStretch()
 
-            self.match_widgets.append((chk_merge, radio_a, radio_b))
+            widgets_tuple = (chk_merge, radio_a, radio_b)
+            btn_dismiss = QPushButton("✖ Dismiss")
+            btn_dismiss.setToolTip("Not a duplicate -- don't suggest this pair again")
+            btn_dismiss.clicked.connect(lambda _checked=False, a=place_a, b=place_b, f=frame, wt=widgets_tuple: self._dismiss_pair(a, b, f, wt))
+            hbox.addWidget(btn_dismiss)
+
+            self.match_widgets.append(widgets_tuple)
             self.match_layout.addWidget(frame)
 
         scroll.setWidget(content)
@@ -284,6 +276,4 @@ class FuzzyMatchDialog(BaseFuzzyMatchDialog):
         return f"{label} — {assoc_count} association{'s' if assoc_count != 1 else ''}"
 
     def _notify_no_jobs(self) -> None:
-        QMessageBox.warning(
-            self, "No Merges", "No pairs were merged (none checked or errors occurred)"
-        )
+        QMessageBox.warning(self, "No Merges", "No pairs were merged (none checked or errors occurred)")

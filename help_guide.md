@@ -239,7 +239,9 @@ long tracklist no longer freezes the editor while it works.
 
 **Other things you can do**: right-click a cover (or empty grid space) for
 New Album, Add to Queue, Merge into another album, Delete, Delete Empty
-Albums, and Find Duplicate Albums.
+Albums, and Find Duplicate Albums. In the Find Duplicate Albums results, you
+can dismiss a pair that is not a true duplicate. YakTrack will not show that
+pair again.
 
 ## Artists
 
@@ -272,7 +274,9 @@ or add a member if they're a group, credit them with an Award or a Place,
 convert between individual and group, jump to their Wikipedia page, edit
 their influences, or add a profile picture. There's also always-available
 Add Artist, Add Group, Find Duplicate Artists, and Delete Unused Artists at
-the bottom of the menu for library upkeep. Deleting an artist also deletes
+the bottom of the menu for library upkeep. In the Find Duplicate Artists
+results, you can dismiss a pair that is not a true duplicate. YakTrack will
+not show that pair again. Deleting an artist also deletes
 its stored profile picture from disk, merging two artists keeps only the
 surviving picture (renaming its file to match), and clearing or replacing a
 picture removes the file it used to point at.
@@ -401,7 +405,9 @@ or Delete.
 fuzzy-match scan across your whole place list, then review and bulk-merge
 whatever it finds similar. The scan checks both the name and the
 surrounding country/state/city context, so two same-named places in
-different countries won't be flagged against each other.
+different countries won't be flagged against each other. Found a pair that
+is not a true duplicate? Dismiss it, and it will not show up in a later
+scan.
 
 ## Publishers
 
@@ -424,7 +430,8 @@ Double-click an album there to open it in the album editor.
 fuzzy-match scan across your whole publisher list, then review and bulk-merge
 whatever it finds similar. For a one-off, Merge and Split work the same way
 they do for genres — Merge combines two into one, Split clones relationships
-out to new names.
+out to new names. Found a pair that is not a true duplicate? Dismiss it, and
+it will not show up in a later scan.
 
 ## Roles
 

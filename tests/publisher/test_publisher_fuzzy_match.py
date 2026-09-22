@@ -3,9 +3,14 @@ straight into QRadioButton text, so Qt consumed the '&' as a mnemonic prefix
 and a name like "Sony & ATV" rendered as "Sony  ATV". _display_name now
 escapes '&' (after eliding), and still exposes the raw name via tooltip.
 """
+
 from types import SimpleNamespace
 
-from src.publisher.publisher_fuzzy_match import PublisherFuzzyMatchDialog, _MAX_NAME_CHARS
+from PySide6.QtWidgets import QPushButton
+
+from src.common.dialogs import fuzzy_match_dialog
+from src.common.dismissed_duplicates import dismiss_pair, load_dismissed_pairs
+from src.publisher.publisher_fuzzy_match import _MAX_NAME_CHARS, PublisherFuzzyMatchDialog
 
 _display_name = PublisherFuzzyMatchDialog._display_name
 
@@ -39,5 +44,49 @@ def test_merge_dialog_radio_text_keeps_ampersand(qapp):
         radio_a = dialog.match_widgets[0][1]
         assert radio_a.text() == "Sony && ATV"
         assert radio_a.toolTip() == "Sony & ATV"
+    finally:
+        dialog.deleteLater()
+
+
+# ---- dismiss duplicate suggestions ------------------------------------------
+# Acceptance criteria for docs/specs/dismiss_duplicate_suggestions.md:
+# AC3 (dismiss removes the row immediately and persists it), AC7 (a
+# dismissed pair is filtered out of a later scan's dialog). Publisher's row
+# is grid-based (no single per-row frame like Artist/Place), so the shared
+# _dismiss_pair helper is exercised here with a list of row widgets instead
+# of one container.
+
+
+def test_dismiss_button_removes_row_and_persists_the_pair(qapp, tmp_path, monkeypatch):
+    dismissed_path = tmp_path / "dismissed_duplicates.json"
+    monkeypatch.setattr(fuzzy_match_dialog, "DEFAULT_DISMISSED_DUPLICATES_PATH", dismissed_path)
+
+    a = _publisher(1, "Sony")
+    b = _publisher(2, "Sonny")
+    dialog = PublisherFuzzyMatchDialog([(a, b, 95)], controller=None)
+    try:
+        assert len(dialog.match_widgets) == 1
+        dismiss_buttons = [btn for btn in dialog.findChildren(QPushButton) if btn not in (dialog.btn_merge, dialog.btn_cancel)]
+        assert len(dismiss_buttons) == 1
+
+        dismiss_buttons[0].click()
+
+        assert dialog.match_widgets == []
+        assert load_dismissed_pairs(dismissed_path, "Publisher") == {(1, 2)}
+    finally:
+        dialog.deleteLater()
+
+
+def test_dismissed_pair_is_excluded_from_a_later_scans_dialog(qapp, tmp_path, monkeypatch):
+    dismissed_path = tmp_path / "dismissed_duplicates.json"
+    monkeypatch.setattr(fuzzy_match_dialog, "DEFAULT_DISMISSED_DUPLICATES_PATH", dismissed_path)
+    dismiss_pair(dismissed_path, "Publisher", 1, 2)
+
+    a = _publisher(1, "Sony")
+    b = _publisher(2, "Sonny")
+    dialog = PublisherFuzzyMatchDialog([(a, b, 95)], controller=None)
+    try:
+        assert dialog.matches == []
+        assert dialog.match_widgets == []
     finally:
         dialog.deleteLater()

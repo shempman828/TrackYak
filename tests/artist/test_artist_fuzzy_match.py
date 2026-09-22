@@ -7,13 +7,11 @@ buckets so they were never compared at all.
 
 from types import SimpleNamespace
 
-from src.artist.artist_fuzzy_match import (
-    ArtistFuzzyMatchWorker,
-    FuzzyMatchDialog,
-    _blocking_keys,
-    _tokens_match_with_initials,
-    artist_name_similarity,
-)
+from PySide6.QtWidgets import QPushButton
+
+from src.artist.artist_fuzzy_match import ArtistFuzzyMatchWorker, FuzzyMatchDialog, _blocking_keys, _tokens_match_with_initials, artist_name_similarity
+from src.common.dialogs import fuzzy_match_dialog
+from src.common.dismissed_duplicates import dismiss_pair, load_dismissed_pairs
 
 # ---- test_artist_fuzzy_match_initials.py -------------------------------------
 DUPLICATE_THRESHOLD = 0.85
@@ -30,9 +28,7 @@ def test_multiple_initials_score_above_duplicate_threshold():
 
 
 def test_initial_matching_is_symmetric():
-    assert artist_name_similarity("J. Lennon", "John Lennon") == artist_name_similarity(
-        "John Lennon", "J. Lennon"
-    )
+    assert artist_name_similarity("J. Lennon", "John Lennon") == artist_name_similarity("John Lennon", "J. Lennon")
 
 
 def test_different_surname_is_not_boosted_by_shared_initial():
@@ -92,10 +88,7 @@ def test_identical_name_with_one_missing_mbid_is_still_suggested(qapp):
 def test_identical_mbid_pair_is_still_suggested(qapp):
     # Same MBID on both sides isn't the conflict case this guard targets;
     # unaffected, should score normally.
-    artists = [
-        _artist(1, "John Smith", mbid="same-mbid"),
-        _artist(2, "John Smith", mbid="same-mbid"),
-    ]
+    artists = [_artist(1, "John Smith", mbid="same-mbid"), _artist(2, "John Smith", mbid="same-mbid")]
     worker = ArtistFuzzyMatchWorker(artists, threshold=0.85)
 
     matches = worker._find_matches()
@@ -121,5 +114,63 @@ def test_merge_dialog_radio_text_keeps_ampersand(qapp):
         # QRadioButton.text() returns the doubled form; Qt renders it as a
         # single literal '&'. Before the fix this was "Simon  Garfunkel...".
         assert radio_a.text() == "Simon && Garfunkel (1 roles)"
+    finally:
+        dialog.deleteLater()
+
+
+# ---- test_artist_fuzzy_match_dismiss.py --------------------------------------
+# Acceptance criteria for docs/specs/dismiss_duplicate_suggestions.md:
+# AC1 (dismiss removes the row immediately and persists it), AC5 (a
+# dismissed pair is filtered out of a later scan's dialog), AC9 (dismissal
+# is order-independent), AC10 (dismissing one pair doesn't suppress a
+# different pair sharing one of the same entities).
+
+
+def test_dismiss_button_removes_row_and_persists_the_pair(qapp, tmp_path, monkeypatch):
+    dismissed_path = tmp_path / "dismissed_duplicates.json"
+    monkeypatch.setattr(fuzzy_match_dialog, "DEFAULT_DISMISSED_DUPLICATES_PATH", dismissed_path)
+
+    a = _named_artist(1, "Foo")
+    b = _named_artist(2, "Fooo")
+    dialog = FuzzyMatchDialog([(a, b, 95)], controller=None)
+    try:
+        assert len(dialog.match_widgets) == 1
+        dismiss_buttons = [btn for btn in dialog.findChildren(QPushButton) if btn not in (dialog.btn_merge, dialog.btn_cancel)]
+        assert len(dismiss_buttons) == 1
+
+        dismiss_buttons[0].click()
+
+        assert dialog.match_widgets == []
+        assert load_dismissed_pairs(dismissed_path, "Artist") == {(1, 2)}
+    finally:
+        dialog.deleteLater()
+
+
+def test_dismissed_pair_is_excluded_from_a_later_scans_dialog(qapp, tmp_path, monkeypatch):
+    dismissed_path = tmp_path / "dismissed_duplicates.json"
+    monkeypatch.setattr(fuzzy_match_dialog, "DEFAULT_DISMISSED_DUPLICATES_PATH", dismissed_path)
+    dismiss_pair(dismissed_path, "Artist", 1, 2)
+
+    a = _named_artist(1, "Foo")
+    b = _named_artist(2, "Fooo")
+    # A later scan can produce the same pair with IDs in the opposite order.
+    dialog = FuzzyMatchDialog([(b, a, 95)], controller=None)
+    try:
+        assert dialog.matches == []
+        assert dialog.match_widgets == []
+    finally:
+        dialog.deleteLater()
+
+
+def test_dismissing_one_pair_does_not_suppress_a_different_pair(qapp, tmp_path, monkeypatch):
+    dismissed_path = tmp_path / "dismissed_duplicates.json"
+    monkeypatch.setattr(fuzzy_match_dialog, "DEFAULT_DISMISSED_DUPLICATES_PATH", dismissed_path)
+    dismiss_pair(dismissed_path, "Artist", 1, 2)
+
+    a = _named_artist(1, "Foo")
+    c = _named_artist(3, "Foox")
+    dialog = FuzzyMatchDialog([(a, c, 90)], controller=None)
+    try:
+        assert len(dialog.matches) == 1
     finally:
         dialog.deleteLater()

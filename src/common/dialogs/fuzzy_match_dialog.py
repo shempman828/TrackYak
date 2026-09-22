@@ -15,9 +15,10 @@ thread, and reporting progress/completion.
 from collections.abc import Callable
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from src.common.cancellable_worker import CancellableWorker
+from src.common.dismissed_duplicates import DEFAULT_DISMISSED_DUPLICATES_PATH, dismiss_pair, load_dismissed_pairs, normalize_pair
 from src.foundation.logger_config import logger
 
 
@@ -36,16 +37,7 @@ class BaseMergeWorker(CancellableWorker):
     progress = Signal(int, int)  # current, total
     finished = Signal(int, int, list)  # success_count, total, error_messages
 
-    def __init__(
-        self,
-        controller,
-        entity_type: str,
-        id_attr: str,
-        name_attr: str,
-        jobs: list,
-        on_pair_merged: Callable | None = None,
-        parent=None,
-    ):
+    def __init__(self, controller, entity_type: str, id_attr: str, name_attr: str, jobs: list, on_pair_merged: Callable | None = None, parent=None):
         super().__init__(parent)
         self.controller = controller
         self.entity_type = entity_type
@@ -69,10 +61,7 @@ class BaseMergeWorker(CancellableWorker):
                     logger.info(f"Merging {old_name} (ID: {old_id}) into {new_name} (ID: {new_id})")
                     merged = self.controller.merge.merge_entities(self.entity_type, old_id, new_id)
                     if not merged:
-                        msg = (
-                            f"Failed to merge {old_name} → {new_name}: "
-                            "merge_entities returned False"
-                        )
+                        msg = f"Failed to merge {old_name} → {new_name}: merge_entities returned False"
                         logger.error(msg)
                         errors.append(msg)
                     else:
@@ -110,6 +99,11 @@ class BaseFuzzyMatchDialog(QDialog):
         however that dialog normally surfaces messages
       - optionally override `_on_pair_merged()` for a per-pair side effect
         after a successful merge (e.g. alias creation)
+      - to offer a per-row "Dismiss" action, call `self._dismiss_pair(entity_a,
+        entity_b, row_widget, widgets_tuple)` from a button click handler in
+        `init_ui()` -- it persists the pair as permanently not-a-duplicate
+        (via `dismissed_duplicates.py`, filtered back out on every future
+        scan) and removes the row from view
     """
 
     _ENTITY_TYPE: str = ""
@@ -119,6 +113,8 @@ class BaseFuzzyMatchDialog(QDialog):
     def __init__(self, matches: list[tuple], controller, title: str, parent=None):
         super().__init__(parent)
         self.controller = controller
+        dismissed = load_dismissed_pairs(DEFAULT_DISMISSED_DUPLICATES_PATH, self._ENTITY_TYPE)
+        matches = [m for m in matches if normalize_pair(getattr(m[0], self._ID_ATTR), getattr(m[1], self._ID_ATTR)) not in dismissed]
         self.matches = sorted(matches, key=lambda x: x[2], reverse=True)  # x[2] is the score
         self.setWindowTitle(title)
         self.setMinimumSize(600, 400)
@@ -134,6 +130,22 @@ class BaseFuzzyMatchDialog(QDialog):
 
     def _on_pair_merged(self, old_entity, new_entity) -> None:
         """Optional per-pair side effect after a successful merge. No-op by default."""
+
+    def _dismiss_pair(self, entity_a, entity_b, row_widgets: QWidget | list[QWidget], widgets_tuple: tuple) -> None:
+        """Record entity_a/entity_b as permanently not-a-duplicate and drop
+        their row from the current view. row_widgets is either the row's
+        single container frame, or (for a grid-based layout with no single
+        per-row container, e.g. publisher) every widget that makes up the
+        row. widgets_tuple is the exact (checkbox, radio_a, radio_b) tuple
+        this row appended to self.match_widgets, so it can be removed
+        without disturbing other rows' merge state."""
+        dismiss_pair(DEFAULT_DISMISSED_DUPLICATES_PATH, self._ENTITY_TYPE, getattr(entity_a, self._ID_ATTR), getattr(entity_b, self._ID_ATTR))
+        if widgets_tuple in self.match_widgets:
+            self.match_widgets.remove(widgets_tuple)
+        widgets = row_widgets if isinstance(row_widgets, (list, tuple)) else [row_widgets]
+        for widget in widgets:
+            widget.setParent(None)
+            widget.deleteLater()
 
     def _perform_merge(self) -> None:
         """Kick off a background merge of the checked pairs with the
@@ -163,15 +175,7 @@ class BaseFuzzyMatchDialog(QDialog):
         self._status_label.setText(f"Merging 0/{len(jobs)}…")
         self._status_label.show()
 
-        self._worker = BaseMergeWorker(
-            self.controller,
-            self._ENTITY_TYPE,
-            self._ID_ATTR,
-            self._NAME_ATTR,
-            jobs,
-            on_pair_merged=self._on_pair_merged,
-            parent=self,
-        )
+        self._worker = BaseMergeWorker(self.controller, self._ENTITY_TYPE, self._ID_ATTR, self._NAME_ATTR, jobs, on_pair_merged=self._on_pair_merged, parent=self)
         self._worker.progress.connect(self._on_merge_progress)
         self._worker.finished.connect(self._on_merge_finished)
         self._worker.start()
@@ -187,14 +191,10 @@ class BaseFuzzyMatchDialog(QDialog):
         self.btn_cancel.setEnabled(True)
 
         if success_count > 0:
-            QMessageBox.information(
-                self, "Merge Complete", f"Successfully merged {success_count}/{total} pairs"
-            )
+            QMessageBox.information(self, "Merge Complete", f"Successfully merged {success_count}/{total} pairs")
             self.accept()
         else:
-            QMessageBox.warning(
-                self, "No Merges", "No pairs were merged (none checked or errors occurred)"
-            )
+            QMessageBox.warning(self, "No Merges", "No pairs were merged (none checked or errors occurred)")
 
     def reject(self) -> None:
         # Cancel button is disabled while a merge is running, but guard

@@ -8,26 +8,15 @@ never flagged regardless of similarity.
 
 from types import SimpleNamespace
 
-from src.place.place_fuzzy_match import (
-    CHAIN_THRESHOLD,
-    NAME_THRESHOLD,
-    FuzzyMatchDialog,
-    PlaceFuzzyMatchWorker,
-    _blocking_keys,
-    place_chain_similarity,
-    place_name_similarity,
-)
+from PySide6.QtWidgets import QPushButton
+
+from src.common.dialogs import fuzzy_match_dialog
+from src.common.dismissed_duplicates import dismiss_pair, load_dismissed_pairs
+from src.place.place_fuzzy_match import CHAIN_THRESHOLD, NAME_THRESHOLD, FuzzyMatchDialog, PlaceFuzzyMatchWorker, _blocking_keys, place_chain_similarity, place_name_similarity
 
 
 def _place(place_id, name, place_type=None, parent=None, mbid=None, assoc_count=0):
-    return SimpleNamespace(
-        place_id=place_id,
-        place_name=name,
-        place_type=place_type,
-        parent=parent,
-        MBID=mbid,
-        recursive_association_count=assoc_count,
-    )
+    return SimpleNamespace(place_id=place_id, place_name=name, place_type=place_type, parent=parent, MBID=mbid, recursive_association_count=assoc_count)
 
 
 # ---- acceptance criterion 4: no hierarchy context on either side ----------
@@ -98,9 +87,7 @@ def test_identical_name_with_one_missing_mbid_is_still_suggested(qapp):
 
 
 def test_place_name_similarity_is_symmetric():
-    assert place_name_similarity("Springfield", "Springfeild") == place_name_similarity(
-        "Springfeild", "Springfield"
-    )
+    assert place_name_similarity("Springfield", "Springfeild") == place_name_similarity("Springfeild", "Springfield")
 
 
 def test_place_chain_similarity_passes_when_either_side_has_no_chain():
@@ -125,5 +112,46 @@ def test_merge_dialog_radio_text_keeps_ampersand(qapp):
         # QRadioButton.text() returns the doubled form; Qt renders it as a
         # single literal '&'.
         assert radio_a.text() == "Salem && Providence — 3 associations"
+    finally:
+        dialog.deleteLater()
+
+
+# ---- dismiss duplicate suggestions ------------------------------------------
+# Acceptance criteria for docs/specs/dismiss_duplicate_suggestions.md:
+# AC2 (dismiss removes the row immediately and persists it), AC6 (a
+# dismissed pair is filtered out of a later scan's dialog).
+
+
+def test_dismiss_button_removes_row_and_persists_the_pair(qapp, tmp_path, monkeypatch):
+    dismissed_path = tmp_path / "dismissed_duplicates.json"
+    monkeypatch.setattr(fuzzy_match_dialog, "DEFAULT_DISMISSED_DUPLICATES_PATH", dismissed_path)
+
+    a = _place(1, "Springfield")
+    b = _place(2, "Springfeild")
+    dialog = FuzzyMatchDialog([(a, b, 90)], controller=None)
+    try:
+        assert len(dialog.match_widgets) == 1
+        dismiss_buttons = [btn for btn in dialog.findChildren(QPushButton) if btn not in (dialog.btn_merge, dialog.btn_cancel)]
+        assert len(dismiss_buttons) == 1
+
+        dismiss_buttons[0].click()
+
+        assert dialog.match_widgets == []
+        assert load_dismissed_pairs(dismissed_path, "Place") == {(1, 2)}
+    finally:
+        dialog.deleteLater()
+
+
+def test_dismissed_pair_is_excluded_from_a_later_scans_dialog(qapp, tmp_path, monkeypatch):
+    dismissed_path = tmp_path / "dismissed_duplicates.json"
+    monkeypatch.setattr(fuzzy_match_dialog, "DEFAULT_DISMISSED_DUPLICATES_PATH", dismissed_path)
+    dismiss_pair(dismissed_path, "Place", 1, 2)
+
+    a = _place(1, "Springfield")
+    b = _place(2, "Springfeild")
+    dialog = FuzzyMatchDialog([(a, b, 90)], controller=None)
+    try:
+        assert dialog.matches == []
+        assert dialog.match_widgets == []
     finally:
         dialog.deleteLater()
