@@ -1,13 +1,13 @@
 # base_track_view.py
 
 import csv
-import random
 
 from PySide6.QtCore import QMimeData, Qt, Signal
 from PySide6.QtGui import QAction, QDrag, QKeySequence, QShortcut, QStandardItemModel
-from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QTableView, QToolButton, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QMessageBox, QTableView, QToolButton, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.charts.chart_table_placeholder import install_empty_placeholder
 from src.common.dialogs.delete_confirmation import confirm_delete_with_file_option
 from src.common.widgets.entity_submenu import populate_entity_submenu, selection_membership
 from src.db.db_mapping_tracks import TRACK_FIELDS
@@ -15,6 +15,7 @@ from src.foundation.censor import censor_text
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
+from src.track.track_shuffle import shuffle_and_play
 from src.track.view.track_view_columns import TrackViewColumnsMixin
 from src.track.view.track_view_data import TrackViewDataMixin
 from src.track.view.track_view_filter import SEARCH_ALL
@@ -84,48 +85,76 @@ class BaseTrackView(QDialog, TrackViewColumnsMixin, TrackViewDataMixin, TrackVie
 
         self.layout = QVBoxLayout(self)
 
+        # Single toolbar row: fused search + column-scope picker, then the
+        # Actions/View drop-downs, then a muted status label -- mirrors
+        # TrackView's toolbar (track_view_toolbar.py) so the two views read
+        # as one design instead of drifting apart. Kept local to this file
+        # rather than sharing that mixin, so TrackView is untouched here.
+        toolbar_row = QHBoxLayout()
+        toolbar_row.setSpacing(4)
+
+        self.search_bar = QLineEdit(self)
+        self.search_bar.setObjectName("searchBarField")
+        self.search_bar.setPlaceholderText("Search tracks…")
+        self.search_bar.setClearButtonEnabled(True)
+        # Filter on every keystroke (unlike TrackView's search-on-Enter): this
+        # view's lists are small by design -- a mood, a playlist, a duplicate
+        # group -- so live filtering stays cheap and reads as more responsive.
+        self.search_bar.textChanged.connect(lambda _text=None: self._apply_search_filter())
+
+        self.search_column_btn = QToolButton(self)
+        self.search_column_btn.setObjectName("searchColumnBtn")
+        self.search_column_btn.setText("All Columns ▾")
+        self.search_column_btn.setToolTip("Choose which column to search")
+        self.search_column_btn.setPopupMode(QToolButton.InstantPopup)
+        self._search_column_menu = QMenu(self.search_column_btn)
+        self.search_column_btn.setMenu(self._search_column_menu)
+        self._populate_search_combo()
+
+        search_group = QHBoxLayout()
+        search_group.setSpacing(0)
+        search_group.addWidget(self.search_bar, stretch=1)
+        search_group.addWidget(self.search_column_btn)
+        toolbar_row.addLayout(search_group, stretch=1)
+        toolbar_row.addSpacing(12)
+
+        # "⋮ Actions" drop-down: queue, shuffle, export -- occasional actions
+        # that don't need their own always-visible button.
+        self.actions_button = QToolButton(self)
+        self.actions_button.setText("⋮ Actions")
+        self.actions_button.setToolTip("Queue, shuffle, and export")
+        self.actions_button.setPopupMode(QToolButton.InstantPopup)
+        actions_menu = QMenu(self.actions_button)
+        actions_menu.addAction("Add to Queue", self.add_selected_to_queue)
+        actions_menu.addAction("Add to Queue (Next)", lambda: self.add_selected_to_queue(insert_next=True))
+        actions_menu.addSeparator()
+        actions_menu.addAction("🔀 Shuffle All", self.shuffle_all_tracks)
+        actions_menu.addSeparator()
+        actions_menu.addAction("📄 Export to CSV…", self.export_tracks_to_csv)
+        self.actions_button.setMenu(actions_menu)
+        toolbar_row.addWidget(self.actions_button)
+
+        # "⚙ View" drop-down: column visibility/order -- shared with TrackView
+        self.view_button = QToolButton(self)
+        self.view_button.setText("⚙ View")
+        self.view_button.setToolTip("Column visibility and order")
+        self.view_button.setPopupMode(QToolButton.InstantPopup)
+        view_menu = QMenu(self.view_button)
+        view_menu.addAction("Toggle Columns", self.show_column_menu)
+        view_menu.addAction("Column Order && Visibility", self.show_column_customization)
+        self.view_button.setMenu(view_menu)
+        toolbar_row.addWidget(self.view_button)
+
         # Status label. Kept as both names: the shared TrackViewDataMixin
         # writes to `status_label` (same name TrackView uses); some callers
         # (mood_dialog.py, playlist_tracks_window.py) reach in via the
         # original `info_label` name to reparent or update it directly.
-        self.status_label = QLabel(f"Showing {len(tracks)} tracks")
+        self.status_label = QLabel("")
+        self.status_label.setProperty("textRole", "muted")
         self.info_label = self.status_label
-        self.layout.addWidget(self.status_label)
+        toolbar_row.addWidget(self.status_label)
 
-        # Search bar, column customization, shuffle, and export buttons
-        search_layout = QHBoxLayout()
-
-        self.search_bar = QLineEdit(self)
-        self.search_bar.setPlaceholderText("Search tracks...")
-        self.search_bar.textChanged.connect(lambda _text=None: self._apply_search_filter())
-        search_layout.addWidget(self.search_bar)
-
-        # Columns button: show/hide, reorder, resize -- shared with TrackView
-        self.columns_button = QToolButton(self)
-        self.columns_button.setText("⚙ Columns")
-        self.columns_button.setToolTip("Column visibility and order")
-        self.columns_button.setPopupMode(QToolButton.InstantPopup)
-        columns_menu = QMenu(self.columns_button)
-        columns_menu.addAction("Toggle Columns", self.show_column_menu)
-        columns_menu.addAction("Column Order && Visibility", self.show_column_customization)
-        self.columns_button.setMenu(columns_menu)
-        search_layout.addWidget(self.columns_button)
-
-        # Shuffle All button
-        self.shuffle_button = QPushButton("🔀 Shuffle All")
-        self.shuffle_button.setToolTip("Shuffle all tracks and add to queue")
-        self.shuffle_button.clicked.connect(self.shuffle_all_tracks)
-        self.shuffle_button.setMaximumWidth(120)
-        search_layout.addWidget(self.shuffle_button)
-
-        # Export CSV button
-        self.export_csv_button = QPushButton("📄 Export CSV")
-        self.export_csv_button.setToolTip("Export the track list to a CSV file")
-        self.export_csv_button.clicked.connect(self.export_tracks_to_csv)
-        self.export_csv_button.setMaximumWidth(120)
-        search_layout.addWidget(self.export_csv_button)
-
-        self.layout.addLayout(search_layout)
+        self.layout.addLayout(toolbar_row)
 
         # Table setup
         self.table = QTableView(self)
@@ -189,6 +218,58 @@ class BaseTrackView(QDialog, TrackViewColumnsMixin, TrackViewDataMixin, TrackVie
 
         self._set_initial_column_visibility()
         self.load_column_state()
+
+        # "No tracks to show" message, centered over the table -- an empty
+        # result set (e.g. a mood with nothing tagged yet) should read as an
+        # intentional state, not a blank pane. Kept in sync from
+        # `_update_status` below. Reuses the app's existing empty-state
+        # helper (chart_table_placeholder.py); it only needs `.viewport()`,
+        # so it works on any item view, not just the QTreeWidget it was
+        # first written for.
+        self._empty_placeholder = install_empty_placeholder(self.table, "No tracks to show.")
+
+    def _update_status(self):
+        """Refresh the status label, then keep the empty-state message in sync with it."""
+        super()._update_status()
+        visible_count = len(self._filtered_tracks) if self._filter_active else len(self._all_tracks)
+        self._empty_placeholder.setText("No tracks match your search." if self._filter_active else "No tracks to show.")
+        self._empty_placeholder.setVisible(visible_count == 0)
+
+    def _populate_search_combo(self):
+        """Build the column-search drop-down menu (All Columns, plus one entry per category)."""
+        menu = self._search_column_menu
+        menu.clear()
+
+        all_action = QAction("All Columns", menu)
+        all_action.setData(SEARCH_ALL)
+        all_action.triggered.connect(self._on_search_column_selected)
+        menu.addAction(all_action)
+        menu.addSeparator()
+
+        category_groups: dict[str, list] = {}
+        for field_name, friendly in self.columns.items():
+            field_config = self.track_fields.get(field_name)
+            cat = (field_config.category or "Other") if field_config else "Other"
+            category_groups.setdefault(cat, []).append((field_name, friendly))
+
+        for cat, fields in sorted(category_groups.items()):
+            submenu = QMenu(cat, menu)
+            for field_name, friendly in fields:
+                act = QAction(friendly, submenu)
+                act.setData(field_name)
+                act.triggered.connect(self._on_search_column_selected)
+                submenu.addAction(act)
+            menu.addMenu(submenu)
+
+    def _on_search_column_selected(self):
+        """Called when the user picks a column (or 'All Columns') from the search menu."""
+        action = self.sender()
+        if not action:
+            return
+        self._search_field_name = action.data() or SEARCH_ALL
+        label = action.text() if self._search_field_name != SEARCH_ALL else "All Columns"
+        self.search_column_btn.setText(f"{label} ▾")
+        self._apply_search_filter()
 
     def setup_context_menu(self):
         """Set up context menu for track selection."""
@@ -384,36 +465,15 @@ class BaseTrackView(QDialog, TrackViewColumnsMixin, TrackViewDataMixin, TrackVie
         return str(value)
 
     def shuffle_all_tracks(self):
-        """Shuffle ALL tracks and add them to the queue, then start playing."""
-        tracks_to_shuffle = self._filtered_tracks.copy() if self._filter_active else self._all_tracks.copy()
+        """Shuffle the currently visible tracks (respecting any active filter) and start playing.
 
-        if not tracks_to_shuffle:
-            show_status_message(self, "No tracks available to shuffle.")
-            return
-
-        random.shuffle(tracks_to_shuffle)
-        queue_manager = self._get_queue_manager()
-
-        if not queue_manager:
-            show_status_message(self, "Could not access the playback queue.")
-            return
-
-        if hasattr(queue_manager, "clear_queue"):
-            queue_manager.clear_queue()
-        queue_manager.add_tracks_to_queue(tracks_to_shuffle)
-
-        # Start playing first track
-        if tracks_to_shuffle and hasattr(self.controller, "mediaplayer"):
-            try:
-                from pathlib import Path
-
-                first_track = tracks_to_shuffle[0]
-                track_path = Path(first_track.track_file_path)
-                if self.controller.mediaplayer.load_track(track_path):
-                    self.controller.mediaplayer.play()
-                    logger.info(f"Started shuffled playback: {len(tracks_to_shuffle)} tracks")
-            except (OSError, RuntimeError, TypeError) as e:
-                logger.error(f"Error starting playback: {e}")
+        Also reachable without opening this dialog at all: see
+        `src/track/track_shuffle.py`, used directly by the playlist and mood
+        tree context menus ("Shuffle") to shuffle a collection's tracks
+        without pulling up its track list first.
+        """
+        tracks_to_shuffle = self._filtered_tracks if self._filter_active else self._all_tracks
+        shuffle_and_play(self, self.controller, tracks_to_shuffle)
 
     def export_tracks_to_csv(self):
         """Export the currently displayed track list (respecting any active filter) to CSV."""

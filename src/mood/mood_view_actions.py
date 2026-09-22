@@ -16,6 +16,7 @@ from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.mood.mood_dialog import MoodDialog
 from src.mood.mood_tracks import MoodTracksWindow
+from src.track.track_shuffle import shuffle_and_play
 from src.track.view.base_track_view import BaseTrackView
 
 
@@ -51,6 +52,12 @@ class MoodActionsMixin:
             )
             menu.addAction(view_tracks_action)
 
+            shuffle_action = QAction(f"Shuffle ({len(real_selected)} moods)", self)
+            shuffle_action.triggered.connect(
+                lambda: self.shuffle_selected_moods(real_selected)
+            )
+            menu.addAction(shuffle_action)
+
             menu.addSeparator()
 
             delete_action = QAction(f"Delete {len(real_selected)} Moods", self)
@@ -64,6 +71,10 @@ class MoodActionsMixin:
             view_tracks_action = QAction("View Tracks", self)
             view_tracks_action.triggered.connect(lambda: self.view_tracks_for_selected_mood())
             menu.addAction(view_tracks_action)
+
+            shuffle_action = QAction("Shuffle", self)
+            shuffle_action.triggered.connect(lambda: self.shuffle_selected_mood())
+            menu.addAction(shuffle_action)
 
             edit_action = QAction("Edit Mood", self)
             edit_action.triggered.connect(lambda: self.edit_selected_mood())
@@ -111,23 +122,28 @@ class MoodActionsMixin:
             tracks_window = MoodTracksWindow(self.controller, mood, self)
             tracks_window.show()
 
-    def view_tracks_for_selected_moods(self, items):
-        """Open a combined, deduplicated tracks view for multiple selected moods."""
-        mood_ids = [it.data(0, Qt.UserRole) for it in items]
-
+    def _load_tracks_for_moods(self, mood_ids: list) -> list | None:
+        """Fetch the deduplicated tracks directly associated with one or more moods, or None on error."""
         try:
             associations = self.controller.get.get_all_entities(
                 "MoodTrackAssociation", mood_id__in=mood_ids
             )
             track_ids = list({a.track_id for a in associations})
-            tracks = (
+            return (
                 self.controller.get.get_all_entities("Track", track_id__in=track_ids)
                 if track_ids
                 else []
             )
         except SQLAlchemyError as e:
-            logger.error(f"Error loading tracks for selected moods: {e}")
+            logger.error(f"Error loading tracks for moods {mood_ids}: {e}")
             QMessageBox.critical(self, "Error", "Failed to load tracks for moods")
+            return None
+
+    def view_tracks_for_selected_moods(self, items):
+        """Open a combined, deduplicated tracks view for multiple selected moods."""
+        mood_ids = [it.data(0, Qt.UserRole) for it in items]
+        tracks = self._load_tracks_for_moods(mood_ids)
+        if tracks is None:
             return
 
         names = ", ".join(it.text(0) for it in items)
@@ -137,6 +153,22 @@ class MoodActionsMixin:
             title=f"Tracks in {len(mood_ids)} moods: {names}",
         )
         tracks_window.exec_()
+
+    def shuffle_selected_mood(self):
+        """Shuffle the current mood's tracks into the queue, without opening its tracks view."""
+        if not self.current_mood_id:
+            show_status_message(self, "Please select a mood first.")
+            return
+        tracks = self._load_tracks_for_moods([self.current_mood_id])
+        if tracks is not None:
+            shuffle_and_play(self, self.controller, tracks)
+
+    def shuffle_selected_moods(self, items):
+        """Shuffle the combined, deduplicated tracks of multiple selected moods."""
+        mood_ids = [it.data(0, Qt.UserRole) for it in items]
+        tracks = self._load_tracks_for_moods(mood_ids)
+        if tracks is not None:
+            shuffle_and_play(self, self.controller, tracks)
 
     def edit_selected_mood(self):
         """Edit the currently selected mood"""
