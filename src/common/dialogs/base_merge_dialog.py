@@ -28,9 +28,7 @@ from src.foundation.logger_config import logger
 class MergeDBDialog(QDialog):
     """Integrated dialog for searching, selecting, and resolving merge conflicts."""
 
-    def __init__(
-        self, controller, model_name, parent=None, preload_source=None, preload_target=None
-    ):
+    def __init__(self, controller, model_name, parent=None, preload_source=None, preload_target=None):
         super().__init__(parent)
         self.controller = controller
         self.merge_helper = controller.merge
@@ -69,9 +67,7 @@ class MergeDBDialog(QDialog):
 
         # Instructions
         instructions = QLabel(
-            f"Search and select two {self.model_name.lower()} entries to merge. "
-            "The source will be merged into the target and then deleted. "
-            "Use 'Find Similar' to quickly find potential matches."
+            f"Search and select two {self.model_name.lower()} entries to merge. The source will be merged into the target and then deleted. Use 'Find Similar' to quickly find potential matches."
         )
         instructions.setWordWrap(True)
         main_layout.addWidget(instructions)
@@ -98,9 +94,7 @@ class MergeDBDialog(QDialog):
 
         self.source_find_similar_btn = QPushButton("Find Similar")
         self.source_find_similar_btn.clicked.connect(lambda: self._find_similar("source"))
-        self.source_find_similar_btn.setToolTip(
-            f"Find {self.model_name.lower()}s similar to the selected target"
-        )
+        self.source_find_similar_btn.setToolTip(f"Find {self.model_name.lower()}s similar to the selected target")
         self.source_find_similar_btn.setEnabled(False)
         source_search_layout.addWidget(self.source_find_similar_btn)
 
@@ -129,9 +123,7 @@ class MergeDBDialog(QDialog):
 
         self.target_find_similar_btn = QPushButton("Find Similar")
         self.target_find_similar_btn.clicked.connect(lambda: self._find_similar("target"))
-        self.target_find_similar_btn.setToolTip(
-            f"Find {self.model_name.lower()}s similar to the selected source"
-        )
+        self.target_find_similar_btn.setToolTip(f"Find {self.model_name.lower()}s similar to the selected source")
         self.target_find_similar_btn.setEnabled(False)
         target_search_layout.addWidget(self.target_find_similar_btn)
 
@@ -271,9 +263,7 @@ class MergeDBDialog(QDialog):
         for entity in entities:
             entity_name = getattr(entity, self.name_attr, "")
             selected_entity = self.source_entity if hasattr(self, "source_entity") else None
-            if selected_entity is not None and getattr(entity, self.id_attr, None) == getattr(
-                selected_entity, self.id_attr, None
-            ):
+            if selected_entity is not None and getattr(entity, self.id_attr, None) == getattr(selected_entity, self.id_attr, None):
                 continue
 
             score = self._calculate_name_similarity(base_name, entity_name)
@@ -283,10 +273,7 @@ class MergeDBDialog(QDialog):
             entity_tokens = set(self._normalize_name(entity_name).split())
 
             # Boost score if one name contains the other
-            if (
-                base_name_lower in str(entity_name).lower()
-                or str(entity_name).lower() in base_name_lower
-            ):
+            if base_name_lower in str(entity_name).lower() or str(entity_name).lower() in base_name_lower:
                 score = min(score + 0.2, 1.0)
 
             # Boost score for shared significant tokens
@@ -371,9 +358,7 @@ class MergeDBDialog(QDialog):
             selected_name = getattr(selected_entity, self.name_attr, "")
 
             # Use our enhanced similarity finder
-            similar_entities = self._find_similar_entities_by_name(
-                selected_name, entities, limit=10
-            )
+            similar_entities = self._find_similar_entities_by_name(selected_name, entities, limit=10)
 
             list_widget = self.source_list if target_list_type == "source" else self.target_list
 
@@ -382,9 +367,7 @@ class MergeDBDialog(QDialog):
 
             if similar_entities:
                 # Update search field placeholder
-                search_field = (
-                    self.source_search if target_list_type == "source" else self.target_search
-                )
+                search_field = self.source_search if target_list_type == "source" else self.target_search
                 search_field.setPlaceholderText(f"Suggestions for '{selected_name}'")
 
                 # Add suggestions with similarity score
@@ -403,12 +386,8 @@ class MergeDBDialog(QDialog):
                     list_widget.addItem(item)
             else:
                 # Clear search field placeholder
-                search_field = (
-                    self.source_search if target_list_type == "source" else self.target_search
-                )
-                search_field.setPlaceholderText(
-                    f"Search {target_list_type} {self.model_name.lower()}..."
-                )
+                search_field = self.source_search if target_list_type == "source" else self.target_search
+                search_field.setPlaceholderText(f"Search {target_list_type} {self.model_name.lower()}...")
 
         except (AttributeError, RuntimeError) as e:
             logger.error(f"Error in auto-suggest: {e!s}")
@@ -457,13 +436,9 @@ class MergeDBDialog(QDialog):
     def _highlight_selected_entities(self):
         """Highlight the currently selected entities in the lists."""
         if self.source_entity:
-            self._highlight_item_in_list(
-                self.source_list, getattr(self.source_entity, self.id_attr)
-            )
+            self._highlight_item_in_list(self.source_list, getattr(self.source_entity, self.id_attr))
         if self.target_entity:
-            self._highlight_item_in_list(
-                self.target_list, getattr(self.target_entity, self.id_attr)
-            )
+            self._highlight_item_in_list(self.target_list, getattr(self.target_entity, self.id_attr))
 
     def _highlight_item_in_list(self, list_widget, entity_id):
         """Highlight an item in a list widget by entity_id."""
@@ -516,28 +491,15 @@ class MergeDBDialog(QDialog):
 
         if not conflicts:
             # No conflicts found - show direct merge option
-            scroll_layout.addWidget(
-                QLabel(
-                    "<h3>No conflicts detected!</h3>"
-                    f"All fields are identical between the two {self.model_name.lower()}s.<br>"
-                    "You can proceed with the merge directly."
-                )
-            )
+            scroll_layout.addWidget(QLabel(f"<h3>No conflicts detected!</h3>All fields are identical between the two {self.model_name.lower()}s.<br>You can proceed with the merge directly."))
         else:
-            scroll_layout.addWidget(
-                QLabel(
-                    "<h3>Resolve Conflicts</h3>"
-                    "Select which value to keep for each conflicting field:"
-                )
-            )
+            scroll_layout.addWidget(QLabel("<h3>Resolve Conflicts</h3>Select which value to keep for each conflicting field:"))
             scroll_layout.addSpacing(8)
 
             for field, (s_val, t_val) in conflicts.items():
                 # --- Card widget: gives each field a visible box ---
                 card = QWidget()
                 card.setObjectName("conflictCard")
-                # Limit the card width so buttons don't stretch edge-to-edge
-                card.setMaximumWidth(560)
 
                 card_layout = QVBoxLayout(card)
                 card_layout.setSpacing(4)
@@ -554,13 +516,8 @@ class MergeDBDialog(QDialog):
                 source_name = getattr(self.source_entity, self.name_attr, "Source")
                 target_name = getattr(self.target_entity, self.name_attr, "Target")
 
-                s_radio = QRadioButton(_esc_amp(f"Keep Source ({source_name}): {s_display}"))
-                t_radio = QRadioButton(_esc_amp(f"Keep Target ({target_name}): {t_display}"))
-
-                group.addButton(s_radio, 0)
-                group.addButton(t_radio, 1)
-                card_layout.addWidget(s_radio)
-                card_layout.addWidget(t_radio)
+                s_radio = self._add_conflict_option(card_layout, group, 0, f"Keep Source ({source_name}): {s_display}")
+                t_radio = self._add_conflict_option(card_layout, group, 1, f"Keep Target ({target_name}): {t_display}")
 
                 # Default to Target if source is empty, otherwise Source
                 if s_val is None or s_val == "":
@@ -570,11 +527,9 @@ class MergeDBDialog(QDialog):
 
                 self.radio_groups[field] = group
 
-                # Left-align the card instead of stretching it
-                row = QHBoxLayout()
-                row.addWidget(card)
-                row.addStretch()
-                scroll_layout.addLayout(row)
+                # Card fills the available width so long values can wrap
+                # instead of being squeezed by a fixed pixel cap.
+                scroll_layout.addWidget(card)
 
         scroll_layout.addStretch()
         scroll.setWidget(content)
@@ -594,14 +549,34 @@ class MergeDBDialog(QDialog):
         self.stack.addWidget(resolve_page)
         self.stack.setCurrentIndex(1)
 
+    def _add_conflict_option(self, card_layout, group, button_id, text):
+        """Add a radio button paired with a word-wrapped label.
+
+        QRadioButton has no word-wrap support, so long field values would
+        otherwise be silently clipped instead of wrapping onto new lines.
+        """
+        row = QHBoxLayout()
+        row.setSpacing(6)
+
+        radio = QRadioButton()
+        group.addButton(radio, button_id)
+
+        label = QLabel(text)
+        label.setWordWrap(True)
+        label.mousePressEvent = lambda _event, radio=radio: radio.setChecked(True)
+
+        row.addWidget(radio, 0, Qt.AlignTop)
+        row.addWidget(label, 1)
+        card_layout.addLayout(row)
+
+        return radio
+
     def _format_value_for_display(self, value):
         """Format a value for display in the conflict resolution UI."""
         if value is None:
             return "[Empty]"
         if value == "":
             return "[Blank]"
-        if isinstance(value, str) and len(value) > 50:
-            return value[:47] + "..."
         return str(value)
 
     def _is_skippable_field(self, attr, value):
@@ -690,21 +665,12 @@ class MergeDBDialog(QDialog):
                     elif checked == 1:  # Target selected
                         resolved_fields[field] = getattr(self.target_entity, field)
 
-            success = self.merge_helper.merge_entities(
-                self.model_name,
-                getattr(self.source_entity, self.id_attr),
-                getattr(self.target_entity, self.id_attr),
-                resolved_fields,
-            )
+            success = self.merge_helper.merge_entities(self.model_name, getattr(self.source_entity, self.id_attr), getattr(self.target_entity, self.id_attr), resolved_fields)
 
             if success:
                 self.accept()
             else:
-                QMessageBox.warning(
-                    self,
-                    "Merge Failed",
-                    f"Failed to merge {self.model_name.lower()}s. Please check the logs.",
-                )
+                QMessageBox.warning(self, "Merge Failed", f"Failed to merge {self.model_name.lower()}s. Please check the logs.")
 
         except (AttributeError, SQLAlchemyError) as e:
             logger.exception("Error during merge")
