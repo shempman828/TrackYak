@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QUrl, Signal
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
@@ -38,6 +38,11 @@ class InfluenceGraphView(
     panel live in InfluenceGraphLegendMixin (influence_graph_legend.py).
     This class owns widget setup and composes the other four.
     """
+
+    # Emitted whenever node_names changes (a fresh display_global_network
+    # result, or a single artist added incrementally) -- lets InfluencesView
+    # keep its "Find artist" completer in sync without polling.
+    graph_updated = Signal()
 
     def __init__(self, controller):
         super().__init__()

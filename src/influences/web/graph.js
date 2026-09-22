@@ -222,6 +222,29 @@
     }
   };
 
+  // Driven by the toolbar's "Find artist" field (InfluenceGraphView.
+  // focus_artist_by_name): center/zoom on one node and pulse a colored
+  // halo behind it via the same underlay-* properties the hover style
+  // uses, so "found" reads as a stronger version of "hovered" rather than
+  // an unrelated effect.
+  window.focusNode = function (id) {
+    if (!cy) return;
+    const ele = cy.getElementById(id);
+    if (!ele || !ele.length) return;
+    cy.stop();
+    cy.animate({ fit: { eles: ele, padding: 180 } }, { duration: 450, easing: "ease-out-cubic" });
+    ele.stop(true);
+    ele
+      .animate(
+        { style: { "underlay-opacity": 0.55, "underlay-padding": 14, "z-index": 999 } },
+        { duration: 280, easing: "ease-out-cubic" }
+      )
+      .animate(
+        { style: { "underlay-opacity": 0, "underlay-padding": 0, "z-index": 0 } },
+        { duration: 900, easing: "ease-in-cubic" }
+      );
+  };
+
   // Used both for renaming a community's compound label and for
   // refreshing a single artist node's label in place.
   window.setLabel = function (elementId, label) {

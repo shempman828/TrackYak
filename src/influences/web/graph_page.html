@@ -5,7 +5,10 @@
 <title>Influences Graph</title>
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #0b0c10; overflow: hidden; }
-  #cy { width: 100%; height: 100%; display: block; }
+  /* A faint vignette toward the edges gives the canvas some depth instead
+     of a perfectly flat fill -- subtle enough to work over any theme's
+     background color, which is set dynamically in loadGraph(). */
+  #cy { width: 100%; height: 100%; display: block; box-shadow: inset 0 0 180px rgba(0, 0, 0, 0.30); }
   /* Loading scrim over the canvas: shown while Python computes the graph
      off-thread and while a fresh fcose layout settles (initial load and
      every level switch). Visible by default so opening the tab shows it

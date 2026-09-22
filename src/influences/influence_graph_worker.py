@@ -56,7 +56,7 @@ class InfluenceGraphWorkerMixin:
     self._update_node_mass(), self.assign_louvain_communities(),
     self.calculate_influence_scores(), self._resolve_community_names(),
     self._run_js(), self._update_legend(), self._push_graph(),
-    self.debug_size_distribution(),
+    self.debug_size_distribution(), self.graph_updated (Signal),
     and to be a QWidget subclass.
     """
 
@@ -136,11 +136,13 @@ class InfluenceGraphWorkerMixin:
                 "No artists with influence relationships found. "
                 "Add some influence relationships first.",
             )
+            self.graph_updated.emit()
             return
         self._resolve_community_names()
         self._update_legend()
         self._push_graph()
         self.debug_size_distribution()
+        self.graph_updated.emit()
 
     def _on_global_graph_error(self, message):
         self._graph_worker = None

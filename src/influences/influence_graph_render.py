@@ -21,8 +21,8 @@ class InfluenceGraphRenderMixin:
     self._pending_js, self.node_names, self.edges, self.node_mass,
     self.community_id, self.community_names, self.influence_scores,
     self.get_node_size(), self.get_label_font_size(),
-    self.get_community_color(), self.debug_graph_structure(), and to be a
-    QWidget subclass.
+    self.get_community_color(), self.debug_graph_structure(),
+    self.graph_updated (Signal), and to be a QWidget subclass.
     """
 
     # Canvas background per app theme, so the graph doesn't stay a
@@ -50,6 +50,19 @@ class InfluenceGraphRenderMixin:
         else:
             self._pending_js.append(code)
 
+    def focus_artist_by_name(self, name):
+        """Center/zoom on the node whose name matches `name` (case-
+        insensitive, exact) and pulse it, for the toolbar's "Find artist"
+        field. Returns True if a matching node was found."""
+        name = (name or "").strip().lower()
+        if not name:
+            return False
+        for node_id, node_name in self.node_names.items():
+            if node_name.strip().lower() == name:
+                self._run_js(f"focusNode({json.dumps(str(node_id))})")
+                return True
+        return False
+
     # -----------------------
     # Theming
     # -----------------------
@@ -72,11 +85,13 @@ class InfluenceGraphRenderMixin:
             cluster_id = f"c{community_index}"
             if cluster_id not in seen_clusters:
                 seen_clusters.add(cluster_id)
+                cluster_color = self.get_community_color(community_index)
                 elements.append(
                     {
                         "data": {
                             "id": cluster_id,
                             "label": self.community_names.get(community_index, ""),
+                            "color": cluster_color.name(),
                         }
                     }
                 )
@@ -104,10 +119,13 @@ class InfluenceGraphRenderMixin:
                 }
             )
 
-        # Edge opacity by source influence score, matching the original
-        # visual language: important influencers get prominent edges, weak
-        # ones fade out. sqrt eases the curve for large score ranges.
+        # Edge opacity/width/arrow-size by source influence score, matching
+        # the original visual language: important influencers get
+        # prominent edges, weak ones fade out. sqrt eases the curve for
+        # large score ranges.
         MIN_OPACITY, MAX_OPACITY = 0.18, 0.82
+        MIN_WIDTH, MAX_WIDTH = 0.8, 2.6
+        MIN_ARROW, MAX_ARROW = 0.75, 1.15
         max_score = max(self.influence_scores.values()) if self.influence_scores else 0
         for source_id, target_id in self.edges:
             if source_id not in self.node_names or target_id not in self.node_names:
@@ -115,6 +133,7 @@ class InfluenceGraphRenderMixin:
             src_score = self.influence_scores.get(source_id, 0)
             t = (src_score / max_score) ** 0.5 if max_score else 0.0
             opacity = MIN_OPACITY + t * (MAX_OPACITY - MIN_OPACITY)
+            source_color = self.get_community_color(self.community_id.get(source_id, 0))
             arrow_color = self.get_community_color(self.community_id.get(target_id, 0))
             elements.append(
                 {
@@ -123,40 +142,75 @@ class InfluenceGraphRenderMixin:
                         "source": str(source_id),
                         "target": str(target_id),
                         "opacity": opacity,
+                        "width": MIN_WIDTH + t * (MAX_WIDTH - MIN_WIDTH),
+                        "arrowScale": MIN_ARROW + t * (MAX_ARROW - MIN_ARROW),
                         "arrowColor": arrow_color.name(),
+                        # A soft source->target color blend reads as an
+                        # actual connection between two specific clusters,
+                        # rather than every edge sharing one flat accent
+                        # color regardless of which communities it links.
+                        "edgeGradientColors": f"{source_color.name()} {arrow_color.name()}",
                     }
                 }
             )
         return elements
 
-    def _build_stylesheet(self):
+    def _build_stylesheet(self, bg):
         return [
             {
                 "selector": "node:parent",
                 "style": {
-                    "background-opacity": 0,
-                    "border-width": 0,
+                    # Cluster regions used to be fully invisible (just a
+                    # floating label) -- the color grouping only showed up
+                    # once you looked at individual node fills. A soft
+                    # translucent card behind each community, tinted with
+                    # that community's own color, makes the grouping
+                    # readable at a glance instead of implied.
+                    "shape": "round-rectangle",
+                    "corner-radius": 22,
+                    "background-color": "data(color)",
+                    "background-opacity": 0.08,
+                    "border-width": 1.4,
+                    "border-color": "data(color)",
+                    "border-opacity": 0.32,
+                    "padding": 32,
                     "label": "data(label)",
-                    "color": "#8599ea",
-                    "font-size": 11,
+                    # Matching the label color to its own region (instead
+                    # of one fixed accent for every cluster) visually ties
+                    # a cluster's name to its swatch and its nodes.
+                    "color": "data(color)",
+                    "font-size": 12,
+                    "font-weight": 700,
                     "text-valign": "top",
                     "text-halign": "center",
-                    # Compounds are invisible but still hit-testable by
-                    # default, and their bounding box covers most of the
-                    # canvas -- without this, a click-drag meant to pan
-                    # the viewport lands on the compound (nothing visible,
-                    # nothing happens, since nodes are separately locked
-                    # via autoungrabify) instead of reaching the
-                    # background almost everywhere except directly on a
-                    # node. This makes compounds click-through.
+                    "text-margin-y": -8,
+                    # A small pill behind the label lifts it off of
+                    # whatever nodes happen to sit near the region's top
+                    # edge, like a tab on a folder.
+                    "text-background-color": bg,
+                    "text-background-opacity": 0.85,
+                    "text-background-shape": "round-rectangle",
+                    "text-background-padding": 4,
+                    # Compounds are still click-through despite now being
+                    # visible -- their bounding box covers most of the
+                    # canvas, and without this a click-drag meant to pan
+                    # the viewport would land on the region (nodes are
+                    # separately locked via autoungrabify) instead of
+                    # reaching the background.
                     "events": "no",
                 },
             },
             {
                 "selector": "node[parent]",
                 "style": {
+                    # 'auto' makes the corner radius track the node's own
+                    # (smaller) dimension, turning the box into a full
+                    # stadium/pill -- matching the pill-shaped chips used
+                    # throughout the rest of the app (filter chips, type
+                    # chips, "Now Playing" metadata pills) instead of the
+                    # barely-rounded rectangle this used to be.
                     "shape": "round-rectangle",
-                    "corner-radius": 9,
+                    "corner-radius": "auto",
                     # 'label' auto-sizes the box to exactly contain its own
                     # (word-wrapped, per text-wrap below) label. graph.js's
                     # fitNodeLabel tries the full artist name first; if that
@@ -172,12 +226,14 @@ class InfluenceGraphRenderMixin:
                     "width": "label",
                     "height": "label",
                     "padding": 10,
-                    # Soft top-to-bottom gradient instead of a flat fill,
-                    # closer to the original hand-painted glassy look than
-                    # a plain solid rectangle.
+                    # A diagonal gradient plus a faint negative "blacken"
+                    # (a slight overall lighten) reads as a glossy, lit
+                    # pill instead of the flat top-to-bottom fill this had
+                    # before.
                     "background-fill": "linear-gradient",
-                    "background-gradient-direction": "to-bottom",
+                    "background-gradient-direction": "to-bottom-right",
                     "background-gradient-stop-colors": "data(gradientColors)",
+                    "background-blacken": -0.04,
                     "border-width": 1,
                     "border-color": "data(borderColor)",
                     "border-opacity": 0.55,
@@ -206,22 +262,42 @@ class InfluenceGraphRenderMixin:
                     "text-outline-width": 0.6,
                     "text-outline-color": "#ffffff",
                     "text-outline-opacity": 0.25,
+                    # A soft colored halo behind the node, off by default
+                    # and eased in on hover/find below -- the closest
+                    # substitute to a drop-shadow glow this Cytoscape
+                    # build offers (no shadow-* style support), but reads
+                    # the same way at a glance.
+                    "underlay-color": "data(color)",
+                    "underlay-opacity": 0,
+                    "underlay-padding": 0,
+                    "underlay-shape": "round-rectangle",
+                    "transition-property": (
+                        "underlay-opacity, underlay-padding, border-width, border-opacity"
+                    ),
+                    "transition-duration": 120,
                 },
             },
             {
                 "selector": "node[parent].hovered",
-                "style": {"border-width": 2.5, "border-opacity": 1, "border-color": "#ffffff"},
+                "style": {
+                    "underlay-opacity": 0.35,
+                    "underlay-padding": 8,
+                    "border-width": 1.6,
+                    "border-opacity": 0.9,
+                    "z-index": 10,
+                },
             },
             {
                 "selector": "edge",
                 "style": {
                     "curve-style": "bezier",
-                    "width": 1.1,
+                    "width": "data(width)",
                     "line-cap": "round",
-                    "line-color": "#8599ea",
+                    "line-fill": "linear-gradient",
+                    "line-gradient-stop-colors": "data(edgeGradientColors)",
                     "target-arrow-color": "data(arrowColor)",
                     "target-arrow-shape": "triangle-backcurve",
-                    "arrow-scale": 1.0,
+                    "arrow-scale": "data(arrowScale)",
                     "opacity": "data(opacity)",
                 },
             },
@@ -274,11 +350,11 @@ class InfluenceGraphRenderMixin:
         }
 
     def _push_graph(self):
+        bg = self._theme_background()
         elements = json.dumps(self._build_elements())
-        style = json.dumps(self._build_stylesheet())
+        style = json.dumps(self._build_stylesheet(bg))
         layout = json.dumps(self._build_layout_options())
-        bg = json.dumps(self._theme_background())
-        self._run_js(f"loadGraph({elements}, {style}, {layout}, {bg})")
+        self._run_js(f"loadGraph({elements}, {style}, {layout}, {json.dumps(bg)})")
         self.debug_graph_structure()
 
     # -----------------------
@@ -306,6 +382,7 @@ class InfluenceGraphRenderMixin:
             if artist_id in self.node_names:
                 self.node_names[artist_id] = artist_name
                 self._run_js(f"setLabel({json.dumps(str(artist_id))}, {json.dumps(artist_name)})")
+                self.graph_updated.emit()
                 return
 
             self.node_names[artist_id] = artist_name
@@ -332,6 +409,7 @@ class InfluenceGraphRenderMixin:
                 }
             ]
             self._run_js(f"addElements({json.dumps(elements)})")
+            self.graph_updated.emit()
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error adding single artist {artist_id}: {e}")
@@ -349,7 +427,11 @@ class InfluenceGraphRenderMixin:
         self.node_mass[source_id] = self.node_mass.get(source_id, 1) + 1
         self.node_mass[target_id] = self.node_mass.get(target_id, 1) + 1
 
+        source_color = self.get_community_color(self.community_id.get(source_id, 0))
         arrow_color = self.get_community_color(self.community_id.get(target_id, 0))
+        # No influence score for a brand-new relationship yet -- mid-range
+        # opacity/width/arrow-scale, matching _build_elements' t=0.5 point,
+        # until the next full recompute ranks it properly.
         elements = [
             {
                 "data": {
@@ -357,7 +439,10 @@ class InfluenceGraphRenderMixin:
                     "source": str(source_id),
                     "target": str(target_id),
                     "opacity": 0.5,
+                    "width": 1.7,
+                    "arrowScale": 0.95,
                     "arrowColor": arrow_color.name(),
+                    "edgeGradientColors": f"{source_color.name()} {arrow_color.name()}",
                 }
             }
         ]
