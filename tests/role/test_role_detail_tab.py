@@ -26,7 +26,8 @@ class _Controller_dt:
 
 def test_view_artist_tracks_with_no_tracks_shows_status_message(qapp):
     controller = _Controller_dt()
-    tab = RoleDetailTab(controller, role_id=1)
+    tab = RoleDetailTab(controller)
+    tab.role_id = 1
 
     with patch("src.role.role_detail_tab.show_status_message") as mock_status:
         tab.view_artist_tracks(artist_id=1)

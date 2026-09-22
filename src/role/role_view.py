@@ -145,19 +145,12 @@ class RoleView(QWidget):
 
         self.splitter.addWidget(left_container)
 
-        # Right panel: Detail area
-        self.right_panel = QWidget()
-        self.right_panel.setMinimumWidth(250)
-        self.right_layout = QVBoxLayout(self.right_panel)
-        self.right_layout.setContentsMargins(10, 0, 0, 0)
-
-        # Placeholder shown when no role is selected
-        self.detail_placeholder = QLabel("Select a role to view details")
-        self.detail_placeholder.setAlignment(Qt.AlignCenter)
-        self.detail_placeholder.setProperty("textRole", "placeholder")
-        self.right_layout.addWidget(self.detail_placeholder)
-
-        self.splitter.addWidget(self.right_panel)
+        # Right panel: Detail area — a single persistent RoleDetailTab that
+        # is reloaded per selection, rather than recreated (mirrors
+        # PublisherDetailTab / PublisherView).
+        self.detail_tab = RoleDetailTab(self.controller)
+        self.detail_tab.role_link_activated.connect(self._select_role_in_tree)
+        self.splitter.addWidget(self.detail_tab)
 
         # Set initial splitter sizes (2:1 ratio)
         self.splitter.setSizes([400, 200])
@@ -166,9 +159,6 @@ class RoleView(QWidget):
         self.status_bar = QLabel()
         self.status_bar.setAlignment(Qt.AlignCenter)
         self.main_layout.addWidget(self.status_bar)
-
-        # Initialize detail_tab as None
-        self.detail_tab = None
 
     def _create_role_tree(self):
         """Create a unified role tree with common configuration."""
@@ -397,32 +387,8 @@ class RoleView(QWidget):
                 return
 
             role_id = selected.data(0, Qt.UserRole)
-            role = self.controller.get.get_entity_object("Role", role_id=role_id)
-            if not role:
-                logger.error(f"Role with ID {role_id} not found")
-                self._clear_detail_view()
-                return
-
             self.current_role_id = role_id
-
-            # Remove the placeholder
-            if self.detail_placeholder:
-                self.detail_placeholder.setParent(None)
-                self.detail_placeholder = None
-
-            # Create or update the detail tab. It always loads both album and
-            # track assignments for the role, regardless of which are present.
-            if not self.detail_tab:
-                self.detail_tab = RoleDetailTab(self.controller, role.role_id)
-                self.right_layout.addWidget(self.detail_tab)
-            else:
-                # If detail tab exists but is in wrong parent, move it
-                if self.detail_tab.parent() != self.right_panel:
-                    self.detail_tab.setParent(None)
-                    self.right_layout.addWidget(self.detail_tab)
-
-                self.detail_tab.role_id = role.role_id
-                self.detail_tab._load_data()
+            self.detail_tab.load_role_data(role_id)
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error handling role selection: {e!s}", exc_info=True)
@@ -431,18 +397,43 @@ class RoleView(QWidget):
     def _clear_detail_view(self):
         """Reset the detail view to empty state."""
         self.current_role_id = None
+        self.detail_tab.show_empty_state()
 
-        # Remove the detail tab if it exists
-        if self.detail_tab:
-            self.detail_tab.setParent(None)
-            self.detail_tab = None
+    def _select_role_in_tree(self, role_id):
+        """Select `role_id`'s tree item, expanding its ancestors as needed.
 
-        # Restore the placeholder if not already present
-        if not self.detail_placeholder:
-            self.detail_placeholder = QLabel("Select a role to view details")
-            self.detail_placeholder.setAlignment(Qt.AlignCenter)
-            self.detail_placeholder.setProperty("textRole", "placeholder")
-            self.right_layout.addWidget(self.detail_placeholder)
+        Connected to RoleDetailTab.role_link_activated, so clicking a
+        parent-role link or sub-role row in the detail pane jumps the tree
+        selection there (which in turn reloads the detail pane).
+        """
+        item = self._find_role_item(role_id)
+        if not item:
+            return
+        parent = item.parent()
+        while parent:
+            parent.setExpanded(True)
+            parent = parent.parent()
+        self.role_tree.setCurrentItem(item)
+        self.role_tree.scrollToItem(item)
+
+    def _find_role_item(self, role_id):
+        """Recursively search the role tree for the item holding `role_id`."""
+
+        def _search(item):
+            if item.data(0, Qt.UserRole) == role_id:
+                return item
+            for i in range(item.childCount()):
+                found = _search(item.child(i))
+                if found:
+                    return found
+            return None
+
+        root = self.role_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            found = _search(root.child(i))
+            if found:
+                return found
+        return None
 
     # -----------------------------------------------------------------------
     # Search / filter

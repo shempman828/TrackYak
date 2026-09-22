@@ -1824,6 +1824,39 @@ PublisherDetailTab QLabel#PlaceLabel {
     color: #7a82a8;
 }
 
+/* ── SPECIAL: Role detail pane (RoleDetailTab) ───────────────────────────────── */
+RoleDetailTab QLabel#RoleName {
+    font-size: 22px;
+    font-weight: bold;
+    color: #b8c0f0;
+}
+
+RoleDetailTab QLabel#RoleDescription {
+    font-size: 13px;
+    color: #c8cbe0;
+}
+
+RoleDetailTab QLabel#RoleMeta {
+    font-size: 12px;
+    color: #7a82a8;
+}
+
+RoleDetailTab QPushButton#RoleParentLink,
+RoleDetailTab QPushButton#RoleSubroleLink {
+    font-size: 12px;
+    color: #8599ea;
+    background-color: #1a1b26;
+    border: 1px solid #1e1f2b;
+    border-radius: 10px;
+    padding: 3px 10px;
+}
+
+RoleDetailTab QPushButton#RoleParentLink:hover,
+RoleDetailTab QPushButton#RoleSubroleLink:hover {
+    background-color: #23253a;
+    color: #b8c0f0;
+}
+
 /* =============================================================================
    MIGRATED INLINE STYLES
    Rules moved here from widget.setStyleSheet() calls in Python so they
