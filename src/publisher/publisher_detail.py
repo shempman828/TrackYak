@@ -1,9 +1,11 @@
 import html
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.widgets.detail_card import DetailCard
+from src.common.widgets.layout_utils import clear_layout
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.publisher.publisher_albums import PublisherAlbumsWindow
@@ -12,7 +14,8 @@ from src.track.view.base_track_view import BaseTrackView
 
 
 class PublisherDetailTab(QWidget):
-    """Modern detail view with card-based layout."""
+    """Article-style detail view: an overview card, plus a places card
+    that only appears when the publisher actually has places to show."""
 
     # Emitted after an album is edited from the "View Albums" popup, so the
     # owning publisher tree (whose per-node album counts are otherwise left
@@ -27,129 +30,88 @@ class PublisherDetailTab(QWidget):
         self.show_empty_state()
 
     def init_ui(self):
-        """Initialize modern card-based UI."""
+        """Initialize the card-based UI."""
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
 
-        # Main scroll area
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_content = QWidget()
         self.scroll_layout = QVBoxLayout(self.scroll_content)
         self.scroll_layout.setAlignment(Qt.AlignTop)
+        self.scroll_layout.setSpacing(14)
         self.scroll_area.setWidget(self.scroll_content)
         layout.addWidget(self.scroll_area)
 
-        # Empty state widget
         self.empty_state = QLabel("Select a publisher to view details")
         self.empty_state.setAlignment(Qt.AlignCenter)
-
         self.scroll_layout.addWidget(self.empty_state)
 
-        self.info_card = self.create_info_card()
-        self.places_card = self.create_places_card()
-
-        # Initially hide detail cards
+        self.info_card = self._build_info_card()
+        self.scroll_layout.addWidget(self.info_card)
         self.info_card.hide()
+
+        self.places_card = self._build_places_card()
+        self.scroll_layout.addWidget(self.places_card)
         self.places_card.hide()
 
-    def create_info_card(self):
-        """Create publisher information card."""
-        card = QFrame()
-        card.setFrameStyle(QFrame.StyledPanel)
+        self.scroll_layout.addStretch()
 
-        layout = QVBoxLayout(card)
+    def _build_info_card(self):
+        """Create the publisher overview card: name, years/status, album
+        count, description, and actions."""
+        card = DetailCard("Overview")
 
-        # Header with basic info
-        header_layout = QHBoxLayout()
-
-        # Basic info
-        info_layout = QVBoxLayout()
         self.name_label = QLabel()
+        self.name_label.setObjectName("PublisherName")
+        self.name_label.setWordWrap(True)
+        card.body.addWidget(self.name_label)
 
-        info_layout.addWidget(self.name_label)
-
-        # Status and years
-        status_layout = QHBoxLayout()
-        self.status_label = QLabel()
+        # Years and active/inactive status folded into one line rather than
+        # a separate status field: "1996-Current" or "1996-2008".
         self.years_label = QLabel()
-        status_layout.addWidget(self.status_label)
-        status_layout.addWidget(QLabel("•"))
-        status_layout.addWidget(self.years_label)
-        status_layout.addStretch()
-        info_layout.addLayout(status_layout)
+        self.years_label.setObjectName("PublisherYears")
+        card.body.addWidget(self.years_label)
 
-        # Track count
         self.tracks_label = QLabel()
-        info_layout.addWidget(self.tracks_label)
+        self.tracks_label.setObjectName("PublisherMeta")
+        card.body.addWidget(self.tracks_label, alignment=Qt.AlignLeft)
 
-        info_layout.addStretch()
-        header_layout.addLayout(info_layout)
-        layout.addLayout(header_layout)
-
-        # Description
-        layout.addWidget(QLabel("Description:"))
         self.description_label = QLabel()
+        self.description_label.setObjectName("PublisherDescription")
         self.description_label.setWordWrap(True)
+        card.body.addWidget(self.description_label)
 
-        layout.addWidget(self.description_label)
-
-        # Action buttons
         button_layout = QHBoxLayout()
         self.associations_btn = QPushButton("View Albums")
         self.associations_btn.clicked.connect(self._open_albums_window)
         self.tracks_button = QPushButton("View Tracks")
         self.tracks_button.clicked.connect(self.show_tracks)
-
         button_layout.addWidget(self.associations_btn)
         button_layout.addWidget(self.tracks_button)
         button_layout.addStretch()
-        layout.addLayout(button_layout)
+        card.body.addLayout(button_layout)
 
         return card
 
-    def create_places_card(self):
-        """Create places association card."""
-        card = QFrame()
-        card.setFrameStyle(QFrame.StyledPanel)
-
-        layout = QVBoxLayout(card)
-        layout.addWidget(QLabel("Associated Places"))
-
-        self.places_list = QListWidget()
-        layout.addWidget(self.places_list)
-
+    def _build_places_card(self):
+        """Create the places card. Populated (and shown/hidden) by
+        `_load_publisher_places`."""
+        card = DetailCard("Places")
+        self.places_layout = card.body
         return card
 
     def show_empty_state(self):
         """Show empty state when no publisher is selected."""
         self.empty_state.show()
-
-        # Remove cards from layout if they exist
-        for card in [self.info_card, self.places_card]:
-            if card.parent() == self.scroll_content:
-                self.scroll_layout.removeWidget(card)
-                card.hide()
+        self.info_card.hide()
+        self.places_card.hide()
 
     def show_detail_cards(self):
-        """Show all detail cards in the correct order."""
+        """Show the overview card. The places card's visibility is decided
+        by `_load_publisher_places` based on whether there's data for it."""
         self.empty_state.hide()
-
-        # Clear existing widgets (except empty state)
-        for i in reversed(range(self.scroll_layout.count())):
-            widget = self.scroll_layout.itemAt(i).widget()
-            if widget and widget != self.empty_state:
-                self.scroll_layout.removeWidget(widget)
-                widget.hide()
-
-        # Add cards in order
-        self.scroll_layout.addWidget(self.info_card)
         self.info_card.show()
-
-        self.scroll_layout.addWidget(self.places_card)
-        self.places_card.show()
-
-        # Add stretch to push content to top
-        self.scroll_layout.addStretch()
 
     def load_publisher_data(self, publisher_id):
         """Load and display publisher data."""
@@ -196,46 +158,56 @@ class PublisherDetailTab(QWidget):
         else:
             self.name_label.setText(publisher.publisher_name)
 
-        # Status and years
-        status = "Active" if publisher.is_active == 1 else "Inactive"
-        self.status_label.setText(f"Status: {status}")
-
-        years_text = ""
-        if publisher.begin_year:
-            years_text += str(publisher.begin_year)
-        if publisher.end_year:
-            years_text += f" - {publisher.end_year}"
-        self.years_label.setText(years_text or "Years not specified")
+        self.years_label.setText(self._format_years(publisher))
 
         albums = get_publisher_albums(self.controller, publisher.publisher_id)
         album_count = len(albums)
-        self.tracks_label.setText(f"Albums: {album_count}")
+        self.tracks_label.setText(f"{album_count} album{'s' if album_count != 1 else ''}")
         self.associations_btn.setText(f"View Albums ({album_count})")
 
         # Description
         desc = publisher.description or "No description available"
         self.description_label.setText(desc)
 
+    @staticmethod
+    def _format_years(publisher):
+        """Fold active/inactive status into the year range instead of
+        giving status its own field: "1996-Current", "1996-2008",
+        "1996-" (inactive, no end year), or plain status if no years."""
+        if not publisher.begin_year:
+            return "Active" if publisher.is_active == 1 else "Inactive"
+        if publisher.is_active == 1:
+            return f"{publisher.begin_year}–Current"  # noqa: RUF001 (en-dash range separator)
+        if publisher.end_year:
+            return f"{publisher.begin_year}–{publisher.end_year}"  # noqa: RUF001 (en-dash range separator)
+        return f"{publisher.begin_year}–"  # noqa: RUF001 (en-dash range separator)
+
     def _load_publisher_places(self, publisher_id):
-        """Load and display associated places."""
-        self.places_list.clear()
+        """Load associated places, each labeled with its association type
+        (e.g. "Headquartered In: Nashville, TN"). Hides the card entirely
+        when there are none."""
+        clear_layout(self.places_layout)
+        rows = []
         try:
-            # CORRECT: Get PlaceAssociation entities with proper filtering
             publisher_places = self.controller.get.get_all_entities("PlaceAssociation", entity_type="Publisher", entity_id=publisher_id)
 
-            if not publisher_places:
-                self.places_list.addItem("No places associated")
-                return
-
-            for place_assoc in publisher_places:
+            for place_assoc in publisher_places or []:
                 place = self.controller.get.get_entity_object("Place", place_id=place_assoc.place_id)
-                if place:
-                    item = QListWidgetItem(place.place_name)
-                    self.places_list.addItem(item)
+                if not place:
+                    continue
+                type_name = place_assoc.association_type.type_name if place_assoc.association_type else "Associated"
+                rows.append((type_name, place.place_name))
 
         except SQLAlchemyError as e:
             logger.error(f"Error loading places: {e!s}")
-            self.places_list.addItem("Error loading places")
+
+        for type_name, place_name in rows:
+            label = QLabel(f"{type_name}: {place_name}")
+            label.setObjectName("PlaceLabel")
+            label.setWordWrap(True)
+            self.places_layout.addWidget(label)
+
+        self.places_card.setVisible(bool(rows))
 
     def show_tracks(self):
         """Show all tracks associated with this publisher using BaseTrackView."""

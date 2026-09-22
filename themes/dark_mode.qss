@@ -1779,6 +1779,51 @@ ArtistDetailTab QPushButton#TocChip:hover {
     color: #b8c0f0;
 }
 
+/* ── SPECIAL: Detail card (DetailCard, shared by entity detail panes) ───────── */
+QFrame#DetailCard {
+    background-color: #1a1b26;
+    border: 1px solid #1e1f2b;
+    border-radius: 8px;
+}
+
+QFrame#DetailCard QLabel#DetailCardTitle {
+    font-size: 13px;
+    font-weight: 600;
+    color: #7d84ad;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #1e1f2b;
+}
+
+/* ── SPECIAL: Publisher detail pane (PublisherDetailTab) ─────────────────────── */
+PublisherDetailTab QLabel#PublisherName {
+    font-size: 22px;
+    font-weight: bold;
+    color: #b8c0f0;
+}
+
+PublisherDetailTab QLabel#PublisherYears {
+    font-size: 14px;
+    color: #7a82a8;
+}
+
+PublisherDetailTab QLabel#PublisherMeta {
+    font-size: 12px;
+    color: #b8c0f0;
+    padding: 2px 6px;
+    background-color: #12131c;
+    border-radius: 4px;
+}
+
+PublisherDetailTab QLabel#PublisherDescription {
+    font-size: 13px;
+    color: #c8cbe0;
+}
+
+PublisherDetailTab QLabel#PlaceLabel {
+    font-size: 13px;
+    color: #7a82a8;
+}
+
 /* =============================================================================
    MIGRATED INLINE STYLES
    Rules moved here from widget.setStyleSheet() calls in Python so they
