@@ -1,6 +1,4 @@
-"""
-base_album_edit.py
-"""
+"""base_album_edit.py"""
 
 import sqlite3
 from typing import ClassVar
@@ -26,20 +24,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm.exc import DetachedInstanceError
 
 from src.album.album_components import AlbumUIComponents
 from src.album.album_cover_art_mixin import AlbumCoverArtMixin
 from src.album.album_editing_relationship_helpers import RelationshipHelpers
 from src.album.album_tab import AlbumTabBuilder
-from src.album.edit.base_album_edit_tabs import (
-    AdvancedTab,
-    AliasesTab,
-    ArtworkTab,
-    DetailsTab,
-    GenresTab,
-    TrackCreditsTab,
-    TracksTab,
-)
+from src.album.edit.base_album_edit_tabs import AdvancedTab, AliasesTab, ArtworkTab, DetailsTab, GenresTab, TrackCreditsTab, TracksTab
 from src.album.musicbrainz.album_musicbrainz_mixin import AlbumMusicBrainzMixin
 from src.album.release_type_utils import RELEASE_TYPE_SUGGESTIONS, normalize_release_type
 from src.common.edit_dirty import value_changed
@@ -53,38 +44,13 @@ from src.track.edit.track_edit_roles import RolesTab
 
 # Fallback suggestions used if the controller can't supply distinct values
 # already present in the database.
-ALBUM_LANGUAGE_SUGGESTIONS = [
-    "English",
-    "French",
-    "German",
-    "Italian",
-    "Spanish",
-    "Portuguese",
-    "Japanese",
-    "Korean",
-    "Chinese",
-    "Russian",
-    "Instrumental",
-    "Multiple",
-]
+ALBUM_LANGUAGE_SUGGESTIONS = ["English", "French", "German", "Italian", "Spanish", "Portuguese", "Japanese", "Korean", "Chinese", "Russian", "Instrumental", "Multiple"]
 # RELEASE_TYPE_SUGGESTIONS lives in release_type_utils.py alongside the
 # normalization helper, since both need the same canonical casing.
 STATUS_SUGGESTIONS = ["Official", "Promotional", "Bootleg", "Withdrawn", "Expunged", "Cancelled"]
 # MusicBrainz's common `format` values -- the completer merges these with
 # whatever's already used across the library (see _fetch_field_suggestions).
-MEDIA_FORMAT_SUGGESTIONS = [
-    "CD",
-    '12" Vinyl',
-    '7" Vinyl',
-    "Vinyl",
-    "Digital Media",
-    "Cassette",
-    "SACD",
-    "Hybrid SACD",
-    "DVD-Video",
-    "DVD-Audio",
-    "Blu-ray",
-]
+MEDIA_FORMAT_SUGGESTIONS = ["CD", '12" Vinyl', '7" Vinyl', "Vinyl", "Digital Media", "Cassette", "SACD", "Hybrid SACD", "DVD-Video", "DVD-Audio", "Blu-ray"]
 
 
 # =============================================================================
@@ -98,17 +64,17 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
     Tabs
     ────
-    Details          – core metadata (language, type, catalog #, live/compilation flags, sales, MBID, Wikipedia link)
-    Tracks           – DiscTabView for disc / track structure
-    Artwork          – front cover, rear cover, liner art with pickers
-    Aliases          – add / remove / type album aliases
-    Genres           – genres common to all album tracks; edits trickle down to every track
-    Track Credits    – artist/role credits common to all album tracks; edits trickle down
+    Details          - core metadata (language, type, catalog #, live/compilation flags, sales, MBID, Wikipedia link)
+    Tracks           - DiscTabView for disc / track structure
+    Artwork          - front cover, rear cover, liner art with pickers
+    Aliases          - add / remove / type album aliases
+    Genres           - genres common to all album tracks; edits trickle down to every track
+    Track Credits    - artist/role credits common to all album tracks; edits trickle down
                        to every track; a credit can be converted to an album-level credit
-    Album credit     – relationship helpers (built by AlbumTabBuilder)
-    Publishers & Places – relationship helpers (built by AlbumTabBuilder)
-    Awards           – relationship helpers (built by AlbumTabBuilder)
-    Advanced         – metadata-complete flag, ReplayGain, library stats
+    Album credit     - relationship helpers (built by AlbumTabBuilder)
+    Publishers & Places - relationship helpers (built by AlbumTabBuilder)
+    Awards           - relationship helpers (built by AlbumTabBuilder)
+    Advanced         - metadata-complete flag, ReplayGain, library stats
     """
 
     # Caches shared across all AlbumEditor instances/openings so the (expensive)
@@ -175,12 +141,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             if field_config.type is int and field_name in NULLABLE_INT_FIELDS:
                 min_val = field_config.min if field_config.min is not None else 0
                 max_val = field_config.max if field_config.max is not None else 9_999_999
-                widget = create_nullable_int_field(
-                    min_val=int(min_val),
-                    max_val=int(max_val),
-                    current_value=current_value,
-                    group_separator=(field_name == "estimated_sales"),
-                )
+                widget = create_nullable_int_field(min_val=int(min_val), max_val=int(max_val), current_value=current_value, group_separator=(field_name == "estimated_sales"))
             else:
                 widget = AlbumUIComponents.create_editable_field(field_config, current_value)
             self.field_widgets[field_name] = widget
@@ -223,16 +184,12 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
     def _get_album_language_suggestions(self):
         if AlbumEditor._album_language_cache is None:
-            AlbumEditor._album_language_cache = self._fetch_field_suggestions(
-                "album_language", ALBUM_LANGUAGE_SUGGESTIONS
-            )
+            AlbumEditor._album_language_cache = self._fetch_field_suggestions("album_language", ALBUM_LANGUAGE_SUGGESTIONS)
         return AlbumEditor._album_language_cache
 
     def _get_release_type_suggestions(self):
         if AlbumEditor._release_type_cache is None:
-            AlbumEditor._release_type_cache = self._fetch_field_suggestions(
-                "release_type", RELEASE_TYPE_SUGGESTIONS
-            )
+            AlbumEditor._release_type_cache = self._fetch_field_suggestions("release_type", RELEASE_TYPE_SUGGESTIONS)
         return AlbumEditor._release_type_cache
 
     def _get_status_suggestions(self):
@@ -242,9 +199,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
     def _get_media_format_suggestions(self):
         if AlbumEditor._media_format_cache is None:
-            AlbumEditor._media_format_cache = self._fetch_field_suggestions(
-                "media_format", MEDIA_FORMAT_SUGGESTIONS
-            )
+            AlbumEditor._media_format_cache = self._fetch_field_suggestions("media_format", MEDIA_FORMAT_SUGGESTIONS)
         return AlbumEditor._media_format_cache
 
     def _fetch_field_suggestions(self, field_name, fallback):
@@ -331,9 +286,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     def _build_cover_widget(self):
         """Cover thumbnail only — no Change Cover button (use Artwork tab)."""
         widget = QWidget()
-        widget.setSizePolicy(
-            QSizePolicy.Fixed, QSizePolicy.Fixed
-        )  # FIX: prevent horizontal stretch
+        widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)  # FIX: prevent horizontal stretch
         layout = QVBoxLayout(widget)
         layout.setAlignment(Qt.AlignTop)
 
@@ -357,9 +310,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     def _build_info_section(self):
         """Right-hand side of the header: title, subtitle, artists, date, description, links."""
         widget = QWidget()
-        widget.setSizePolicy(
-            QSizePolicy.Expanding, QSizePolicy.Fixed
-        )  # FIX: prevent vertical stretch
+        widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # FIX: prevent vertical stretch
         layout = QVBoxLayout(widget)
         layout.setSpacing(6)
 
@@ -387,11 +338,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
         date_group = QHBoxLayout()
         date_group.setSpacing(12)
         date_group.addWidget(QLabel("Released:"))
-        for field, label_text in (
-            ("release_year", "Year"),
-            ("release_month", "Month"),
-            ("release_day", "Day"),
-        ):
+        for field, label_text in (("release_year", "Year"), ("release_month", "Month"), ("release_day", "Day")):
             w = self.field_widgets.get(field)
             if w:
                 col = QVBoxLayout()
@@ -489,10 +436,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             self._links_row.insertWidget(insert_idx, self._mb_btn)
 
             self._reimport_btn = QPushButton("🔄 Reimport from MusicBrainz")
-            self._reimport_btn.setToolTip(
-                "Re-fetch this release from MusicBrainz and check for metadata "
-                "changes since the last import."
-            )
+            self._reimport_btn.setToolTip("Re-fetch this release from MusicBrainz and check for metadata changes since the last import.")
             self._reimport_btn.clicked.connect(self._reimport_musicbrainz)
             self._links_row.insertWidget(insert_idx + 1, self._reimport_btn)
 
@@ -533,37 +477,22 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
             return
         alias_type = self.new_alias_type.text().strip() or None
         try:
-            self.controller.add.add_entity(
-                "AlbumAlias",
-                album_id=self.album.album_id,
-                alias_name=alias_name,
-                alias_type=alias_type,
-            )
+            self.controller.add.add_entity("AlbumAlias", album_id=self.album.album_id, alias_name=alias_name, alias_type=alias_type)
             self.new_alias_name.clear()
             self.new_alias_type.clear()
-            self.album = self.controller.get.get_entity_object(
-                "Album", album_id=self.album.album_id
-            )
+            self.album = self.controller.get.get_entity_object("Album", album_id=self.album.album_id)
             self._refresh_aliases_list()
         except SQLAlchemyError as e:
             logger.exception("Failed to add album alias")
             QMessageBox.critical(self, "Error", f"Could not add alias: {e}")
 
     def _remove_alias(self, alias):
-        confirm = QMessageBox.question(
-            self,
-            "Remove Alias",
-            f"Remove alias '{getattr(alias, 'alias_name', alias)}'?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        confirm = QMessageBox.question(self, "Remove Alias", f"Remove alias '{getattr(alias, 'alias_name', alias)}'?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if confirm != QMessageBox.Yes:
             return
         try:
             self.controller.delete.delete_entity("AlbumAlias", alias.alias_id)
-            self.album = self.controller.get.get_entity_object(
-                "Album", album_id=self.album.album_id
-            )
+            self.album = self.controller.get.get_entity_object("Album", album_id=self.album.album_id)
             self._refresh_aliases_list()
         except SQLAlchemyError as e:
             logger.exception("Failed to remove album alias")
@@ -591,14 +520,17 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     # =========================================================================
 
     def closeEvent(self, event):
-        if self._has_unsaved_changes():
-            reply = QMessageBox.question(
-                self,
-                "Unsaved Changes",
-                "You have unsaved changes. Close without saving?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
+        try:
+            has_changes = self._has_unsaved_changes()
+        except DetachedInstanceError:
+            # The DB session can already be closed here if the whole app is
+            # shutting down (MainWindow.closeEvent closes it before this
+            # dialog's closeEvent fires). Nothing to compare or save then.
+            logger.info("Album is detached from its session; closing without unsaved-changes check")
+            event.accept()
+            return
+        if has_changes:
+            reply = QMessageBox.question(self, "Unsaved Changes", "You have unsaved changes. Close without saving?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.No:
                 event.ignore()
                 return
@@ -659,12 +591,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     # Genres and Track Credits also both snapshot self.album.tracks at
     # build time, so a track added/removed on the Tracks tab (see
     # DiscTabView.tracks_changed) makes them stale the same way.
-    _ALWAYS_REFRESHED_TABS: ClassVar[tuple[str, ...]] = (
-        "Publishers && Places",
-        "Album credit",
-        "Track Credits",
-        "Genres",
-    )
+    _ALWAYS_REFRESHED_TABS: ClassVar[tuple[str, ...]] = ("Publishers && Places", "Album credit", "Track Credits", "Genres")
 
     def refresh_view(self):
         """Called by RelationshipHelpers after any relationship change.
@@ -735,9 +662,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     def _capture_scroll_positions(widget: QWidget) -> list[int]:
         """Return the vertical scroll value of every scroll area in widget,
         in traversal order, so it can be reapplied to a rebuilt replacement."""
-        return [
-            area.verticalScrollBar().value() for area in widget.findChildren(QAbstractScrollArea)
-        ]
+        return [area.verticalScrollBar().value() for area in widget.findChildren(QAbstractScrollArea)]
 
     @staticmethod
     def _restore_scroll_positions(widget: QWidget, positions: list[int]):
@@ -752,7 +677,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
 
         def _apply():
             areas = widget.findChildren(QAbstractScrollArea)
-            for area, value in zip(areas, positions):
+            for area, value in zip(areas, positions, strict=False):
                 area.verticalScrollBar().setValue(value)
 
         QTimer.singleShot(0, _apply)
@@ -856,12 +781,7 @@ class AlbumEditor(AlbumCoverArtMixin, AlbumMusicBrainzMixin, QDialog):
     def get_album_place_associations(self):
         """Return place associations for the current album."""
         try:
-            return (
-                self.controller.get.get_all_entities(
-                    "PlaceAssociation", entity_id=self.album.album_id, entity_type="Album"
-                )
-                or []
-            )
+            return self.controller.get.get_all_entities("PlaceAssociation", entity_id=self.album.album_id, entity_type="Album") or []
         except SQLAlchemyError as e:
             logger.error(f"Error loading place associations: {e}")
             return []
