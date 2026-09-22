@@ -9,6 +9,12 @@ class _Track:
     def __init__(self, track_id):
         self.track_id = track_id
         self.track_name = f"Track {track_id}"
+        # BaseTrackView now renders the full TRACK_FIELDS column set (shared
+        # with TrackView) rather than a hardcoded few, so a stand-in track
+        # needs the attributes those columns read even when unset.
+        self.album_id = None
+        self.disc_id = None
+        self.artist_roles = []
 
 
 class _Association:

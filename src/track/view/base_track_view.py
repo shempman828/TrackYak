@@ -3,21 +3,9 @@
 import csv
 import random
 
-from PySide6.QtCore import QMimeData, QRegularExpression, QSortFilterProxyModel, Qt, Signal
-from PySide6.QtGui import QAction, QDrag, QStandardItem, QStandardItemModel
-from PySide6.QtWidgets import (
-    QDialog,
-    QFileDialog,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QMenu,
-    QMessageBox,
-    QPushButton,
-    QTableView,
-    QVBoxLayout,
-)
+from PySide6.QtCore import QMimeData, Qt, Signal
+from PySide6.QtGui import QAction, QDrag, QKeySequence, QShortcut, QStandardItemModel
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QTableView, QToolButton, QVBoxLayout
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.dialogs.delete_confirmation import confirm_delete_with_file_option
@@ -27,15 +15,26 @@ from src.foundation.censor import censor_text
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.track.track_edit import MultiTrackEditDialog, TrackEditDialog
+from src.track.view.track_view_columns import TrackViewColumnsMixin
+from src.track.view.track_view_data import TrackViewDataMixin
+from src.track.view.track_view_filter import SEARCH_ALL
+from src.track.view.track_view_search import TrackViewSearchMixin
 
 
-class BaseTrackView(QDialog):
+class BaseTrackView(QDialog, TrackViewColumnsMixin, TrackViewDataMixin, TrackViewSearchMixin):
     """Base reusable view for listing tracks.
 
     Takes in any number of track objects for table list display.
+
+    Column setup/customization/persistence (TrackViewColumnsMixin) and
+    background search/sort/lookup-caching (TrackViewDataMixin,
+    TrackViewSearchMixin) are shared with the main library TrackView, so
+    both stay in feature parity instead of drifting apart. Everything
+    dialog-specific -- the fixed-list constructor, CSV export, the
+    shuffle-and-play button, the persistent context menu, and optional
+    drag/drop -- stays local to this class.
     """
 
-    LAZY_BATCH_SIZE = 100
     track_deleted = Signal(int)
 
     def __init__(self, controller, tracks, title="Tracks", enable_drag=False, enable_drop=False):
@@ -56,42 +55,61 @@ class BaseTrackView(QDialog):
         self.enable_drag = enable_drag
         self.enable_drop = enable_drop
 
-        # Lazy loading state
+        # Lazy loading / search / sort state (shared mixins read these)
         self._all_tracks = []
         self._loaded_count = 0
         self._filter_active = False
         self._filtered_tracks = []
+        self._tracks_loaded = False
+        self._filter_worker = None
+        self._sort_worker = None
+        self._lookup_thread = None
+        self._lookup_worker = None
+        self._artist_name_cache = {}
+        self._artist_sort_cache = {}
+        self._album_cache = {}
+        self._disc_number_cache = {}
+        self._search_field_name = SEARCH_ALL
+        # BaseTrackView's track list is normally small (a mood's tracks, a
+        # duplicate group, ...); scope the bulk lookup-cache queries to it
+        # instead of joining the whole library on every popup open.
+        self._scope_lookup_caches_to_tracks = True
 
         self.setWindowTitle(title)
         self.setMinimumSize(800, 600)
 
-        # Initialize the models FIRST
+        # Initialize the model FIRST
         self.model = QStandardItemModel()
-        self.proxy_model = QSortFilterProxyModel(self)
-        self.columns = {
-            "track_name": "Title",
-            "artist_name": "Artist",
-            "album_name": "Album",
-            "track_number": "#",
-            "duration": "Duration",
-            "release_year": "Year",
-            "bit_rate": "Bit Rate",
-        }
-        self.column_keys = list(self.columns.keys())
+        self.columns = {field_name: field_config.friendly for field_name, field_config in self.track_fields.items() if field_config.friendly}
 
         self.layout = QVBoxLayout(self)
 
-        # Info label
-        self.info_label = QLabel(f"Showing {len(tracks)} tracks")
-        self.layout.addWidget(self.info_label)
+        # Status label. Kept as both names: the shared TrackViewDataMixin
+        # writes to `status_label` (same name TrackView uses); some callers
+        # (mood_dialog.py, playlist_tracks_window.py) reach in via the
+        # original `info_label` name to reparent or update it directly.
+        self.status_label = QLabel(f"Showing {len(tracks)} tracks")
+        self.info_label = self.status_label
+        self.layout.addWidget(self.status_label)
 
-        # Search bar and shuffle button layout
+        # Search bar, column customization, shuffle, and export buttons
         search_layout = QHBoxLayout()
 
         self.search_bar = QLineEdit(self)
         self.search_bar.setPlaceholderText("Search tracks...")
-        self.search_bar.textChanged.connect(self.filter_tracks)
+        self.search_bar.textChanged.connect(lambda _text=None: self._apply_search_filter())
         search_layout.addWidget(self.search_bar)
+
+        # Columns button: show/hide, reorder, resize -- shared with TrackView
+        self.columns_button = QToolButton(self)
+        self.columns_button.setText("⚙ Columns")
+        self.columns_button.setToolTip("Column visibility and order")
+        self.columns_button.setPopupMode(QToolButton.InstantPopup)
+        columns_menu = QMenu(self.columns_button)
+        columns_menu.addAction("Toggle Columns", self.show_column_menu)
+        columns_menu.addAction("Column Order && Visibility", self.show_column_customization)
+        self.columns_button.setMenu(columns_menu)
+        search_layout.addWidget(self.columns_button)
 
         # Shuffle All button
         self.shuffle_button = QPushButton("🔀 Shuffle All")
@@ -111,15 +129,8 @@ class BaseTrackView(QDialog):
 
         # Table setup
         self.table = QTableView(self)
+        self.table.setModel(self.model)
         self._setup_table()  # This creates and configures the table
-
-        # Configure proxy model
-        self.proxy_model.setSourceModel(self.model)
-        self.proxy_model.setFilterCaseSensitivity(Qt.CaseInsensitive)
-        self.proxy_model.setFilterRegularExpression(QRegularExpression())
-        self.proxy_model.setFilterKeyColumn(-1)  # Filter across all columns
-        self.proxy_model.setSortRole(Qt.UserRole)
-        self.table.setModel(self.proxy_model)
         self.table.verticalScrollBar().valueChanged.connect(self._on_scroll)
 
         # Layout
@@ -133,6 +144,12 @@ class BaseTrackView(QDialog):
         # Double-click a row to preview-play that track
         self.table.doubleClicked.connect(self._on_row_double_clicked)
 
+        # Keyboard shortcuts
+        copy_shortcut = QShortcut(QKeySequence.Copy, self.table)
+        copy_shortcut.activated.connect(self._copy_selected_rows)
+        delete_shortcut = QShortcut(QKeySequence.Delete, self.table)
+        delete_shortcut.activated.connect(self._delete_selected_tracks)
+
         # Set up drag and drop if enabled - MOVED TO AFTER TABLE CREATION
         if self.enable_drag:
             self.setup_drag_support()
@@ -143,33 +160,25 @@ class BaseTrackView(QDialog):
         self.load_data(tracks)
 
     def _setup_table(self):
-        """Set up the table with essential columns only."""
-        # Define essential columns to show
-        self.essential_columns = {
-            "track_name": "Title",
-            "artist_name": "Artist",
-            "album_name": "Album",
-            "track_number": "#",
-            "duration": "Duration",
-            "release_year": "Year",
-            "bit_rate": "Bit Rate",
-        }
+        """Set up the table with the full shared column set."""
+        self.model.setColumnCount(len(self.columns))
+        self.model.setHorizontalHeaderLabels(list(self.columns.values()))
 
-        # Set up the model (self.model already initialized)
-        self.model.setColumnCount(len(self.essential_columns))
-        self.model.setHorizontalHeaderLabels(self.essential_columns.values())
+        self.table.setSortingEnabled(False)  # Background SortWorker handles sorting
 
-        # Enable sorting
-        self.table.setSortingEnabled(True)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setStretchLastSection(False)
+        header.setDefaultSectionSize(120)
+        header.setSortIndicatorShown(True)
 
-        # Configure header behavior
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self._sort_column_index = -1
+        self._sort_ascending = True
+        header.sectionClicked.connect(self._on_header_clicked)
 
         # Set selection behavior - ENABLE MULTIPLE SELECTION
         self.table.setSelectionBehavior(QTableView.SelectRows)
-        self.table.setSelectionMode(
-            QTableView.ExtendedSelection
-        )  # Changed from SingleSelection to ExtendedSelection
+        self.table.setSelectionMode(QTableView.ExtendedSelection)  # Changed from SingleSelection to ExtendedSelection
         self.table.setAlternatingRowColors(True)
 
         # Hide vertical headers
@@ -177,6 +186,9 @@ class BaseTrackView(QDialog):
 
         # Make table read-only
         self.table.setEditTriggers(QTableView.NoEditTriggers)
+
+        self._set_initial_column_visibility()
+        self.load_column_state()
 
     def setup_context_menu(self):
         """Set up context menu for track selection."""
@@ -191,9 +203,7 @@ class BaseTrackView(QDialog):
         self.add_to_queue_action.triggered.connect(self.add_selected_to_queue)
 
         self.add_to_queue_next_action = QAction("Add to Queue (Next)", self)
-        self.add_to_queue_next_action.triggered.connect(
-            lambda: self.add_selected_to_queue(insert_next=True)
-        )
+        self.add_to_queue_next_action.triggered.connect(lambda: self.add_selected_to_queue(insert_next=True))
 
         # Edit action - label/enabled state set per-selection in show_context_menu
         self.edit_action = QAction("✏️ Edit Track", self)
@@ -252,8 +262,7 @@ class BaseTrackView(QDialog):
         track_list = self._filtered_tracks if self._filter_active else self._all_tracks
 
         for index in selected_indexes:
-            source_index = self.proxy_model.mapToSource(index)
-            row = source_index.row()
+            row = index.row()
             if 0 <= row < len(track_list):
                 selected_tracks.append(track_list[row])
 
@@ -261,8 +270,7 @@ class BaseTrackView(QDialog):
 
     def _on_row_double_clicked(self, index):
         """Play a short preview of the double-clicked track."""
-        source_index = self.proxy_model.mapToSource(index)
-        row = source_index.row()
+        row = index.row()
         track_list = self._filtered_tracks if self._filter_active else self._all_tracks
         if not (0 <= row < len(track_list)):
             return
@@ -282,6 +290,29 @@ class BaseTrackView(QDialog):
         except (OSError, RuntimeError) as e:
             logger.error(f"Error previewing track: {e}")
 
+    def _copy_selected_rows(self):
+        """Copy the selected rows (visible columns, in visual order) to the clipboard."""
+        selected = self.table.selectionModel().selectedRows()
+        if not selected:
+            return
+
+        header = self.table.horizontalHeader()
+        visual_order = [header.logicalIndex(v) for v in range(header.count()) if not self.table.isColumnHidden(header.logicalIndex(v))]
+
+        column_labels = list(self.columns.values())
+        header_labels = [column_labels[i] for i in visual_order]
+        lines = ["\t".join(header_labels)]
+
+        for index in sorted(selected, key=lambda i: i.row()):
+            row_data = []
+            for col_i in visual_order:
+                item = self.model.item(index.row(), col_i)
+                row_data.append(item.text() if item else "")
+            lines.append("\t".join(row_data))
+
+        QApplication.clipboard().setText("\n".join(lines))
+        logger.debug(f"Copied {len(selected)} row(s) to clipboard")
+
     def add_selected_to_queue(self, insert_next=False):
         """Add selected tracks to the playback queue."""
         selected_tracks = self.get_selected_tracks()
@@ -291,9 +322,7 @@ class BaseTrackView(QDialog):
         queue_manager = getattr(self.controller, "queue_manager", None)
         if not queue_manager:
             # Try to find queue manager in controller
-            if hasattr(self.controller, "mediaplayer") and hasattr(
-                self.controller.mediaplayer, "queue_manager"
-            ):
+            if hasattr(self.controller, "mediaplayer") and hasattr(self.controller.mediaplayer, "queue_manager"):
                 queue_manager = self.controller.mediaplayer.queue_manager
             else:
                 logger.warning("Queue manager not found in controller")
@@ -315,70 +344,13 @@ class BaseTrackView(QDialog):
             return
 
         try:
-            if len(tracks) == 1:
-                dialog = TrackEditDialog(tracks[0], self.controller, self)
-            else:
-                dialog = MultiTrackEditDialog(tracks, self.controller, self)
+            dialog = TrackEditDialog(tracks[0], self.controller, self) if len(tracks) == 1 else MultiTrackEditDialog(tracks, self.controller, self)
             dialog.accepted.connect(lambda: self.load_data(self._all_tracks))
             self._track_edit_dialog = dialog
             dialog.show()
         except RuntimeError as e:
             logger.error(f"Error opening track edit dialog: {e}")
             QMessageBox.warning(self, "Error", f"Failed to open track editor: {e!s}")
-
-    def load_data(self, tracks):
-        """Load tracks with lazy loading - only loads first batch initially."""
-        self.tracks = tracks
-        self._all_tracks = tracks
-        self._filter_active = False
-        self._filtered_tracks = []
-        self._loaded_count = 0
-
-        self.model.setRowCount(0)
-        self._append_next_batch(tracks)
-        self._update_status()
-
-        logger.info(f"Loaded {self._loaded_count} of {len(tracks)} tracks initially")
-
-    def _append_next_batch(self, tracks_to_load):
-        """Append the next batch of tracks to the model."""
-        start_idx = self._loaded_count
-        end_idx = min(start_idx + self.LAZY_BATCH_SIZE, len(tracks_to_load))
-
-        if start_idx >= len(tracks_to_load):
-            return
-
-        for i in range(start_idx, end_idx):
-            track = tracks_to_load[i]
-            row_items = []
-            for db_field in self.columns:
-                value = self._get_track_value(track, db_field)
-                item = QStandardItem(str(value))
-                item.setData(value, Qt.UserRole)
-                row_items.append(item)
-            self.model.appendRow(row_items)
-
-        self._loaded_count = end_idx
-        logger.debug(f"Loaded tracks {start_idx} to {end_idx}")
-
-    def _on_scroll(self, value):
-        """Handle scroll events to trigger lazy loading."""
-        scrollbar = self.table.verticalScrollBar()
-        if value >= scrollbar.maximum() * 0.9:
-            tracks_to_load = self._filtered_tracks if self._filter_active else self._all_tracks
-            if self._loaded_count < len(tracks_to_load):
-                self._append_next_batch(tracks_to_load)
-                self._update_status()
-
-    def _update_status(self):
-        """Update the info label with current loading status."""
-        total = len(self._filtered_tracks) if self._filter_active else len(self._all_tracks)
-        if self._loaded_count < total:
-            self.info_label.setText(
-                f"Showing {self._loaded_count} of {total} tracks (scroll for more)"
-            )
-        else:
-            self.info_label.setText(f"Showing {total} tracks")
 
     def _get_queue_manager(self):
         """Helper to get the queue manager from controller."""
@@ -388,59 +360,32 @@ class BaseTrackView(QDialog):
         return queue_manager
 
     def _get_artist_name(self, track):
-        """Extract artist name from track."""
-        if track.artist_roles:
-            primary_artist = next(
-                (ar for ar in track.artist_roles if ar.role.role_name == "Primary Artist"), None
-            )
-            if primary_artist:
-                return primary_artist.credited_name
-            return track.artist_roles[0].credited_name
-        return "Unknown Artist"
+        """Extract artist name from the bulk-fetched cache (see _build_lookup_caches).
 
-    def _format_value(self, value, db_field, field_config):
-        """Format field value."""
+        Must never fall back to a lazy-loaded `track.artist_roles` relationship
+        access: this is also used as FilterWorker's artist-lookup callback,
+        which runs on a background thread where the ORM session is off-limits.
+        """
+        cache = getattr(self, "_artist_name_cache", None) or {}
+        return cache.get(track.track_id, "Unknown Artist")
+
+    def _format_value(self, value, field_name, field_config):
+        """Format field value for table/CSV display."""
         if value is None:
             return ""
-
-        # Field-specific formatting
-        if db_field in ("track_name", "album_name", "lyrics"):
+        if field_name == "duration" and isinstance(value, (int, float)):
+            total_s = int(value)
+            m, s = divmod(total_s, 60)
+            return f"{m}:{s:02d}"
+        if field_name == "file_size" and isinstance(value, (int, float)):
+            return f"{value / (1024 * 1024):.1f} MB"
+        if field_name in ("track_name", "album_name", "lyrics"):
             return censor_text(str(value))
-
         return str(value)
-
-    def filter_tracks(self, text):
-        """Filter tracks - searches ALL tracks, not just loaded ones."""
-        if not text:
-            self._filter_active = False
-            self._filtered_tracks = []
-            self._loaded_count = 0
-            self.model.setRowCount(0)
-            self._append_next_batch(self._all_tracks)
-            self._update_status()
-            return
-
-        text_lower = text.lower()
-        self._filtered_tracks = []
-
-        for track in self._all_tracks:
-            for db_field in self.columns:
-                value = str(self._get_track_value(track, db_field)).lower()
-                if text_lower in value:
-                    self._filtered_tracks.append(track)
-                    break
-
-        self._filter_active = True
-        self._loaded_count = 0
-        self.model.setRowCount(0)
-        self._append_next_batch(self._filtered_tracks)
-        self._update_status()
 
     def shuffle_all_tracks(self):
         """Shuffle ALL tracks and add them to the queue, then start playing."""
-        tracks_to_shuffle = (
-            self._filtered_tracks.copy() if self._filter_active else self._all_tracks.copy()
-        )
+        tracks_to_shuffle = self._filtered_tracks.copy() if self._filter_active else self._all_tracks.copy()
 
         if not tracks_to_shuffle:
             show_status_message(self, "No tracks available to shuffle.")
@@ -478,9 +423,7 @@ class BaseTrackView(QDialog):
             show_status_message(self, "No tracks available to export.")
             return
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Track List to CSV", "tracks.csv", "CSV Files (*.csv)"
-        )
+        file_path, _ = QFileDialog.getSaveFileName(self, "Export Track List to CSV", "tracks.csv", "CSV Files (*.csv)")
         if not file_path:
             return
 
@@ -491,9 +434,7 @@ class BaseTrackView(QDialog):
                 writer = csv.writer(csv_file)
                 writer.writerow(self.columns.values())
                 for track in tracks_to_export:
-                    writer.writerow(
-                        str(self._get_track_value(track, db_field)) for db_field in self.columns
-                    )
+                    writer.writerow(self._format_value(self._field_value(track, db_field), db_field, self.track_fields.get(db_field)) for db_field in self.columns)
 
             show_status_message(self, f"Exported {len(tracks_to_export)} track(s) to {file_path}")
             logger.info(f"Exported {len(tracks_to_export)} track(s) to CSV: {file_path}")
@@ -567,7 +508,7 @@ class BaseTrackView(QDialog):
             event.ignore()
 
     def dropEvent(self, event):
-        """Handle drop event - to be overridden by subclasses."""
+        """Handle drop event - to be overridden by subclass."""
         if not self.enable_drop or not event.mimeData().hasFormat("application/x-track-id"):
             event.ignore()
             return
@@ -612,27 +553,18 @@ class BaseTrackView(QDialog):
 
         try:
             # Get the current maximum position in the playlist
-            existing_tracks = self.controller.get.get_entity_links(
-                "PlaylistTracks", playlist_id=playlist_id
-            )
+            existing_tracks = self.controller.get.get_entity_links("PlaylistTracks", playlist_id=playlist_id)
             next_position = max([t.position for t in existing_tracks], default=0) + 1
 
             for track_id_str in track_ids:
                 track_id = int(track_id_str)
 
                 # Check if track already exists in playlist
-                existing = self.controller.get.get_entity_links(
-                    "PlaylistTracks", playlist_id=playlist_id, track_id=track_id
-                )
+                existing = self.controller.get.get_entity_links("PlaylistTracks", playlist_id=playlist_id, track_id=track_id)
 
                 if not existing:
                     # Add the track to playlist
-                    if self.controller.add.add_entity_link(
-                        "PlaylistTracks",
-                        playlist_id=playlist_id,
-                        track_id=track_id,
-                        position=next_position,
-                    ):
+                    if self.controller.add.add_entity_link("PlaylistTracks", playlist_id=playlist_id, track_id=track_id, position=next_position):
                         success_count += 1
                         next_position += 1  # Increment for next track
                     else:
@@ -642,20 +574,11 @@ class BaseTrackView(QDialog):
 
             # Show results based on success
             if success_count == len(track_ids):
-                show_status_message(
-                    self, f"All {success_count} track(s) added to playlist successfully!"
-                )
+                show_status_message(self, f"All {success_count} track(s) added to playlist successfully!")
             elif success_count > 0:
-                QMessageBox.warning(
-                    self,
-                    "Partial Success",
-                    f"{success_count} of {len(track_ids)} track(s) added "
-                    "(some might already be in the playlist).",
-                )
+                QMessageBox.warning(self, "Partial Success", f"{success_count} of {len(track_ids)} track(s) added (some might already be in the playlist).")
             else:
-                show_status_message(
-                    self, "No tracks were added (they might already be in the playlist)."
-                )
+                show_status_message(self, "No tracks were added (they might already be in the playlist).")
         except (SQLAlchemyError, ValueError) as e:
             logger.error(f"Error adding tracks to playlist: {e!s}")
             QMessageBox.critical(self, "Error", f"Failed to add tracks to playlist:\n{e!s}")
@@ -675,15 +598,11 @@ class BaseTrackView(QDialog):
                 track_id = int(track_id_str)
 
                 # Check if the track is already associated with this mood
-                existing_associations = self.controller.get.get_entity_links(
-                    "MoodTrackAssociation", mood_id=mood_id, track_id=track_id
-                )
+                existing_associations = self.controller.get.get_entity_links("MoodTrackAssociation", mood_id=mood_id, track_id=track_id)
 
                 if not existing_associations:
                     # Add the track to mood
-                    if self.controller.add.add_entity_link(
-                        "MoodTrackAssociation", mood_id=mood_id, track_id=track_id
-                    ):
+                    if self.controller.add.add_entity_link("MoodTrackAssociation", mood_id=mood_id, track_id=track_id):
                         success_count += 1
                     else:
                         error_messages.append(f"Failed to add track {track_id} to mood")
@@ -693,48 +612,19 @@ class BaseTrackView(QDialog):
 
             # Show results based on success
             if success_count == len(track_ids):
-                show_status_message(
-                    self, f"All {success_count} track(s) added to mood successfully!"
-                )
+                show_status_message(self, f"All {success_count} track(s) added to mood successfully!")
             elif success_count > 0:
                 QMessageBox.warning(
                     self,
                     "Partial Success",
-                    f"{success_count} of {len(track_ids)} track(s) added.\n"
-                    f"Some tracks might already be in this mood:\n"
-                    f"\n".join(error_messages[-3:]),  # Show last 3 errors
+                    f"{success_count} of {len(track_ids)} track(s) added.\nSome tracks might already be in this mood:\n\n".join(error_messages[-3:]),  # Show last 3 errors
                 )
             else:
-                show_status_message(
-                    self, "No tracks were added. All selected tracks are already in this mood."
-                )
+                show_status_message(self, "No tracks were added. All selected tracks are already in this mood.")
 
         except (SQLAlchemyError, ValueError) as e:
             logger.error(f"Error adding tracks to mood: {e!s}")
             QMessageBox.critical(self, "Error", f"Failed to add tracks to mood:\n{e!s}")
-
-    def _get_track_value(self, track, db_field):
-        """Extract value from track object for the given field."""
-        try:
-            # Handle special relationship fields
-            if db_field == "artist_name":
-                return self._get_artist_name(track)
-            if db_field == "album_name":
-                return track.album.album_name if track.album else "Unknown Album"
-            if db_field == "duration":
-                # Return raw duration for sorting, formatted in display
-                return getattr(track, "duration", 0)
-            if db_field == "bit_rate":
-                value = getattr(track, "bit_rate", None)
-                return f"{value} kbps" if value else ""
-            # Direct attribute access
-            value = getattr(track, db_field, "")
-            if value is None:
-                return ""
-            return value
-        except (AttributeError, SQLAlchemyError) as e:
-            logger.debug(f"Error getting value for {db_field}: {e}")
-            return ""
 
     def _delete_selected_tracks(self):
         """Delete selected tracks: DB-only, or DB + audio file(s) from disk."""
@@ -747,26 +637,34 @@ class BaseTrackView(QDialog):
         if count > 3:
             names += f" … and {count - 3} more"
 
-        choice = confirm_delete_with_file_option(
-            self, "Delete Tracks", f"Delete {count} track(s)?\n\n{names}"
-        )
+        choice = confirm_delete_with_file_option(self, "Delete Tracks", f"Delete {count} track(s)?\n\n{names}")
         if choice is None:
             return
         delete_files = choice == "db_and_file"
 
-        deleted_ids = []
-        for track in tracks:
-            try:
-                if delete_files:
-                    file_path = getattr(track, "track_file_path", None)
-                    if file_path:
-                        self.controller.delete.delete_file(file_path=file_path)
+        # Collect file paths BEFORE the DB delete — ORM objects may become stale after.
+        file_paths = []
+        if delete_files:
+            for track in tracks:
+                fp = getattr(track, "track_file_path", None)
+                if fp:
+                    file_paths.append(fp)
 
-                ok = self.controller.delete.delete_entity("Track", track_id=track.track_id)
-                if ok:
-                    deleted_ids.append(track.track_id)
-            except SQLAlchemyError as e:
-                logger.error(f"Error deleting track {track.track_id}: {e}")
+        # Batch delete from DB (single query via entity_ids)
+        entity_ids = [track.track_id for track in tracks]
+        ok = self.controller.delete.delete_entity("Track", entity_ids=entity_ids)
+        deleted_ids = entity_ids if ok else []
+        if ok:
+            logger.info(f"Batch-deleted {count} track(s) from DB")
+        else:
+            logger.error("Batch delete returned False — some tracks may not have been removed")
+
+        if delete_files and file_paths:
+            for fp in file_paths:
+                try:
+                    self.controller.delete.delete_file(file_path=fp)
+                except (OSError, SQLAlchemyError) as e:
+                    logger.error(f"Error deleting file {fp}: {e}")
 
         # Remove deleted tracks from our internal list and refresh display
         self._all_tracks = [t for t in self._all_tracks if t.track_id not in deleted_ids]

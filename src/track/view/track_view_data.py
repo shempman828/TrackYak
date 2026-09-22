@@ -47,34 +47,29 @@ def _format_primary_artist_names(primary_names: list, featured_names: list | Non
     return result
 
 
-def _fetch_lookup_caches(session):
+def _fetch_lookup_caches(session, track_ids=None, album_ids=None, disc_ids=None):
     """
     Bulk-fetch every relationship-derived value (album info, disc number,
     primary artist names) in a handful of JOIN queries. Shared by the
     synchronous first-load path and the background `TrackLookupCacheWorker`.
-    """
-    album_cache = {
-        album_id: {
-            "album_name": name,
-            "release_year": year,
-            "release_month": month,
-            "release_day": day,
-        }
-        for album_id, name, year, month, day in session.execute(
-            select(
-                Album.album_id,
-                Album.album_name,
-                Album.release_year,
-                Album.release_month,
-                Album.release_day,
-            )
-        )
-    }
 
-    disc_number_cache = dict(session.execute(select(Disc.disc_id, Disc.disc_number)).all())
+    With no ids given, scans the whole library -- what TrackView wants,
+    since it always shows every track. BaseTrackView passes the ids of just
+    the (usually small) fixed track list it was given, so opening a popup
+    for e.g. "8 tracks in this mood" doesn't pay for a full-library JOIN.
+    """
+    album_query = select(Album.album_id, Album.album_name, Album.release_year, Album.release_month, Album.release_day)
+    if album_ids is not None:
+        album_query = album_query.where(Album.album_id.in_(album_ids))
+    album_cache = {album_id: {"album_name": name, "release_year": year, "release_month": month, "release_day": day} for album_id, name, year, month, day in session.execute(album_query)}
+
+    disc_query = select(Disc.disc_id, Disc.disc_number)
+    if disc_ids is not None:
+        disc_query = disc_query.where(Disc.disc_id.in_(disc_ids))
+    disc_number_cache = dict(session.execute(disc_query).all())
 
     by_track: dict[int, list[tuple[str, str, str]]] = {}
-    rows = session.execute(
+    role_query = (
         select(TrackArtistRole.track_id, Artist.artist_name, Artist.sort_name, Role.role_name)
         .join(Artist, TrackArtistRole.artist_id == Artist.artist_id)
         .join(Role, TrackArtistRole.role_id == Role.role_id)
@@ -82,14 +77,16 @@ def _fetch_lookup_caches(session):
         # order that a per-track lazy load would return, so cached names
         # come out in the same order as Track.primary_artist_names.
         .order_by(TrackArtistRole.track_id, TrackArtistRole.artist_id, TrackArtistRole.role_id)
-    ).all()
+    )
+    if track_ids is not None:
+        role_query = role_query.where(TrackArtistRole.track_id.in_(track_ids))
+    rows = session.execute(role_query).all()
     for track_id, artist_name, sort_name, role_name in rows:
         by_track.setdefault(track_id, []).append((artist_name, sort_name, role_name))
 
     artist_name_cache = {
         track_id: _format_primary_artist_names(
-            [name for name, _sort, role_name in entries if role_name == "Primary Artist"],
-            [name for name, _sort, role_name in entries if role_name == "Featured Artist"],
+            [name for name, _sort, role_name in entries if role_name == "Primary Artist"], [name for name, _sort, role_name in entries if role_name == "Featured Artist"]
         )
         for track_id, entries in by_track.items()
     }
@@ -100,16 +97,8 @@ def _fetch_lookup_caches(session):
     # displayed. See `_field_value`.
     artist_sort_cache = {
         track_id: _format_primary_artist_names(
-            [
-                (sort_name or name)
-                for name, sort_name, role_name in entries
-                if role_name == "Primary Artist"
-            ],
-            [
-                (sort_name or name)
-                for name, sort_name, role_name in entries
-                if role_name == "Featured Artist"
-            ],
+            [(sort_name or name) for name, sort_name, role_name in entries if role_name == "Primary Artist"],
+            [(sort_name or name) for name, sort_name, role_name in entries if role_name == "Featured Artist"],
         )
         for track_id, entries in by_track.items()
     }
@@ -235,13 +224,35 @@ class TrackViewDataMixin:
         Used for the synchronous first-load / explicit-refresh paths. See
         `_refresh_lookup_caches_async` for the background-thread version
         used when revisiting the Tracks nav item.
+
+        Some hosts (e.g. BaseTrackView popups constructed with a lightweight
+        test double for `controller`) may not expose a real `.get.session`.
+        Degrade to empty caches rather than crashing the view -- `_field_value`
+        already falls back to `None` for cache-dependent fields when a cache
+        is empty.
+
+        A host with `_scope_lookup_caches_to_tracks = True` (BaseTrackView)
+        scopes the queries to just `self._all_tracks`'s own ids instead of
+        the whole library -- its fixed lists are typically small (a mood's
+        tracks, a duplicate group, ...), and a full-library JOIN on every
+        popup open is wasted work and a visible pause on a large library.
+        TrackView always shows the whole library, so it never scopes.
         """
-        (
-            self._album_cache,
-            self._disc_number_cache,
-            self._artist_name_cache,
-            self._artist_sort_cache,
-        ) = _fetch_lookup_caches(self.controller.get.session)
+        try:
+            if getattr(self, "_scope_lookup_caches_to_tracks", False):
+                track_ids = [t.track_id for t in self._all_tracks]
+                album_ids = {t.album_id for t in self._all_tracks if getattr(t, "album_id", None) is not None}
+                disc_ids = {t.disc_id for t in self._all_tracks if getattr(t, "disc_id", None) is not None}
+                caches = _fetch_lookup_caches(self.controller.get.session, track_ids=track_ids, album_ids=album_ids, disc_ids=disc_ids)
+            else:
+                caches = _fetch_lookup_caches(self.controller.get.session)
+            (self._album_cache, self._disc_number_cache, self._artist_name_cache, self._artist_sort_cache) = caches
+        except (SQLAlchemyError, AttributeError) as e:
+            logger.error(f"Error building track lookup caches: {e}")
+            self._album_cache = {}
+            self._disc_number_cache = {}
+            self._artist_name_cache = {}
+            self._artist_sort_cache = {}
 
     def _refresh_lookup_caches_async(self):
         """Rebuild the lookup caches on a background thread (nav-switch revisit path)."""
@@ -264,9 +275,7 @@ class TrackViewDataMixin:
 
         self._lookup_thread.start()
 
-    def _on_lookup_caches_loaded(
-        self, album_cache, disc_number_cache, artist_name_cache, artist_sort_cache
-    ):
+    def _on_lookup_caches_loaded(self, album_cache, disc_number_cache, artist_name_cache, artist_sort_cache):
         """Called on the main thread once TrackLookupCacheWorker finishes."""
         self._album_cache = album_cache
         self._disc_number_cache = disc_number_cache
@@ -285,11 +294,7 @@ class TrackViewDataMixin:
         """
         source = self._filtered_tracks if self._filter_active else self._all_tracks
         column_keys = list(self.columns.keys())
-        relevant_columns = [
-            (i, field_name)
-            for i, field_name in enumerate(column_keys)
-            if field_name in _CACHE_DEPENDENT_FIELDS
-        ]
+        relevant_columns = [(i, field_name) for i, field_name in enumerate(column_keys) if field_name in _CACHE_DEPENDENT_FIELDS]
         if not relevant_columns:
             return
 
@@ -304,14 +309,10 @@ class TrackViewDataMixin:
                 if item is None:
                     continue
                 item.setText(display_value)
-                item.setData(
-                    value if isinstance(value, (int, float)) else display_value, Qt.UserRole
-                )
+                item.setData(value if isinstance(value, (int, float)) else display_value, Qt.UserRole)
 
     @staticmethod
-    def _format_primary_artist_names(
-        primary_names: list, featured_names: list | None = None
-    ) -> str:
+    def _format_primary_artist_names(primary_names: list, featured_names: list | None = None) -> str:
         """Oxford-comma join, mirroring Track.primary_artist_names in src/db_tables/track.py."""
         return _format_primary_artist_names(primary_names, featured_names)
 
@@ -326,9 +327,7 @@ class TrackViewDataMixin:
         if field_name == "primary_artist_names__sort":
             # Sort-only pseudo-field: order the Artist column by filing name
             # (Artist.sort_name) while the visible cell keeps the display name.
-            return self._artist_sort_cache.get(track.track_id) or self._artist_name_cache.get(
-                track.track_id, "Unknown Artist"
-            )
+            return self._artist_sort_cache.get(track.track_id) or self._artist_name_cache.get(track.track_id, "Unknown Artist")
         if field_name == "disc_number":
             return self._disc_number_cache.get(track.disc_id)
         if field_name in _ALBUM_DERIVED_FIELDS:
@@ -353,9 +352,7 @@ class TrackViewDataMixin:
                 display_value = self._format_value(value, field_name, field_config)
                 item = QStandardItem(display_value)
                 item.setEditable(False)
-                item.setData(
-                    value if isinstance(value, (int, float)) else display_value, Qt.UserRole
-                )
+                item.setData(value if isinstance(value, (int, float)) else display_value, Qt.UserRole)
                 row_items.append(item)
 
             self.model.appendRow(row_items)
@@ -390,9 +387,7 @@ class TrackViewDataMixin:
             self._sort_ascending = True
 
         header = self.table.horizontalHeader()
-        header.setSortIndicator(
-            logical_index, Qt.AscendingOrder if self._sort_ascending else Qt.DescendingOrder
-        )
+        header.setSortIndicator(logical_index, Qt.AscendingOrder if self._sort_ascending else Qt.DescendingOrder)
 
         field_name = column_keys[logical_index]
         source = self._filtered_tracks if self._filter_active else self._all_tracks
@@ -402,9 +397,7 @@ class TrackViewDataMixin:
 
         # The Artist column displays the plain name join but files by
         # Artist.sort_name -- route the sort through the pseudo-field.
-        sort_field = (
-            "primary_artist_names__sort" if field_name == "primary_artist_names" else field_name
-        )
+        sort_field = "primary_artist_names__sort" if field_name == "primary_artist_names" else field_name
         self._sort_worker = SortWorker(source, self._field_value, sort_field, self._sort_ascending)
         self._sort_worker.finished.connect(self._on_sort_done)
         self._sort_worker.start()
@@ -434,8 +427,6 @@ class TrackViewDataMixin:
         total = len(self._all_tracks)
         if self._filter_active:
             visible = len(self._filtered_tracks)
-            self.status_label.setText(
-                f"Showing {self._loaded_count:,} / {visible:,} matches  ({total:,} total)"
-            )
+            self.status_label.setText(f"Showing {self._loaded_count:,} / {visible:,} matches  ({total:,} total)")
         else:
             self.status_label.setText(f"Showing {self._loaded_count:,} / {total:,} tracks")
