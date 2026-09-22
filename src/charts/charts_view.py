@@ -8,16 +8,9 @@ src/sync/sync_execution_mixin.py's pattern (clicked -> build worker ->
 connect progress/finished/error -> start()).
 """
 
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QProgressBar,
-    QPushButton,
-    QTabWidget,
-    QVBoxLayout,
-    QWidget,
-)
+import time
+
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QTabWidget, QVBoxLayout, QWidget
 
 from src.charts.chart_download import chart_csv_exists
 from src.charts.chart_download_worker import ChartDownloadWorker
@@ -28,6 +21,7 @@ from src.charts.chart_playlist_worker import ChartPlaylistWorker
 from src.charts.chart_recommendations_tab import ChartRecommendationsTab
 from src.charts.chart_search_tab import ChartSearchTab
 from src.charts.chart_week_browser_tab import ChartWeekBrowserTab
+from src.common.eta_estimator import estimate_remaining
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 
@@ -46,6 +40,7 @@ class ChartsView(QWidget):
         self._match_total = 0
         self._match_chart_key = ""
         self._match_queue_label = ""
+        self._match_start_time = None
         self.init_ui()
         self.load_charts()
 
@@ -99,9 +94,7 @@ class ChartsView(QWidget):
         dispatch) whenever the user navigates back to this view."""
         self._charts = self.controller.get.get_all_entities("Chart")
 
-        all_downloaded = bool(self._charts) and all(
-            chart_csv_exists(c.chart_key) for c in self._charts
-        )
+        all_downloaded = bool(self._charts) and all(chart_csv_exists(c.chart_key) for c in self._charts)
         synced_charts = [c for c in self._charts if c.last_synced_week is not None]
 
         self.download_btn.setVisible(not all_downloaded)
@@ -114,12 +107,8 @@ class ChartsView(QWidget):
             self.week_tab.set_charts(synced_charts)
             self.search_tab.set_charts(synced_charts)
             self.recommendations_tab.set_charts(synced_charts)
-            latest = max(
-                (c.last_downloaded_at for c in self._charts if c.last_downloaded_at), default=None
-            )
-            self.status_label.setText(
-                f"Last updated: {latest.strftime('%Y-%m-%d %H:%M')}" if latest else ""
-            )
+            latest = max((c.last_downloaded_at for c in self._charts if c.last_downloaded_at), default=None)
+            self.status_label.setText(f"Last updated: {latest.strftime('%Y-%m-%d %H:%M')}" if latest else "")
         else:
             self.status_label.setText("No chart data imported yet." if all_downloaded else "")
 
@@ -128,14 +117,8 @@ class ChartsView(QWidget):
         playlist tree exists, "Update Charts Playlists" once one does. Existence
         is keyed off the builder's marker in Playlist.playlist_description, the
         same signal ChartPlaylistBuilder uses for idempotent regeneration."""
-        has_tree = bool(
-            self.controller.get.get_all_entities(
-                "Playlist", playlist_description__startswith=CHART_PLAYLIST_MARKER_PREFIX
-            )
-        )
-        self.playlists_btn.setText(
-            "Update Charts Playlists" if has_tree else "Generate Charts Playlists"
-        )
+        has_tree = bool(self.controller.get.get_all_entities("Playlist", playlist_description__startswith=CHART_PLAYLIST_MARKER_PREFIX))
+        self.playlists_btn.setText("Update Charts Playlists" if has_tree else "Generate Charts Playlists")
 
     # -----------------------------------------------------------------------
     # Download -> import pipeline (Download Chart Data / Fetch Updates)
@@ -188,9 +171,7 @@ class ChartsView(QWidget):
         self.status_label.setText(f"Importing {chart_key}...")
         self._import_worker = ChartImportWorker(self.controller, chart_key)
         self._import_worker.progress.connect(self._on_progress)
-        self._import_worker.finished.connect(
-            lambda n, key=chart_key: self._on_import_finished(key, n)
-        )
+        self._import_worker.finished.connect(lambda n, key=chart_key: self._on_import_finished(key, n))
         self._import_worker.error.connect(self._on_worker_error)
         self._import_worker.start()
 
@@ -237,12 +218,11 @@ class ChartsView(QWidget):
         self._match_queue_label = f"chart {position}/{self._match_total}"
         self.progress_bar.setRange(0, 0)
         self.status_label.setText(f"Matching {chart_key} ({self._match_queue_label})...")
+        self._match_start_time = time.monotonic()
         self._match_worker = ChartMatchingWorker(self.controller, chart_key)
         self._match_worker.stage.connect(self._on_match_stage)
         self._match_worker.progress.connect(self._on_match_progress)
-        self._match_worker.finished.connect(
-            lambda stats, key=chart_key: self._on_match_finished(key, stats)
-        )
+        self._match_worker.finished.connect(lambda stats, key=chart_key: self._on_match_finished(key, stats))
         self._match_worker.error.connect(self._on_worker_error)
         self._match_worker.start()
 
@@ -253,15 +233,12 @@ class ChartsView(QWidget):
         if total > 0:
             self.progress_bar.setRange(0, total)
             self.progress_bar.setValue(scored)
-        self.status_label.setText(
-            f"Matching {self._match_chart_key} ({self._match_queue_label}): "
-            f"{scored}/{total} scored, {matched} matched"
-        )
+        eta = estimate_remaining(self._match_start_time, scored, total)
+        eta_suffix = f", ETA: {eta}" if eta else ""
+        self.status_label.setText(f"Matching {self._match_chart_key} ({self._match_queue_label}): {scored}/{total} scored, {matched} matched{eta_suffix}")
 
     def _on_match_finished(self, chart_key: str, stats):
-        show_status_message(
-            self, f"Matched {stats.matched}/{stats.total_unmatched} for {chart_key}"
-        )
+        show_status_message(self, f"Matched {stats.matched}/{stats.total_unmatched} for {chart_key}")
         # See _on_import_finished: finished fires before the thread has fully
         # unwound, so wait() here before reassigning self._match_worker.
         self._match_worker.wait()

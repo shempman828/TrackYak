@@ -549,7 +549,9 @@ what's worth filling in.
 
 **Getting chart data**: Download Chart Data (or Fetch Updates, once you've
 already got some) pulls it in; Match Now then runs the matching pass against
-your library. Both run in the background so you can keep working.
+your library. Both run in the background so you can keep working. Once
+matching has been running a few seconds, the status line adds an ETA showing
+roughly how much longer it'll take.
 
 Matching is deliberately strict: a chart entry is only auto-linked when the
 title and the primary artist both line up as whole words (edition noise like

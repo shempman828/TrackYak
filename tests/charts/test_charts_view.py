@@ -212,6 +212,71 @@ def test_worker_error_clears_generating_header(qapp, session, controller, tmp_pa
     assert "Generating" not in view.status_label.text()
 
 
+def test_match_progress_shows_eta_once_enough_data(qapp, session, controller, monkeypatch):
+    """AC1: once scoring has run >=1s with scored>0, the status label carries
+    an ETA suffix from the shared eta_estimator."""
+    view = ChartsView(controller)
+    view._match_chart_key = "hot-100"
+    view._match_queue_label = "chart 1/1"
+    view._match_start_time = 100.0
+    monkeypatch.setattr("src.common.eta_estimator.time.monotonic", lambda: 105.0)
+
+    view._on_match_progress(500, 1000, 400)
+
+    assert "ETA:" in view.status_label.text()
+
+
+def test_match_progress_omits_eta_before_enough_data(qapp, session, controller, monkeypatch):
+    """AC2: with less than a second of data, no ETA is shown yet."""
+    view = ChartsView(controller)
+    view._match_chart_key = "hot-100"
+    view._match_queue_label = "chart 1/1"
+    view._match_start_time = 100.0
+    monkeypatch.setattr("src.common.eta_estimator.time.monotonic", lambda: 100.5)
+
+    view._on_match_progress(500, 1000, 400)
+
+    assert "ETA:" not in view.status_label.text()
+
+
+def test_run_next_match_resets_eta_timer_per_chart(qapp, session, controller, tmp_path, monkeypatch):
+    """AC3: moving to the next chart in the match queue restarts the ETA
+    timer, so its estimate reflects only that chart's own elapsed time."""
+    (tmp_path / "hot-100-current.csv").write_text("stub")
+    (tmp_path / "billboard-200-current.csv").write_text("stub")
+    _seed_charts_fully_synced(session)
+
+    class _FakeSignal:
+        def connect(self, *a, **k):
+            pass
+
+    class _FakeMatchWorker:
+        stage = _FakeSignal()
+        progress = _FakeSignal()
+        finished = _FakeSignal()
+        error = _FakeSignal()
+
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr("src.charts.charts_view.ChartMatchingWorker", _FakeMatchWorker)
+    times = iter([10.0, 20.0])
+    monkeypatch.setattr("src.charts.charts_view.time.monotonic", lambda: next(times))
+
+    view = ChartsView(controller)
+    view._match_queue = ["hot-100", "billboard-200"]
+    view._match_total = 2
+
+    view._run_next_match()
+    assert view._match_start_time == 10.0
+
+    view._run_next_match()
+    assert view._match_start_time == 20.0
+
+
 def test_week_browser_tab_populates_from_seeded_entry(qapp, session, controller, tmp_path):
     (tmp_path / "hot-100-current.csv").write_text("stub")
     (tmp_path / "billboard-200-current.csv").write_text("stub")
