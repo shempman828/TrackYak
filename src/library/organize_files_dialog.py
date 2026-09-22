@@ -188,12 +188,12 @@ class OrganizeFilesDialog(QDialog):
 
         organizer.start()
 
-    def _update_organization_progress(self, percent: int, current_file: str) -> None:
+    def _update_organization_progress(self, percent: int, status_text: str) -> None:
         # switch to determinate mode when we have a percent value
         if self.org_progress.maximum() == 0:
             self.org_progress.setRange(0, 100)
         self.org_progress.setValue(percent)
-        self.org_status.setText(f"{current_file} — {percent}%")
+        self.org_status.setText(f"{status_text} — {percent}%")
 
     def _update_cleanup_progress(self, percent: int, current_dir: str) -> None:
         # Cleanup's own 0-100 percent is compressed into the remaining slice

@@ -27,7 +27,7 @@ CLEANUP_PROGRESS_START = ANALYSIS_PROGRESS_SHARE + EXECUTION_PROGRESS_SHARE  # 9
 class FileOrganizer(CancellableWorker):
     """Background worker for file organization with preview and confirmation"""
 
-    progress_updated = Signal(int, str)  # percent, current file
+    progress_updated = Signal(int, str)  # percent, status text
     analysis_complete = Signal(list)  # operations
     finished = Signal(bool, int)  # success, files_moved
     cleanup_progress = Signal(int, str)  # percent, current directory
@@ -131,7 +131,7 @@ class FileOrganizer(CancellableWorker):
                 # to the halfway point and then crawl through the actually
                 # expensive move/DB work below.
                 int((idx + 1) / total * ANALYSIS_PROGRESS_SHARE),
-                f"Analyzing: {track.track_name or 'Unknown'}",
+                f"Analyzing files… {idx + 1}/{total}",
             )
 
             if not track.track_file_path or not Path(track.track_file_path).exists():
@@ -229,7 +229,7 @@ class FileOrganizer(CancellableWorker):
             current_path = operation["current_path"]
             expected_path = operation["expected_path"]
 
-            self.progress_updated.emit(ANALYSIS_PROGRESS_SHARE + int((idx + 1) / total * EXECUTION_PROGRESS_SHARE), f"Moving: {track.track_name or 'Unknown'}")
+            self.progress_updated.emit(ANALYSIS_PROGRESS_SHARE + int((idx + 1) / total * EXECUTION_PROGRESS_SHARE), f"Moving files… {idx + 1}/{total}")
 
             logger.info(f"FileOrganizer: Moving {current_path} -> {expected_path}")
 
