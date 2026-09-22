@@ -96,6 +96,35 @@ QDockWidget::float-button:hover {
     border-radius: 4px;
 }
 
+/* ── NAVIGATION MASTHEAD (logo + wordmark) ────────────────────────────────────── */
+QWidget#NavHeader {
+    background-color: #11121a;
+}
+
+QLabel#NavAppName {
+    color: #b8c0f0;
+    font-size: 13px;
+    font-weight: bold;
+    letter-spacing: 0.18em;
+}
+
+QToolButton#LogoButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 20px;
+    padding: 0;
+}
+
+QToolButton#LogoButton:hover {
+    background-color: rgba(133, 153, 234, 0.15);
+    border: 1px solid rgba(133, 153, 234, 0.45);
+}
+
+QToolButton#LogoButton:pressed {
+    background-color: rgba(133, 153, 234, 0.28);
+    border-color: #8599ea;
+}
+
 /* ── NAVIGATION TREE ─────────────────────────────────────────────────────────── */
 NavigationDock QTreeWidget#NavTree {
     background-color: #0e0f15;
@@ -1656,9 +1685,10 @@ AlbumWidget[hovered="true"] {
 
 /* ── SPECIAL: StatusBarWidget floating overlay ────────────────────────────────── */
 StatusBarWidget[mode="float"] {
-    background-color: rgba(20, 21, 30, 0.72);
-    border: 1px solid rgba(184, 192, 240, 0.25);
-    border-radius: 8px;
+    background-color: rgba(17, 18, 26, 0.88);
+    border: 1px solid rgba(133, 153, 234, 0.30);
+    border-top: 1px solid rgba(184, 192, 240, 0.18);
+    border-radius: 10px;
     min-height: 36px;
     max-height: 36px;
 }
@@ -1670,6 +1700,25 @@ StatusBarWidget[mode="float"] QLabel {
 
 StatusBarWidget[mode="float"] QPushButton {
     color: #d6dbf7;
+    background: transparent;
+    border: none;
+    padding: 0;
+    border-radius: 8px;
+}
+
+StatusBarWidget[mode="float"] QPushButton:hover {
+    background-color: rgba(234, 133, 153, 0.18);
+}
+
+StatusBarWidget[mode="float"] QProgressBar {
+    background-color: rgba(133, 153, 234, 0.15);
+    border: none;
+    border-radius: 3px;
+}
+
+StatusBarWidget[mode="float"] QProgressBar::chunk {
+    background-color: #8599ea;
+    border-radius: 3px;
 }
 
 /* ── SPECIAL: Disc management status message ─────────────────────────────────── */

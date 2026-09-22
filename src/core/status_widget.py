@@ -1,7 +1,7 @@
 # status_widget.py
 from PySide6.QtCore import QEvent, Qt, QTimer
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QPushButton, QWidget
+from PySide6.QtGui import QColor, QIcon
+from PySide6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QProgressBar, QPushButton, QWidget
 
 from src.common.widgets.style_utils import set_style_property
 from src.foundation.asset_paths import icon
@@ -43,6 +43,13 @@ class StatusBarWidget(QWidget):
 
         self._init_ui()
         set_style_property(self, "mode", "float")
+
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(24)
+        shadow.setOffset(0, 6)
+        shadow.setColor(QColor(0, 0, 0, 160))
+        self.setGraphicsEffect(shadow)
+
         self.hide()
 
     # ------------------------------------------------------------ UI building
