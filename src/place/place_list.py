@@ -123,8 +123,8 @@ class DraggableTreeWidget(QTreeWidget):
             iterator += 1
         return count
 
-    def filter_items(self, search_text, selected_types=None, mbid_missing_only=False, coords_missing_only=False, expand_matches=False):
-        """Filter tree items based on search text plus optional type/MBID/coordinate criteria.
+    def filter_items(self, search_text, selected_types=None, mbid_missing_only=False, coords_missing_only=False, no_parent_only=False, expand_matches=False):
+        """Filter tree items based on search text plus optional type/MBID/coordinate/parent criteria.
 
         An ancestor is kept visible whenever any descendant matches, so the
         path down to a match is never hidden, even if the ancestor itself
@@ -146,6 +146,9 @@ class DraggableTreeWidget(QTreeWidget):
                     return False
 
             if mbid_missing_only and place.MBID:
+                return False
+
+            if no_parent_only and place.parent_id is not None:
                 return False
 
             return not (coords_missing_only and place.place_latitude is not None and place.place_longitude is not None)
@@ -195,6 +198,7 @@ class ListView(QWidget):
         self.selected_types = set()
         self.mbid_missing_only = False
         self.coords_missing_only = False
+        self.no_parent_only = False
         self.init_ui()
 
     def set_parent_view(self, parent_view):
@@ -264,6 +268,11 @@ class ListView(QWidget):
         self.coords_missing_checkbox = QCheckBox("Coordinates missing")
         self.coords_missing_checkbox.toggled.connect(self.toggle_coords_missing_filter)
         filter_layout.addWidget(self.coords_missing_checkbox)
+
+        self.no_parent_checkbox = QCheckBox("No parent")
+        self.no_parent_checkbox.setToolTip("Show only top-level places (places with no parent)")
+        self.no_parent_checkbox.toggled.connect(self.toggle_no_parent_filter)
+        filter_layout.addWidget(self.no_parent_checkbox)
 
         filter_layout.addStretch()
 
@@ -399,12 +408,18 @@ class ListView(QWidget):
         self.coords_missing_only = checked
         self._apply_filters()
 
+    def toggle_no_parent_filter(self, checked):
+        """Handle toggling the "No parent" checkbox."""
+        self.no_parent_only = checked
+        self._apply_filters()
+
     def _clear_filters(self):
-        """Reset the search text, type filter, and both checkboxes to their defaults."""
+        """Reset the search text, type filter, and all checkboxes to their defaults."""
         self.search_bar.clear()
         self.type_filter_widget.select_all()
         self.mbid_missing_checkbox.setChecked(False)
         self.coords_missing_checkbox.setChecked(False)
+        self.no_parent_checkbox.setChecked(False)
 
     def _refresh_type_filter_options(self, places):
         """Sync the type filter's checkboxes with the types currently present in the data.
@@ -435,9 +450,9 @@ class ListView(QWidget):
         self.selected_types = set(self.type_filter_widget.get_selected_items())
 
     def _apply_filters(self):
-        """Reapply all active filters (search text, type, MBID missing, coordinates missing)."""
-        filters_active = bool(self.filter_text or self.mbid_missing_only or self.coords_missing_only or (self.all_place_types and self.selected_types != self.all_place_types))
-        self.tree_widget.filter_items(self.filter_text, self.selected_types, self.mbid_missing_only, self.coords_missing_only, expand_matches=filters_active)
+        """Reapply all active filters (search text, type, MBID missing, coordinates missing, no parent)."""
+        filters_active = bool(self.filter_text or self.mbid_missing_only or self.coords_missing_only or self.no_parent_only or (self.all_place_types and self.selected_types != self.all_place_types))
+        self.tree_widget.filter_items(self.filter_text, self.selected_types, self.mbid_missing_only, self.coords_missing_only, self.no_parent_only, expand_matches=filters_active)
         self._update_count_label()
 
     def _update_count_label(self):
