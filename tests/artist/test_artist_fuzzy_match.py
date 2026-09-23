@@ -6,12 +6,19 @@ buckets so they were never compared at all.
 """
 
 from types import SimpleNamespace
+from typing import ClassVar
 
 from PySide6.QtWidgets import QPushButton
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from src.artist.artist_fuzzy_match import ArtistFuzzyMatchWorker, FuzzyMatchDialog, _blocking_keys, _tokens_match_with_initials, artist_name_similarity
 from src.common.dialogs import fuzzy_match_dialog
+from src.common.dialogs.fuzzy_match_dialog import BaseMergeWorker
 from src.common.dismissed_duplicates import dismiss_pair, load_dismissed_pairs
+from src.db.db_helpers.merge import MergeDB
+from src.db.db_tables.artist import Artist
+from src.db.db_tables.base import Base
 
 # ---- test_artist_fuzzy_match_initials.py -------------------------------------
 DUPLICATE_THRESHOLD = 0.85
@@ -174,3 +181,162 @@ def test_dismissing_one_pair_does_not_suppress_a_different_pair(qapp, tmp_path, 
         assert len(dialog.matches) == 1
     finally:
         dialog.deleteLater()
+
+
+# ---- docs/specs/artist_duplicate_reconciliation.md acceptance criteria -----
+# AC1/2: no-conflict pairs skip the modal, conflicting pairs show it.
+# AC4/5/6: Skip This Pair / Skip All Remaining / Cancel Merge outcomes.
+# AC3/7/8: a chosen field actually lands on the merged survivor, and the
+# discarded artist's original name is still recorded as an alias regardless.
+
+
+def _make_session():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    return sessionmaker(bind=engine)()
+
+
+def _real_artist_pair(session, source_bio="Session guitarist.", target_bio=None, source_name="Lew", target_name="Lewis"):
+    source = Artist(artist_name=source_name, biography=source_bio)
+    target = Artist(artist_name=target_name, biography=target_bio)
+    session.add_all([source, target])
+    session.commit()
+    return source, target
+
+
+class _StubPairConflictDialog:
+    """Test double for PairConflictDialog: skips rendering/exec'ing a real
+    modal and instead returns a scripted (outcome, resolved_fields) for
+    each pair, consumed in construction order."""
+
+    USE_SELECTED = "use_selected"
+    SKIP_PAIR = "skip_pair"
+    SKIP_ALL = "skip_all"
+    CANCEL = "cancel"
+
+    queue: ClassVar[list[tuple]] = []
+    constructed = 0
+
+    def __init__(self, source_entity, target_entity, id_attr, source_label, target_label, pair_index, pair_total, parent=None):
+        type(self).constructed += 1
+        self.outcome, self._fields = type(self).queue.pop(0)
+
+    def exec(self):
+        pass
+
+    def resolved_fields(self):
+        return self._fields
+
+
+def _reset_stub_dialog(monkeypatch, queue):
+    monkeypatch.setattr(fuzzy_match_dialog, "PairConflictDialog", _StubPairConflictDialog)
+    _StubPairConflictDialog.queue = list(queue)
+    _StubPairConflictDialog.constructed = 0
+
+
+def test_no_conflict_pair_skips_the_resolution_modal(qapp, monkeypatch):
+    session = _make_session()
+    source, target = _real_artist_pair(session, source_name="Same", target_name="Same", source_bio="Same bio", target_bio="Same bio")
+    _reset_stub_dialog(monkeypatch, queue=[])
+
+    dialog = FuzzyMatchDialog([(source, target, 90)], controller=None)
+    try:
+        resolved = dialog._resolve_conflicts([(source, target)])
+        assert resolved == [(source, target, {})]
+        assert _StubPairConflictDialog.constructed == 0
+    finally:
+        dialog.deleteLater()
+
+
+def test_conflicting_pair_shows_the_resolution_modal(qapp, monkeypatch):
+    session = _make_session()
+    source, target = _real_artist_pair(session)
+    _reset_stub_dialog(monkeypatch, queue=[(_StubPairConflictDialog.USE_SELECTED, {"biography": "Session guitarist."})])
+
+    dialog = FuzzyMatchDialog([(source, target, 90)], controller=None)
+    try:
+        resolved = dialog._resolve_conflicts([(source, target)])
+        assert _StubPairConflictDialog.constructed == 1
+        assert resolved == [(source, target, {"biography": "Session guitarist."})]
+    finally:
+        dialog.deleteLater()
+
+
+def test_skip_this_pair_keeps_canonical_fields(qapp, monkeypatch):
+    session = _make_session()
+    source, target = _real_artist_pair(session)
+    _reset_stub_dialog(monkeypatch, queue=[(_StubPairConflictDialog.SKIP_PAIR, {})])
+
+    dialog = FuzzyMatchDialog([(source, target, 90)], controller=None)
+    try:
+        resolved = dialog._resolve_conflicts([(source, target)])
+        assert resolved == [(source, target, {})]
+    finally:
+        dialog.deleteLater()
+
+
+def test_skip_all_remaining_applies_to_every_later_pair_without_more_modals(qapp, monkeypatch):
+    session = _make_session()
+    pair1 = _real_artist_pair(session, source_name="Lew", target_name="Lewis")
+    pair2 = _real_artist_pair(session, source_name="Bob", target_name="Bobby")
+    pair3 = _real_artist_pair(session, source_name="Sam", target_name="Samuel")
+    jobs = [pair1, pair2, pair3]
+    _reset_stub_dialog(monkeypatch, queue=[(_StubPairConflictDialog.SKIP_ALL, {})])
+
+    dialog = FuzzyMatchDialog([(pair1[0], pair1[1], 90)], controller=None)
+    try:
+        resolved = dialog._resolve_conflicts(jobs)
+        assert _StubPairConflictDialog.constructed == 1  # only the first pair opened a modal
+        assert resolved == [(*pair1, {}), (*pair2, {}), (*pair3, {})]
+    finally:
+        dialog.deleteLater()
+
+
+def test_cancel_merge_aborts_the_whole_batch(qapp, monkeypatch):
+    session = _make_session()
+    pair1 = _real_artist_pair(session, source_name="Lew", target_name="Lewis")
+    pair2 = _real_artist_pair(session, source_name="Bob", target_name="Bobby")
+    _reset_stub_dialog(monkeypatch, queue=[(_StubPairConflictDialog.CANCEL, {})])
+
+    dialog = FuzzyMatchDialog([(pair1[0], pair1[1], 90)], controller=None)
+    try:
+        resolved = dialog._resolve_conflicts([pair1, pair2])
+        assert resolved is None
+        assert _StubPairConflictDialog.constructed == 1
+    finally:
+        dialog.deleteLater()
+
+
+def test_resolved_field_lands_on_the_merged_survivor(qapp):
+    session = _make_session()
+    source, target = _real_artist_pair(session, source_bio="Session guitarist.", target_bio=None)
+
+    class _StubController:
+        merge = MergeDB(session)
+
+    worker = BaseMergeWorker(_StubController(), "Artist", "artist_id", "artist_name", [(source, target, {"biography": "Session guitarist.", "artist_name": "Lew"})])
+    worker.run()
+
+    survivor = session.get(Artist, target.artist_id)
+    assert survivor.biography == "Session guitarist."
+    assert survivor.artist_name == "Lew"
+    assert session.get(Artist, source.artist_id) is None
+
+
+def test_discarded_artist_name_is_still_aliased_regardless_of_resolved_fields(qapp):
+    # merge_entities() itself preserves the merged-away artist's name as an
+    # ArtistAlias on the survivor (src/db/db_helpers/merge.py,
+    # _ALIAS_ON_MERGE_REGISTRY) -- this already happens for every Artist
+    # merge and is unaffected by which fields the reconciliation step chose.
+    session = _make_session()
+    source, target = _real_artist_pair(session, source_name="Lew", target_name="Lewis")
+
+    class _StubController:
+        merge = MergeDB(session)
+
+    worker = BaseMergeWorker(_StubController(), "Artist", "artist_id", "artist_name", [(source, target, {"biography": "Session guitarist."})])
+    worker.run()
+
+    survivor = session.get(Artist, target.artist_id)
+    assert survivor.artist_name == "Lewis"
+    assert "Lew" in [a.alias_name for a in survivor.aliases]

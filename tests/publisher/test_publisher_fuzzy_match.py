@@ -90,3 +90,37 @@ def test_dismissed_pair_is_excluded_from_a_later_scans_dialog(qapp, tmp_path, mo
         assert dialog.match_widgets == []
     finally:
         dialog.deleteLater()
+
+
+# ---- docs/specs/artist_duplicate_reconciliation.md AC9: same reconciliation
+# step works for Publisher, via the shared BaseFuzzyMatchDialog._resolve_conflicts.
+
+
+def test_resolved_field_lands_on_the_merged_survivor(qapp):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from src.common.dialogs.fuzzy_match_dialog import BaseMergeWorker
+    from src.db.db_helpers.merge import MergeDB
+    from src.db.db_tables.base import Base
+    from src.db.db_tables.publisher import Publisher
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+
+    source = Publisher(publisher_name="Sony", description="A record label.")
+    target = Publisher(publisher_name="Sonny", description=None)
+    session.add_all([source, target])
+    session.commit()
+
+    class _StubController:
+        merge = MergeDB(session)
+
+    worker = BaseMergeWorker(_StubController(), "Publisher", "publisher_id", "publisher_name", [(source, target, {"description": "A record label.", "publisher_name": "Sony"})])
+    worker.run()
+
+    survivor = session.get(Publisher, target.publisher_id)
+    assert survivor.description == "A record label."
+    assert survivor.publisher_name == "Sony"
+    assert session.get(Publisher, source.publisher_id) is None

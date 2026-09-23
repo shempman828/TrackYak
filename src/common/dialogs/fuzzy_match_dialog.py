@@ -18,6 +18,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from src.common.cancellable_worker import CancellableWorker
+from src.common.dialogs.conflict_resolution import PairConflictDialog, get_entity_conflicts
 from src.common.dismissed_duplicates import DEFAULT_DISMISSED_DUPLICATES_PATH, dismiss_pair, load_dismissed_pairs, normalize_pair
 from src.foundation.logger_config import logger
 
@@ -43,7 +44,7 @@ class BaseMergeWorker(CancellableWorker):
         self.entity_type = entity_type
         self.id_attr = id_attr
         self.name_attr = name_attr
-        self.jobs = jobs  # list of (old_entity, new_entity)
+        self.jobs = jobs  # list of (old_entity, new_entity, resolved_fields)
         self.on_pair_merged = on_pair_merged
 
     def run(self) -> None:
@@ -52,14 +53,14 @@ class BaseMergeWorker(CancellableWorker):
         errors: list[str] = []
 
         try:
-            for idx, (old_entity, new_entity) in enumerate(self.jobs):
+            for idx, (old_entity, new_entity, resolved_fields) in enumerate(self.jobs):
                 old_name = getattr(old_entity, self.name_attr)
                 new_name = getattr(new_entity, self.name_attr)
                 old_id = getattr(old_entity, self.id_attr)
                 new_id = getattr(new_entity, self.id_attr)
                 try:
                     logger.info(f"Merging {old_name} (ID: {old_id}) into {new_name} (ID: {new_id})")
-                    merged = self.controller.merge.merge_entities(self.entity_type, old_id, new_id)
+                    merged = self.controller.merge.merge_entities(self.entity_type, old_id, new_id, resolved_fields)
                     if not merged:
                         msg = f"Failed to merge {old_name} → {new_name}: merge_entities returned False"
                         logger.error(msg)
@@ -167,18 +168,58 @@ class BaseFuzzyMatchDialog(QDialog):
             self._notify_no_jobs()
             return
 
+        resolved_jobs = self._resolve_conflicts(jobs)
+        if resolved_jobs is None:
+            return  # user cancelled the whole batch from a conflict dialog
+
         self.btn_merge.setEnabled(False)
         self.btn_cancel.setEnabled(False)
-        self._progress.setRange(0, len(jobs))
+        self._progress.setRange(0, len(resolved_jobs))
         self._progress.setValue(0)
         self._progress.show()
-        self._status_label.setText(f"Merging 0/{len(jobs)}…")
+        self._status_label.setText(f"Merging 0/{len(resolved_jobs)}…")
         self._status_label.show()
 
-        self._worker = BaseMergeWorker(self.controller, self._ENTITY_TYPE, self._ID_ATTR, self._NAME_ATTR, jobs, on_pair_merged=self._on_pair_merged, parent=self)
+        self._worker = BaseMergeWorker(self.controller, self._ENTITY_TYPE, self._ID_ATTR, self._NAME_ATTR, resolved_jobs, on_pair_merged=self._on_pair_merged, parent=self)
         self._worker.progress.connect(self._on_merge_progress)
         self._worker.finished.connect(self._on_merge_finished)
         self._worker.start()
+
+    def _resolve_conflicts(self, jobs: list[tuple]) -> list[tuple] | None:
+        """Walk each checked pair and, for any pair whose canonical and
+        discarded entities have differing scalar fields, let the user pick
+        which values survive before the batch merge runs -- without this
+        step every field on the discarded entity is silently thrown away.
+
+        Returns (old_entity, new_entity, resolved_fields) triples ready for
+        `BaseMergeWorker`, or None if the user cancelled the whole batch
+        from a conflict dialog (nothing has been merged yet at that point).
+        """
+        resolved: list[tuple] = []
+        skip_all = False
+        for old_entity, new_entity in jobs:
+            if skip_all:
+                resolved.append((old_entity, new_entity, {}))
+                continue
+
+            conflicts = get_entity_conflicts(old_entity, new_entity, self._ID_ATTR)
+            if not conflicts:
+                resolved.append((old_entity, new_entity, {}))
+                continue
+
+            dialog = PairConflictDialog(old_entity, new_entity, self._ID_ATTR, getattr(old_entity, self._NAME_ATTR), getattr(new_entity, self._NAME_ATTR), len(resolved) + 1, len(jobs), parent=self)
+            dialog.exec()
+
+            if dialog.outcome == PairConflictDialog.CANCEL:
+                return None
+            if dialog.outcome == PairConflictDialog.SKIP_ALL:
+                skip_all = True
+                resolved.append((old_entity, new_entity, {}))
+                continue
+
+            resolved.append((old_entity, new_entity, dialog.resolved_fields()))
+
+        return resolved
 
     def _on_merge_progress(self, current: int, total: int) -> None:
         self._progress.setValue(current)

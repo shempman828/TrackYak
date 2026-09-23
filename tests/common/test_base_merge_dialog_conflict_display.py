@@ -11,7 +11,8 @@ from PySide6.QtWidgets import QLabel
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from src.common.dialogs.base_merge_dialog import MergeDBDialog, _ConflictValueCell
+from src.common.dialogs.base_merge_dialog import MergeDBDialog
+from src.common.dialogs.conflict_resolution import _ConflictValueCell, _format_value_for_display
 from src.db.db_tables.album import Album
 from src.db.db_tables.base import Base
 
@@ -33,10 +34,8 @@ def _make_session():
 
 
 def test_format_value_for_display_does_not_truncate_long_values():
-    dialog_cls = MergeDBDialog
     long_value = "A" * 200
-    # _format_value_for_display doesn't touch self, so a bare instance works.
-    result = dialog_cls._format_value_for_display(None, long_value)
+    result = _format_value_for_display(long_value)
     assert result == long_value
 
 

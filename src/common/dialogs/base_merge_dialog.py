@@ -3,53 +3,12 @@ import html
 import re
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.dialogs.conflict_resolution import ConflictGridWidget
 from src.common.widgets.qt_text import esc_amp as _esc_amp
 from src.foundation.logger_config import logger
-
-
-class _ConflictValueCell(QWidget):
-    """One clickable value in the conflict-resolution grid.
-
-    Behaves like a radio option shaped as a table cell: clicking it selects
-    this side's value for the row and notifies the dialog to deselect the
-    sibling cell in the same row.
-    """
-
-    def __init__(self, display_text, on_select, parent=None):
-        super().__init__(parent)
-        self.setProperty("mergeCell", True)
-        self.setProperty("chosen", False)
-        self.setCursor(Qt.PointingHandCursor)
-        self._on_select = on_select
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(6)
-
-        self._check = QLabel("✓")
-        self._check.setProperty("mergeCellCheck", True)
-        self._check.setFixedWidth(14)
-        layout.addWidget(self._check, 0, Qt.AlignTop)
-
-        value_label = QLabel(display_text)
-        value_label.setWordWrap(True)
-        layout.addWidget(value_label, 1)
-
-        self._check.setVisible(False)
-
-    def set_chosen(self, chosen):
-        self._check.setVisible(chosen)
-        self.setProperty("chosen", chosen)
-        self.style().unpolish(self)
-        self.style().polish(self)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self._on_select()
-        super().mousePressEvent(event)
 
 
 class MergeDBDialog(QDialog):
@@ -513,17 +472,17 @@ class MergeDBDialog(QDialog):
         content = QWidget()
         scroll_layout = QVBoxLayout(content)
 
-        self._conflict_choices = {}
-        self._conflict_cells = {}
-        conflicts = self._get_conflicts()
+        source_name = getattr(self.source_entity, self.name_attr, "Source")
+        target_name = getattr(self.target_entity, self.name_attr, "Target")
+        self._conflict_grid = ConflictGridWidget(self.source_entity, self.target_entity, self.id_attr, source_name, target_name)
 
-        if not conflicts:
+        if not self._conflict_grid.has_conflicts():
             # No conflicts found - show direct merge option
             scroll_layout.addWidget(QLabel(f"<h3>No conflicts detected!</h3>All fields are identical between the two {self.model_name.lower()}s.<br>You can proceed with the merge directly."))
         else:
-            scroll_layout.addWidget(QLabel("<h3>Resolve Conflicts</h3>Click a value to keep it for that field:"))
+            scroll_layout.addWidget(QLabel("<h3>Resolve Conflicts</h3>"))
             scroll_layout.addSpacing(8)
-            scroll_layout.addLayout(self._build_conflict_grid(conflicts))
+            scroll_layout.addWidget(self._conflict_grid)
 
         scroll_layout.addStretch()
         scroll.setWidget(content)
@@ -542,124 +501,6 @@ class MergeDBDialog(QDialog):
 
         self.stack.addWidget(resolve_page)
         self.stack.setCurrentIndex(1)
-
-    def _build_conflict_grid(self, conflicts):
-        """Build the Field / Source-entity / Target-entity grid.
-
-        Each entity gets one column, named once in the header, instead of
-        repeating "Keep Source (Name): ..." on every field's row.
-        """
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(8)
-        grid.setColumnStretch(0, 0)
-        grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(2, 1)
-
-        source_name = getattr(self.source_entity, self.name_attr, "Source")
-        target_name = getattr(self.target_entity, self.name_attr, "Target")
-
-        field_header = QLabel("Field")
-        field_header.setProperty("mergeColHeader", True)
-        grid.addWidget(field_header, 0, 0)
-
-        source_header = QLabel(html.escape(str(source_name)))
-        source_header.setProperty("mergeColHeader", True)
-        grid.addWidget(source_header, 0, 1)
-
-        target_header = QLabel(html.escape(str(target_name)))
-        target_header.setProperty("mergeColHeader", True)
-        grid.addWidget(target_header, 0, 2)
-
-        divider = QFrame()
-        divider.setFrameShape(QFrame.HLine)
-        grid.addWidget(divider, 1, 0, 1, 3)
-
-        row = 2
-        for field, (s_val, t_val) in conflicts.items():
-            field_label = QLabel(field)
-            field_label.setProperty("mergeFieldLabel", True)
-            field_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-            grid.addWidget(field_label, row, 0)
-
-            s_display = html.escape(self._format_value_for_display(s_val))
-            t_display = html.escape(self._format_value_for_display(t_val))
-
-            s_cell = _ConflictValueCell(s_display, lambda f=field: self._choose_conflict(f, 0))
-            t_cell = _ConflictValueCell(t_display, lambda f=field: self._choose_conflict(f, 1))
-            grid.addWidget(s_cell, row, 1)
-            grid.addWidget(t_cell, row, 2)
-            self._conflict_cells[field] = (s_cell, t_cell)
-
-            # Default to Target if source is empty, otherwise Source
-            default_side = 1 if (s_val is None or s_val == "") else 0
-            self._conflict_choices[field] = default_side
-            (t_cell if default_side == 1 else s_cell).set_chosen(True)
-
-            row += 1
-
-        return grid
-
-    def _choose_conflict(self, field, side):
-        """Record the chosen side for a field and update the cell highlight."""
-        self._conflict_choices[field] = side
-        s_cell, t_cell = self._conflict_cells[field]
-        s_cell.set_chosen(side == 0)
-        t_cell.set_chosen(side == 1)
-
-    def _format_value_for_display(self, value):
-        """Format a value for display in the conflict resolution UI."""
-        if value is None:
-            return "[Empty]"
-        if value == "":
-            return "[Blank]"
-        return str(value)
-
-    def _is_skippable_field(self, attr, value):
-        """Return True for fields that should never be shown as merge choices.
-
-        Skipped categories:
-        - Relationship fields: lists or ORM-mapped objects (not plain Python types)
-        - Auto-generated IDs: any attribute ending in '_id'
-        - Timestamps: any attribute ending in '_at' or named 'created_*' / 'updated_*'
-        """
-        # Skip ID columns (primary keys and foreign keys)
-        if attr.endswith("_id"):
-            return True
-
-        # Skip timestamp columns
-        if attr.endswith("_at") or attr.startswith("created_") or attr.startswith("updated_"):
-            return True
-
-        # Skip relationship fields — these are lists or mapped ORM objects,
-        # not simple scalar values the user can meaningfully choose between.
-        if isinstance(value, list):
-            return True
-        plain_types = (str, int, float, bool, type(None))
-        return not isinstance(value, plain_types)
-
-    def _get_conflicts(self):
-        """Detect differences between source and target, excluding non-mergeable fields."""
-        conflicts = {}
-        # Use the mapper's column list rather than vars(self.source_entity): the
-        # instance __dict__ is emptied by SQLAlchemy whenever the shared session
-        # commits (expire_on_commit), which made every merge after the first in a
-        # batch report zero conflicts.
-        attr_names = type(self.source_entity).__mapper__.column_attrs.keys()
-        for attr in attr_names:
-            if attr.startswith("_") or attr in ("metadata", self.id_attr):
-                continue
-
-            s_val = getattr(self.source_entity, attr)
-            t_val = getattr(self.target_entity, attr)
-
-            # Skip fields that should not be presented as merge choices
-            if self._is_skippable_field(attr, s_val) or self._is_skippable_field(attr, t_val):
-                continue
-
-            if s_val != t_val:
-                conflicts[attr] = (s_val, t_val)
-        return conflicts
 
     def _on_merge(self):
         """Confirm, then execute the merge. Subclasses that show their own
@@ -689,12 +530,7 @@ class MergeDBDialog(QDialog):
         try:
             # Build a dictionary of the user's chosen values.
             # Do NOT modify the ORM objects here.
-            resolved_fields = {}
-
-            if hasattr(self, "_conflict_choices"):
-                for field, side in self._conflict_choices.items():
-                    entity = self.source_entity if side == 0 else self.target_entity
-                    resolved_fields[field] = getattr(entity, field)
+            resolved_fields = self._conflict_grid.get_resolved_fields() if hasattr(self, "_conflict_grid") else {}
 
             success = self.merge_helper.merge_entities(self.model_name, getattr(self.source_entity, self.id_attr), getattr(self.target_entity, self.id_attr), resolved_fields)
 

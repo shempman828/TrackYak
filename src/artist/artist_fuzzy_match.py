@@ -276,7 +276,3 @@ class FuzzyMatchDialog(BaseFuzzyMatchDialog):
 
     def _notify_no_jobs(self) -> None:
         QMessageBox.warning(self, "No Merges", "No pairs were merged (none checked or errors occurred)")
-
-    def _on_pair_merged(self, old_artist, new_artist) -> None:
-        logger.info(f"adding alias for {old_artist.artist_name} to {new_artist.artist_name}")
-        self.controller.add.add_entity("ArtistAlias", artist_id=new_artist.artist_id, alias_name=old_artist.artist_name)

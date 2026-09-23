@@ -276,10 +276,15 @@ their influences, or add a profile picture. There's also always-available
 Add Artist, Add Group, Find Duplicate Artists, and Delete Unused Artists at
 the bottom of the menu for library upkeep. In the Find Duplicate Artists
 results, you can dismiss a pair that is not a true duplicate. YakTrack will
-not show that pair again. Deleting an artist also deletes
-its stored profile picture from disk, merging two artists keeps only the
-surviving picture (renaming its file to match), and clearing or replacing a
-picture removes the file it used to point at.
+not show that pair again. If a checked pair has fields that actually differ
+(biography, MBID, links, and so on), merging opens a Resolve Conflicts step
+first, letting you pick which value survives field by field before that pair
+is merged; a pair with no differing fields merges straight away. Reviewing a
+big batch? Skip All Remaining keeps the canonical entry's fields for every
+pair still waiting, without opening a step for each one. Deleting an artist
+also deletes its stored profile picture from disk, merging two artists keeps
+only the surviving picture (renaming its file to match), and clearing or
+replacing a picture removes the file it used to point at.
 
 **Tags**: separate from Type, the artist editor has its own **Tags** tab for
 free-form labels you define yourself, for whatever criteria matter to you —
@@ -412,7 +417,11 @@ whatever it finds similar. The scan checks both the name and the
 surrounding country/state/city context, so two same-named places in
 different countries won't be flagged against each other. Found a pair that
 is not a true duplicate? Dismiss it, and it will not show up in a later
-scan.
+scan. If a checked pair has fields that actually differ, merging opens a
+Resolve Conflicts step first, letting you pick which value survives field by
+field; a pair with no differing fields merges straight away, and Skip All
+Remaining keeps the canonical entry's fields for the rest of a big batch
+without reviewing each pair.
 
 ## Publishers
 
@@ -436,7 +445,11 @@ fuzzy-match scan across your whole publisher list, then review and bulk-merge
 whatever it finds similar. For a one-off, Merge and Split work the same way
 they do for genres — Merge combines two into one, Split clones relationships
 out to new names. Found a pair that is not a true duplicate? Dismiss it, and
-it will not show up in a later scan.
+it will not show up in a later scan. If a checked pair has fields that
+actually differ, merging opens a Resolve Conflicts step first, letting you
+pick which value survives field by field; a pair with no differing fields
+merges straight away, and Skip All Remaining keeps the canonical entry's
+fields for the rest of a big batch without reviewing each pair.
 
 ## Roles
 

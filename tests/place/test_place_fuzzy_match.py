@@ -155,3 +155,37 @@ def test_dismissed_pair_is_excluded_from_a_later_scans_dialog(qapp, tmp_path, mo
         assert dialog.match_widgets == []
     finally:
         dialog.deleteLater()
+
+
+# ---- docs/specs/artist_duplicate_reconciliation.md AC9: same reconciliation
+# step works for Place, via the shared BaseFuzzyMatchDialog._resolve_conflicts.
+
+
+def test_resolved_field_lands_on_the_merged_survivor(qapp):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from src.common.dialogs.fuzzy_match_dialog import BaseMergeWorker
+    from src.db.db_helpers.merge import MergeDB
+    from src.db.db_tables.base import Base
+    from src.db.db_tables.place import Place
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+
+    source = Place(place_name="Springfield", place_description="A city.")
+    target = Place(place_name="Springfeild", place_description=None)
+    session.add_all([source, target])
+    session.commit()
+
+    class _StubController:
+        merge = MergeDB(session)
+
+    worker = BaseMergeWorker(_StubController(), "Place", "place_id", "place_name", [(source, target, {"place_description": "A city.", "place_name": "Springfield"})])
+    worker.run()
+
+    survivor = session.get(Place, target.place_id)
+    assert survivor.place_description == "A city."
+    assert survivor.place_name == "Springfield"
+    assert session.get(Place, source.place_id) is None
