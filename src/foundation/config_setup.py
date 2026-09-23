@@ -263,21 +263,9 @@ class Config:
     def _create_default_config(self):
         """Create default configuration structure"""
         # Window section
-        self.config["window"] = {
-            "size": "1280,720",
-            "position": "100,100",
-            "state": "",
-            "maximized": "false",
-        }
+        self.config["window"] = {"size": "1280,720", "position": "100,100", "state": "", "maximized": "false"}
         # Display section (NEW)
-        self.config["display"] = {
-            "theme": "dark_mode",
-            "ui_scale": "1.0",
-            "font_family": "Inter",
-            "font_size": "10",
-            "blur_explicit_art": "false",
-            "censor_explicit_words": "false",
-        }
+        self.config["display"] = {"theme": "dark_mode", "ui_scale": "1.0", "font_family": "Inter", "font_size": "10", "blur_explicit_art": "false", "censor_explicit_words": "false"}
         # App section
         self.config["app"] = {
             "music_dir": str(Path.home() / "Music"),
@@ -286,13 +274,7 @@ class Config:
         }
 
         # Library section
-        self.config["library"] = {
-            "root_directory": str(Path.home() / "Music"),
-            "scan_on_startup": "true",
-            "auto_refresh": "false",
-            "excluded_genres": "",
-            "excluded_roles": "",
-        }
+        self.config["library"] = {"root_directory": str(Path.home() / "Music"), "scan_on_startup": "true", "auto_refresh": "false", "excluded_genres": "", "excluded_roles": ""}
 
         # Playback section
         self.config["playback"] = {
@@ -302,11 +284,7 @@ class Config:
         }
 
         # Audio section
-        self.config["audio"] = {
-            "output_device": "default",
-            "buffer_size": "1024",
-            "exclusive_mode": "false",
-        }
+        self.config["audio"] = {"output_device": "default", "buffer_size": "1024", "exclusive_mode": "false"}
 
         # Logging section
         self.config["logging"] = {
@@ -322,10 +300,7 @@ class Config:
             "custom_preset_name": "My Custom EQ",
             # Band gains stored as comma-separated values
             "band_gains": "0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0",
-            "presets": (
-                "Flat,Bass Boost,Treble Boost,Rock,Pop,Jazz,"
-                "Classical,Electronic,Hip Hop,Acoustic,Vocal Boost,Dance"
-            ),
+            "presets": ("Flat,Bass Boost,Treble Boost,Rock,Pop,Jazz,Classical,Electronic,Hip Hop,Acoustic,Vocal Boost,Dance"),
         }
         # Queue section
         # Note: queue/history track IDs live in queue_state.json, not here —
@@ -441,21 +416,11 @@ class Config:
 _CONFIG_FIELDS = [
     _primitive("theme_file", "app", "theme_file", "str", "default.qss"),
     _primitive("first_run", "app", "first_run", "bool", True, prefix="is"),
-    ConfigField(
-        "base_directory",
-        "library",
-        ("root_directory",),
-        _decode_base_directory,
-        _encode_base_directory,
-    ),
+    ConfigField("base_directory", "library", ("root_directory",), _decode_base_directory, _encode_base_directory),
     _primitive("scan_on_startup", "library", "scan_on_startup", "bool", True),
     _primitive("auto_refresh", "library", "auto_refresh", "bool", False),
-    ConfigField(
-        "excluded_genres", "library", ("excluded_genres",), _decode_csv_list, _encode_csv_list
-    ),
-    ConfigField(
-        "excluded_roles", "library", ("excluded_roles",), _decode_csv_list, _encode_csv_list
-    ),
+    ConfigField("excluded_genres", "library", ("excluded_genres",), _decode_csv_list, _encode_csv_list),
+    ConfigField("excluded_roles", "library", ("excluded_roles",), _decode_csv_list, _encode_csv_list),
     _primitive("volume", "playback", "volume", "int", 75),
     _primitive("shuffle", "playback", "shuffle", "bool", False),
     _primitive("repeat_mode", "playback", "repeat", "str", "none"),
@@ -463,33 +428,18 @@ _CONFIG_FIELDS = [
     _primitive("buffer_size", "audio", "buffer_size", "int", 1024),
     _primitive("exclusive_mode", "audio", "exclusive_mode", "bool", False),
     ConfigField("window_size", "window", ("size",), _decode_window_size, _encode_window_size),
-    ConfigField(
-        "window_position", "window", ("position",), _decode_window_position, _encode_window_position
-    ),
+    ConfigField("window_position", "window", ("position",), _decode_window_position, _encode_window_position),
     ConfigField("window_state", "window", ("state",), _decode_window_state, _encode_window_state),
     _primitive("window_maximized", "window", "maximized", "bool", False, prefix="is"),
     _primitive("console_logging_enabled", "logging", "console_enabled", "bool", True, prefix="is"),
     _primitive("file_logging_enabled", "logging", "file_enabled", "bool", True, prefix="is"),
     _primitive("max_file_size_mb", "logging", "max_file_size_mb", "int", 10),
     _primitive("backup_count", "logging", "backup_count", "int", 14),
-    ConfigField(
-        "logging_level", "logging", ("level",), _decode_logging_level, _encode_logging_level
-    ),
+    ConfigField("logging_level", "logging", ("level",), _decode_logging_level, _encode_logging_level),
     _primitive("equalizer_enabled", "equalizer", "enabled", "bool", False),
-    _primitive(
-        "equalizer_custom_preset_name", "equalizer", "custom_preset_name", "str", "My Custom EQ"
-    ),
-    ConfigField(
-        "equalizer_band_gains", "equalizer", ("band_gains",), _decode_band_gains, _encode_band_gains
-    ),
-    _primitive(
-        "equalizer_presets",
-        "equalizer",
-        "presets",
-        "list",
-        "Flat,Bass Boost,Treble Boost,Rock,Pop,Jazz,"
-        "Classical,Electronic,Hip Hop,Acoustic,Vocal Boost,Dance",
-    ),
+    _primitive("equalizer_custom_preset_name", "equalizer", "custom_preset_name", "str", "My Custom EQ"),
+    ConfigField("equalizer_band_gains", "equalizer", ("band_gains",), _decode_band_gains, _encode_band_gains),
+    _primitive("equalizer_presets", "equalizer", "presets", "list", "Flat,Bass Boost,Treble Boost,Rock,Pop,Jazz,Classical,Electronic,Hip Hop,Acoustic,Vocal Boost,Dance"),
     _primitive("display_theme", "display", "theme", "str", "dark_mode"),
     _primitive("ui_scale", "display", "ui_scale", "float", 1.0),
     _primitive("font_family", "display", "font_family", "str", "Inter"),
@@ -503,35 +453,15 @@ _CONFIG_FIELDS = [
     _primitive("track_view_visible_columns", "track_view", "visible_columns", "list", ""),
     _primitive("track_view_column_order", "track_view", "column_order", "list", ""),
     _primitive("track_view_column_widths", "track_view", "column_widths", "int_list", ""),
-    ConfigField(
-        "lyrics_sync_offset",
-        "nowplaying",
-        ("lyrics_sync_offset",),
-        _decode_lyrics_offset,
-        _encode_lyrics_offset,
-    ),
+    ConfigField("lyrics_sync_offset", "nowplaying", ("lyrics_sync_offset",), _decode_lyrics_offset, _encode_lyrics_offset),
     _primitive("manual_sync_reaction_ms", "nowplaying", "manual_sync_reaction_ms", "int", 200),
     _primitive("influence_legend_visible", "influences", "legend_visible", "bool", True),
-    ConfigField(
-        "influence_legend_size",
-        "influences",
-        ("legend_width", "legend_height"),
-        _decode_legend_size,
-        _encode_legend_size,
-    ),
-    ConfigField(
-        "influence_legend_position",
-        "influences",
-        ("legend_x", "legend_y"),
-        _decode_legend_position,
-        _encode_legend_position,
-    ),
-    ConfigField(
-        "album_view_filters", "album_view", ("filters",), _decode_json_dict, _encode_json_dict
-    ),
-    ConfigField(
-        "artist_view_filters", "artist_view", ("filters",), _decode_json_dict, _encode_json_dict
-    ),
+    ConfigField("influence_legend_size", "influences", ("legend_width", "legend_height"), _decode_legend_size, _encode_legend_size),
+    ConfigField("influence_legend_position", "influences", ("legend_x", "legend_y"), _decode_legend_position, _encode_legend_position),
+    _primitive("nav_item_order", "navigation", "item_order", "list", ""),
+    _primitive("nav_hidden_items", "navigation", "hidden_items", "list", ""),
+    ConfigField("album_view_filters", "album_view", ("filters",), _decode_json_dict, _encode_json_dict),
+    ConfigField("artist_view_filters", "artist_view", ("filters",), _decode_json_dict, _encode_json_dict),
     _primitive("last_art_dir", "ui", "last_art_dir", "str", str(Path.home())),
 ]
 

@@ -1,17 +1,7 @@
 from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QSize, Qt
-from PySide6.QtWidgets import (
-    QApplication,
-    QDockWidget,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QSizePolicy,
-    QToolButton,
-    QTreeWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QApplication, QDockWidget, QFrame, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QTreeWidget, QVBoxLayout, QWidget
 
+from src.core.navigation_customization import NavigationCustomizationDialog
 from src.foundation.asset_paths import icon
 from src.foundation.logger_config import logger
 
@@ -101,6 +91,8 @@ class NavigationDock(QDockWidget):
         self.nav_tree.setFocusPolicy(Qt.NoFocus)  # removes annoying focus styling
 
         self._nav_tree.itemClicked.connect(self.gui._switch_view)
+        self._nav_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._nav_tree.customContextMenuRequested.connect(self._show_nav_context_menu)
 
         # Assemble everything
         nav_layout.addWidget(header_widget)
@@ -121,6 +113,17 @@ class NavigationDock(QDockWidget):
         # dock claiming/releasing space resizes us too, which isn't the same
         # signal as the user actually shrinking the window.
         self.gui.installEventFilter(self)
+
+    def _show_nav_context_menu(self, pos):
+        """Right-click menu on the nav tree, offering nav bar customization."""
+        menu = QMenu(self)
+        customize_action = menu.addAction("Customize Navigation…")
+        customize_action.triggered.connect(self._show_navigation_customization_dialog)
+        menu.exec_(self._nav_tree.mapToGlobal(pos))
+
+    def _show_navigation_customization_dialog(self):
+        dialog = NavigationCustomizationDialog(self.gui, self)
+        dialog.exec_()
 
     def size_navigation_to_content(self):
         """Size the navigation dock to fit its content."""
@@ -260,7 +263,7 @@ class NavigationDock(QDockWidget):
 
         animation.finished.connect(finalize_size)
 
-        # Keep references so animations aren’t GC’d
+        # Keep references so animations aren't GC'd
         self._nav_animation = animation
         self._nav_animation_min = min_anim
 

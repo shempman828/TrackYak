@@ -127,3 +127,44 @@ def test_waveform_display_mode_round_trips_through_config_file(fresh_config):
     raw = configparser.ConfigParser()
     raw.read(scratch_ini)
     assert raw["player"]["display_mode"] == "log"
+
+
+# --- navbar order and visibility ------------------------------------------ AC1, AC2
+
+
+def test_nav_item_order_defaults_to_empty_list_when_unset(fresh_config):
+    cfg, _ = fresh_config
+    assert cfg.get_nav_item_order() == []
+
+
+def test_nav_item_order_round_trips_through_config_file(fresh_config):
+    cfg, scratch_ini = fresh_config
+
+    cfg.set_nav_item_order(["Tracks", "Albums", "Artists"])
+    cfg.save()
+
+    reloaded = _reload(scratch_ini)
+    assert reloaded.get_nav_item_order() == ["Tracks", "Albums", "Artists"]
+
+    raw = configparser.ConfigParser()
+    raw.read(scratch_ini)
+    assert raw["navigation"]["item_order"] == "Tracks,Albums,Artists"
+
+
+def test_nav_hidden_items_defaults_to_empty_list_when_unset(fresh_config):
+    cfg, _ = fresh_config
+    assert cfg.get_nav_hidden_items() == []
+
+
+def test_nav_hidden_items_round_trips_through_config_file(fresh_config):
+    cfg, scratch_ini = fresh_config
+
+    cfg.set_nav_hidden_items(["Genres", "Places"])
+    cfg.save()
+
+    reloaded = _reload(scratch_ini)
+    assert reloaded.get_nav_hidden_items() == ["Genres", "Places"]
+
+    raw = configparser.ConfigParser()
+    raw.read(scratch_ini)
+    assert raw["navigation"]["hidden_items"] == "Genres,Places"

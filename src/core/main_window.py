@@ -5,14 +5,7 @@ import traceback
 
 from PySide6.QtCore import QPoint, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence
-from PySide6.QtWidgets import (
-    QApplication,
-    QDockWidget,
-    QMainWindow,
-    QStackedWidget,
-    QTreeWidgetItem,
-    QWidget,
-)
+from PySide6.QtWidgets import QApplication, QDockWidget, QMainWindow, QStackedWidget, QTreeWidgetItem, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 # ── Views are imported here for type-checking but NOT instantiated until
@@ -161,6 +154,8 @@ class GUI(QMainWindow, MenuBar):
             "Timeline": lambda: TimelineView(self.controller),
         }
 
+        self._load_navigation_state()
+
         # ── Cached instances (populated on first navigation) ──────────────────
         # Pre-populate the two eager views so they're ready immediately.
         self._view_cache = {}
@@ -222,12 +217,55 @@ class GUI(QMainWindow, MenuBar):
     #  Navigation
     # =========================================================================
 
+    def _load_navigation_state(self):
+        """Load the persisted nav item order/hidden set into
+        self._nav_order / self._nav_hidden, falling back to factory
+        insertion order and nothing hidden. Any view missing from the
+        persisted order (e.g. added in a later release) is appended at the
+        end, visible by default. "Tracks" can never be hidden -- it's the
+        eagerly-built default landing view.
+        """
+        all_views = list(self._view_factories)
+        order = [name for name in app_config.get_nav_item_order() if name in all_views]
+        order += [name for name in all_views if name not in order]
+        self._nav_order = order
+
+        hidden = set(app_config.get_nav_hidden_items())
+        hidden.discard("Tracks")
+        self._nav_hidden = hidden
+
     def _populate_navigation(self):
-        """Populate navigation tree from registry."""
+        """Populate navigation tree from the persisted order, skipping hidden entries."""
         if self.nav_tree:
             self.nav_tree.clear()
-            for view_name in self.view_registry:
+            order = getattr(self, "_nav_order", None) or list(self.view_registry)
+            hidden = getattr(self, "_nav_hidden", set())
+            for view_name in order:
+                if view_name not in self.view_registry or view_name in hidden:
+                    continue
                 QTreeWidgetItem(self.nav_tree, [view_name])
+
+    def apply_navigation_state(self, order, hidden):
+        """Persist a new nav item order/hidden set from
+        NavigationCustomizationDialog and rebuild the nav tree to match. If
+        the view currently on screen just became hidden, switch to the
+        first remaining visible entry (falls back to "Tracks").
+        """
+        hidden = set(hidden)
+        hidden.discard("Tracks")
+
+        current_view = next((name for name, index in self.view_registry.items() if index == self.stacked_widget.currentIndex()), None)
+
+        self._nav_order = list(order)
+        self._nav_hidden = hidden
+        app_config.set_nav_item_order(self._nav_order)
+        app_config.set_nav_hidden_items(list(self._nav_hidden))
+        self._populate_navigation()
+
+        if current_view in self._nav_hidden:
+            fallback = next((name for name in self._nav_order if name not in self._nav_hidden), "Tracks")
+            self._ensure_view_built(fallback)
+            self.stacked_widget.setCurrentIndex(self.view_registry[fallback])
 
     def _switch_view(self, item):
         """Called when the user clicks a nav-tree item."""
@@ -307,11 +345,7 @@ class GUI(QMainWindow, MenuBar):
                             getattr(widget, method)()
                             break
 
-            if (
-                hasattr(self, "queue_widget")
-                and self.queue_widget
-                and hasattr(self.queue_widget, "refresh_queue")
-            ):
+            if hasattr(self, "queue_widget") and self.queue_widget and hasattr(self.queue_widget, "refresh_queue"):
                 self.queue_widget.refresh_queue()
 
             logger.info("All built views refreshed successfully")
@@ -374,11 +408,7 @@ class GUI(QMainWindow, MenuBar):
         self.queue_dock = QDockWidget("Queue", self)
         self.queue_dock.setObjectName("QueueDock")
         self.queue_dock.setWidget(self.queue_widget)
-        self.queue_dock.setFeatures(
-            QDockWidget.DockWidgetMovable
-            | QDockWidget.DockWidgetFloatable
-            | QDockWidget.DockWidgetClosable
-        )
+        self.queue_dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetClosable)
         self.queue_dock.setAllowedAreas(Qt.RightDockWidgetArea | Qt.LeftDockWidgetArea)
         self.queue_dock.setMinimumWidth(300)
         self.queue_dock.setMaximumWidth(500)
@@ -424,9 +454,7 @@ class GUI(QMainWindow, MenuBar):
         self.move(pos)
         self.setContentsMargins(10, 10, 10, 10)
         if app_config.is_window_maximized():
-            QTimer.singleShot(
-                0, lambda: self.setWindowState(self.windowState() | Qt.WindowMaximized)
-            )
+            QTimer.singleShot(0, lambda: self.setWindowState(self.windowState() | Qt.WindowMaximized))
         QTimer.singleShot(100, self.ensure_window_in_screen)
         self._load_theme()
 
@@ -487,18 +515,10 @@ class GUI(QMainWindow, MenuBar):
             screen_geometry = screen.availableGeometry()
             window_geometry = self.geometry()
             safe_margin = 100
-            safe_rect = screen_geometry.adjusted(
-                safe_margin, safe_margin, -safe_margin, -safe_margin
-            )
+            safe_rect = screen_geometry.adjusted(safe_margin, safe_margin, -safe_margin, -safe_margin)
             if not safe_rect.contains(window_geometry):
-                new_x = max(
-                    safe_rect.left(),
-                    min(window_geometry.x(), safe_rect.right() - window_geometry.width()),
-                )
-                new_y = max(
-                    safe_rect.top(),
-                    min(window_geometry.y(), safe_rect.bottom() - window_geometry.height()),
-                )
+                new_x = max(safe_rect.left(), min(window_geometry.x(), safe_rect.right() - window_geometry.width()))
+                new_y = max(safe_rect.top(), min(window_geometry.y(), safe_rect.bottom() - window_geometry.height()))
                 self.move(new_x, new_y)
                 logger.debug("Adjusted window position to stay within safe screen area")
         except (AttributeError, RuntimeError) as e:
@@ -520,11 +540,7 @@ class GUI(QMainWindow, MenuBar):
             dock.setFloating(False)
             dock.hide()
 
-        dock_config = [
-            ("navigation_dock", Qt.LeftDockWidgetArea, "expand_navigation"),
-            ("player_dock", Qt.BottomDockWidgetArea, None),
-            ("queue_dock", Qt.RightDockWidgetArea, None),
-        ]
+        dock_config = [("navigation_dock", Qt.LeftDockWidgetArea, "expand_navigation"), ("player_dock", Qt.BottomDockWidgetArea, None), ("queue_dock", Qt.RightDockWidgetArea, None)]
         for attr_name, area, expand_method in dock_config:
             dock = getattr(self, attr_name, None)
             if dock:
@@ -543,9 +559,7 @@ class GUI(QMainWindow, MenuBar):
     def _restore_player(self):
         if not getattr(self, "player_ui", None):
             self._create_player()
-        player_dock = next(
-            (d for d in self.findChildren(QDockWidget) if d.widget() == self.player_ui), None
-        )
+        player_dock = next((d for d in self.findChildren(QDockWidget) if d.widget() == self.player_ui), None)
         if player_dock:
             player_dock.setFloating(False)
             self.addDockWidget(Qt.BottomDockWidgetArea, player_dock)

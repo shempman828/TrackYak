@@ -740,6 +740,10 @@ want more screen space, and click it again to bring the labels back. It also
 collapses itself automatically on narrower windows and re-expands once
 there's room again.
 
+Right-click the list for a "Customize Navigation…" option to drag entries
+into your own order or hide the ones you don't use. Tracks always stays
+shown, since it's the default view.
+
 ## Player Dock
 
 The transport bar along the bottom, always present so you're never far from
