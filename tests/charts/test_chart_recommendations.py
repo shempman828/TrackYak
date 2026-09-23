@@ -100,3 +100,31 @@ def test_gap_at_week_edge_ignores_unrelated_chart(session):
     assert len(items) == 1
     assert items[0].raw_title == "Gap Song"
     assert items[0].gap_run_length == 2  # only the same-chart run after it
+
+
+def test_run_does_not_cross_a_missing_week(session):
+    # Week A and week C are both present, but week B (in between, 7 days
+    # after A and 7 days before C) is missing from the data entirely --
+    # a real gap in the chart's history, not just a filtered-out range.
+    # The week A tail run and week C head run sit right next to each other
+    # in row order once week B's rows are absent, but they must NOT be
+    # treated as touching, since a whole week of unknown chart state sits
+    # between them.
+    chart = _make_chart(session)
+    week_a = datetime.date(2023, 12, 16)
+    week_c = datetime.date(2023, 12, 30)  # 14 days after week_a, not 7
+
+    for pos in (1, 2, 3):
+        _add_entry(session, chart, week_a, pos, owned=True, title=f"A Owned {pos}")
+
+    _add_entry(session, chart, week_c, 1, owned=False, title="Gap Song")
+    for pos in (2, 3):
+        _add_entry(session, chart, week_c, pos, owned=True, title=f"C Owned {pos}")
+
+    session.commit()
+
+    items = get_missing_gap_fills(session, min_gap=1)
+
+    assert len(items) == 1
+    assert items[0].raw_title == "Gap Song"
+    assert items[0].gap_run_length == 2  # only week C's own head run, not week A's tail too

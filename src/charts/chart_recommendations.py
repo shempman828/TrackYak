@@ -16,10 +16,13 @@ Two rankings:
   example), since a missing song bordered by songs you already have is a
   much stronger "you're basically done with this chart" signal than an
   isolated miss with nothing owned on either side. Owned runs carry across
-  a week boundary into the next chart_week's rows (same chart_id, next
-  position in the sorted row order), so a miss sitting at the very start
+  a week boundary into the very next chart_week's rows (same chart_id,
+  chart_week exactly 7 days later), so a miss sitting at the very start
   or end of a week still connects to the neighboring week's run instead of
-  being scored as if it had nothing owned beside it.
+  being scored as if it had nothing owned beside it. A bigger jump between
+  chart_week values (a missing week in the data, or a filtered-out week)
+  breaks the run instead of bridging it, the same as a different chart_id
+  would.
 
 A single (raw_title, raw_performer) pair can appear as many ChartEntry rows
 as the song/album had weeks on the chart, so both rankings group results
@@ -124,11 +127,12 @@ def get_missing_popular(session, chart_ids: list | None = None, limit: int = 100
 
 def get_missing_gap_fills(session, chart_ids: list | None = None, min_gap: int = 4, limit: int = 100, week_from: datetime.date | None = None, week_to: datetime.date | None = None) -> list:
     """Missing entries that would connect two runs of already-owned chart
-    positions -- see module docstring. Runs carry across chart_week
-    boundaries within the same chart. `min_gap` is the minimum combined
-    owned-run length (before + after) required to surface a candidate, so
-    an isolated miss with nothing owned on either side doesn't show up as
-    noise.
+    positions -- see module docstring. Runs carry across a chart_week
+    boundary only when the next chart_week is exactly 7 days after the
+    previous one -- a bigger jump (a missing week) breaks the run instead
+    of bridging it. `min_gap` is the minimum combined owned-run length
+    (before + after) required to surface a candidate, so an isolated miss
+    with nothing owned on either side doesn't show up as noise.
 
     `week_from` / `week_to` (inclusive) restrict which chart weeks are
     scanned for runs, so a gap only surfaces if its week is in range.
@@ -163,26 +167,36 @@ def get_missing_gap_fills(session, chart_ids: list | None = None, min_gap: int =
     best: dict = {}  # (chart_id, raw_title, raw_performer) -> MissingChartItem
 
     def _flush_chart(chart_rows: list) -> None:
-        # chart_rows spans every chart_week for this chart_id, in order --
-        # streaks are allowed to run across a week boundary (same chart,
-        # next row in sorted order) and only reset where ownership itself
-        # breaks, not at the week edges.
+        # chart_rows spans every chart_week for this chart_id, in order.
+        # A streak may only carry from one row into the next when they're
+        # the same chart_week (next position) or exactly 7 days apart (the
+        # very next chart_week) -- a bigger jump means a week is missing
+        # from the data, so the runs on either side must not be treated as
+        # touching.
         n = len(chart_rows)
         owned = [r.entity_id is not None for r in chart_rows]
 
+        connects_back = [True] * n
+        for i in range(1, n):
+            prev_week = chart_rows[i - 1].chart_week
+            week = chart_rows[i].chart_week
+            connects_back[i] = week == prev_week or (week - prev_week) == datetime.timedelta(days=7)
+
         streak = [0] * n  # length of owned run ending at i (inclusive)
         for i in range(n):
-            streak[i] = (streak[i - 1] if i > 0 else 0) + 1 if owned[i] else 0
+            carry = streak[i - 1] if i > 0 and connects_back[i] else 0
+            streak[i] = carry + 1 if owned[i] else 0
 
         streak_rev = [0] * n  # length of owned run starting at i (inclusive)
         for i in range(n - 1, -1, -1):
-            streak_rev[i] = (streak_rev[i + 1] if i < n - 1 else 0) + 1 if owned[i] else 0
+            carry = streak_rev[i + 1] if i < n - 1 and connects_back[i + 1] else 0
+            streak_rev[i] = carry + 1 if owned[i] else 0
 
         for i, row in enumerate(chart_rows):
             if owned[i]:
                 continue
-            before_run = streak[i - 1] if i > 0 else 0
-            after_run = streak_rev[i + 1] if i < n - 1 else 0
+            before_run = streak[i - 1] if i > 0 and connects_back[i] else 0
+            after_run = streak_rev[i + 1] if i < n - 1 and connects_back[i + 1] else 0
             gap = before_run + after_run
             if gap < min_gap:
                 continue
