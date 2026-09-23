@@ -821,10 +821,18 @@ Double-click any queued track to jump to it immediately.
   exists on disk (moved, renamed outside the app, deleted) so you can clean
   up dangling entries.
 - **General Settings** — display, audio device, and general app preferences,
-  all in one dialog. The **Developer** tab holds a single "Enable developer
-  mode" toggle that unlocks experimental/diagnostic options (currently just the
-  "Primary Artist Count" album sort); some of what it exposes needs a restart
-  to appear.
+  all in one dialog. The **Developer** tab holds an "Enable developer mode"
+  toggle that unlocks experimental/diagnostic options (currently the
+  "Primary Artist Count" album sort, and "Write file metadata immediately on
+  change" — see below); some of what it exposes needs a restart to appear.
+  "Write file metadata immediately on change" is a second checkbox, only
+  usable while developer mode is on: once both are checked, any edit that
+  would mark a track's audio file out of date (the same trigger the **Update
+  Audio File Metadata** dialog's dirty-tracking uses) writes that file
+  immediately instead of waiting for a manual batch run. It writes
+  synchronously, so an edit touching many tracks at once (e.g. a bulk
+  multi-select edit) can briefly pause the UI while every affected file is
+  rewritten.
 - **Exit** (`Ctrl+Q`) — closes the app.
 
 ## Library Statistics

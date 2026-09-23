@@ -18,11 +18,11 @@ import functools
 from PySide6.QtWidgets import QCheckBox, QLabel, QVBoxLayout, QWidget
 
 from src.core.config_dialog import ConfigDialog
-from src.dev import dev_mode
+from src.dev import dev_immediate_write, dev_mode
 
 
 class DeveloperSettingsTab(QWidget):
-    """Single-checkbox settings tab for the developer-mode flag."""
+    """Settings tab for the developer-mode flag and its dependent options."""
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -32,20 +32,37 @@ class DeveloperSettingsTab(QWidget):
         self.enable_check = QCheckBox("Enable developer mode")
         layout.addWidget(self.enable_check)
 
-        caption = QLabel(
-            "Unlocks experimental and diagnostic options. Some changes take "
-            "effect after restarting the app."
-        )
+        caption = QLabel("Unlocks experimental and diagnostic options. Some changes take effect after restarting the app.")
         caption.setWordWrap(True)
         caption.setEnabled(False)
         layout.addWidget(caption)
+
+        self.immediate_write_check = QCheckBox("Write file metadata immediately on change")
+        layout.addWidget(self.immediate_write_check)
+
+        immediate_write_caption = QLabel("Writes changed tags straight to the file, on every save. May briefly pause the UI on larger edits.")
+        immediate_write_caption.setWordWrap(True)
+        immediate_write_caption.setEnabled(False)
+        layout.addWidget(immediate_write_caption)
+
         layout.addStretch()
 
+        self.enable_check.toggled.connect(self._on_master_toggled)
+
+    def _on_master_toggled(self, checked: bool) -> None:
+        self.immediate_write_check.setEnabled(checked)
+        if not checked:
+            self.immediate_write_check.setChecked(False)
+
     def load(self) -> None:
-        self.enable_check.setChecked(dev_mode.is_enabled(self._config))
+        enabled = dev_mode.is_enabled(self._config)
+        self.enable_check.setChecked(enabled)
+        self.immediate_write_check.setEnabled(enabled)
+        self.immediate_write_check.setChecked(enabled and dev_immediate_write.is_enabled(self._config))
 
     def apply(self) -> None:
         dev_mode.set_enabled(self._config, self.enable_check.isChecked())
+        dev_immediate_write.set_enabled(self._config, self.immediate_write_check.isChecked())
 
 
 _orig_setup_ui = None

@@ -7,26 +7,32 @@ monkey-patches or a flipped config flag into the rest of the suite.
 import pytest
 
 import src.dev as dev_pkg
-from src.dev import dev_album_sort, dev_mode, dev_settings_tab
+from src.dev import dev_album_sort, dev_immediate_write, dev_mode, dev_settings_tab
 from src.foundation.config_setup import Config
 
 
 @pytest.fixture
 def dev_config():
-    """The process-wide ``Config`` with its ``[developer]`` flag restored after
+    """The process-wide ``Config`` with its ``[developer]`` section (both the
+    master flag and the immediate-write flag, which share it) restored after
     the test. Mutations stay in memory — this fixture never calls
     ``config.save()``, so ``config.ini`` on disk is untouched."""
     cfg = Config()
     had_section = cfg.config.has_section(dev_mode.SECTION)
-    prev = cfg.config.get(dev_mode.SECTION, dev_mode.KEY, fallback=None) if had_section else None
+    prev_keys = {
+        dev_mode.KEY: cfg.config.get(dev_mode.SECTION, dev_mode.KEY, fallback=None) if had_section else None,
+        dev_immediate_write.KEY: cfg.config.get(dev_immediate_write.SECTION, dev_immediate_write.KEY, fallback=None) if had_section else None,
+    }
     try:
         yield cfg
     finally:
         if had_section:
-            if prev is None:
-                cfg.config.remove_option(dev_mode.SECTION, dev_mode.KEY)
-            else:
-                cfg.config.set(dev_mode.SECTION, dev_mode.KEY, prev)
+            for key, prev in prev_keys.items():
+                if prev is None:
+                    if cfg.config.has_option(dev_mode.SECTION, key):
+                        cfg.config.remove_option(dev_mode.SECTION, key)
+                else:
+                    cfg.config.set(dev_mode.SECTION, key, prev)
         elif cfg.config.has_section(dev_mode.SECTION):
             cfg.config.remove_section(dev_mode.SECTION)
 
@@ -47,5 +53,6 @@ def dev_patches():
 
 def _reset():
     dev_album_sort.unpatch()
+    dev_immediate_write.unpatch()
     dev_settings_tab.unpatch()
     dev_pkg._installed = False

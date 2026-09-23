@@ -11,7 +11,7 @@ from PySide6.QtGui import QFontDatabase
 from src.core.config_dialog import ConfigDialog
 import src.core.font_family_worker as font_family_worker_module
 import src.dev as dev_pkg
-from src.dev import dev_mode
+from src.dev import dev_immediate_write, dev_mode
 
 
 class _FakeConfig:
@@ -55,11 +55,7 @@ def test_config_dialog_developer_tab_load_and_apply(qapp, monkeypatch, dev_confi
     # Keep ConfigDialog.__init__ off the fc-list subprocess (same shim the
     # existing config-dialog tests use).
     monkeypatch.setattr(QFontDatabase, "families", staticmethod(lambda *a, **k: ["Test Sans"]))
-    monkeypatch.setattr(
-        font_family_worker_module.subprocess,
-        "run",
-        lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("no fc-list")),
-    )
+    monkeypatch.setattr(font_family_worker_module.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("no fc-list")))
     ConfigDialog._canonical_font_families_cache = {"Test Sans"}
     # _apply_settings() flushes via config.save() — no-op it so the real
     # config.ini is never written.
@@ -85,6 +81,56 @@ def test_config_dialog_developer_tab_load_and_apply(qapp, monkeypatch, dev_confi
         dialog2 = ConfigDialog(dev_config)
         try:
             assert dialog2.dev_tab.enable_check.isChecked() is True
+        finally:
+            dialog2.reject()
+            qapp.processEvents()
+    finally:
+        dialog.reject()
+        qapp.processEvents()
+        ConfigDialog._canonical_font_families_cache = None
+
+
+# --------------------------------------------------------------------------- #
+# AC4 (docs/specs/dev_mode_immediate_metadata_write.md) — the immediate-write
+# checkbox depends on the master checkbox, and round-trips its own flag.
+# --------------------------------------------------------------------------- #
+def test_immediate_write_checkbox_depends_on_master(qapp, monkeypatch, dev_config, dev_patches):
+    monkeypatch.setattr(QFontDatabase, "families", staticmethod(lambda *a, **k: ["Test Sans"]))
+    monkeypatch.setattr(font_family_worker_module.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("no fc-list")))
+    ConfigDialog._canonical_font_families_cache = {"Test Sans"}
+    monkeypatch.setattr(dev_config, "save", lambda: None)
+
+    dev_mode.set_enabled(dev_config, False)
+    dev_immediate_write.set_enabled(dev_config, False)
+    dev_pkg.install()
+
+    dialog = ConfigDialog(dev_config)
+    try:
+        # Master off -> dependent checkbox starts disabled and unchecked.
+        assert dialog.dev_tab.immediate_write_check.isEnabled() is False
+        assert dialog.dev_tab.immediate_write_check.isChecked() is False
+
+        # Turning the master on enables (but does not force-check) it.
+        dialog.dev_tab.enable_check.setChecked(True)
+        assert dialog.dev_tab.immediate_write_check.isEnabled() is True
+        assert dialog.dev_tab.immediate_write_check.isChecked() is False
+
+        dialog.dev_tab.immediate_write_check.setChecked(True)
+        dialog._apply_settings()
+        assert dev_mode.is_enabled(dev_config) is True
+        assert dev_immediate_write.is_enabled(dev_config) is True
+
+        # Turning the master back off live-disables and unchecks it again.
+        dialog.dev_tab.enable_check.setChecked(False)
+        assert dialog.dev_tab.immediate_write_check.isEnabled() is False
+        assert dialog.dev_tab.immediate_write_check.isChecked() is False
+
+        # A fresh dialog loads both persisted values, dependency intact.
+        dialog2 = ConfigDialog(dev_config)
+        try:
+            assert dialog2.dev_tab.enable_check.isChecked() is True
+            assert dialog2.dev_tab.immediate_write_check.isEnabled() is True
+            assert dialog2.dev_tab.immediate_write_check.isChecked() is True
         finally:
             dialog2.reject()
             qapp.processEvents()
