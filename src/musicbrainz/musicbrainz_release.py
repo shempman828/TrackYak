@@ -73,19 +73,7 @@ _COUNTRY_PREFERENCE = ("XW", "GB", "US")
 # further. Anything outside this set (e.g. "samples material", "cover art")
 # is not imported as a credit.
 _PERFORMER_RELATION_TYPES = {"performer", "vocal", "instrument", "performing orchestra"}
-_PRODUCTION_RELATION_TYPES = {
-    "producer",
-    "engineer",
-    "mix",
-    "mastering",
-    "arranger",
-    "orchestrator",
-    "conductor",
-    "programming",
-    "remixer",
-    "sound",
-    "recording",
-}
+_PRODUCTION_RELATION_TYPES = {"producer", "engineer", "mix", "mastering", "arranger", "orchestrator", "conductor", "programming", "remixer", "sound", "recording"}
 _CREDIT_RELATION_TYPES = _PERFORMER_RELATION_TYPES | _PRODUCTION_RELATION_TYPES
 
 # Display name for a production relation type when its attribute-list is
@@ -98,11 +86,7 @@ _CREDIT_RELATION_TYPES = _PERFORMER_RELATION_TYPES | _PRODUCTION_RELATION_TYPES
 # directly is only safe for the types where the slug and the credited noun
 # happen to match (producer, engineer, mastering, arranger, orchestrator,
 # conductor, programming, remixer).
-_PRODUCTION_RELATION_DISPLAY_NAMES = {
-    "sound": "Sound Engineer",
-    "mix": "Mixer",
-    "recording": "Recording Engineer",
-}
+_PRODUCTION_RELATION_DISPLAY_NAMES = {"sound": "Sound Engineer", "mix": "Mixer", "recording": "Recording Engineer"}
 
 # Boolean-style qualifier words MB allows on performer/instrument/vocal
 # relations alongside (not instead of) the actual instrument/vocal name --
@@ -114,7 +98,10 @@ _PRODUCTION_RELATION_DISPLAY_NAMES = {
 # (release 76df3287-6cda-33eb-8e9e-f5b0f0625372) credits Bill Armstrong's
 # trumpet as attribute-list ["additional", "trumpet"] -- naively taking
 # attribute-list[0] reports his role as "Additional" and drops "trumpet"
-# entirely.
+# entirely. These words are discarded outright (not kept as a prefix) --
+# they describe how the studio credit reads on the sleeve, not a distinct
+# role, and keeping them produced noise like "Additional Trumpet" /
+# "Guest Guitar" next to plain "Trumpet" for the same instrument.
 _PERFORMER_ATTRIBUTE_QUALIFIERS = {"additional", "guest", "solo"}
 
 _SIDE_TRACK_NUMBER_RE = re.compile(r"^([A-Za-z])(\d+)$")
@@ -269,9 +256,7 @@ def _media_format_str(medium_list: list[dict[str, Any]] | None) -> str | None:
     return "/".join(formats) if formats else None
 
 
-def _parse_track_number_side(
-    number: str | None, position: str | None
-) -> tuple[str | None, int | None]:
+def _parse_track_number_side(number: str | None, position: str | None) -> tuple[str | None, int | None]:
     """MB's per-track `number` is a display string -- for vinyl-style media
     it's often side+position (e.g. "A1", "B2"); split that into a side
     letter and an in-side track number. Otherwise fall back to the medium's
@@ -304,26 +289,16 @@ def _relation_role_names(rel: dict[str, Any]) -> list[str]:
     rel_type = rel.get("type")
     attributes = rel.get("attribute-list") or []
     if rel_type in _PRODUCTION_RELATION_TYPES:
-        base_name = _PRODUCTION_RELATION_DISPLAY_NAMES.get(
-            rel_type, rel_type.title() if rel_type else None
-        )
+        base_name = _PRODUCTION_RELATION_DISPLAY_NAMES.get(rel_type, rel_type.title() if rel_type else None)
         if attributes:
             return [f"{attributes[0].title()} {base_name}"]
         return [base_name] if base_name else []
-    # Performer/instrument/vocal: split out qualifier words ("additional"/
-    # "guest"/"solo") from the actual instrument/vocal value(s) rather than
-    # assuming attribute-list[0] is the value -- see
-    # _PERFORMER_ATTRIBUTE_QUALIFIERS.
-    qualifiers = [a for a in attributes if a.lower() in _PERFORMER_ATTRIBUTE_QUALIFIERS]
+    # Performer/instrument/vocal: drop qualifier words ("additional"/"guest"/
+    # "solo") from the actual instrument/vocal value(s) rather than assuming
+    # attribute-list[0] is the value -- see _PERFORMER_ATTRIBUTE_QUALIFIERS.
     values = [a for a in attributes if a.lower() not in _PERFORMER_ATTRIBUTE_QUALIFIERS]
-    qualifier_prefix = " ".join(q.title() for q in qualifiers)
     if values:
-        names = [v.title() for v in values]
-        if qualifier_prefix:
-            names = [f"{qualifier_prefix} {name}" for name in names]
-        return names
-    if qualifier_prefix:
-        return [qualifier_prefix]
+        return [v.title() for v in values]
     return [rel_type.title()] if rel_type else []
 
 
@@ -339,14 +314,7 @@ def _parse_artist_credits(entity: dict[str, Any]) -> list[MBTrackCredit]:
         if not artist.get("id"):
             continue
         for role_name in _relation_role_names(rel):
-            credits.append(
-                MBTrackCredit(
-                    artist_mbid=artist["id"],
-                    artist_name=rel.get("target-credit") or artist.get("name") or "",
-                    role_name=role_name,
-                    canonical_name=artist.get("name") or "",
-                )
-            )
+            credits.append(MBTrackCredit(artist_mbid=artist["id"], artist_name=rel.get("target-credit") or artist.get("name") or "", role_name=role_name, canonical_name=artist.get("name") or ""))
     return credits
 
 
@@ -364,14 +332,7 @@ def _parse_release_artist_credit(release: dict[str, Any]) -> list[MBTrackCredit]
         artist = entry.get("artist") or {}
         if not artist.get("id"):
             continue
-        credits.append(
-            MBTrackCredit(
-                artist_mbid=artist["id"],
-                artist_name=entry.get("name") or artist.get("name") or "",
-                role_name="Album Artist",
-                canonical_name=artist.get("name") or "",
-            )
-        )
+        credits.append(MBTrackCredit(artist_mbid=artist["id"], artist_name=entry.get("name") or artist.get("name") or "", role_name="Album Artist", canonical_name=artist.get("name") or ""))
     return credits
 
 
@@ -389,14 +350,7 @@ def _parse_recording_artist_credit(recording: dict[str, Any]) -> list[MBTrackCre
         artist = entry.get("artist") or {}
         if not artist.get("id"):
             continue
-        credits.append(
-            MBTrackCredit(
-                artist_mbid=artist["id"],
-                artist_name=entry.get("name") or artist.get("name") or "",
-                role_name="Primary Artist",
-                canonical_name=artist.get("name") or "",
-            )
-        )
+        credits.append(MBTrackCredit(artist_mbid=artist["id"], artist_name=entry.get("name") or artist.get("name") or "", role_name="Primary Artist", canonical_name=artist.get("name") or ""))
     return credits
 
 
@@ -454,14 +408,7 @@ def _parse_work_credits(work: dict[str, Any]) -> list[MBTrackCredit]:
         artist = rel.get("artist") or {}
         if not artist.get("id"):
             continue
-        credits.append(
-            MBTrackCredit(
-                artist_mbid=artist["id"],
-                artist_name=rel.get("target-credit") or artist.get("name") or "",
-                role_name=rel_type.title(),
-                canonical_name=artist.get("name") or "",
-            )
-        )
+        credits.append(MBTrackCredit(artist_mbid=artist["id"], artist_name=rel.get("target-credit") or artist.get("name") or "", role_name=rel_type.title(), canonical_name=artist.get("name") or ""))
     return credits
 
 
@@ -541,9 +488,7 @@ def _fetch_label_by_id(label_mbid: str) -> dict[str, Any]:
     return result.get("label", {})
 
 
-def _parse_label(
-    label_mbid: str, catalog_number: str | None, label: dict[str, Any]
-) -> tuple[MBLabelInfo, str | None]:
+def _parse_label(label_mbid: str, catalog_number: str | None, label: dict[str, Any]) -> tuple[MBLabelInfo, str | None]:
     """Pure parsing of a full get_label_by_id response into
     (MBLabelInfo, headquarters_area_mbid) -- no network calls (the area
     mbid is resolved into its full parent chain separately, by the caller,
@@ -685,12 +630,7 @@ _YEAR_HINT_TOLERANCE = 20
 # release entirely).
 
 
-def search_canonical_releases(
-    album_name: str,
-    artist_name: str | None = None,
-    limit: int = 100,
-    expected_year: int | None = None,
-) -> list[MBCandidate]:
+def search_canonical_releases(album_name: str, artist_name: str | None = None, limit: int = 100, expected_year: int | None = None) -> list[MBCandidate]:
     """Search MusicBrainz releases (not release-groups) and rank them so the
     single canonical pressing -- official, earliest, most "worldwide"/
     default-country -- sorts first. `MBCandidate.id` is a release MBID,
@@ -711,9 +651,7 @@ def search_canonical_releases(
         else:
             fields["artist"] = artist_name
     try:
-        result = musicbrainzngs.search_releases(
-            _and_query("release", album_name, fields), limit=limit
-        )
+        result = musicbrainzngs.search_releases(_and_query("release", album_name, fields), limit=limit)
     except Exception as e:
         # Intentional broad boundary catch: musicbrainzngs has no single
         # exception hierarchy covering every failure mode it can raise
@@ -739,11 +677,7 @@ def search_canonical_releases(
     def _rank_key(r: dict[str, Any]):
         status_rank = 0 if (r.get("status") or "").lower() == "official" else 1
         year_month_day = _parse_partial_date(r.get("date"), "d")
-        date_key = (
-            year_month_day.get("d_year", 9999),
-            year_month_day.get("d_month", 99),
-            year_month_day.get("d_day", 99),
-        )
+        date_key = (year_month_day.get("d_year", 9999), year_month_day.get("d_month", 99), year_month_day.get("d_day", 99))
         # Preference only, not elimination -- see _YEAR_HINT_TOLERANCE. A
         # missing expected_year or a missing candidate date both count as
         # "on-hint" (rank 0) since there's nothing to disagree with.
@@ -751,15 +685,9 @@ def search_canonical_releases(
             hint_rank = 0
         else:
             year = year_month_day.get("d_year")
-            hint_rank = (
-                0 if year is None or abs(year - expected_year) <= _YEAR_HINT_TOLERANCE else 1
-            )
+            hint_rank = 0 if year is None or abs(year - expected_year) <= _YEAR_HINT_TOLERANCE else 1
         country = r.get("country") or ""
-        country_rank = (
-            _COUNTRY_PREFERENCE.index(country)
-            if country in _COUNTRY_PREFERENCE
-            else len(_COUNTRY_PREFERENCE)
-        )
+        country_rank = _COUNTRY_PREFERENCE.index(country) if country in _COUNTRY_PREFERENCE else len(_COUNTRY_PREFERENCE)
         media_count = len(r.get("medium-list", []) or [])
         return (status_rank, hint_rank, date_key, country_rank, media_count)
 
@@ -806,14 +734,7 @@ def search_canonical_releases(
             label_bits.append(f"[{' — '.join(detail_bits)}]")
         if r.get("disambiguation"):
             label_bits.append(f"[{r['disambiguation']}]")
-        catalog = next(
-            (
-                li.get("catalog-number")
-                for li in (r.get("label-info-list") or [])
-                if li.get("catalog-number")
-            ),
-            None,
-        )
+        catalog = next((li.get("catalog-number") for li in (r.get("label-info-list") or []) if li.get("catalog-number")), None)
         if catalog:
             label_bits.append(f"({catalog})")
 
@@ -832,22 +753,8 @@ def search_canonical_releases(
 # 8x retry ladder. Isolating it means a failure there degrades to "album
 # imported, no per-track credits" (recorded in detail.partial_failures)
 # instead of aborting the whole fetch.
-_RELEASE_CORE_INCLUDES = [
-    "artist-credits",
-    "recordings",
-    "media",
-    "labels",
-    "release-groups",
-    "url-rels",
-    "artist-rels",
-]
-_RELEASE_RECORDING_REL_INCLUDES = [
-    "recordings",
-    "recording-level-rels",
-    "artist-rels",
-    "work-rels",
-    "place-rels",
-]
+_RELEASE_CORE_INCLUDES = ["artist-credits", "recordings", "media", "labels", "release-groups", "url-rels", "artist-rels"]
+_RELEASE_RECORDING_REL_INCLUDES = ["recordings", "recording-level-rels", "artist-rels", "work-rels", "place-rels"]
 
 # Seconds to wait before the single end-of-pass retry of follow-up lookups
 # that failed (see _retry_deferred). One beat is enough for a transient
@@ -867,9 +774,7 @@ def _get_release(release_mbid: str, includes: list[str]) -> dict[str, Any]:
     return result.get("release", {})
 
 
-def _retry_deferred(
-    deferred: list[tuple[str, Callable[[], None]]], status_fn: Callable[[str], None], pause: float
-) -> list[str]:
+def _retry_deferred(deferred: list[tuple[str, Callable[[], None]]], status_fn: Callable[[str], None], pause: float) -> list[str]:
     """Re-run each parked (description, redo) unit once, after a short pause,
     and return the descriptions of the ones that failed again. `redo`
     re-issues exactly one MusicBrainz lookup and applies its result, raising
@@ -957,14 +862,7 @@ def fetch_release_detail(
     _status("Fetching release data")
     release = _get_release(release_mbid, _RELEASE_CORE_INCLUDES)
 
-    catalog_number = next(
-        (
-            li.get("catalog-number")
-            for li in (release.get("label-info-list") or [])
-            if li.get("catalog-number")
-        ),
-        None,
-    )
+    catalog_number = next((li.get("catalog-number") for li in (release.get("label-info-list") or []) if li.get("catalog-number")), None)
 
     discogs_master_url = None
     for rel in release.get("url-relation-list", []) or []:
@@ -1007,9 +905,7 @@ def fetch_release_detail(
         disc_title = medium.get("title")
         for track in medium.get("track-list", []) or []:
             recording = track.get("recording") or {}
-            side, track_number = _parse_track_number_side(
-                track.get("number"), track.get("position")
-            )
+            side, track_number = _parse_track_number_side(track.get("number"), track.get("position"))
             try:
                 absolute_position = int(track.get("position"))
             except (TypeError, ValueError):
@@ -1047,13 +943,9 @@ def fetch_release_detail(
         try:
             rel_release = _get_release(release_mbid, _RELEASE_RECORDING_REL_INCLUDES)
         except MusicBrainzLookupError as retry_err:
-            logger.warning(
-                f"Track-relationship retry failed for release {release_mbid}: {retry_err}"
-            )
+            logger.warning(f"Track-relationship retry failed for release {release_mbid}: {retry_err}")
             rel_release = None
-            detail.partial_failures.append(
-                "track relationships (performers, writers, recording locations)"
-            )
+            detail.partial_failures.append("track relationships (performers, writers, recording locations)")
 
     if rel_release is not None:
         for medium in rel_release.get("medium-list", []) or []:
@@ -1100,14 +992,7 @@ def fetch_release_detail(
             continue
         seen_label_mbids.add(label_mbid)
         if label_mbid in known_label_mbids:
-            raw_labels[label_mbid] = (
-                MBLabelInfo(
-                    mbid=label_mbid,
-                    name=label_stub.get("name") or "",
-                    catalog_number=li.get("catalog-number"),
-                ),
-                None,
-            )
+            raw_labels[label_mbid] = (MBLabelInfo(mbid=label_mbid, name=label_stub.get("name") or "", catalog_number=li.get("catalog-number")), None)
             continue
         labels_to_fetch.append((label_mbid, li.get("catalog-number")))
 
@@ -1186,9 +1071,7 @@ def fetch_release_detail(
         if area_mbid in known_place_mbids:
             # Same reasoning as the recording-location skip above -- this
             # area already exists locally with its own ancestry intact.
-            area_cache[area_mbid] = [
-                {"mbid": area_mbid, "name": None, "type": None, "latitude": None, "longitude": None}
-            ]
+            area_cache[area_mbid] = [{"mbid": area_mbid, "name": None, "type": None, "latitude": None, "longitude": None}]
             continue
 
         def _do_area(am: str = area_mbid) -> None:
@@ -1202,16 +1085,8 @@ def fetch_release_detail(
     detail.partial_failures.extend(_retry_deferred(area_deferred, _status, retry_pause))
 
     for place_mbid, location in raw_locations.items():
-        place_node = {
-            "mbid": place_mbid,
-            "name": location["place_name"],
-            "type": location.get("place_type"),
-            "latitude": location.get("latitude"),
-            "longitude": location.get("longitude"),
-        }
-        area_chain = (
-            area_cache.get(location.get("area_mbid"), []) if location.get("area_mbid") else []
-        )
+        place_node = {"mbid": place_mbid, "name": location["place_name"], "type": location.get("place_type"), "latitude": location.get("latitude"), "longitude": location.get("longitude")}
+        area_chain = area_cache.get(location.get("area_mbid"), []) if location.get("area_mbid") else []
         detail.place_chains[place_mbid] = [place_node, *area_chain]
 
     for label_info, area_mbid in raw_labels.values():

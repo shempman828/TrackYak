@@ -18,16 +18,8 @@ from src.musicbrainz import musicbrainz_release as mc
 
 
 # ---- test_musicbrainz_release__self_base.py ----------------------------------
-def _release_base(
-    id_, date=None, country=None, status="Official", score=100, medium_list=None, catalog=None
-):
-    r = {
-        "id": id_,
-        "title": "King of the Tenors",
-        "artist-credit-phrase": "Ben Webster",
-        "status": status,
-        "ext:score": str(score),
-    }
+def _release_base(id_, date=None, country=None, status="Official", score=100, medium_list=None, catalog=None):
+    r = {"id": id_, "title": "King of the Tenors", "artist-credit-phrase": "Ben Webster", "status": status, "ext:score": str(score)}
     if date is not None:
         r["date"] = date
     if country is not None:
@@ -88,10 +80,7 @@ class TestSearchCanonicalReleases:
             candidates = mc.search_canonical_releases("King of the Tenors", "Ben Webster")
 
         ids = [c.id for c in candidates]
-        assert ids[0] == _VINYL_ID, (
-            "the 1953 original should rank first once its real date is "
-            f"backfilled, got order: {ids}"
-        )
+        assert ids[0] == _VINYL_ID, f"the 1953 original should rank first once its real date is backfilled, got order: {ids}"
         assert "Vinyl" in candidates[0].label
 
     def test_without_backfill_vinyl_would_sort_last(self):
@@ -101,9 +90,7 @@ class TestSearchCanonicalReleases:
             patch.object(mc, "configure"),
             patch.object(mc, "_resolve_artist_mbid", return_value=None),
             patch.object(mc.musicbrainzngs, "search_releases", return_value=_search_result()),
-            patch.object(
-                mc.musicbrainzngs, "get_release_by_id", side_effect=Exception("network down")
-            ),
+            patch.object(mc.musicbrainzngs, "get_release_by_id", side_effect=Exception("network down")),
         ):
             candidates = mc.search_canonical_releases("King of the Tenors", "Ben Webster")
 
@@ -125,9 +112,7 @@ class TestSearchCanonicalReleasesYearHint:
         return {
             "release-list": [
                 _release_base(_VINYL_ID, date="1944-05-01", country="US", medium_list=media),
-                _release_base(
-                    self._WRONG_ERA_ID, date="2008-09-01", country="US", score=99, medium_list=media
-                ),
+                _release_base(self._WRONG_ERA_ID, date="2008-09-01", country="US", score=99, medium_list=media),
             ]
         }
 
@@ -135,29 +120,20 @@ class TestSearchCanonicalReleasesYearHint:
         with (
             patch.object(mc, "configure"),
             patch.object(mc, "_resolve_artist_mbid", return_value=None),
-            patch.object(
-                mc.musicbrainzngs, "search_releases", return_value=self._mixed_era_result()
-            ),
+            patch.object(mc.musicbrainzngs, "search_releases", return_value=self._mixed_era_result()),
             patch.object(mc.musicbrainzngs, "get_release_by_id") as get_by_id,
         ):
-            candidates = mc.search_canonical_releases(
-                "King of the Tenors", "Ben Webster", expected_year=1944
-            )
+            candidates = mc.search_canonical_releases("King of the Tenors", "Ben Webster", expected_year=1944)
 
         get_by_id.assert_not_called()  # both already have date + medium-list
         ids = [c.id for c in candidates]
-        assert ids == [_VINYL_ID, self._WRONG_ERA_ID], (
-            f"expected the 1944 release ranked first and the 2008 release "
-            f"ranked behind it, but both still present, got: {ids}"
-        )
+        assert ids == [_VINYL_ID, self._WRONG_ERA_ID], f"expected the 1944 release ranked first and the 2008 release ranked behind it, but both still present, got: {ids}"
 
     def test_no_hint_keeps_both_candidates(self):
         with (
             patch.object(mc, "configure"),
             patch.object(mc, "_resolve_artist_mbid", return_value=None),
-            patch.object(
-                mc.musicbrainzngs, "search_releases", return_value=self._mixed_era_result()
-            ),
+            patch.object(mc.musicbrainzngs, "search_releases", return_value=self._mixed_era_result()),
             patch.object(mc.musicbrainzngs, "get_release_by_id"),
         ):
             candidates = mc.search_canonical_releases("King of the Tenors", "Ben Webster")
@@ -171,14 +147,10 @@ class TestSearchCanonicalReleasesYearHint:
         with (
             patch.object(mc, "configure"),
             patch.object(mc, "_resolve_artist_mbid", return_value=None),
-            patch.object(
-                mc.musicbrainzngs, "search_releases", return_value=self._mixed_era_result()
-            ),
+            patch.object(mc.musicbrainzngs, "search_releases", return_value=self._mixed_era_result()),
             patch.object(mc.musicbrainzngs, "get_release_by_id"),
         ):
-            candidates = mc.search_canonical_releases(
-                "King of the Tenors", "Ben Webster", expected_year=1700
-            )
+            candidates = mc.search_canonical_releases("King of the Tenors", "Ben Webster", expected_year=1700)
 
         assert {c.id for c in candidates} == {_VINYL_ID, self._WRONG_ERA_ID}
 
@@ -194,9 +166,7 @@ class TestSearchCanonicalReleasesTypeAndTrackCount:
         with (
             patch.object(mc, "configure"),
             patch.object(mc, "_resolve_artist_mbid", return_value=None),
-            patch.object(
-                mc.musicbrainzngs, "search_releases", return_value={"release-list": [release]}
-            ),
+            patch.object(mc.musicbrainzngs, "search_releases", return_value={"release-list": [release]}),
             patch.object(mc.musicbrainzngs, "get_release_by_id", return_value={"release": {}}),
         ):
             return mc.search_canonical_releases("Whatever", None)[0].label
@@ -217,20 +187,11 @@ class TestSearchCanonicalReleasesTypeAndTrackCount:
         assert "Album" in album and "Single" not in album
 
     def test_secondary_type_is_appended_in_parens(self):
-        label = self._run(
-            self._release(release_group={"primary-type": "Album", "secondary-type-list": ["Live"]})
-        )
+        label = self._run(self._release(release_group={"primary-type": "Album", "secondary-type-list": ["Live"]}))
         assert "Album (Live)" in label
 
     def test_track_count_sums_across_media_and_pluralizes(self):
-        multi = self._run(
-            self._release(
-                medium_list=[
-                    {"format": "CD", "track-count": 15},
-                    {"format": "CD", "track-count": 19},
-                ]
-            )
-        )
+        multi = self._run(self._release(medium_list=[{"format": "CD", "track-count": 15}, {"format": "CD", "track-count": 19}]))
         assert "34 tracks" in multi
 
         one = self._run(self._release(medium_list=[{"format": "CD", "track-count": 1}]))
@@ -253,20 +214,13 @@ class TestSearchCanonicalReleasesTypeAndTrackCount:
         with (
             patch.object(mc, "configure"),
             patch.object(mc, "_resolve_artist_mbid", return_value=None),
-            patch.object(
-                mc.musicbrainzngs, "search_releases", return_value={"release-list": [release]}
-            ),
+            patch.object(mc.musicbrainzngs, "search_releases", return_value={"release-list": [release]}),
             patch.object(mc.musicbrainzngs, "get_release_by_id", return_value={"release": {}}),
         ):
             return mc.search_canonical_releases("Whatever", None)[0].label
 
     def test_existing_label_parts_preserved_with_type_before_status(self):
-        label = self._run(
-            self._release(
-                release_group={"primary-type": "Single"},
-                medium_list=[{"format": "CD", "track-count": 2}],
-            )
-        )
+        label = self._run(self._release(release_group={"primary-type": "Single"}, medium_list=[{"format": "CD", "track-count": 2}]))
         # order inside the bracket: type, tracks, status, date, country, format
         assert "[Single — 2 tracks — Official — 1980-01-01 — US — CD]" in label
 
@@ -282,21 +236,12 @@ _ARTIST_ID_2 = "0d557908-0d24-4a15-9982-9d1e1e000000"
 
 
 def _release_ac(artist_credit):
-    return {
-        "release": {
-            "id": "faada5d1-971b-499c-b902-5bab9e03bc1b",
-            "release-group": {"id": "gggggggg-gggg-gggg-gggg-gggggggggggg"},
-            "artist-credit": artist_credit,
-            "medium-list": [],
-        }
-    }
+    return {"release": {"id": "faada5d1-971b-499c-b902-5bab9e03bc1b", "release-group": {"id": "gggggggg-gggg-gggg-gggg-gggggggggggg"}, "artist-credit": artist_credit, "medium-list": []}}
 
 
 class TestFetchReleaseDetailArtistCredit:
     def test_parses_single_release_artist_as_album_artist_credit(self):
-        release = _release_ac(
-            [{"name": "Uncle Tupelo", "artist": {"id": _ARTIST_ID, "name": "Uncle Tupelo"}}]
-        )
+        release = _release_ac([{"name": "Uncle Tupelo", "artist": {"id": _ARTIST_ID, "name": "Uncle Tupelo"}}])
         with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=release):
             detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b")
 
@@ -308,9 +253,7 @@ class TestFetchReleaseDetailArtistCredit:
         assert credit.canonical_name == "Uncle Tupelo"
 
     def test_as_credited_name_can_differ_from_canonical_name(self):
-        release = _release_ac(
-            [{"name": "H. Arlen", "artist": {"id": _ARTIST_ID, "name": "Harold Arlen"}}]
-        )
+        release = _release_ac([{"name": "H. Arlen", "artist": {"id": _ARTIST_ID, "name": "Harold Arlen"}}])
         with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=release):
             detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b")
 
@@ -320,15 +263,7 @@ class TestFetchReleaseDetailArtistCredit:
 
     def test_joinphrase_strings_between_artists_are_skipped(self):
         release = _release_ac(
-            [
-                {
-                    "name": "Artist One",
-                    "artist": {"id": _ARTIST_ID, "name": "Artist One"},
-                    "joinphrase": " & ",
-                },
-                " & ",
-                {"name": "Artist Two", "artist": {"id": _ARTIST_ID_2, "name": "Artist Two"}},
-            ]
+            [{"name": "Artist One", "artist": {"id": _ARTIST_ID, "name": "Artist One"}, "joinphrase": " & "}, " & ", {"name": "Artist Two", "artist": {"id": _ARTIST_ID_2, "name": "Artist Two"}}]
         )
         with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=release):
             detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b")
@@ -370,9 +305,7 @@ def _release_lbl():
         "release": {
             "id": "faada5d1-971b-499c-b902-5bab9e03bc1b",
             "release-group": {"id": "gggggggg-gggg-gggg-gggg-gggggggggggg"},
-            "label-info-list": [
-                {"catalog-number": "ATL-1", "label": {"id": _LABEL_ID, "name": "Atlantic Records"}}
-            ],
+            "label-info-list": [{"catalog-number": "ATL-1", "label": {"id": _LABEL_ID, "name": "Atlantic Records"}}],
             "medium-list": [],
         }
     }
@@ -389,25 +322,10 @@ def _get_label_by_id(label_mbid, includes=None):
             "area": {"id": _NYC_ID, "name": "New York City"},
             "annotation": {"text": "Founded by Ahmet Ertegun and Herb Abramson."},
             "artist-relation-list": [
-                {
-                    "type": "founder",
-                    "artist": {
-                        "id": "aaaaaaaa-1111-1111-1111-111111111111",
-                        "name": "Ahmet Ertegun",
-                    },
-                },
-                {
-                    "type": "founder",
-                    "artist": {
-                        "id": "bbbbbbbb-2222-2222-2222-222222222222",
-                        "name": "Herb Abramson",
-                    },
-                },
+                {"type": "founder", "artist": {"id": "aaaaaaaa-1111-1111-1111-111111111111", "name": "Ahmet Ertegun"}},
+                {"type": "founder", "artist": {"id": "bbbbbbbb-2222-2222-2222-222222222222", "name": "Herb Abramson"}},
                 # Not a founder relation -- must be filtered out.
-                {
-                    "type": "legal representation",
-                    "artist": {"id": "cccccccc-3333-3333-3333-333333333333", "name": "Some Lawyer"},
-                },
+                {"type": "legal representation", "artist": {"id": "cccccccc-3333-3333-3333-333333333333", "name": "Some Lawyer"}},
             ],
         }
     }
@@ -416,17 +334,7 @@ def _get_label_by_id(label_mbid, includes=None):
 def _get_area_by_id_lbl(area_mbid, includes=None):
     if area_mbid == _NYC_ID:
         return {
-            "area": {
-                "name": "New York City",
-                "type": "City",
-                "area-relation-list": [
-                    {
-                        "type": "part of",
-                        "direction": "backward",
-                        "area": {"id": _USA_ID, "name": "United States", "type": "Country"},
-                    }
-                ],
-            }
+            "area": {"name": "New York City", "type": "City", "area-relation-list": [{"type": "part of", "direction": "backward", "area": {"id": _USA_ID, "name": "United States", "type": "Country"}}]}
         }
     if area_mbid == _USA_ID:
         return {"area": {"name": "United States", "type": "Country", "area-relation-list": []}}
@@ -470,20 +378,14 @@ class TestFetchReleaseDetailLabels:
     def test_missing_label_id_is_skipped_without_error(self):
         release = _release_lbl()
         release["release"]["label-info-list"] = [{"catalog-number": "NO-ID", "label": {}}]
-        with (
-            patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=release),
-            patch.object(mc.musicbrainzngs, "get_label_by_id") as get_label,
-        ):
+        with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=release), patch.object(mc.musicbrainzngs, "get_label_by_id") as get_label:
             detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b")
 
         get_label.assert_not_called()
         assert detail.labels == []
 
     def test_label_lookup_failure_is_best_effort(self):
-        with (
-            patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=_release_lbl()),
-            patch.object(mc.musicbrainzngs, "get_label_by_id", side_effect=RuntimeError("boom")),
-        ):
+        with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=_release_lbl()), patch.object(mc.musicbrainzngs, "get_label_by_id", side_effect=RuntimeError("boom")):
             detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b", retry_pause=0)
 
         assert detail.labels == []
@@ -503,9 +405,7 @@ class TestFetchReleaseDetailLabels:
             patch.object(mc.musicbrainzngs, "get_label_by_id") as get_label,
             patch.object(mc.musicbrainzngs, "get_area_by_id") as get_area,
         ):
-            detail = mc.fetch_release_detail(
-                "faada5d1-971b-499c-b902-5bab9e03bc1b", known_label_mbids=frozenset({_LABEL_ID})
-            )
+            detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b", known_label_mbids=frozenset({_LABEL_ID}))
 
         get_label.assert_not_called()
         get_area.assert_not_called()
@@ -555,16 +455,7 @@ _RELEASE = {
                             # MusicBrainz's real XML response for this
                             # relation -- confirmed against the live API --
                             # has no <area> under <place> at all.
-                            "place-relation-list": [
-                                {
-                                    "type": "recorded at",
-                                    "place": {
-                                        "id": _CHURCH_ID,
-                                        "name": "Church of the Holy Trinity",
-                                        "type": "Religious building",
-                                    },
-                                }
-                            ],
+                            "place-relation-list": [{"type": "recorded at", "place": {"id": _CHURCH_ID, "name": "Church of the Holy Trinity", "type": "Religious building"}}],
                         },
                     }
                 ],
@@ -576,30 +467,14 @@ _RELEASE = {
 
 def _get_place_by_id(place_mbid, includes=None):
     if place_mbid == _CHURCH_ID:
-        return {
-            "place": {
-                "id": _CHURCH_ID,
-                "name": "Church of the Holy Trinity",
-                "area": {"id": _TORONTO_ID, "name": "Toronto"},
-            }
-        }
+        return {"place": {"id": _CHURCH_ID, "name": "Church of the Holy Trinity", "area": {"id": _TORONTO_ID, "name": "Toronto"}}}
     raise AssertionError(f"unexpected place_mbid lookup: {place_mbid}")
 
 
 def _get_area_by_id_pc(area_mbid, includes=None):
     if area_mbid == _TORONTO_ID:
         return {
-            "area": {
-                "name": "Toronto",
-                "type": "City",
-                "area-relation-list": [
-                    {
-                        "type": "part of",
-                        "direction": "backward",
-                        "area": {"id": _ONTARIO_ID, "name": "Ontario", "type": "Subdivision"},
-                    }
-                ],
-            }
+            "area": {"name": "Toronto", "type": "City", "area-relation-list": [{"type": "part of", "direction": "backward", "area": {"id": _ONTARIO_ID, "name": "Ontario", "type": "Subdivision"}}]}
         }
     if area_mbid == _ONTARIO_ID:
         return {"area": {"name": "Ontario", "type": "Subdivision", "area-relation-list": []}}
@@ -618,10 +493,7 @@ class TestFetchReleaseDetailPlaceChain:
         chain = detail.place_chains.get(_CHURCH_ID)
         assert chain is not None, "place chain missing entirely for the recorded-at place"
         names = [node["name"] for node in chain]
-        assert names == ["Church of the Holy Trinity", "Toronto", "Ontario"], (
-            "expected the church's chain to include its parent areas, but got "
-            f"a chain with no parent walked: {names}"
-        )
+        assert names == ["Church of the Holy Trinity", "Toronto", "Ontario"], f"expected the church's chain to include its parent areas, but got a chain with no parent walked: {names}"
 
     def test_known_place_mbid_skips_area_chain_walk(self):
         """A recording-location place already on file locally (see
@@ -634,9 +506,7 @@ class TestFetchReleaseDetailPlaceChain:
             patch.object(mc.musicbrainzngs, "get_place_by_id") as get_place,
             patch.object(mc.musicbrainzngs, "get_area_by_id") as get_area,
         ):
-            detail = mc.fetch_release_detail(
-                "faada5d1-971b-499c-b902-5bab9e03bc1b", known_place_mbids=frozenset({_CHURCH_ID})
-            )
+            detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b", known_place_mbids=frozenset({_CHURCH_ID}))
 
         get_place.assert_not_called()
         get_area.assert_not_called()
@@ -674,16 +544,7 @@ def _release_wc(work_relations=None, recording_id=_RECORDING_ID):
                             "recording": {
                                 "id": recording_id,
                                 "title": "Bohemian Rhapsody",
-                                "work-relation-list": (
-                                    work_relations
-                                    if work_relations is not None
-                                    else [
-                                        {
-                                            "type": "performance",
-                                            "work": {"id": _WORK_ID, "title": "Bohemian Rhapsody"},
-                                        }
-                                    ]
-                                ),
+                                "work-relation-list": (work_relations if work_relations is not None else [{"type": "performance", "work": {"id": _WORK_ID, "title": "Bohemian Rhapsody"}}]),
                             },
                         }
                     ],
@@ -703,13 +564,7 @@ def _get_work_by_id(work_mbid, includes=None):
                 {"type": "composer", "artist": {"id": _COMPOSER_ID, "name": "Freddie Mercury"}},
                 {"type": "lyricist", "artist": {"id": _COMPOSER_ID, "name": "Freddie Mercury"}},
                 # Not a writing credit -- must be filtered out.
-                {
-                    "type": "previous attribution",
-                    "artist": {
-                        "id": "cccccccc-3333-3333-3333-333333333333",
-                        "name": "Someone Else",
-                    },
-                },
+                {"type": "previous attribution", "artist": {"id": "cccccccc-3333-3333-3333-333333333333", "name": "Someone Else"}},
             ],
         }
     }
@@ -717,10 +572,7 @@ def _get_work_by_id(work_mbid, includes=None):
 
 class TestFetchReleaseDetailWorkCredits:
     def test_parses_composer_and_lyricist_onto_the_track(self):
-        with (
-            patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=_release_wc()),
-            patch.object(mc.musicbrainzngs, "get_work_by_id", side_effect=_get_work_by_id),
-        ):
+        with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=_release_wc()), patch.object(mc.musicbrainzngs, "get_work_by_id", side_effect=_get_work_by_id):
             detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b")
 
         assert len(detail.tracks) == 1
@@ -730,27 +582,15 @@ class TestFetchReleaseDetailWorkCredits:
         assert not any(role == "Previous Attribution" for role, _ in roles)
 
     def test_no_work_relation_means_no_writing_credits(self):
-        with (
-            patch.object(
-                mc.musicbrainzngs, "get_release_by_id", return_value=_release_wc(work_relations=[])
-            ),
-            patch.object(mc.musicbrainzngs, "get_work_by_id") as get_work,
-        ):
+        with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=_release_wc(work_relations=[])), patch.object(mc.musicbrainzngs, "get_work_by_id") as get_work:
             detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b")
 
         get_work.assert_not_called()
         assert detail.tracks[0].credits == []
 
     def test_non_performance_work_relation_is_ignored(self):
-        release = _release_wc(
-            work_relations=[
-                {"type": "arrangement", "work": {"id": _WORK_ID, "title": "Bohemian Rhapsody"}}
-            ]
-        )
-        with (
-            patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=release),
-            patch.object(mc.musicbrainzngs, "get_work_by_id") as get_work,
-        ):
+        release = _release_wc(work_relations=[{"type": "arrangement", "work": {"id": _WORK_ID, "title": "Bohemian Rhapsody"}}])
+        with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=release), patch.object(mc.musicbrainzngs, "get_work_by_id") as get_work:
             detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b")
 
         get_work.assert_not_called()
@@ -765,23 +605,12 @@ class TestFetchReleaseDetailWorkCredits:
                     {
                         "position": "2",
                         "number": "2",
-                        "recording": {
-                            "id": "d2222222-2222-2222-2222-222222222222",
-                            "title": "Bohemian Rhapsody (Reprise)",
-                            "work-relation-list": [
-                                {"type": "performance", "work": {"id": _WORK_ID}}
-                            ],
-                        },
+                        "recording": {"id": "d2222222-2222-2222-2222-222222222222", "title": "Bohemian Rhapsody (Reprise)", "work-relation-list": [{"type": "performance", "work": {"id": _WORK_ID}}]},
                     }
                 ],
             }
         )
-        with (
-            patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=release),
-            patch.object(
-                mc.musicbrainzngs, "get_work_by_id", side_effect=_get_work_by_id
-            ) as get_work,
-        ):
+        with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=release), patch.object(mc.musicbrainzngs, "get_work_by_id", side_effect=_get_work_by_id) as get_work:
             detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b")
 
         get_work.assert_called_once()
@@ -791,10 +620,7 @@ class TestFetchReleaseDetailWorkCredits:
             assert {"Composer", "Lyricist"} <= roles
 
     def test_work_lookup_failure_is_best_effort(self):
-        with (
-            patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=_release_wc()),
-            patch.object(mc.musicbrainzngs, "get_work_by_id", side_effect=RuntimeError("boom")),
-        ):
+        with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=_release_wc()), patch.object(mc.musicbrainzngs, "get_work_by_id", side_effect=RuntimeError("boom")):
             detail = mc.fetch_release_detail("faada5d1-971b-499c-b902-5bab9e03bc1b", retry_pause=0)
 
         assert detail.tracks[0].credits == []
@@ -828,19 +654,24 @@ class TestPerformerRoleName:
     def test_plain_instrument_no_qualifier(self):
         assert mc._relation_role_names(_rel("instrument", ["trumpet"])) == ["Trumpet"]
 
-    def test_qualifier_before_instrument_still_reports_instrument(self):
+    def test_qualifier_before_instrument_is_dropped(self):
         # The real-world case: qualifier ("additional") sits at index 0,
-        # ahead of the actual instrument value.
+        # ahead of the actual instrument value. The qualifier is discarded
+        # entirely, not kept as a prefix.
         rel = _rel("instrument", ["additional", "trumpet"])
-        assert mc._relation_role_names(rel) == ["Additional Trumpet"]
+        assert mc._relation_role_names(rel) == ["Trumpet"]
 
-    def test_guest_qualifier(self):
+    def test_guest_qualifier_is_dropped(self):
         rel = _rel("instrument", ["guest", "guitar"])
-        assert mc._relation_role_names(rel) == ["Guest Guitar"]
+        assert mc._relation_role_names(rel) == ["Guitar"]
 
-    def test_qualifier_with_no_instrument_value_falls_back_to_qualifier(self):
+    def test_solo_qualifier_is_dropped(self):
+        rel = _rel("instrument", ["solo", "violin"])
+        assert mc._relation_role_names(rel) == ["Violin"]
+
+    def test_qualifier_with_no_instrument_value_falls_back_to_type_name(self):
         rel = _rel("instrument", ["additional"])
-        assert mc._relation_role_names(rel) == ["Additional"]
+        assert mc._relation_role_names(rel) == ["Instrument"]
 
     def test_vocal_relation_unaffected(self):
         assert mc._relation_role_names(_rel("vocal", ["lead vocals"])) == ["Lead Vocals"]
@@ -861,9 +692,9 @@ class TestMultiValuePerformerRelationSplits:
         rel = _rel("instrument", ["piano", "organ"])
         assert mc._relation_role_names(rel) == ["Piano", "Organ"]
 
-    def test_qualifier_applies_to_every_split_value(self):
+    def test_qualifier_is_dropped_from_every_split_value(self):
         rel = _rel("instrument", ["additional", "viola", "violin"])
-        assert mc._relation_role_names(rel) == ["Additional Viola", "Additional Violin"]
+        assert mc._relation_role_names(rel) == ["Viola", "Violin"]
 
 
 class TestProductionRoleNameUnaffected:
@@ -876,9 +707,7 @@ class TestProductionRoleNameUnaffected:
         assert mc._relation_role_names(_rel("engineer", ["assistant"])) == ["Assistant Engineer"]
 
     def test_sound_with_additional_modifier(self):
-        assert mc._relation_role_names(_rel("sound", ["additional"])) == [
-            "Additional Sound Engineer"
-        ]
+        assert mc._relation_role_names(_rel("sound", ["additional"])) == ["Additional Sound Engineer"]
 
     def test_no_modifier_falls_back_to_type_name(self):
         assert mc._relation_role_names(_rel("producer")) == ["Producer"]
@@ -910,9 +739,7 @@ class TestProductionRoleNameUnaffected:
         assert mc._relation_role_names(_rel("recording")) == ["Recording Engineer"]
 
     def test_recording_with_modifier_prefixes_recording_engineer(self):
-        assert mc._relation_role_names(_rel("recording", ["assistant"])) == [
-            "Assistant Recording Engineer"
-        ]
+        assert mc._relation_role_names(_rel("recording", ["assistant"])) == ["Assistant Recording Engineer"]
 
 
 class TestCreditRelationTypesIncludesPreviouslyDropped:
@@ -928,52 +755,25 @@ class TestCreditRelationTypesIncludesPreviouslyDropped:
 
 class TestParseArtistCreditsIntegration:
     def test_qualifier_ordering_does_not_drop_instrument_credit(self):
-        recording = {
-            "artist-relation-list": [
-                {
-                    "type": "instrument",
-                    "attribute-list": ["additional", "trumpet"],
-                    "artist": {"id": "artist-1", "name": "Bill Armstrong"},
-                }
-            ]
-        }
+        recording = {"artist-relation-list": [{"type": "instrument", "attribute-list": ["additional", "trumpet"], "artist": {"id": "artist-1", "name": "Bill Armstrong"}}]}
         credits = mc._parse_artist_credits(recording)
         assert len(credits) == 1
-        assert credits[0].role_name == "Additional Trumpet"
+        assert credits[0].role_name == "Trumpet"
         assert credits[0].artist_name == "Bill Armstrong"
 
     def test_previously_dropped_relation_types_now_parsed(self):
         recording = {
             "artist-relation-list": [
-                {
-                    "type": "performing orchestra",
-                    "attribute-list": [],
-                    "artist": {"id": "artist-2", "name": "MGM Studio Orchestra"},
-                },
-                {
-                    "type": "sound",
-                    "attribute-list": ["additional"],
-                    "artist": {"id": "artist-3", "name": "Gary Lyons"},
-                },
+                {"type": "performing orchestra", "attribute-list": [], "artist": {"id": "artist-2", "name": "MGM Studio Orchestra"}},
+                {"type": "sound", "attribute-list": ["additional"], "artist": {"id": "artist-3", "name": "Gary Lyons"}},
             ]
         }
         credits = mc._parse_artist_credits(recording)
         roles = {c.artist_name: c.role_name for c in credits}
-        assert roles == {
-            "MGM Studio Orchestra": "Performing Orchestra",
-            "Gary Lyons": "Additional Sound Engineer",
-        }
+        assert roles == {"MGM Studio Orchestra": "Performing Orchestra", "Gary Lyons": "Additional Sound Engineer"}
 
     def test_multi_instrument_relation_yields_two_separate_credits(self):
-        recording = {
-            "artist-relation-list": [
-                {
-                    "type": "instrument",
-                    "attribute-list": ["viola", "violin"],
-                    "artist": {"id": "artist-4", "name": "Multi Instrumentalist"},
-                }
-            ]
-        }
+        recording = {"artist-relation-list": [{"type": "instrument", "attribute-list": ["viola", "violin"], "artist": {"id": "artist-4", "name": "Multi Instrumentalist"}}]}
         credits = mc._parse_artist_credits(recording)
         assert len(credits) == 2
         role_names = {c.role_name for c in credits}
@@ -1009,13 +809,7 @@ _MF_RELEASE_ID = "faada5d1-971b-499c-b902-5bab9e03bc1b"
 
 
 def _mf_release(medium_list):
-    return {
-        "release": {
-            "id": _MF_RELEASE_ID,
-            "release-group": {"id": "gggggggg-gggg-gggg-gggg-gggggggggggg"},
-            "medium-list": medium_list,
-        }
-    }
+    return {"release": {"id": _MF_RELEASE_ID, "release-group": {"id": "gggggggg-gggg-gggg-gggg-gggggggggggg"}, "medium-list": medium_list}}
 
 
 class TestFetchReleaseDetailMediaFormat:
@@ -1026,12 +820,7 @@ class TestFetchReleaseDetailMediaFormat:
         assert detail.media_format == "CD"
 
     def test_mixed_media_release_joins_distinct_formats(self):
-        release = _mf_release(
-            [
-                {"position": "1", "format": "CD", "track-list": []},
-                {"position": "2", "format": "DVD-Video", "track-list": []},
-            ]
-        )
+        release = _mf_release([{"position": "1", "format": "CD", "track-list": []}, {"position": "2", "format": "DVD-Video", "track-list": []}])
         with patch.object(mc.musicbrainzngs, "get_release_by_id", return_value=release):
             detail = mc.fetch_release_detail(_MF_RELEASE_ID)
         assert detail.media_format == "CD/DVD-Video"
