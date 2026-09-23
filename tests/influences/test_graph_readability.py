@@ -51,8 +51,8 @@ real fcose layout) against small synthetic graphs.
 
 import json
 import os
-import time
 from pathlib import Path
+import time
 
 import pytest
 
@@ -142,10 +142,7 @@ _LAYOUT = {"name": "preset", "fit": True, "padding": 40, "animate": False}
 
 @pytest.fixture
 def harness_page(qapp, tmp_path):
-    os.environ.setdefault(
-        "QTWEBENGINE_CHROMIUM_FLAGS",
-        "--disable-gpu --disable-software-rasterizer --disable-gpu-compositing",
-    )
+    os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --disable-software-rasterizer --disable-gpu-compositing")
     from PySide6.QtCore import QEventLoop, QTimer, QUrl
     from PySide6.QtWebEngineWidgets import QWebEngineView
 
@@ -229,10 +226,7 @@ def test_global_graph_labels_readable_at_moderate_zoom(qapp, harness_page):
     web = harness_page
     elements = _synthetic_elements()
 
-    load_code = (
-        f"loadGraph({json.dumps(elements)}, {json.dumps(_STYLESHEET)}, "
-        f"{json.dumps(_LAYOUT)}, {json.dumps('#000000')})"
-    )
+    load_code = f"loadGraph({json.dumps(elements)}, {json.dumps(_STYLESHEET)}, {json.dumps(_LAYOUT)}, {json.dumps('#000000')})"
     _eval_js(qapp, web, load_code)
 
     deadline = time.time() + 3.0
@@ -271,18 +265,20 @@ def test_global_graph_labels_readable_at_moderate_zoom(qapp, harness_page):
     )
 
 
-def _run_render_pipeline(qapp, harness_page, cases):
+def _run_render_pipeline(qapp, harness_page, cases, aliases=None):
     """Drives host._push_graph() (the real InfluenceGraphRenderMixin
     pipeline, including the real fcose layout) for {node_id: (name, score)}
     cases, then returns {node_id: {label, fullLabel, minWidth, minHeight,
     boxW, boxH, fullW, fullH}} measured from the real Cytoscape instance
-    graph.js creates."""
+    graph.js creates. `aliases` is an optional {node_id: [alias, ...]}
+    of real ArtistAlias names, longest first, matching node_aliases."""
     from src.influences.influence_graph_legend import InfluenceGraphLegendMixin
     from src.influences.influence_graph_render import InfluenceGraphRenderMixin
 
     class _Host(InfluenceGraphDataMixin, InfluenceGraphRenderMixin, InfluenceGraphLegendMixin):
         def __init__(self):
             self.node_names = {}
+            self.node_aliases = {}
             self.edges = []
             self.node_mass = {}
             self.community_id = {}
@@ -300,6 +296,7 @@ def _run_render_pipeline(qapp, harness_page, cases):
         host.node_names[node_id] = name
         host.community_id[node_id] = 0
         host.influence_scores[node_id] = score
+    host.node_aliases.update(aliases or {})
 
     host._push_graph()
 
@@ -352,20 +349,13 @@ def test_global_graph_labels_never_exceed_their_own_box(qapp, harness_page):
     minimum -- across a mix of short/long names and low/high influence,
     including a single very long unbreakable "word" that can't be helped
     by wrapping or aliasing."""
-    CASES = {
-        0: ("The Rolling Stones and Their Many Long-Serving Backing Musicians", 0),
-        1: ("U2", 48),
-        2: ("Etta James", 20),
-        3: ("Supercalifragilisticexpialidocious", 0),
-        4: ("Cher", 0),
-    }
+    CASES = {0: ("The Rolling Stones and Their Many Long-Serving Backing Musicians", 0), 1: ("U2", 48), 2: ("Etta James", 20), 3: ("Supercalifragilisticexpialidocious", 0), 4: ("Cher", 0)}
     result = _run_render_pipeline(qapp, harness_page, CASES)
 
     for node_id, metrics in result.items():
         name, _score = CASES[int(node_id)]
         assert "…" not in metrics["label"] and "..." not in metrics["label"], (
-            f"{name!r} was elided to {metrics['label']!r} -- names should only wrap "
-            f"onto more lines or shorten to an alias, never be truncated."
+            f"{name!r} was elided to {metrics['label']!r} -- names should only wrap onto more lines or shorten to an alias, never be truncated."
         )
         assert metrics["fullW"] <= metrics["boxW"] + 0.5 and metrics["fullH"] <= metrics["boxH"] + 0.5, (
             f"{name!r}: label footprint {metrics['fullW']:.1f}x{metrics['fullH']:.1f} exceeds "
@@ -406,10 +396,7 @@ def test_global_graph_node_size_tracks_influence_not_name_length(qapp, harness_p
     short_low = result["1"]
     short_high = result["2"]
 
-    assert long_low["label"] != long_low["fullLabel"], (
-        f"{long_low['fullLabel']!r} (low influence) was not aliased -- expected a "
-        f"shortened display label distinct from the full name."
-    )
+    assert long_low["label"] != long_low["fullLabel"], f"{long_low['fullLabel']!r} (low influence) was not aliased -- expected a shortened display label distinct from the full name."
     assert long_low["coreW"] <= long_low["minWidth"] * SIZE_TEST_TOLERANCE, (
         f"Low-influence {long_low['fullLabel']!r} rendered {long_low['coreW']:.1f} wide against "
         f"an influence-based target of {long_low['minWidth']:.1f} -- its long name is still "
@@ -417,12 +404,10 @@ def test_global_graph_node_size_tracks_influence_not_name_length(qapp, harness_p
     )
 
     assert short_low["label"] == short_low["fullLabel"], (
-        f"{short_low['fullLabel']!r} was aliased even though it already fits -- aliasing "
-        f"should only kick in when the full name doesn't fit its influence-based box."
+        f"{short_low['fullLabel']!r} was aliased even though it already fits -- aliasing should only kick in when the full name doesn't fit its influence-based box."
     )
     assert abs(short_low["coreW"] - short_low["minWidth"]) < 1 and abs(short_low["coreH"] - short_low["minHeight"]) < 1, (
-        f"Low-influence, short-named {short_low['fullLabel']!r} should render at essentially "
-        f"exactly its influence-based minimum box, not larger."
+        f"Low-influence, short-named {short_low['fullLabel']!r} should render at essentially exactly its influence-based minimum box, not larger."
     )
 
     # The two low-influence nodes share the same get_node_size() score (0),
@@ -439,3 +424,18 @@ def test_global_graph_node_size_tracks_influence_not_name_length(qapp, harness_p
     # influence, regardless of name length -- the encoding still works.
     assert short_high["minWidth"] > long_low["minWidth"]
     assert short_high["coreW"] > long_low["coreW"]
+
+
+def test_global_graph_prefers_real_alias_over_computed_initials(qapp, harness_page):
+    """When a node needs to shrink to fit its box, a real ArtistAlias
+    should be tried before graph.js falls back to a computed
+    initials-style abbreviation -- a curated alias reads better than a
+    guess. Regression test for the fix that wires node_aliases (real
+    ArtistAlias rows, longest first) into fitNodeLabel/aliasCandidates."""
+    CASES = {0: ("Christina Aguilera", 0)}
+    ALIASES = {0: ["Xtina"]}
+
+    result = _run_render_pipeline(qapp, harness_page, CASES, aliases=ALIASES)
+
+    aliased = result["0"]
+    assert aliased["label"] == "Xtina", f"Expected the real alias 'Xtina' to be preferred over a computed abbreviation, got {aliased['label']!r}."

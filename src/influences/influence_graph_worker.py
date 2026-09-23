@@ -49,11 +49,12 @@ class _GlobalGraphWorker(CancellableWorker):
 
 class InfluenceGraphWorkerMixin:
     """
-    Expects the host class to provide: self.node_names, self.edges,
-    self.node_mass, self.community_id, self.community_names,
+    Expects the host class to provide: self.node_names, self.node_aliases,
+    self.edges, self.node_mass, self.community_id, self.community_names,
     self.community_levels, self.active_level, self.community_names_by_level,
     self.influence_scores, self.extract_global_graph(),
-    self._update_node_mass(), self.assign_louvain_communities(),
+    self.fetch_node_aliases(), self._update_node_mass(),
+    self.assign_louvain_communities(),
     self.calculate_influence_scores(), self._resolve_community_names(),
     self._run_js(), self._update_legend(), self._push_graph(),
     self.debug_size_distribution(), self.graph_updated (Signal),
@@ -80,6 +81,7 @@ class InfluenceGraphWorkerMixin:
         self._run_js("showLoading()")
 
         self.node_names = {}
+        self.node_aliases = {}
         self.edges = []
         self.node_mass = {}
         self.community_id = {}
@@ -108,6 +110,7 @@ class InfluenceGraphWorkerMixin:
         node_ids = [n[0] for n in nodes]
         node_id_set = set(node_ids)
         self.node_names = dict(nodes)
+        self.node_aliases = self.fetch_node_aliases(node_ids)
 
         deduped_edges = []
         seen = set()
@@ -131,11 +134,7 @@ class InfluenceGraphWorkerMixin:
         if not has_graph:
             # No _push_graph()/layout will run, so drop the scrim here.
             self._run_js("hideLoading()")
-            show_status_message(
-                self,
-                "No artists with influence relationships found. "
-                "Add some influence relationships first.",
-            )
+            show_status_message(self, "No artists with influence relationships found. Add some influence relationships first.")
             self.graph_updated.emit()
             return
         self._resolve_community_names()

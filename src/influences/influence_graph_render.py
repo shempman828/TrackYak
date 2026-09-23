@@ -18,21 +18,16 @@ from src.foundation.logger_config import logger
 class InfluenceGraphRenderMixin:
     """
     Expects the host class to provide: self._web, self._page_ready,
-    self._pending_js, self.node_names, self.edges, self.node_mass,
-    self.community_id, self.community_names, self.influence_scores,
-    self.get_node_size(), self.get_label_font_size(),
+    self._pending_js, self.node_names, self.node_aliases, self.edges,
+    self.node_mass, self.community_id, self.community_names,
+    self.influence_scores, self.get_node_size(), self.get_label_font_size(),
     self.get_community_color(), self.debug_graph_structure(),
     self.graph_updated (Signal), and to be a QWidget subclass.
     """
 
     # Canvas background per app theme, so the graph doesn't stay a
     # hardcoded dark rectangle inside a light/colorful/accessibility theme.
-    _THEME_BACKGROUND: ClassVar[dict[str, str]] = {
-        "dark_mode": "#0b0c10",
-        "light_mode": "#f5f6fa",
-        "colorful_mode": "#ffffff",
-        "accessibility_mode": "#ffffff",
-    }
+    _THEME_BACKGROUND: ClassVar[dict[str, str]] = {"dark_mode": "#0b0c10", "light_mode": "#f5f6fa", "colorful_mode": "#ffffff", "accessibility_mode": "#ffffff"}
 
     # -----------------------
     # JS bridge
@@ -86,15 +81,7 @@ class InfluenceGraphRenderMixin:
             if cluster_id not in seen_clusters:
                 seen_clusters.add(cluster_id)
                 cluster_color = self.get_community_color(community_index)
-                elements.append(
-                    {
-                        "data": {
-                            "id": cluster_id,
-                            "label": self.community_names.get(community_index, ""),
-                            "color": cluster_color.name(),
-                        }
-                    }
-                )
+                elements.append({"data": {"id": cluster_id, "label": self.community_names.get(community_index, ""), "color": cluster_color.name()}})
             size = self.get_node_size(node_id)
             color = self.get_community_color(community_index)
             elements.append(
@@ -103,6 +90,7 @@ class InfluenceGraphRenderMixin:
                         "id": str(node_id),
                         "label": name,
                         "fullLabel": name,
+                        "aliases": self.node_aliases.get(node_id, []),
                         "parent": cluster_id,
                         "minWidth": size,
                         "minHeight": size * 0.5,
@@ -271,22 +259,11 @@ class InfluenceGraphRenderMixin:
                     "underlay-opacity": 0,
                     "underlay-padding": 0,
                     "underlay-shape": "round-rectangle",
-                    "transition-property": (
-                        "underlay-opacity, underlay-padding, border-width, border-opacity"
-                    ),
+                    "transition-property": ("underlay-opacity, underlay-padding, border-width, border-opacity"),
                     "transition-duration": 120,
                 },
             },
-            {
-                "selector": "node[parent].hovered",
-                "style": {
-                    "underlay-opacity": 0.35,
-                    "underlay-padding": 8,
-                    "border-width": 1.6,
-                    "border-opacity": 0.9,
-                    "z-index": 10,
-                },
-            },
+            {"selector": "node[parent].hovered", "style": {"underlay-opacity": 0.35, "underlay-padding": 8, "border-width": 1.6, "border-opacity": 0.9, "z-index": 10}},
             {
                 "selector": "edge",
                 "style": {
@@ -364,18 +341,12 @@ class InfluenceGraphRenderMixin:
         """Add a single artist to the existing graph only if it has relationships"""
         try:
             # Check if this artist has any influence relationships
-            influences_as_influencer = self.controller.get.get_all_entities(
-                "ArtistInfluence", influencer_id=artist_id
-            )
-            influences_as_influenced = self.controller.get.get_all_entities(
-                "ArtistInfluence", influenced_id=artist_id
-            )
+            influences_as_influencer = self.controller.get.get_all_entities("ArtistInfluence", influencer_id=artist_id)
+            influences_as_influenced = self.controller.get.get_all_entities("ArtistInfluence", influenced_id=artist_id)
 
             # Only add if the artist has at least one relationship
             if not influences_as_influencer and not influences_as_influenced:
-                logger.info(
-                    f"Artist {artist_name} ({artist_id}) has no influence relationships, skipping"
-                )
+                logger.info(f"Artist {artist_name} ({artist_id}) has no influence relationships, skipping")
                 return
 
             # If this artist is already in the graph, just update the label
@@ -386,6 +357,7 @@ class InfluenceGraphRenderMixin:
                 return
 
             self.node_names[artist_id] = artist_name
+            self.node_aliases[artist_id] = self.fetch_node_aliases([artist_id]).get(artist_id, [])
             self.node_mass[artist_id] = 1
             community_index = self.community_id.get(artist_id, 0)
             cluster_id = f"c{community_index}"
@@ -398,6 +370,7 @@ class InfluenceGraphRenderMixin:
                         "id": str(artist_id),
                         "label": artist_name,
                         "fullLabel": artist_name,
+                        "aliases": self.node_aliases[artist_id],
                         "parent": cluster_id,
                         "minWidth": size,
                         "minHeight": size * 0.5,

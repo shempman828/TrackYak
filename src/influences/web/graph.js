@@ -21,17 +21,23 @@
   };
 
   // Progressively shorter display candidates for a name, from most to
-  // least informative: the real name; initials for every word but the
-  // last, e.g. "Christina Aguilera" -> "C. Aguilera" (the last word is
-  // usually the most identifying part of an artist/band name); and, only
-  // if that's still not enough, initials for every word. Single-word
-  // names have nothing to abbreviate, so only the name itself is offered.
-  function aliasCandidates(name) {
+  // least informative: the real name; real ArtistAlias names (from
+  // Python's node.data("aliases"), longest first -- a curated stage/legal/
+  // former name reads better than a computed abbreviation, so these are
+  // tried before any guesswork); initials for every word but the last,
+  // e.g. "Christina Aguilera" -> "C. Aguilera" (the last word is usually
+  // the most identifying part of an artist/band name); and, only if that's
+  // still not enough, initials for every word. Single-word names have
+  // nothing to abbreviate, so computed candidates are skipped for them.
+  function aliasCandidates(name, realAliases) {
+    const lowerName = name.toLowerCase();
+    const aliases = (realAliases || []).filter((a) => a && a.toLowerCase() !== lowerName);
+
     const words = name.split(" ").filter(Boolean);
-    if (words.length <= 1) return [name];
+    if (words.length <= 1) return [name, ...aliases];
     const last = words[words.length - 1];
     const initials = (list) => list.map((w) => w[0].toUpperCase() + ".").join(" ");
-    return [name, `${initials(words.slice(0, -1))} ${last}`, initials(words)];
+    return [name, ...aliases, `${initials(words.slice(0, -1))} ${last}`, initials(words)];
   }
 
   // node[parent] is styled width/height: 'label' with text-wrap: 'wrap'
@@ -61,6 +67,7 @@
     if (!fullLabel) return;
     const minW = node.data("minWidth") || 0;
     const minH = node.data("minHeight") || 0;
+    const realAliases = node.data("aliases") || [];
 
     function measure(label) {
       node.data("label", label);
@@ -69,7 +76,7 @@
     }
 
     let best = null;
-    for (const candidate of aliasCandidates(fullLabel)) {
+    for (const candidate of aliasCandidates(fullLabel, realAliases)) {
       const dims = measure(candidate);
       if (!best || dims.w * dims.h < best.dims.w * best.dims.h) {
         best = { label: candidate, dims };

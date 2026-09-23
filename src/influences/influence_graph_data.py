@@ -20,8 +20,8 @@ from src.influences import influence_graph_algorithms as algorithms
 class InfluenceGraphDataMixin:
     """
     Expects the host class to provide: self.controller, self.node_names,
-    self.edges, self.node_mass, self.community_id, self.influence_scores,
-    and to be a QWidget subclass.
+    self.node_aliases, self.edges, self.node_mass, self.community_id,
+    self.influence_scores, and to be a QWidget subclass.
     """
 
     # -----------------------
@@ -30,6 +30,11 @@ class InfluenceGraphDataMixin:
     def extract_global_graph(self):
         """Extract only artists with influence relationships"""
         return algorithms.extract_global_influence_graph(self.controller.get)
+
+    def fetch_node_aliases(self, node_ids):
+        """Real ArtistAlias names per node, longest first (see
+        algorithms.fetch_artist_aliases)."""
+        return algorithms.fetch_artist_aliases(self.controller.get, node_ids)
 
     # -----------------------
     # Node bookkeeping
@@ -95,9 +100,7 @@ class InfluenceGraphDataMixin:
         self.page_rank_scores = scores.page_rank_scores
         self.combined_scores = scores.combined_scores
 
-        top_influential = sorted(self.influence_scores.items(), key=lambda x: x[1], reverse=True)[
-            :10
-        ]
+        top_influential = sorted(self.influence_scores.items(), key=lambda x: x[1], reverse=True)[:10]
         logger.info("Top influential artists (unique descendants):")
         for node_id, score in top_influential:
             name = self.node_names.get(node_id, f"Artist {node_id}")
@@ -141,8 +144,7 @@ class InfluenceGraphDataMixin:
         # Apply additional power scaling
         normalized = normalized**0.6
 
-        size = min_size + normalized * (max_size - min_size)
-        return size
+        return min_size + normalized * (max_size - min_size)
 
     # Cytoscape draws labels in graph space, not screen space, so a label's
     # on-screen size is font-size-in-graph-units * current zoom -- there is
@@ -187,7 +189,7 @@ class InfluenceGraphDataMixin:
             return
 
         sizes = []
-        for node_id in self.node_names.keys():
+        for node_id in self.node_names:
             size = self.get_node_size(node_id)
             sizes.append((node_id, size, self.influence_scores.get(node_id, 0)))
 
@@ -200,9 +202,7 @@ class InfluenceGraphDataMixin:
 
         # Log size statistics
         size_values = [s[1] for s in sizes]
-        logger.info(
-            f"Size stats: min={min(size_values):.1f}, max={max(size_values):.1f}, avg={sum(size_values) / len(size_values):.1f}"
-        )
+        logger.info(f"Size stats: min={min(size_values):.1f}, max={max(size_values):.1f}, avg={sum(size_values) / len(size_values):.1f}")
 
     def compute_decayed_pagerank(self, G, alpha=0.85):
         """

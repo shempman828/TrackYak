@@ -14,13 +14,7 @@ from src.influences.influence_legend import LegendPanel
 _WEB_DIR = Path(__file__).resolve().parent / "web"
 
 
-class InfluenceGraphView(
-    InfluenceGraphDataMixin,
-    InfluenceGraphWorkerMixin,
-    InfluenceGraphRenderMixin,
-    InfluenceGraphLegendMixin,
-    QWidget,
-):
+class InfluenceGraphView(InfluenceGraphDataMixin, InfluenceGraphWorkerMixin, InfluenceGraphRenderMixin, InfluenceGraphLegendMixin, QWidget):
     """
     Influence graph rendered by Cytoscape.js (in an embedded QWebEngineView)
     using its fcose layout: a compound-node-aware force-directed algorithm
@@ -58,16 +52,12 @@ class InfluenceGraphView(
         self._web.loadFinished.connect(self._on_page_loaded)
         self._web.load(QUrl.fromLocalFile(str(_WEB_DIR / "graph_page.html")))
 
-        self._legend = LegendPanel(
-            self,
-            on_interact=self._reposition_legend,
-            on_rename_all=self._open_rename_all_dialog,
-            on_level_changed=self._on_level_changed,
-        )
+        self._legend = LegendPanel(self, on_interact=self._reposition_legend, on_rename_all=self._open_rename_all_dialog, on_level_changed=self._on_level_changed)
         self._legend.raise_()
 
         # Graph model (pure data -- Cytoscape/fcose owns layout & rendering)
         self.node_names = {}  # node_id -> name
+        self.node_aliases = {}  # node_id -> [real ArtistAlias names, longest first]
         self.edges = []  # list of (source_id, target_id) tuples, directed
         self.node_mass = {}  # node_id -> mass (degree-based), used to rank representative artists
         self.community_levels = []  # list[dict[node_id, community_index]], finest first

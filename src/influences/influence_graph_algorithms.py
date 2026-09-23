@@ -55,9 +55,7 @@ def extract_global_influence_graph(get_helper):
             if artist:
                 nodes.append((artist_id, artist.artist_name))
             else:
-                logger.warning(
-                    f"Artist {artist_id} not found in database but has influence relationships"
-                )
+                logger.warning(f"Artist {artist_id} not found in database but has influence relationships")
 
         logger.info(f"Extracted {len(nodes)} nodes and {len(edges)} edges")
         return nodes, edges
@@ -65,6 +63,29 @@ def extract_global_influence_graph(get_helper):
     except SQLAlchemyError as e:
         logger.error(f"Error extracting global graph: {e}")
         return [], []
+
+
+def fetch_artist_aliases(get_helper, artist_ids):
+    """Real ArtistAlias names for each artist, longest name first.
+
+    Lets the graph prefer a curated alias (stage name, legal name, etc.)
+    over a computed abbreviation when a node's label needs to shrink to fit
+    its box -- see graph.js's fitNodeLabel/aliasCandidates.
+    """
+    if not artist_ids:
+        return {}
+    try:
+        aliases = get_helper.get_all_entities("ArtistAlias", artist_id__in=list(artist_ids))
+    except SQLAlchemyError as e:
+        logger.error(f"Error fetching artist aliases: {e}")
+        return {}
+
+    by_artist = {}
+    for alias in aliases:
+        by_artist.setdefault(alias.artist_id, []).append(alias.alias_name)
+    for names in by_artist.values():
+        names.sort(key=len, reverse=True)
+    return by_artist
 
 
 def compute_descendant_counts(G):
@@ -135,21 +156,14 @@ def calculate_influence_scores(node_ids, edges):
         try:
             decayed_pr = compute_decayed_pagerank(G)
             page_rank_scores = decayed_pr
-            combined_scores = {
-                node: (influence_scores.get(node, 0), decayed_pr.get(node, 0.0))
-                for node in node_ids
-            }
+            combined_scores = {node: (influence_scores.get(node, 0), decayed_pr.get(node, 0.0)) for node in node_ids}
         except nx.NetworkXException as e:
             logger.error(f"Failed to compute decayed PageRank: {e}")
             page_rank_scores = {}
             combined_scores = {node: (influence_scores.get(node, 0), 0.0) for node in node_ids}
 
         logger.info(f"Calculated influence scores for {len(node_ids)} nodes")
-        return InfluenceScores(
-            influence_scores=influence_scores,
-            page_rank_scores=page_rank_scores,
-            combined_scores=combined_scores,
-        )
+        return InfluenceScores(influence_scores=influence_scores, page_rank_scores=page_rank_scores, combined_scores=combined_scores)
 
     except nx.NetworkXException as e:
         logger.error(f"Error calculating influence scores: {e}")
@@ -179,10 +193,7 @@ def assign_louvain_communities(node_ids, edges):
         import community as community_louvain
 
         dendrogram = community_louvain.generate_dendrogram(G)
-        return [
-            community_louvain.partition_at_level(dendrogram, level)
-            for level in range(len(dendrogram))
-        ]
+        return [community_louvain.partition_at_level(dendrogram, level) for level in range(len(dendrogram))]
     except (TypeError, nx.NetworkXException) as e:
         logger.error(f"Error computing Louvain communities: {e}")
         return [dict.fromkeys(node_ids, 0)]
@@ -217,9 +228,7 @@ def filter_eligible_levels(dendrogram, max_dominant_fraction=0.8):
 
         if len(members_by_community) < 2:
             continue
-        if max(len(m) for m in members_by_community.values()) > (
-            max_dominant_fraction * total_nodes
-        ):
+        if max(len(m) for m in members_by_community.values()) > (max_dominant_fraction * total_nodes):
             continue
 
         signature = frozenset(frozenset(m) for m in members_by_community.values())
@@ -245,7 +254,4 @@ def compute_community_bridge_counts(node_ids, edges, community_id):
         if b in neighbors:
             neighbors[b].add(a)
 
-    return {
-        node_id: len({community_id[n] for n in neighbor_set if n in community_id})
-        for node_id, neighbor_set in neighbors.items()
-    }
+    return {node_id: len({community_id[n] for n in neighbor_set if n in community_id}) for node_id, neighbor_set in neighbors.items()}
