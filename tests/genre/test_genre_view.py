@@ -685,7 +685,7 @@ def test_tree_has_genre_and_tracks_columns_with_sorting_enabled(qapp, controller
 
     assert view.tree.columnCount() == 2
     assert view.tree.headerItem().text(0) == "Genre"
-    assert view.tree.headerItem().text(1) == "Tracks"
+    assert view.tree.headerItem().text(1) == "Tracks (Own · Recursive)"
     assert view.tree.isSortingEnabled() is True
     assert view.tree.isHeaderHidden() is False
 

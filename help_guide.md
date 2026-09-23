@@ -343,7 +343,8 @@ track carrying any given genre.
 
 **Browsing**: search narrows the tree live. Each genre shows how many tracks
 carry it directly, plus a second number for tracks pulled in from its
-subgenres if it has any. Right-click → View Tracks (with a Recursive toggle
+subgenres if it has any — the "Tracks (Own · Recursive)" column header names
+which number is which. Right-click → View Tracks (with a Recursive toggle
 to include those subgenre tracks too, or not).
 
 **Building out the hierarchy**: New Genre to add one from scratch — pick a

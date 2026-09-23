@@ -74,13 +74,13 @@ class GenreView(QWidget):
         # Tree widget configuration (created early so top-row buttons can reference it)
         self.tree = QTreeWidget()
         configure_hierarchy_tree(self.tree)
-        # Visible two-column header ("Genre"/"Tracks") with native
-        # column-header-click sorting, matching PublisherTreeWidget --
+        # Visible two-column header ("Genre"/"Tracks (Own · Recursive)") with
+        # native column-header-click sorting, matching PublisherTreeWidget --
         # overrides configure_hierarchy_tree's default hidden single-column
         # header.
         self.tree.setHeaderHidden(False)
         self.tree.setColumnCount(2)
-        self.tree.setHeaderLabels(["Genre", "Tracks"])
+        self.tree.setHeaderLabels(["Genre", "Tracks (Own · Recursive)"])
         self.tree.setSortingEnabled(True)
         header = self.tree.header()
         header.setSectionResizeMode(0, QHeaderView.Stretch)
