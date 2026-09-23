@@ -274,3 +274,13 @@ class EqualizerUtility(QObject):
     def get_band_gains(self):
         """Get all band gains as a list"""
         return [band["gain"] for band in self.bands]
+
+    def get_frequency_response(self, num_points: int = 200) -> tuple[np.ndarray, np.ndarray]:
+        """Return (freqs_hz, gain_db) for the current combined filter across the band range."""
+        freqs = np.logspace(np.log10(32), np.log10(16000), num_points)
+        if self.combined_sos is None:
+            return freqs, np.zeros(num_points)
+        w = 2 * np.pi * freqs / self.sample_rate
+        _, h = signal.sosfreqz(self.combined_sos, worN=w)
+        gain_db = 20 * np.log10(np.maximum(np.abs(h), 1e-10))
+        return freqs, gain_db

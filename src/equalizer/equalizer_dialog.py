@@ -1,27 +1,114 @@
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QDialog,
-    QGridLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QInputDialog,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QScrollArea,
-    QSizePolicy,
-    QSlider,
-    QVBoxLayout,
-    QWidget,
-)
+import math
 
-from src.common.widgets.layout_utils import clear_layout
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QComboBox, QDialog, QGroupBox, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget
+
 from src.equalizer.equalizer_utility import EqualizerUtility
 from src.foundation.display_settings import apply_scaled_style
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
+
+_AXIS_MARGIN_LEFT = 34
+_AXIS_MARGIN_RIGHT = 10
+_DB_RANGE = 12.0
+_FREQ_MIN = 32
+_FREQ_MAX = 16000
+
+
+class FrequencyResponseCurve(QWidget):
+    """Live-updating plot of the equalizer's combined filter response."""
+
+    def __init__(self, equalizer: EqualizerUtility, parent=None):
+        super().__init__(parent)
+        self.equalizer = equalizer
+        self.setMinimumHeight(150)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        rect = self.rect()
+        plot_rect = QRectF(
+            _AXIS_MARGIN_LEFT,
+            6,
+            rect.width() - _AXIS_MARGIN_LEFT - _AXIS_MARGIN_RIGHT,
+            rect.height() - 12,
+        )
+
+        active = self.equalizer.is_enabled()
+        line_color = QColor("#8599ea") if active else QColor("#555e7a")
+        fill_color = QColor(line_color)
+        fill_color.setAlpha(70 if active else 35)
+
+        for db in (-12, -6, 0, 6, 12):
+            y = self._y_for_db(db, plot_rect)
+            is_zero = db == 0
+            pen = QPen(QColor(133, 153, 234, 90 if is_zero else 30))
+            pen.setWidthF(1.2 if is_zero else 1.0)
+            painter.setPen(pen)
+            painter.drawLine(QPointF(plot_rect.left(), y), QPointF(plot_rect.right(), y))
+            if db in (12, 0, -12):
+                painter.setPen(QColor("#555e7a"))
+                font = painter.font()
+                font.setPointSizeF(7.5)
+                painter.setFont(font)
+                painter.drawText(
+                    QRectF(0, y - 7, _AXIS_MARGIN_LEFT - 6, 14),
+                    Qt.AlignRight | Qt.AlignVCenter,
+                    f"{db:+d}" if db else "0",
+                )
+
+        for band in self.equalizer.bands:
+            x = self._x_for_freq(band["freq"], plot_rect)
+            painter.setPen(QColor(133, 153, 234, 22))
+            painter.drawLine(QPointF(x, plot_rect.top()), QPointF(x, plot_rect.bottom()))
+
+        freqs, gains_db = self.equalizer.get_frequency_response()
+        path = QPainterPath()
+        fill_path = QPainterPath()
+        zero_y = self._y_for_db(0, plot_rect)
+        for i, (freq, gain) in enumerate(zip(freqs, gains_db, strict=True)):
+            x = self._x_for_freq(freq, plot_rect)
+            y = self._y_for_db(gain, plot_rect)
+            if i == 0:
+                path.moveTo(x, y)
+                fill_path.moveTo(x, zero_y)
+                fill_path.lineTo(x, y)
+            else:
+                path.lineTo(x, y)
+                fill_path.lineTo(x, y)
+        fill_path.lineTo(plot_rect.right(), zero_y)
+        fill_path.closeSubpath()
+
+        painter.fillPath(fill_path, fill_color)
+        pen = QPen(line_color)
+        pen.setWidthF(2.0)
+        painter.setPen(pen)
+        painter.drawPath(path)
+
+    @staticmethod
+    def _x_for_freq(freq: float, plot_rect: QRectF) -> float:
+        lo, hi = math.log10(_FREQ_MIN), math.log10(_FREQ_MAX)
+        frac = (math.log10(freq) - lo) / (hi - lo)
+        return plot_rect.left() + frac * plot_rect.width()
+
+    @staticmethod
+    def _y_for_db(db: float, plot_rect: QRectF) -> float:
+        frac = (db + _DB_RANGE) / (2 * _DB_RANGE)
+        return plot_rect.bottom() - frac * plot_rect.height()
+
+
+class _ZeroLineRow(QWidget):
+    """Slider row container that paints a shared 0 dB reference line behind the sliders."""
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setPen(QPen(QColor(133, 153, 234, 45), 1))
+        y = self.height() / 2
+        painter.drawLine(QPointF(0, y), QPointF(self.width(), y))
+        super().paintEvent(event)
 
 
 class EqualizerDialog(QDialog):
@@ -35,11 +122,10 @@ class EqualizerDialog(QDialog):
         self.setModal(False)
 
         # Set sensible size policies
-        self.setMinimumSize(900, 500)
+        self.setMinimumSize(900, 620)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
 
         self.sliders = []
-        self.gain_labels = []
 
         self.init_ui()
         self.load_current_settings()
@@ -53,53 +139,45 @@ class EqualizerDialog(QDialog):
     def init_ui(self):
         """Initialize the user interface."""
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        layout.setSpacing(12)
         layout.setContentsMargins(15, 15, 15, 15)
 
-        # Enable/disable checkbox and presets
+        # Enable toggle and presets
         control_layout = QHBoxLayout()
 
-        self.enable_checkbox = QCheckBox("Enable Equalizer")
-        self.enable_checkbox.setChecked(self.equalizer.is_enabled())
-        self.enable_checkbox.toggled.connect(self.equalizer.set_enabled)
-        control_layout.addWidget(self.enable_checkbox)
+        self.enable_button = QPushButton("Enabled")
+        self.enable_button.setObjectName("EqEnableToggle")
+        self.enable_button.setCheckable(True)
+        self.enable_button.setChecked(self.equalizer.is_enabled())
+        self.enable_button.toggled.connect(self.equalizer.set_enabled)
+        control_layout.addWidget(self.enable_button)
 
         control_layout.addStretch()
 
-        # Presets combo box
         control_layout.addWidget(QLabel("Preset:"))
         self.preset_combo = QComboBox()
-        self.preset_combo.setMinimumWidth(120)
+        self.preset_combo.setMinimumWidth(140)
         self.preset_combo.addItems(["Custom", *list(self.equalizer.presets.keys())])
         self.preset_combo.currentTextChanged.connect(self.on_preset_changed)
         control_layout.addWidget(self.preset_combo)
 
         layout.addLayout(control_layout)
 
-        # Equalizer bands group - use scroll area for many bands
-        self.bands_group = QGroupBox("Equalizer Bands (1/3 Octave)")
-        self.bands_layout = QVBoxLayout(self.bands_group)
+        # Frequency response graph + band sliders, sharing one themed panel
+        self.bands_group = QGroupBox("Frequency Response")
+        bands_layout = QVBoxLayout(self.bands_group)
+        bands_layout.setSpacing(8)
 
-        # Create scroll area for bands
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setMinimumHeight(350)
-
-        # Container for sliders
-        slider_widget = QWidget()
-        self.slider_layout = QGridLayout(slider_widget)
-        self.slider_layout.setSpacing(5)
-        self.slider_layout.setContentsMargins(10, 10, 10, 10)
+        self.response_curve = FrequencyResponseCurve(self.equalizer)
+        bands_layout.addWidget(self.response_curve)
 
         self.create_band_sliders()
+        bands_layout.addWidget(self.slider_container)
+        bands_layout.addWidget(self.freq_label_row)
 
-        scroll_area.setWidget(slider_widget)
-        layout.addWidget(self.bands_group)
+        layout.addWidget(self.bands_group, stretch=1)
 
         # Control buttons
-
         button_layout = QHBoxLayout()
 
         self.reset_button = QPushButton("Reset to Flat")
@@ -119,6 +197,7 @@ class EqualizerDialog(QDialog):
         button_layout.addStretch()
 
         self.close_button = QPushButton("Close")
+        self.close_button.setObjectName("PrimaryButton")
         self.close_button.clicked.connect(self.accept)
         button_layout.addWidget(self.close_button)
 
@@ -180,72 +259,53 @@ class EqualizerDialog(QDialog):
             self.preset_combo.setCurrentText("Custom")
 
     def create_band_sliders(self):
-        """Create a horizontal row of vertical sliders for each band (no scrolling)."""
-        # Clear previous sliders and labels
+        """Build one vertical slider per band, aligned under the response curve."""
         self.sliders.clear()
-        self.gain_labels.clear()
 
-        # Create container widget for horizontal layout
-        self.slider_container = QWidget()
+        self.slider_container = _ZeroLineRow()
         h_layout = QHBoxLayout(self.slider_container)
-        h_layout.setSpacing(15)
-        h_layout.setContentsMargins(10, 10, 10, 10)
-        h_layout.setAlignment(Qt.AlignHCenter)
+        h_layout.setSpacing(4)
+        h_layout.setContentsMargins(_AXIS_MARGIN_LEFT, 4, _AXIS_MARGIN_RIGHT, 4)
 
-        # Add sliders for each band
+        self.freq_label_row = QWidget()
+        freq_layout = QHBoxLayout(self.freq_label_row)
+        freq_layout.setSpacing(4)
+        freq_layout.setContentsMargins(_AXIS_MARGIN_LEFT, 0, _AXIS_MARGIN_RIGHT, 0)
+
         for band_idx, band in enumerate(self.equalizer.bands):
-            vbox = QVBoxLayout()
-            vbox.setAlignment(Qt.AlignHCenter)
-
-            # Gain label (top)
-            gain_label = QLabel(f"{band['gain']:+.1f} dB")
-            apply_scaled_style(gain_label, "font-size: 8px;")
-            gain_label.setAlignment(Qt.AlignCenter)
-            gain_label.setFixedHeight(20)
-            self.gain_labels.append(gain_label)
-            vbox.addWidget(gain_label)
-
-            # Slider
             slider = QSlider(Qt.Vertical)
             slider.setRange(-120, 120)  # -12 dB to +12 dB in 0.1 dB steps
             slider.setValue(int(band["gain"] * 10))
             slider.setTickPosition(QSlider.TicksBothSides)
             slider.setTickInterval(60)  # 6 dB intervals
-            slider.setMinimumHeight(120)
+            slider.setMinimumHeight(160)
+            slider.setToolTip(self._band_tooltip(band))
             slider.valueChanged.connect(
                 lambda value, idx=band_idx: self.on_slider_changed(idx, value)
             )
             self.sliders.append(slider)
-            vbox.addWidget(slider)
+            h_layout.addWidget(slider, stretch=1, alignment=Qt.AlignHCenter)
 
-            # Frequency label (bottom)
-            freq_label = QLabel(f"{band['freq']} Hz")
-            apply_scaled_style(freq_label, "font-size: 8px;")
+            freq_label = QLabel(self._format_freq(band["freq"]))
             freq_label.setAlignment(Qt.AlignCenter)
-            freq_label.setFixedHeight(20)
-            vbox.addWidget(freq_label)
+            apply_scaled_style(freq_label, "font-size: 10px; color: #7a82a8;")
+            freq_layout.addWidget(freq_label, stretch=1)
 
-            # Band name label (optional, below frequency)
-            name_label = QLabel(band["label"])
-            name_label.setAlignment(Qt.AlignCenter)
-            name_label.setFixedHeight(15)
-            apply_scaled_style(name_label, "font-size: 9px;")
-            vbox.addWidget(name_label)
+    @staticmethod
+    def _format_freq(freq: int) -> str:
+        if freq >= 1000:
+            return f"{freq / 1000:g}k"
+        return str(freq)
 
-            # Add this vertical layout to the horizontal container
-            h_layout.addLayout(vbox)
-
-        # Clear previous widgets in the group box layout
-        clear_layout(self.bands_layout)
-
-        # Add the horizontal slider container to the group box layout
-        self.bands_layout.addWidget(self.slider_container)
+    @staticmethod
+    def _band_tooltip(band: dict) -> str:
+        return f"{band['label']} ({band['freq']} Hz): {band['gain']:+.1f} dB"
 
     def on_slider_changed(self, band_index: int, value: int):
         """Handle slider value changes."""
         gain = value / 10.0  # Convert to dB
         self.equalizer.set_band_gain(band_index, gain)
-        self.gain_labels[band_index].setText(f"{gain:+.1f} dB")
+        self.sliders[band_index].setToolTip(self._band_tooltip(self.equalizer.bands[band_index]))
         self.preset_combo.setCurrentText("Custom")
         self.last_was_custom = True
 
@@ -274,18 +334,20 @@ class EqualizerDialog(QDialog):
         """Load current equalizer settings into UI."""
         settings = self.equalizer.get_settings()
 
-        # Update enable checkbox
-        self.enable_checkbox.blockSignals(True)
-        self.enable_checkbox.setChecked(settings["enabled"])
-        self.enable_checkbox.blockSignals(False)
+        # Update enable toggle
+        self.enable_button.blockSignals(True)
+        self.enable_button.setChecked(settings["enabled"])
+        self.enable_button.blockSignals(False)
 
-        # Update sliders and labels
+        # Update sliders and tooltips
         for i, band in enumerate(settings["bands"]):
             if i < len(self.sliders):
                 self.sliders[i].blockSignals(True)
                 self.sliders[i].setValue(int(band["gain"] * 10))
                 self.sliders[i].blockSignals(False)
-                self.gain_labels[i].setText(f"{band['gain']:+.1f} dB")
+                self.sliders[i].setToolTip(self._band_tooltip(band))
+
+        self.response_curve.update()
 
     def showEvent(self, event):
         """Handle dialog show event."""
