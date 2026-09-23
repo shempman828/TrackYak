@@ -268,6 +268,33 @@ QTreeWidget::item:selected:!active {
     border: none;
 }
 
+/* Custom expand/collapse chevrons: the OS-default arrows/lines don't
+   follow the app's theme at all, so every hierarchy tree (genre, role,
+   mood, playlist, award, place, tag manager) showed a plain native
+   triangle. Clearing the connecting lines and swapping in themed chevrons
+   makes that piece match everywhere at once. */
+QTreeView::branch {
+    background: transparent;
+}
+
+QTreeView::branch:has-siblings:!adjoins-item,
+QTreeView::branch:has-siblings:adjoins-item,
+QTreeView::branch:!has-children:!has-siblings:adjoins-item {
+    border-image: none;
+}
+
+QTreeView::branch:has-children:!has-siblings:closed,
+QTreeView::branch:closed:has-children:has-siblings {
+    border-image: none;
+    image: url(ASSETS_DIR_PLACEHOLDER/tree_branch_closed.svg);
+}
+
+QTreeView::branch:open:has-children:!has-siblings,
+QTreeView::branch:open:has-children:has-siblings {
+    border-image: none;
+    image: url(ASSETS_DIR_PLACEHOLDER/tree_branch_open.svg);
+}
+
 QTreeView::indicator,
 QListView::indicator {
     width: 16px;

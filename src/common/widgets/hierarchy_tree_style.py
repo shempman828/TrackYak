@@ -8,8 +8,8 @@ avoids re-implementing the same color table and tree setup in each one.
 
 from collections import defaultdict
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QPointF, QSize, Qt
+from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPen, QPixmap, QRadialGradient
 from PySide6.QtWidgets import QMessageBox, QTreeWidget
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -25,34 +25,73 @@ DEPTH_COLORS = [
     QColor(199, 21, 133),  # Medium Violet Red
     QColor(0, 191, 255),  # Deep Sky Blue
 ]
-FALLBACK_COLOR = QColor(128, 128, 128)  # Gray, for depths beyond DEPTH_COLORS
+DEFAULT_DOT_SIZE = 18
+TREE_INDENTATION = 20
 
 
-def create_colored_icon(color: QColor, size: int = 16) -> QIcon:
-    """Render a filled circle of `color` as a QIcon."""
+def _color_for_depth(depth: int) -> QColor:
+    """Map a hierarchy depth to a color, cycling back through `DEPTH_COLORS`
+    with alternating lighter/darker shades on each extra pass instead of
+    collapsing to a single flat fallback -- so trees nested deeper than
+    `len(DEPTH_COLORS)` levels (e.g. a long genre or mood chain) still show
+    distinct colors per level.
+    """
+    base = DEPTH_COLORS[depth % len(DEPTH_COLORS)]
+    cycle = depth // len(DEPTH_COLORS)
+    if cycle == 0:
+        return base
+    factor = 100 + ((cycle + 1) // 2) * 25
+    return base.lighter(factor) if cycle % 2 else base.darker(factor)
+
+
+def create_colored_icon(color: QColor, size: int = DEFAULT_DOT_SIZE) -> QIcon:
+    """Render `color` as a soft ringed dot: a faint halo behind a two-tone
+    core (a light highlight fading to the base color, with a thin darker
+    rim), rather than one flat-filled circle -- echoes the app's frosted-
+    glass, soft-accent look instead of a hard solid disc.
+    """
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
-    painter.setBrush(QBrush(color))
+
+    center = size / 2
+    core_radius = size * 0.28
+    halo_radius = size * 0.44
+
+    halo = QColor(color)
+    halo.setAlpha(70)
+    painter.setBrush(QBrush(halo))
     painter.setPen(Qt.NoPen)
-    painter.drawEllipse(2, 2, size - 4, size - 4)
+    painter.drawEllipse(QPointF(center, center), halo_radius, halo_radius)
+
+    gradient = QRadialGradient(
+        QPointF(center - core_radius * 0.35, center - core_radius * 0.35), core_radius * 1.8
+    )
+    gradient.setColorAt(0.0, color.lighter(160))
+    gradient.setColorAt(1.0, color)
+    painter.setBrush(QBrush(gradient))
+    painter.setPen(QPen(color.darker(140), max(1.0, size * 0.06)))
+    painter.drawEllipse(QPointF(center, center), core_radius, core_radius)
+
     painter.end()
     return QIcon(pixmap)
 
 
-def icon_for_depth(depth: int, size: int = 16) -> QIcon:
+def icon_for_depth(depth: int, size: int = DEFAULT_DOT_SIZE) -> QIcon:
     """Colored dot icon for a tree item at the given hierarchy depth."""
-    color = DEPTH_COLORS[depth] if depth < len(DEPTH_COLORS) else FALLBACK_COLOR
-    return create_colored_icon(color, size)
+    return create_colored_icon(_color_for_depth(depth), size)
 
 
 def configure_hierarchy_tree(tree: QTreeWidget, *, multi_select: bool = True) -> None:
     """Apply the baseline config shared by hierarchy tree widgets: hidden
     header, multi-selection, animated expand/collapse, internal
-    drag-and-drop reordering, and a custom-context-menu slot.
+    drag-and-drop reordering, custom-context-menu slot, and consistent
+    indentation/icon sizing to match the depth-dot icons.
     """
     tree.setHeaderHidden(True)
+    tree.setIndentation(TREE_INDENTATION)
+    tree.setIconSize(QSize(DEFAULT_DOT_SIZE, DEFAULT_DOT_SIZE))
     if multi_select:
         # ExtendedSelection: plain click selects only that item (clearing the
         # rest); Ctrl/Shift-click extends the selection. MultiSelection was
