@@ -490,8 +490,12 @@ class ListView(QWidget):
                 menu.addAction("New Child Place", lambda p=place: self.create_new_child_place(p))
                 menu.addSeparator()
 
-            # Delete works for single or multiple selection
+            # Delete works for single or multiple selection; Edit joins it
+            # once there's more than one place to bulk-edit (the single-place
+            # Edit action above already covers count <= 1).
             count = len(selected_items)
+            if count > 1:
+                menu.addAction(f"Edit {count} Places…", self.edit_selected_places)
             delete_label = f"Delete {count} Places" if count > 1 else "Delete"
             menu.addAction(delete_label, self.delete_selected_places)
             menu.addSeparator()
@@ -637,6 +641,35 @@ class ListView(QWidget):
         if not selected:
             return
         self.edit_place_for(selected.data(0, Qt.UserRole))
+
+    def edit_selected_places(self):
+        """Bulk-edit every currently selected place in one dialog.
+
+        Only fields the user actually touches are written, to every
+        selected place, in a single batch update.
+        """
+        selected_items = self.tree_widget.selectedItems()
+        if not selected_items:
+            return
+
+        places = [item.data(0, Qt.UserRole) for item in selected_items]
+        dialog = PlaceEditDialog(self.controller, self, places)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        changes = dialog.get_bulk_changes()
+        if not changes:
+            return
+
+        place_ids = [place.place_id for place in places]
+        success = self.controller.update.update_entities("Place", place_ids, **changes)
+        if success:
+            if self.parent_view:
+                self.parent_view.refresh_views()
+            logger.info(f"Batch-updated {len(places)} place(s), fields: {list(changes.keys())}")
+        else:
+            logger.error(f"Failed to batch-update {len(places)} place(s)")
+            QMessageBox.critical(self, "Error", "Failed to update the selected places")
 
     def create_new_parent_place(self, place):
         """Create a new place and insert it as the parent of the given place.

@@ -400,7 +400,11 @@ a new type that is not in the list.
 
 **Other actions**: right-click for View Associations, View Details, Edit,
 Merge (fold a duplicate into its canonical entry), New Parent/Child Place,
-or Delete.
+or Delete. Select more than one place first and Edit bulk-edits Type,
+Latitude, Longitude, Description, and Parent Place across all of them at
+once — a field left blank because the selection disagreed on it is left
+alone, not cleared; only fields you actually change are applied. Delete
+also works across a multi-selection.
 
 **Untangling duplicates**: right-click → Find Duplicate Places to run a
 fuzzy-match scan across your whole place list, then review and bulk-merge
