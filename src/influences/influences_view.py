@@ -23,6 +23,8 @@ class InfluencesView(QWidget):
     def init_ui(self):
         """Initialize the user interface"""
         layout = QVBoxLayout()
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
 
         layout.addWidget(self._build_toolbar())
 
@@ -65,10 +67,7 @@ class InfluencesView(QWidget):
         self.legend_button.setCheckable(True)
         self.legend_button.setCursor(Qt.PointingHandCursor)
         self.legend_button.setChecked(app_config.get_influence_legend_visible())
-        self.legend_button.setToolTip(
-            "Show or hide the cluster legend overlay. Double-click a legend "
-            "entry to rename that cluster."
-        )
+        self.legend_button.setToolTip("Show or hide the cluster legend overlay. Double-click a legend entry to rename that cluster.")
         self.legend_button.toggled.connect(self.toggle_legend_visible)
         toolbar_layout.addWidget(self.legend_button)
 
@@ -170,18 +169,12 @@ class InfluencesView(QWidget):
 
             for influence in recent_influences:
                 self.graph_view.add_edge(influence.influencer_id, influence.influenced_id)
-                logger.info(
-                    f"Added new edge: {influence.influencer_id} -> {influence.influenced_id}"
-                )
+                logger.info(f"Added new edge: {influence.influencer_id} -> {influence.influenced_id}")
 
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error adding new influence edges: {e}")
             # If incremental addition fails, fall back to refresh
-            QMessageBox.warning(
-                self,
-                "Partial Error",
-                f"Added influence but couldn't update display properly: {e!s}",
-            )
+            QMessageBox.warning(self, "Partial Error", f"Added influence but couldn't update display properly: {e!s}")
 
     def on_influence_modified(self):
         """Handle complex influence modifications that require full refresh"""
@@ -221,14 +214,7 @@ class InfluencesView(QWidget):
                 influencer_name = inf.influencer.artist_name
                 influenced_name = inf.influenced.artist_name
 
-                all_influences.append(
-                    {
-                        "influencer_id": inf.influencer_id,
-                        "influenced_id": inf.influenced_id,
-                        "influencer_name": influencer_name,
-                        "influenced_name": influenced_name,
-                    }
-                )
+                all_influences.append({"influencer_id": inf.influencer_id, "influenced_id": inf.influenced_id, "influencer_name": influencer_name, "influenced_name": influenced_name})
             dialog = RemoveInfluenceDialog(self.controller, all_influences, self)
             if dialog.exec() == QDialog.Accepted:
                 # Refresh the graph with the influence removed
