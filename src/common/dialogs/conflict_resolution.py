@@ -86,12 +86,13 @@ class _ConflictValueCell(QWidget):
         self._on_select = on_select
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
         self._check = QLabel("✓")
         self._check.setProperty("mergeCellCheck", True)
-        self._check.setFixedWidth(14)
+        self._check.setFixedSize(16, 16)
+        self._check.setAlignment(Qt.AlignCenter)
         layout.addWidget(self._check, 0, Qt.AlignTop)
 
         value_label = QLabel(display_text)

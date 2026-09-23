@@ -2137,9 +2137,12 @@ QWidget[mergeCell="true"] QLabel {
     color: #b8c0f0;
 }
 
-QLabel[mergeCellCheck="true"] {
+QWidget[mergeCell="true"] QLabel[mergeCellCheck="true"] {
     color: #8599ea;
     font-weight: bold;
+    background-color: #11121a;
+    border: 1px solid #3a3d55;
+    border-radius: 4px;
 }
 
 #NavContainer {
