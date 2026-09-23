@@ -10,12 +10,16 @@ Two rankings:
 - get_missing_popular: entries with no library match, ranked by chart
   performance (best peak position, most weeks on chart).
 - get_missing_gap_fills: entries with no library match that sit between
-  two runs of already-owned positions on the same chart_week -- e.g. you
-  own #1-15 and #17-23 of a week's chart, #16 is the gap. Ranked by how
-  much owned run length filling the gap would connect (15 + 7 = 22 for
-  that example), since a missing song bordered by songs you already have
-  is a much stronger "you're basically done with this week" signal than
-  an isolated miss with nothing owned on either side.
+  two runs of already-owned positions on the same chart -- e.g. you own
+  #1-15 and #17-23 of a week's chart, #16 is the gap. Ranked by how much
+  owned run length filling the gap would connect (15 + 7 = 22 for that
+  example), since a missing song bordered by songs you already have is a
+  much stronger "you're basically done with this chart" signal than an
+  isolated miss with nothing owned on either side. Owned runs carry across
+  a week boundary into the next chart_week's rows (same chart_id, next
+  position in the sorted row order), so a miss sitting at the very start
+  or end of a week still connects to the neighboring week's run instead of
+  being scored as if it had nothing owned beside it.
 
 A single (raw_title, raw_performer) pair can appear as many ChartEntry rows
 as the song/album had weeks on the chart, so both rankings group results
@@ -75,12 +79,7 @@ def chart_week_years(session) -> list[int]:
     return [int(year) for (year,) in rows if year is not None]
 
 
-def _aggregate_missing(
-    session,
-    chart_ids: list | None = None,
-    week_from: datetime.date | None = None,
-    week_to: datetime.date | None = None,
-) -> list:
+def _aggregate_missing(session, chart_ids: list | None = None, week_from: datetime.date | None = None, week_to: datetime.date | None = None) -> list:
     stmt = (
         select(
             ChartEntry.chart_id,
@@ -93,13 +92,7 @@ def _aggregate_missing(
         )
         .join(Chart, Chart.chart_id == ChartEntry.chart_id)
         .where(ChartEntry.entity_id.is_(None))
-        .group_by(
-            ChartEntry.chart_id,
-            Chart.chart_name,
-            Chart.matched_entity_type,
-            ChartEntry.raw_title,
-            ChartEntry.raw_performer,
-        )
+        .group_by(ChartEntry.chart_id, Chart.chart_name, Chart.matched_entity_type, ChartEntry.raw_title, ChartEntry.raw_performer)
     )
     if chart_ids:
         stmt = stmt.where(ChartEntry.chart_id.in_(chart_ids))
@@ -119,13 +112,7 @@ def _aggregate_missing(
     ]
 
 
-def get_missing_popular(
-    session,
-    chart_ids: list | None = None,
-    limit: int = 100,
-    week_from: datetime.date | None = None,
-    week_to: datetime.date | None = None,
-) -> list:
+def get_missing_popular(session, chart_ids: list | None = None, limit: int = 100, week_from: datetime.date | None = None, week_to: datetime.date | None = None) -> list:
     """Missing entries ranked by chart performance alone (best peak
     position, then most weeks on chart as a tiebreaker). `week_from` /
     `week_to` (inclusive) restrict which chart weeks count -- so peak /
@@ -135,19 +122,13 @@ def get_missing_popular(
     return items[:limit]
 
 
-def get_missing_gap_fills(
-    session,
-    chart_ids: list | None = None,
-    min_gap: int = 4,
-    limit: int = 100,
-    week_from: datetime.date | None = None,
-    week_to: datetime.date | None = None,
-) -> list:
+def get_missing_gap_fills(session, chart_ids: list | None = None, min_gap: int = 4, limit: int = 100, week_from: datetime.date | None = None, week_to: datetime.date | None = None) -> list:
     """Missing entries that would connect two runs of already-owned chart
-    positions in the same week -- see module docstring. `min_gap` is the
-    minimum combined owned-run length (before + after) required to
-    surface a candidate, so an isolated miss with nothing owned on either
-    side doesn't show up as noise.
+    positions -- see module docstring. Runs carry across chart_week
+    boundaries within the same chart. `min_gap` is the minimum combined
+    owned-run length (before + after) required to surface a candidate, so
+    an isolated miss with nothing owned on either side doesn't show up as
+    noise.
 
     `week_from` / `week_to` (inclusive) restrict which chart weeks are
     scanned for runs, so a gap only surfaces if its week is in range.
@@ -181,9 +162,13 @@ def get_missing_gap_fills(
 
     best: dict = {}  # (chart_id, raw_title, raw_performer) -> MissingChartItem
 
-    def _flush_week(week_rows: list) -> None:
-        n = len(week_rows)
-        owned = [r.entity_id is not None for r in week_rows]
+    def _flush_chart(chart_rows: list) -> None:
+        # chart_rows spans every chart_week for this chart_id, in order --
+        # streaks are allowed to run across a week boundary (same chart,
+        # next row in sorted order) and only reset where ownership itself
+        # breaks, not at the week edges.
+        n = len(chart_rows)
+        owned = [r.entity_id is not None for r in chart_rows]
 
         streak = [0] * n  # length of owned run ending at i (inclusive)
         for i in range(n):
@@ -193,7 +178,7 @@ def get_missing_gap_fills(
         for i in range(n - 1, -1, -1):
             streak_rev[i] = (streak_rev[i + 1] if i < n - 1 else 0) + 1 if owned[i] else 0
 
-        for i, row in enumerate(week_rows):
+        for i, row in enumerate(chart_rows):
             if owned[i]:
                 continue
             before_run = streak[i - 1] if i > 0 else 0
@@ -215,18 +200,17 @@ def get_missing_gap_fills(
                     gap_run_length=gap,
                 )
 
-    week_key = None
-    week_rows: list = []
+    chart_key = None
+    chart_rows: list = []
     for row in rows:
-        key = (row.chart_id, row.chart_week)
-        if key != week_key:
-            if week_rows:
-                _flush_week(week_rows)
-            week_key = key
-            week_rows = []
-        week_rows.append(row)
-    if week_rows:
-        _flush_week(week_rows)
+        if row.chart_id != chart_key:
+            if chart_rows:
+                _flush_chart(chart_rows)
+            chart_key = row.chart_id
+            chart_rows = []
+        chart_rows.append(row)
+    if chart_rows:
+        _flush_chart(chart_rows)
 
     items = list(best.values())
     items.sort(key=lambda i: (-i.gap_run_length, *_popularity_key(i)))
