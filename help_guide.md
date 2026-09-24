@@ -173,7 +173,9 @@ by definition, so the **Lyrics** tab is greyed out for them and the view stays
 on **Credits**.
 
 Press `Ctrl+Shift+F` to drop into **cinema mode**, which hides the menu bar
-and every dock so this view fills the whole window — press it again to bring
+and every dock so this view fills the whole window. Cinema mode also shows the
+song's elapsed and remaining time under the album art, since the player dock
+is hidden; outside cinema mode that strip is hidden. Press it again to bring
 everything back exactly how it was.
 
 Press `Ctrl+Shift++` to toggle **auto-cycle**, which rotates the tab pane

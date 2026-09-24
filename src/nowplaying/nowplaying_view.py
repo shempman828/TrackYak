@@ -8,16 +8,7 @@ import traceback
 
 from PySide6.QtCore import QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QPixmap, QShortcut
-from PySide6.QtWidgets import (
-    QGraphicsDropShadowEffect,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QSizePolicy,
-    QStackedWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
 
 from src.album.album_art_worker import ArtCacheWorker
 from src.common.widgets.style_utils import set_style_property
@@ -295,8 +286,10 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._cinema_shortcut.activated.connect(self.toggle_cinema_mode)
 
     def toggle_cinema_mode(self):
-        """Hide/show player dock, navigation dock, and menu bar."""
+        """Hide/show player dock, navigation dock, and menu bar; the song
+        progress strip shows only while cinema mode is on."""
         self._cinema_mode = not self._cinema_mode
+        self._art_column.set_progress_visible(self._cinema_mode)
         try:
             main_win = self.window()
             mb = getattr(main_win, "menuBar", lambda: None)()
@@ -394,11 +387,13 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._art_card = _ArtCard(backdrop=self._backdrop, shadow_pad=_ART_SHADOW_PAD)
         self._slide_dots = _SlideDots()
         self._progress = _ProgressStrip()
-        art_column = _ArtColumn(self._art_card, self._slide_dots, self._progress)
+        self._art_column = _ArtColumn(self._art_card, self._slide_dots, self._progress)
         # Side margins are at least the shadow pad so the shadow isn't clipped.
-        art_column.setContentsMargins(32, 36, _ART_SHADOW_PAD, 28)
-        art_column.setMinimumWidth(260)
-        root.addWidget(art_column, 42)
+        self._art_column.setContentsMargins(32, 36, _ART_SHADOW_PAD, 28)
+        self._art_column.setMinimumWidth(260)
+        # Song progress shows only in cinema mode (see toggle_cinema_mode).
+        self._art_column.set_progress_visible(False)
+        root.addWidget(self._art_column, 42)
 
         # ── RIGHT — metadata + content ───────────────────────────────────
         right_widget = QWidget()
@@ -411,9 +406,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         # Title — word-wraps up to three lines like a normal label; only a
         # title that would need a fourth line falls back to the panning
         # marquee used by the artist line below.
-        self._title_lbl = _AdaptiveTitle(
-            "No Track Playing", self._TITLE_FONT, "rgba(230,235,255,0.94)"
-        )
+        self._title_lbl = _AdaptiveTitle("No Track Playing", self._TITLE_FONT, "rgba(230,235,255,0.94)")
         self._apply_text_shadow(self._title_lbl, blur=16, y_offset=2, alpha=225)
         right_layout.addWidget(self._title_lbl)
 
@@ -499,19 +492,8 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         # _PAGE_* aliases exist only for the lyrics mixin and existing tests.
         self._tabs: list[_TabSpec] = [
             _TabSpec("lyrics", "LYRICS", lyrics_page),
-            _TabSpec(
-                "credits",
-                "CREDITS",
-                self._credits_panel,
-                on_show=lambda t: self._credits_panel.load_credits(t),
-                on_hide=self._credits_panel.stop,
-            ),
-            _TabSpec(
-                "about",
-                "ABOUT",
-                self._about_panel,
-                on_show=lambda t: self._about_panel.load_about(t),
-            ),
+            _TabSpec("credits", "CREDITS", self._credits_panel, on_show=lambda t: self._credits_panel.load_credits(t), on_hide=self._credits_panel.stop),
+            _TabSpec("about", "ABOUT", self._about_panel, on_show=lambda t: self._about_panel.load_about(t)),
         ]
 
         for idx, spec in enumerate(self._tabs):
@@ -544,11 +526,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         tb.setContentsMargins(0, 8, 0, 0)
         tb.setSpacing(6)
 
-        self._toggle_mode_btn = self._make_toggle(
-            "≡  ALL LINES",
-            "Scroll through all lines. Click again to follow the song.",
-            self._on_toggle_lyrics_mode,
-        )
+        self._toggle_mode_btn = self._make_toggle("≡  ALL LINES", "Scroll through all lines. Click again to follow the song.", self._on_toggle_lyrics_mode)
         tb.addWidget(self._toggle_mode_btn)
         tb.addStretch(1)
 
@@ -563,12 +541,8 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
             "Show lyrics 0.1 s later",
             lambda: self._nudge_offset(-1),
         )
-        self._offset_value_btn = self._make_toggle(
-            "", "Lyric timing offset. Click to reset to 0.", self._reset_offset
-        )
-        self._offset_plus_btn = self._make_toggle(
-            "+", "Show lyrics 0.1 s earlier", lambda: self._nudge_offset(1)
-        )
+        self._offset_value_btn = self._make_toggle("", "Lyric timing offset. Click to reset to 0.", self._reset_offset)
+        self._offset_plus_btn = self._make_toggle("+", "Show lyrics 0.1 s earlier", lambda: self._nudge_offset(1))
         for btn in (self._offset_minus_btn, self._offset_plus_btn):
             btn.setAutoRepeat(True)
             btn.setAutoRepeatDelay(400)
@@ -580,9 +554,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         tb.addSpacing(8)
 
         # Opens the manual tap-to-sync dialog (disabled until lyrics load).
-        self._manual_sync_btn = self._make_toggle(
-            "SYNC…", "Manually sync lyrics line by line", self._on_open_sync_dialog
-        )
+        self._manual_sync_btn = self._make_toggle("SYNC…", "Manually sync lyrics line by line", self._on_open_sync_dialog)
         self._manual_sync_btn.setEnabled(False)
         tb.addWidget(self._manual_sync_btn)
 
@@ -643,9 +615,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
             self.track = track
 
-            self._title_lbl.set_text(
-                censor_text(getattr(track, "track_name", None) or "Unknown Title")
-            )
+            self._title_lbl.set_text(censor_text(getattr(track, "track_name", None) or "Unknown Title"))
 
             # Use primary_artist_names property (Oxford-comma formatted)
             artist_str = getattr(track, "primary_artist_names", None)
@@ -748,51 +718,12 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
                 logger.debug(f"_update_chips: skipping chip due to error: {exc}", exc_info=True)
 
         # ── Basic metadata ─────────────────────────────────────────────────
-        _safe(
-            self._chip_bpm,
-            lambda: (
-                f"{float(track.bpm):.0f} BPM" if getattr(track, "bpm", None) is not None else None
-            ),
-        )
-        _safe(
-            self._chip_key,
-            lambda: (
-                f"{track.key} {(getattr(track, 'mode', '') or '')}".strip()
-                if getattr(track, "key", None)
-                else None
-            ),
-        )
-        _safe(
-            self._chip_timesig,
-            lambda: (
-                str(track.primary_time_signature)
-                if getattr(track, "primary_time_signature", None) is not None
-                else None
-            ),
-        )
+        _safe(self._chip_bpm, lambda: f"{float(track.bpm):.0f} BPM" if getattr(track, "bpm", None) is not None else None)
+        _safe(self._chip_key, lambda: f"{track.key} {(getattr(track, 'mode', '') or '')}".strip() if getattr(track, "key", None) else None)
+        _safe(self._chip_timesig, lambda: str(track.primary_time_signature) if getattr(track, "primary_time_signature", None) is not None else None)
 
         # ── User & library data ────────────────────────────────────────────
-        _safe(
-            self._chip_plays,
-            lambda: (
-                f"{int(track.play_count)} plays"
-                if getattr(track, "play_count", None) is not None
-                else None
-            ),
-        )
-        _safe(
-            self._chip_genres,
-            lambda: (
-                ", ".join(
-                    n
-                    for n in [
-                        getattr(g, "genre_name", "")
-                        for g in (getattr(track, "genres", None) or [])[:3]
-                    ]
-                    if n
-                )
-                or None
-            ),
-        )
+        _safe(self._chip_plays, lambda: f"{int(track.play_count)} plays" if getattr(track, "play_count", None) is not None else None)
+        _safe(self._chip_genres, lambda: ", ".join(n for n in [getattr(g, "genre_name", "") for g in (getattr(track, "genres", None) or [])[:3]] if n) or None)
 
         self._chip_row.set_chips(visible)

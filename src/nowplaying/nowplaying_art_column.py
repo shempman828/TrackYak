@@ -80,11 +80,18 @@ class _ArtColumn(QWidget):
         self._art_card = art_card
         self._dots = dots
         self._progress = progress
+        self._show_progress = True
         for w in (art_card, dots, progress):
             w.setParent(self)
         # Rows drawn later sit on top of the card's shadow pad.
         dots.raise_()
         progress.raise_()
+
+    def set_progress_visible(self, visible: bool):
+        """Show/hide the progress strip; a hidden strip frees its row for the art."""
+        self._show_progress = visible
+        self._progress.setVisible(visible)
+        self._relayout()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -93,8 +100,11 @@ class _ArtColumn(QWidget):
     def _relayout(self):
         area = self.contentsRect()
         dots_h = self._dots.sizeHint().height()
-        prog_h = self._progress.sizeHint().height()
-        below = self._GAP + dots_h + self._GAP + prog_h
+        below = self._GAP + dots_h
+        prog_h = 0
+        if self._show_progress:
+            prog_h = self._progress.sizeHint().height()
+            below += self._GAP + prog_h
         side = max(0, min(area.width(), area.height() - below))
         x = area.x() + (area.width() - side) // 2
         y = area.y() + (area.height() - side - below) // 2

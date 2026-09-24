@@ -43,9 +43,7 @@ def _px(w=300, h=300, color="red") -> QPixmap:
 # ── progress strip ───────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    ("ms", "text"), [(0, "0:00"), (61_000, "1:01"), (3_723_000, "1:02:03"), (-5, "0:00")]
-)
+@pytest.mark.parametrize(("ms", "text"), [(0, "0:00"), (61_000, "1:01"), (3_723_000, "1:02:03"), (-5, "0:00")])
 def test_format_ms(ms, text):
     assert format_ms(ms) == text
 
@@ -137,6 +135,25 @@ def test_art_column_centres_the_group_and_stacks_rows_under_the_art(qapp):
     top_gap = card.geometry().top() + 24
     bottom_gap = col.height() - prog.geometry().bottom()
     assert abs(top_gap - bottom_gap) <= 36  # roughly centred in the column
+
+
+def test_hidden_progress_strip_frees_its_row_for_the_art(qapp):
+    card, dots, prog = _ArtCard(shadow_pad=24), _SlideDots(), _ProgressStrip()
+    col = _ArtColumn(card, dots, prog)
+    col.resize(500, 400)  # height-bound, so the art side depends on the rows below
+    col._relayout()
+    side_with_strip = card.width()
+    col.set_progress_visible(False)
+    assert prog.isHidden()
+    assert card.width() > side_with_strip
+
+
+def test_progress_strip_shows_only_in_cinema_mode(view):
+    assert view._progress.isHidden()
+    view.toggle_cinema_mode()
+    assert not view._progress.isHidden()
+    view.toggle_cinema_mode()
+    assert view._progress.isHidden()
 
 
 # ── backdrop ─────────────────────────────────────────────────────────────
