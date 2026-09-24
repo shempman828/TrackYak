@@ -15,16 +15,7 @@ import pytest
 from src.nowplaying.nowplaying_lyric_column import _LyricColumn
 from src.nowplaying.nowplaying_view import NowPlayingView
 
-_SYNCED_LYRICS = "\n".join(
-    [
-        "[00:03.00] line zero",
-        "[00:05.00] line one",
-        "[00:07.00] line two",
-        "[00:09.00] line three",
-        "[00:11.00] line four",
-        "[00:13.00] line five",
-    ]
-)
+_SYNCED_LYRICS = "\n".join(["[00:03.00] line zero", "[00:05.00] line one", "[00:07.00] line two", "[00:09.00] line three", "[00:11.00] line four", "[00:13.00] line five"])
 
 _PLAIN_LYRICS = "first plain line\nsecond plain line\nthird plain line"
 
@@ -53,16 +44,7 @@ def column(qapp):
 
 
 def _wheel(widget, dy=-120):
-    return QWheelEvent(
-        QPointF(10, 10),
-        QPointF(widget.mapToGlobal(QPoint(10, 10))),
-        QPoint(0, 0),
-        QPoint(0, dy),
-        Qt.NoButton,
-        Qt.NoModifier,
-        Qt.NoScrollPhase,
-        False,
-    )
+    return QWheelEvent(QPointF(10, 10), QPointF(widget.mapToGlobal(QPoint(10, 10))), QPoint(0, 0), QPoint(0, dy), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
 
 
 # ── view wiring ──────────────────────────────────────────────────────────
@@ -162,11 +144,35 @@ def test_lyric_column_carries_a_text_shadow_over_busy_art(view):
 # ── widget behaviour ─────────────────────────────────────────────────────
 
 
-def test_following_keeps_the_active_line_on_the_anchor(column):
+def test_synced_lyrics_start_at_the_top(column):
+    """Regression: the first line used to wait 38 % down, leaving empty space above."""
+    column.set_lines([f"line {i}" for i in range(20)], synced=True)
+    assert column._scroll == 0.0
+    column.set_active(0)
+    assert column._scroll == 0.0
+
+
+def test_following_centres_the_active_line_mid_song(column):
     column.set_lines([f"line {i}" for i in range(20)], synced=True)
     column.set_active(10)  # hidden widget: scroll jumps without animating
     centre = column._tops[10] + column._heights[10] / 2
-    assert column._scroll == pytest.approx(centre - column.height() * column._ANCHOR)
+    assert column._scroll == pytest.approx(centre - column.height() / 2)
+
+
+def test_following_stops_scrolling_at_the_last_lines(column):
+    column.set_lines([f"line {i}" for i in range(20)], synced=True)
+    column.set_active(19)
+    _, hi = column._scroll_bounds()
+    assert column._scroll == pytest.approx(hi)
+    # The last line is still fully on screen.
+    assert column._tops[19] + column._heights[19] - column._scroll <= column.height()
+
+
+def test_synced_lyrics_that_fit_never_scroll(column):
+    column.set_lines([f"line {i}" for i in range(3)], synced=True)
+    for idx in range(3):
+        column.set_active(idx)
+        assert column._scroll == 0.0
 
 
 def test_browsing_scroll_is_clamped_to_the_content(column):

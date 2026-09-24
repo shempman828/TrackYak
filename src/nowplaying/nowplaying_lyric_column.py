@@ -10,13 +10,15 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 class _LyricColumn(QWidget):
     """Every lyric line of the track in one painted, scrolling column.
 
-    Synced lyrics: the active line is bright and sits at ``_ANCHOR`` of the
-    widget height; the lines above (already sung) and below (coming up) dim
-    with distance. Each change of active line animates both the scroll and
+    Synced lyrics: the active line is bright and sits at the vertical centre
+    of the widget; the lines above (already sung) and below (coming up) dim
+    with distance. The scroll is clamped to the content, so the first lines
+    start at the top, the last lines end at the bottom, and lyrics that fit
+    the widget never scroll. Each change of active line animates both the scroll and
     the brightness hand-over from the old line to the new one.
 
     While ``is_following()`` is True the column scrolls itself to keep the
-    active line on the anchor. A mouse-wheel scroll, or ``set_following(False)``,
+    active line centred (as far as the clamp allows). A mouse-wheel scroll, or ``set_following(False)``,
     lets the user browse every line freely; the active line keeps its
     highlight so it can still be found. ``follow_changed`` reports both.
 
@@ -29,10 +31,10 @@ class _LyricColumn(QWidget):
     _FONT = QFont("Georgia", 20, QFont.Bold)
     _LINE_GAP = 14
     _BLANK_H = 10  # an empty lyric line (instrumental break) is a short gap
-    _ANCHOR = 0.38  # active line centre, as a fraction of the widget height
+    _ANCHOR = 0.5  # active line centre, as a fraction of the widget height
     _EDGE_FADE = 56  # px over which lines fade out at the top/bottom edge
     _SIDE_PAD = 8
-    _BOTTOM_PAD = 24  # free scroll past the last plain line
+    _BOTTOM_PAD = 24  # free scroll past the last line
     _WHEEL_STEP_PX = 64  # per 120 units of wheel angle (one notch)
     _SCROLL_MS = 480
     _EMPHASIS_MS = 380
@@ -95,9 +97,8 @@ class _LyricColumn(QWidget):
     # ── public API ────────────────────────────────────────────────────────
 
     def set_lines(self, lines: list[str], synced: bool):
-        """Show ``lines``. Synced lyrics start in follow mode with no active
-        line yet (the first line waits on the anchor); plain lyrics start
-        scrolled to the top."""
+        """Show ``lines`` scrolled to the top. Synced lyrics start in follow
+        mode with no active line yet."""
         self._scroll_anim.stop()
         self._emphasis_anim.stop()
         self._lines = list(lines)
@@ -108,7 +109,7 @@ class _LyricColumn(QWidget):
         self._tops, self._heights, self._content_h = [], [], 0
         self._layout_w = -1
         self._relayout()
-        self._scroll = self._anchor_scroll(0) if self._synced else 0.0
+        self._scroll = 0.0
         self._change_following(self._synced)
         self.update()
 
@@ -136,7 +137,7 @@ class _LyricColumn(QWidget):
         self._emphasis_anim.stop()
         self._emphasis_anim.start()
         if self._following:
-            self._scroll_to(self._anchor_scroll(max(0, idx)))
+            self._scroll_to(self._follow_scroll(idx))
 
     def set_following(self, on: bool):
         """Turn follow mode on/off. Plain lyrics cannot follow."""
@@ -145,7 +146,7 @@ class _LyricColumn(QWidget):
             return
         self._change_following(on)
         if on:
-            self._scroll_to(self._anchor_scroll(max(0, self._active)))
+            self._scroll_to(self._follow_scroll(self._active))
         self.update()
 
     # ── layout ────────────────────────────────────────────────────────────
@@ -175,22 +176,18 @@ class _LyricColumn(QWidget):
             y += h + self._LINE_GAP
         self._content_h = max(0, y - self._LINE_GAP)
 
-    def _anchor_scroll(self, idx: int) -> float:
-        """Scroll value that puts line ``idx``'s centre on the anchor."""
+    def _follow_scroll(self, idx: int) -> float:
+        """Scroll value that centres line ``idx`` (-1 = before the first
+        line), clamped so no empty space shows above or below the lyrics."""
         if not self._tops:
             return 0.0
         idx = max(0, min(idx, len(self._tops) - 1))
         centre = self._tops[idx] + self._heights[idx] / 2
-        return centre - self.height() * self._ANCHOR
+        return self._clamp_scroll(centre - self.height() * self._ANCHOR)
 
     def _scroll_bounds(self) -> tuple[float, float]:
-        if self._synced:
-            lo = self._anchor_scroll(0)
-            hi = self._anchor_scroll(len(self._lines) - 1)
-        else:
-            lo = 0.0
-            hi = self._content_h + self._BOTTOM_PAD - self.height()
-        return lo, max(lo, hi)
+        hi = self._content_h + self._BOTTOM_PAD - self.height()
+        return 0.0, max(0.0, hi)
 
     def _clamp_scroll(self, v: float) -> float:
         lo, hi = self._scroll_bounds()
@@ -213,7 +210,7 @@ class _LyricColumn(QWidget):
         self._relayout()
         self._scroll_anim.stop()
         if self._following:
-            self._scroll = self._anchor_scroll(max(0, self._active))
+            self._scroll = self._follow_scroll(self._active)
         else:
             self._scroll = self._clamp_scroll(self._scroll)
 

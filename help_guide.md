@@ -149,13 +149,17 @@ the album has a subtitle set (e.g. "Deluxe Edition"), it appears on its own
 faint line just below the album name; albums without one show nothing there.
 
 Below that, three tabs: **Lyrics** shows synced, karaoke-style lyrics if the
-track has them — the current line highlights as it plays, with the next few
-lines previewed beneath it, each fainter than the one above so you can see
-what's coming without losing the current line. A taller window fits more
-preview lines; a short one trims back to three. If the timing feels off, click
-the small ⏱ icon to reveal a sync-offset slider and nudge it until it lines
-up. If the lyrics have no timing at all, or the timing has drifted too far for
-the offset slider to fix, click **SYNC** to open the tap-to-sync tool: it
+track has them — every line is shown in one column, and the current line
+highlights as it plays and scrolls to the middle of the panel, with sung lines
+above and upcoming lines below, each fainter the further it is from the
+current one. The lyrics start at the top of the panel and stop scrolling once
+the last line reaches the bottom; lyrics short enough to fit never scroll.
+Scrolling with the mouse wheel (or clicking **ALL LINES**) lets you browse
+freely; click **ALL LINES** again to follow the song. If the timing feels
+off, use the **−** / **+** buttons beside the ⏱ offset to nudge it until it
+lines up (click the offset itself to reset it). If the lyrics have no timing
+at all, or the timing has drifted too far for the offset to fix, click
+**SYNC** to open the tap-to-sync tool: it
 walks through the lyrics one line at a time, and pressing `Enter` each time
 the next line starts stamps that line with the current playback position
 (minus a small, adjustable reaction-time offset, since your keypress always
