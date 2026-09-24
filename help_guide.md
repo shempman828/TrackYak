@@ -155,8 +155,13 @@ above and upcoming lines below, each fainter the further it is from the
 current one. The lyrics start at the top of the panel and stop scrolling once
 the last line reaches the bottom; lyrics short enough to fit never scroll.
 Lyrics with no timing show every line at once where they can: the text
-shrinks to fit the panel (never below a comfortable reading size), and only
-very long lyrics still need scrolling. A taller window shows them larger.
+shrinks to fit the panel (never below a comfortable reading size), and a
+taller window shows them larger. Lyrics too long to fit scroll along with the
+song by estimate: the line that far through the lyrics is kept in the middle
+(for example, 60% of the way through the song centres the line 60% of the way
+through the lyrics, allowing for a short intro and outro). No line is
+highlighted, because the estimate is only approximate. **ALL LINES** and the
+mouse wheel work the same as for synced lyrics.
 Scrolling with the mouse wheel (or clicking **ALL LINES**) lets you browse
 freely; click **ALL LINES** again to follow the song. If the timing feels
 off, use the **−** / **+** buttons beside the ⏱ offset to nudge it until it

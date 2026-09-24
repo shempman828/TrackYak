@@ -16,6 +16,11 @@ from src.nowplaying.nowplaying_lyrics_sync_dialog import LyricSyncDialog
 # countdown under the lyric column.
 _LYRIC_GAP_THRESHOLD_MS = 5_000
 
+# Plain (unsynced) lyrics are paced across this share of the track, skipping
+# a rough intro and outro where nobody sings.
+_PACE_START = 0.05
+_PACE_END = 0.95
+
 # The sync offset is stored in tenths of a second and limited to ±5 s.
 _OFFSET_LIMIT_TENTHS = 50
 
@@ -28,7 +33,7 @@ class NowPlayingLyricsMixin:
     self._countdown_timer, self._next_lyric_ms, self._lyric_column,
     self._countdown_lbl, self._lyrics_toolbar, self._offset_group,
     self._offset_value_btn, self._toggle_mode_btn, self._manual_sync_btn,
-    self._sync_dialog, self._set_active(), self._switch_tab(),
+    self._sync_dialog, self._set_active(), self._switch_tab(), self._player_duration(),
     self._PAGE_LYRICS, self._PAGE_CREDITS, self.controller, self.track, and to
     be a QWidget subclass.
     """
@@ -41,7 +46,7 @@ class NowPlayingLyricsMixin:
 
     def _on_follow_changed(self, following: bool):
         """The column started or stopped following (button or wheel scroll)."""
-        self._show_all_lyrics = not following and self._is_synced
+        self._show_all_lyrics = not following and bool(self._lyrics_lines)
         self._set_active(self._toggle_mode_btn, self._show_all_lyrics)
         if following:
             # Re-sync on the next position tick instead of waiting for a line change.
@@ -103,8 +108,9 @@ class NowPlayingLyricsMixin:
 
     def _set_lyrics_mode_plain(self):
         self._lyric_column.set_lines([t for _, t in self._lyrics_lines], synced=False)
-        # Unsynced text has nothing to follow and no timing to offset.
-        self._toggle_mode_btn.setVisible(False)
+        # Unsynced text is paced by song progress; it has no timing to offset.
+        self._set_active(self._toggle_mode_btn, False)
+        self._toggle_mode_btn.setVisible(True)
         self._offset_group.setVisible(False)
         self._lyrics_toolbar.setVisible(True)
         self._switch_tab(self._PAGE_LYRICS)
@@ -112,7 +118,10 @@ class NowPlayingLyricsMixin:
     # ── position sync ─────────────────────────────────────────────────────
 
     def _on_position_changed(self, position_ms: int):
-        if not self._is_synced or not self._lyrics_lines:
+        if not self._lyrics_lines:
+            return
+        if not self._is_synced:
+            self._pace_plain_lyrics(position_ms)
             return
         if abs(position_ms - self._last_position_ms) < 150:
             return
@@ -135,6 +144,14 @@ class NowPlayingLyricsMixin:
             self._start_countdown(next_ts)
         else:
             self._stop_countdown()
+
+    def _pace_plain_lyrics(self, position_ms: int):
+        """Scroll unsynced lyrics by song progress, mapped over _PACE_START.._PACE_END."""
+        duration = self._player_duration()
+        if duration <= 0:
+            return
+        fraction = (position_ms / duration - _PACE_START) / (_PACE_END - _PACE_START)
+        self._lyric_column.set_progress(fraction)
 
     def _find_next_lyric_ts(self, effective_ms: int) -> int:
         """Return timestamp of the next lyric line after effective_ms, or -1."""

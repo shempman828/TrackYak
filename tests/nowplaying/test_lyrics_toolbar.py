@@ -34,13 +34,7 @@ def view(qapp, monkeypatch):
 
 
 def _pills(view):
-    return [
-        view._toggle_mode_btn,
-        view._offset_minus_btn,
-        view._offset_value_btn,
-        view._offset_plus_btn,
-        view._manual_sync_btn,
-    ]
+    return [view._toggle_mode_btn, view._offset_minus_btn, view._offset_value_btn, view._offset_plus_btn, view._manual_sync_btn]
 
 
 def test_pill_heights_are_fixed(view):
@@ -66,10 +60,11 @@ def test_synced_lyrics_show_the_whole_toolbar(view):
     assert view._manual_sync_btn.isEnabled()
 
 
-def test_plain_lyrics_hide_follow_and_offset(view):
+def test_plain_lyrics_keep_follow_but_hide_offset(view):
+    """Plain lyrics are paced by song progress, so they can follow; they have no timing to offset."""
     view._update_lyrics(SimpleNamespace(lyrics="just\nplain"))
     assert view._lyrics_toolbar.isVisibleTo(view)
-    assert not view._toggle_mode_btn.isVisibleTo(view)
+    assert view._toggle_mode_btn.isVisibleTo(view)
     assert not view._offset_group.isVisibleTo(view)
     assert view._manual_sync_btn.isEnabled()
 

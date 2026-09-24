@@ -2,6 +2,8 @@
 #  Lyric column (painted, scrolling)
 # ──────────────────────────────────────────────────────────────────────────────
 
+from bisect import bisect_right
+
 from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import QSizePolicy, QWidget
@@ -23,10 +25,12 @@ class _LyricColumn(QWidget):
     highlight so it can still be found. ``follow_changed`` reports both.
 
     Plain (unsynced) lyrics have no active line: every line gets the same
-    brightness and the column scrolls freely from the top. With no timing to
-    follow, seeing more text wins: the font shrinks (down to ``_MIN_PT``) until
-    every line fits the widget, and only lyrics too long even at that size
-    scroll.
+    brightness. With no timing to follow, seeing more text wins: the font
+    shrinks (down to ``_MIN_PT``) until every line fits the widget. Lyrics too
+    long even at that size are paced by song progress instead: while
+    following, ``set_progress()`` centres the line at that share of the
+    content height, the same way synced lyrics centre the active line, but
+    without highlighting it (the estimate is rough).
     """
 
     follow_changed = Signal(bool)
@@ -61,6 +65,7 @@ class _LyricColumn(QWidget):
         self._active = -1
         self._prev_active = -1
         self._emphasis = 1.0  # 0 → highlight still on _prev_active, 1 → on _active
+        self._paced = -1  # plain lyrics: line expected now from song progress
         self._scroll = 0.0  # content y shown at the widget's top edge
 
         self._font = QFont(self._FONT)
@@ -102,20 +107,21 @@ class _LyricColumn(QWidget):
     # ── public API ────────────────────────────────────────────────────────
 
     def set_lines(self, lines: list[str], synced: bool):
-        """Show ``lines`` scrolled to the top. Synced lyrics start in follow
-        mode with no active line yet."""
+        """Show ``lines`` scrolled to the top, in follow mode with no active
+        (synced) or paced (plain) line yet."""
         self._scroll_anim.stop()
         self._emphasis_anim.stop()
         self._lines = list(lines)
         self._synced = synced and bool(self._lines)
         self._active = -1
         self._prev_active = -1
+        self._paced = -1
         self._emphasis = 1.0
         self._tops, self._heights, self._content_h = [], [], 0
         self._layout_key = None
         self._relayout()
         self._scroll = 0.0
-        self._change_following(self._synced)
+        self._change_following(bool(self._lines))
         self.update()
 
     def clear(self):
@@ -144,14 +150,27 @@ class _LyricColumn(QWidget):
         if self._following:
             self._scroll_to(self._follow_scroll(idx))
 
+    def set_progress(self, fraction: float):
+        """Plain lyrics: centre the line at ``fraction`` (0..1) of the content
+        height while following. Synced lyrics ignore this."""
+        if self._synced or not self._tops:
+            return
+        y = max(0.0, min(1.0, fraction)) * self._content_h
+        idx = max(0, bisect_right(self._tops, y) - 1)
+        if idx == self._paced:
+            return
+        self._paced = idx
+        if self._following:
+            self._scroll_to(self._follow_scroll(idx))
+
     def set_following(self, on: bool):
-        """Turn follow mode on/off. Plain lyrics cannot follow."""
-        on = on and self._synced
+        """Turn follow mode on/off. An empty column cannot follow."""
+        on = on and bool(self._lines)
         if on == self._following:
             return
         self._change_following(on)
         if on:
-            self._scroll_to(self._follow_scroll(self._active))
+            self._scroll_to(self._follow_scroll(self._follow_idx()))
         self.update()
 
     # ── layout ────────────────────────────────────────────────────────────
@@ -208,6 +227,10 @@ class _LyricColumn(QWidget):
             y += h + gap
         return tops, heights, max(0, y - gap)
 
+    def _follow_idx(self) -> int:
+        """The line follow mode keeps centred: active (synced) or paced (plain)."""
+        return self._active if self._synced else self._paced
+
     def _follow_scroll(self, idx: int) -> float:
         """Scroll value that centres line ``idx`` (-1 = before the first
         line), clamped so no empty space shows above or below the lyrics."""
@@ -242,7 +265,7 @@ class _LyricColumn(QWidget):
         self._relayout()
         self._scroll_anim.stop()
         if self._following:
-            self._scroll = self._follow_scroll(self._active)
+            self._scroll = self._follow_scroll(self._follow_idx())
         else:
             self._scroll = self._clamp_scroll(self._scroll)
 

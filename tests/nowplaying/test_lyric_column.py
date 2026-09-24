@@ -118,13 +118,36 @@ def test_new_track_resets_to_follow_mode(view):
     assert view._show_all_lyrics is False
 
 
-def test_plain_lyrics_have_no_highlight_and_no_follow(view):
+def test_plain_lyrics_follow_by_progress_without_a_highlight(view):
     view._update_lyrics(SimpleNamespace(lyrics=_PLAIN_LYRICS))
     col = view._lyric_column
     assert col.lines() == ["first plain line", "second plain line", "third plain line"]
-    assert col.is_following() is False
-    assert col.active_index() == -1
+    assert col.is_following() is True
+    assert view._toggle_mode_btn.isVisibleTo(view)
+    assert not view._offset_group.isVisibleTo(view)
+    view.controller.mediaplayer.duration = 100_000
+    view._on_position_changed(90_000)
+    assert col.active_index() == -1  # the paced line is never highlighted
     assert view._stack.currentIndex() == view._PAGE_LYRICS
+
+
+def test_plain_lyrics_are_paced_over_five_to_ninety_five_percent(view):
+    lines = "\n".join(f"plain line {i}" for i in range(100))
+    view._update_lyrics(SimpleNamespace(lyrics=lines))
+    col = view._lyric_column
+    view.controller.mediaplayer.duration = 100_000
+    view._on_position_changed(3_000)  # inside the 5 % intro
+    assert col._paced == 0
+    view._on_position_changed(50_000)  # half-way through the song
+    assert col._paced == pytest.approx(50, abs=1)
+    view._on_position_changed(97_000)  # inside the 5 % outro
+    assert col._paced == 99
+
+
+def test_plain_lyrics_stay_put_without_a_duration(view):
+    view._update_lyrics(SimpleNamespace(lyrics="\n".join(f"l {i}" for i in range(100))))
+    view._on_position_changed(50_000)  # fake player has no duration
+    assert view._lyric_column._paced == -1
 
 
 def test_no_lyrics_clears_the_column_and_shows_credits(view):
@@ -186,10 +209,28 @@ def test_browsing_scroll_is_clamped_to_the_content(column):
     assert column._scroll == pytest.approx(lo)
 
 
-def test_plain_lines_cannot_follow(column):
-    column.set_lines(["a", "b"], synced=False)
+def test_empty_column_cannot_follow(column):
+    column.clear()
     column.set_following(True)
     assert column.is_following() is False
+
+
+def test_paced_plain_line_is_centred_like_a_synced_line(column):
+    column.set_lines([f"plain line {i}" for i in range(100)], synced=False)
+    column.set_progress(0.5)  # hidden widget: scroll jumps without animating
+    idx = column._paced
+    centre = column._tops[idx] + column._heights[idx] / 2
+    assert column._scroll == pytest.approx(centre - column.height() / 2)
+    assert column.active_index() == -1
+
+
+def test_browsing_plain_lyrics_ignores_progress(column):
+    column.set_lines([f"plain line {i}" for i in range(100)], synced=False)
+    column.set_following(False)
+    column.set_progress(0.5)
+    assert column._scroll == 0.0
+    column.set_following(True)  # following again jumps to the paced line
+    assert column._scroll > 0.0
 
 
 def test_active_line_is_brightest_and_sung_lines_recede(column):
