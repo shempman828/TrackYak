@@ -178,19 +178,9 @@ class TrackViewDataMixin:
                 self._all_tracks = []
 
             self._build_lookup_caches()
-            self._filter_active = False
-            self._filtered_tracks = []
-            self._loaded_count = 0
-            self.model.setRowCount(0)
-            self._append_next_batch(self._all_tracks)
-            self._update_status()
+            self._redisplay_tracks()
         else:
-            self._filter_active = False
-            self._filtered_tracks = []
-            self._loaded_count = 0
-            self.model.setRowCount(0)
-            self._append_next_batch(self._all_tracks)
-            self._update_status()
+            self._redisplay_tracks()
             self._refresh_lookup_caches_async()
 
     def _force_reload(self):
@@ -203,11 +193,22 @@ class TrackViewDataMixin:
         self._all_tracks = tracks or []
         self._tracks_loaded = True
         self._build_lookup_caches()
-        self._filter_active = False
+        self._redisplay_tracks()
+
+    def _redisplay_tracks(self):
+        """
+        Rebuild the model from self._all_tracks, keeping the current search.
+
+        Every reload path (delete, edit, Refresh, nav revisit) goes through
+        here so the search text left in the bar still filters the new list.
+        The model is cleared first so no stale row (e.g. a just-deleted
+        track) stays selectable while the background filter runs.
+        """
         self._filtered_tracks = []
+        self._filter_active = bool(self.search_bar.text().strip())
         self._loaded_count = 0
         self.model.setRowCount(0)
-        self._append_next_batch(self._all_tracks)
+        self._apply_search_filter()
         self._update_status()
 
     def _build_lookup_caches(self):

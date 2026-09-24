@@ -120,6 +120,8 @@ the file too. The second option asks you to confirm twice, since it's
 permanent. The same choice is available as a **Delete Track** button on the
 track editor's Advanced tab, for when you decide mid-edit that a track has to
 go — it removes the track and closes the editor.
+If a search is active when you delete, the view keeps your search results
+and only removes the deleted tracks from them.
 
 *Quick reference: `Delete` removes selected tracks · `Ctrl+C` copies selected
 rows · `Ctrl+A` selects everything · arrow keys move between rows.*
