@@ -10,14 +10,13 @@ OggFileWriter) that actually rewrites the file on disk. None of those
 collaborators need the database controller except TrackDataAssembler.
 """
 
-import os
+from pathlib import Path
 import shutil
 from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.logger_config import logger
-from src.foundation.status_utility import StatusManager
 from src.metadata.metadata_track_data import TrackDataAssembler
 from src.metadata.writers.metadata_flac_file_writer import FlacFileWriter
 from src.metadata.writers.metadata_id3_frame_builder import ID3FrameBuilder
@@ -40,11 +39,10 @@ class MetadataWriter:
         self.mp3_writer = MP3FileWriter()
         self.flac_writer = FlacFileWriter()
         self.ogg_writer = OggFileWriter()
-        self.status_manager = StatusManager
 
     def detect_audio_format(self, file_path: str) -> AudioFormat:
         """Detect audio format from file extension."""
-        ext = os.path.splitext(file_path)[1].lower()
+        ext = Path(file_path).suffix.lower()
         if ext in [".mp3", ".mp2", ".mp1"]:
             return AudioFormat.MP3
         if ext in [".flac"]:
@@ -53,20 +51,23 @@ class MetadataWriter:
             return AudioFormat.OGG
         return AudioFormat.UNKNOWN
 
-    def write_metadata_to_file(
-        self, track_id: int, file_path: str, mode: WriteMode = WriteMode.UPDATE_EXISTING
-    ) -> bool:
-        """Write database metadata to audio file with complete file handling."""
-        try:
-            self.status_manager.start_task(f"Writing metadata to {os.path.basename(file_path)}")
+    def write_metadata_to_file(self, track_id: int, file_path: str, mode: WriteMode = WriteMode.UPDATE_EXISTING) -> bool:
+        """Write database metadata to audio file with complete file handling.
 
-            if not os.path.exists(file_path):
-                self.status_manager.end_task(f"File not found: {os.path.basename(file_path)}", 3000)
+        Callers always write tracks in a loop (the batch dialog, the
+        dev-mode immediate-write hook, multi-track advanced-tab writes) and
+        each already shows its own aggregate status/log message once the
+        loop finishes. This method must not also push a per-file message to
+        the global StatusManager - at loop speed that overwrites the
+        caller's message hundreds of times a second, showing as an
+        unreadable blur in the status bar instead of useful feedback.
+        """
+        try:
+            if not Path(file_path).exists():
                 raise FileNotFoundError(f"Audio file not found: {file_path}")
 
             data = self.track_data.get_track_data(track_id)
             if not data or not data.get("track"):
-                self.status_manager.end_task(f"No data for track ID: {track_id}", 3000)
                 raise ValueError(f"No data found for track ID: {track_id}")
 
             audio_format = self.detect_audio_format(file_path)
@@ -76,31 +77,22 @@ class MetadataWriter:
             elif audio_format in [AudioFormat.FLAC, AudioFormat.OGG]:
                 result = self._write_vorbis(file_path, data, mode, audio_format)
             else:
-                self.status_manager.end_task(f"Unsupported format: {audio_format}", 3000)
                 raise ValueError(f"Unsupported audio format: {audio_format}")
 
             if result:
                 self.controller.update.update_entity("Track", track_id, needs_tag_write=0)
-                self.status_manager.end_task(f"Updated {os.path.basename(file_path)}", 3000)
-            else:
-                self.status_manager.end_task(
-                    f"Failed to update {os.path.basename(file_path)}", 3000
-                )
 
             return result
 
         except (FileNotFoundError, ValueError, KeyError, AttributeError, SQLAlchemyError) as e:
             logger.debug(f"Error writing metadata to {file_path}: {e}")
-            self.status_manager.end_task(f"Error: {os.path.basename(file_path)}", 3000)
             return False
 
     def _write_id3(self, file_path: str, data: dict[str, Any], mode: WriteMode) -> bool:
         new_frames = self.id3_frame_builder.build_frames(data)
         return self.mp3_writer.write_tags(file_path, new_frames, mode)
 
-    def _write_vorbis(
-        self, file_path: str, data: dict[str, Any], mode: WriteMode, audio_format: AudioFormat
-    ) -> bool:
+    def _write_vorbis(self, file_path: str, data: dict[str, Any], mode: WriteMode, audio_format: AudioFormat) -> bool:
         """Write Vorbis metadata to a FLAC/OGG file.
 
         Backs up the file first: neither format writer manages its own
@@ -113,24 +105,21 @@ class MetadataWriter:
 
             new_comments = self.vorbis_comment_builder.build_comments(data)
 
-            if audio_format == AudioFormat.FLAC:
-                success = self.flac_writer.write_tags(file_path, new_comments, mode)
-            else:  # OGG
-                success = self.ogg_writer.write_tags(file_path, new_comments, mode)
+            success = self.flac_writer.write_tags(file_path, new_comments, mode) if audio_format == AudioFormat.FLAC else self.ogg_writer.write_tags(file_path, new_comments, mode)
 
             if success:
-                os.remove(backup_path)
+                Path(backup_path).unlink()
             else:
                 shutil.copy2(backup_path, file_path)
-                os.remove(backup_path)
+                Path(backup_path).unlink()
 
             return success
 
         except (OSError, KeyError, AttributeError, SQLAlchemyError) as e:
             logger.debug(f"Error writing Vorbis metadata: {e}")
-            if os.path.exists(backup_path):
+            if Path(backup_path).exists():
                 shutil.copy2(backup_path, file_path)
-                os.remove(backup_path)
+                Path(backup_path).unlink()
             return False
 
     def get_changed_tags(self, track_id: int, file_path: str) -> list[str]:
@@ -139,7 +128,7 @@ class MetadataWriter:
         keys (ID3 frame IDs or Vorbis comment names) that differ; an empty
         list means the file's app-managed tags already match the database.
         """
-        if not os.path.exists(file_path):
+        if not Path(file_path).exists():
             return []
 
         data = self.track_data.get_track_data(track_id)
@@ -158,19 +147,15 @@ class MetadataWriter:
         new_by_id = {f[0:4].decode("ascii", errors="ignore"): f for f in new_frames if len(f) >= 10}
         existing_by_id = self.mp3_writer.get_existing_frame_map(file_path)
 
-        changed = [
-            frame_id
-            for frame_id, frame_bytes in new_by_id.items()
-            if existing_by_id.get(frame_id) != frame_bytes
-        ]
+        changed = [frame_id for frame_id, frame_bytes in new_by_id.items() if existing_by_id.get(frame_id) != frame_bytes]
         return sorted(changed)
 
     def _diff_vorbis(self, file_path: str, data: dict[str, Any]) -> list[str]:
         new_comments = self.vorbis_comment_builder.build_comments(data)
 
-        with open(file_path, "rb") as f:
+        with Path(file_path).open("rb") as f:
             file_data = f.read()
-        ext = os.path.splitext(file_path)[1].lower()
+        ext = Path(file_path).suffix.lower()
         existing_comments = self.flac_writer.raw_tag_extractor.extract_raw_tags(file_data, ext)
 
         sanitize = self.flac_writer.vorbis_writer.sanitize_value
@@ -184,11 +169,7 @@ class MetadataWriter:
                 values = [sanitize(v) for v in values]
             return [v for v in values if v]
 
-        changed = [
-            tag
-            for tag, value in new_comments.items()
-            if _as_list(value, apply_sanitize=True) != _as_list(existing_comments.get(tag))
-        ]
+        changed = [tag for tag, value in new_comments.items() if _as_list(value, apply_sanitize=True) != _as_list(existing_comments.get(tag))]
         return sorted(changed)
 
     def sync_metadata_to_track(self, track_id: int) -> dict[str, Any]:
@@ -205,7 +186,7 @@ class MetadataWriter:
             if not track or not track.track_file_path:
                 return {"success": False, "changed": [], "message": "No file path on record"}
 
-            if not os.path.exists(track.track_file_path):
+            if not Path(track.track_file_path).exists():
                 return {"success": False, "changed": [], "message": "File not found on disk"}
 
             if self.detect_audio_format(track.track_file_path) == AudioFormat.UNKNOWN:
@@ -216,11 +197,7 @@ class MetadataWriter:
                 return {"success": True, "changed": [], "message": "Already up to date"}
 
             success = self.write_metadata_to_file(track_id, track.track_file_path)
-            return {
-                "success": success,
-                "changed": changed,
-                "message": "Updated" if success else "Write failed",
-            }
+            return {"success": success, "changed": changed, "message": "Updated" if success else "Write failed"}
         except (OSError, KeyError, AttributeError, SQLAlchemyError) as e:
             logger.debug(f"Error syncing metadata for track {track_id}: {e}")
             return {"success": False, "changed": [], "message": str(e)}
@@ -232,7 +209,7 @@ class MetadataWriter:
         by extension - FLAC and MP3 are supported today, anything else
         returns False.
         """
-        ext = os.path.splitext(file_path)[1].lower()
+        ext = Path(file_path).suffix.lower()
         if ext == ".flac":
             return self.flac_writer.write_artwork(file_path, role, image_bytes)
         if ext == ".mp3":
@@ -240,24 +217,19 @@ class MetadataWriter:
         logger.debug(f"Unsupported format for artwork write: {file_path}")
         return False
 
-    def write_metadata_to_track(
-        self, track_id: int, mode: WriteMode = WriteMode.UPDATE_EXISTING
-    ) -> bool:
+    def write_metadata_to_track(self, track_id: int, mode: WriteMode = WriteMode.UPDATE_EXISTING) -> bool:
         """Write metadata to a track's audio file using controller helpers."""
         try:
             track = self.controller.get.get_entity_object("Track", track_id=track_id)
             if not track or not track.track_file_path:
-                self.status_manager.show_message(f"Track {track_id} has no file path", 3000)
                 logger.debug(f"Track {track_id} has no file path")
                 return False
 
-            if not os.path.exists(track.track_file_path):
-                self.status_manager.show_message(f"File not found: {track.track_file_path}", 3000)
+            if not Path(track.track_file_path).exists():
                 logger.debug(f"Track file not found: {track.track_file_path}")
                 return False
 
             return self.write_metadata_to_file(track_id, track.track_file_path, mode)
         except SQLAlchemyError as e:
             logger.debug(f"Error writing metadata to track {track_id}: {e}")
-            self.status_manager.show_message(f"Error updating track {track_id}", 3000)
             return False
