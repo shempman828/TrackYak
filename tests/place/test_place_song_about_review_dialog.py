@@ -15,10 +15,7 @@ from src.db.db_tables.base import Base
 from src.db.db_tables.place import Place, PlaceAssociation
 from src.db.db_tables.place_association_type import PlaceAssociationType
 from src.db.db_tables.track import Track
-from src.place import (
-    place_song_about_review_dialog as dialog_module,
-    place_song_about_store as store,
-)
+from src.place import place_song_about_review_dialog as dialog_module, place_song_about_store as store
 from src.place.place_song_about_review_dialog import PlaceSongAboutReviewDialog
 
 
@@ -69,38 +66,52 @@ def _associations_for(session, track_id):
 
 
 def test_refresh_groups_queue_entries_by_place_name(qapp, controller):
-    store.enqueue(
-        [
-            {"track_id": 1, "place_name": "Bath", "place_id": 10},
-            {"track_id": 2, "place_name": "Bath", "place_id": 10},
-            {"track_id": 3, "place_name": "Paris", "place_id": 20},
-        ]
-    )
+    store.enqueue([{"track_id": 1, "place_name": "Bath", "place_id": 10}, {"track_id": 2, "place_name": "Bath", "place_id": 10}, {"track_id": 3, "place_name": "Paris", "place_id": 20}])
 
     dlg = PlaceSongAboutReviewDialog(controller)
     try:
         assert dlg._table.rowCount() == 2
-        rows = {
-            dlg._table.item(r, 0).text(): dlg._table.item(r, 1).text()
-            for r in range(dlg._table.rowCount())
-        }
+        rows = {dlg._table.item(r, 0).text(): dlg._table.item(r, 2).text() for r in range(dlg._table.rowCount())}
         assert rows == {"Bath": "2", "Paris": "1"}
     finally:
         dlg.deleteLater()
 
 
-def test_approve_writes_association_for_every_queued_track_and_saves_decision(
-    qapp, session, controller
-):
+def test_refresh_flags_an_ambiguous_place_name_with_a_live_count(qapp, session, controller):
+    """Two places sharing a name (e.g. "Greene County" in two states) must
+    surface a count in the Match column -- computed fresh from the library
+    at dialog-open time, not frozen at detection time."""
+    ohio_greene = _make_place(session, "Greene County")
+    _make_place(session, "Greene County")  # second, unrelated county, same name
+    track = _make_track(session)
+    store.enqueue([{"track_id": track.track_id, "place_name": "Greene County", "place_id": ohio_greene.place_id}])
+
+    dlg = PlaceSongAboutReviewDialog(controller)
+    try:
+        match_text = dlg._table.item(0, 1).text()
+        assert "2" in match_text
+    finally:
+        dlg.deleteLater()
+
+
+def test_refresh_shows_no_warning_for_an_unambiguous_place_name(qapp, session, controller):
+    place = _make_place(session, "Bath")
+    track = _make_track(session)
+    store.enqueue([{"track_id": track.track_id, "place_name": "Bath", "place_id": place.place_id}])
+
+    dlg = PlaceSongAboutReviewDialog(controller)
+    try:
+        match_text = dlg._table.item(0, 1).text()
+        assert "⚠" not in match_text
+    finally:
+        dlg.deleteLater()
+
+
+def test_approve_writes_association_for_every_queued_track_and_saves_decision(qapp, session, controller):
     place = _make_place(session, "Bath")
     t1 = _make_track(session, "Track 1")
     t2 = _make_track(session, "Track 2")
-    store.enqueue(
-        [
-            {"track_id": t1.track_id, "place_name": "Bath", "place_id": place.place_id},
-            {"track_id": t2.track_id, "place_name": "Bath", "place_id": place.place_id},
-        ]
-    )
+    store.enqueue([{"track_id": t1.track_id, "place_name": "Bath", "place_id": place.place_id}, {"track_id": t2.track_id, "place_name": "Bath", "place_id": place.place_id}])
 
     dlg = PlaceSongAboutReviewDialog(controller)
     try:
@@ -134,9 +145,7 @@ def test_approve_uses_song_about_association_type(qapp, session, controller):
 def test_approve_does_not_duplicate_an_existing_association(qapp, session, controller):
     place = _make_place(session, "Bath")
     track = _make_track(session)
-    session.add(
-        PlaceAssociation(place_id=place.place_id, entity_id=track.track_id, entity_type="Track")
-    )
+    session.add(PlaceAssociation(place_id=place.place_id, entity_id=track.track_id, entity_type="Track"))
     session.commit()
     store.enqueue([{"track_id": track.track_id, "place_name": "Bath", "place_id": place.place_id}])
 
@@ -152,9 +161,7 @@ def test_approve_does_not_duplicate_an_existing_association(qapp, session, contr
 def test_reject_removes_from_queue_without_writing_and_saves_decision(qapp, session, controller):
     place = _make_place(session, "England")
     track = _make_track(session)
-    store.enqueue(
-        [{"track_id": track.track_id, "place_name": "England", "place_id": place.place_id}]
-    )
+    store.enqueue([{"track_id": track.track_id, "place_name": "England", "place_id": place.place_id}])
 
     dlg = PlaceSongAboutReviewDialog(controller)
     try:
@@ -181,19 +188,13 @@ class _StubChangeDialog:
         return self._replacement_place
 
 
-def test_change_writes_to_the_replacement_place_and_saves_remap_decision(
-    qapp, session, controller, monkeypatch
-):
+def test_change_writes_to_the_replacement_place_and_saves_remap_decision(qapp, session, controller, monkeypatch):
     _make_place(session, "Kingston")
     jamaica_kingston = _make_place(session, "Kingston, Jamaica")
     track = _make_track(session)
     store.enqueue([{"track_id": track.track_id, "place_name": "Kingston", "place_id": 999}])
 
-    monkeypatch.setattr(
-        dialog_module,
-        "_ChangePlaceDialog",
-        lambda controller, name, parent: _StubChangeDialog(jamaica_kingston),
-    )
+    monkeypatch.setattr(dialog_module, "_ChangePlaceDialog", lambda controller, name, parent: _StubChangeDialog(jamaica_kingston))
 
     dlg = PlaceSongAboutReviewDialog(controller)
     try:
@@ -210,9 +211,7 @@ def test_change_writes_to_the_replacement_place_and_saves_remap_decision(
         dlg.deleteLater()
 
 
-def test_change_cancelled_leaves_queue_and_decisions_untouched(
-    qapp, session, controller, monkeypatch
-):
+def test_change_cancelled_leaves_queue_and_decisions_untouched(qapp, session, controller, monkeypatch):
     _make_place(session, "Kingston")
     track = _make_track(session)
     store.enqueue([{"track_id": track.track_id, "place_name": "Kingston", "place_id": 999}])
@@ -224,9 +223,7 @@ def test_change_cancelled_leaves_queue_and_decisions_untouched(
         def resolve_place(self):
             raise AssertionError("resolve_place() must not be called when the dialog is cancelled")
 
-    monkeypatch.setattr(
-        dialog_module, "_ChangePlaceDialog", lambda controller, name, parent: _CancelledDialog()
-    )
+    monkeypatch.setattr(dialog_module, "_ChangePlaceDialog", lambda controller, name, parent: _CancelledDialog())
 
     dlg = PlaceSongAboutReviewDialog(controller)
     try:

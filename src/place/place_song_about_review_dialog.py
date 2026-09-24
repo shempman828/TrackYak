@@ -11,30 +11,18 @@ remembered in config/place_song_about_decisions.json so the same place name
 resolves automatically -- without asking again -- on every later detection.
 """
 
-from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from collections import defaultdict
+
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.common.widgets.entity_completer_context import place_context_map
+from src.common.widgets.entity_completer_context import _place_context, place_context_map
 from src.common.widgets.entity_completer_edit import build_entity_search_widget
 from src.foundation.logger_config import logger
 from src.foundation.status_utility import show_status_message
 from src.mood.mood_autotag import SONG_ABOUT_TYPE_NAME
 from src.place import place_song_about_store
-from src.place.place_association_types import (
-    fetch_association_types,
-    find_or_create_association_type,
-)
+from src.place.place_association_types import fetch_association_types, find_or_create_association_type
 
 
 class _ChangePlaceDialog(QDialog):
@@ -50,14 +38,7 @@ class _ChangePlaceDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f'Replace "{original_name}" with which place?'))
 
-        self._search = build_entity_search_widget(
-            controller,
-            "Place",
-            "place_name",
-            "place_id",
-            "Search places…",
-            context_builder=place_context_map,
-        )
+        self._search = build_entity_search_widget(controller, "Place", "place_name", "place_id", "Search places…", context_builder=place_context_map)
         self._search.returnPressed.connect(self.accept)
         layout.addWidget(self._search)
 
@@ -117,11 +98,12 @@ class PlaceSongAboutReviewDialog(QDialog):
         top_row.addWidget(self._refresh_btn)
         layout.addLayout(top_row)
 
-        self._table = QTableWidget(0, 3)
-        self._table.setHorizontalHeaderLabels(["Place", "Tracks", ""])
+        self._table = QTableWidget(0, 4)
+        self._table.setHorizontalHeaderLabels(["Place", "Match", "Tracks", ""])
         self._table.horizontalHeader().setStretchLastSection(False)
         self._table.setColumnWidth(0, 220)
-        self._table.setColumnWidth(1, 100)
+        self._table.setColumnWidth(1, 200)
+        self._table.setColumnWidth(2, 60)
         layout.addWidget(self._table)
 
         button_box = QDialogButtonBox(QDialogButtonBox.Close)
@@ -139,23 +121,56 @@ class PlaceSongAboutReviewDialog(QDialog):
         for entry in queue:
             grouped.setdefault(entry["place_name"], []).append(entry)
 
+        # Same-named places (e.g. two "Greene County" rows in different
+        # states) are valid data -- Place.place_name has no uniqueness
+        # constraint. Looked up fresh here, not stored at detection time, so
+        # the count reflects the library as it stands now, not as it stood
+        # whenever the lyric match was queued.
+        places_by_name: dict[str, list] = defaultdict(list)
+        for place in self.controller.get.get_all_entities("Place") or []:
+            places_by_name[(place.place_name or "").strip().lower()].append(place)
+
         self._table.setRowCount(0)
         for place_name in sorted(grouped.keys(), key=str.lower):
-            self._add_row(place_name, grouped[place_name])
+            self._add_row(place_name, grouped[place_name], places_by_name)
 
         count = len(grouped)
-        self._status_label.setText(
-            f"{count} place{'s' if count != 1 else ''} awaiting review"
-            if count
-            else "Nothing to review."
-        )
+        self._status_label.setText(f"{count} place{'s' if count != 1 else ''} awaiting review" if count else "Nothing to review.")
 
-    def _add_row(self, place_name: str, entries: list):
+    def _add_row(self, place_name: str, entries: list, places_by_name: dict):
         row = self._table.rowCount()
         self._table.insertRow(row)
         self._table.setItem(row, 0, QTableWidgetItem(place_name))
-        self._table.setItem(row, 1, QTableWidgetItem(str(len(entries))))
-        self._table.setCellWidget(row, 2, self._build_action_cell(place_name))
+        self._table.setItem(row, 1, self._build_match_item(place_name, entries, places_by_name))
+        self._table.setItem(row, 2, QTableWidgetItem(str(len(entries))))
+        self._table.setCellWidget(row, 3, self._build_action_cell(place_name))
+
+    def _build_match_item(self, place_name: str, entries: list, places_by_name: dict) -> QTableWidgetItem:
+        """Cell text for the "Match" column: which specific place this name
+        resolved to, and how many places share the name -- so a name like
+        "Greene County" is not a blind guess of which one was matched."""
+        candidates = places_by_name.get(place_name.strip().lower(), [])
+        matched_place = next((p for p in candidates if p.place_id == entries[0]["place_id"]), None)
+        hint = _place_context(matched_place) if matched_place else ""
+        count = len(candidates)
+
+        if count > 1:
+            text = f"⚠ {count} places named this — matched {hint or 'one with no location on file'}"
+            tooltip = f'{count} places in your library are named "{place_name}". This detection was linked to {hint or "the one with no location on file"}. Use Change… if that\'s the wrong one.'
+        elif matched_place is None:
+            text = "⚠ place no longer in library"
+            tooltip = "The place this was matched to has since been deleted or renamed."
+        elif hint:
+            text = hint
+            tooltip = ""
+        else:
+            text = "unique match, no location on file"
+            tooltip = ""
+
+        item = QTableWidgetItem(text)
+        if tooltip:
+            item.setToolTip(tooltip)
+        return item
 
     def _build_action_cell(self, place_name: str) -> QWidget:
         cell = QWidget()
@@ -183,9 +198,7 @@ class PlaceSongAboutReviewDialog(QDialog):
     def _song_about_type(self):
         if self._song_about_type_id is None:
             known_types = fetch_association_types(self.controller)
-            song_about = find_or_create_association_type(
-                self.controller, SONG_ABOUT_TYPE_NAME, known_types
-            )
+            song_about = find_or_create_association_type(self.controller, SONG_ABOUT_TYPE_NAME, known_types)
             self._song_about_type_id = song_about.association_type_id if song_about else None
         return self._song_about_type_id
 
@@ -198,19 +211,10 @@ class PlaceSongAboutReviewDialog(QDialog):
         rows = []
         for entry in entries:
             track_id = entry["track_id"]
-            existing = self.controller.get.get_entity_links(
-                "PlaceAssociation", entity_id=track_id, entity_type="Track"
-            )
+            existing = self.controller.get.get_entity_links("PlaceAssociation", entity_id=track_id, entity_type="Track")
             if any(a.place_id == place_id for a in existing):
                 continue
-            rows.append(
-                {
-                    "place_id": place_id,
-                    "entity_id": track_id,
-                    "entity_type": "Track",
-                    "association_type_id": type_id,
-                }
-            )
+            rows.append({"place_id": place_id, "entity_id": track_id, "entity_type": "Track", "association_type_id": type_id})
         if rows:
             self.controller.add.add_entities("PlaceAssociation", rows)
         return len(rows)
@@ -261,14 +265,7 @@ class PlaceSongAboutReviewDialog(QDialog):
             logger.error(f"Failed to change place '{place_name}': {e}")
             QMessageBox.critical(self, "Error", f"Failed to save place association: {e}")
             return
-        place_song_about_store.save_decision(
-            place_name,
-            place_song_about_store.DECISION_REMAPPED,
-            place_id=new_place.place_id,
-            remap_place_name=new_place.place_name,
-        )
+        place_song_about_store.save_decision(place_name, place_song_about_store.DECISION_REMAPPED, place_id=new_place.place_id, remap_place_name=new_place.place_name)
         place_song_about_store.remove_place_from_queue(place_name)
-        show_status_message(
-            self, f'Changed "{place_name}" to "{new_place.place_name}" for {written} track(s).'
-        )
+        show_status_message(self, f'Changed "{place_name}" to "{new_place.place_name}" for {written} track(s).')
         self.refresh()

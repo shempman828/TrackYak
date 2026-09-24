@@ -901,7 +901,11 @@ Genres & Moods, Places & Credits, Audio Profile, and Lyrics.
   decision covers every track currently waiting on that name. Your choice
   is saved and reused automatically — approve or reject a name once and it
   never needs reviewing again; Change lets you point a detection at a
-  different place (e.g. the right "Kingston") instead.
+  different place (e.g. the right "Kingston") instead. The **Match** column
+  shows which specific place (with its state/country, when known) the name
+  resolved to, and warns — with a live count — when more than one place in
+  your library shares that name, so you can tell whether Change is needed
+  before approving.
 - **Artwork Conflicts…** — scans every album for tracks that disagree on
   their embedded cover art: some carrying a different picture than the
   others, or having none where the rest have one. Album art displayed
