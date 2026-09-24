@@ -1,6 +1,4 @@
-"""
-track_view_search.py — background search/filter application for TrackView.
-"""
+"""track_view_search.py — background search/filter application for TrackView."""
 
 from src.foundation.logger_config import logger
 from src.track.view.track_view_filter import FilterWorker
@@ -19,10 +17,14 @@ class TrackViewSearchMixin:
             self._apply_search_filter()
 
     def _apply_search_filter(self):
-        """
-        Kicks off a background worker to filter tracks without blocking the UI.
-        """
+        """Kicks off a background worker to filter tracks without blocking the UI."""
         search_text = self.search_bar.text().strip().lower()
+
+        # Stop any already-running worker first — a cancelled worker emits
+        # nothing, so its stale results can't overwrite what comes next.
+        if self._filter_worker and self._filter_worker.isRunning():
+            self._filter_worker.request_cancel()
+            self._filter_worker.wait()
 
         if not search_text:
             # Nothing typed — restore the full list immediately
@@ -34,21 +36,13 @@ class TrackViewSearchMixin:
             self._update_status()
             return
 
-        # Stop any already-running worker before starting a new one
-        if self._filter_worker and self._filter_worker.isRunning():
-            self._filter_worker.request_cancel()
-            self._filter_worker.wait()
+        # Show the search is in progress; _on_filter_done replaces this
+        # with the match count once results arrive.
+        self.status_label.setText("Searching…")
 
         field_name = self._search_field_name
 
-        self._filter_worker = FilterWorker(
-            self._all_tracks,
-            search_text,
-            field_name,
-            self._get_artist_name,
-            self._format_value,
-            self._field_value,
-        )
+        self._filter_worker = FilterWorker(self._all_tracks, search_text, field_name, self._get_artist_name, self._format_value, self._field_value)
         self._filter_worker.finished.connect(self._on_filter_done)
         self._filter_worker.start()
 

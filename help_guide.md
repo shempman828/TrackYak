@@ -81,7 +81,9 @@ album.
 This is the whole library, flattened into one table — the place to start when
 you know roughly what you're looking for but not which view it lives in.
 
-**Finding something**: start typing in the search bar. It matches against
+**Finding something**: type in the search bar and press Enter. While the
+search runs, the status text at the right of the toolbar says "Searching…";
+when it finishes, it shows how many tracks matched. It matches against
 every column at once (title, artist, album, and the rest), not just the
 title, so searching "Buckley" turns up tracks where he's the artist as well
 as any where he's mentioned in the album name. The table only loads what's on

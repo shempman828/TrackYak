@@ -25,6 +25,14 @@ class _SearchBar:
         return self._text
 
 
+class _Label:
+    def __init__(self):
+        self.text = ""
+
+    def setText(self, text):
+        self.text = text
+
+
 class _Model:
     def __init__(self):
         self.rows = []
@@ -64,6 +72,7 @@ class _Host(TrackViewDataMixin, TrackViewSearchMixin):
     def __init__(self, search_text):
         self.search_bar = _SearchBar(search_text)
         self.model = _Model()
+        self.status_label = _Label()
         self._filter_worker = None
         self._search_field_name = None
         self._loaded_count = 0
@@ -76,7 +85,7 @@ class _Host(TrackViewDataMixin, TrackViewSearchMixin):
         self._loaded_count = len(source_list)
 
     def _update_status(self):
-        pass
+        self.status_label.text = f"{len(self.model.rows)} matches"
 
     def _get_artist_name(self, *_args):
         return ""
@@ -111,3 +120,40 @@ def test_load_data_without_search_shows_all_tracks():
 
     assert host._filter_active is False
     assert [t.track_id for t in host.model.rows] == [1, 3]
+
+
+class _PendingFilterWorker(_SyncFilterWorker):
+    """Starts but never finishes until the test calls finish()."""
+
+    def start(self):
+        pass
+
+    def finish(self):
+        super().start()
+
+
+def test_status_shows_searching_until_results_arrive(monkeypatch):
+    """Regression: a running search gave no visual sign it was in progress."""
+    monkeypatch.setattr(search_mod, "FilterWorker", _PendingFilterWorker)
+    host = _Host("blue")
+    host._all_tracks = [_Track(1, "Blue Monday"), _Track(3, "Red Rain")]
+
+    host._apply_search_filter()
+    assert host.status_label.text == "Searching…"
+
+    host._filter_worker.finish()
+    assert host.status_label.text == "1 matches"
+
+
+def test_cancelled_filter_worker_emits_nothing():
+    """A cancelled search must not deliver stale partial results."""
+    from src.track.view.track_view_filter import FilterWorker
+
+    worker = FilterWorker([_Track(1, "Blue Monday")], "blue", "track_name", str, lambda *_: "", lambda *_: "")
+    emitted = []
+    worker.finished.connect(emitted.append)
+    worker.request_cancel()
+
+    worker.run()
+
+    assert emitted == []

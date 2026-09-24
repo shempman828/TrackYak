@@ -1,6 +1,4 @@
-"""
-track_view_filter.py — background search/filter worker for TrackView.
-"""
+"""track_view_filter.py — background search/filter worker for TrackView."""
 
 from PySide6.QtCore import Signal
 
@@ -34,15 +32,7 @@ class FilterWorker(CancellableWorker):
 
     finished = Signal(list)
 
-    def __init__(
-        self,
-        tracks: list,
-        search_text: str,
-        field_name: str,
-        get_artist_fn,
-        format_fn,
-        field_value_fn,
-    ):
+    def __init__(self, tracks: list, search_text: str, field_name: str, get_artist_fn, format_fn, field_value_fn):
         super().__init__()
         self._tracks = tracks
         self._search_text = search_text.strip().lower()
@@ -57,15 +47,12 @@ class FilterWorker(CancellableWorker):
 
         for t in self._tracks:
             if self.is_cancelled:
-                break
+                # Emit nothing: a newer search (or a cleared field) owns the table now
+                return
 
             if self._field_name == SEARCH_ALL:
                 # Search a broad set of common fields
-                values = [
-                    (getattr(t, "track_name", "") or "").lower(),
-                    (self._get_artist(t) or "").lower(),
-                    (self._field_value(t, "album_name") or "").lower(),
-                ]
+                values = [(getattr(t, "track_name", "") or "").lower(), (self._get_artist(t) or "").lower(), (self._field_value(t, "album_name") or "").lower()]
                 # Also check all other string-like track fields
                 for field_name in TRACK_FIELDS:
                     if field_name not in ("track_name", "artist_name", "album_name"):
@@ -80,16 +67,11 @@ class FilterWorker(CancellableWorker):
                     val = (self._get_artist(t) or "").lower()
                 else:
                     raw = self._field_value(t, self._field_name)
-                    val = self._format(
-                        raw, self._field_name, TRACK_FIELDS.get(self._field_name)
-                    ).lower()
+                    val = self._format(raw, self._field_name, TRACK_FIELDS.get(self._field_name)).lower()
                 if text in val:
                     results.append(t)
 
-        logger.debug(
-            f"Filter search for '{text}' (field={self._field_name}) matched "
-            f"{len(results)}/{len(self._tracks)} tracks"
-        )
+        logger.debug(f"Filter search for '{text}' (field={self._field_name}) matched {len(results)}/{len(self._tracks)} tracks")
         self.finished.emit(results)
 
 
@@ -128,8 +110,5 @@ class SortWorker(CancellableWorker):
             return (0, str(raw).lower())
 
         result = sorted(self._tracks, key=sort_key, reverse=not self._ascending)
-        logger.debug(
-            f"Sorted {len(result)} tracks by '{self._field_name}' "
-            f"({'ascending' if self._ascending else 'descending'})"
-        )
+        logger.debug(f"Sorted {len(result)} tracks by '{self._field_name}' ({'ascending' if self._ascending else 'descending'})")
         self.finished.emit(result)
