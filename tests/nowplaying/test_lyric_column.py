@@ -206,3 +206,49 @@ def test_wheel_on_empty_column_is_ignored(column):
     event = _wheel(column)
     column.wheelEvent(event)
     assert not event.isAccepted()
+
+
+# ── plain lyrics fit the widget ──────────────────────────────────────────
+
+
+def test_plain_lyrics_shrink_to_show_every_line(column):
+    """Regression: unsynced lyrics used the large synced font and needed scrolling."""
+    column.set_lines([f"plain line {i}" for i in range(10)], synced=False)
+    assert column._font.pointSize() < column._FONT.pointSize()
+    assert column._font.pointSize() >= column._MIN_PT
+    assert column._content_h <= column.height()
+
+
+def test_short_plain_lyrics_keep_the_full_size(column):
+    column.set_lines(["one", "two", "three"], synced=False)
+    assert column._font.pointSize() == column._FONT.pointSize()
+
+
+def test_long_plain_lyrics_stop_at_the_readable_minimum_and_scroll(column):
+    column.set_lines([f"plain line {i}" for i in range(80)], synced=False)
+    assert column._font.pointSize() == column._MIN_PT
+    _, hi = column._scroll_bounds()
+    assert hi > 0
+
+
+def test_plain_lyrics_refit_when_the_widget_grows(column):
+    column.set_lines([f"plain line {i}" for i in range(10)], synced=False)
+    small = column._font.pointSize()
+    column.resize(400, 900)
+    column._relayout()
+    assert column._font.pointSize() > small
+
+
+def test_synced_lyrics_keep_the_large_font(column):
+    column.set_lines([f"line {i}" for i in range(80)], synced=True)
+    assert column._font.pointSize() == column._FONT.pointSize()
+
+
+def test_edges_fade_only_where_more_text_continues(column):
+    """Regression: the true first line sat in the top fade and looked permanently darker."""
+    column.set_lines([f"line {i}" for i in range(40)], synced=True)
+    assert column._edge_alpha(1.0) == 1.0  # at the top: nothing above line 0
+    assert column._edge_alpha(column.height() - 1.0) < 1.0  # more lines below
+    column.set_active(39)
+    assert column._edge_alpha(1.0) < 1.0  # sung lines scrolled off the top
+    assert column._edge_alpha(column.height() - 1.0) == 1.0  # last line is the end

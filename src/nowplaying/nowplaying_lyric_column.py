@@ -23,16 +23,20 @@ class _LyricColumn(QWidget):
     highlight so it can still be found. ``follow_changed`` reports both.
 
     Plain (unsynced) lyrics have no active line: every line gets the same
-    brightness and the column scrolls freely from the top.
+    brightness and the column scrolls freely from the top. With no timing to
+    follow, seeing more text wins: the font shrinks (down to ``_MIN_PT``) until
+    every line fits the widget, and only lyrics too long even at that size
+    scroll.
     """
 
     follow_changed = Signal(bool)
 
-    _FONT = QFont("Georgia", 20, QFont.Bold)
-    _LINE_GAP = 14
-    _BLANK_H = 10  # an empty lyric line (instrumental break) is a short gap
+    _FONT = QFont("Georgia", 20, QFont.Bold)  # synced lyrics; plain lyrics' largest size
+    _MIN_PT = 13  # smallest plain-lyrics size that stays readable over the backdrop
+    _LINE_GAP = 14  # at _FONT's size; scales with the font
+    _BLANK_H = 10  # an empty lyric line (instrumental break) is a short gap; scales too
     _ANCHOR = 0.5  # active line centre, as a fraction of the widget height
-    _EDGE_FADE = 56  # px over which lines fade out at the top/bottom edge
+    _EDGE_FADE = 56  # px over which lines fade out at an edge more text lies past
     _SIDE_PAD = 8
     _BOTTOM_PAD = 24  # free scroll past the last line
     _WHEEL_STEP_PX = 64  # per 120 units of wheel angle (one notch)
@@ -59,10 +63,11 @@ class _LyricColumn(QWidget):
         self._emphasis = 1.0  # 0 → highlight still on _prev_active, 1 → on _active
         self._scroll = 0.0  # content y shown at the widget's top edge
 
+        self._font = QFont(self._FONT)
         self._tops: list[int] = []
         self._heights: list[int] = []
         self._content_h = 0
-        self._layout_w = -1
+        self._layout_key: tuple[int, int] | None = None
 
         self._scroll_anim = QPropertyAnimation(self, b"scrollPos", self)
         self._scroll_anim.setDuration(self._SCROLL_MS)
@@ -107,7 +112,7 @@ class _LyricColumn(QWidget):
         self._prev_active = -1
         self._emphasis = 1.0
         self._tops, self._heights, self._content_h = [], [], 0
-        self._layout_w = -1
+        self._layout_key = None
         self._relayout()
         self._scroll = 0.0
         self._change_following(self._synced)
@@ -161,20 +166,47 @@ class _LyricColumn(QWidget):
 
     def _relayout(self):
         w = self._text_width()
-        if w <= 0 or w == self._layout_w:
+        # Plain lyrics fit their size to the height, so it is part of the key.
+        key = (w, 0 if self._synced else self.height())
+        if w <= 0 or key == self._layout_key:
             return
-        self._layout_w = w
-        fm = QFontMetrics(self._FONT)
-        self._tops, self._heights = [], []
+        self._layout_key = key
+        self._font = self._FONT if self._synced else self._fit_font(w, self.height())
+        self._tops, self._heights, self._content_h = self._measure(self._font, w)
+
+    def _fit_font(self, w: int, h: int) -> QFont:
+        """Largest font from ``_FONT``'s size down to ``_MIN_PT`` at which every
+        line fits height ``h``; ``_MIN_PT`` when even that overflows."""
+        lo, hi = self._MIN_PT, self._FONT.pointSize()
+        while lo < hi:  # binary search: content height grows with the size
+            mid = (lo + hi + 1) // 2
+            if self._measure(self._sized(mid), w)[2] <= h:
+                lo = mid
+            else:
+                hi = mid - 1
+        return self._sized(lo)
+
+    def _sized(self, pt: int) -> QFont:
+        font = QFont(self._FONT)
+        font.setPointSize(pt)
+        return font
+
+    def _measure(self, font: QFont, w: int) -> tuple[list[int], list[int], int]:
+        """Line tops, line heights and content height with ``font`` at width ``w``."""
+        scale = font.pointSize() / self._FONT.pointSize()
+        gap = round(self._LINE_GAP * scale)
+        blank_h = round(self._BLANK_H * scale)
+        fm = QFontMetrics(font)
+        wrap_box = QRect(0, 0, w, 100_000)
+        flags = Qt.AlignHCenter | Qt.TextWordWrap
+        tops, heights = [], []
         y = 0
         for text in self._lines:
-            wrap_box = QRect(0, 0, w, 100_000)
-            flags = Qt.AlignHCenter | Qt.TextWordWrap
-            h = fm.boundingRect(wrap_box, flags, text).height() if text.strip() else self._BLANK_H
-            self._tops.append(y)
-            self._heights.append(h)
-            y += h + self._LINE_GAP
-        self._content_h = max(0, y - self._LINE_GAP)
+            h = fm.boundingRect(wrap_box, flags, text).height() if text.strip() else blank_h
+            tops.append(y)
+            heights.append(h)
+            y += h + gap
+        return tops, heights, max(0, y - gap)
 
     def _follow_scroll(self, idx: int) -> float:
         """Scroll value that centres line ``idx`` (-1 = before the first
@@ -232,7 +264,7 @@ class _LyricColumn(QWidget):
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.TextAntialiasing)
-        painter.setFont(self._FONT)
+        painter.setFont(self._font)
         h = self.height()
         w = self._text_width()
         flags = Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap
@@ -246,8 +278,7 @@ class _LyricColumn(QWidget):
                 break
             if not text.strip():
                 continue
-            centre = top + line_h / 2
-            edge = max(0.0, min(1.0, centre / self._EDGE_FADE, (h - centre) / self._EDGE_FADE))
+            edge = self._edge_alpha(top + line_h / 2)
             weight = self._line_weight(i)
             alpha = self._base_alpha(i)
             alpha += (self._ACTIVE_ALPHA - alpha) * weight
@@ -259,6 +290,18 @@ class _LyricColumn(QWidget):
         painter.end()
 
     # ── line styling ──────────────────────────────────────────────────────
+
+    def _edge_alpha(self, centre: float) -> float:
+        """Fade factor for a line centred at widget y ``centre``. An edge fades
+        only while more text is scrolled past it, so the first and last lines
+        are never dimmed when they are really the first and last."""
+        lo, hi = self._scroll_bounds()
+        fade = 1.0
+        if self._scroll > lo + 0.5:
+            fade = min(fade, centre / self._EDGE_FADE)
+        if self._scroll < hi - 0.5:
+            fade = min(fade, (self.height() - centre) / self._EDGE_FADE)
+        return max(0.0, min(1.0, fade))
 
     def _line_weight(self, i: int) -> float:
         """0..1 share of the active-line look that line ``i`` currently has."""
