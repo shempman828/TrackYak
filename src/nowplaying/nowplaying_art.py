@@ -1,4 +1,4 @@
-from PySide6.QtCore import Property, QRect, Qt, QTimer
+from PySide6.QtCore import Property, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -17,9 +17,19 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 
 class _ArtCard(QWidget):
-    """Rounded album-art display with subtle glow."""
+    """Rounded album-art display with a soft drop shadow.
+
+    ``shadow_pad`` is the margin reserved on every side of the art for the
+    shadow; the art itself is laid out inside the remaining inner rect.
+    """
 
     _RADIUS = 18
+
+    # The shadow sits this far below the art and spreads into the rest of
+    # the pad; it is built from stacked translucent rounded rects.
+    _SHADOW_OFFSET_Y = 8
+    _SHADOW_LAYERS = 12
+    _SHADOW_LAYER_ALPHA = 9
 
     # Cap how far a small/low-res image is blown up so it doesn't turn to mush.
     _MAX_UPSCALE = 1.5
@@ -44,8 +54,9 @@ class _ArtCard(QWidget):
     _LABEL_PAUSE_TICKS = 45  # ticks held at each end (~0.7 s)
     _LABEL_END_PAD = 8  # extra px so the last glyph fully clears the clip
 
-    def __init__(self, parent=None, backdrop: QWidget | None = None):
+    def __init__(self, parent=None, backdrop: QWidget | None = None, shadow_pad: int = 0):
         super().__init__(parent)
+        self._shadow_pad = max(0, shadow_pad)
         self._pixmap: QPixmap | None = None
         self._is_artist = False
         self._label: str | None = None
@@ -106,18 +117,17 @@ class _ArtCard(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
 
-        w, h = self.width(), self.height()
         t = max(0.0, min(1.0, self._transition))
 
-        prev_rect = self._layout_rect(self._prev_pixmap, self._prev_is_artist, w, h)
-        cur_rect = self._layout_rect(self._pixmap, self._is_artist, w, h)
+        prev_rect = self._rest_rect(self._prev_pixmap, self._prev_is_artist)
+        cur_rect = self._rest_rect(self._pixmap, self._is_artist)
         # The visible frame morphs between the outgoing and incoming content's
         # own shape over the course of the crossfade, so e.g. a square cover
         # swapping for a portrait artist photo reads as one smooth resize
         # instead of two mismatched rectangles snapping in and out.
         frame = self._lerp_rect(prev_rect, cur_rect, t)
 
-        content_rect = QRect()
+        content_rect = self._paint_shadow(painter, frame)
 
         if t < 1.0:
             zoom = 1.0 + self._ZOOM_AMOUNT * t
@@ -166,6 +176,36 @@ class _ArtCard(QWidget):
 
         self._prev_content_rect = content_rect
         painter.end()
+
+    def shadow_pad(self) -> int:
+        return self._shadow_pad
+
+    def _inner_size(self) -> tuple[int, int]:
+        pad = self._shadow_pad
+        return max(0, self.width() - 2 * pad), max(0, self.height() - 2 * pad)
+
+    def _rest_rect(self, pixmap: QPixmap | None, is_artist: bool) -> QRect:
+        """``_layout_rect`` inside the shadow pad, in widget coordinates."""
+        w, h = self._inner_size()
+        rect = self._layout_rect(pixmap, is_artist, w, h)
+        return rect.translated(self._shadow_pad, self._shadow_pad) if rect.isValid() else rect
+
+    def _paint_shadow(self, painter: QPainter, frame: QRect) -> QRect:
+        """Soft shadow under ``frame``; returns the rect it covers (empty when
+        the card has no shadow pad)."""
+        if self._shadow_pad <= 0 or not frame.isValid():
+            return QRect()
+        off = self._SHADOW_OFFSET_Y
+        max_spread = max(1, self._shadow_pad - off)
+        painter.save()
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(0, 0, 0, self._SHADOW_LAYER_ALPHA))
+        for i in range(self._SHADOW_LAYERS, 0, -1):
+            s = max_spread * i / self._SHADOW_LAYERS
+            r = QRectF(frame).adjusted(-s, -s + off, s, s + off)
+            painter.drawRoundedRect(r, self._RADIUS + s, self._RADIUS + s)
+        painter.restore()
+        return frame.adjusted(-max_spread, -max_spread + off, max_spread, max_spread + off)
 
     def _paint_layer(
         self,
@@ -267,7 +307,7 @@ class _ArtCard(QWidget):
             self._label_timer.stop()
             self._label_offset = 0
             return
-        rect = self._layout_rect(self._pixmap, self._is_artist, self.width(), self.height())
+        rect = self._rest_rect(self._pixmap, self._is_artist)
         if not rect.isValid():
             return
         font, text_rect, _ = self._label_geometry(rect)

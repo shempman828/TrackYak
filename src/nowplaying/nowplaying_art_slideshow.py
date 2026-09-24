@@ -40,7 +40,8 @@ class NowPlayingArtMixin:
     self._current_pixmap, self._fade_anim, self._art_transition_anim,
     self._art_images, self._art_has_front, self._art_slide_idx,
     self._art_slide_timer, self._art_worker, self._art_generation,
-    self._art_card, self._backdrop, and to be a QWidget subclass.
+    self._art_card, self._slide_dots, self._backdrop, and to be a QWidget
+    subclass.
     """
 
     # ── art ───────────────────────────────────────────────────────────────
@@ -167,6 +168,9 @@ class NowPlayingArtMixin:
         self._art_has_front = has_front
         self._art_slide_idx = 0
 
+        self._slide_dots.set_count(len(pixmaps))
+        self._slide_dots.set_index(0)
+
         self._apply_art(*first)
         self._apply_backdrop(backdrop_pixmap)
 
@@ -179,8 +183,19 @@ class NowPlayingArtMixin:
             return
         self._art_slide_idx = (self._art_slide_idx + 1) % len(self._art_images)
         current = self._art_images[self._art_slide_idx]
+        self._slide_dots.set_index(self._dot_index(self._art_slide_idx))
         self._apply_art(*current)
         self._art_slide_timer.setInterval(self._dwell_for_index(self._art_slide_idx))
+
+    def _dot_index(self, idx: int) -> int:
+        """Distinct-image index (for the slide dots) of sequence slot `idx`.
+
+        With an interleaved front cover every even slot is the front cover
+        (dot 0) and odd slot k is secondary image (k + 1) // 2.
+        """
+        if not self._art_has_front or len(self._art_images) <= 1:
+            return idx
+        return 0 if idx % 2 == 0 else (idx + 1) // 2
 
     def _dwell_for_index(self, idx: int) -> int:
         """How long the image at `idx` should stay on screen.

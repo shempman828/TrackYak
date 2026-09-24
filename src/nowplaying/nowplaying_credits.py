@@ -45,8 +45,8 @@ class _CreditsPanel(QWidget):
         self._container = QWidget()
         self._container.setProperty("bgTransparent", True)
         self._cards_layout = QVBoxLayout(self._container)
-        self._cards_layout.setContentsMargins(0, 8, 0, 48)
-        self._cards_layout.setSpacing(6)
+        self._cards_layout.setContentsMargins(0, 16, 0, 48)
+        self._cards_layout.setSpacing(12)
         self._cards_layout.setAlignment(Qt.AlignTop)
         self._area.setWidget(self._container)
 
@@ -115,23 +115,28 @@ class _CreditsPanel(QWidget):
 
     @staticmethod
     def _make_card(role: str, name: str) -> QWidget:
-        card = QWidget()
-        card.setProperty("npCreditCard", True)
-        lay = QHBoxLayout(card)
-        lay.setContentsMargins(14, 8, 14, 8)
-        lay.setSpacing(12)
+        """One film-credits row: the role right-aligned on the left of a
+        centre gutter, the name left-aligned on the right of it."""
+        row = QWidget()
+        row.setProperty("bgTransparent", True)
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(18)
 
-        role_lbl = QLabel(role)
+        role_lbl = QLabel(role.upper())
         role_lbl.setProperty("npRole", "creditsRole")
-        role_lbl.setFixedWidth(130)
+        role_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         role_lbl.setWordWrap(True)
 
         name_lbl = QLabel(name)
         name_lbl.setProperty("npRole", "creditsName")
+        name_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        name_lbl.setWordWrap(True)
 
-        lay.addWidget(role_lbl)
+        # Equal stretch keeps the gutter on the centre line for every row.
+        lay.addWidget(role_lbl, stretch=1)
         lay.addWidget(name_lbl, stretch=1)
-        return card
+        return row
 
     def _maybe_start_scroll(self):
         sb = self._area.verticalScrollBar()

@@ -1,18 +1,6 @@
 from PySide6.QtCore import QPoint, QRect, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QLinearGradient, QPainter
-from PySide6.QtWidgets import QFrame, QScrollArea, QWidget
-
-
-class FadedScrollArea(QScrollArea):
-    """Scroll area — just a clean wrapper for plain lyrics."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFrameShape(QFrame.NoFrame)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.setObjectName("NowPlayingLyricsScrollArea")
-        self.setWidgetResizable(True)
+from PySide6.QtWidgets import QWidget
 
 
 class MarqueeLabel(QWidget):

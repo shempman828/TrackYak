@@ -1376,39 +1376,36 @@ QPushButton[playerCtrlBtn="true"] {
     background: transparent;
 }
 
-/* ── "NOW PLAYING" TAB BAR (lyrics/credits) ──────────────────────────────────── */
+/* ── "NOW PLAYING" TAB BAR (lyrics/credits/about) ──────────────────────────── */
+/* Text-only tabs; the active tab gets an accent underline. */
 QPushButton[npTab="true"] {
     background: transparent;
-    border: 1px solid rgba(133, 153, 234, 0.14);
-    border-bottom: none;
+    border: none;
+    border-bottom: 2px solid transparent;
     border-radius: 0px;
-    color: rgba(133, 153, 234, 0.42);
+    color: rgba(133, 153, 234, 0.45);
     font-size: 10px;
     font-weight: bold;
     letter-spacing: 2px;
-    padding: 5px 22px;
+    padding: 4px 2px;
 }
 
 QPushButton[npTab="true"]:hover {
-    background: rgba(133, 153, 234, 0.09);
-    color: rgba(200, 208, 244, 0.70);
+    color: rgba(200, 208, 244, 0.80);
+    border-bottom: 2px solid rgba(133, 153, 234, 0.30);
 }
 
 QPushButton[npTab="true"][active="true"] {
-    background: rgba(133, 153, 234, 0.20);
-    border: 1px solid rgba(133, 153, 234, 0.55);
-    border-bottom: none;
-    color: rgba(230, 235, 255, 0.92);
+    color: rgba(230, 235, 255, 0.95);
+    border-bottom: 2px solid #8599ea;
 }
 
 QPushButton[npTab="true"]:disabled {
-    background: transparent;
-    border: 1px solid rgba(133, 153, 234, 0.07);
-    border-bottom: none;
     color: rgba(133, 153, 234, 0.18);
+    border-bottom: 2px solid transparent;
 }
 
-/* ── "NOW PLAYING" small pill toggles (sync/mode) ────────────────────────────── */
+/* ── "NOW PLAYING" small pill toggles (lyric toolbar) ────────────────────────── */
 QPushButton[npToggle="true"] {
     background: transparent;
     border: 1px solid rgba(133, 153, 234, 0.22);
@@ -1431,6 +1428,12 @@ QPushButton[npToggle="true"][active="true"] {
     color: rgba(230, 235, 255, 0.90);
 }
 
+QPushButton[npToggle="true"]:disabled {
+    background: transparent;
+    border: 1px solid rgba(133, 153, 234, 0.08);
+    color: rgba(133, 153, 234, 0.18);
+}
+
 /* ── "NOW PLAYING" metadata chip pills ───────────────────────────────────────── */
 QLabel[npChip="true"] {
     background: rgba(133, 153, 234, 0.13);
@@ -1441,29 +1444,12 @@ QLabel[npChip="true"] {
     padding: 2px 10px;
 }
 
-/* ── "NOW PLAYING" tab-bar divider rule ──────────────────────────────────────── */
-QFrame[npRule="true"] {
-    border: none;
-    border-top: 1px solid rgba(133, 153, 234, 0.25);
-}
-
-/* ── "NOW PLAYING" credit card (one per artist-role row) ─────────────────────── */
-QWidget[npCreditCard="true"] {
-    background: rgba(133, 153, 234, 0.07);
-    border: 1px solid rgba(133, 153, 234, 0.18);
-    border-radius: 8px;
-}
-
 /* ── "NOW PLAYING" labels — color/style variants keyed by role ──────────────── */
-/* Title/artist are painted MarqueeLabel widgets, not QLabels — their colour is
-   passed in code (see NowPlayingView._initUI). */
+/* Title/artist are painted widgets, not QLabels — their colour is passed in
+   code (see NowPlayingView._initUI). The lyric column is painted too (see
+   _LyricColumn); nextLyric* below style the manual-sync dialog preview. */
 QLabel[npRole="album"] {
     color: rgba(150, 160, 210, 0.50);
-}
-
-QLabel[npRole="albumSubtitle"] {
-    color: rgba(150, 160, 210, 0.38);
-    font-style: italic;
 }
 
 QLabel[npRole="nextLyric"] {
@@ -1481,26 +1467,10 @@ QLabel[npRole="nextLyric3"] {
     font-style: italic;
 }
 
-QLabel[npRole="plainLyrics"] {
-    color: rgba(200, 208, 244, 0.75);
-    line-height: 1.7em;
-}
-
-QLabel[npRole="noLyrics"] {
-    color: rgba(133, 153, 234, 0.28);
-    font-size: 14px;
-    font-style: italic;
-}
-
 QLabel[npRole="countdown"] {
     color: rgba(133, 153, 234, 0.55);
     font-size: 13px;
     font-style: italic;
-}
-
-QLabel[npRole="offsetLabel"] {
-    color: rgba(133, 153, 234, 0.45);
-    font-size: 10px;
 }
 
 QLabel[npRole="creditsPlaceholder"] {
@@ -1509,14 +1479,17 @@ QLabel[npRole="creditsPlaceholder"] {
     font-style: italic;
 }
 
+/* Film-credits rows: muted role left of a centre gutter, bright name right of it. */
 QLabel[npRole="creditsRole"] {
-    color: rgba(133, 153, 234, 0.55);
-    font-size: 10px;
+    color: rgba(133, 153, 234, 0.60);
+    font-size: 9px;
+    font-weight: bold;
+    letter-spacing: 2px;
 }
 
 QLabel[npRole="creditsName"] {
-    color: rgba(210, 218, 255, 0.88);
-    font-size: 13px;
+    color: rgba(215, 222, 255, 0.92);
+    font-size: 14px;
 }
 
 /* ── "NOW PLAYING" about card (one per entity description) ──────────────────── */
@@ -1549,47 +1522,6 @@ QLabel[npRole="aboutPlaceholder"] {
     color: rgba(133, 153, 234, 0.28);
     font-size: 13px;
     font-style: italic;
-}
-
-/* ── "NOW PLAYING" lyrics scroll area (plain-text mode) ──────────────────────── */
-QScrollArea#NowPlayingLyricsScrollArea {
-    background: transparent;
-    border: none;
-}
-
-QScrollArea#NowPlayingLyricsScrollArea QScrollBar:vertical {
-    width: 4px;
-    background: transparent;
-}
-
-QScrollArea#NowPlayingLyricsScrollArea QScrollBar::handle:vertical {
-    background: rgba(133, 153, 234, 0.30);
-    border-radius: 2px;
-}
-
-QScrollArea#NowPlayingLyricsScrollArea QScrollBar::add-line:vertical,
-QScrollArea#NowPlayingLyricsScrollArea QScrollBar::sub-line:vertical {
-    height: 0px;
-}
-
-/* ── "NOW PLAYING" lyric sync-offset slider ──────────────────────────────────── */
-QSlider#NowPlayingSyncSlider::groove:horizontal {
-    height: 2px;
-    background: rgba(133, 153, 234, 0.25);
-    border-radius: 1px;
-}
-
-QSlider#NowPlayingSyncSlider::handle:horizontal {
-    width: 10px;
-    height: 10px;
-    margin: -4px 0;
-    border-radius: 5px;
-    background: rgba(133, 153, 234, 0.60);
-}
-
-QSlider#NowPlayingSyncSlider::sub-page:horizontal {
-    background: rgba(133, 153, 234, 0.50);
-    border-radius: 1px;
 }
 
 /* ── SPECIAL: Album edit header byline ("by Artist Name") ────────────────────── */

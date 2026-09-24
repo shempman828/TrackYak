@@ -9,13 +9,11 @@ import traceback
 from PySide6.QtCore import QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
-    QFrame,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
-    QSlider,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -29,23 +27,28 @@ from src.foundation.config_setup import app_config
 from src.foundation.logger_config import logger
 from src.nowplaying.nowplaying_about import _AboutPanel
 from src.nowplaying.nowplaying_art import _ArtCard
+from src.nowplaying.nowplaying_art_column import _ArtColumn, _SlideDots
 from src.nowplaying.nowplaying_art_slideshow import _COVER_DWELL_MS, NowPlayingArtMixin
 from src.nowplaying.nowplaying_backdrop import _BlurredBackdrop
 from src.nowplaying.nowplaying_chip import _Chip, _ScrollingChipRow
 from src.nowplaying.nowplaying_credits import _CreditsPanel
-from src.nowplaying.nowplaying_karaoke import _KaraokeLine
+from src.nowplaying.nowplaying_lyric_column import _LyricColumn
 from src.nowplaying.nowplaying_lyrics import NowPlayingLyricsMixin
-from src.nowplaying.nowplaying_marquee import FadedScrollArea, MarqueeLabel
+from src.nowplaying.nowplaying_marquee import MarqueeLabel
+from src.nowplaying.nowplaying_progress import _ProgressStrip
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Constants
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Debounce delay (ms) before persisting the sync-offset slider to config.
+# Debounce delay (ms) before persisting the sync offset to config.
 _OFFSET_DEBOUNCE_MS = 600
 
 # Dwell time (ms) per tab when auto-cycle mode is running (Ctrl+Shift++).
 _AUTO_CYCLE_DWELL_MS = 8000
+
+# Margin (px) around the album art that its drop shadow paints into.
+_ART_SHADOW_PAD = 24
 
 # Tab and toggle button visuals live in themes/dark_mode.qss under the
 # [npTab="true"] / [npToggle="true"] / [active=...] selectors — see _set_active().
@@ -198,15 +201,6 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
     _TITLE_FONT = QFont("Georgia", 28, QFont.Bold)
     _ARTIST_FONT = QFont("Cambria", 16, QFont.Normal)
     _ALBUM_FONT = QFont("Cambria", 13, QFont.Normal)
-    _ALBUM_SUBTITLE_FONT = QFont("Cambria", 12, QFont.Normal)
-    _PLAIN_FONT = QFont("Cambria", 12, QFont.Normal)
-    _PREVIEW_FONT = QFont("Cambria", 14, QFont.Normal)
-
-    # Upcoming-lyric preview stack: always show at least _PREVIEW_MIN_ROWS, and
-    # up to _PREVIEW_MAX_ROWS when the karaoke block is tall enough to fit them
-    # (see _recalc_preview_capacity).
-    _PREVIEW_MIN_ROWS = 3
-    _PREVIEW_MAX_ROWS = 6
 
     # Page indices — mirror the self._tabs registry order built in _initUI.
     # Retained as aliases for the lyrics mixin and existing tests.
@@ -226,15 +220,14 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._sync_dialog = None  # LyricSyncDialog, while a manual-sync session is open
 
         self._is_synced = False
-        self._show_all_lyrics = False  # Toggle: karaoke vs full plain view
+        self._show_all_lyrics = False  # True while browsing all lines (not following)
         self._lyrics_lines: list[tuple[int, str]] = []
         self._active_idx = -1
         self._last_position_ms = -1
-        self._preview_capacity = self._PREVIEW_MIN_ROWS
 
         # Load saved offset from config (stored as tenths of a second, int)
-        self._saved_offset_tenths = app_config.get_lyrics_sync_offset()
-        self._sync_offset_ms = self._saved_offset_tenths * 100
+        self._offset_tenths = app_config.get_lyrics_sync_offset()
+        self._sync_offset_ms = self._offset_tenths * 100
 
         # Debounce timer for saving offset to config
         self._offset_save_timer = QTimer(self)
@@ -276,8 +269,13 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
         try:
             self.controller.mediaplayer.position_changed.connect(self._on_position_changed)
+            self.controller.mediaplayer.position_changed.connect(self._progress.set_position)
         except (AttributeError, RuntimeError) as exc:
             logger.warning(f"NowPlayingView: could not connect position_changed: {exc}")
+        try:
+            self.controller.mediaplayer.duration_changed.connect(self._progress.set_duration)
+        except (AttributeError, RuntimeError) as exc:
+            logger.warning(f"NowPlayingView: could not connect duration_changed: {exc}")
 
         if self.track:
             self.updateUI(self.track)
@@ -392,32 +390,27 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── LEFT — album art ─────────────────────────────────────────────
-        left_widget = QWidget()
-        left_widget.setProperty("bgTransparent", True)
-        left_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        left_widget.setMinimumWidth(260)
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(32, 36, 16, 36)
-
-        self._art_card = _ArtCard(backdrop=self._backdrop)
-        self._art_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        left_layout.addWidget(self._art_card, stretch=1)
-
-        root.addWidget(left_widget, 42)
+        # ── LEFT — album art, slide dots, progress ───────────────────────
+        self._art_card = _ArtCard(backdrop=self._backdrop, shadow_pad=_ART_SHADOW_PAD)
+        self._slide_dots = _SlideDots()
+        self._progress = _ProgressStrip()
+        art_column = _ArtColumn(self._art_card, self._slide_dots, self._progress)
+        # Side margins are at least the shadow pad so the shadow isn't clipped.
+        art_column.setContentsMargins(32, 36, _ART_SHADOW_PAD, 28)
+        art_column.setMinimumWidth(260)
+        root.addWidget(art_column, 42)
 
         # ── RIGHT — metadata + content ───────────────────────────────────
         right_widget = QWidget()
         right_widget.setProperty("bgTransparent", True)
         right_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         right_layout = QVBoxLayout(right_widget)
-        right_layout.setContentsMargins(16, 36, 32, 24)
+        right_layout.setContentsMargins(8, 36, 32, 24)
         right_layout.setSpacing(4)
 
         # Title — word-wraps up to three lines like a normal label; only a
         # title that would need a fourth line falls back to the panning
-        # marquee used by the artist line below. Colour mirrors the QSS
-        # QLabel[npRole="title"] rule (which no longer applies to a QWidget).
+        # marquee used by the artist line below.
         self._title_lbl = _AdaptiveTitle(
             "No Track Playing", self._TITLE_FONT, "rgba(230,235,255,0.94)"
         )
@@ -432,23 +425,13 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._apply_text_shadow(self._artist_marquee, blur=12, y_offset=1, alpha=200)
         right_layout.addWidget(self._artist_marquee)
 
-        # Album
+        # Album — one line: "Album · Subtitle · Year" (see _album_line).
         self._album_lbl = QLabel("—")
         self._album_lbl.setFont(self._ALBUM_FONT)
         self._album_lbl.setProperty("npRole", "album")
         self._album_lbl.setWordWrap(True)
         self._apply_text_shadow(self._album_lbl, blur=10, y_offset=1, alpha=190)
         right_layout.addWidget(self._album_lbl)
-
-        # Album subtitle — optional extra line (e.g. "Deluxe Edition"); hidden
-        # entirely when the album carries no subtitle so it takes no space.
-        self._album_subtitle_lbl = QLabel("")
-        self._album_subtitle_lbl.setFont(self._ALBUM_SUBTITLE_FONT)
-        self._album_subtitle_lbl.setProperty("npRole", "albumSubtitle")
-        self._album_subtitle_lbl.setWordWrap(True)
-        self._apply_text_shadow(self._album_subtitle_lbl, blur=8, y_offset=1, alpha=170)
-        self._album_subtitle_lbl.hide()
-        right_layout.addWidget(self._album_subtitle_lbl)
 
         right_layout.addSpacing(10)
 
@@ -463,162 +446,46 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
         self._chip_row = _ScrollingChipRow()
         right_layout.addWidget(self._chip_row)
-        right_layout.addSpacing(14)
+        right_layout.addSpacing(16)
 
-        # ── Tab bar ───────────────────────────────────────────────────────
+        # ── Tab bar (text tabs, accent underline on the active one) ──────
         # Tab buttons are inserted (before this stretch) once the pages and the
         # self._tabs registry are built — see "Tab registry" below.
         tab_bar = QHBoxLayout()
         tab_bar.setContentsMargins(0, 0, 0, 0)
-        tab_bar.setSpacing(0)
+        tab_bar.setSpacing(22)
         tab_bar.addStretch()
-
-        # Toggle to show/hide the sync-offset slider row
-        self._sync_toggle_btn = QPushButton("⏱")
-        # Pin height only — the shared [npToggle] QSS reserves 8px of horizontal
-        # padding each side, so a 24px-wide square clips the glyph. Let the width
-        # follow the size hint (glyph + padding + border).
-        self._sync_toggle_btn.setFixedHeight(24)
-        self._sync_toggle_btn.setCursor(Qt.PointingHandCursor)
-        self._sync_toggle_btn.setToolTip("Toggle lyric sync slider")
-        self._sync_toggle_btn.setProperty("npToggle", True)
-        self._set_active(self._sync_toggle_btn, False)
-        self._sync_toggle_btn.clicked.connect(self._on_toggle_sync_slider)
-        tab_bar.addWidget(self._sync_toggle_btn)
-
-        # Opens the manual tap-to-sync dialog (disabled until lyrics load).
-        self._manual_sync_btn = QPushButton("SYNC")
-        self._manual_sync_btn.setFixedHeight(24)
-        self._manual_sync_btn.setCursor(Qt.PointingHandCursor)
-        self._manual_sync_btn.setToolTip("Manually sync lyrics line-by-line")
-        self._manual_sync_btn.setProperty("npToggle", True)
-        self._set_active(self._manual_sync_btn, False)
-        self._manual_sync_btn.setEnabled(False)
-        self._manual_sync_btn.clicked.connect(self._on_open_sync_dialog)
-        tab_bar.addWidget(self._manual_sync_btn)
-
         right_layout.addLayout(tab_bar)
-
-        tab_rule = QFrame()
-        tab_rule.setFrameShape(QFrame.HLine)
-        tab_rule.setProperty("npRule", True)
-        tab_rule.setFixedHeight(1)
-        right_layout.addWidget(tab_rule)
-        right_layout.addSpacing(10)
+        right_layout.addSpacing(12)
 
         # ── Stacked pages ─────────────────────────────────────────────────
         self._stack = QStackedWidget()
         self._stack.setProperty("bgTransparent", True)
         self._stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        # Page 0: LYRICS
+        # Page 0: LYRICS — lyric column, countdown, lyric toolbar
         lyrics_page = QWidget()
         lyrics_page.setProperty("bgTransparent", True)
         lp = QVBoxLayout(lyrics_page)
         lp.setContentsMargins(0, 0, 0, 0)
         lp.setSpacing(0)
 
-        self._karaoke_lbl = _KaraokeLine()
-        self._karaoke_lbl.setVisible(False)
-        # Same dark halo the title/artist/album labels get — keeps the current
-        # karaoke line readable when the backdrop art itself carries text.
-        self._apply_text_shadow(self._karaoke_lbl, blur=18, y_offset=2, alpha=230)
+        self._lyric_column = _LyricColumn()
+        self._lyric_column.follow_changed.connect(self._on_follow_changed)
+        # Same dark halo the title/artist/album labels get — keeps lyrics
+        # readable when the backdrop art itself carries text.
+        self._apply_text_shadow(self._lyric_column, blur=16, y_offset=2, alpha=200)
+        lp.addWidget(self._lyric_column, stretch=1)
 
-        # Upcoming lyric lines — a preview stack shown below the current karaoke
-        # line, each row fainter than the one above it (see the npRole="nextLyric"
-        # / "nextLyric2" / "nextLyric3" rules in the QSS). The pool is built at
-        # the tallest size; how many actually show is fitted to the block height
-        # by _recalc_preview_capacity(). Rows past the third reuse the faintest
-        # role.
-        self._next_lyric_lbls: list[QLabel] = []
-        for i in range(self._PREVIEW_MAX_ROWS):
-            role = "nextLyric" if i == 0 else "nextLyric2" if i == 1 else "nextLyric3"
-            lbl = QLabel("")
-            lbl.setFont(self._PREVIEW_FONT)
-            lbl.setProperty("npRole", role)
-            lbl.setAlignment(Qt.AlignCenter)
-            lbl.setWordWrap(True)
-            lbl.setVisible(False)
-            # Lighter halo than the current line — enough to lift the faint
-            # preview rows off busy cover art without muddying them.
-            self._apply_text_shadow(lbl, blur=12, y_offset=1, alpha=160)
-            self._next_lyric_lbls.append(lbl)
-
-        self._plain_area = FadedScrollArea()
-        self._plain_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self._plain_lbl = QLabel()
-        self._plain_lbl.setFont(self._PLAIN_FONT)
-        self._plain_lbl.setProperty("npRole", "plainLyrics")
-        self._plain_lbl.setWordWrap(True)
-        self._plain_lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self._plain_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self._plain_lbl.setContentsMargins(0, 8, 0, 24)
-        self._plain_area.setWidget(self._plain_lbl)
-        self._plain_area.setVisible(False)
-
-        self._no_lyrics_lbl = QLabel("No lyrics available")
-        self._no_lyrics_lbl.setAlignment(Qt.AlignCenter)
-        self._no_lyrics_lbl.setProperty("npRole", "noLyrics")
-        self._no_lyrics_lbl.setVisible(False)
-
-        # Countdown label (shown below current lyric when next line is ≥5 s away)
+        # Countdown label (shown while the next line is ≥5 s away)
         self._countdown_lbl = QLabel("")
         self._countdown_lbl.setAlignment(Qt.AlignCenter)
         self._countdown_lbl.setProperty("npRole", "countdown")
         self._countdown_lbl.setFixedHeight(28)
         self._countdown_lbl.setVisible(False)
+        lp.addWidget(self._countdown_lbl)
 
-        # Current + next lyric are grouped so they stay close together;
-        # a stretch inside the group (not the karaoke label itself) absorbs
-        # the leftover vertical space instead of ballooning the gap between them.
-        self._karaoke_block = QWidget()
-        self._karaoke_block.setProperty("bgTransparent", True)
-        kb = QVBoxLayout(self._karaoke_block)
-        kb.setContentsMargins(0, 0, 0, 0)
-        kb.setSpacing(6)
-        kb.addWidget(self._karaoke_lbl)
-        for lbl in self._next_lyric_lbls:
-            kb.addWidget(lbl)
-        kb.addStretch(1)
-
-        lp.addWidget(self._karaoke_block, stretch=1)
-        lp.addWidget(self._plain_area, stretch=1)
-        lp.addWidget(self._no_lyrics_lbl, stretch=1)
-        lp.addWidget(self._countdown_lbl)  # fixed height — sits below lyric
-
-        # Sync offset row — contains slider + "SHOW ALL" toggle
-        self._offset_row = QWidget()
-        self._offset_row.setProperty("bgTransparent", True)
-        off_lay = QHBoxLayout(self._offset_row)
-        off_lay.setContentsMargins(0, 6, 0, 0)
-        off_lay.setSpacing(8)
-
-        self._offset_lbl = QLabel("Sync  −0.5s")  # noqa: RUF001 (U+2212 minus glyph)
-        self._offset_lbl.setProperty("npRole", "offsetLabel")
-        self._offset_lbl.setFixedWidth(80)
-
-        self._offset_slider = QSlider(Qt.Horizontal)
-        self._offset_slider.setObjectName("NowPlayingSyncSlider")
-        self._offset_slider.setRange(-50, 50)
-        # Restore saved slider position
-        self._offset_slider.setValue(self._saved_offset_tenths)
-        self._offset_slider.setTickInterval(5)
-        self._offset_slider.setSingleStep(1)
-        self._offset_slider.valueChanged.connect(self._on_offset_changed)
-
-        # "SHOW ALL" / "KARAOKE" toggle button
-        self._toggle_mode_btn = QPushButton("SHOW ALL")
-        self._toggle_mode_btn.setFixedHeight(20)
-        self._toggle_mode_btn.setCursor(Qt.PointingHandCursor)
-        self._toggle_mode_btn.setProperty("npToggle", True)
-        self._set_active(self._toggle_mode_btn, False)
-        self._toggle_mode_btn.clicked.connect(self._on_toggle_lyrics_mode)
-
-        off_lay.addWidget(self._offset_lbl)
-        off_lay.addWidget(self._offset_slider)
-        off_lay.addWidget(self._toggle_mode_btn)
-        self._offset_row.setVisible(False)
-        lp.addWidget(self._offset_row)
+        lp.addWidget(self._build_lyrics_toolbar())
 
         # Page 1: CREDITS
         self._credits_panel = _CreditsPanel()
@@ -667,6 +534,73 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
         root.addWidget(right_widget, 58)
 
+    def _build_lyrics_toolbar(self) -> QWidget:
+        """Quiet row under the lyrics: follow toggle, sync-offset stepper,
+        manual sync. It lives on the LYRICS page, so it only shows there."""
+        self._lyrics_toolbar = QWidget()
+        self._lyrics_toolbar.setProperty("bgTransparent", True)
+        self._lyrics_toolbar.setVisible(False)
+        tb = QHBoxLayout(self._lyrics_toolbar)
+        tb.setContentsMargins(0, 8, 0, 0)
+        tb.setSpacing(6)
+
+        self._toggle_mode_btn = self._make_toggle(
+            "≡  ALL LINES",
+            "Scroll through all lines. Click again to follow the song.",
+            self._on_toggle_lyrics_mode,
+        )
+        tb.addWidget(self._toggle_mode_btn)
+        tb.addStretch(1)
+
+        # Offset stepper: [minus] [⏱ +0.3s] [plus]. The value button resets to 0.
+        self._offset_group = QWidget()
+        self._offset_group.setProperty("bgTransparent", True)
+        og = QHBoxLayout(self._offset_group)
+        og.setContentsMargins(0, 0, 0, 0)
+        og.setSpacing(2)
+        self._offset_minus_btn = self._make_toggle(
+            "−",  # noqa: RUF001 (U+2212 minus glyph)
+            "Show lyrics 0.1 s later",
+            lambda: self._nudge_offset(-1),
+        )
+        self._offset_value_btn = self._make_toggle(
+            "", "Lyric timing offset. Click to reset to 0.", self._reset_offset
+        )
+        self._offset_plus_btn = self._make_toggle(
+            "+", "Show lyrics 0.1 s earlier", lambda: self._nudge_offset(1)
+        )
+        for btn in (self._offset_minus_btn, self._offset_plus_btn):
+            btn.setAutoRepeat(True)
+            btn.setAutoRepeatDelay(400)
+            btn.setAutoRepeatInterval(90)
+        og.addWidget(self._offset_minus_btn)
+        og.addWidget(self._offset_value_btn)
+        og.addWidget(self._offset_plus_btn)
+        tb.addWidget(self._offset_group)
+        tb.addSpacing(8)
+
+        # Opens the manual tap-to-sync dialog (disabled until lyrics load).
+        self._manual_sync_btn = self._make_toggle(
+            "SYNC…", "Manually sync lyrics line by line", self._on_open_sync_dialog
+        )
+        self._manual_sync_btn.setEnabled(False)
+        tb.addWidget(self._manual_sync_btn)
+
+        self._refresh_offset_btn()
+        return self._lyrics_toolbar
+
+    def _make_toggle(self, text: str, tooltip: str, slot) -> QPushButton:
+        """Small [npToggle] pill button. Height is pinned so the toolbar row
+        is stable; width follows the size hint (glyph + QSS padding)."""
+        btn = QPushButton(text)
+        btn.setFixedHeight(24)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setToolTip(tooltip)
+        btn.setProperty("npToggle", True)
+        self._set_active(btn, False)
+        btn.clicked.connect(lambda _checked=False: slot())
+        return btn
+
     # ── tab switching ──────────────────────────────────────────────────────
 
     @staticmethod
@@ -693,34 +627,6 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._backdrop.setGeometry(0, 0, self.width(), self.height())
-        if (
-            self._recalc_preview_capacity()
-            and self._is_synced
-            and not self._show_all_lyrics
-            and self._active_idx >= 0
-        ):
-            self._update_next_lyric_lbl(self._active_idx)
-
-    def _recalc_preview_capacity(self) -> bool:
-        """Fit the upcoming-lyric preview stack to the karaoke block's height.
-
-        Returns True when the row count changed. Called on resize and before
-        every preview refill so a taller panel shows more upcoming lines,
-        bounded by _PREVIEW_MIN_ROWS.._PREVIEW_MAX_ROWS.
-        """
-        block_h = self._karaoke_block.height()
-        if block_h <= 0:
-            return False
-        # kb layout spacing is 6px; reserve up to two wrapped rows for the
-        # current line's larger font before dividing the rest into preview rows.
-        row_h = QFontMetrics(self._PREVIEW_FONT).lineSpacing() + 6
-        current_h = QFontMetrics(self._karaoke_lbl.font()).lineSpacing() * 2
-        fits = (block_h - current_h - 6) // row_h
-        new_cap = max(self._PREVIEW_MIN_ROWS, min(self._PREVIEW_MAX_ROWS, int(fits)))
-        if new_cap == self._preview_capacity:
-            return False
-        self._preview_capacity = new_cap
-        return True
 
     # ── public API ────────────────────────────────────────────────────────
 
@@ -749,15 +655,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
                 artist_str = getattr(artists[0], "artist_name", "") if artists else ""
             self._artist_marquee.set_text(artist_str or "—")
 
-            album = getattr(track, "album", None)
-            if album:
-                name = censor_text(getattr(album, "album_name", "") or "—")
-                year = getattr(album, "release_year", None)
-                self._album_lbl.setText(f"{name}  ({year})" if year else name)
-                self._set_album_subtitle(getattr(album, "album_subtitle", None))
-            else:
-                self._album_lbl.setText("—")
-                self._set_album_subtitle(None)
+            self._album_lbl.setText(self._album_line(getattr(track, "album", None)))
 
             self._update_chips(track)
             self._update_lyrics(track)
@@ -769,6 +667,9 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
                 visible.on_show(track)
 
             self._load_art_from_track(track)
+
+            self._progress.reset()
+            self._progress.set_duration(self._player_duration())
 
             logger.debug(f"updateUI TOTAL: {time.time() - t0:.3f}s")
 
@@ -789,7 +690,7 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         self._title_lbl.set_text("No Track Playing")
         self._artist_marquee.set_text("—")
         self._album_lbl.setText("—")
-        self._set_album_subtitle(None)
+        self._progress.reset()
         self._tab_lyrics.setEnabled(True)
         self._set_lyrics_mode_none()
         for spec in self._tabs:
@@ -801,15 +702,25 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
         else:
             self._load_art(None)
 
-    def _set_album_subtitle(self, subtitle):
-        """Show the optional album-subtitle line, or hide it when empty."""
-        text = censor_text(subtitle) if subtitle else ""
-        if text:
-            self._album_subtitle_lbl.setText(f"({text})")
-            self._album_subtitle_lbl.show()
-        else:
-            self._album_subtitle_lbl.clear()
-            self._album_subtitle_lbl.hide()
+    @staticmethod
+    def _album_line(album) -> str:
+        """``"Album · Subtitle · Year"``, skipping the parts the album lacks;
+        ``"—"`` with no album."""
+        if album is None:
+            return "—"
+        parts = [censor_text(getattr(album, "album_name", "") or "—")]
+        subtitle = getattr(album, "album_subtitle", None)
+        if subtitle and str(subtitle).strip():
+            parts.append(censor_text(str(subtitle).strip()))
+        year = getattr(album, "release_year", None)
+        if year:
+            parts.append(str(year))
+        return "  ·  ".join(parts)
+
+    def _player_duration(self) -> int:
+        """Current track length from the player, or 0 when it has none yet."""
+        duration = getattr(self.controller.mediaplayer, "duration", 0)
+        return duration if isinstance(duration, int) else 0
 
     # ── chips ─────────────────────────────────────────────────────────────
 
