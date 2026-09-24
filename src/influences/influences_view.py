@@ -1,5 +1,5 @@
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QMessageBox, QPushButton, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QMessageBox, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.widgets.entity_completer_edit import EntityCompleterEdit
@@ -28,10 +28,12 @@ class InfluencesView(QWidget):
 
         layout.addWidget(self._build_toolbar())
 
-        # Graph view
+        # Graph view -- stretch 1 so it takes all spare height; the toolbar
+        # and graph are both Preferred, so without it the layout splits the
+        # extra height between them and the toolbar balloons.
         self.graph_view = InfluenceGraphView(self.controller)
         self.graph_view.graph_updated.connect(self._refresh_find_index)
-        layout.addWidget(self.graph_view)
+        layout.addWidget(self.graph_view, 1)
 
         self.setLayout(layout)
 
@@ -41,6 +43,7 @@ class InfluencesView(QWidget):
         actions (Add/Remove Influence) grouped on the right."""
         toolbar = QFrame()
         toolbar.setObjectName("InfluencesToolbar")
+        toolbar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         toolbar_layout = QHBoxLayout(toolbar)
         toolbar_layout.setContentsMargins(8, 6, 8, 6)
         toolbar_layout.setSpacing(8)
