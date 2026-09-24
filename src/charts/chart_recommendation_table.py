@@ -30,6 +30,8 @@ from src.charts.chart_table_placeholder import install_empty_placeholder, sync_e
 _COLUMNS = ["Title", "Artist", "Type", "Chart", "Peak", "Weeks on Chart", "Connects"]
 _SORT_VALUE_ROLE = Qt.UserRole + 1
 _NUMERIC_COLUMNS = {4, 5, 6}  # Peak, Weeks on Chart, Connects
+_TITLE_WIDTH = 260
+_ARTIST_WIDTH = 200
 
 
 class _RecommendationTreeItem(QTreeWidgetItem):
@@ -58,8 +60,11 @@ class ChartRecommendationTable(QTreeWidget):
         # No column sorted at start, so results keep arriving in their
         # pre-ranked order until the user clicks a header.
         self.header().setSortIndicator(-1, Qt.AscendingOrder)
-        self.header().setSectionResizeMode(0, QHeaderView.Stretch)  # Title column grows
-        self.header().setSectionResizeMode(1, QHeaderView.Stretch)  # Artist column grows
+        # Interactive (not Stretch) so the user can drag every column border;
+        # Stretch sections ignore drags. Title/Artist start wide instead.
+        self.header().setSectionResizeMode(QHeaderView.Interactive)
+        self.setColumnWidth(0, _TITLE_WIDTH)
+        self.setColumnWidth(1, _ARTIST_WIDTH)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
         self._empty_label = install_empty_placeholder(self, empty_text)

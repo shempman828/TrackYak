@@ -8,6 +8,7 @@ columns.
 """
 
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QHeaderView
 
 from src.charts.chart_recommendation_table import ChartRecommendationTable
 from src.charts.chart_recommendations import MissingChartItem
@@ -24,6 +25,18 @@ def _make_items():
 def test_sorting_is_enabled(qapp):
     table = ChartRecommendationTable()
     assert table.isSortingEnabled()
+
+
+def test_columns_are_user_resizable(qapp):
+    # Title/Artist used to be QHeaderView.Stretch, which ignores header
+    # drags, so the Gap Fills / Missing Popular columns could not be resized.
+    table = ChartRecommendationTable()
+    header = table.header()
+    last = header.count() - 1  # stretchLastSection fills the leftover width
+    for column in range(last):
+        assert header.sectionResizeMode(column) == QHeaderView.Interactive
+    table.setColumnWidth(0, 123)
+    assert table.columnWidth(0) == 123
 
 
 def test_populate_keeps_pre_ranked_order_before_any_header_click(qapp):

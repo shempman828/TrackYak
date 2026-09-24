@@ -607,7 +607,8 @@ filter, run length, or year, or match an entry, "Computing recommendations…"
 shows briefly while the list rebuilds in the background — the rest of the app
 stays responsive meanwhile. Both tables start in ranked order; click a column
 header to sort by it instead (Peak, Weeks on Chart, and Connects sort by
-their number, not as text), and click again to reverse the order.
+their number, not as text), and click again to reverse the order. Drag a
+column border in the header to make that column wider or narrower.
 
 **Matching by hand**: right-click any entry (in Week Browser, Search, or
 Recommendations) for Match to Track/Album, which opens a search-and-pick
