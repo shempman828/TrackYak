@@ -150,7 +150,12 @@ all of it. On the right, the title, artist, and album sit above a row of
 quick-glance details (BPM, key, release year, play count, genres) that only
 show up if the track actually has that data. A title just wraps onto more
 lines as it gets longer; only once it would need more than three does it
-switch to slowly panning back and forth instead. The artist line always
+switch to slowly panning back and forth instead. For a track marked
+**Classical**, the title is built from its Classical fields instead of the
+plain track name — composer, work, catalogue number, and movement, e.g.
+*"Ludwig van Beethoven: Symphony No. 5 in C minor Op. 67 — I. Allegro con
+brio"* — while the performers stay on the artist line below. A classical
+track with no work or movement filled in keeps its normal title. The artist line always
 pans when it's too long to fit. If
 the album has a subtitle set (e.g. "Deluxe Edition"), it appears on its own
 faint line just below the album name; albums without one show nothing there.

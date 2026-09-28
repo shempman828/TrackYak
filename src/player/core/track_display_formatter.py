@@ -8,21 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.foundation.logger_config import logger
 
-_MONTH_NAMES = [
-    "",
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-]
+_MONTH_NAMES = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 
 
 def format_track_display(track) -> str:
@@ -60,6 +46,31 @@ def _format_standard_track(track) -> str:
     return " ".join(parts)
 
 
+def format_classical_title(track) -> str | None:
+    """One-line classical title: ``"Composer: Work Cat. No. — I. Movement"``.
+
+    Built for title labels that sit above a separate artist line, so it leaves
+    out the performer and the dates that ``format_track_display`` adds. Returns
+    ``None`` for a non-classical track or one with no work/movement data, so
+    the caller keeps its plain ``track_name``.
+    """
+    try:
+        if not getattr(track, "is_classical", False):
+            return None
+        work = _classical_work_line(track, with_date=False)
+        movement = _classical_movement_line(track)
+        body = " — ".join(part for part in (work, movement) if part)
+        if not body:
+            return None
+        composer_names = _get_composer_names(track)
+        if composer_names and composer_names != "Unknown Composer":
+            return f"{composer_names}: {body}"
+        return body
+    except (SQLAlchemyError, AttributeError, TypeError) as e:
+        logger.error(f"Error formatting classical title: {e}")
+        return None
+
+
 def _format_classical_track(track) -> str:
     """Format classical track display with structured information."""
     lines = []
@@ -68,6 +79,39 @@ def _format_classical_track(track) -> str:
     if composer_names:
         lines.append(f"{composer_names}:")
 
+    work_line = _classical_work_line(track, with_date=True)
+    if work_line:
+        lines.append(work_line)
+
+    movement_line = _classical_movement_line(track)
+    if movement_line:
+        lines.append(movement_line)
+
+    perf_parts = []
+
+    rec_date = _format_date(getattr(track, "recorded_year", None), getattr(track, "recorded_month", None), getattr(track, "recorded_day", None), "recorded")
+    if rec_date:
+        perf_parts.append(rec_date)
+
+    first_date = _format_date(getattr(track, "first_performed_year", None), getattr(track, "first_performed_month", None), getattr(track, "first_performed_day", None), "first performed")
+    if first_date:
+        if perf_parts:
+            perf_parts.append(f", {first_date}")
+        else:
+            perf_parts.append(first_date)
+
+    if perf_parts:
+        lines.append(f"({''.join(perf_parts)})")
+
+    performer_name = track.primary_artist_names if hasattr(track, "primary_artist_names") else None
+    if performer_name:
+        lines.append(f"Performed by {performer_name}")
+
+    return "\n".join(lines)
+
+
+def _classical_work_line(track, with_date: bool) -> str:
+    """``"Work Type Work Name Cat. No."`` (plus the composed date if asked)."""
     work_parts = []
 
     work_type = getattr(track, "work_type", None)
@@ -85,18 +129,16 @@ def _format_classical_track(track) -> str:
     elif catalog_number:
         work_parts.append(catalog_number)
 
-    comp_date = _format_date(
-        getattr(track, "composed_year", None),
-        getattr(track, "composed_month", None),
-        getattr(track, "composed_day", None),
-        "composed",
-    )
-    if comp_date:
-        work_parts.append(comp_date)
+    if with_date:
+        comp_date = _format_date(getattr(track, "composed_year", None), getattr(track, "composed_month", None), getattr(track, "composed_day", None), "composed")
+        if comp_date:
+            work_parts.append(comp_date)
 
-    if work_parts:
-        lines.append(" ".join(work_parts))
+    return " ".join(work_parts)
 
+
+def _classical_movement_line(track) -> str:
+    """``"I. Movement Name"``; empty when the track has neither part."""
     movement_parts = []
 
     movement_number_roman = getattr(track, "movement_number_roman", None)
@@ -107,40 +149,7 @@ def _format_classical_track(track) -> str:
     if movement_name:
         movement_parts.append(movement_name)
 
-    if movement_parts:
-        lines.append(" ".join(movement_parts))
-
-    perf_parts = []
-
-    rec_date = _format_date(
-        getattr(track, "recorded_year", None),
-        getattr(track, "recorded_month", None),
-        getattr(track, "recorded_day", None),
-        "recorded",
-    )
-    if rec_date:
-        perf_parts.append(rec_date)
-
-    first_date = _format_date(
-        getattr(track, "first_performed_year", None),
-        getattr(track, "first_performed_month", None),
-        getattr(track, "first_performed_day", None),
-        "first performed",
-    )
-    if first_date:
-        if perf_parts:
-            perf_parts.append(f", {first_date}")
-        else:
-            perf_parts.append(first_date)
-
-    if perf_parts:
-        lines.append(f"({''.join(perf_parts)})")
-
-    performer_name = track.primary_artist_names if hasattr(track, "primary_artist_names") else None
-    if performer_name:
-        lines.append(f"Performed by {performer_name}")
-
-    return "\n".join(lines)
+    return " ".join(movement_parts)
 
 
 def _get_composer_names(track) -> str:

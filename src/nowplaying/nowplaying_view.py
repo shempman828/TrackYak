@@ -27,6 +27,7 @@ from src.nowplaying.nowplaying_lyric_column import _LyricColumn
 from src.nowplaying.nowplaying_lyrics import NowPlayingLyricsMixin
 from src.nowplaying.nowplaying_marquee import MarqueeLabel
 from src.nowplaying.nowplaying_progress import _ProgressStrip
+from src.player.core.track_display_formatter import format_classical_title
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Constants
@@ -615,7 +616,8 @@ class NowPlayingView(NowPlayingLyricsMixin, NowPlayingArtMixin, QWidget):
 
             self.track = track
 
-            self._title_lbl.set_text(censor_text(getattr(track, "track_name", None) or "Unknown Title"))
+            title = format_classical_title(track) or getattr(track, "track_name", None) or "Unknown Title"
+            self._title_lbl.set_text(censor_text(title))
 
             # Use primary_artist_names property (Oxford-comma formatted)
             artist_str = getattr(track, "primary_artist_names", None)

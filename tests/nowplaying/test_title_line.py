@@ -36,13 +36,7 @@ def title(qapp):
 
 
 def _track(**kw):
-    base = {
-        "track_name": "So What",
-        "primary_artist_names": "Miles Davis",
-        "album": None,
-        "lyrics": None,
-        "is_instrumental": None,
-    }
+    base = {"track_name": "So What", "primary_artist_names": "Miles Davis", "album": None, "lyrics": None, "is_instrumental": None}
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -122,10 +116,7 @@ def test_wrap_reserves_no_blank_row(title):
             # _wrap is pinned with setFixedHeight so its own heightForWidth
             # just echoes `reserved` back.
             rendered = title._probe.heightForWidth(title._avail_width())
-            assert abs(reserved - rendered) < ls * 0.5, (
-                f"{text!r} @ {width}px: reserved {reserved}px for a title that "
-                f"renders in {rendered}px"
-            )
+            assert abs(reserved - rendered) < ls * 0.5, f"{text!r} @ {width}px: reserved {reserved}px for a title that renders in {rendered}px"
 
 
 def test_title_shrinks_after_a_taller_title(title):
@@ -194,3 +185,54 @@ def test_title_routed_through_censor_text(view, monkeypatch):
     view.updateUI(_track(track_name="rude words"))
     assert "rude words" in seen
     assert view._title_lbl._text == "CENSORED"
+
+
+# ── classical tracks ─────────────────────────────────────────────────────────
+
+
+def _classical(**kw):
+    base = {
+        "track_name": "Symphony No. 5 in C minor, Op. 67: I. Allegro con brio",
+        "is_classical": True,
+        "composers": [SimpleNamespace(artist_name="Ludwig van Beethoven")],
+        "work_type": "Symphony",
+        "work_name": "No. 5 in C minor",
+        "classical_catalog_prefix": "Op.",
+        "classical_catalog_number": "67",
+        "movement_number_roman": "I",
+        "movement_name": "Allegro con brio",
+        "composed_year": 1808,
+        "primary_artist_names": "Berliner Philharmoniker",
+    }
+    base.update(kw)
+    return _track(**base)
+
+
+def test_classical_track_shows_classical_title(view):
+    """Regression: classical tracks showed the raw ``track_name`` instead of
+    the structured composer/work/movement title."""
+    view.updateUI(_classical())
+    assert view._title_lbl._text == ("Ludwig van Beethoven: Symphony No. 5 in C minor Op. 67 — I. Allegro con brio")
+
+
+def test_classical_title_is_one_line_without_performer_or_dates(view):
+    view.updateUI(_classical())
+    text = view._title_lbl._text
+    assert "\n" not in text
+    assert "Berliner" not in text
+    assert "1808" not in text
+
+
+def test_classical_title_omits_unknown_composer(view):
+    view.updateUI(_classical(composers=[]))
+    assert view._title_lbl._text == "Symphony No. 5 in C minor Op. 67 — I. Allegro con brio"
+
+
+def test_classical_without_work_data_keeps_track_name(view):
+    view.updateUI(_classical(work_type=None, work_name=None, classical_catalog_prefix=None, classical_catalog_number=None, movement_number_roman=None, movement_name=None))
+    assert view._title_lbl._text == "Symphony No. 5 in C minor, Op. 67: I. Allegro con brio"
+
+
+def test_non_classical_track_keeps_track_name(view):
+    view.updateUI(_track(track_name="So What", is_classical=False, work_name="Ignored"))
+    assert view._title_lbl._text == "So What"
