@@ -3,6 +3,8 @@ track_view_data.py — lazy DB loading, batch pagination, sorting, and status
 text for TrackView.
 """
 
+import random
+
 from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtGui import QStandardItem
 from sqlalchemy import select
@@ -21,6 +23,24 @@ _ALBUM_DERIVED_FIELDS = ("album_name", "release_year", "release_month", "release
 
 # Relationship-derived columns that a lookup-cache refresh can change.
 _CACHE_DEPENDENT_FIELDS = frozenset({"primary_artist_names", "disc_number", *_ALBUM_DERIVED_FIELDS})
+
+# One seed per program run. The main TrackView's default order is random per
+# session (so a large library doesn't open on the same rows every day) but
+# stable within it: a Refresh or a cleared search shows the same order again.
+_SESSION_SHUFFLE_SEED = random.getrandbits(64)
+
+
+def session_shuffled(tracks: list, seed: int | None = None) -> list:
+    """
+    Return `tracks` in a pseudo-random order keyed on (seed, track_id).
+
+    Keying on the id rather than shuffling the list in place means the order
+    doesn't depend on the input order: a re-fetch gives the same sequence,
+    and added/removed tracks don't reshuffle everything else.
+    """
+    if seed is None:
+        seed = _SESSION_SHUFFLE_SEED
+    return sorted(tracks, key=lambda t: hash((seed, t.track_id)))
 
 
 def _oxford_join(names: list) -> str:
@@ -155,6 +175,13 @@ class TrackLookupCacheWorker(QObject):
 class TrackViewDataMixin:
     """Lazy loading of tracks from the DB into the Qt model, plus sorting."""
 
+    # TrackView sets this: the whole library opens in a per-session random
+    # order. BaseTrackView lists (a playlist, a mood, ...) keep given order.
+    _shuffle_default_order = False
+
+    def _default_order(self, tracks: list) -> list:
+        return session_shuffled(tracks) if self._shuffle_default_order else tracks
+
     def load_tracks_on_startup(self):
         """
         Load all tracks from DB into self._all_tracks (once).
@@ -170,7 +197,7 @@ class TrackViewDataMixin:
         if not self._tracks_loaded:
             try:
                 tracks = self.controller.get.get_all_entities("Track")
-                self._all_tracks = tracks or []
+                self._all_tracks = self._default_order(tracks or [])
                 self._tracks_loaded = True
                 logger.info(f"Fetched {len(self._all_tracks):,} tracks from DB (one-time).")
             except SQLAlchemyError as e:
@@ -190,7 +217,7 @@ class TrackViewDataMixin:
 
     def load_data(self, tracks: list):
         """External callers (e.g. main_window refresh) can push a new track list."""
-        self._all_tracks = tracks or []
+        self._all_tracks = self._default_order(tracks or [])
         self._tracks_loaded = True
         self._build_lookup_caches()
         self._redisplay_tracks()

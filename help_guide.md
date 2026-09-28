@@ -81,6 +81,13 @@ album.
 This is the whole library, flattened into one table — the place to start when
 you know roughly what you're looking for but not which view it lives in.
 
+**Starting order**: until you search or sort, the table lists your tracks in
+a random order, picked fresh each time you start the program — so a big
+library doesn't open on the same handful of tracks every day. The order
+stays put for the rest of that session: clearing a search or using Refresh
+Library brings back the same sequence. Click any column header to sort
+normally instead.
+
 **Finding something**: type in the search bar and press Enter. While the
 search runs, the status text at the right of the toolbar says "Searching…";
 when it finishes, it shows how many tracks matched. It matches against

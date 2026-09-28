@@ -28,15 +28,7 @@ from src.track.view.track_view_search import TrackViewSearchMixin
 from src.track.view.track_view_toolbar import TrackViewToolbarMixin
 
 
-class TrackView(
-    QWidget,
-    TrackViewToolbarMixin,
-    TrackViewColumnsMixin,
-    TrackViewDataMixin,
-    TrackViewSearchMixin,
-    TrackViewActionsMixin,
-    TrackViewEditingMixin,
-):
+class TrackView(QWidget, TrackViewToolbarMixin, TrackViewColumnsMixin, TrackViewDataMixin, TrackViewSearchMixin, TrackViewActionsMixin, TrackViewEditingMixin):
     """
     Main library track view with lazy loading.
 
@@ -45,6 +37,8 @@ class TrackView(
     self._filtered_tracks  — active subset when a search filter is live.
     self._filter_active    — True while a search filter is applied.
     """
+
+    _shuffle_default_order = True
 
     def __init__(self, controller, music_player):
         super().__init__()
