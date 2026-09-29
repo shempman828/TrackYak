@@ -130,9 +130,14 @@ class PlaceSongAboutReviewDialog(QDialog):
         for place in self.controller.get.get_all_entities("Place") or []:
             places_by_name[(place.place_name or "").strip().lower()].append(place)
 
+        # Rebuilding the table resets its scroll bar to the top; keep the
+        # user's place so each decision doesn't jump them back to row one.
+        scroll_bar = self._table.verticalScrollBar()
+        scroll_pos = scroll_bar.value()
         self._table.setRowCount(0)
         for place_name in sorted(grouped.keys(), key=str.lower):
             self._add_row(place_name, grouped[place_name], places_by_name)
+        scroll_bar.setValue(scroll_pos)
 
         count = len(grouped)
         self._status_label.setText(f"{count} place{'s' if count != 1 else ''} awaiting review" if count else "Nothing to review.")

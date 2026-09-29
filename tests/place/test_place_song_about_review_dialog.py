@@ -126,6 +126,27 @@ def test_approve_writes_association_for_every_queued_track_and_saves_decision(qa
         dlg.deleteLater()
 
 
+def test_decision_keeps_the_table_scroll_position(qapp, controller):
+    """Approve/Change/Reject rebuilds the table; the user must stay where
+    they were in a long list, not be thrown back to the first row."""
+    store.enqueue([{"track_id": i, "place_name": f"Place {i:03d}", "place_id": i} for i in range(100)])
+
+    dlg = PlaceSongAboutReviewDialog(controller)
+    try:
+        dlg.resize(640, 420)
+        dlg.show()
+        scroll_bar = dlg._table.verticalScrollBar()
+        scroll_bar.setValue(scroll_bar.maximum() // 2)
+        before = scroll_bar.value()
+        assert before > 0
+
+        dlg._reject("Place 000")
+
+        assert scroll_bar.value() == before
+    finally:
+        dlg.deleteLater()
+
+
 def test_approve_uses_song_about_association_type(qapp, session, controller):
     place = _make_place(session, "Bath")
     track = _make_track(session)
