@@ -12,13 +12,7 @@ from src.foundation.logger_config import logger
 from src.metadata.metadata_byte_utils import syncsafe_to_int
 from src.metadata.metadata_image_utils import find_picture_indices_for_role
 from src.metadata.writers.metadata_id3_writer import ID3TagWriter
-from src.metadata.writers.metadata_writer_backup import (
-    atomic_write,
-    backup_file,
-    discard_backup,
-    restore_backup,
-    write_artwork_with_backup,
-)
+from src.metadata.writers.metadata_writer_backup import atomic_write, backup_file, discard_backup, restore_backup, write_artwork_with_backup
 from src.metadata.writers.metadata_writer_id3_picture import Id3PictureWriter
 from src.metadata.writers.metadata_writer_merge import merge_id3_frames
 from src.metadata.writers.metadata_writer_types import WriteMode
@@ -49,10 +43,7 @@ class MP3FileWriter:
             with Path(file_path).open("rb") as f:
                 file_data = f.read()
 
-            existing_frame_bytes = [
-                (frame_id, self._rewrap_frame_as_v3(frame_id, file_data[pos + 10 : pos + size]))
-                for frame_id, pos, size in existing_frames
-            ]
+            existing_frame_bytes = [(frame_id, self._rewrap_frame_as_v3(frame_id, file_data[pos + 10 : pos + size])) for frame_id, pos, size in existing_frames]
 
             all_frames = merge_id3_frames(existing_frame_bytes, new_frames, mode)
             new_tag = self.id3_writer.build_id3_tag(all_frames)
@@ -86,10 +77,7 @@ class MP3FileWriter:
             with Path(file_path).open("rb") as f:
                 file_data = f.read()
 
-            return {
-                frame_id: self._rewrap_frame_as_v3(frame_id, file_data[pos + 10 : pos + size])
-                for frame_id, pos, size in existing_frames
-            }
+            return {frame_id: self._rewrap_frame_as_v3(frame_id, file_data[pos + 10 : pos + size]) for frame_id, pos, size in existing_frames}
         except (OSError, struct.error) as e:
             logger.debug(f"Error reading existing ID3 frames for {file_path}: {e}")
             return {}
@@ -105,6 +93,10 @@ class MP3FileWriter:
         """
         if role not in Id3PictureWriter.ROLE_TO_TYPE:
             raise ValueError(f"Unknown artwork role: {role}")
+
+        if not Path(file_path).exists():
+            logger.debug(f"Skipping artwork write - file not found: {file_path}")
+            return False
 
         if not os.access(file_path, os.W_OK):
             logger.debug(f"Skipping artwork write - not writable: {file_path}")
@@ -123,20 +115,11 @@ class MP3FileWriter:
             with Path(file_path).open("rb") as f:
                 file_data = f.read()
 
-            raw_frames = [
-                (frame_id, self._rewrap_frame_as_v3(frame_id, file_data[pos + 10 : pos + size]))
-                for frame_id, pos, size in existing_frames
-            ]
+            raw_frames = [(frame_id, self._rewrap_frame_as_v3(frame_id, file_data[pos + 10 : pos + size])) for frame_id, pos, size in existing_frames]
 
-            target_indices = set(
-                self._find_picture_indices_for_role(raw_frames, role, version_major)
-            )
+            target_indices = set(self._find_picture_indices_for_role(raw_frames, role, version_major))
 
-            new_frames = [
-                frame_bytes
-                for idx, (frame_id, frame_bytes) in enumerate(raw_frames)
-                if idx not in target_indices
-            ]
+            new_frames = [frame_bytes for idx, (frame_id, frame_bytes) in enumerate(raw_frames) if idx not in target_indices]
 
             if image_bytes is not None:
                 new_frames.append(self.id3_picture_writer.build_apic_frame(role, image_bytes))
@@ -152,9 +135,7 @@ class MP3FileWriter:
 
             return True
 
-        return write_artwork_with_backup(
-            file_path, role, image_bytes, Id3PictureWriter.ROLE_TO_TYPE, mutate, "MP3 artwork"
-        )
+        return write_artwork_with_backup(file_path, role, image_bytes, Id3PictureWriter.ROLE_TO_TYPE, mutate, "MP3 artwork")
 
     def _find_audio_start(self, file_path: str) -> int:
         """Find the start of MP3 audio data (after ID3 tag)."""
@@ -184,10 +165,7 @@ class MP3FileWriter:
 
                 version_major = header[3]
                 if version_major not in (3, 4):
-                    logger.debug(
-                        f"Unsupported ID3 version {version_major} for "
-                        f"frame-level writes: {file_path}"
-                    )
+                    logger.debug(f"Unsupported ID3 version {version_major} for frame-level writes: {file_path}")
                     return frames
 
                 tag_size = syncsafe_to_int(header[6:10])
@@ -201,10 +179,7 @@ class MP3FileWriter:
                         break
 
                     frame_id = frame_header[0:4]
-                    if version_major == 4:
-                        frame_size = syncsafe_to_int(frame_header[4:8])
-                    else:
-                        frame_size = struct.unpack(">I", frame_header[4:8])[0]
+                    frame_size = syncsafe_to_int(frame_header[4:8]) if version_major == 4 else struct.unpack(">I", frame_header[4:8])[0]
 
                     if frame_size == 0:
                         break
@@ -226,9 +201,7 @@ class MP3FileWriter:
         otherwise a frame carried over unchanged from a v2.4 source tag
         (syncsafe size) desyncs every frame boundary that follows it.
         """
-        return (
-            frame_id.encode("ascii") + struct.pack(">I", len(frame_body)) + b"\x00\x00" + frame_body
-        )
+        return frame_id.encode("ascii") + struct.pack(">I", len(frame_body)) + b"\x00\x00" + frame_body
 
     def _peek_picture_type(self, frame_body: bytes, version_major: int):
         """Read just the picture-type byte out of an APIC/PIC frame body,
@@ -249,9 +222,7 @@ class MP3FileWriter:
         except IndexError:
             return None
 
-    def _find_picture_indices_for_role(
-        self, raw_frames: list[tuple[str, bytes]], role: str, version_major: int
-    ):
+    def _find_picture_indices_for_role(self, raw_frames: list[tuple[str, bytes]], role: str, version_major: int):
         """
         Find the indices of every existing APIC/PIC frame that represents
         `role`, using the same typed + untyped-fallback-to-front rule as

@@ -60,3 +60,51 @@ def test_close_with_no_worker_does_not_error(qapp):
         dlg.closeEvent(QCloseEvent())  # self.organizer is None -- must not raise
     finally:
         dlg.deleteLater()
+
+
+def _dialog_with_mock_controller():
+    controller = Mock()
+    dlg = OrganizeFilesDialog(controller)
+    emitted = []
+    dlg.library_modified.connect(lambda: emitted.append(True))
+    return dlg, controller, emitted
+
+
+def test_completion_expires_main_thread_session_after_moves(qapp):
+    """The main-thread session must be expired after FileOrganizer commits on its own thread (regression).
+
+    Otherwise already-loaded Track objects keep their pre-move track_file_path,
+    and artwork reconcile then tried to write the old, missing paths.
+    """
+    dlg, controller, emitted = _dialog_with_mock_controller()
+    try:
+        dlg._organization_complete(True, 3)
+
+        controller.get.session.expire_all.assert_called_once()
+        assert emitted == [True]
+    finally:
+        dlg.deleteLater()
+
+
+def test_completion_expires_session_after_cancel_with_committed_moves(qapp, monkeypatch):
+    """A mid-run cancel still committed the moves done so far, so the session must be expired then too."""
+    monkeypatch.setattr("src.library.organize_files_dialog.QMessageBox.warning", Mock())
+    dlg, controller, emitted = _dialog_with_mock_controller()
+    try:
+        dlg._organization_complete(False, 2)
+
+        controller.get.session.expire_all.assert_called_once()
+        assert emitted == [True]
+    finally:
+        dlg.deleteLater()
+
+
+def test_completion_without_moves_leaves_session_alone(qapp):
+    dlg, controller, emitted = _dialog_with_mock_controller()
+    try:
+        dlg._organization_complete(True, 0)
+
+        controller.get.session.expire_all.assert_not_called()
+        assert emitted == []
+    finally:
+        dlg.deleteLater()

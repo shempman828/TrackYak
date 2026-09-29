@@ -76,9 +76,7 @@ def _copy_xattrs(src: str, dst: str) -> None:
         return
     for name in names:
         try:
-            os.setxattr(
-                dst, name, os.getxattr(src, name, follow_symlinks=False), follow_symlinks=False
-            )
+            os.setxattr(dst, name, os.getxattr(src, name, follow_symlinks=False), follow_symlinks=False)
         except OSError:
             continue
 
@@ -156,11 +154,7 @@ def backup_file(file_path: str) -> str:
     """
     backup_path = file_path + ".bak"
     if Path(backup_path).exists():
-        raise FileExistsError(
-            f"Refusing to overwrite existing backup {backup_path}: a prior write "
-            f"likely failed without restoring. Confirm {file_path} is intact, then "
-            f"move or remove the backup."
-        )
+        raise FileExistsError(f"Refusing to overwrite existing backup {backup_path}: a prior write likely failed without restoring. Confirm {file_path} is intact, then move or remove the backup.")
     shutil.copy2(file_path, backup_path)
     return backup_path
 
@@ -178,10 +172,7 @@ def restore_backup(file_path: str, backup_path: str) -> bool:
         Path(backup_path).unlink()
         return True
     except OSError as e:
-        logger.error(
-            f"Failed to restore {file_path} from backup after a write "
-            f"error: {e}. Backup preserved at {backup_path}"
-        )
+        logger.error(f"Failed to restore {file_path} from backup after a write error: {e}. Backup preserved at {backup_path}")
         return False
 
 
@@ -190,14 +181,7 @@ def discard_backup(backup_path: str) -> None:
     Path(backup_path).unlink(missing_ok=True)
 
 
-def write_artwork_with_backup(
-    file_path: str,
-    role: str,
-    image_bytes: Any,
-    role_to_type: dict[str, int],
-    mutate: Callable[[], bool],
-    error_context: str,
-) -> bool:
+def write_artwork_with_backup(file_path: str, role: str, image_bytes: Any, role_to_type: dict[str, int], mutate: Callable[[], bool], error_context: str) -> bool:
     """
     Shared control-flow skeleton for a format's write_artwork: validate
     `role`, back up the file, run `mutate` (which does the format-specific
@@ -213,6 +197,10 @@ def write_artwork_with_backup(
     if role not in role_to_type:
         raise ValueError(f"Unknown artwork role: {role}")
 
+    if not Path(file_path).exists():
+        logger.debug(f"Skipping artwork write - file not found: {file_path}")
+        return False
+
     if not os.access(file_path, os.W_OK):
         logger.debug(f"Skipping artwork write - not writable: {file_path}")
         return False
@@ -227,10 +215,7 @@ def write_artwork_with_backup(
 
         if not verify_artwork_write(file_path, role, image_bytes):
             restore_backup(file_path, backup_path)
-            logger.error(
-                f"Artwork write verification failed for {file_path} "
-                f"(role={role}); attempted to restore backup"
-            )
+            logger.error(f"Artwork write verification failed for {file_path} (role={role}); attempted to restore backup")
             return False
 
         discard_backup(backup_path)

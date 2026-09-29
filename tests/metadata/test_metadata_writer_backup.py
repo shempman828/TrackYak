@@ -21,12 +21,7 @@ import time
 import pytest
 
 from src.metadata.writers import metadata_writer_backup
-from src.metadata.writers.metadata_writer_backup import (
-    atomic_write,
-    backup_file,
-    sweep_stale_temp_files,
-    write_artwork_with_backup,
-)
+from src.metadata.writers.metadata_writer_backup import atomic_write, backup_file, sweep_stale_temp_files, write_artwork_with_backup
 
 
 def test_backup_file_creates_sibling_bak(tmp_path):
@@ -65,9 +60,7 @@ def test_retry_after_crash_preserves_original_backup(tmp_path):
     # First attempt dies with an exception the caller doesn't catch, leaving
     # the pristine backup and a half-written file behind.
     with pytest.raises(RuntimeError):
-        write_artwork_with_backup(
-            str(src), "front", b"img-bytes", role_to_type, crashing_mutate, "artwork"
-        )
+        write_artwork_with_backup(str(src), "front", b"img-bytes", role_to_type, crashing_mutate, "artwork")
     assert bak.read_bytes() == b"ORIGINAL"
 
     def second_mutate():
@@ -75,12 +68,26 @@ def test_retry_after_crash_preserves_original_backup(tmp_path):
         return True
 
     # Retry must bail rather than overwrite the only good copy.
-    result = write_artwork_with_backup(
-        str(src), "front", b"img-bytes", role_to_type, second_mutate, "artwork"
-    )
+    result = write_artwork_with_backup(str(src), "front", b"img-bytes", role_to_type, second_mutate, "artwork")
 
     assert result is False
     assert bak.read_bytes() == b"ORIGINAL"
+
+
+def test_missing_file_is_skipped_as_not_found(tmp_path, monkeypatch):
+    """A stale DB path (file moved away) must be reported as missing, not as "not writable" (regression)."""
+    missing = tmp_path / "moved-away.flac"
+    mutate_calls = []
+    debug_lines = []
+    monkeypatch.setattr(metadata_writer_backup.logger, "debug", debug_lines.append)
+
+    result = write_artwork_with_backup(str(missing), "front", b"img-bytes", {"front": 3}, lambda: mutate_calls.append(1) or True, "artwork")
+
+    assert result is False
+    assert mutate_calls == []
+    assert any("file not found" in line for line in debug_lines)
+    assert not any("not writable" in line for line in debug_lines)
+    assert not (tmp_path / "moved-away.flac.bak").exists()
 
 
 # --- atomic_write: stranded temp sweep + fs-metadata preservation -------------
