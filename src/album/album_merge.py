@@ -497,6 +497,10 @@ class AlbumMergeList(QDialog):
             btn_dismiss.clicked.connect(lambda _checked=False, b=btn_dismiss: self._dismiss_row(b))
             self._table.setCellWidget(row, self._COL_DISMISS, btn_dismiss)
 
+        # The themed Dismiss button (padding + border) is taller than the
+        # default row height, so grow rows to fit their cell widgets.
+        self._table.resizeRowsToContents()
+
     def _find_row_for_widget(self, widget: QWidget, column: int) -> int | None:
         for row in range(self._table.rowCount()):
             if self._table.cellWidget(row, column) is widget:

@@ -152,6 +152,23 @@ def test_dismiss_button_removes_row_and_persists_the_pair(qapp, tmp_path, monkey
     assert load_dismissed_pairs(dismissed_path, "Album") == {(1, 2)}
 
 
+def test_rows_are_tall_enough_for_the_themed_dismiss_button(qapp):
+    album_a = SimpleNamespace(album_id=1, album_name="A", album_artist_names="X", release_year=2000)
+    album_b = SimpleNamespace(album_id=2, album_name="A", album_artist_names="X", release_year=2000)
+
+    merge_list = AlbumMergeList.__new__(AlbumMergeList)
+    merge_list._table = QTableWidget(0, 5)
+    # Same button padding/border as themes/dark_mode.qss, which pushes the
+    # button's height past the default row height.
+    merge_list._table.setStyleSheet("QPushButton { border: 1px solid; padding: 6px 14px; }")
+    merge_list._next_btn = SimpleNamespace(setEnabled=lambda *a: None)
+
+    merge_list._populate_table([(album_a, album_b, 0.95)])
+
+    btn_dismiss = merge_list._table.cellWidget(0, AlbumMergeList._COL_DISMISS)
+    assert merge_list._table.rowHeight(0) >= btn_dismiss.sizeHint().height()
+
+
 def test_dismissed_album_pair_is_excluded_from_a_later_scan(monkeypatch, tmp_path):
     dismissed_path = tmp_path / "dismissed_duplicates.json"
     monkeypatch.setattr(album_merge, "DEFAULT_DISMISSED_DUPLICATES_PATH", dismissed_path)
