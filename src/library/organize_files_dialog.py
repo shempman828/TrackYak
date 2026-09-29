@@ -250,14 +250,8 @@ class OrganizeFilesDialog(QDialog):
         self.btn_cancel_organize.setEnabled(False)
 
         if files_moved > 0:
-            # FileOrganizer committed the new paths on its own thread's scoped
-            # session, and _commit()'s expire_all() only reaches that session.
-            # Track objects already loaded on this (main) thread keep their old
-            # track_file_path until expired -- re-querying doesn't refresh them,
-            # the identity map hands back the same stale instances. Expire here
-            # (even after a mid-run cancel, which still committed its moves) so
-            # later writers such as artwork reconcile don't target moved files.
-            self.controller.get.session.expire_all()
+            # Emit even after a mid-run cancel: the moves done before it were
+            # already committed, so the views must reload them either way.
             self.library_modified.emit()
 
         if success:

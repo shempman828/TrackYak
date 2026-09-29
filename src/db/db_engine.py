@@ -10,9 +10,9 @@ against the same SQLite file.
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import scoped_session, sessionmaker
 
-engine = create_engine(
-    "sqlite:///music_library.db", connect_args={"check_same_thread": False, "timeout": 30}
-)
+from src.db import db_session_sync
+
+engine = create_engine("sqlite:///music_library.db", connect_args={"check_same_thread": False, "timeout": 30})
 
 
 @event.listens_for(engine, "connect")
@@ -41,3 +41,8 @@ Session = scoped_session(sessionmaker(bind=engine, expire_on_commit=False))
 # commit touches, turning the next attribute access anywhere in the app
 # into an implicit reload -- catastrophic for a query like
 # get_all_entities("Track") returning 50k+ rows the UI reads repeatedly.
+
+# Worker threads write through their own scoped sessions; this flags the main
+# thread's session stale after any worker commit that changed rows (see
+# db_session_sync.py and src/common/main_session_sync.py for the Qt side).
+db_session_sync.install(engine, Session)

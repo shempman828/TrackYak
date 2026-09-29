@@ -15,21 +15,22 @@ from src.core.installation_check import verify_installation
 # install prints a clear, actionable message instead of a raw traceback.
 verify_installation()
 
-from PySide6.QtCore import QEventLoop, Qt, QTimer
-from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+from PySide6.QtCore import QEventLoop, Qt, QTimer  # noqa: E402 -- must follow verify_installation()
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox  # noqa: E402 -- must follow verify_installation()
 
-from src.core.splash_screen import StartupSplash
-from src.core.startup_dialog import StartupDialog
-from src.db.db_defaults import Defaults
-from src.db.db_tables import MusicDatabase
-from src.foundation.asset_paths import ensure_directories_exist
-from src.foundation.config_setup import Config
-from src.foundation.display_settings import DisplaySettings
-from src.foundation.logger_config import logger
-from src.image.artwork_cache import ArtworkCache
-from src.musicbrainz.musicbrainz_core import configure as configure_musicbrainz
-from src.player.core.music_controller import MusicController
-from src.player.core.player_mpris2 import MPRIS2Player
+from src.common.main_session_sync import install_main_session_sync  # noqa: E402 -- must follow verify_installation()
+from src.core.splash_screen import StartupSplash  # noqa: E402 -- must follow verify_installation()
+from src.core.startup_dialog import StartupDialog  # noqa: E402 -- must follow verify_installation()
+from src.db.db_defaults import Defaults  # noqa: E402 -- must follow verify_installation()
+from src.db.db_tables import MusicDatabase  # noqa: E402 -- must follow verify_installation()
+from src.foundation.asset_paths import ensure_directories_exist  # noqa: E402 -- must follow verify_installation()
+from src.foundation.config_setup import Config  # noqa: E402 -- must follow verify_installation()
+from src.foundation.display_settings import DisplaySettings  # noqa: E402 -- must follow verify_installation()
+from src.foundation.logger_config import logger  # noqa: E402 -- must follow verify_installation()
+from src.image.artwork_cache import ArtworkCache  # noqa: E402 -- must follow verify_installation()
+from src.musicbrainz.musicbrainz_core import configure as configure_musicbrainz  # noqa: E402 -- must follow verify_installation()
+from src.player.core.music_controller import MusicController  # noqa: E402 -- must follow verify_installation()
+from src.player.core.player_mpris2 import MPRIS2Player  # noqa: E402 -- must follow verify_installation()
 
 try:
     from src.core.main_window import GUI
@@ -176,6 +177,10 @@ def initialize_application(splash, app, config: Config):
     # widgets can resolve it (get_artwork_cache()) while rendering album art.
     app.artwork_cache = ArtworkCache()
 
+    # Expire the main thread's DB session after worker threads commit writes,
+    # so already-loaded objects don't keep stale values (see db_session_sync.py).
+    app.main_session_sync = install_main_session_sync(app)
+
     # Build GUI controller
     show_status(splash, "Building interface...")
     controller = MusicController()
@@ -274,7 +279,5 @@ if __name__ == "__main__":
         logger.error(f"Fatal error during application launch: {launch_error}")
         traceback_str = "".join(traceback.format_tb(launch_error.__traceback__))
         logger.error(f"Traceback:\n{traceback_str}")
-        QMessageBox.critical(
-            None, "Fatal Error", f"A fatal error occurred:\n{launch_error}\n\nSee log for details."
-        )
+        QMessageBox.critical(None, "Fatal Error", f"A fatal error occurred:\n{launch_error}\n\nSee log for details.")
         sys.exit(1)
