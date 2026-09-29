@@ -171,3 +171,16 @@ def test_pair_conflict_dialog_buttons_produce_expected_outcomes(qapp):
         assert dialog.outcome == PairConflictDialog.USE_SELECTED
     finally:
         dialog.deleteLater()
+
+
+def test_conflict_grid_shows_checkbox_box_on_both_sides(qapp):
+    from src.common.dialogs.conflict_resolution import _ConflictValueCell
+
+    cell = _ConflictValueCell("value", lambda: None)
+    cell.set_chosen(False)
+    assert not cell._check.isHidden()
+    assert cell._check.text() == ""
+
+    cell.set_chosen(True)
+    assert not cell._check.isHidden()
+    assert cell._check.text() == "✓"

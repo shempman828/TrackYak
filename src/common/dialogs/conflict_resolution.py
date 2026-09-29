@@ -89,7 +89,9 @@ class _ConflictValueCell(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        self._check = QLabel("✓")
+        # The label is the checkbox box (bordered via QSS) and stays visible
+        # on both sides; only the tick text toggles with the choice.
+        self._check = QLabel("")
         self._check.setProperty("mergeCellCheck", True)
         self._check.setFixedSize(16, 16)
         self._check.setAlignment(Qt.AlignCenter)
@@ -99,10 +101,8 @@ class _ConflictValueCell(QWidget):
         value_label.setWordWrap(True)
         layout.addWidget(value_label, 1)
 
-        self._check.setVisible(False)
-
     def set_chosen(self, chosen):
-        self._check.setVisible(chosen)
+        self._check.setText("✓" if chosen else "")
         self.setProperty("chosen", chosen)
         self.style().unpolish(self)
         self.style().polish(self)
