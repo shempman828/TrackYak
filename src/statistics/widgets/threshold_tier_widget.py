@@ -47,6 +47,15 @@ class ThresholdTierWidget(QWidget):
         checked = self._button_group.checkedButton()
         return self._button_group.id(checked) if checked else self._thresholds[0]
 
+    def set_current_threshold(self, threshold: int):
+        """Check the chip for `threshold` and emit tier_changed, as a click
+        would. Does nothing for an unknown threshold."""
+        button = self._button_group.button(threshold)
+        if button is None:
+            return
+        button.setChecked(True)
+        self.tier_changed.emit(threshold)
+
     def set_thresholds_available(self, available: Sequence[int]):
         """Disable chips for tiers with no qualifying data, so the user
         can't select an empty tier. If the currently-checked tier just

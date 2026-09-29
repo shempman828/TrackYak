@@ -878,8 +878,16 @@ when the dialog opens (each tab has a **Recompute** button to refresh it
 without reopening). Tabs: Overview, Library Health, Artists, Albums,
 Genres & Moods, Places & Credits, Audio Profile, and Lyrics.
 
-**Genres & Moods** collects the mood-related leaderboards:
+**Genres & Moods** collects the genre- and mood-related leaderboards:
 
+- **Genre Timeline** — pick a genre from the dropdown to see how many of
+  its albums came out in each release year, plus its **Earliest** and
+  **Latest Release**. An album belongs to a genre when any of its tracks
+  is tagged with it, and counts once. Sub-genres are not included in their
+  parent, and albums with no release year are left out. Below that,
+  **Longest / Shortest Lasting Genres** rank genres by span (latest release
+  year − earliest). Use the **Min 3 / Min 5 / Min 10** buttons to set how
+  many albums a genre needs to be ranked (default 5).
 - **Top Moods by Plays** and **Most / Least Played Mood** — mood totals by
   play count.
 - **Highest / Lowest Rated Mood** — outlier-controlled average track

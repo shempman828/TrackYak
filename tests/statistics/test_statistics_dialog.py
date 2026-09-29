@@ -14,16 +14,7 @@ import pytest
 from src.statistics.statistics_dialog import MusicStatsDialog
 
 # ---- test_audio_quality_labels.py --------------------------------------------
-_LOADERS_aql = (
-    "load_data",
-    "_load_influence_tiles",
-    "_load_audio_stats",
-    "_load_genre_mood_stats",
-    "_load_album_stats",
-    "_load_artist_stats",
-    "_load_places_credits_stats",
-    "_load_lyrics_stats",
-)
+_LOADERS_aql = ("load_data", "_load_influence_tiles", "_load_audio_stats", "_load_genre_mood_stats", "_load_album_stats", "_load_artist_stats", "_load_places_credits_stats", "_load_lyrics_stats")
 
 
 @pytest.fixture
@@ -40,13 +31,7 @@ def test_on_stats_loaded_wires_in_the_audio_quality_loader(dialog_aql):
     """The regression itself: on_stats_loaded() must reach
     load_audio_quality_labels() (it was dropped from the loader chain)."""
     called = []
-    for name in (
-        "load_overview_data",
-        "load_library_health_data",
-        "load_artists_data",
-        "load_albums_data",
-        "load_genres_moods_data",
-    ):
+    for name in ("load_overview_data", "load_library_health_data", "load_artists_data", "load_albums_data", "load_genres_moods_data"):
         setattr(dialog_aql, name, lambda: None)
     dialog_aql.load_audio_quality_labels = lambda: called.append(True)
 
@@ -97,16 +82,7 @@ def test_missing_audio_quality_stats_falls_back_to_na(dialog_aql):
 # The dialog_rm's __init__ fires eight background stat workers; each is
 # monkeypatched to a no-op so the test drives the render path directly with
 # a hand-built stats payload.
-_LOADERS_rm = (
-    "load_data",
-    "_load_influence_tiles",
-    "_load_audio_stats",
-    "_load_genre_mood_stats",
-    "_load_album_stats",
-    "_load_artist_stats",
-    "_load_places_credits_stats",
-    "_load_lyrics_stats",
-)
+_LOADERS_rm = ("load_data", "_load_influence_tiles", "_load_audio_stats", "_load_genre_mood_stats", "_load_album_stats", "_load_artist_stats", "_load_places_credits_stats", "_load_lyrics_stats")
 
 _PHASE3_STUB = {
     "rated_genres_leaderboard": {"highest": {}, "lowest": {}},
@@ -132,13 +108,7 @@ def _rows(widget):
 
 
 def test_combo_populated_and_first_mood_shown_on_load(dialog_rm):
-    dialog_rm.genre_mood_stats = {
-        **_PHASE3_STUB,
-        "representative_tracks_per_mood": {
-            "Sad": [("Blue", "Joni", 0.031)],
-            "Happy": [("Sunny", "Stevie", 0.052), ("Bright", "Ray", 0.021)],
-        },
-    }
+    dialog_rm.genre_mood_stats = {**_PHASE3_STUB, "representative_tracks_per_mood": {"Sad": [("Blue", "Joni", 0.031)], "Happy": [("Sunny", "Stevie", 0.052), ("Bright", "Ray", 0.021)]}}
 
     dialog_rm.load_genre_mood_phase3_data()
 
@@ -146,20 +116,11 @@ def test_combo_populated_and_first_mood_shown_on_load(dialog_rm):
     assert [combo.itemText(i) for i in range(combo.count())] == ["Happy", "Sad"]
     assert combo.isEnabled()
     # First mood (alphabetical) shown, values rendered as percentages.
-    assert _rows(dialog_rm.representative_tracks_list) == [
-        ("Sunny", 5.2, "Stevie"),
-        ("Bright", 2.1, "Ray"),
-    ]
+    assert _rows(dialog_rm.representative_tracks_list) == [("Sunny", 5.2, "Stevie"), ("Bright", 2.1, "Ray")]
 
 
 def test_changing_combo_swaps_the_list(dialog_rm):
-    dialog_rm.genre_mood_stats = {
-        **_PHASE3_STUB,
-        "representative_tracks_per_mood": {
-            "Happy": [("Sunny", "Stevie", 0.052)],
-            "Sad": [("Blue", "Joni", 0.031)],
-        },
-    }
+    dialog_rm.genre_mood_stats = {**_PHASE3_STUB, "representative_tracks_per_mood": {"Happy": [("Sunny", "Stevie", 0.052)], "Sad": [("Blue", "Joni", 0.031)]}}
     dialog_rm.load_genre_mood_phase3_data()
 
     dialog_rm.representative_mood_combo.setCurrentText("Sad")
@@ -175,3 +136,80 @@ def test_no_qualifying_mood_disables_combo_and_clears_list(dialog_rm):
     assert dialog_rm.representative_mood_combo.count() == 0
     assert not dialog_rm.representative_mood_combo.isEnabled()
     assert dialog_rm.representative_tracks_list._rows == []
+
+
+# ---- test_genre_timeline_section.py --------------------------------------------
+# The Genres & Moods tab's "Genre Timeline" section (docs/specs/genre_timeline.md
+# AC11-AC15). Reuses dialog_rm, which stubs every background worker, and drives
+# load_genre_mood_phase3_data() with a hand-built payload.
+
+_TIMELINE = {
+    "year_distribution": {"Rock": {1965: 2, 1970: 1}, "Jazz": {1959: 1}},
+    "earliest": {"Rock": {"album": "First", "artist": "The Band", "date": "1965-03"}, "Jazz": {"album": "Kind of Blue", "artist": "Miles Davis", "date": "1959-08-17"}},
+    "latest": {"Rock": {"album": "Last", "artist": "The Band", "date": "1970"}, "Jazz": {"album": "Kind of Blue", "artist": "Miles Davis", "date": "1959-08-17"}},
+    "spans": [("Jazz", 30, 1959, 1989, 3), ("Rock", 5, 1965, 1970, 6), ("Pop", 50, 1960, 2010, 12)],
+}
+
+
+def _load_timeline(dialog, timeline):
+    dialog.genre_mood_stats = {**_PHASE3_STUB, "representative_tracks_per_mood": {}, "genre_timeline": timeline}
+    dialog.load_genre_mood_phase3_data()
+
+
+def test_genre_timeline_combo_populated_and_first_genre_shown(dialog_rm):
+    # AC11
+    _load_timeline(dialog_rm, _TIMELINE)
+
+    combo = dialog_rm.genre_timeline_combo
+    assert [combo.itemText(i) for i in range(combo.count())] == ["Jazz", "Rock"]
+    assert combo.isEnabled()
+    assert dialog_rm.genre_timeline_chart._counts == {1959: 1}
+    assert dialog_rm.genre_earliest_tile._value == "Kind of Blue"
+    assert dialog_rm.genre_earliest_tile._subtitle == "Miles Davis · 1959-08-17"
+
+
+def test_genre_timeline_combo_change_updates_chart_and_tiles(dialog_rm):
+    # AC12
+    _load_timeline(dialog_rm, _TIMELINE)
+
+    dialog_rm.genre_timeline_combo.setCurrentText("Rock")
+
+    assert dialog_rm.genre_timeline_chart._counts == {1965: 2, 1970: 1}
+    assert dialog_rm.genre_earliest_tile._value == "First"
+    assert dialog_rm.genre_earliest_tile._subtitle == "The Band · 1965-03"
+    assert dialog_rm.genre_latest_tile._value == "Last"
+    assert dialog_rm.genre_latest_tile._subtitle == "The Band · 1970"
+
+
+def test_genre_timeline_empty_disables_combo(dialog_rm):
+    # AC13
+    _load_timeline(dialog_rm, {"year_distribution": {}, "earliest": {}, "latest": {}, "spans": []})
+
+    assert dialog_rm.genre_timeline_combo.count() == 0
+    assert not dialog_rm.genre_timeline_combo.isEnabled()
+    assert dialog_rm.genre_timeline_chart._counts == {}
+    assert dialog_rm.genre_earliest_tile._value == "N/A"
+    assert dialog_rm.genre_latest_tile._value == "N/A"
+    assert dialog_rm.longest_genres_list._rows == []
+    assert dialog_rm.shortest_genres_list._rows == []
+
+
+def test_genre_span_lists_rows_at_default_tier(dialog_rm):
+    # AC14 -- default tier is Min 5, so Jazz (3 albums) is left out
+    _load_timeline(dialog_rm, _TIMELINE)
+
+    assert dialog_rm.genre_span_tier.current_threshold() == 5
+    assert dialog_rm.longest_genres_list._value_suffix == " yrs"
+    assert _rows(dialog_rm.longest_genres_list) == [("Pop", 50, "1960-2010, 12 albums"), ("Rock", 5, "1965-1970, 6 albums")]
+    assert _rows(dialog_rm.shortest_genres_list) == [("Rock", 5, "1965-1970, 6 albums"), ("Pop", 50, "1960-2010, 12 albums")]
+
+
+def test_genre_span_tier_change_refilters_lists(dialog_rm):
+    # AC15
+    _load_timeline(dialog_rm, _TIMELINE)
+
+    dialog_rm.genre_span_tier.set_current_threshold(3)
+    assert [r[0] for r in _rows(dialog_rm.longest_genres_list)] == ["Pop", "Jazz", "Rock"]
+
+    dialog_rm.genre_span_tier.set_current_threshold(10)
+    assert [r[0] for r in _rows(dialog_rm.longest_genres_list)] == ["Pop"]

@@ -1,19 +1,14 @@
-"""Genres & Moods tab: top genres/moods, rated leaderboards, niche genre, representative tracks."""
+"""Genres & Moods tab: top genres/moods, rated leaderboards, niche genre, genre timeline,
+representative tracks."""
 
-from PySide6.QtWidgets import (
-    QComboBox,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QComboBox, QGroupBox, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
 from src.statistics.dialog.shared import _recompute_bar
+from src.statistics.stats.genres_moods import rank_genre_spans
 from src.statistics.widgets.leaderboard_list import LeaderboardListWidget
 from src.statistics.widgets.stat_tile import StatTileWidget
 from src.statistics.widgets.threshold_tier_widget import ThresholdTierWidget
+from src.statistics.widgets.year_time_series_chart import YearTimeSeriesChart
 from src.statistics.workers.genre_mood_stats_worker import GenreMoodStatsWorker
 
 
@@ -23,9 +18,7 @@ class GenresMoodsTabMixin:
         content = QWidget()
         layout = QVBoxLayout(content)
 
-        genre_mood_recompute_bar, self.genre_mood_recompute_button = _recompute_bar(
-            self._recompute_genre_mood_stats
-        )
+        genre_mood_recompute_bar, self.genre_mood_recompute_button = _recompute_bar(self._recompute_genre_mood_stats)
         layout.addLayout(genre_mood_recompute_bar)
 
         genres_group = QGroupBox("Top Genres by Plays")
@@ -40,9 +33,7 @@ class GenresMoodsTabMixin:
         moods_layout.addWidget(self.top_moods_list)
         layout.addWidget(moods_group)
 
-        rated_genres_group = QGroupBox(
-            "Highest / Lowest Rated Genres (quick view, min 5 rated tracks)"
-        )
+        rated_genres_group = QGroupBox("Highest / Lowest Rated Genres (quick view, min 5 rated tracks)")
         rated_genres_layout = QHBoxLayout(rated_genres_group)
         self.highest_rated_genres_list = LeaderboardListWidget()
         self.lowest_rated_genres_list = LeaderboardListWidget()
@@ -89,6 +80,39 @@ class GenresMoodsTabMixin:
         genre_count_layout.addLayout(bottom_count_box)
         layout.addWidget(genre_count_group)
 
+        timeline_group = QGroupBox("Genre Timeline")
+        timeline_layout = QVBoxLayout(timeline_group)
+        timeline_layout.addWidget(QLabel("Albums per release year for the selected genre (sub-genres not included)."))
+        self.genre_timeline_combo = QComboBox()
+        self.genre_timeline_combo.currentTextChanged.connect(self._update_genre_timeline)
+        timeline_layout.addWidget(self.genre_timeline_combo)
+        self.genre_timeline_chart = YearTimeSeriesChart()
+        timeline_layout.addWidget(self.genre_timeline_chart)
+        timeline_tiles_layout = QHBoxLayout()
+        self.genre_earliest_tile = StatTileWidget("Earliest Release")
+        self.genre_latest_tile = StatTileWidget("Latest Release")
+        timeline_tiles_layout.addWidget(self.genre_earliest_tile)
+        timeline_tiles_layout.addWidget(self.genre_latest_tile)
+        timeline_layout.addLayout(timeline_tiles_layout)
+        timeline_layout.addWidget(QLabel("Longest / Shortest Lasting Genres (by album count):"))
+        self.genre_span_tier = ThresholdTierWidget(thresholds=(3, 5, 10))
+        self.genre_span_tier.set_current_threshold(5)
+        self.genre_span_tier.tier_changed.connect(self._update_genre_span_lists)
+        timeline_layout.addWidget(self.genre_span_tier)
+        span_lists_layout = QHBoxLayout()
+        longest_box = QVBoxLayout()
+        longest_box.addWidget(QLabel("Longest Lasting:"))
+        self.longest_genres_list = LeaderboardListWidget(value_suffix=" yrs")
+        longest_box.addWidget(self.longest_genres_list)
+        shortest_box = QVBoxLayout()
+        shortest_box.addWidget(QLabel("Shortest Lasting:"))
+        self.shortest_genres_list = LeaderboardListWidget(value_suffix=" yrs")
+        shortest_box.addWidget(self.shortest_genres_list)
+        span_lists_layout.addLayout(longest_box)
+        span_lists_layout.addLayout(shortest_box)
+        timeline_layout.addLayout(span_lists_layout)
+        layout.addWidget(timeline_group)
+
         mood_rating_group = QGroupBox("Highest / Lowest Rated Mood (outlier-controlled)")
         mood_rating_layout = QHBoxLayout(mood_rating_group)
         self.highest_rated_moods_list = LeaderboardListWidget()
@@ -107,16 +131,9 @@ class GenresMoodsTabMixin:
 
         representative_group = QGroupBox("Most Representative Tracks per Mood")
         representative_layout = QVBoxLayout(representative_group)
-        representative_layout.addWidget(
-            QLabel(
-                "The 5 tracks whose lyrics match each auto-tagged mood's "
-                "keyword list most strongly (by match density)."
-            )
-        )
+        representative_layout.addWidget(QLabel("The 5 tracks whose lyrics match each auto-tagged mood's keyword list most strongly (by match density)."))
         self.representative_mood_combo = QComboBox()
-        self.representative_mood_combo.currentTextChanged.connect(
-            self._update_representative_tracks_leaderboard
-        )
+        self.representative_mood_combo.currentTextChanged.connect(self._update_representative_tracks_leaderboard)
         representative_layout.addWidget(self.representative_mood_combo)
         self.representative_tracks_list = LeaderboardListWidget(value_suffix="%")
         representative_layout.addWidget(self.representative_tracks_list)
@@ -162,14 +179,10 @@ class GenresMoodsTabMixin:
         self.top_moods_list.set_data([(name, plays, None) for name, plays in top_moods])
 
         highest_rated_genres = leaderboards.get("highest_rated_genres", [])
-        self.highest_rated_genres_list.set_data(
-            [(name, rating, None) for name, rating in highest_rated_genres]
-        )
+        self.highest_rated_genres_list.set_data([(name, rating, None) for name, rating in highest_rated_genres])
 
         lowest_rated_genres = leaderboards.get("lowest_rated_genres", [])
-        self.lowest_rated_genres_list.set_data(
-            [(name, rating, None) for name, rating in lowest_rated_genres]
-        )
+        self.lowest_rated_genres_list.set_data([(name, rating, None) for name, rating in lowest_rated_genres])
 
     def load_genre_mood_phase3_data(self):
         """Load the Genres & Moods tab's Phase-3 content (already fetched
@@ -181,11 +194,7 @@ class GenresMoodsTabMixin:
         leaderboard = stats.get("rated_genres_leaderboard", {})
         highest_dict = leaderboard.get("highest", {})
         lowest_dict = leaderboard.get("lowest", {})
-        non_empty = [
-            t
-            for t in set(highest_dict) | set(lowest_dict)
-            if highest_dict.get(t) or lowest_dict.get(t)
-        ]
+        non_empty = [t for t in set(highest_dict) | set(lowest_dict) if highest_dict.get(t) or lowest_dict.get(t)]
         self.genre_rating_tier.set_thresholds_available(non_empty or list(highest_dict.keys()))
         self._update_rated_genres_leaderboard()
 
@@ -196,28 +205,30 @@ class GenresMoodsTabMixin:
             self.most_niche_genre_tile.set_data("N/A")
 
         genre_counts = stats.get("genres_by_track_count", {})
-        self.top_genre_count_list.set_data(
-            [(name, count, None) for name, count in genre_counts.get("top", [])]
-        )
-        self.bottom_genre_count_list.set_data(
-            [(name, count, None) for name, count in genre_counts.get("bottom", [])]
-        )
+        self.top_genre_count_list.set_data([(name, count, None) for name, count in genre_counts.get("top", [])])
+        self.bottom_genre_count_list.set_data([(name, count, None) for name, count in genre_counts.get("bottom", [])])
+
+        # Genre timeline -- same repopulate pattern as the mood combo below.
+        timeline = stats.get("genre_timeline", {})
+        genre_names = sorted(timeline.get("year_distribution", {}), key=str.casefold)
+        self.genre_timeline_combo.blockSignals(True)
+        self.genre_timeline_combo.clear()
+        self.genre_timeline_combo.addItems(genre_names)
+        self.genre_timeline_combo.setEnabled(bool(genre_names))
+        self.genre_timeline_combo.blockSignals(False)
+        self._update_genre_timeline()
+
+        spans = timeline.get("spans", [])
+        self.genre_span_tier.set_thresholds_available([t for t in (3, 5, 10) if any(row[4] >= t for row in spans)])
+        self._update_genre_span_lists()
 
         mood_ratings = stats.get("mood_ratings_outlier_controlled", {})
-        self.highest_rated_moods_list.set_data(
-            self._rating_rows_with_n(mood_ratings.get("highest", []))
-        )
-        self.lowest_rated_moods_list.set_data(
-            self._rating_rows_with_n(mood_ratings.get("lowest", []))
-        )
+        self.highest_rated_moods_list.set_data(self._rating_rows_with_n(mood_ratings.get("highest", [])))
+        self.lowest_rated_moods_list.set_data(self._rating_rows_with_n(mood_ratings.get("lowest", [])))
 
         mood_plays = stats.get("mood_play_counts", {})
-        self.most_played_moods_list.set_data(
-            [(name, plays, None) for name, plays in mood_plays.get("most_played", [])]
-        )
-        self.least_played_moods_list.set_data(
-            [(name, plays, None) for name, plays in mood_plays.get("least_played", [])]
-        )
+        self.most_played_moods_list.set_data([(name, plays, None) for name, plays in mood_plays.get("most_played", [])])
+        self.least_played_moods_list.set_data([(name, plays, None) for name, plays in mood_plays.get("least_played", [])])
 
         # Most representative tracks per mood -- populate the selector from
         # whatever moods have scored tracks, then show the first one. Block
@@ -236,21 +247,33 @@ class GenresMoodsTabMixin:
             return
         representative = self.genre_mood_stats.get("representative_tracks_per_mood", {})
         mood_name = self.representative_mood_combo.currentText()
-        self.representative_tracks_list.set_data(
-            [
-                (track_name, round(score * 100, 2), artist)
-                for track_name, artist, score in representative.get(mood_name, [])
-            ]
-        )
+        self.representative_tracks_list.set_data([(track_name, round(score * 100, 2), artist) for track_name, artist, score in representative.get(mood_name, [])])
+
+    def _update_genre_timeline(self, *_args):
+        if self.genre_mood_stats is None:
+            return
+        timeline = self.genre_mood_stats.get("genre_timeline", {})
+        genre_name = self.genre_timeline_combo.currentText()
+        self.genre_timeline_chart.set_data(timeline.get("year_distribution", {}).get(genre_name))
+        for tile, key in ((self.genre_earliest_tile, "earliest"), (self.genre_latest_tile, "latest")):
+            release = timeline.get(key, {}).get(genre_name)
+            if release:
+                tile.set_data(release["album"], f"{release['artist']} · {release['date']}")
+            else:
+                tile.set_data("N/A")
+
+    def _update_genre_span_lists(self, *_args):
+        if self.genre_mood_stats is None:
+            return
+        spans = self.genre_mood_stats.get("genre_timeline", {}).get("spans", [])
+        threshold = self.genre_span_tier.current_threshold()
+        for widget, longest in ((self.longest_genres_list, True), (self.shortest_genres_list, False)):
+            widget.set_data([(name, span, f"{first}-{last}, {n} albums") for name, span, first, last, n in rank_genre_spans(spans, threshold, longest)])
 
     def _update_rated_genres_leaderboard(self, *_args):
         if self.genre_mood_stats is None:
             return
         leaderboard = self.genre_mood_stats.get("rated_genres_leaderboard", {})
         threshold = self.genre_rating_tier.current_threshold()
-        self.tiered_highest_genres_list.set_data(
-            self._rating_rows_with_n(leaderboard.get("highest", {}).get(threshold, []))
-        )
-        self.tiered_lowest_genres_list.set_data(
-            self._rating_rows_with_n(leaderboard.get("lowest", {}).get(threshold, []))
-        )
+        self.tiered_highest_genres_list.set_data(self._rating_rows_with_n(leaderboard.get("highest", {}).get(threshold, [])))
+        self.tiered_lowest_genres_list.set_data(self._rating_rows_with_n(leaderboard.get("lowest", {}).get(threshold, [])))

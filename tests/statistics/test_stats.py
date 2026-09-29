@@ -17,11 +17,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from src.db.db_tables import Artist, Role, Track, TrackArtistRole
+from src.db.db_tables import Album, AlbumRoleAssociation, Artist, Genre, Role, Track, TrackArtistRole, TrackGenre
 from src.db.db_tables.base import Base
 from src.db.db_tables.mood import Mood, MoodTrackAssociation
 from src.statistics.stats.artists import GENERATIONS, RATING_BUCKET_MIN_N, ArtistStats
-from src.statistics.stats.genres_moods import REPRESENTATIVE_MIN_TOKENS, GenreMoodStats
+from src.statistics.stats.genres_moods import GENRE_SPAN_MIN_ALBUMS, REPRESENTATIVE_MIN_TOKENS, GenreMoodStats, rank_genre_spans
 from src.statistics.stats.lyrics import WORD_CLOUD_TOP_N, LyricsStats
 
 
@@ -242,9 +242,7 @@ _SHORT_LYRIC = "one two three four five"
 
 @pytest.fixture
 def Session():
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)
 
@@ -276,9 +274,7 @@ def seed(Session):
                     s.add(track)
                     s.flush()
                     tracks[track_name] = track
-                s.add(
-                    MoodTrackAssociation(mood_id=mood.mood_id, track_id=track.track_id, score=score)
-                )
+                s.add(MoodTrackAssociation(mood_id=mood.mood_id, track_id=track.track_id, score=score))
         s.commit()
         s.close()
 
@@ -286,9 +282,7 @@ def seed(Session):
 
 
 def _stats(Session):
-    return GenreMoodStats(Session).get_comprehensive_genre_mood_stats()[
-        "representative_tracks_per_mood"
-    ]
+    return GenreMoodStats(Session).get_comprehensive_genre_mood_stats()["representative_tracks_per_mood"]
 
 
 def test_returns_top_5_ordered_by_score_desc(Session, seed):
@@ -351,3 +345,164 @@ def test_mood_with_only_short_lyric_tracks_is_absent(Session, seed):
 def test_no_qualifying_rows_yields_empty_mapping(Session, seed):
     seed({"Happy": [("Nope", None)]})
     assert _stats(Session) == {}
+
+
+# ---- test_genre_timeline.py ---------------------------------------------------
+# Tests for GenreMoodStats._genre_timeline() and rank_genre_spans()
+# (src/statistics/stats/genres_moods.py) -- the "Genre Timeline" statistic
+# from docs/specs/genre_timeline.md. Each test maps to a numbered
+# acceptance criterion.
+
+
+@pytest.fixture
+def timeline_seed(session_factory):
+    """timeline_seed({"Rock": [album_spec, ...], ...}) -> creates the genres,
+    one album per distinct album name, and one track per (genre, album) pair
+    tagged with that genre.
+
+    album_spec is (album_name, year) or (album_name, year, month, day) or a
+    dict with "name", "year", "month", "day", "tracks" (tracks tagged with
+    the genre, default 1). An album name repeated across genres is the
+    same album. Genre names given as "Parent/Child" make Child a sub-genre
+    of Parent."""
+
+    def _seed(spec):
+        s = session_factory()
+        genres = {}
+        albums = {}
+        for genre_key, entries in spec.items():
+            parent_id = None
+            for part in genre_key.split("/"):
+                genre = genres.get(part)
+                if genre is None:
+                    genre = Genre(genre_name=part, parent_id=parent_id)
+                    s.add(genre)
+                    s.flush()
+                    genres[part] = genre
+                parent_id = genre.genre_id
+            for entry in entries:
+                info = entry if isinstance(entry, dict) else dict(zip(("name", "year", "month", "day"), entry, strict=False))
+                album = albums.get(info["name"])
+                if album is None:
+                    album = Album(album_name=info["name"], release_year=info.get("year"), release_month=info.get("month"), release_day=info.get("day"))
+                    s.add(album)
+                    s.flush()
+                    albums[info["name"]] = album
+                for i in range(info.get("tracks", 1)):
+                    track = Track(track_name=f"{info['name']} {i}", album_id=album.album_id)
+                    s.add(track)
+                    s.flush()
+                    s.add(TrackGenre(track_id=track.track_id, genre_id=genre.genre_id))
+        s.commit()
+        s.close()
+
+    return _seed
+
+
+def _timeline(session_factory):
+    return GenreMoodStats(session_factory).get_comprehensive_genre_mood_stats()["genre_timeline"]
+
+
+def test_timeline_counts_albums_not_tracks(session_factory, timeline_seed):
+    # AC1
+    timeline_seed({"Rock": [{"name": "A", "year": 1970, "tracks": 3}, ("B", 1970), ("C", 1980)]})
+    assert _timeline(session_factory)["year_distribution"]["Rock"] == {1970: 2, 1980: 1}
+
+
+def test_timeline_album_counts_once_in_each_genre(session_factory, timeline_seed):
+    # AC2
+    timeline_seed({"Rock": [("Shared", 1975)], "Jazz": [("Shared", 1975)]})
+    dist = _timeline(session_factory)["year_distribution"]
+    assert dist["Rock"] == {1975: 1}
+    assert dist["Jazz"] == {1975: 1}
+
+
+def test_timeline_ignores_undated_albums(session_factory, timeline_seed):
+    # AC3
+    timeline_seed({"Rock": [("Dated", 1990), ("Undated", None)], "Ambient": [("Nope", None)]})
+    timeline = _timeline(session_factory)
+    assert timeline["year_distribution"] == {"Rock": {1990: 1}}
+    assert "Ambient" not in timeline["earliest"]
+    assert "Ambient" not in timeline["latest"]
+
+
+def test_timeline_parent_excludes_subgenre_albums(session_factory, timeline_seed):
+    # AC4
+    timeline_seed({"Rock": [("Parent Album", 1970)], "Rock/Punk": [("Child Album", 1977)]})
+    dist = _timeline(session_factory)["year_distribution"]
+    assert dist["Rock"] == {1970: 1}
+    assert dist["Punk"] == {1977: 1}
+
+
+def test_timeline_earliest_orders_by_date_unknown_last_then_name(session_factory, timeline_seed):
+    # AC5
+    timeline_seed({"Rock": [("No Month", 1970), ("March", 1970, 3, None), ("March 1st Z", 1970, 3, 1), ("March 1st A", 1970, 3, 1), ("Later", 1971, 1, 1)]})
+    assert _timeline(session_factory)["earliest"]["Rock"]["album"] == "March 1st A"
+
+
+def test_timeline_earliest_unknown_month_after_known(session_factory, timeline_seed):
+    # AC5 -- unknown month sorts after known months in the same year
+    timeline_seed({"Rock": [("No Month", 1970), ("December", 1970, 12, 31)]})
+    assert _timeline(session_factory)["earliest"]["Rock"]["album"] == "December"
+
+
+def test_timeline_latest_orders_by_date_unknown_last(session_factory, timeline_seed):
+    # AC6
+    timeline_seed({"Rock": [("Old", 1960, 12, 31), ("No Month", 1999), ("June", 1999, 6, None), ("June 30", 1999, 6, 30)]})
+    assert _timeline(session_factory)["latest"]["Rock"]["album"] == "June 30"
+
+
+def test_timeline_single_album_is_earliest_and_latest(session_factory, timeline_seed):
+    # AC5/AC6 -- a one-album genre shows that album in both tiles
+    timeline_seed({"Rock": [("Only", 1980)]})
+    timeline = _timeline(session_factory)
+    assert timeline["earliest"]["Rock"]["album"] == "Only"
+    assert timeline["latest"]["Rock"]["album"] == "Only"
+
+
+def test_timeline_date_string_and_artist(session_factory, timeline_seed):
+    # AC7
+    timeline_seed({"Rock": [("Year", 1970), ("Month", 1980, 5, None), ("Day", 1990, 5, 7)]})
+    s = session_factory()
+    role = Role(role_name="Album Artist")
+    artist = Artist(artist_name="The Band")
+    s.add_all([role, artist])
+    s.flush()
+    day_album = s.query(Album).filter_by(album_name="Day").one()
+    s.add(AlbumRoleAssociation(album_id=day_album.album_id, artist_id=artist.artist_id, role_id=role.role_id))
+    s.commit()
+    s.close()
+
+    timeline = _timeline(session_factory)
+    assert timeline["earliest"]["Rock"] == {"album": "Year", "artist": "Unknown Artist", "date": "1970"}
+    assert timeline["latest"]["Rock"] == {"album": "Day", "artist": "The Band", "date": "1990-05-07"}
+
+    timeline_seed({"Pop": [("Month", 1980, 5, None)]})
+    assert _timeline(session_factory)["earliest"]["Pop"]["date"] == "1980-05"
+
+
+def test_timeline_spans_min_albums_and_rank_filter(session_factory, timeline_seed):
+    # AC8
+    timeline_seed({"Two": [("T1", 1960), ("T2", 2000)], "Three": [("R1", 1970), ("R2", 1975), ("R3", 1990)]})
+    spans = _timeline(session_factory)["spans"]
+    assert spans == [("Three", 20, 1970, 1990, 3)]
+    assert GENRE_SPAN_MIN_ALBUMS == 3
+
+    many = [(f"G{i}", i, 2000, 2000 + i, 5) for i in range(8)] + [("Small", 99, 1900, 1999, 4)]
+    assert len(rank_genre_spans(many, min_albums=5, longest=True)) == 5
+    assert "Small" not in [r[0] for r in rank_genre_spans(many, min_albums=5, longest=True)]
+    assert rank_genre_spans(many, min_albums=3, longest=True)[0][0] == "Small"
+
+
+def test_rank_genre_spans_sort_order(session_factory):
+    # AC9
+    spans = [("B", 10, 1990, 2000, 5), ("A", 10, 1990, 2000, 5), ("More", 10, 1990, 2000, 9), ("Long", 40, 1960, 2000, 5), ("Short", 2, 1998, 2000, 5)]
+    longest = [r[0] for r in rank_genre_spans(spans, min_albums=5, longest=True)]
+    shortest = [r[0] for r in rank_genre_spans(spans, min_albums=5, longest=False)]
+    assert longest == ["Long", "More", "A", "B", "Short"]
+    assert shortest == ["Short", "More", "A", "B", "Long"]
+
+
+def test_timeline_empty_library(session_factory):
+    # AC10
+    assert _timeline(session_factory) == {"year_distribution": {}, "earliest": {}, "latest": {}, "spans": []}
