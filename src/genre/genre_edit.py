@@ -3,7 +3,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.common.alias.entity_alias_tab import EntityAliasesTab
 from src.common.widgets.hierarchy_picker_button import HierarchyPickerButton
-from src.common.widgets.hierarchy_tree_style import is_hierarchy_descendant
+from src.common.widgets.hierarchy_tree_style import hierarchy_descendant_ids
 from src.foundation.logger_config import logger
 
 
@@ -17,12 +17,7 @@ def get_valid_parents(controller, genre=None):
     # Exclude the genre itself and every descendant at any depth (not just
     # direct children) -- picking a descendant as the new parent would
     # create a cycle that nothing downstream guards against.
-    invalid_ids = {genre.genre_id}
-    for g in all_genres:
-        if g.genre_id in invalid_ids:
-            continue
-        if is_hierarchy_descendant(genre.genre_id, g.genre_id, all_genres, id_attr="genre_id"):
-            invalid_ids.add(g.genre_id)
+    invalid_ids = {genre.genre_id} | hierarchy_descendant_ids([genre.genre_id], all_genres, id_attr="genre_id")
 
     valid_parents = [g for g in all_genres if g.genre_id not in invalid_ids]
     valid_parents.sort(key=lambda g: g.genre_name.lower())
@@ -158,13 +153,7 @@ class GenreSetParentDialog(QDialog):
 
         # A valid parent must not be one of the selected genres themselves,
         # nor a descendant of any of them -- either case would create a cycle.
-        invalid_ids = set(selected_ids)
-        for genre_id in selected_ids:
-            for g in all_genres:
-                if g.genre_id in invalid_ids:
-                    continue
-                if is_hierarchy_descendant(genre_id, g.genre_id, all_genres, id_attr="genre_id"):
-                    invalid_ids.add(g.genre_id)
+        invalid_ids = selected_ids | hierarchy_descendant_ids(selected_ids, all_genres, id_attr="genre_id")
 
         valid_parents = [g for g in all_genres if g.genre_id not in invalid_ids]
         valid_parents.sort(key=lambda g: g.genre_name.lower())

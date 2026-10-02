@@ -1,7 +1,8 @@
 """Tests for src/genre/genre_edit.py: get_valid_parents' full-depth descendant
 exclusion, find_duplicate_genre_name's case-insensitive matching, and
 GenreEditDialog populating its parent combo for a brand-new genre as well as
-an existing one.
+an existing one, and GenreSetParentDialog excluding every selected genre's
+subtree.
 """
 
 import pytest
@@ -10,7 +11,7 @@ from src.db.db_helpers.add import AddToDB
 from src.db.db_helpers.get import GetFromDB
 from src.db.db_helpers.update import UpdateDB
 from src.db.db_tables.genre import Genre
-from src.genre.genre_edit import GenreEditDialog, find_duplicate_genre_name, get_valid_parents
+from src.genre.genre_edit import GenreEditDialog, GenreSetParentDialog, find_duplicate_genre_name, get_valid_parents
 
 
 class _Controller:
@@ -118,3 +119,17 @@ def test_duplicate_name_is_rejected_case_insensitively(session, qapp, controller
 
     assert dialog.result() == 0  # not accepted
     assert warnings == ["Genre name already exists"]
+
+
+def test_set_parent_dialog_excludes_all_selected_subtrees(session, qapp, controller):
+    rock = _make_genre(session, "Rock")
+    punk = _make_genre(session, "Punk", parent=rock)
+    hardcore = _make_genre(session, "Hardcore", parent=punk)
+    jazz = _make_genre(session, "Jazz")
+    bebop = _make_genre(session, "Bebop", parent=jazz)
+    pop = _make_genre(session, "Pop")
+
+    dialog = GenreSetParentDialog(controller, [rock, jazz])
+
+    assert dialog.parent_combo.available_ids() == [pop.genre_id]
+    assert not {rock.genre_id, punk.genre_id, hardcore.genre_id, jazz.genre_id, bebop.genre_id} & set(dialog.parent_combo.available_ids())

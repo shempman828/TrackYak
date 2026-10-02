@@ -6,7 +6,7 @@ depth level. Centralizing it here keeps the views visually consistent and
 avoids re-implementing the same color table and tree setup in each one.
 """
 
-from collections import defaultdict
+from collections import defaultdict, deque
 
 from PySide6.QtCore import QPointF, QSize, Qt
 from PySide6.QtGui import QBrush, QColor, QIcon, QPainter, QPen, QPixmap, QRadialGradient
@@ -65,9 +65,7 @@ def create_colored_icon(color: QColor, size: int = DEFAULT_DOT_SIZE) -> QIcon:
     painter.setPen(Qt.NoPen)
     painter.drawEllipse(QPointF(center, center), halo_radius, halo_radius)
 
-    gradient = QRadialGradient(
-        QPointF(center - core_radius * 0.35, center - core_radius * 0.35), core_radius * 1.8
-    )
+    gradient = QRadialGradient(QPointF(center - core_radius * 0.35, center - core_radius * 0.35), core_radius * 1.8)
     gradient.setColorAt(0.0, color.lighter(160))
     gradient.setColorAt(1.0, color)
     painter.setBrush(QBrush(gradient))
@@ -153,9 +151,7 @@ def collect_expanded_ids(tree: QTreeWidget, *, id_role: int = Qt.UserRole) -> se
     return expanded_ids
 
 
-def restore_expanded_ids(
-    tree: QTreeWidget, expanded_ids: set, *, id_role: int = Qt.UserRole
-) -> None:
+def restore_expanded_ids(tree: QTreeWidget, expanded_ids: set, *, id_role: int = Qt.UserRole) -> None:
     """Re-expand tree items whose entity ID (stored at `id_role`) is in
     `expanded_ids`. Counterpart to `collect_expanded_ids`.
     """
@@ -172,9 +168,7 @@ def restore_expanded_ids(
         _restore(root.child(i))
 
 
-def restore_expanded_ids_or_expand_all(
-    tree: QTreeWidget, expanded_ids: set, is_initial_load: bool, *, id_role: int = Qt.UserRole
-) -> None:
+def restore_expanded_ids_or_expand_all(tree: QTreeWidget, expanded_ids: set, is_initial_load: bool, *, id_role: int = Qt.UserRole) -> None:
     """After rebuilding `tree`, restore the expand state captured by
     `collect_expanded_ids`, or expand everything if this is the tree's
     first-ever population.
@@ -196,19 +190,13 @@ def insert_as_new_parent(controller, entity_type: str, id_attr: str, entity, new
     `entity`'s old parent slot (preserving the grandparent chain), and
     `entity` becomes its child.
     """
-    controller.update.update_entity(
-        entity_type, getattr(new_entity, id_attr), parent_id=entity.parent_id
-    )
-    controller.update.update_entity(
-        entity_type, getattr(entity, id_attr), parent_id=getattr(new_entity, id_attr)
-    )
+    controller.update.update_entity(entity_type, getattr(new_entity, id_attr), parent_id=entity.parent_id)
+    controller.update.update_entity(entity_type, getattr(entity, id_attr), parent_id=getattr(new_entity, id_attr))
 
 
 def insert_as_new_child(controller, entity_type: str, id_attr: str, entity, new_entity) -> None:
     """Set `new_entity` as a child of `entity`."""
-    controller.update.update_entity(
-        entity_type, getattr(new_entity, id_attr), parent_id=getattr(entity, id_attr)
-    )
+    controller.update.update_entity(entity_type, getattr(new_entity, id_attr), parent_id=getattr(entity, id_attr))
 
 
 def handle_insert_as_new_relative(
@@ -256,14 +244,10 @@ def handle_insert_as_new_relative(
     except exception_types as e:
         logger.error(f"Error creating new {relation} {label}: {e!s}")
         detail = f": {e!s}" if include_error_detail else ""
-        QMessageBox.critical(
-            parent_widget, "Error", f"Failed to create new {relation} {label}{detail}"
-        )
+        QMessageBox.critical(parent_widget, "Error", f"Failed to create new {relation} {label}{detail}")
 
 
-def render_hierarchy_as_text(
-    entities, *, id_attr: str, name_attr: str, parent_attr: str = "parent_id", sort_key=None
-) -> str:
+def render_hierarchy_as_text(entities, *, id_attr: str, name_attr: str, parent_attr: str = "parent_id", sort_key=None) -> str:
     """Render a flat list of hierarchical entities as a box-drawing tree,
     e.g.:
 
@@ -311,9 +295,7 @@ def render_hierarchy_as_text(
     return "\n".join(lines)
 
 
-def is_hierarchy_descendant(
-    ancestor_id, candidate_id, entities, *, id_attr: str, parent_attr: str = "parent_id"
-) -> bool:
+def is_hierarchy_descendant(ancestor_id, candidate_id, entities, *, id_attr: str, parent_attr: str = "parent_id") -> bool:
     """True if `candidate_id` is a descendant (at any depth) of `ancestor_id`
     within `entities` -- i.e. re-parenting `ancestor_id` under `candidate_id`
     would create a cycle. Use as a drag-drop reparent guard:
@@ -325,17 +307,30 @@ def is_hierarchy_descendant(
     """
     if not ancestor_id or not candidate_id:
         return False
+    return candidate_id in hierarchy_descendant_ids([ancestor_id], entities, id_attr=id_attr, parent_attr=parent_attr)
 
-    children_by_parent: dict = {}
+
+def hierarchy_descendant_ids(root_ids, entities, *, id_attr: str, parent_attr: str = "parent_id") -> set:
+    """Return the IDs of every descendant (at any depth) of any ID in
+    `root_ids` within `entities`. The roots themselves are not included
+    unless one is a descendant of another.
+
+    Builds the children map once and does a single BFS, so excluding a whole
+    subtree (e.g. from a parent picker) is O(len(entities)) rather than one
+    `is_hierarchy_descendant` call per candidate. A `seen` set keeps a
+    corrupt cyclic hierarchy from looping forever.
+    """
+    children_by_parent: dict = defaultdict(list)
     for entity in entities:
         parent_id = getattr(entity, parent_attr, None)
         if parent_id is not None:
-            children_by_parent.setdefault(parent_id, []).append(getattr(entity, id_attr))
+            children_by_parent[parent_id].append(getattr(entity, id_attr))
 
-    def _check(parent_id) -> bool:
-        children = children_by_parent.get(parent_id, [])
-        if candidate_id in children:
-            return True
-        return any(_check(child_id) for child_id in children)
-
-    return _check(ancestor_id)
+    descendants: set = set()
+    queue = deque(root_ids)
+    while queue:
+        for child_id in children_by_parent.get(queue.popleft(), ()):
+            if child_id not in descendants:
+                descendants.add(child_id)
+                queue.append(child_id)
+    return descendants
