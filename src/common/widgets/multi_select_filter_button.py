@@ -1,17 +1,5 @@
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QHBoxLayout,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
-    QMenu,
-    QPushButton,
-    QToolButton,
-    QVBoxLayout,
-    QWidget,
-    QWidgetAction,
-)
+from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction
 
 
 class _SelectAllCheckBox(QCheckBox):
@@ -85,8 +73,10 @@ class MultiSelectFilterButton(QToolButton):
     def set_values(self, values: list[str]) -> None:
         """Rebuild the checkbox list, keeping the committed selection for
         any values still present and dropping ones that are gone."""
-        self._values = sorted(set(values), key=str.lower)
-        self._committed = self._normalize({v for v in self._committed if v in self._values})
+        value_set = set(values)
+        self._values = sorted(value_set, key=str.lower)
+        # Intersect with the set, not `in self._values` (a list scan per value).
+        self._committed = self._normalize(self._committed & value_set)
 
         self._list_widget.blockSignals(True)
         try:
@@ -141,17 +131,11 @@ class MultiSelectFilterButton(QToolButton):
         self._update_select_all_state()
 
     def _update_select_all_state(self, *_args) -> None:
-        visible_states = [
-            self._list_widget.item(i).checkState()
-            for i in range(self._list_widget.count())
-            if not self._list_widget.item(i).isHidden()
-        ]
+        visible_states = [self._list_widget.item(i).checkState() for i in range(self._list_widget.count()) if not self._list_widget.item(i).isHidden()]
         self._select_all_checkbox.blockSignals(True)
         try:
             if not visible_states or all(s == Qt.Checked for s in visible_states):
-                self._select_all_checkbox.setCheckState(
-                    Qt.Checked if visible_states else Qt.Unchecked
-                )
+                self._select_all_checkbox.setCheckState(Qt.Checked if visible_states else Qt.Unchecked)
             elif all(s == Qt.Unchecked for s in visible_states):
                 self._select_all_checkbox.setCheckState(Qt.Unchecked)
             else:
@@ -175,11 +159,7 @@ class MultiSelectFilterButton(QToolButton):
         self._update_select_all_state()
 
     def _commit_and_close(self) -> None:
-        checked = {
-            self._list_widget.item(i).text()
-            for i in range(self._list_widget.count())
-            if self._list_widget.item(i).checkState() == Qt.Checked
-        }
+        checked = {self._list_widget.item(i).text() for i in range(self._list_widget.count()) if self._list_widget.item(i).checkState() == Qt.Checked}
         self._committed = self._normalize(checked)
         self._refresh_button_text()
         self._menu.close()

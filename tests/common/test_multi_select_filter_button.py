@@ -19,10 +19,7 @@ def test_set_values_sorts_and_defaults_to_all_checked(qapp):
 
     names = [button._list_widget.item(i).text() for i in range(button._list_widget.count())]
     assert names == ["A", "B", "C"]
-    assert all(
-        button._list_widget.item(i).checkState() == Qt.Checked
-        for i in range(button._list_widget.count())
-    )
+    assert all(button._list_widget.item(i).checkState() == Qt.Checked for i in range(button._list_widget.count()))
     assert button.committed_selection() == set()
     assert button.button_text() == "All"
 
@@ -34,18 +31,11 @@ def test_search_hides_rows_without_changing_checked_state(qapp):
 
     button._search_edit.setText("gra")
 
-    visible = {
-        button._list_widget.item(i).text()
-        for i in range(button._list_widget.count())
-        if not button._list_widget.item(i).isHidden()
-    }
+    visible = {button._list_widget.item(i).text() for i in range(button._list_widget.count()) if not button._list_widget.item(i).isHidden()}
     assert visible == {"Grammy Award", "Grand Prix"}
 
     # Checked state is untouched by the search.
-    states = {
-        button._list_widget.item(i).text(): button._list_widget.item(i).checkState()
-        for i in range(button._list_widget.count())
-    }
+    states = {button._list_widget.item(i).text(): button._list_widget.item(i).checkState() for i in range(button._list_widget.count())}
     assert states["Mercury Prize"] == Qt.Checked
     assert states["Grammy Award"] == Qt.Unchecked
     assert states["Grand Prix"] == Qt.Unchecked
@@ -92,10 +82,7 @@ def test_cancel_reverts_to_last_committed_state(qapp):
 
     # Reopening the popup (aboutToShow) restores the checkbox states too.
     button._sync_checkboxes_to_committed()
-    states = {
-        button._list_widget.item(i).text(): button._list_widget.item(i).checkState()
-        for i in range(button._list_widget.count())
-    }
+    states = {button._list_widget.item(i).text(): button._list_widget.item(i).checkState() for i in range(button._list_widget.count())}
     assert states == {"A": Qt.Checked, "B": Qt.Unchecked, "C": Qt.Unchecked}
 
 
@@ -107,10 +94,7 @@ def test_select_all_only_affects_visible_rows(qapp):
     button._search_edit.setText("gra")  # hides Mercury Prize
     button._on_select_all_clicked(True)
 
-    states = {
-        button._list_widget.item(i).text(): button._list_widget.item(i).checkState()
-        for i in range(button._list_widget.count())
-    }
+    states = {button._list_widget.item(i).text(): button._list_widget.item(i).checkState() for i in range(button._list_widget.count())}
     assert states["Grammy Award"] == Qt.Checked
     assert states["Grand Prix"] == Qt.Checked
     assert states["Mercury Prize"] == Qt.Unchecked  # hidden row untouched
@@ -141,10 +125,7 @@ def test_set_values_preserves_selection_for_surviving_names_and_drops_the_rest(q
 
     assert button.committed_selection() == {"A"}
     assert button.button_text() == "A"
-    states = {
-        button._list_widget.item(i).text(): button._list_widget.item(i).checkState()
-        for i in range(button._list_widget.count())
-    }
+    states = {button._list_widget.item(i).text(): button._list_widget.item(i).checkState() for i in range(button._list_widget.count())}
     assert states == {"A": Qt.Checked, "C": Qt.Unchecked, "D": Qt.Unchecked}
 
 
@@ -165,6 +146,19 @@ def test_unchecking_every_row_is_also_treated_as_all(qapp):
     _check(button)  # nothing checked
 
     button._commit_and_close()
+
+    assert button.committed_selection() == set()
+    assert button.button_text() == "All"
+
+
+def test_set_values_collapses_to_all_when_every_surviving_value_was_selected(qapp):
+    button = MultiSelectFilterButton()
+    button.set_values(["A", "B", "C"])
+    _check(button, "A", "B")
+    button._commit_and_close()
+
+    # "C" (the only unselected value) is gone, so {"A", "B"} is now everything.
+    button.set_values(["B", "A", "A"])
 
     assert button.committed_selection() == set()
     assert button.button_text() == "All"
