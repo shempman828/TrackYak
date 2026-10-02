@@ -15,51 +15,19 @@ from PySide6.QtWidgets import QLabel
 
 from src.album.musicbrainz.album_musicbrainz_review_dialog import AlbumMusicBrainzReviewDialog
 from src.album.musicbrainz.album_musicbrainz_review_import import _track_scalar_update
-from src.musicbrainz.musicbrainz_release import (
-    MBFounderRelation,
-    MBLabelInfo,
-    MBReleaseDetail,
-    MBReleaseTrack,
-    MBTrackCredit,
-)
+from src.musicbrainz.musicbrainz_release import MBFounderRelation, MBLabelInfo, MBReleaseDetail, MBReleaseTrack, MBTrackCredit
 
 
 def _local_track(track_id, track_number, title):
-    return SimpleNamespace(
-        track_id=track_id,
-        track_number=track_number,
-        track_name=title,
-        side=None,
-        disc=None,
-        track_barcode=None,
-        disc_id=1,
-        artist_roles=[],
-        places=[],
-    )
+    return SimpleNamespace(track_id=track_id, track_number=track_number, track_name=title, side=None, disc=None, track_barcode=None, disc_id=1, artist_roles=[], places=[])
 
 
 def _mb_track(position, title):
-    return MBReleaseTrack(
-        disc_number=1,
-        disc_title=None,
-        track_number=position,
-        side=None,
-        title=title,
-        recording_mbid=f"mbid-{position}",
-        absolute_position=position,
-    )
+    return MBReleaseTrack(disc_number=1, disc_title=None, track_number=position, side=None, title=title, recording_mbid=f"mbid-{position}", absolute_position=position)
 
 
 def _album(tracks, publishers=None):
-    return SimpleNamespace(
-        tracks=tracks,
-        discs=[],
-        album_id=1,
-        album_name="Test Album",
-        album_aliases=[],
-        album_roles=[],
-        publishers=publishers or [],
-    )
+    return SimpleNamespace(tracks=tracks, discs=[], album_id=1, album_name="Test Album", album_aliases=[], album_roles=[], publishers=publishers or [])
 
 
 def _detail(tracks):
@@ -67,14 +35,7 @@ def _detail(tracks):
 
 
 def _find_error_label(dialog):
-    return next(
-        (
-            w
-            for w in dialog.findChildren(QLabel)
-            if "ERROR" in w.text().upper() or "error" in w.text().lower()
-        ),
-        None,
-    )
+    return next((w for w in dialog.findChildren(QLabel) if "ERROR" in w.text().upper() or "error" in w.text().lower()), None)
 
 
 def test_extra_mb_track_flagged_as_error_when_all_local_tracks_match(qapp):
@@ -85,12 +46,7 @@ def test_extra_mb_track_flagged_as_error_when_all_local_tracks_match(qapp):
     mb_tracks = [_mb_track(i, f"Track {i}") for i in range(1, 9)]
     mb_tracks.append(_mb_track(9, "Track 9"))
 
-    dialog = AlbumMusicBrainzReviewDialog(
-        controller=SimpleNamespace(),
-        album=_album(local_tracks),
-        detail=_detail(mb_tracks),
-        aliases=[],
-    )
+    dialog = AlbumMusicBrainzReviewDialog(controller=SimpleNamespace(), album=_album(local_tracks), detail=_detail(mb_tracks), aliases=[])
 
     assert len(dialog._matched) == 8
     assert dialog._guaranteed_missing == 1
@@ -108,12 +64,7 @@ def test_no_error_flagged_when_track_counts_reconcile(qapp):
     local_tracks = [_local_track(i, i, f"Track {i}") for i in range(1, 9)]
     mb_tracks = [_mb_track(i, f"Track {i}") for i in range(1, 9)]
 
-    dialog = AlbumMusicBrainzReviewDialog(
-        controller=SimpleNamespace(),
-        album=_album(local_tracks),
-        detail=_detail(mb_tracks),
-        aliases=[],
-    )
+    dialog = AlbumMusicBrainzReviewDialog(controller=SimpleNamespace(), album=_album(local_tracks), detail=_detail(mb_tracks), aliases=[])
 
     assert dialog._guaranteed_missing == 0
     assert dialog._remaining_mb == []
@@ -134,22 +85,9 @@ def test_side_b_track_renumbers_flat_local_track_on_auto_match(qapp):
     local_track_6 = _local_track(6, 6, "Track 6")
     local_tracks.append(local_track_6)
 
-    mb_track_b1 = MBReleaseTrack(
-        disc_number=1,
-        disc_title=None,
-        track_number=1,
-        side="B",
-        title="Side B Track 1",
-        recording_mbid="mbid-b1",
-        absolute_position=6,
-    )
+    mb_track_b1 = MBReleaseTrack(disc_number=1, disc_title=None, track_number=1, side="B", title="Side B Track 1", recording_mbid="mbid-b1", absolute_position=6)
 
-    dialog = AlbumMusicBrainzReviewDialog(
-        controller=SimpleNamespace(),
-        album=_album(local_tracks),
-        detail=_detail([mb_track_b1]),
-        aliases=[],
-    )
+    dialog = AlbumMusicBrainzReviewDialog(controller=SimpleNamespace(), album=_album(local_tracks), detail=_detail([mb_track_b1]), aliases=[])
 
     assert dialog._matched.get(id(mb_track_b1)) is local_track_6
 
@@ -176,12 +114,7 @@ def test_title_beats_same_position_wrong_track(qapp):
     ]
     mb_track = _mb_track(5, "Blackbird")
 
-    dialog = AlbumMusicBrainzReviewDialog(
-        controller=SimpleNamespace(),
-        album=_album(local_tracks),
-        detail=_detail([mb_track]),
-        aliases=[],
-    )
+    dialog = AlbumMusicBrainzReviewDialog(controller=SimpleNamespace(), album=_album(local_tracks), detail=_detail([mb_track]), aliases=[])
 
     matched = dialog._matched.get(id(mb_track))
     assert matched is not None
@@ -196,12 +129,7 @@ def test_unmatched_table_marks_error_row_confidence_text(qapp):
     local_tracks = [_local_track(1, 1, "Track 1")]
     mb_tracks = [_mb_track(1, "Track 1"), _mb_track(2, "Track 2")]
 
-    dialog = AlbumMusicBrainzReviewDialog(
-        controller=SimpleNamespace(),
-        album=_album(local_tracks),
-        detail=_detail(mb_tracks),
-        aliases=[],
-    )
+    dialog = AlbumMusicBrainzReviewDialog(controller=SimpleNamespace(), album=_album(local_tracks), detail=_detail(mb_tracks), aliases=[])
 
     assert dialog._guaranteed_missing == 1
 
@@ -219,9 +147,7 @@ def test_publisher_section_shown_for_new_label(qapp):
     detail = _detail([_mb_track(1, "Track 1")])
     detail.labels = [_label()]
 
-    dialog = AlbumMusicBrainzReviewDialog(
-        controller=SimpleNamespace(), album=_album(local_tracks), detail=detail, aliases=[]
-    )
+    dialog = AlbumMusicBrainzReviewDialog(controller=SimpleNamespace(), album=_album(local_tracks), detail=detail, aliases=[])
 
     assert len(dialog._label_checks) == 1
     cb, label = dialog._label_checks[0]
@@ -234,9 +160,7 @@ def test_publisher_section_shows_founders(qapp):
     detail = _detail([_mb_track(1, "Track 1")])
     detail.labels = [_label(founders=[MBFounderRelation(mbid="a-1", name="Ahmet Ertegun")])]
 
-    dialog = AlbumMusicBrainzReviewDialog(
-        controller=SimpleNamespace(), album=_album(local_tracks), detail=detail, aliases=[]
-    )
+    dialog = AlbumMusicBrainzReviewDialog(controller=SimpleNamespace(), album=_album(local_tracks), detail=detail, aliases=[])
 
     cb, _label_obj = dialog._label_checks[0]
     assert "Ahmet Ertegun" in cb.text()
@@ -247,16 +171,9 @@ def test_publisher_already_linked_by_mbid_is_not_shown_again(qapp):
     detail = _detail([_mb_track(1, "Track 1")])
     label = _label(mbid="already-linked-mbid")
     detail.labels = [label]
-    existing_publisher = SimpleNamespace(
-        MBID="already-linked-mbid", publisher_name="Atlantic Records"
-    )
+    existing_publisher = SimpleNamespace(MBID="already-linked-mbid", publisher_name="Atlantic Records")
 
-    dialog = AlbumMusicBrainzReviewDialog(
-        controller=SimpleNamespace(),
-        album=_album(local_tracks, publishers=[existing_publisher]),
-        detail=detail,
-        aliases=[],
-    )
+    dialog = AlbumMusicBrainzReviewDialog(controller=SimpleNamespace(), album=_album(local_tracks, publishers=[existing_publisher]), detail=detail, aliases=[])
 
     assert dialog._label_checks == []
 
@@ -272,12 +189,7 @@ def test_publisher_matched_by_name_only_is_still_shown_for_backfill(qapp):
     detail.labels = [label]
     existing_publisher = SimpleNamespace(MBID=None, publisher_name="Atlantic Records")
 
-    dialog = AlbumMusicBrainzReviewDialog(
-        controller=SimpleNamespace(),
-        album=_album(local_tracks, publishers=[existing_publisher]),
-        detail=detail,
-        aliases=[],
-    )
+    dialog = AlbumMusicBrainzReviewDialog(controller=SimpleNamespace(), album=_album(local_tracks, publishers=[existing_publisher]), detail=detail, aliases=[])
 
     assert len(dialog._label_checks) == 1
     _cb, checked_label = dialog._label_checks[0]
@@ -290,13 +202,9 @@ def test_ampersand_in_credit_is_not_eaten_as_a_mnemonic(qapp):
     render intact rather than as "Simon  Garfunkel" / "RB"."""
     local_tracks = [_local_track(1, 1, "Track 1")]
     detail = _detail([_mb_track(1, "Track 1")])
-    detail.credits = [
-        MBTrackCredit(artist_mbid="a-1", artist_name="Simon & Garfunkel", role_name="R&B")
-    ]
+    detail.credits = [MBTrackCredit(artist_mbid="a-1", artist_name="Simon & Garfunkel", role_name="R&B")]
 
-    dialog = AlbumMusicBrainzReviewDialog(
-        controller=SimpleNamespace(), album=_album(local_tracks), detail=detail, aliases=[]
-    )
+    dialog = AlbumMusicBrainzReviewDialog(controller=SimpleNamespace(), album=_album(local_tracks), detail=detail, aliases=[])
 
     cb, _credit = dialog._album_credit_checks[0]
     assert cb.text() == "Simon && Garfunkel — R&&B"
@@ -308,9 +216,7 @@ def test_progress_with_zero_total_stays_indeterminate(qapp):
     local_tracks = [_local_track(1, 1, "Track 1")]
     detail = _detail([_mb_track(1, "Track 1")])
 
-    dialog = AlbumMusicBrainzReviewDialog(
-        controller=SimpleNamespace(), album=_album(local_tracks), detail=detail, aliases=[]
-    )
+    dialog = AlbumMusicBrainzReviewDialog(controller=SimpleNamespace(), album=_album(local_tracks), detail=detail, aliases=[])
     dialog._set_busy(True)
     assert dialog.progress_bar.maximum() == 0
 
@@ -318,3 +224,46 @@ def test_progress_with_zero_total_stays_indeterminate(qapp):
 
     assert dialog.progress_bar.maximum() == 0
     assert "(0 of 0)" not in dialog.progress_status_label.text()
+
+
+def _combo_options(combo):
+    return [combo.itemData(i) for i in range(1, combo.count())]  # skip "Skip"
+
+
+def _pick(dialog, combo, local):
+    combo.blockSignals(True)
+    combo.setCurrentIndex(combo.findData(local))
+    combo.blockSignals(False)
+    dialog._refresh_manual_combo_options(changed_combo=combo)
+
+
+def test_manual_combo_hides_track_claimed_by_another_row_by_identity(qapp):
+    """A local track picked in one manual-match row disappears from every
+    other row's options but stays in its own row; a different local track
+    with identical field values (== but not `is`) stays available."""
+    twin_a = _local_track(1, 1, "Twin")
+    twin_b = _local_track(1, 1, "Twin")
+    other = _local_track(3, 3, "Other")
+    mb_tracks = [_mb_track(i, f"Zzqxj Unrelated {i}") for i in range(7, 10)]
+
+    dialog = AlbumMusicBrainzReviewDialog(controller=SimpleNamespace(), album=_album([twin_a, twin_b, other]), detail=_detail(mb_tracks), aliases=[])
+    assert twin_a == twin_b and twin_a is not twin_b
+    combos = [combo for combo, _mbt in dialog._manual_combos]
+    assert len(combos) == 3
+    for combo in combos:
+        combo.blockSignals(True)
+        combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+    dialog._refresh_manual_combo_options()
+
+    _pick(dialog, combos[0], twin_a)
+    _pick(dialog, combos[1], other)
+
+    def ids(combo):
+        return [id(local) for local in _combo_options(combo)]
+
+    assert ids(combos[0]) == [id(twin_a), id(twin_b)]
+    assert ids(combos[1]) == [id(twin_b), id(other)]
+    assert ids(combos[2]) == [id(twin_b)]
+    assert combos[0].currentData() is twin_a
+    assert combos[1].currentData() is other

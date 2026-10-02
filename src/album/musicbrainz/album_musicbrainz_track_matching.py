@@ -97,10 +97,7 @@ class AlbumMusicBrainzTrackMatchingMixin:
             used_ids.add(local.track_id)
 
         remaining_mb = [mbt for mbt in self.detail.tracks if id(mbt) not in matched]
-        remaining_local = sorted(
-            (t for t in local_tracks if t.track_id not in used_ids),
-            key=lambda t: (t.track_number is None, t.track_number or 0, t.track_id),
-        )
+        remaining_local = sorted((t for t in local_tracks if t.track_id not in used_ids), key=lambda t: (t.track_number is None, t.track_number or 0, t.track_id))
 
         # Only safe to guess pairing automatically for a single medium -- a
         # multi-disc release with untagged local tracks has no reliable
@@ -116,14 +113,7 @@ class AlbumMusicBrainzTrackMatchingMixin:
             # tiebreaker, for when titles give no signal (e.g. blank
             # local track names).
             candidates = [
-                (
-                    self._title_similarity(mbt.title, local.track_name),
-                    abs(
-                        (mbt.absolute_position or mbt.track_number or 0) - (local.track_number or 0)
-                    ),
-                    mbt,
-                    local,
-                )
+                (self._title_similarity(mbt.title, local.track_name), abs((mbt.absolute_position or mbt.track_number or 0) - (local.track_number or 0)), mbt, local)
                 for mbt in remaining_mb
                 for local in remaining_local
             ]
@@ -177,25 +167,21 @@ class AlbumMusicBrainzTrackMatchingMixin:
                         combo.blockSignals(False)
 
         selections = [combo.currentData() for combo, _mbt in self._manual_combos]
+        # Identity set built once (O(R)) rather than a per-row "taken
+        # elsewhere" list scanned per local track (O(R^2*L)). id() is safe:
+        # `selections` keeps every claimed track alive for the whole loop.
+        # A claimed track that isn't this row's `current` must be held by
+        # another row, so membership alone means "taken elsewhere".
+        taken_ids = {id(data) for data in selections if data is not None}
         for row, (combo, _mbt) in enumerate(self._manual_combos):
             current = selections[row]
-            taken_elsewhere = [
-                data for i, data in enumerate(selections) if i != row and data is not None
-            ]
-            available = [
-                local
-                for local in self._remaining_local_options
-                if local is current or not any(local is t for t in taken_elsewhere)
-            ]
+            available = [local for local in self._remaining_local_options if local is current or id(local) not in taken_ids]
             combo.blockSignals(True)
             combo.clear()
             combo.addItem(_SKIP, None)
             for local in available:
                 local_side = f", side {local.side}" if local.side else ""
-                combo.addItem(
-                    f"{local.track_name} (currently track {local.track_number or '?'}{local_side})",
-                    local,
-                )
+                combo.addItem(f"{local.track_name} (currently track {local.track_number or '?'}{local_side})", local)
             idx = combo.findData(current) if current is not None else 0
             combo.setCurrentIndex(idx if idx >= 0 else 0)
             combo.blockSignals(False)
