@@ -1,6 +1,9 @@
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
+from src.common.widgets.hierarchy_tree_style import hierarchy_descendant_ids
+from src.db.db_tables import MoodTrackAssociation, Track
 from src.foundation.logger_config import logger
 from src.track.view.base_track_view import BaseTrackView
 
@@ -46,9 +49,7 @@ class MoodTracksWindow(QDialog):
         layout.addWidget(self.track_count_label)
 
         # Create BaseTrackView
-        self.base_track_view = BaseTrackView(
-            controller=self.controller, tracks=self.tracks, title=""
-        )
+        self.base_track_view = BaseTrackView(controller=self.controller, tracks=self.tracks, title="")
         layout.addWidget(self.base_track_view)
 
     def toggle_recursive(self):
@@ -63,23 +64,18 @@ class MoodTracksWindow(QDialog):
     def load_tracks(self):
         """Load and display tracks for the mood."""
         try:
+            mood_ids = {self.mood.mood_id}
+            mode_text = ""
             if self.show_recursive_tracks:
-                mood_ids = self._get_all_descendant_mood_ids(self.mood.mood_id)
+                # One Mood query + an in-memory BFS, not one query per child mood.
+                all_moods = self.controller.get.get_all_entities("Mood")
+                mood_ids |= hierarchy_descendant_ids(mood_ids, all_moods, id_attr="mood_id")
                 mode_text = " (including all sub-moods)"
-            else:
-                mood_ids = [self.mood.mood_id]
-                mode_text = ""
 
-            associations = self.controller.get.get_all_entities("MoodTrackAssociation")
-            matching_associations = [a for a in associations if a.mood_id in mood_ids]
-
-            track_ids = list({a.track_id for a in matching_associations})
-
-            tracks = []
-            for track_id in track_ids:
-                track = self.controller.get.get_entity_object("Track", track_id=track_id)
-                if track:
-                    tracks.append(track)
+            # Filter in SQL with a subquery: one Track query instead of loading
+            # every association plus one query per track, and no per-track
+            # bound parameters to hit SQLite's variable limit on huge moods.
+            tracks = self.controller.get.get_all_entities("Track", filter_expression=Track.track_id.in_(select(MoodTrackAssociation.track_id).where(MoodTrackAssociation.mood_id.in_(mood_ids))))
 
             self.tracks = tracks
             self.base_track_view.load_data(tracks)
@@ -90,16 +86,6 @@ class MoodTracksWindow(QDialog):
         except (SQLAlchemyError, RuntimeError) as e:
             logger.error(f"Error loading tracks for mood: {e!s}")
             self.track_count_label.setText("Error loading tracks")
-
-    def _get_all_descendant_mood_ids(self, mood_id):
-        """Helper method to get a mood ID plus all of its descendant mood IDs."""
-        mood_ids = [mood_id]
-
-        child_moods = self.controller.get.get_all_entities("Mood", parent_id=mood_id)
-        for child in child_moods:
-            mood_ids.extend(self._get_all_descendant_mood_ids(child.mood_id))
-
-        return mood_ids
 
     def closeEvent(self, event):
         """Handle window close event."""
