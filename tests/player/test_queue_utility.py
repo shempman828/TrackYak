@@ -1,7 +1,8 @@
 """Unit tests for QueueManager's upcoming-queue mutation methods.
 
 These cover the batch operations the queue dock delegates to
-(remove_upcoming / move_upcoming_to_next / jump_to_upcoming) — added when
+(insert_tracks_next / remove_upcoming / move_upcoming_to_next /
+jump_to_upcoming) — added when
 the dock's inline queue.pop/insert reimplementations were consolidated back
 onto the manager.
 """
@@ -35,6 +36,41 @@ def _count_signals(qm):
     hits = []
     qm.queue_changed.connect(lambda: hits.append(1))
     return hits
+
+
+# ── insert_tracks_next ───────────────────────────────────────────────────────
+
+
+def test_insert_tracks_next_places_tracks_after_current_in_order():
+    qm = _manager(3)
+    hits = _count_signals(qm)
+
+    qm.insert_tracks_next([_FakeTrack("a"), _FakeTrack("b")])
+
+    assert _names(qm) == ["t0", "a", "b", "t1", "t2"]
+    assert len(hits) == 1
+
+
+def test_insert_tracks_next_into_empty_queue_becomes_queue():
+    qm = _manager(0)
+
+    qm.insert_tracks_next([_FakeTrack("a"), _FakeTrack("b")])
+
+    assert _names(qm) == ["a", "b"]
+
+
+def test_mutations_keep_the_same_queue_list_object():
+    # Callers may hold a reference to qm.queue, so the batch mutations
+    # must change the list in place, not rebind it.
+    qm = _manager(6)
+    queue = qm.queue
+
+    qm.insert_tracks_next([_FakeTrack("a")])
+    qm.remove_upcoming([1])
+    qm.move_upcoming_to_next([2])
+
+    assert qm.queue is queue
+    assert _names(qm) == ["t0", "t3", "a", "t2", "t4", "t5"]
 
 
 # ── remove_upcoming ──────────────────────────────────────────────────────────

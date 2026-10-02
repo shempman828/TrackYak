@@ -197,8 +197,9 @@ class QueueManager(QObject):
         If the queue is empty the tracks become the queue.
         """
         insert_at = 1 if self.queue else 0
-        for i, track in enumerate(tracks):
-            self.queue.insert(insert_at + i, track)
+        # One slice assignment shifts the tail once (O(n + k)) instead of
+        # once per inserted track (O(k*n)).
+        self.queue[insert_at:insert_at] = tracks
         logger.debug(f"insert_tracks_next: {len(tracks)} track(s) at index {insert_at}")
         self.queue_changed.emit()
 
@@ -213,12 +214,14 @@ class QueueManager(QObject):
         anything was removed.
         """
         upcoming_len = len(self.queue) - 1
-        targets = sorted({r for r in rows if 0 <= r < upcoming_len}, reverse=True)
-        for row in targets:
-            self.queue.pop(row + 1)
-        if targets:
-            logger.debug(f"remove_upcoming: removed {len(targets)} track(s)")
-            self.queue_changed.emit()
+        targets = {r for r in rows if 0 <= r < upcoming_len}
+        if not targets:
+            return 0
+        # Rebuild the upcoming slice in one pass (O(n)) rather than pop()ing
+        # each row (O(k*n)); slice assignment keeps the same list object.
+        self.queue[1:] = [t for r, t in enumerate(self.queue[1:]) if r not in targets]
+        logger.debug(f"remove_upcoming: removed {len(targets)} track(s)")
+        self.queue_changed.emit()
         return len(targets)
 
     def move_upcoming_to_next(self, rows) -> int:
@@ -232,14 +235,14 @@ class QueueManager(QObject):
         anything moved.
         """
         upcoming_len = len(self.queue) - 1
-        ordered = sorted({r for r in rows if 0 <= r < upcoming_len})
-        if not ordered:
+        targets = {r for r in rows if 0 <= r < upcoming_len}
+        if not targets:
             return 0
-        moved = [self.queue[r + 1] for r in ordered]
-        for row in reversed(ordered):
-            self.queue.pop(row + 1)
-        for offset, track in enumerate(moved):
-            self.queue.insert(1 + offset, track)
+        # Rebuild the upcoming slice in one pass (O(n)) rather than pop() +
+        # insert() per row (O(k*n)); slice assignment keeps the same list.
+        upcoming = self.queue[1:]
+        moved = [upcoming[r] for r in sorted(targets)]
+        self.queue[1:] = moved + [t for r, t in enumerate(upcoming) if r not in targets]
         logger.debug(f"move_upcoming_to_next: moved {len(moved)} track(s)")
         self.queue_changed.emit()
         return len(moved)
